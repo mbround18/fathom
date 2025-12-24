@@ -1,0 +1,1 @@
+// Integrations section tree (stubs).
