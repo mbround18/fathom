@@ -4,7 +4,7 @@ impl FathomApp {
     pub(super) fn render_modal(&mut self, ctx: &egui::Context) {
         let mut next_modal: Option<ModalState> = None;
         let mut confirm_action: Option<ConfirmAction> = None;
-        let mut scale_apply: Option<(String, String, i32)> = None;
+        let mut scale_apply: Option<(WorkloadKind, String, String, i32)> = None;
 
         match self.modal.clone() {
             ModalState::None => {}
@@ -53,7 +53,8 @@ impl FathomApp {
                 }
             }
 
-            ModalState::ScaleDeployment {
+            ModalState::ScaleWorkload {
+                kind,
                 namespace,
                 name,
                 current,
@@ -62,7 +63,15 @@ impl FathomApp {
                 let mut cancel = false;
                 let mut apply = false;
 
-                egui::Window::new("Scale deployment")
+                let title = match kind {
+                    WorkloadKind::Deployment => "Scale deployment",
+                    WorkloadKind::DaemonSet => "Scale daemonset",
+                    WorkloadKind::StatefulSet => "Scale statefulset",
+                    WorkloadKind::ReplicaSet => "Scale replicaset",
+                    WorkloadKind::ReplicationController => "Scale replicationcontroller",
+                };
+
+                egui::Window::new(title)
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -95,9 +104,10 @@ impl FathomApp {
                     next_modal = Some(ModalState::None);
                 } else if apply {
                     next_modal = Some(ModalState::None);
-                    scale_apply = Some((namespace, name, desired));
+                    scale_apply = Some((kind, namespace, name, desired));
                 } else {
-                    next_modal = Some(ModalState::ScaleDeployment {
+                    next_modal = Some(ModalState::ScaleWorkload {
+                        kind,
                         namespace,
                         name,
                         current,
@@ -117,12 +127,34 @@ impl FathomApp {
             self.apply_confirm_action(action);
         }
 
-        if let Some((namespace, name, replicas)) = scale_apply {
-            self.send(BackendCmd::ScaleDeployment {
-                namespace,
-                name,
-                replicas,
-            });
+        if let Some((kind, namespace, name, replicas)) = scale_apply {
+            match kind {
+                WorkloadKind::Deployment => self.send(BackendCmd::ScaleDeployment {
+                    namespace,
+                    name,
+                    replicas,
+                }),
+                WorkloadKind::StatefulSet => self.send(BackendCmd::ScaleStatefulSet {
+                    namespace,
+                    name,
+                    replicas,
+                }),
+                WorkloadKind::ReplicaSet => self.send(BackendCmd::ScaleReplicaSet {
+                    namespace,
+                    name,
+                    replicas,
+                }),
+                WorkloadKind::ReplicationController => {
+                    self.send(BackendCmd::ScaleReplicationController {
+                        namespace,
+                        name,
+                        replicas,
+                    })
+                }
+                WorkloadKind::DaemonSet => {
+                    // DaemonSets don't scale by replicas.
+                }
+            }
         }
     }
 
@@ -139,13 +171,49 @@ impl FathomApp {
                 self.send(BackendCmd::DeletePod { namespace, name });
             }
 
-            ConfirmAction::DeleteDeployment { namespace, name } => {
-                self.send(BackendCmd::DeleteDeployment { namespace, name });
-            }
+            ConfirmAction::DeleteWorkload {
+                kind,
+                namespace,
+                name,
+            } => match kind {
+                WorkloadKind::Deployment => {
+                    self.send(BackendCmd::DeleteDeployment { namespace, name })
+                }
+                WorkloadKind::DaemonSet => {
+                    self.send(BackendCmd::DeleteDaemonSet { namespace, name })
+                }
+                WorkloadKind::StatefulSet => {
+                    self.send(BackendCmd::DeleteStatefulSet { namespace, name })
+                }
+                WorkloadKind::ReplicaSet => {
+                    self.send(BackendCmd::DeleteReplicaSet { namespace, name })
+                }
+                WorkloadKind::ReplicationController => {
+                    self.send(BackendCmd::DeleteReplicationController { namespace, name })
+                }
+            },
 
-            ConfirmAction::RestartDeployment { namespace, name } => {
-                self.send(BackendCmd::RestartDeployment { namespace, name });
-            }
+            ConfirmAction::RestartWorkload {
+                kind,
+                namespace,
+                name,
+            } => match kind {
+                WorkloadKind::Deployment => {
+                    self.send(BackendCmd::RestartDeployment { namespace, name })
+                }
+                WorkloadKind::DaemonSet => {
+                    self.send(BackendCmd::RestartDaemonSet { namespace, name })
+                }
+                WorkloadKind::StatefulSet => {
+                    self.send(BackendCmd::RestartStatefulSet { namespace, name })
+                }
+                WorkloadKind::ReplicaSet => {
+                    self.send(BackendCmd::RestartReplicaSet { namespace, name })
+                }
+                WorkloadKind::ReplicationController => {
+                    self.send(BackendCmd::RestartReplicationController { namespace, name })
+                }
+            },
         }
     }
 }

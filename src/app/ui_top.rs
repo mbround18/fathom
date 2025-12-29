@@ -59,16 +59,20 @@ impl FathomApp {
                             self.select_all_namespaces = all;
                             if all {
                                 self.selected_namespaces.clear();
+                                // Apply immediately: empty filter means "all namespaces" in backend.
+                                self.send(BackendCmd::SetNamespaceFilter {
+                                    namespaces: self.effective_namespace_filter(),
+                                });
                             }
-                            // Wire-up: immediately apply the filter to backend requests.
-                            self.send(BackendCmd::SetNamespaceFilter {
-                                namespaces: self.effective_namespace_filter(),
-                            });
+                            // If "All" was turned off, wait to apply until the user picks
+                            // one or more namespaces.
                         }
 
                         ui.separator();
 
-                        let enabled = enabled_for_section && !self.select_all_namespaces;
+                        // Allow selecting namespaces even when "All" is currently enabled.
+                        // Clicking a namespace will automatically turn off "All" and scope.
+                        let enabled = enabled_for_section;
                         let namespaces = self.namespaces.clone();
                         let mut changed = false;
 
@@ -78,7 +82,13 @@ impl FathomApp {
                                 ui.add_enabled(enabled, egui::Checkbox::new(&mut selected, &ns));
                             if enabled && response.changed() {
                                 changed = true;
-                                if selected {
+
+                                if self.select_all_namespaces && selected {
+                                    // First explicit pick: disable "All" and start a scoped set.
+                                    self.select_all_namespaces = false;
+                                    self.selected_namespaces.clear();
+                                    self.selected_namespaces.insert(ns);
+                                } else if selected {
                                     self.selected_namespaces.insert(ns);
                                 } else {
                                     self.selected_namespaces.remove(&ns);

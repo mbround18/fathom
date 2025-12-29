@@ -5,13 +5,18 @@ use crossbeam_channel::{Receiver, Sender};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
+mod daemonsets;
 mod deployments;
 mod events;
 mod kube;
 mod metrics;
 mod pods;
+mod replicasets;
+mod replicationcontrollers;
 mod state;
+mod statefulsets;
 mod sync;
+mod workload_common;
 
 use state::BackendState;
 
@@ -92,6 +97,10 @@ async fn handle_cmd(
             sync::refresh_namespaces(state, sender).await?;
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
+            daemonsets::refresh_daemonsets(state, sender).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
 
             sync::ensure_background_sync(state, sender).await?;
         }
@@ -158,6 +167,10 @@ async fn handle_cmd(
             sync::refresh_namespaces(state, sender).await?;
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
+            daemonsets::refresh_daemonsets(state, sender).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
             sync::ensure_background_sync(state, sender).await?;
 
             events::notify_info(state.seq.as_ref(), sender, "Context switched.".to_owned());
@@ -184,6 +197,10 @@ async fn handle_cmd(
             );
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
+            daemonsets::refresh_daemonsets(state, sender).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
         }
 
         BackendCmd::RefreshPods => {
@@ -242,6 +259,113 @@ async fn handle_cmd(
             deployments::refresh_deployments(state, sender).await?;
         }
 
+        BackendCmd::RefreshDaemonSets => {
+            daemonsets::refresh_daemonsets(state, sender).await?;
+        }
+
+        BackendCmd::SelectDaemonSet { namespace, name } => {
+            daemonsets::fetch_daemonset_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::RestartDaemonSet { namespace, name } => {
+            daemonsets::restart_daemonset(state, sender, &namespace, &name).await?;
+            daemonsets::refresh_daemonsets(state, sender).await?;
+        }
+
+        BackendCmd::DeleteDaemonSet { namespace, name } => {
+            daemonsets::delete_daemonset(state, sender, &namespace, &name).await?;
+            daemonsets::refresh_daemonsets(state, sender).await?;
+        }
+
+        BackendCmd::RefreshStatefulSets => {
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        BackendCmd::SelectStatefulSet { namespace, name } => {
+            statefulsets::fetch_statefulset_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::ScaleStatefulSet {
+            namespace,
+            name,
+            replicas,
+        } => {
+            statefulsets::scale_statefulset(state, sender, &namespace, &name, replicas).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        BackendCmd::RestartStatefulSet { namespace, name } => {
+            statefulsets::restart_statefulset(state, sender, &namespace, &name).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        BackendCmd::DeleteStatefulSet { namespace, name } => {
+            statefulsets::delete_statefulset(state, sender, &namespace, &name).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        BackendCmd::RefreshReplicaSets => {
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        BackendCmd::SelectReplicaSet { namespace, name } => {
+            replicasets::fetch_replicaset_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::ScaleReplicaSet {
+            namespace,
+            name,
+            replicas,
+        } => {
+            replicasets::scale_replicaset(state, sender, &namespace, &name, replicas).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        BackendCmd::RestartReplicaSet { namespace, name } => {
+            replicasets::restart_replicaset(state, sender, &namespace, &name).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        BackendCmd::DeleteReplicaSet { namespace, name } => {
+            replicasets::delete_replicaset(state, sender, &namespace, &name).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        BackendCmd::RefreshReplicationControllers => {
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
+        BackendCmd::SelectReplicationController { namespace, name } => {
+            replicationcontrollers::fetch_replicationcontroller_details(
+                state, sender, &namespace, &name,
+            )
+            .await?;
+        }
+
+        BackendCmd::ScaleReplicationController {
+            namespace,
+            name,
+            replicas,
+        } => {
+            replicationcontrollers::scale_replicationcontroller(
+                state, sender, &namespace, &name, replicas,
+            )
+            .await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
+        BackendCmd::RestartReplicationController { namespace, name } => {
+            replicationcontrollers::restart_replicationcontroller(state, sender, &namespace, &name)
+                .await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
+        BackendCmd::DeleteReplicationController { namespace, name } => {
+            replicationcontrollers::delete_replicationcontroller(state, sender, &namespace, &name)
+                .await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
         BackendCmd::SimulateSlowCall => {
             events::notify_info(state.seq.as_ref(), sender, "Simulating slow call...".into());
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -254,6 +378,14 @@ async fn handle_cmd(
                 pods::refresh_pods(state, sender).await?;
             } else if section == section_keys::workloads_deployments() {
                 deployments::refresh_deployments(state, sender).await?;
+            } else if section == section_keys::workloads_daemonsets() {
+                daemonsets::refresh_daemonsets(state, sender).await?;
+            } else if section == section_keys::workloads_statefulsets() {
+                statefulsets::refresh_statefulsets(state, sender).await?;
+            } else if section == section_keys::workloads_replicasets() {
+                replicasets::refresh_replicasets(state, sender).await?;
+            } else if section == section_keys::workloads_replicationcontrollers() {
+                replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
             }
         }
     }

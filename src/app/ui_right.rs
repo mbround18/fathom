@@ -14,7 +14,39 @@ impl FathomApp {
             if self.selected_deployment.is_none() {
                 return;
             }
-            self.render_deployment_right_panel(ctx);
+            self.render_workload_right_panel(ctx, WorkloadKind::Deployment);
+            return;
+        }
+
+        if self.active_section == section_keys::workloads_daemonsets() {
+            if self.selected_daemonset.is_none() {
+                return;
+            }
+            self.render_workload_right_panel(ctx, WorkloadKind::DaemonSet);
+            return;
+        }
+
+        if self.active_section == section_keys::workloads_statefulsets() {
+            if self.selected_statefulset.is_none() {
+                return;
+            }
+            self.render_workload_right_panel(ctx, WorkloadKind::StatefulSet);
+            return;
+        }
+
+        if self.active_section == section_keys::workloads_replicasets() {
+            if self.selected_replicaset.is_none() {
+                return;
+            }
+            self.render_workload_right_panel(ctx, WorkloadKind::ReplicaSet);
+            return;
+        }
+
+        if self.active_section == section_keys::workloads_replicationcontrollers() {
+            if self.selected_replicationcontroller.is_none() {
+                return;
+            }
+            self.render_workload_right_panel(ctx, WorkloadKind::ReplicationController);
             return;
         }
     }
@@ -46,6 +78,7 @@ impl FathomApp {
                             self.selected_pod = None;
                             self.pod_details = None;
                             self.pod_metrics = None;
+                            self.pod_metrics_pending = false;
                             self.pod_logs.clear();
                             self.send(BackendCmd::StopPodLogs);
                         }
@@ -74,14 +107,82 @@ impl FathomApp {
             });
     }
 
-    fn render_deployment_right_panel(&mut self, ctx: &egui::Context) {
-        let Some((ns, name)) = self.selected_deployment.clone() else {
+    fn workload_title(kind: WorkloadKind) -> &'static str {
+        match kind {
+            WorkloadKind::Deployment => "Deployment",
+            WorkloadKind::DaemonSet => "DaemonSet",
+            WorkloadKind::StatefulSet => "StatefulSet",
+            WorkloadKind::ReplicaSet => "ReplicaSet",
+            WorkloadKind::ReplicationController => "ReplicationController",
+        }
+    }
+
+    fn workload_scale_supported(kind: WorkloadKind) -> bool {
+        match kind {
+            WorkloadKind::DaemonSet => false,
+            WorkloadKind::Deployment
+            | WorkloadKind::StatefulSet
+            | WorkloadKind::ReplicaSet
+            | WorkloadKind::ReplicationController => true,
+        }
+    }
+
+    fn selected_workload(&self, kind: WorkloadKind) -> Option<(String, String)> {
+        match kind {
+            WorkloadKind::Deployment => self.selected_deployment.clone(),
+            WorkloadKind::DaemonSet => self.selected_daemonset.clone(),
+            WorkloadKind::StatefulSet => self.selected_statefulset.clone(),
+            WorkloadKind::ReplicaSet => self.selected_replicaset.clone(),
+            WorkloadKind::ReplicationController => self.selected_replicationcontroller.clone(),
+        }
+    }
+
+    fn clear_selected_workload(&mut self, kind: WorkloadKind) {
+        match kind {
+            WorkloadKind::Deployment => {
+                self.selected_deployment = None;
+                self.deployment_details = None;
+            }
+            WorkloadKind::DaemonSet => {
+                self.selected_daemonset = None;
+                self.daemonset_details = None;
+            }
+            WorkloadKind::StatefulSet => {
+                self.selected_statefulset = None;
+                self.statefulset_details = None;
+            }
+            WorkloadKind::ReplicaSet => {
+                self.selected_replicaset = None;
+                self.replicaset_details = None;
+            }
+            WorkloadKind::ReplicationController => {
+                self.selected_replicationcontroller = None;
+                self.replicationcontroller_details = None;
+            }
+        }
+    }
+
+    fn workload_summaries(&self, kind: WorkloadKind) -> &Vec<DeploymentSummary> {
+        match kind {
+            WorkloadKind::Deployment => &self.deployments,
+            WorkloadKind::DaemonSet => &self.daemonsets,
+            WorkloadKind::StatefulSet => &self.statefulsets,
+            WorkloadKind::ReplicaSet => &self.replicasets,
+            WorkloadKind::ReplicationController => &self.replicationcontrollers,
+        }
+    }
+
+    fn render_workload_right_panel(&mut self, ctx: &egui::Context, kind: WorkloadKind) {
+        let Some((ns, name)) = self.selected_workload(kind) else {
             return;
         };
 
+        let title = Self::workload_title(kind);
+        let scale_supported = Self::workload_scale_supported(kind);
+
         // Best-effort: find the current summary for scale defaults.
         let summary = self
-            .deployments
+            .workload_summaries(kind)
             .iter()
             .find(|d| d.namespace == ns && d.name == name)
             .cloned();
@@ -91,14 +192,15 @@ impl FathomApp {
             .default_width(420.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.heading("Deployment");
+                    ui.heading(title);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Delete").clicked() {
                             self.open_confirm(
-                                "Delete deployment?",
+                                format!("Delete {}?", title.to_lowercase()),
                                 format!("Delete {}/{}?", ns, name),
                                 "Delete",
-                                ConfirmAction::DeleteDeployment {
+                                ConfirmAction::DeleteWorkload {
+                                    kind,
                                     namespace: ns.clone(),
                                     name: name.clone(),
                                 },
@@ -107,44 +209,84 @@ impl FathomApp {
 
                         if ui.button("Restart").clicked() {
                             self.open_confirm(
-                                "Restart deployment?",
-                                format!("This will trigger a rollout for {}/{}.", ns, name),
+                                format!("Restart {}?", title.to_lowercase()),
+                                format!("This will trigger a restart attempt for {}/{}.", ns, name),
                                 "Restart",
-                                ConfirmAction::RestartDeployment {
+                                ConfirmAction::RestartWorkload {
+                                    kind,
                                     namespace: ns.clone(),
                                     name: name.clone(),
                                 },
                             );
                         }
 
-                        if ui.button("Scale").clicked() {
-                            let (current_ready, desired) = summary
-                                .as_ref()
-                                .map(|d| (d.ready, d.desired))
-                                .unwrap_or((0, 1));
-                            self.open_scale_deployment(
-                                ns.clone(),
-                                name.clone(),
-                                current_ready,
-                                desired,
-                            );
+                        if scale_supported {
+                            if ui.button("Scale").clicked() {
+                                let (current_ready, desired) = summary
+                                    .as_ref()
+                                    .map(|d| (d.ready, d.desired))
+                                    .unwrap_or((0, 1));
+                                self.open_scale_workload(
+                                    kind,
+                                    ns.clone(),
+                                    name.clone(),
+                                    current_ready,
+                                    desired,
+                                );
+                            }
+                        } else {
+                            ui.add_enabled(false, egui::Button::new("Scale"));
                         }
 
                         if ui.button("Close").clicked() {
-                            self.selected_deployment = None;
-                            self.deployment_details = None;
+                            self.clear_selected_workload(kind);
                         }
                     });
                 });
 
                 ui.label(format!("{}/{}", ns, name));
                 ui.separator();
-                self.render_deployment_details(ui);
+                self.render_workload_details(ui, kind);
             });
     }
 
-    fn render_deployment_details(&mut self, ui: &mut egui::Ui) {
-        let details = self.deployment_details.clone();
+    fn workload_details(&self, kind: WorkloadKind) -> Option<DeploymentDetails> {
+        match kind {
+            WorkloadKind::Deployment => self.deployment_details.clone(),
+            WorkloadKind::DaemonSet => self.daemonset_details.clone(),
+            WorkloadKind::StatefulSet => self.statefulset_details.clone(),
+            WorkloadKind::ReplicaSet => self.replicaset_details.clone(),
+            WorkloadKind::ReplicationController => self.replicationcontroller_details.clone(),
+        }
+    }
+
+    fn clear_workload_details(&mut self, kind: WorkloadKind) {
+        match kind {
+            WorkloadKind::Deployment => self.deployment_details = None,
+            WorkloadKind::DaemonSet => self.daemonset_details = None,
+            WorkloadKind::StatefulSet => self.statefulset_details = None,
+            WorkloadKind::ReplicaSet => self.replicaset_details = None,
+            WorkloadKind::ReplicationController => self.replicationcontroller_details = None,
+        }
+    }
+
+    fn send_select_workload(&mut self, kind: WorkloadKind, namespace: String, name: String) {
+        match kind {
+            WorkloadKind::Deployment => self.send(BackendCmd::SelectDeployment { namespace, name }),
+            WorkloadKind::DaemonSet => self.send(BackendCmd::SelectDaemonSet { namespace, name }),
+            WorkloadKind::StatefulSet => {
+                self.send(BackendCmd::SelectStatefulSet { namespace, name })
+            }
+            WorkloadKind::ReplicaSet => self.send(BackendCmd::SelectReplicaSet { namespace, name }),
+            WorkloadKind::ReplicationController => {
+                self.send(BackendCmd::SelectReplicationController { namespace, name })
+            }
+        }
+    }
+
+    fn render_workload_details(&mut self, ui: &mut egui::Ui, kind: WorkloadKind) {
+        let details = self.workload_details(kind);
+        let title = Self::workload_title(kind);
 
         match details {
             Some(details) => {
@@ -216,11 +358,12 @@ impl FathomApp {
                 });
 
                 if refresh_clicked {
-                    self.deployment_details = None;
-                    self.send(BackendCmd::SelectDeployment {
-                        namespace: details.namespace.clone(),
-                        name: details.name.clone(),
-                    });
+                    self.clear_workload_details(kind);
+                    self.send_select_workload(
+                        kind,
+                        details.namespace.clone(),
+                        details.name.clone(),
+                    );
                 }
 
                 if let Some((ns, name)) = delete_pod {
@@ -262,7 +405,10 @@ impl FathomApp {
                 });
             }
             None => {
-                ui.label("Select a deployment to view details.");
+                ui.label(format!(
+                    "Select a {} to view details.",
+                    title.to_lowercase()
+                ));
             }
         }
     }
@@ -343,6 +489,25 @@ impl FathomApp {
     }
 
     fn render_pod_metrics(&mut self, ui: &mut egui::Ui) {
+        // Auto-fetch once per selection when opening the Metrics tab.
+        if !self.pod_metrics_pending {
+            if let Some((ns, name)) = &self.selected_pod {
+                // If we have no metrics yet (or they are for a different pod), request them.
+                let needs_fetch = self
+                    .pod_metrics
+                    .as_ref()
+                    .is_none_or(|m| m.namespace != *ns || m.name != *name);
+                if needs_fetch {
+                    self.pod_metrics = None;
+                    self.pod_metrics_pending = true;
+                    self.send(BackendCmd::FetchPodMetrics {
+                        namespace: ns.clone(),
+                        name: name.clone(),
+                    });
+                }
+            }
+        }
+
         ui.horizontal(|ui| {
             let enabled = self.selected_pod.is_some();
             if ui
@@ -351,6 +516,7 @@ impl FathomApp {
             {
                 if let Some((ns, name)) = &self.selected_pod {
                     self.pod_metrics = None;
+                    self.pod_metrics_pending = true;
                     self.send(BackendCmd::FetchPodMetrics {
                         namespace: ns.clone(),
                         name: name.clone(),
@@ -363,6 +529,7 @@ impl FathomApp {
 
         match &self.pod_metrics {
             Some(metrics) => {
+                self.pod_metrics_pending = false;
                 if metrics.containers.is_empty() {
                     ui.label(
                         "No metrics returned (metrics-server may be missing or RBAC denies access).",
@@ -375,7 +542,15 @@ impl FathomApp {
                 }
             }
             None => {
-                ui.label("Select a pod, then click Refresh Metrics.");
+                if self.selected_pod.is_some() {
+                    if self.pod_metrics_pending {
+                        ui.label("Fetching metrics...");
+                    } else {
+                        ui.label("Click Refresh Metrics to retry.");
+                    }
+                } else {
+                    ui.label("Select a pod to view metrics.");
+                }
             }
         }
     }

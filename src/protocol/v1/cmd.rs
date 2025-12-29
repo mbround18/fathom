@@ -54,6 +54,81 @@ pub enum BackendCmdV1 {
         name: String,
     },
 
+    // Workloads / DaemonSets section
+    RefreshDaemonSets,
+    SelectDaemonSet {
+        namespace: String,
+        name: String,
+    },
+    RestartDaemonSet {
+        namespace: String,
+        name: String,
+    },
+    DeleteDaemonSet {
+        namespace: String,
+        name: String,
+    },
+
+    // Workloads / StatefulSets section
+    RefreshStatefulSets,
+    SelectStatefulSet {
+        namespace: String,
+        name: String,
+    },
+    ScaleStatefulSet {
+        namespace: String,
+        name: String,
+        replicas: i32,
+    },
+    RestartStatefulSet {
+        namespace: String,
+        name: String,
+    },
+    DeleteStatefulSet {
+        namespace: String,
+        name: String,
+    },
+
+    // Workloads / ReplicaSets section
+    RefreshReplicaSets,
+    SelectReplicaSet {
+        namespace: String,
+        name: String,
+    },
+    ScaleReplicaSet {
+        namespace: String,
+        name: String,
+        replicas: i32,
+    },
+    RestartReplicaSet {
+        namespace: String,
+        name: String,
+    },
+    DeleteReplicaSet {
+        namespace: String,
+        name: String,
+    },
+
+    // Workloads / ReplicationControllers section
+    RefreshReplicationControllers,
+    SelectReplicationController {
+        namespace: String,
+        name: String,
+    },
+    ScaleReplicationController {
+        namespace: String,
+        name: String,
+        replicas: i32,
+    },
+    RestartReplicationController {
+        namespace: String,
+        name: String,
+    },
+    DeleteReplicationController {
+        namespace: String,
+        name: String,
+    },
+
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
 

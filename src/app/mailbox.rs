@@ -24,10 +24,23 @@ impl FathomApp {
                         self.selected_pod = None;
                         self.pod_details = None;
                         self.pod_metrics = None;
+                        self.pod_metrics_pending = false;
                         self.pod_logs.clear();
 
                         self.selected_deployment = None;
                         self.deployment_details = None;
+
+                        self.selected_daemonset = None;
+                        self.daemonset_details = None;
+
+                        self.selected_statefulset = None;
+                        self.statefulset_details = None;
+
+                        self.selected_replicaset = None;
+                        self.replicaset_details = None;
+
+                        self.selected_replicationcontroller = None;
+                        self.replicationcontroller_details = None;
 
                         // Backend resets namespace filter to "all" on context switch.
                         self.select_all_namespaces = true;
@@ -50,12 +63,25 @@ impl FathomApp {
                         if self.select_all_namespaces {
                             self.selected_namespaces.clear();
                         }
+                        self.pod_metrics_pending = false;
                     }
                     ResourceListEvent::PodsUpdated(pods) => {
                         self.pods = pods;
                     }
                     ResourceListEvent::DeploymentsUpdated(deployments) => {
                         self.deployments = deployments;
+                    }
+                    ResourceListEvent::DaemonSetsUpdated(daemonsets) => {
+                        self.daemonsets = daemonsets;
+                    }
+                    ResourceListEvent::StatefulSetsUpdated(statefulsets) => {
+                        self.statefulsets = statefulsets;
+                    }
+                    ResourceListEvent::ReplicaSetsUpdated(replicasets) => {
+                        self.replicasets = replicasets;
+                    }
+                    ResourceListEvent::ReplicationControllersUpdated(replicationcontrollers) => {
+                        self.replicationcontrollers = replicationcontrollers;
                     }
                 },
 
@@ -65,9 +91,22 @@ impl FathomApp {
                     }
                     ResourceReadEvent::PodMetricsUpdated(metrics) => {
                         self.pod_metrics = Some(metrics);
+                        self.pod_metrics_pending = false;
                     }
                     ResourceReadEvent::DeploymentDetailsUpdated(details) => {
                         self.deployment_details = Some(details);
+                    }
+                    ResourceReadEvent::DaemonSetDetailsUpdated(details) => {
+                        self.daemonset_details = Some(details);
+                    }
+                    ResourceReadEvent::StatefulSetDetailsUpdated(details) => {
+                        self.statefulset_details = Some(details);
+                    }
+                    ResourceReadEvent::ReplicaSetDetailsUpdated(details) => {
+                        self.replicaset_details = Some(details);
+                    }
+                    ResourceReadEvent::ReplicationControllerDetailsUpdated(details) => {
+                        self.replicationcontroller_details = Some(details);
                     }
                 },
 

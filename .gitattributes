@@ -1,0 +1,13 @@
+# Enforce LF for all text files
+* text=auto eol=lf
+
+# Avoid normalizing common binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.exe binary

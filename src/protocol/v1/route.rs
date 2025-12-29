@@ -106,6 +106,14 @@ pub mod section_keys {
         SectionKey::new("workloads/cronjobs")
     }
 
+    pub fn workloads_replicasets() -> SectionKey {
+        SectionKey::new("workloads/replicasets")
+    }
+
+    pub fn workloads_replicationcontrollers() -> SectionKey {
+        SectionKey::new("workloads/replicationcontrollers")
+    }
+
     pub fn config_configmaps() -> SectionKey {
         SectionKey::new("config/configmaps")
     }

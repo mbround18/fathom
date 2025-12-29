@@ -23,6 +23,55 @@ impl FathomApp {
         }
     }
 
+    fn render_workload_grid(
+        ui: &mut egui::Ui,
+        title: &str,
+        grid_id: &str,
+        workloads: &[DeploymentSummary],
+        selected: &Option<(String, String)>,
+    ) -> Option<(String, String)> {
+        ui.heading(title);
+        ui.separator();
+
+        let mut newly_selected: Option<(String, String)> = None;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new(grid_id)
+                .striped(true)
+                .min_col_width(120.0)
+                .show(ui, |ui| {
+                    ui.label("Namespace");
+                    ui.label("Name");
+                    ui.label("Ready");
+                    ui.label("Updated");
+                    ui.label("Available");
+                    ui.label("Desired");
+                    ui.end_row();
+
+                    for w in workloads {
+                        let is_selected = selected
+                            .as_ref()
+                            .is_some_and(|(ns, name)| ns == &w.namespace && name == &w.name);
+
+                        let ns_clicked = ui.selectable_label(is_selected, &w.namespace).clicked();
+                        let name_clicked = ui.selectable_label(is_selected, &w.name).clicked();
+                        let row_clicked = ns_clicked || name_clicked;
+
+                        ui.label(w.ready.to_string());
+                        ui.label(w.updated.to_string());
+                        ui.label(w.available.to_string());
+                        ui.label(w.desired.to_string());
+                        ui.end_row();
+
+                        if row_clicked {
+                            newly_selected = Some((w.namespace.clone(), w.name.clone()));
+                        }
+                    }
+                });
+        });
+
+        newly_selected
+    }
+
     pub(super) fn render_center(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.active_section == section_keys::workloads_pods() {
@@ -32,6 +81,26 @@ impl FathomApp {
 
             if self.active_section == section_keys::workloads_deployments() {
                 self.render_deployments_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::workloads_daemonsets() {
+                self.render_daemonsets_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::workloads_statefulsets() {
+                self.render_statefulsets_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::workloads_replicasets() {
+                self.render_replicasets_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::workloads_replicationcontrollers() {
+                self.render_replicationcontrollers_center(ui);
                 return;
             }
 
@@ -203,6 +272,7 @@ impl FathomApp {
                         self.selected_pod = Some((ns.clone(), name.clone()));
                         self.pod_details = None;
                         self.pod_metrics = None;
+                        self.pod_metrics_pending = false;
                         self.pod_logs.clear();
 
                         self.send(BackendCmd::SelectPod {
@@ -215,55 +285,103 @@ impl FathomApp {
     }
 
     fn render_deployments_center(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Deployments");
-        ui.separator();
-
         let deployments = self.deployments.clone();
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("deployments_grid")
-                .striped(true)
-                .min_col_width(120.0)
-                .show(ui, |ui| {
-                    ui.label("Namespace");
-                    ui.label("Name");
-                    ui.label("Ready");
-                    ui.label("Updated");
-                    ui.label("Available");
-                    ui.label("Desired");
-                    ui.end_row();
+        let newly_selected = Self::render_workload_grid(
+            ui,
+            "Deployments",
+            "deployments_grid",
+            &deployments,
+            &self.selected_deployment,
+        );
 
-                    let mut newly_selected: Option<(String, String)> = None;
-                    for d in &deployments {
-                        let is_selected = self
-                            .selected_deployment
-                            .as_ref()
-                            .is_some_and(|(ns, name)| ns == &d.namespace && name == &d.name);
+        if let Some((ns, name)) = newly_selected {
+            self.selected_deployment = Some((ns.clone(), name.clone()));
+            self.deployment_details = None;
+            self.send(BackendCmd::SelectDeployment {
+                namespace: ns,
+                name,
+            });
+        }
+    }
 
-                        let ns_clicked = ui.selectable_label(is_selected, &d.namespace).clicked();
-                        let name_clicked = ui.selectable_label(is_selected, &d.name).clicked();
-                        let row_clicked = ns_clicked || name_clicked;
+    fn render_daemonsets_center(&mut self, ui: &mut egui::Ui) {
+        let daemonsets = self.daemonsets.clone();
+        let newly_selected = Self::render_workload_grid(
+            ui,
+            "DaemonSets",
+            "daemonsets_grid",
+            &daemonsets,
+            &self.selected_daemonset,
+        );
 
-                        ui.label(d.ready.to_string());
-                        ui.label(d.updated.to_string());
-                        ui.label(d.available.to_string());
-                        ui.label(d.desired.to_string());
-                        ui.end_row();
+        if let Some((ns, name)) = newly_selected {
+            self.selected_daemonset = Some((ns.clone(), name.clone()));
+            self.daemonset_details = None;
+            self.send(BackendCmd::SelectDaemonSet {
+                namespace: ns,
+                name,
+            });
+        }
+    }
 
-                        if row_clicked {
-                            newly_selected = Some((d.namespace.clone(), d.name.clone()));
-                        }
-                    }
+    fn render_statefulsets_center(&mut self, ui: &mut egui::Ui) {
+        let statefulsets = self.statefulsets.clone();
+        let newly_selected = Self::render_workload_grid(
+            ui,
+            "StatefulSets",
+            "statefulsets_grid",
+            &statefulsets,
+            &self.selected_statefulset,
+        );
 
-                    if let Some((ns, name)) = newly_selected {
-                        self.selected_deployment = Some((ns.clone(), name.clone()));
-                        self.deployment_details = None;
-                        self.send(BackendCmd::SelectDeployment {
-                            namespace: ns,
-                            name,
-                        });
-                    }
-                });
-        });
+        if let Some((ns, name)) = newly_selected {
+            self.selected_statefulset = Some((ns.clone(), name.clone()));
+            self.statefulset_details = None;
+            self.send(BackendCmd::SelectStatefulSet {
+                namespace: ns,
+                name,
+            });
+        }
+    }
+
+    fn render_replicasets_center(&mut self, ui: &mut egui::Ui) {
+        let replicasets = self.replicasets.clone();
+        let newly_selected = Self::render_workload_grid(
+            ui,
+            "ReplicaSets",
+            "replicasets_grid",
+            &replicasets,
+            &self.selected_replicaset,
+        );
+
+        if let Some((ns, name)) = newly_selected {
+            self.selected_replicaset = Some((ns.clone(), name.clone()));
+            self.replicaset_details = None;
+            self.send(BackendCmd::SelectReplicaSet {
+                namespace: ns,
+                name,
+            });
+        }
+    }
+
+    fn render_replicationcontrollers_center(&mut self, ui: &mut egui::Ui) {
+        let rcs = self.replicationcontrollers.clone();
+        let newly_selected = Self::render_workload_grid(
+            ui,
+            "ReplicationControllers",
+            "replicationcontrollers_grid",
+            &rcs,
+            &self.selected_replicationcontroller,
+        );
+
+        if let Some((ns, name)) = newly_selected {
+            self.selected_replicationcontroller = Some((ns.clone(), name.clone()));
+            self.replicationcontroller_details = None;
+            self.send(BackendCmd::SelectReplicationController {
+                namespace: ns,
+                name,
+            });
+        }
     }
 }

@@ -1,7 +1,9 @@
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, DeploymentDetails, DeploymentSummary,
-    NotificationLevel, PodDetails, PodMetricsSummary, PodSummary, ResourceListEvent,
-    ResourceReadEvent, ScopeKind, SectionKey, StreamEvent, SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, DaemonSetDetails, DaemonSetSummary,
+    DeploymentDetails, DeploymentSummary, NotificationLevel, PodDetails, PodMetricsSummary,
+    PodSummary, ReplicaSetDetails, ReplicaSetSummary, ReplicationControllerDetails,
+    ReplicationControllerSummary, ResourceListEvent, ResourceReadEvent, ScopeKind, SectionKey,
+    StatefulSetDetails, StatefulSetSummary, StreamEvent, SystemEvent, section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
@@ -74,11 +76,32 @@ pub struct FathomApp {
     selected_deployment: Option<(String, String)>,
     deployment_details: Option<DeploymentDetails>,
 
+    // DaemonSets
+    daemonsets: Vec<DaemonSetSummary>,
+    selected_daemonset: Option<(String, String)>,
+    daemonset_details: Option<DaemonSetDetails>,
+
+    // StatefulSets
+    statefulsets: Vec<StatefulSetSummary>,
+    selected_statefulset: Option<(String, String)>,
+    statefulset_details: Option<StatefulSetDetails>,
+
+    // ReplicaSets
+    replicasets: Vec<ReplicaSetSummary>,
+    selected_replicaset: Option<(String, String)>,
+    replicaset_details: Option<ReplicaSetDetails>,
+
+    // ReplicationControllers
+    replicationcontrollers: Vec<ReplicationControllerSummary>,
+    selected_replicationcontroller: Option<(String, String)>,
+    replicationcontroller_details: Option<ReplicationControllerDetails>,
+
     // Pod panels
     pod_tab: PodTab,
     pod_details: Option<PodDetails>,
     pod_logs: Vec<String>,
     pod_metrics: Option<PodMetricsSummary>,
+    pod_metrics_pending: bool,
 
     // Status
     status_log: Vec<String>,
@@ -87,11 +110,31 @@ pub struct FathomApp {
     modal: ModalState,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkloadKind {
+    Deployment,
+    DaemonSet,
+    StatefulSet,
+    ReplicaSet,
+    ReplicationController,
+}
+
 #[derive(Clone, Debug)]
 enum ConfirmAction {
-    DeletePod { namespace: String, name: String },
-    DeleteDeployment { namespace: String, name: String },
-    RestartDeployment { namespace: String, name: String },
+    DeletePod {
+        namespace: String,
+        name: String,
+    },
+    DeleteWorkload {
+        kind: WorkloadKind,
+        namespace: String,
+        name: String,
+    },
+    RestartWorkload {
+        kind: WorkloadKind,
+        namespace: String,
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -103,7 +146,8 @@ enum ModalState {
         confirm_text: String,
         action: ConfirmAction,
     },
-    ScaleDeployment {
+    ScaleWorkload {
+        kind: WorkloadKind,
         namespace: String,
         name: String,
         current: i32,
@@ -140,10 +184,27 @@ impl FathomApp {
             deployments: Vec::new(),
             selected_deployment: None,
             deployment_details: None,
+
+            daemonsets: Vec::new(),
+            selected_daemonset: None,
+            daemonset_details: None,
+
+            statefulsets: Vec::new(),
+            selected_statefulset: None,
+            statefulset_details: None,
+
+            replicasets: Vec::new(),
+            selected_replicaset: None,
+            replicaset_details: None,
+
+            replicationcontrollers: Vec::new(),
+            selected_replicationcontroller: None,
+            replicationcontroller_details: None,
             pod_tab: PodTab::Details,
             pod_details: None,
             pod_logs: Vec::new(),
             pod_metrics: None,
+            pod_metrics_pending: false,
             status_log,
             modal: ModalState::None,
         }
@@ -177,6 +238,18 @@ impl FathomApp {
         if self.active_section == section_keys::workloads_deployments() {
             return ScopeKind::Namespaced;
         }
+        if self.active_section == section_keys::workloads_daemonsets() {
+            return ScopeKind::Namespaced;
+        }
+        if self.active_section == section_keys::workloads_statefulsets() {
+            return ScopeKind::Namespaced;
+        }
+        if self.active_section == section_keys::workloads_replicasets() {
+            return ScopeKind::Namespaced;
+        }
+        if self.active_section == section_keys::workloads_replicationcontrollers() {
+            return ScopeKind::Namespaced;
+        }
         ScopeKind::Cluster
     }
 
@@ -195,14 +268,16 @@ impl FathomApp {
         };
     }
 
-    fn open_scale_deployment(
+    fn open_scale_workload(
         &mut self,
+        kind: WorkloadKind,
         namespace: String,
         name: String,
         current_ready: i32,
         desired: i32,
     ) {
-        self.modal = ModalState::ScaleDeployment {
+        self.modal = ModalState::ScaleWorkload {
+            kind,
             namespace,
             name,
             current: current_ready,

@@ -1,6 +1,8 @@
 use super::{
-    Correlation, DeploymentDetails, DeploymentSummary, PodDetails, PodMetricsSummary, PodSummary,
-    Route, StreamId,
+    Correlation, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
+    PodDetails, PodMetricsSummary, PodSummary, ReplicaSetDetails, ReplicaSetSummary,
+    ReplicationControllerDetails, ReplicationControllerSummary, Route, StatefulSetDetails,
+    StatefulSetSummary, StreamId,
 };
 
 #[derive(Debug, Clone)]
@@ -60,6 +62,10 @@ pub enum ResourceListEvent {
     NamespacesUpdated(Vec<String>),
     PodsUpdated(Vec<PodSummary>),
     DeploymentsUpdated(Vec<DeploymentSummary>),
+    DaemonSetsUpdated(Vec<DaemonSetSummary>),
+    StatefulSetsUpdated(Vec<StatefulSetSummary>),
+    ReplicaSetsUpdated(Vec<ReplicaSetSummary>),
+    ReplicationControllersUpdated(Vec<ReplicationControllerSummary>),
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +73,10 @@ pub enum ResourceReadEvent {
     PodDetailsUpdated(PodDetails),
     PodMetricsUpdated(PodMetricsSummary),
     DeploymentDetailsUpdated(DeploymentDetails),
+    DaemonSetDetailsUpdated(DaemonSetDetails),
+    StatefulSetDetailsUpdated(StatefulSetDetails),
+    ReplicaSetDetailsUpdated(ReplicaSetDetails),
+    ReplicationControllerDetailsUpdated(ReplicationControllerDetails),
 }
 
 #[derive(Debug, Clone)]
