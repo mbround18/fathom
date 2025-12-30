@@ -245,7 +245,10 @@ impl FathomApp {
                             if ui.button("Restart").clicked() {
                                 self.open_confirm(
                                     format!("Restart {}?", title.to_lowercase()),
-                                    format!("This will trigger a restart attempt for {}/{}.", ns, name),
+                                    format!(
+                                        "This will trigger a restart attempt for {}/{}.",
+                                        ns, name
+                                    ),
                                     "Restart",
                                     ConfirmAction::RestartWorkload {
                                         kind,

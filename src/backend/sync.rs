@@ -53,18 +53,19 @@ pub(super) async fn ensure_background_sync(
             let api: Api<Pod> = Api::all(client_for_watch.clone());
             let w = watcher(api, watcher::Config::default());
             futures_util::pin_mut!(w);
-            
+
             while let Some(ev) = w.next().await {
                 match ev {
                     Ok(_event) => {
                         // Reset retry delay on successful event
                         retry_delay = Duration::from_secs(1);
-                        
+
                         // On any event, refresh pods list
                         let api: Api<Pod> = Api::all(client_for_watch.clone());
                         match api.list(&ListParams::default()).await {
                             Ok(pods_list) => {
-                                let filter = filter_shared.read().map(|f| f.clone()).unwrap_or_default();
+                                let filter =
+                                    filter_shared.read().map(|f| f.clone()).unwrap_or_default();
                                 let summaries = pods::pods_to_summaries(pods_list.items, &filter);
                                 events::emit(
                                     seq_for_watch.as_ref(),
@@ -75,7 +76,9 @@ pub(super) async fn ensure_background_sync(
                                         None,
                                     ),
                                     Correlation::None,
-                                    BackendEvent::ResourceList(ResourceListEvent::PodsUpdated(summaries)),
+                                    BackendEvent::ResourceList(ResourceListEvent::PodsUpdated(
+                                        summaries,
+                                    )),
                                 );
                             }
                             Err(e) => {
@@ -123,7 +126,9 @@ pub(super) async fn ensure_background_sync(
                         &sender_for_ns,
                         Route::cluster(section_keys::system(), context_for_ns.clone()),
                         Correlation::None,
-                        BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
+                        BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(
+                            namespaces,
+                        )),
                     );
                 }
                 Err(e) => {

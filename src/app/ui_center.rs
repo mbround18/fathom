@@ -119,6 +119,56 @@ impl FathomApp {
                 return;
             }
 
+            if self.active_section == section_keys::config_resourcequotas() {
+                self.render_resourcequotas_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_limitranges() {
+                self.render_limitranges_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_horizontalpodautoscalers() {
+                self.render_horizontalpodautoscalers_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_verticalpodautoscalers() {
+                self.render_verticalpodautoscalers_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_poddisruptionbudgets() {
+                self.render_poddisruptionbudgets_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_priorityclasses() {
+                self.render_priorityclasses_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_runtimeclasses() {
+                self.render_runtimeclasses_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_leases() {
+                self.render_leases_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_mutatingwebhooks() {
+                self.render_mutatingwebhooks_center(ui);
+                return;
+            }
+
+            if self.active_section == section_keys::config_validatingwebhooks() {
+                self.render_validatingwebhooks_center(ui);
+                return;
+            }
+
             if self.active_section == section_keys::network_portforwards() {
                 self.render_portforwards_center(ui);
                 return;
@@ -1112,6 +1162,66 @@ impl FathomApp {
 
         ui.label("Flux GitOps integration coming soon.");
         ui.label("Monitor Flux Helmreleases and Kustomizations.");
+    }
+
+    fn render_resourcequotas_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Resource Quotas");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_limitranges_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Limit Ranges");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_horizontalpodautoscalers_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Horizontal Pod Autoscalers");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_verticalpodautoscalers_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Vertical Pod Autoscalers");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_poddisruptionbudgets_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Pod Disruption Budgets");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_priorityclasses_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Priority Classes");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_runtimeclasses_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Runtime Classes");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_leases_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Leases");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_mutatingwebhooks_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Mutating Webhook Configurations");
+        ui.separator();
+        ui.label("Not yet implemented");
+    }
+
+    fn render_validatingwebhooks_center(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Validating Webhook Configurations");
+        ui.separator();
+        ui.label("Not yet implemented");
     }
 }
 

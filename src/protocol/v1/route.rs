@@ -122,6 +122,46 @@ pub mod section_keys {
         SectionKey::new("config/secrets")
     }
 
+    pub fn config_resourcequotas() -> SectionKey {
+        SectionKey::new("config/resourcequotas")
+    }
+
+    pub fn config_limitranges() -> SectionKey {
+        SectionKey::new("config/limitranges")
+    }
+
+    pub fn config_horizontalpodautoscalers() -> SectionKey {
+        SectionKey::new("config/horizontalpodautoscalers")
+    }
+
+    pub fn config_verticalpodautoscalers() -> SectionKey {
+        SectionKey::new("config/verticalpodautoscalers")
+    }
+
+    pub fn config_poddisruptionbudgets() -> SectionKey {
+        SectionKey::new("config/poddisruptionbudgets")
+    }
+
+    pub fn config_priorityclasses() -> SectionKey {
+        SectionKey::new("config/priorityclasses")
+    }
+
+    pub fn config_runtimeclasses() -> SectionKey {
+        SectionKey::new("config/runtimeclasses")
+    }
+
+    pub fn config_leases() -> SectionKey {
+        SectionKey::new("config/leases")
+    }
+
+    pub fn config_mutatingwebhooks() -> SectionKey {
+        SectionKey::new("config/mutatingwebhooks")
+    }
+
+    pub fn config_validatingwebhooks() -> SectionKey {
+        SectionKey::new("config/validatingwebhooks")
+    }
+
     pub fn network_services() -> SectionKey {
         SectionKey::new("network/services")
     }
