@@ -1,3 +1,4 @@
+use crate::backend::portforward::PortForwardManager;
 use kube::Client;
 use std::sync::{Arc, RwLock, atomic::AtomicU64};
 
@@ -21,10 +22,16 @@ pub(super) struct BackendState {
 
     pub(super) pod_watch_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) namespace_sync_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) deployment_watch_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) daemonset_watch_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) statefulset_watch_task: Option<tokio::task::JoinHandle<()>>,
 
     pub(super) metrics_availability: MetricsAvailability,
     pub(super) metrics_unavailable_notified: bool,
     pub(super) metrics_forbidden_notified: bool,
+    pub(super) metrics_poll_task: Option<tokio::task::JoinHandle<()>>,
+
+    pub(super) port_forward_manager: PortForwardManager,
 }
 
 impl BackendState {
@@ -39,9 +46,14 @@ impl BackendState {
             next_stream_id: 1,
             pod_watch_task: None,
             namespace_sync_task: None,
+            deployment_watch_task: None,
+            daemonset_watch_task: None,
+            statefulset_watch_task: None,
             metrics_availability: MetricsAvailability::Unknown,
             metrics_unavailable_notified: false,
             metrics_forbidden_notified: false,
+            metrics_poll_task: None,
+            port_forward_manager: PortForwardManager::new(),
         }
     }
 
@@ -68,6 +80,16 @@ pub(super) fn stop_logs(state: &mut BackendState) {
     if let Some(handle) = state.log_task.take() {
         handle.abort();
     }
+}
+
+pub(super) fn cleanup_all_tasks(state: &mut BackendState) {
+    abort_task(&mut state.log_task);
+    abort_task(&mut state.pod_watch_task);
+    abort_task(&mut state.namespace_sync_task);
+    abort_task(&mut state.deployment_watch_task);
+    abort_task(&mut state.daemonset_watch_task);
+    abort_task(&mut state.statefulset_watch_task);
+    state.port_forward_manager.cleanup_all();
 }
 
 pub(super) fn client_or_err(state: &BackendState) -> anyhow::Result<Client> {

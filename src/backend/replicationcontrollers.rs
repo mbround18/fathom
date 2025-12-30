@@ -10,6 +10,7 @@ use serde_json::json;
 
 use super::{events, state::BackendState};
 
+use super::interactions;
 use super::state::client_or_err;
 use super::workload_common;
 
@@ -75,6 +76,18 @@ pub(super) async fn delete_replicationcontroller(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
+
+    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "delete",
+        &ts,
+        json!({}),
+    )
+    .await;
+
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
         state.seq.as_ref(),
@@ -93,6 +106,18 @@ pub(super) async fn scale_replicationcontroller(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
+
+    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "scale",
+        &ts,
+        json!({"replicas": replicas}),
+    )
+    .await;
+
     let patch = json!({"spec": {"replicas": replicas }});
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
@@ -126,6 +151,18 @@ pub(super) async fn restart_replicationcontroller(
         .unwrap_or_default();
 
     let deleted = workload_common::delete_pods_for_selector(state, namespace, &selector).await?;
+
+    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "restart",
+        &ts,
+        json!({"deletedPods": deleted}),
+    )
+    .await;
+
     events::notify_info(
         state.seq.as_ref(),
         sender,

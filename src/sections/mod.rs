@@ -1,4 +1,13 @@
-use crate::protocol::{section_keys, ScopeKind, SectionKey};
+use crate::protocol::{ScopeKind, SectionKey, section_keys};
+
+// Module declarations for different sections
+pub mod access_control;
+pub mod config;
+pub mod custom_resources;
+pub mod integrations;
+pub mod network;
+pub mod storage;
+pub mod workloads;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavGroup {
@@ -104,6 +113,12 @@ pub fn all_sections() -> Vec<SectionDef> {
             scope: ScopeKind::Namespaced,
         },
         SectionDef {
+            key: section_keys::network_portforwards(),
+            label: "Port Forwards",
+            group: NavGroup::Network,
+            scope: ScopeKind::Cluster,
+        },
+        SectionDef {
             key: section_keys::storage_pv(),
             label: "PersistentVolumes",
             group: NavGroup::Storage,
@@ -166,6 +181,24 @@ pub fn all_sections() -> Vec<SectionDef> {
         SectionDef {
             key: section_keys::integrations_argo(),
             label: "Argo",
+            group: NavGroup::Integrations,
+            scope: ScopeKind::Namespaced,
+        },
+        SectionDef {
+            key: section_keys::integrations_metrics(),
+            label: "Metrics",
+            group: NavGroup::Integrations,
+            scope: ScopeKind::Cluster,
+        },
+        SectionDef {
+            key: section_keys::integrations_grafana(),
+            label: "Grafana",
+            group: NavGroup::Integrations,
+            scope: ScopeKind::Cluster,
+        },
+        SectionDef {
+            key: section_keys::integrations_flux(),
+            label: "Flux",
             group: NavGroup::Integrations,
             scope: ScopeKind::Namespaced,
         },

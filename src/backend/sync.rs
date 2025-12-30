@@ -27,6 +27,9 @@ pub(super) async fn ensure_background_sync(
     // Restart cleanly if partially running.
     state::abort_task(&mut state.pod_watch_task);
     state::abort_task(&mut state.namespace_sync_task);
+    state::abort_task(&mut state.deployment_watch_task);
+    state::abort_task(&mut state.daemonset_watch_task);
+    state::abort_task(&mut state.statefulset_watch_task);
 
     let sender_for_watch = sender.clone();
     let sender_for_ns = sender.clone();
@@ -36,7 +39,7 @@ pub(super) async fn ensure_background_sync(
     let context_for_watch = state.current_context.clone();
     let context_for_ns = state.current_context.clone();
 
-    // Pod watcher: updates the list when pods are added/updated/deleted.
+    // Pod watcher: watch for pod changes with exponential backoff retry
     let client_for_watch = client.clone();
     state.pod_watch_task = Some(tokio::spawn(async move {
         events::notify_info(
@@ -45,20 +48,23 @@ pub(super) async fn ensure_background_sync(
             "Background sync: watching pods...".to_owned(),
         );
 
-        // Simple retry loop.
+        let mut retry_delay = Duration::from_secs(1);
         loop {
             let api: Api<Pod> = Api::all(client_for_watch.clone());
             let w = watcher(api, watcher::Config::default());
             futures_util::pin_mut!(w);
+            
             while let Some(ev) = w.next().await {
                 match ev {
                     Ok(_event) => {
-                        // On any event, refresh pods list.
+                        // Reset retry delay on successful event
+                        retry_delay = Duration::from_secs(1);
+                        
+                        // On any event, refresh pods list
                         let api: Api<Pod> = Api::all(client_for_watch.clone());
                         match api.list(&ListParams::default()).await {
                             Ok(pods_list) => {
-                                let filter =
-                                    filter_shared.read().map(|f| f.clone()).unwrap_or_default();
+                                let filter = filter_shared.read().map(|f| f.clone()).unwrap_or_default();
                                 let summaries = pods::pods_to_summaries(pods_list.items, &filter);
                                 events::emit(
                                     seq_for_watch.as_ref(),
@@ -69,9 +75,7 @@ pub(super) async fn ensure_background_sync(
                                         None,
                                     ),
                                     Correlation::None,
-                                    BackendEvent::ResourceList(ResourceListEvent::PodsUpdated(
-                                        summaries,
-                                    )),
+                                    BackendEvent::ResourceList(ResourceListEvent::PodsUpdated(summaries)),
                                 );
                             }
                             Err(e) => {
@@ -87,18 +91,19 @@ pub(super) async fn ensure_background_sync(
                         events::notify_error(
                             seq_for_watch.as_ref(),
                             &sender_for_watch,
-                            format!("Pod watcher error: {}", e),
+                            format!("Pod watcher error (retrying in {:?}): {}", retry_delay, e),
                         );
                         break;
                     }
                 }
             }
 
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(retry_delay).await;
+            retry_delay = std::cmp::min(retry_delay * 2, Duration::from_secs(30));
         }
     }));
 
-    // Namespace refresher: refresh namespaces periodically.
+    // Namespace refresher: refresh namespaces periodically with improved reliability
     let client_for_ns = client.clone();
     state.namespace_sync_task = Some(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(30));
@@ -118,9 +123,7 @@ pub(super) async fn ensure_background_sync(
                         &sender_for_ns,
                         Route::cluster(section_keys::system(), context_for_ns.clone()),
                         Correlation::None,
-                        BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(
-                            namespaces,
-                        )),
+                        BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
                     );
                 }
                 Err(e) => {

@@ -10,6 +10,7 @@ use serde_json::json;
 
 use super::{events, state::BackendState};
 
+use super::interactions;
 use super::state::client_or_err;
 use super::workload_common;
 
@@ -88,6 +89,18 @@ pub(super) async fn delete_statefulset(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<StatefulSet> = Api::namespaced(client, namespace);
+
+    let ts = Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "delete",
+        &ts,
+        json!({}),
+    )
+    .await;
+
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
         state.seq.as_ref(),
@@ -106,6 +119,18 @@ pub(super) async fn scale_statefulset(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<StatefulSet> = Api::namespaced(client, namespace);
+
+    let ts = Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "scale",
+        &ts,
+        json!({"replicas": replicas}),
+    )
+    .await;
+
     let patch = json!({"spec": {"replicas": replicas }});
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
@@ -126,6 +151,17 @@ pub(super) async fn restart_statefulset(
     let client = client_or_err(state)?;
     let api: Api<StatefulSet> = Api::namespaced(client, namespace);
     let ts = Utc::now().to_rfc3339();
+
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "restart",
+        &ts,
+        json!({"restartedAt": ts}),
+    )
+    .await;
+
     let patch = json!({
         "spec": {
             "template": {

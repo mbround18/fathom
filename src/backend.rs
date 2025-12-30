@@ -1,16 +1,25 @@
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent, Route,
+    SystemEvent, section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
+use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
+
+mod cronjobs;
 mod daemonsets;
 mod deployments;
 mod events;
+mod integrations;
+mod interactions;
+mod jobs;
 mod kube;
 mod metrics;
+mod persistence;
 mod pods;
+mod portforward;
 mod replicasets;
 mod replicationcontrollers;
 mod state;
@@ -45,18 +54,37 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
         };
 
         let result = rt.block_on(handle_cmd(cmd, &mut state, &sender));
-        if let Err(err) = result {
-            events::notify_error(state.seq.as_ref(), &sender, err.to_string());
+        match result {
+            Ok(should_exit) if should_exit => break,
+            Err(err) => events::notify_error(state.seq.as_ref(), &sender, err.to_string()),
+            _ => {}
         }
     }
+
+    // Final cleanup on exit
+    state::cleanup_all_tasks(&mut state);
+    events::notify_info(
+        state.seq.as_ref(),
+        &sender,
+        "Backend thread stopped.".to_owned(),
+    );
 }
 
 async fn handle_cmd(
     cmd: BackendCmd,
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     match cmd {
+        BackendCmd::Shutdown => {
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                "Shutting down backend...".to_owned(),
+            );
+            state::cleanup_all_tasks(state);
+            return Ok(true); // Signal to exit loop
+        }
         BackendCmd::Initialize => {
             // Contexts can be loaded even before we connect.
             let _ = kube::load_and_send_contexts(
@@ -94,6 +122,24 @@ async fn handle_cmd(
             // Discover optional backing services.
             metrics::probe_metrics_api(state, sender).await?;
 
+            // Restore saved port forwards from last session
+            if let Err(e) = restore_saved_port_forwards(state, sender).await {
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    format!("Note: Could not restore port forwards: {}", e),
+                );
+            }
+
+            // Ensure metrics are accessible via port forward
+            if let Err(e) = ensure_metrics_port_forward(state, sender).await {
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    format!("Note: Could not auto-setup metrics port forward: {}", e),
+                );
+            }
+
             sync::refresh_namespaces(state, sender).await?;
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
@@ -101,6 +147,8 @@ async fn handle_cmd(
             statefulsets::refresh_statefulsets(state, sender).await?;
             replicasets::refresh_replicasets(state, sender).await?;
             replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+            jobs::refresh_jobs(state, sender).await?;
+            cronjobs::refresh_cronjobs(state, sender).await?;
 
             sync::ensure_background_sync(state, sender).await?;
         }
@@ -230,6 +278,38 @@ async fn handle_cmd(
 
         BackendCmd::FetchPodMetrics { namespace, name } => {
             metrics::fetch_metrics(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::StartMetricsPolling {
+            namespace,
+            name,
+            interval_secs,
+        } => {
+            // Fetch pod to get resource specs
+            use k8s_openapi::api::core::v1::Pod;
+            let client = match &state.client {
+                Some(c) => c,
+                None => anyhow::bail!("No Kubernetes client available"),
+            };
+            let pod_api = ::kube::Api::<Pod>::namespaced(client.clone(), &namespace);
+            let pod = pod_api.get(&name).await?;
+
+            // Extract resource specs (reuse logic from pods module)
+            let resource_specs = pods::extract_resource_specs(&pod);
+
+            metrics::start_metrics_polling(
+                state,
+                sender,
+                namespace,
+                name,
+                resource_specs,
+                interval_secs,
+            )
+            .await?;
+        }
+
+        BackendCmd::StopMetricsPolling => {
+            metrics::stop_metrics_polling(state);
         }
 
         BackendCmd::RefreshDeployments => {
@@ -366,6 +446,46 @@ async fn handle_cmd(
             replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
         }
 
+        BackendCmd::RefreshJobs => {
+            jobs::refresh_jobs(state, sender).await?;
+        }
+
+        BackendCmd::SelectJob { namespace, name } => {
+            jobs::fetch_job_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::DeleteJob { namespace, name } => {
+            jobs::delete_job(state, sender, &namespace, &name).await?;
+            jobs::refresh_jobs(state, sender).await?;
+        }
+
+        BackendCmd::RefreshCronJobs => {
+            cronjobs::refresh_cronjobs(state, sender).await?;
+        }
+
+        BackendCmd::SelectCronJob { namespace, name } => {
+            cronjobs::fetch_cronjob_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::SuspendCronJob {
+            namespace,
+            name,
+            suspend,
+        } => {
+            cronjobs::suspend_cronjob(state, sender, &namespace, &name, suspend).await?;
+            cronjobs::fetch_cronjob_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::TriggerCronJob { namespace, name } => {
+            cronjobs::trigger_cronjob(state, sender, &namespace, &name).await?;
+            cronjobs::refresh_cronjobs(state, sender).await?;
+        }
+
+        BackendCmd::DeleteCronJob { namespace, name } => {
+            cronjobs::delete_cronjob(state, sender, &namespace, &name).await?;
+            cronjobs::refresh_cronjobs(state, sender).await?;
+        }
+
         BackendCmd::SimulateSlowCall => {
             events::notify_info(state.seq.as_ref(), sender, "Simulating slow call...".into());
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -386,9 +506,500 @@ async fn handle_cmd(
                 replicasets::refresh_replicasets(state, sender).await?;
             } else if section == section_keys::workloads_replicationcontrollers() {
                 replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+            } else if section == section_keys::workloads_jobs() {
+                jobs::refresh_jobs(state, sender).await?;
+            } else if section == section_keys::workloads_cronjobs() {
+                cronjobs::refresh_cronjobs(state, sender).await?;
+            }
+        }
+        BackendCmd::StartPortForward {
+            namespace,
+            pod,
+            local_port,
+            remote_port,
+            container,
+        } => {
+            if let Some(client) = &state.client {
+                match state
+                    .port_forward_manager
+                    .start(client, &namespace, &pod, local_port, remote_port, container)
+                    .await
+                {
+                    Ok(tunnel_id) => {
+                        events::notify_info(
+                            state.seq.as_ref(),
+                            sender,
+                            format!(
+                                "Started port forward [{}]: {}/{} {}:{}",
+                                tunnel_id, namespace, pod, local_port, remote_port
+                            ),
+                        );
+                        // Emit updated list
+                        emit_port_forward_list(state, sender);
+                        // Persist to disk
+                        save_port_forwards_to_disk(state);
+                    }
+                    Err(e) => {
+                        events::notify_error(
+                            state.seq.as_ref(),
+                            sender,
+                            format!("Failed to start port forward: {}", e),
+                        );
+                    }
+                }
+            } else {
+                events::notify_error(
+                    state.seq.as_ref(),
+                    sender,
+                    "Not connected to cluster".to_owned(),
+                );
+            }
+        }
+        BackendCmd::StopPortForward { tunnel_id } => {
+            match state.port_forward_manager.stop(&tunnel_id).await {
+                Ok(_) => {
+                    events::notify_info(
+                        state.seq.as_ref(),
+                        sender,
+                        format!("Stopped port forward: {}", tunnel_id),
+                    );
+                    // Emit updated list
+                    emit_port_forward_list(state, sender);
+                    // Persist to disk
+                    save_port_forwards_to_disk(state);
+                }
+                Err(e) => {
+                    events::notify_error(
+                        state.seq.as_ref(),
+                        sender,
+                        format!("Failed to stop port forward: {}", e),
+                    );
+                }
+            }
+        }
+        BackendCmd::RefreshPortForwards => {
+            // TODO: Refresh port forward list
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                "Port forwards refreshed".to_owned(),
+            );
+        }
+        BackendCmd::ConfigurePrometheus {
+            namespace,
+            service,
+            port,
+        } => {
+            let context = state
+                .current_context
+                .clone()
+                .unwrap_or_else(|| "default".to_owned());
+
+            let mut cfg = IntegrationConfig::load(&context).unwrap_or(IntegrationConfig {
+                context: context.clone(),
+                prometheus: None,
+                grafana: None,
+                argo: None,
+                flux: None,
+            });
+
+            cfg.context = context.clone();
+            cfg.prometheus = Some(PrometheusConfig {
+                enabled: true,
+                namespace: namespace.clone(),
+                service: service.clone(),
+                port,
+            });
+
+            if let Err(e) = cfg.save() {
+                events::notify_error(
+                    state.seq.as_ref(),
+                    sender,
+                    format!("Failed to save Prometheus config: {}", e),
+                );
+            } else {
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    format!(
+                        "Configured Prometheus: {}/{} port {} (context: {})",
+                        namespace, service, port, context
+                    ),
+                );
+            }
+        }
+        BackendCmd::TestPrometheusConnection {
+            namespace: _,
+            service: _,
+            port,
+        } => {
+            // Test Prometheus connection via localhost (assumes port-forward is established)
+            let url = format!("http://localhost:{}/api/v1/query?query=up", port);
+            match reqwest::Client::new().get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    events::emit(
+                        state.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_metrics()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::PrometheusConnectionTest {
+                            success: true,
+                            message: "Connection successful".to_owned(),
+                        }),
+                    );
+                }
+                Ok(resp) => {
+                    events::emit(
+                        state.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_metrics()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::PrometheusConnectionTest {
+                            success: false,
+                            message: format!("HTTP {}", resp.status()),
+                        }),
+                    );
+                }
+                Err(e) => {
+                    events::emit(
+                        state.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_metrics()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::PrometheusConnectionTest {
+                            success: false,
+                            message: format!(
+                                "Connection failed (ensure port-forward is active): {}",
+                                e
+                            ),
+                        }),
+                    );
+                }
+            }
+        }
+        BackendCmd::ConfigureGrafana {
+            base_url,
+            api_key: _,
+        } => {
+            // TODO: Configure Grafana integration
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                format!("Configured Grafana: {}", base_url),
+            );
+        }
+        BackendCmd::TestGrafanaConnection { base_url, api_key } => {
+            // Test Grafana connection via the provided base URL
+            let client = reqwest::Client::new();
+            let url = format!("{}/api/health", base_url);
+            match client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    events::emit(
+                        state.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_grafana()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::GrafanaConnectionTest {
+                            success: true,
+                            message: "Connection successful".to_owned(),
+                        }),
+                    );
+                }
+                Ok(resp) => {
+                    events::emit(
+                        state.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_grafana()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::GrafanaConnectionTest {
+                            success: false,
+                            message: format!("HTTP {}", resp.status()),
+                        }),
+                    );
+                }
+                Err(e) => {
+                    events::emit(
+                        state.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_grafana()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::GrafanaConnectionTest {
+                            success: false,
+                            message: e.to_string(),
+                        }),
+                    );
+                }
+            }
+        }
+        BackendCmd::RefreshIntegrations => {
+            // TODO: Refresh integrations status
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                "Integrations refreshed".to_owned(),
+            );
+        }
+    }
+
+    Ok(false)
+}
+
+/// Restore saved port forwards from previous session
+async fn restore_saved_port_forwards(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) -> anyhow::Result<()> {
+    let saved_ports = persistence::load_saved_ports()?;
+    if saved_ports.is_empty() {
+        return Ok(());
+    }
+
+    let client = state
+        .client
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No Kubernetes client"))?;
+    let mut restored_count = 0;
+
+    for port_config in saved_ports {
+        match state
+            .port_forward_manager
+            .start(
+                client,
+                &port_config.namespace,
+                &port_config.pod,
+                port_config.local_port,
+                port_config.remote_port,
+                port_config.container.clone(),
+            )
+            .await
+        {
+            Ok(_) => {
+                restored_count += 1;
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    format!(
+                        "Restored port forward: {}:{} -> {}:{}/{}",
+                        port_config.pod,
+                        port_config.local_port,
+                        port_config.namespace,
+                        port_config.pod,
+                        port_config.remote_port
+                    ),
+                );
+            }
+            Err(e) => {
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    format!(
+                        "Failed to restore port forward for {}/{}: {}",
+                        port_config.namespace, port_config.pod, e
+                    ),
+                );
             }
         }
     }
 
+    if restored_count > 0 {
+        events::notify_info(
+            state.seq.as_ref(),
+            sender,
+            format!("Restored {} port forwards", restored_count),
+        );
+        // Emit updated list to UI
+        emit_port_forward_list(state, sender);
+    }
+
     Ok(())
+}
+
+/// Ensure Prometheus metrics are accessible via port forward
+async fn ensure_metrics_port_forward(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) -> anyhow::Result<()> {
+    let client = state
+        .client
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No Kubernetes client"))?;
+
+    // Load user-configured Prometheus first (per context), then fall back to common defaults
+    let context = state
+        .current_context
+        .clone()
+        .unwrap_or_else(|| "default".to_owned());
+
+    let mut prometheus_configs: Vec<(String, String, u16)> = Vec::new();
+
+    if let Ok(cfg) = IntegrationConfig::load(&context) {
+        if let Some(prom) = cfg.prometheus.as_ref().filter(|p| p.enabled) {
+            prometheus_configs.push((prom.namespace.clone(), prom.service.clone(), prom.port));
+        }
+    }
+
+    // Try common Prometheus locations
+    prometheus_configs.extend_from_slice(&[
+        ("monitoring".to_owned(), "prometheus".to_owned(), 9090u16),
+        ("prometheus".to_owned(), "prometheus".to_owned(), 9090),
+        ("kube-monitoring".to_owned(), "prometheus".to_owned(), 9090),
+    ]);
+
+    for (namespace, service, port) in prometheus_configs {
+        // Check if a pod matching the service exists
+        match find_pod_for_service(client, &namespace, &service).await {
+            Ok(Some(pod_name)) => {
+                match state
+                    .port_forward_manager
+                    .start(client, &namespace, &pod_name, port, port, None)
+                    .await
+                {
+                    Ok(_) => {
+                        events::notify_info(
+                            state.seq.as_ref(),
+                            sender,
+                            format!(
+                                "Auto-started Prometheus port forward: localhost:{} -> {}/{}:{}",
+                                port, namespace, pod_name, port
+                            ),
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            "Failed to start port forward for {}/{}: {}",
+                            namespace,
+                            pod_name,
+                            e
+                        );
+                    }
+                }
+            }
+            Ok(None) => {
+                tracing::debug!("No pod found for service {}/{}", namespace, service);
+            }
+            Err(e) => {
+                tracing::debug!("Error finding pod for {}/{}: {}", namespace, service, e);
+            }
+        }
+    }
+
+    events::notify_info(
+        state.seq.as_ref(),
+        sender,
+        "Prometheus auto port-forward not started (no matching service/pod found). Configure a port forward under Network > Port Forwards or adjust Prometheus settings under Integrations.".to_owned(),
+    );
+
+    Ok(())
+}
+
+/// Find a pod backing a service by checking pod labels
+async fn find_pod_for_service(
+    client: &::kube::Client,
+    namespace: &str,
+    service: &str,
+) -> anyhow::Result<Option<String>> {
+    use ::kube::Api;
+    use k8s_openapi::api::core::v1::Service;
+
+    let svc_api = Api::<Service>::namespaced(client.clone(), namespace);
+
+    match svc_api.get(service).await {
+        Ok(svc) => {
+            // First, try to resolve via Endpoints to honor any non-standard selectors/endpoints
+            if let Some(pod_name) = find_pod_via_endpoints(client, namespace, service).await? {
+                return Ok(Some(pod_name));
+            }
+
+            // Get the selector labels from the service
+            if let Some(selector) = svc.spec.as_ref().and_then(|s| s.selector.as_ref()) {
+                // Build a label selector string
+                let mut label_query = String::new();
+                for (i, (key, val)) in selector.iter().enumerate() {
+                    if i > 0 {
+                        label_query.push(',');
+                    }
+                    label_query.push_str(&format!("{}={}", key, val));
+                }
+
+                // Find a pod matching these labels
+                use k8s_openapi::api::core::v1::Pod;
+                let pod_api = Api::<Pod>::namespaced(client.clone(), namespace);
+                let list_params = ::kube::api::ListParams::default().labels(&label_query);
+
+                match pod_api.list(&list_params).await {
+                    Ok(pods) => {
+                        if let Some(pod) = pods.items.first() {
+                            if let Some(name) = pod.metadata.name.as_ref() {
+                                return Ok(Some(name.clone()));
+                            }
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+        Err(_) => {}
+    }
+
+    Ok(None)
+}
+
+/// Resolve a pod backing a service using Endpoints (prefers ready addresses).
+async fn find_pod_via_endpoints(
+    client: &::kube::Client,
+    namespace: &str,
+    service: &str,
+) -> anyhow::Result<Option<String>> {
+    use ::kube::Api;
+    use k8s_openapi::api::core::v1::Endpoints;
+
+    let ep_api = Api::<Endpoints>::namespaced(client.clone(), namespace);
+    if let Ok(eps) = ep_api.get(service).await {
+        if let Some(subsets) = eps.subsets {
+            for subset in subsets {
+                // Prefer ready addresses, fallback to not_ready_addresses
+                let candidates = subset
+                    .addresses
+                    .or(subset.not_ready_addresses)
+                    .unwrap_or_default();
+                for addr in candidates {
+                    if let Some(target_ref) = addr.target_ref {
+                        if target_ref.kind.as_deref() == Some("Pod") {
+                            if let Some(name) = target_ref.name {
+                                return Ok(Some(name));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Emit current port forward list to UI
+fn emit_port_forward_list(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let list = state.port_forward_manager.list();
+    events::emit(
+        state.seq.as_ref(),
+        sender,
+        Route::global(section_keys::network_portforwards()),
+        Correlation::None,
+        BackendEvent::ResourceList(ResourceListEvent::PortForwardsUpdated(list)),
+    );
+}
+
+/// Save active port forwards to disk
+fn save_port_forwards_to_disk(state: &BackendState) {
+    let list = state.port_forward_manager.list();
+    if let Err(e) = persistence::save_all_ports(&list) {
+        tracing::warn!("Failed to save port forwards to disk: {}", e);
+    }
 }

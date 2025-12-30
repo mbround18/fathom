@@ -1,6 +1,7 @@
 use super::{
-    Correlation, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
-    PodDetails, PodMetricsSummary, PodSummary, ReplicaSetDetails, ReplicaSetSummary,
+    Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary,
+    DeploymentDetails, DeploymentSummary, JobDetails, JobSummary, PodDetails, PodMetricsHistory,
+    PodMetricsSummary, PodSummary, ReplicaSetDetails, ReplicaSetSummary,
     ReplicationControllerDetails, ReplicationControllerSummary, Route, StatefulSetDetails,
     StatefulSetSummary, StreamId,
 };
@@ -55,6 +56,16 @@ pub enum SystemEvent {
     NamespaceFilterChanged {
         namespaces: Vec<String>,
     },
+
+    PrometheusConnectionTest {
+        success: bool,
+        message: String,
+    },
+
+    GrafanaConnectionTest {
+        success: bool,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -66,17 +77,23 @@ pub enum ResourceListEvent {
     StatefulSetsUpdated(Vec<StatefulSetSummary>),
     ReplicaSetsUpdated(Vec<ReplicaSetSummary>),
     ReplicationControllersUpdated(Vec<ReplicationControllerSummary>),
+    JobsUpdated(Vec<JobSummary>),
+    CronJobsUpdated(Vec<CronJobSummary>),
+    PortForwardsUpdated(Vec<crate::sections::network::PortForward>),
 }
 
 #[derive(Debug, Clone)]
 pub enum ResourceReadEvent {
     PodDetailsUpdated(PodDetails),
     PodMetricsUpdated(PodMetricsSummary),
+    PodMetricsHistoryUpdated(PodMetricsHistory),
     DeploymentDetailsUpdated(DeploymentDetails),
     DaemonSetDetailsUpdated(DaemonSetDetails),
     StatefulSetDetailsUpdated(StatefulSetDetails),
     ReplicaSetDetailsUpdated(ReplicaSetDetails),
     ReplicationControllerDetailsUpdated(ReplicationControllerDetails),
+    JobDetailsUpdated(JobDetails),
+    CronJobDetailsUpdated(CronJobDetails),
 }
 
 #[derive(Debug, Clone)]
@@ -85,10 +102,23 @@ pub enum StreamEvent {
         stream_id: StreamId,
         lines: Vec<String>,
     },
+    PortForwardTunnel {
+        tunnel_id: String,
+        status: PortForwardStatus,
+        local_endpoint: Option<String>,
+    },
     StreamClosed {
         stream_id: StreamId,
         reason: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortForwardStatus {
+    Connecting,
+    Active,
+    Error,
+    Closed,
 }
 
 #[derive(Debug, Clone)]

@@ -1,9 +1,11 @@
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, Correlation, PodDetails, PodSummary, ResourceListEvent,
-    ResourceReadEvent, Route, StreamEvent, section_keys,
+    BackendEvent, BackendEventEnvelope, ContainerPort, ContainerResourceSpec, Correlation,
+    PodDetails, PodOwner, PodSummary, ResourceListEvent, ResourceReadEvent, Route, StreamEvent,
+    section_keys,
 };
 use crossbeam_channel::Sender;
 use futures_util::{StreamExt, io::AsyncBufReadExt};
+use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     ResourceExt,
@@ -11,6 +13,7 @@ use kube::{
 };
 use std::collections::{BTreeMap, HashMap};
 
+use super::interactions;
 use super::state::{client_or_err, stop_logs};
 use super::{events, state::BackendState};
 
@@ -45,6 +48,18 @@ pub(super) async fn delete_pod(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<Pod> = Api::namespaced(client, namespace);
+
+    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "delete",
+        &ts,
+        serde_json::json!({}),
+    )
+    .await;
+
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
         state.seq.as_ref(),
@@ -118,6 +133,8 @@ pub(super) async fn fetch_pod_details(
     let api: Api<Pod> = Api::namespaced(client, namespace);
     let pod = api.get(name).await?;
 
+    let (owner, resolved_owner) = resolve_pod_owner(state, namespace, &pod).await;
+
     let labels: BTreeMap<String, String> = pod
         .metadata
         .labels
@@ -151,6 +168,26 @@ pub(super) async fn fetch_pod_details(
         })
         .unwrap_or_default();
 
+    let ports: Vec<ContainerPort> = pod
+        .spec
+        .as_ref()
+        .map(|s| {
+            s.containers
+                .iter()
+                .flat_map(|c| {
+                    c.ports.iter().flatten().map(|p| ContainerPort {
+                        container: c.name.clone(),
+                        name: p.name.clone(),
+                        port: p.container_port as u16,
+                        protocol: p.protocol.clone().unwrap_or_else(|| "TCP".to_owned()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let resource_specs: Vec<ContainerResourceSpec> = extract_resource_specs(&pod);
+
     let raw_json = serde_json::to_string_pretty(&pod)?;
 
     let details = PodDetails {
@@ -160,6 +197,10 @@ pub(super) async fn fetch_pod_details(
         labels,
         annotations,
         containers,
+        ports,
+        resource_specs,
+        owner,
+        resolved_owner,
         raw_json,
     };
 
@@ -175,6 +216,59 @@ pub(super) async fn fetch_pod_details(
         BackendEvent::ResourceRead(ResourceReadEvent::PodDetailsUpdated(details)),
     );
     Ok(())
+}
+
+async fn resolve_pod_owner(
+    state: &BackendState,
+    namespace: &str,
+    pod: &Pod,
+) -> (Option<PodOwner>, Option<PodOwner>) {
+    let refs = pod.metadata.owner_references.clone().unwrap_or_default();
+    if refs.is_empty() {
+        return (None, None);
+    }
+
+    // Prefer the controller owner if present.
+    let controller = refs
+        .iter()
+        .find(|r| r.controller.unwrap_or(false))
+        .or_else(|| refs.first());
+
+    let Some(r) = controller else {
+        return (None, None);
+    };
+
+    let owner = Some(PodOwner {
+        kind: r.kind.clone(),
+        name: r.name.clone(),
+    });
+
+    // Best-effort resolve ReplicaSet -> Deployment.
+    if r.kind == "ReplicaSet" {
+        if let Ok(client) = client_or_err(state) {
+            let rs_api: Api<ReplicaSet> = Api::namespaced(client, namespace);
+            if let Ok(rs) = rs_api.get(&r.name).await {
+                let rs_refs = rs.metadata.owner_references.unwrap_or_default();
+                let rs_controller = rs_refs
+                    .iter()
+                    .find(|rr| rr.controller.unwrap_or(false))
+                    .or_else(|| rs_refs.first());
+                if let Some(rr) = rs_controller {
+                    if rr.kind == "Deployment" {
+                        return (
+                            owner,
+                            Some(PodOwner {
+                                kind: rr.kind.clone(),
+                                name: rr.name.clone(),
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    (owner, None)
 }
 
 pub(super) async fn start_logs(
@@ -267,4 +361,52 @@ pub(super) async fn start_logs(
 
     state.log_task = Some(handle);
     Ok(())
+}
+
+pub(super) fn extract_resource_specs(pod: &Pod) -> Vec<ContainerResourceSpec> {
+    use super::metrics::{parse_cpu_quantity, parse_memory_quantity};
+
+    pod.spec
+        .as_ref()
+        .map(|spec| {
+            spec.containers
+                .iter()
+                .map(|container| {
+                    let resources = container.resources.as_ref();
+
+                    let cpu_request_millicores = resources
+                        .and_then(|r| r.requests.as_ref())
+                        .and_then(|req| req.get("cpu"))
+                        .map(|q| q.0.as_str())
+                        .and_then(parse_cpu_quantity);
+
+                    let cpu_limit_millicores = resources
+                        .and_then(|r| r.limits.as_ref())
+                        .and_then(|lim| lim.get("cpu"))
+                        .map(|q| q.0.as_str())
+                        .and_then(parse_cpu_quantity);
+
+                    let memory_request_bytes = resources
+                        .and_then(|r| r.requests.as_ref())
+                        .and_then(|req| req.get("memory"))
+                        .map(|q| q.0.as_str())
+                        .and_then(parse_memory_quantity);
+
+                    let memory_limit_bytes = resources
+                        .and_then(|r| r.limits.as_ref())
+                        .and_then(|lim| lim.get("memory"))
+                        .map(|q| q.0.as_str())
+                        .and_then(parse_memory_quantity);
+
+                    ContainerResourceSpec {
+                        container: container.name.clone(),
+                        cpu_request_millicores,
+                        cpu_limit_millicores,
+                        memory_request_bytes,
+                        memory_limit_bytes,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }

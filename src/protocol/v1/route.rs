@@ -177,4 +177,20 @@ pub mod section_keys {
     pub fn integrations_argo() -> SectionKey {
         SectionKey::new("integrations/argo")
     }
+
+    pub fn integrations_metrics() -> SectionKey {
+        SectionKey::new("integrations/metrics")
+    }
+
+    pub fn integrations_grafana() -> SectionKey {
+        SectionKey::new("integrations/grafana")
+    }
+
+    pub fn integrations_flux() -> SectionKey {
+        SectionKey::new("integrations/flux")
+    }
+
+    pub fn network_portforwards() -> SectionKey {
+        SectionKey::new("network/portforwards")
+    }
 }

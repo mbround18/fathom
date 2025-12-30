@@ -4,6 +4,7 @@ use super::SectionKey;
 pub enum BackendCmdV1 {
     // Global / shell-owned
     Initialize,
+    Shutdown,
     RefreshContexts,
     SetContext {
         context: String,
@@ -128,7 +129,75 @@ pub enum BackendCmdV1 {
         namespace: String,
         name: String,
     },
+    // Workloads / Jobs section
+    RefreshJobs,
+    SelectJob {
+        namespace: String,
+        name: String,
+    },
+    DeleteJob {
+        namespace: String,
+        name: String,
+    },
 
+    // Workloads / CronJobs section
+    RefreshCronJobs,
+    SelectCronJob {
+        namespace: String,
+        name: String,
+    },
+    SuspendCronJob {
+        namespace: String,
+        name: String,
+        suspend: bool,
+    },
+    TriggerCronJob {
+        namespace: String,
+        name: String,
+    },
+    DeleteCronJob {
+        namespace: String,
+        name: String,
+    },
+    // Network / Port Forwards section
+    StartPortForward {
+        namespace: String,
+        pod: String,
+        local_port: u16,
+        remote_port: u16,
+        container: Option<String>,
+    },
+    StopPortForward {
+        tunnel_id: String,
+    },
+    RefreshPortForwards,
+
+    // Integrations / Metrics section
+    RefreshIntegrations,
+    StartMetricsPolling {
+        namespace: String,
+        name: String,
+        interval_secs: u64,
+    },
+    StopMetricsPolling,
+    ConfigurePrometheus {
+        namespace: String,
+        service: String,
+        port: u16,
+    },
+    TestPrometheusConnection {
+        namespace: String,
+        service: String,
+        port: u16,
+    },
+    ConfigureGrafana {
+        base_url: String,
+        api_key: String,
+    },
+    TestGrafanaConnection {
+        base_url: String,
+        api_key: String,
+    },
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
 

@@ -12,6 +12,7 @@ use kube::{
 use serde_json::json;
 use std::collections::BTreeMap;
 
+use super::interactions;
 use super::pods;
 use super::state::client_or_err;
 use super::{events, state::BackendState};
@@ -92,6 +93,18 @@ pub(super) async fn delete_deployment(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
+
+    let ts = Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "delete",
+        &ts,
+        json!({}),
+    )
+    .await;
+
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
         state.seq.as_ref(),
@@ -110,6 +123,18 @@ pub(super) async fn scale_deployment(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
+
+    let ts = Utc::now().to_rfc3339();
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "scale",
+        &ts,
+        json!({"replicas": replicas}),
+    )
+    .await;
+
     let patch = json!({"spec": {"replicas": replicas }});
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
@@ -130,6 +155,17 @@ pub(super) async fn restart_deployment(
     let client = client_or_err(state)?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
     let ts = Utc::now().to_rfc3339();
+
+    let _ = interactions::annotate_action(
+        &api,
+        name,
+        state.current_context.as_deref(),
+        "restart",
+        &ts,
+        json!({"restartedAt": ts}),
+    )
+    .await;
+
     let patch = json!({
         "spec": {
             "template": {

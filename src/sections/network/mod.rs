@@ -1,1 +1,24 @@
-// Network section tree (stubs).
+// Network section tree: Services, Ingress, NetworkPolicies, and Port Forwards.
+//!
+//! This module manages network resources and port forwarding between local and cluster.
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortForward {
+    pub id: String,
+    pub namespace: String,
+    pub pod: String,
+    pub local_port: u16,
+    pub remote_port: u16,
+    pub container: Option<String>,
+    pub status: PortForwardStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PortForwardStatus {
+    Connecting,
+    Active,
+    Error,
+    Closed,
+}

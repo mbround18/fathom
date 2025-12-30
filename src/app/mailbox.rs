@@ -1,8 +1,19 @@
 use super::*;
+use crate::protocol::{ResourceListEvent, StreamEvent};
 
 impl FathomApp {
     pub(super) fn check_mailbox(&mut self) {
+        // First, handle view switching and lifecycle
+        self.handle_view_switch();
+
         while let Ok(envelope) = self.gui_rx.try_recv() {
+            let event = &envelope.event;
+
+            // Route event to active view
+            if let Some(view) = self.views.get_mut(&self.active_section.to_string()) {
+                view.on_event(event);
+            }
+
             match envelope.event {
                 BackendEvent::System(ev) => match ev {
                     SystemEvent::BackendStarted => {
@@ -20,27 +31,7 @@ impl FathomApp {
                     SystemEvent::ContextChanged { current } => {
                         self.current_context = current;
 
-                        // Global invalidation: switching clusters invalidates selections and caches.
-                        self.selected_pod = None;
-                        self.pod_details = None;
-                        self.pod_metrics = None;
-                        self.pod_metrics_pending = false;
-                        self.pod_logs.clear();
-
-                        self.selected_deployment = None;
-                        self.deployment_details = None;
-
-                        self.selected_daemonset = None;
-                        self.daemonset_details = None;
-
-                        self.selected_statefulset = None;
-                        self.statefulset_details = None;
-
-                        self.selected_replicaset = None;
-                        self.replicaset_details = None;
-
-                        self.selected_replicationcontroller = None;
-                        self.replicationcontroller_details = None;
+                        // Views handle their own state cleanup via on_unmount/on_mount lifecycle
 
                         // Backend resets namespace filter to "all" on context switch.
                         self.select_all_namespaces = true;
@@ -55,6 +46,26 @@ impl FathomApp {
                             self.selected_namespaces = namespaces.into_iter().collect();
                         }
                     }
+                    SystemEvent::PrometheusConnectionTest { success, message } => {
+                        self.prometheus_testing = false;
+                        if success {
+                            self.prometheus_connected = true;
+                            self.push_status("Prometheus connected successfully".to_owned());
+                        } else {
+                            self.prometheus_connected = false;
+                            self.push_status(format!("Prometheus connection failed: {}", message));
+                        }
+                    }
+                    SystemEvent::GrafanaConnectionTest { success, message } => {
+                        self.grafana_testing = false;
+                        if success {
+                            self.grafana_connected = true;
+                            self.push_status("Grafana connected successfully".to_owned());
+                        } else {
+                            self.grafana_connected = false;
+                            self.push_status(format!("Grafana connection failed: {}", message));
+                        }
+                    }
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {
@@ -63,52 +74,71 @@ impl FathomApp {
                         if self.select_all_namespaces {
                             self.selected_namespaces.clear();
                         }
-                        self.pod_metrics_pending = false;
+                    }
+                    ResourceListEvent::PortForwardsUpdated(port_forwards) => {
+                        self.port_forwards = port_forwards;
                     }
                     ResourceListEvent::PodsUpdated(pods) => {
                         self.pods = pods;
                     }
-                    ResourceListEvent::DeploymentsUpdated(deployments) => {
-                        self.deployments = deployments;
+                    ResourceListEvent::DeploymentsUpdated(items) => {
+                        self.deployments = items;
                     }
-                    ResourceListEvent::DaemonSetsUpdated(daemonsets) => {
-                        self.daemonsets = daemonsets;
+                    ResourceListEvent::DaemonSetsUpdated(items) => {
+                        self.daemonsets = items;
                     }
-                    ResourceListEvent::StatefulSetsUpdated(statefulsets) => {
-                        self.statefulsets = statefulsets;
+                    ResourceListEvent::StatefulSetsUpdated(items) => {
+                        self.statefulsets = items;
                     }
-                    ResourceListEvent::ReplicaSetsUpdated(replicasets) => {
-                        self.replicasets = replicasets;
+                    ResourceListEvent::ReplicaSetsUpdated(items) => {
+                        self.replicasets = items;
                     }
-                    ResourceListEvent::ReplicationControllersUpdated(replicationcontrollers) => {
-                        self.replicationcontrollers = replicationcontrollers;
+                    ResourceListEvent::ReplicationControllersUpdated(items) => {
+                        self.replicationcontrollers = items;
+                    }
+                    ResourceListEvent::JobsUpdated(items) => {
+                        self.jobs = items;
+                    }
+                    ResourceListEvent::CronJobsUpdated(items) => {
+                        self.cronjobs = items;
                     }
                 },
 
-                BackendEvent::ResourceRead(ev) => match ev {
-                    ResourceReadEvent::PodDetailsUpdated(details) => {
-                        self.pod_details = Some(details);
+                BackendEvent::ResourceRead(ev) => {
+                    use crate::protocol::ResourceReadEvent;
+                    match ev {
+                        ResourceReadEvent::PodDetailsUpdated(details) => {
+                            self.pod_details = Some(details);
+                        }
+                        ResourceReadEvent::DeploymentDetailsUpdated(details) => {
+                            self.deployment_details = Some(details);
+                        }
+                        ResourceReadEvent::DaemonSetDetailsUpdated(details) => {
+                            self.daemonset_details = Some(details);
+                        }
+                        ResourceReadEvent::StatefulSetDetailsUpdated(details) => {
+                            self.statefulset_details = Some(details);
+                        }
+                        ResourceReadEvent::ReplicaSetDetailsUpdated(details) => {
+                            self.replicaset_details = Some(details);
+                        }
+                        ResourceReadEvent::ReplicationControllerDetailsUpdated(details) => {
+                            self.replicationcontroller_details = Some(details);
+                        }
+                        ResourceReadEvent::JobDetailsUpdated(details) => {
+                            self.job_details = Some(details);
+                        }
+                        ResourceReadEvent::CronJobDetailsUpdated(details) => {
+                            self.cronjob_details = Some(details);
+                        }
+                        ResourceReadEvent::PodMetricsUpdated(metrics) => {
+                            self.pod_metrics = Some(metrics);
+                        }
+                        ResourceReadEvent::PodMetricsHistoryUpdated(history) => {
+                            self.pod_metrics_history = Some(history);
+                        }
                     }
-                    ResourceReadEvent::PodMetricsUpdated(metrics) => {
-                        self.pod_metrics = Some(metrics);
-                        self.pod_metrics_pending = false;
-                    }
-                    ResourceReadEvent::DeploymentDetailsUpdated(details) => {
-                        self.deployment_details = Some(details);
-                    }
-                    ResourceReadEvent::DaemonSetDetailsUpdated(details) => {
-                        self.daemonset_details = Some(details);
-                    }
-                    ResourceReadEvent::StatefulSetDetailsUpdated(details) => {
-                        self.statefulset_details = Some(details);
-                    }
-                    ResourceReadEvent::ReplicaSetDetailsUpdated(details) => {
-                        self.replicaset_details = Some(details);
-                    }
-                    ResourceReadEvent::ReplicationControllerDetailsUpdated(details) => {
-                        self.replicationcontroller_details = Some(details);
-                    }
-                },
+                }
 
                 BackendEvent::Stream(ev) => match ev {
                     StreamEvent::PodLogsChunk {
@@ -126,6 +156,14 @@ impl FathomApp {
                         reason,
                     } => {
                         self.push_status(format!("Log stream closed: {}", reason));
+                    }
+                    StreamEvent::PortForwardTunnel {
+                        tunnel_id: _,
+                        status: _,
+                        local_endpoint: _,
+                    } => {
+                        // TODO: Handle port forward status updates
+                        self.push_status("Port forward status updated".to_string());
                     }
                 },
             }
