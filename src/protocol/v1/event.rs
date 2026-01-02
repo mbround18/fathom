@@ -66,6 +66,11 @@ pub enum SystemEvent {
         success: bool,
         message: String,
     },
+
+    McpServerStatus {
+        running: bool,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone)]

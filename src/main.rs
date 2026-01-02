@@ -1,16 +1,37 @@
 use app::FathomApp;
+use clap::Parser;
 use crossbeam_channel::unbounded;
 use std::thread;
 use tracing_subscriber::EnvFilter;
 
 mod app;
 mod backend;
+mod mcp_server;
 mod protocol;
 pub mod sections;
 use protocol::{BackendCmd, BackendEventEnvelope};
 
+/// Fathom - Kubernetes Dashboard with MCP integration
+#[derive(Parser, Debug, Clone)]
+#[command(version, about, long_about = None)]
+pub struct Args {
+    /// Enable MCP HTTP server (localhost:18288) [default: true]
+    #[arg(long, env = "FATHOM_MCP_HTTP_ENABLED", default_value_t = true)]
+    pub mcp_http: bool,
+
+    /// MCP HTTP server port (default: 18288 - 1.8288m ≈ 1 fathom)
+    #[arg(long, env = "FATHOM_MCP_PORT", default_value = "18288")]
+    pub mcp_port: u16,
+
+    /// Run only MCP server (headless, no UI)
+    #[arg(long, env = "FATHOM_ONLY_MCP")]
+    pub only_mcp: bool,
+}
+
 fn main() -> eframe::Result<()> {
     init_tracing();
+
+    let args = Args::parse();
 
     // Channels (UI thread never awaits; backend owns tokio runtime)
     let (gui_tx, gui_rx) = unbounded::<BackendEventEnvelope>();
@@ -31,10 +52,20 @@ fn main() -> eframe::Result<()> {
     })
     .expect("Error setting Ctrl+C handler");
 
+    // Clone args before moving into thread
+    let args_for_backend = args.clone();
     let backend_thread = thread::spawn(move || {
-        backend::init(backend_rx, gui_tx);
+        backend::init(backend_rx, gui_tx, args_for_backend);
     });
 
+    // Only-MCP mode: skip GUI, block on backend thread
+    if args.only_mcp {
+        tracing::info!("Running in headless MCP-only mode");
+        let _ = backend_thread.join();
+        return Ok(());
+    }
+
+    // Normal mode: run GUI + backend
     let icon_data = load_icon();
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_icon(icon_data),

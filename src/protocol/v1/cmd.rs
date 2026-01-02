@@ -198,6 +198,10 @@ pub enum BackendCmdV1 {
         base_url: String,
         api_key: String,
     },
+    // MCP Server integration
+    StartMcpServer,
+    StopMcpServer,
+    OpenMcpConfigDir,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
 

@@ -17,7 +17,7 @@ mod interactions;
 mod jobs;
 mod kube;
 mod metrics;
-mod persistence;
+pub mod persistence;
 mod pods;
 mod portforward;
 mod replicasets;
@@ -29,10 +29,32 @@ mod workload_common;
 
 use state::BackendState;
 
-pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>) {
+pub fn init(
+    receiver: Receiver<BackendCmd>,
+    sender: Sender<BackendEventEnvelope>,
+    args: crate::Args,
+) {
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
 
     let mut state = BackendState::new();
+
+    // Create MCP state
+    let mcp_state = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
+
+    // Spawn MCP HTTP server if enabled
+    // Port 18288: 1.8288 meters ≈ 1 fathom (unit of depth measurement)
+    let mcp_http_handle = if args.mcp_http || args.only_mcp {
+        tracing::info!(
+            "Starting MCP HTTP server on http://127.0.0.1:{} (18288 = 1.8288m ≈ 1 fathom)",
+            args.mcp_port
+        );
+        Some(rt.spawn(crate::mcp_server::run_http_mcp_server(
+            mcp_state.clone(),
+            args.mcp_port,
+        )))
+    } else {
+        None
+    };
 
     events::emit(
         state.seq.as_ref(),
@@ -59,6 +81,11 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
             Err(err) => events::notify_error(state.seq.as_ref(), &sender, err.to_string()),
             _ => {}
         }
+    }
+
+    // Cleanup: abort MCP HTTP server if running
+    if let Some(handle) = mcp_http_handle {
+        handle.abort();
     }
 
     // Final cleanup on exit
@@ -744,6 +771,111 @@ async fn handle_cmd(
                 "Integrations refreshed".to_owned(),
             );
         }
+        BackendCmd::OpenMcpConfigDir => match crate::mcp_server::mcp_dir() {
+            Ok(path) => {
+                if let Err(e) = std::fs::create_dir_all(&path) {
+                    events::notify_error(
+                        state.seq.as_ref(),
+                        sender,
+                        format!("Failed to create MCP dir: {}", e),
+                    );
+                } else {
+                    let cmd = if cfg!(target_os = "windows") {
+                        "explorer"
+                    } else if cfg!(target_os = "macos") {
+                        "open"
+                    } else {
+                        "xdg-open"
+                    };
+
+                    match tokio::process::Command::new(cmd).arg(&path).spawn() {
+                        Ok(_) => {
+                            events::notify_info(
+                                state.seq.as_ref(),
+                                sender,
+                                format!("Opening MCP config directory: {}", path.display()),
+                            );
+                        }
+                        Err(e) => {
+                            events::notify_error(
+                                state.seq.as_ref(),
+                                sender,
+                                format!("Failed to open MCP directory: {}", e),
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                events::notify_error(
+                    state.seq.as_ref(),
+                    sender,
+                    format!("Failed to resolve MCP dir: {}", e),
+                );
+            }
+        },
+        BackendCmd::StartMcpServer => {
+            // Initialize MCP server with current state
+            let mcp_state = crate::mcp_server::McpAppState::new();
+            let seq = state.seq.clone();
+            let event_sender = sender.clone();
+
+            // Spawn async task to initialize server
+            tokio::spawn(async move {
+                match crate::mcp_server::initialize_mcp_server(mcp_state).await {
+                    Ok(_) => {
+                        // Emit MCP server status event
+                        events::emit(
+                            seq.as_ref(),
+                            &event_sender,
+                            Route::global(section_keys::integrations_mcp()),
+                            Correlation::None,
+                            BackendEvent::System(SystemEvent::McpServerStatus {
+                                running: true,
+                                message: "MCP server started successfully".to_owned(),
+                            }),
+                        );
+                        events::notify_info(
+                            seq.as_ref(),
+                            &event_sender,
+                            "MCP server started successfully".to_owned(),
+                        );
+                    }
+                    Err(e) => {
+                        // Emit failure status event
+                        events::emit(
+                            seq.as_ref(),
+                            &event_sender,
+                            Route::global(section_keys::integrations_mcp()),
+                            Correlation::None,
+                            BackendEvent::System(SystemEvent::McpServerStatus {
+                                running: false,
+                                message: format!("Failed to start: {}", e),
+                            }),
+                        );
+                        events::notify_error(
+                            seq.as_ref(),
+                            &event_sender,
+                            format!("Failed to start MCP server: {}", e),
+                        );
+                    }
+                }
+            });
+        }
+        BackendCmd::StopMcpServer => {
+            // Emit MCP server stopped event
+            events::emit(
+                state.seq.as_ref(),
+                sender,
+                Route::global(section_keys::integrations_mcp()),
+                Correlation::None,
+                BackendEvent::System(SystemEvent::McpServerStatus {
+                    running: false,
+                    message: "MCP server stopped".to_owned(),
+                }),
+            );
+            events::notify_info(state.seq.as_ref(), sender, "MCP server stopped".to_owned());
+        }
     }
 
     Ok(false)
@@ -754,7 +886,7 @@ async fn restore_saved_port_forwards(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let saved_ports = persistence::load_saved_ports()?;
+    let saved_ports = persistence::load_all_ports()?;
     if saved_ports.is_empty() {
         return Ok(());
     }

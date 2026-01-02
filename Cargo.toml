@@ -32,10 +32,23 @@ reqwest = { version = "0.12.28", features = ["json"] }
 ring = "0.17.14"
 base64 = "0.22.1"
 dirs = "6.0.0"
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+    "serde",
+] }
+urlencoding = "2.1"
 
 # Observability
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
+
+# MCP Server for VSCode & Claude integration
+rmcp = { version = "0.12.0", features = ["server"] }
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 
 [build-dependencies]
 embed-resource = "3.0.6"

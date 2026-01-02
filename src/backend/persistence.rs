@@ -39,6 +39,11 @@ pub fn credentials_config_path() -> Result<PathBuf> {
     Ok(fathom_config_dir()?.join("credentials.json"))
 }
 
+/// Get the path to config.json (main application config)
+pub fn main_config_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("config.json"))
+}
+
 /// Load JSON from file, return empty object if file doesn't exist
 pub fn load_json_file(path: &Path) -> Result<serde_json::Value> {
     ensure_config_dir()?;
@@ -97,9 +102,41 @@ pub fn save_credentials(value: &serde_json::Value) -> Result<()> {
     save_json_file(&path, value)
 }
 
+/// Load main configuration
+pub fn load_config() -> Result<serde_json::Value> {
+    let path = main_config_path()?;
+    load_json_file(&path)
+}
+
+/// Save main configuration
+pub fn save_config(value: &serde_json::Value) -> Result<()> {
+    let path = main_config_path()?;
+    save_json_file(&path, value)
+}
+
+/// Load MCP auto-start preference
+pub fn load_mcp_auto_start() -> Result<bool> {
+    let config = load_config()?;
+    Ok(config
+        .get("mcp")
+        .and_then(|mcp| mcp.get("auto_start"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false))
+}
+
+/// Save MCP auto-start preference
+pub fn save_mcp_auto_start(enabled: bool) -> Result<()> {
+    let mut config = load_config()?;
+    config["mcp"]["auto_start"] = serde_json::json!(enabled);
+    save_config(&config)?;
+    tracing::info!("Saved MCP auto-start preference: {}", enabled);
+    Ok(())
+}
+
 /// Load saved port forwards from ports.json
-pub fn load_saved_ports() -> Result<Vec<PortForward>> {
+pub fn load_all_ports() -> Result<Vec<PortForward>> {
     let path = ports_config_path()?;
+    ensure_config_dir()?;
     if !path.exists() {
         return Ok(Vec::new());
     }

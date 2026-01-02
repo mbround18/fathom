@@ -70,6 +70,22 @@ impl Route {
 pub mod section_keys {
     use super::SectionKey;
 
+    pub fn context() -> SectionKey {
+        SectionKey::new("_context")
+    }
+
+    pub fn navigation() -> SectionKey {
+        SectionKey::new("_navigation")
+    }
+
+    pub fn status() -> SectionKey {
+        SectionKey::new("_status")
+    }
+
+    pub fn modal() -> SectionKey {
+        SectionKey::new("_modal")
+    }
+
     pub fn system() -> SectionKey {
         SectionKey::new("system")
     }
@@ -228,6 +244,10 @@ pub mod section_keys {
 
     pub fn integrations_flux() -> SectionKey {
         SectionKey::new("integrations/flux")
+    }
+
+    pub fn integrations_mcp() -> SectionKey {
+        SectionKey::new("integrations/mcp")
     }
 
     pub fn network_portforwards() -> SectionKey {

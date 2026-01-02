@@ -1,136 +1,31 @@
 use super::*;
 
 impl FathomApp {
+    /// Render top bar using view component
+    ///
+    /// Uses ContextView to manage context and namespace selection.
     pub(super) fn render_top_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Fathom");
+            // Get the context view
+            let context_view = self.get_or_create_view(&section_keys::context());
 
-                ui.add_space(12.0);
+            // Render context and collect actions
+            let actions = context_view.render(ui, ctx);
 
-                ui.label("Context:");
-                egui::ComboBox::from_id_salt("context_combo")
-                    .selected_text(self.context_combo_text())
-                    .show_ui(ui, |ui| {
-                        if self.contexts.is_empty() {
-                            ui.label("(no kubeconfig contexts found)");
-                            return;
-                        }
-
-                        for ctx_name in self.contexts.clone() {
-                            let selected =
-                                self.current_context.as_deref() == Some(ctx_name.as_str());
-                            if ui.selectable_label(selected, &ctx_name).clicked() {
-                                // Reset selection state when switching clusters.
-                                self.selected_pod = None;
-                                self.pod_details = None;
-                                self.pod_metrics = None;
-                                self.pod_logs.clear();
-
-                                self.select_all_namespaces = true;
-                                self.selected_namespaces.clear();
-
-                                self.send(BackendCmd::SetContext { context: ctx_name });
-                                // Backend will refresh namespaces/pods and restart sync.
-                            }
-                        }
-                    });
-
-                if ui.button("Refresh").clicked() {
-                    self.send(BackendCmd::RefreshContexts);
-                    self.send(BackendCmd::RefreshNamespaces);
-                    self.send(BackendCmd::RefreshPods);
-                    self.send(BackendCmd::RefreshDeployments);
+            // Process returned actions
+            for action in actions {
+                match action {
+                    ViewAction::SendCommand(cmd) => {
+                        self.send(cmd);
+                    }
+                    ViewAction::NotifyStatus(msg) => {
+                        self.push_status(msg);
+                    }
+                    ViewAction::Navigate(_) => {
+                        // Context view shouldn't emit navigation
+                    }
                 }
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.label("Namespaces:");
-
-                egui::ComboBox::from_id_salt("namespace_combo")
-                    .selected_text(self.namespace_combo_text())
-                    .show_ui(ui, |ui| {
-                        let enabled_for_section = self.active_scope_kind() == ScopeKind::Namespaced;
-                        let mut all = self.select_all_namespaces;
-                        if ui
-                            .add_enabled(enabled_for_section, egui::Checkbox::new(&mut all, "All"))
-                            .changed()
-                        {
-                            self.select_all_namespaces = all;
-                            if all {
-                                self.selected_namespaces.clear();
-                                // Apply immediately: empty filter means "all namespaces" in backend.
-                                self.send(BackendCmd::SetNamespaceFilter {
-                                    namespaces: self.effective_namespace_filter(),
-                                });
-                            }
-                            // If "All" was turned off, wait to apply until the user picks
-                            // one or more namespaces.
-                        }
-
-                        ui.separator();
-
-                        // Allow selecting namespaces even when "All" is currently enabled.
-                        // Clicking a namespace will automatically turn off "All" and scope.
-                        let enabled = enabled_for_section;
-                        let namespaces = self.namespaces.clone();
-                        let mut changed = false;
-
-                        for ns in namespaces {
-                            let mut selected = self.selected_namespaces.contains(&ns);
-                            let response =
-                                ui.add_enabled(enabled, egui::Checkbox::new(&mut selected, &ns));
-                            if enabled && response.changed() {
-                                changed = true;
-
-                                if self.select_all_namespaces && selected {
-                                    // First explicit pick: disable "All" and start a scoped set.
-                                    self.select_all_namespaces = false;
-                                    self.selected_namespaces.clear();
-                                    self.selected_namespaces.insert(ns);
-                                } else if selected {
-                                    self.selected_namespaces.insert(ns);
-                                } else {
-                                    self.selected_namespaces.remove(&ns);
-                                }
-                            }
-                        }
-
-                        if changed {
-                            self.send(BackendCmd::SetNamespaceFilter {
-                                namespaces: self.effective_namespace_filter(),
-                            });
-                        }
-                    });
-            });
+            }
         });
-    }
-
-    fn context_combo_text(&self) -> String {
-        if let Some(ctx) = &self.current_context {
-            return ctx.clone();
-        }
-        if self.contexts.is_empty() {
-            return "(default)".to_owned();
-        }
-        "(select)".to_owned()
-    }
-
-    fn namespace_combo_text(&self) -> String {
-        if self.select_all_namespaces {
-            return "All".to_owned();
-        }
-        if self.selected_namespaces.is_empty() {
-            return "(none)".to_owned();
-        }
-        if self.selected_namespaces.len() == 1 {
-            return self
-                .selected_namespaces
-                .iter()
-                .next()
-                .cloned()
-                .unwrap_or_else(|| "(none)".to_owned());
-        }
-        format!("{} selected", self.selected_namespaces.len())
     }
 }

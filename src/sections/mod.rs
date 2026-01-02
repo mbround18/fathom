@@ -262,6 +262,12 @@ pub fn all_sections() -> Vec<SectionDef> {
             group: NavGroup::Integrations,
             scope: ScopeKind::Namespaced,
         },
+        SectionDef {
+            key: section_keys::integrations_mcp(),
+            label: "MCP Server",
+            group: NavGroup::Integrations,
+            scope: ScopeKind::Cluster,
+        },
     ]
 }
 

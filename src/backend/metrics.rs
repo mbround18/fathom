@@ -15,6 +15,10 @@ use std::time::Duration;
 
 use super::events;
 use super::state::{BackendState, MetricsAvailability, client_or_err};
+use crate::backend::integrations::IntegrationConfig;
+use anyhow::Context;
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
 
 pub(super) async fn probe_metrics_api(
     state: &mut BackendState,
@@ -246,7 +250,88 @@ pub(super) async fn start_metrics_polling(
     // Stop existing polling task if any
     stop_metrics_polling(state);
 
-    // Skip metrics polling if metrics API is not available
+    // Try Prometheus first if configured for this context
+    let prom_config = state
+        .current_context
+        .as_ref()
+        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
+        .and_then(|cfg| cfg.prometheus)
+        .filter(|p| p.enabled);
+
+    if let Some(prom) = prom_config {
+        // Clone for use outside the spawned task (logging) and inside the task (query params)
+        let namespace_for_prom = namespace.clone();
+        let name_for_prom = name.clone();
+        let namespace_for_prom_task = namespace_for_prom.clone();
+        let name_for_prom_task = name_for_prom.clone();
+
+        let sender_clone = sender.clone();
+        let seq_clone = state.seq.clone();
+        let context = state.current_context.clone();
+        let handle = tokio::spawn(async move {
+            let interval = Duration::from_secs(interval_secs);
+            let mut has_failed = false;
+
+            loop {
+                let end = Utc::now();
+                let start = end - chrono::Duration::seconds((interval_secs * 20) as i64);
+                let step = format!("{}s", interval_secs);
+
+                let result = fetch_prom_pod_history(
+                    &prom,
+                    &namespace_for_prom_task,
+                    &name_for_prom_task,
+                    &step,
+                    start,
+                    end,
+                    &resource_specs,
+                )
+                .await;
+
+                match result {
+                    Ok(history) => {
+                        has_failed = false;
+                        events::emit(
+                            seq_clone.as_ref(),
+                            &sender_clone,
+                            Route::namespaced(
+                                section_keys::workloads_pods(),
+                                context.clone(),
+                                Some(namespace_for_prom_task.clone()),
+                            ),
+                            Correlation::None,
+                            BackendEvent::ResourceRead(
+                                ResourceReadEvent::PodMetricsHistoryUpdated(history),
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        if !has_failed {
+                            has_failed = true;
+                            tracing::warn!("Prometheus metrics polling failed: {}", e);
+                        } else {
+                            tracing::debug!("Prometheus metrics polling retry failed: {}", e);
+                        }
+                    }
+                }
+
+                tokio::time::sleep(interval).await;
+            }
+        });
+
+        state.metrics_poll_task = Some(handle);
+        events::notify_info(
+            state.seq.as_ref(),
+            sender,
+            format!(
+                "Watching POD {}/{} for metrics via Prometheus",
+                namespace_for_prom, name_for_prom
+            ),
+        );
+        return Ok(());
+    }
+
+    // Fallback to metrics API polling
     if state.metrics_availability == MetricsAvailability::Unavailable
         || state.metrics_availability == MetricsAvailability::Forbidden
     {
@@ -364,6 +449,160 @@ pub(super) async fn start_metrics_polling(
 
     state.metrics_poll_task = Some(handle);
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct PromResult {
+    result: Vec<PromSeries>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PromSeries {
+    metric: std::collections::HashMap<String, String>,
+    values: Vec<(f64, String)>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PromResponse {
+    status: String,
+    data: PromResult,
+}
+
+async fn prom_query_range(
+    base_url: &str,
+    query: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    step: &str,
+) -> anyhow::Result<Vec<PromSeries>> {
+    let url = format!(
+        "{}/api/v1/query_range?query={}&start={}&end={}&step={}",
+        base_url,
+        urlencoding::encode(query),
+        start.timestamp(),
+        end.timestamp(),
+        step
+    );
+
+    let resp = reqwest::get(&url)
+        .await
+        .with_context(|| format!("Prometheus GET failed for {}", url))?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    if !status.is_success() {
+        anyhow::bail!("Prometheus returned {}: {}", status, body);
+    }
+
+    let parsed: PromResponse = serde_json::from_str(&body)
+        .with_context(|| format!("Failed to parse Prometheus response: {}", body))?;
+    if parsed.status != "success" {
+        anyhow::bail!("Prometheus returned non-success status: {}", parsed.status);
+    }
+    Ok(parsed.data.result)
+}
+
+async fn fetch_prom_pod_history(
+    prom: &crate::backend::integrations::PrometheusConfig,
+    namespace: &str,
+    pod: &str,
+    step: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    resource_specs: &[ContainerResourceSpec],
+) -> anyhow::Result<PodMetricsHistory> {
+    let base_url = format!(
+        "http://{}.{}.svc:{}",
+        prom.service, prom.namespace, prom.port
+    );
+
+    // CPU: millicores
+    let cpu_query = format!(
+        "rate(container_cpu_usage_seconds_total{{namespace=\"{}\",pod=\"{}\",container!=\"POD\"}}[5m])*1000",
+        namespace, pod
+    );
+
+    // Memory: bytes
+    let mem_query = format!(
+        "container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container!=\"POD\"}}",
+        namespace, pod
+    );
+
+    let cpu_series = prom_query_range(&base_url, &cpu_query, start, end, step).await?;
+    let mem_series = prom_query_range(&base_url, &mem_query, start, end, step).await?;
+
+    let mut cpu_map: std::collections::HashMap<String, Vec<(String, f64)>> =
+        std::collections::HashMap::new();
+    for series in cpu_series {
+        let cname = series
+            .metric
+            .get("container")
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        let mut samples = Vec::new();
+        for (ts, val) in series.values {
+            if let Ok(v) = val.parse::<f64>() {
+                let ts = DateTime::<Utc>::from_timestamp(ts as i64, 0)
+                    .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
+                    .to_rfc3339();
+                samples.push((ts, v));
+            }
+        }
+        cpu_map.insert(cname, samples);
+    }
+
+    let mut mem_map: std::collections::HashMap<String, Vec<(String, f64)>> =
+        std::collections::HashMap::new();
+    for series in mem_series {
+        let cname = series
+            .metric
+            .get("container")
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        let mut samples = Vec::new();
+        for (ts, val) in series.values {
+            if let Ok(v) = val.parse::<f64>() {
+                let ts = DateTime::<Utc>::from_timestamp(ts as i64, 0)
+                    .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
+                    .to_rfc3339();
+                samples.push((ts, v));
+            }
+        }
+        mem_map.insert(cname, samples);
+    }
+
+    let mut containers = Vec::new();
+    for (cname, cpu_samples) in cpu_map.iter() {
+        if let Some(mem_samples) = mem_map.get(cname) {
+            let len = cpu_samples.len().min(mem_samples.len());
+            let mut samples = Vec::new();
+            for i in 0..len {
+                let ts = cpu_samples[i].0.clone();
+                let cpu = cpu_samples[i].1;
+                let mem = mem_samples[i].1;
+                samples.push(MetricsSample {
+                    timestamp: ts,
+                    cpu_millicores: cpu,
+                    memory_bytes: mem,
+                });
+            }
+
+            let spec = resource_specs.iter().find(|s| &s.container == cname);
+            containers.push(ContainerMetricsHistory {
+                name: cname.clone(),
+                samples,
+                cpu_request_millicores: spec.and_then(|s| s.cpu_request_millicores),
+                cpu_limit_millicores: spec.and_then(|s| s.cpu_limit_millicores),
+                memory_request_bytes: spec.and_then(|s| s.memory_request_bytes),
+                memory_limit_bytes: spec.and_then(|s| s.memory_limit_bytes),
+            });
+        }
+    }
+
+    Ok(PodMetricsHistory {
+        namespace: namespace.to_string(),
+        name: pod.to_string(),
+        containers,
+    })
 }
 
 pub(super) fn stop_metrics_polling(state: &mut BackendState) {
