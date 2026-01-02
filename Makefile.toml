@@ -1,0 +1,93 @@
+[config]
+default_to_workspace = false
+reduce_output = false
+
+[tasks.build]
+description = "Build the project in debug mode"
+command = "cargo"
+args = ["build"]
+
+[tasks.build-release]
+description = "Build the project in release mode"
+command = "cargo"
+args = ["build", "--release"]
+
+[tasks.check]
+description = "Check for compilation errors without building"
+command = "cargo"
+args = ["check"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean"]
+
+[tasks.fmt]
+description = "Format code using rustfmt"
+command = "cargo"
+args = ["fmt"]
+
+[tasks.fmt-check]
+description = "Check code formatting without modifying files"
+command = "cargo"
+args = ["fmt", "--check"]
+
+[tasks.clippy]
+description = "Run clippy linter"
+command = "cargo"
+args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+
+[tasks.test]
+description = "Run all tests"
+command = "cargo"
+args = ["test", "--all"]
+
+[tasks.test-verbose]
+description = "Run tests with verbose output"
+command = "cargo"
+args = ["test", "--all", "--", "--nocapture"]
+
+[tasks.run]
+description = "Build and run the application"
+command = "cargo"
+args = ["run"]
+
+[tasks.dev]
+description = "Development build - check, fmt, clippy, test"
+dependencies = ["check", "fmt", "clippy"]
+
+[tasks.pre-commit]
+description = "Run checks before committing - format, lint, test"
+dependencies = ["fmt", "clippy", "test"]
+
+[tasks.ci-flow]
+description = "Full CI flow - clean, build, test, lint"
+dependencies = ["clean", "check", "fmt-check", "clippy", "test"]
+
+[tasks.all]
+description = "Build all variants and run all checks"
+dependencies = ["clean", "build", "build-release", "check", "fmt", "clippy", "test"]
+
+[tasks.errors]
+description = "Show compilation errors if any"
+script = '''
+cargo build 2>&1 | grep "^error" | head -20
+'''
+
+[tasks.warnings]
+description = "Show compilation warnings if any"
+script = '''
+cargo build 2>&1 | grep "^warning" | head -20
+'''
+
+[tasks.watch-build]
+description = "Watch for file changes and rebuild"
+command = "cargo"
+args = ["watch", "-x", "build"]
+install_crate = { crate_name = "cargo-watch", binary = "cargo", test_arg = ["watch", "--help"] }
+
+[tasks.watch-test]
+description = "Watch for file changes and run tests"
+command = "cargo"
+args = ["watch", "-x", "test"]
+install_crate = { crate_name = "cargo-watch", binary = "cargo", test_arg = ["watch", "--help"] }
