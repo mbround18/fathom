@@ -305,6 +305,8 @@ pub struct WorkloadViewState {
     pub workload_type: &'static str,
     pub supports_scaling: bool,
     pub table: Table<DeploymentSummary>,
+    pub metrics_polling_started: bool,
+    pub metrics_interval_secs: u64,
 }
 
 impl WorkloadViewState {
@@ -317,6 +319,8 @@ impl WorkloadViewState {
             workload_type,
             supports_scaling,
             table: Table::new(Vec::new()),
+            metrics_polling_started: false,
+            metrics_interval_secs: 15,
         }
     }
 }
@@ -394,7 +398,7 @@ impl ViewComponent for DeploymentView {
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
     ) -> (bool, Vec<ViewAction>) {
         if self.0.selected.is_none() {
             return (false, Vec::new());
@@ -402,6 +406,19 @@ impl ViewComponent for DeploymentView {
 
         let mut actions = Vec::new();
         let (ns, name) = self.0.selected.as_ref().unwrap().clone();
+
+        // Auto-start metrics polling when details panel opens
+        if !self.0.metrics_polling_started {
+            self.0.metrics_polling_started = true;
+            actions.push(ViewAction::SendCommand(
+                BackendCmd::StartWorkloadMetricsPolling {
+                    namespace: ns.clone(),
+                    workload_name: name.clone(),
+                    workload_kind: self.0.workload_type.to_string(),
+                    interval_secs: self.0.metrics_interval_secs,
+                },
+            ));
+        }
 
         ui.horizontal(|ui| {
             ui.heading("Deployment");
@@ -641,7 +658,7 @@ impl ViewComponent for DaemonSetView {
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
     ) -> (bool, Vec<ViewAction>) {
         if self.0.selected.is_none() {
             return (false, Vec::new());
@@ -649,6 +666,19 @@ impl ViewComponent for DaemonSetView {
 
         let mut actions = Vec::new();
         let (ns, name) = self.0.selected.as_ref().unwrap().clone();
+
+        // Auto-start metrics polling when details panel opens
+        if !self.0.metrics_polling_started {
+            self.0.metrics_polling_started = true;
+            actions.push(ViewAction::SendCommand(
+                BackendCmd::StartWorkloadMetricsPolling {
+                    namespace: ns.clone(),
+                    workload_name: name.clone(),
+                    workload_kind: self.0.workload_type.to_string(),
+                    interval_secs: self.0.metrics_interval_secs,
+                },
+            ));
+        }
 
         ui.horizontal(|ui| {
             ui.heading("DaemonSet");
@@ -864,7 +894,7 @@ impl ViewComponent for StatefulSetView {
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
     ) -> (bool, Vec<ViewAction>) {
         if self.0.selected.is_none() {
             return (false, Vec::new());
@@ -872,6 +902,19 @@ impl ViewComponent for StatefulSetView {
 
         let mut actions = Vec::new();
         let (ns, name) = self.0.selected.as_ref().unwrap().clone();
+
+        // Auto-start metrics polling when details panel opens
+        if !self.0.metrics_polling_started {
+            self.0.metrics_polling_started = true;
+            actions.push(ViewAction::SendCommand(
+                BackendCmd::StartWorkloadMetricsPolling {
+                    namespace: ns.clone(),
+                    workload_name: name.clone(),
+                    workload_kind: self.0.workload_type.to_string(),
+                    interval_secs: self.0.metrics_interval_secs,
+                },
+            ));
+        }
 
         ui.horizontal(|ui| {
             ui.heading("StatefulSet");
@@ -1104,7 +1147,7 @@ impl ViewComponent for ReplicaSetView {
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
     ) -> (bool, Vec<ViewAction>) {
         if self.0.selected.is_none() {
             return (false, Vec::new());
@@ -1112,6 +1155,19 @@ impl ViewComponent for ReplicaSetView {
 
         let mut actions = Vec::new();
         let (ns, name) = self.0.selected.as_ref().unwrap().clone();
+
+        // Auto-start metrics polling when details panel opens
+        if !self.0.metrics_polling_started {
+            self.0.metrics_polling_started = true;
+            actions.push(ViewAction::SendCommand(
+                BackendCmd::StartWorkloadMetricsPolling {
+                    namespace: ns.clone(),
+                    workload_name: name.clone(),
+                    workload_kind: self.0.workload_type.to_string(),
+                    interval_secs: self.0.metrics_interval_secs,
+                },
+            ));
+        }
 
         ui.horizontal(|ui| {
             ui.heading("ReplicaSet");
@@ -1355,6 +1411,19 @@ impl ViewComponent for ReplicationControllerView {
 
         let mut actions = Vec::new();
         let (ns, name) = self.0.selected.as_ref().unwrap().clone();
+
+        // Auto-start metrics polling when details panel opens
+        if !self.0.metrics_polling_started {
+            self.0.metrics_polling_started = true;
+            actions.push(ViewAction::SendCommand(
+                BackendCmd::StartWorkloadMetricsPolling {
+                    namespace: ns.clone(),
+                    workload_name: name.clone(),
+                    workload_kind: self.0.workload_type.to_string(),
+                    interval_secs: self.0.metrics_interval_secs,
+                },
+            ));
+        }
 
         ui.horizontal(|ui| {
             ui.heading("ReplicationController");

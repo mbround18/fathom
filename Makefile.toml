@@ -71,13 +71,13 @@ dependencies = ["clean", "build", "build-release", "check", "fmt", "clippy", "te
 [tasks.errors]
 description = "Show compilation errors if any"
 script = '''
-cargo build 2>&1 | grep "^error" | head -20
+cargo build 2>&1 | rg "^error" | Select-Object -First 20
 '''
 
 [tasks.warnings]
 description = "Show compilation warnings if any"
 script = '''
-cargo build 2>&1 | grep "^warning" | head -20
+cargo build 2>&1 | rg "^warning" | Select-Object -First 20
 '''
 
 [tasks.watch-build]

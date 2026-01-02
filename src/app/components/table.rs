@@ -126,10 +126,62 @@ impl<T: Clone> Table<T> {
     ) where
         T: Clone,
     {
-        // Search bar
+        // Search bar with placeholder and reset button
         ui.horizontal(|ui| {
             ui.label("Search:");
-            ui.text_edit_singleline(&mut self.state.search_text);
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut self.state.search_text)
+                    .hint_text("Filter results…"),
+            );
+            if resp.changed() {
+                // Reset selected item when search changes since items are refiltered
+            }
+
+            if ui.button("Clear").clicked() {
+                self.state.search_text.clear();
+            }
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.label("Sort:");
+
+            // Sort column combobox
+            let current_col_name = if let Some(col_idx) = self.state.sort_column {
+                columns
+                    .get(col_idx)
+                    .map(|c| c.header.clone())
+                    .unwrap_or_else(|| "—".to_string())
+            } else {
+                "—".to_string()
+            };
+
+            let mut selected_col_idx = self.state.sort_column;
+            egui::ComboBox::from_id_salt("table_sort_column")
+                .selected_text(&current_col_name)
+                .show_ui(ui, |ui| {
+                    for (idx, col) in columns.iter().enumerate() {
+                        ui.selectable_value(&mut selected_col_idx, Some(idx), &col.header);
+                    }
+                });
+
+            if selected_col_idx != self.state.sort_column {
+                self.state.sort_column = selected_col_idx;
+                self.state.sort_dir = SortDir::Asc;
+            }
+
+            // Direction toggle button
+            let dir_text = match self.state.sort_dir {
+                SortDir::Asc => "▲",
+                SortDir::Desc => "▼",
+            };
+            if ui.button(dir_text).clicked() {
+                self.state.sort_dir = self.state.sort_dir.toggle();
+            }
+
+            if ui.button("Reset Sort").clicked() {
+                self.state.sort_column = None;
+                self.state.sort_dir = SortDir::Asc;
+            }
         });
         ui.add_space(6.0);
 

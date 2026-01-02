@@ -347,14 +347,18 @@ pub(super) async fn start_metrics_polling(
         });
 
         state.metrics_poll_task = Some(handle);
-        events::notify_info(
-            state.seq.as_ref(),
-            sender,
-            format!(
-                "Watching POD {}/{} for metrics via Prometheus",
-                namespace_for_prom, name_for_prom
-            ),
-        );
+        // Only notify once per polling session to avoid spam
+        if !state.metrics_polling_notified.unwrap_or(false) {
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                format!(
+                    "Watching POD {}/{} for metrics via Prometheus",
+                    namespace_for_prom, name_for_prom
+                ),
+            );
+            state.metrics_polling_notified = Some(true);
+        }
         return Ok(());
     }
 
@@ -537,10 +541,28 @@ async fn fetch_prom_pod_history(
     end: DateTime<Utc>,
     resource_specs: &[ContainerResourceSpec],
 ) -> anyhow::Result<PodMetricsHistory> {
-    let base_url = format!(
-        "http://{}.{}.svc:{}",
-        prom.service, prom.namespace, prom.port
-    );
+    // Try localhost first (port-forwarded), then fall back to service DNS
+    let base_url = format!("http://localhost:{}", prom.port);
+
+    // Verify we can reach localhost; if not, use service DNS
+    let base_url = match reqwest::Client::new()
+        .get(format!("{}/api/v1/query", base_url))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+    {
+        Ok(_) => {
+            // localhost is reachable
+            format!("http://localhost:{}", prom.port)
+        }
+        Err(_) => {
+            // Fall back to service DNS
+            format!(
+                "http://{}.{}.svc:{}",
+                prom.service, prom.namespace, prom.port
+            )
+        }
+    };
 
     // CPU: millicores
     let cpu_query = format!(

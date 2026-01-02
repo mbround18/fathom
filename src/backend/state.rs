@@ -31,6 +31,7 @@ pub(super) struct BackendState {
     pub(super) metrics_unavailable_notified: bool,
     pub(super) metrics_forbidden_notified: bool,
     pub(super) metrics_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) metrics_polling_notified: Option<bool>,
     pub(super) workload_metrics_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) prometheus_client: Option<PrometheusClient>,
 
@@ -56,6 +57,7 @@ impl BackendState {
             metrics_unavailable_notified: false,
             metrics_forbidden_notified: false,
             metrics_poll_task: None,
+            metrics_polling_notified: None,
             workload_metrics_poll_task: None,
             prometheus_client: None,
             port_forward_manager: PortForwardManager::new(),

@@ -154,6 +154,13 @@ async fn handle_cmd(
             // Discover optional backing services.
             metrics::probe_metrics_api(state, sender).await?;
 
+            // Auto-discover Prometheus services in the monitoring namespace
+            if let Some(client) = &state.client {
+                if let Some(ctx) = &state.current_context {
+                    let _ = auto_discover_prometheus(client, ctx).await;
+                }
+            }
+
             // Restore saved port forwards from last session
             if let Err(e) = restore_saved_port_forwards(state, sender).await {
                 events::notify_info(
@@ -244,6 +251,14 @@ async fn handle_cmd(
             );
 
             metrics::probe_metrics_api(state, sender).await?;
+
+            // Auto-discover Prometheus services in the monitoring namespace
+            if let Some(client) = &state.client {
+                if let Some(ctx) = &state.current_context {
+                    let _ = auto_discover_prometheus(client, ctx).await;
+                }
+            }
+
             sync::refresh_namespaces(state, sender).await?;
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
@@ -1089,6 +1104,40 @@ async fn ensure_metrics_port_forward(
         }
     }
 
+    // Fallback: Check if port 9090 is available locally and try to find any Prometheus instance
+    if is_port_available(9090) {
+        // Try to find any Prometheus pod in common namespaces
+        for namespace in &["monitoring", "prometheus", "kube-monitoring", "default"] {
+            if let Ok(Some(pod_name)) = find_any_prometheus_pod(client, namespace).await {
+                match state
+                    .port_forward_manager
+                    .start(client, namespace, &pod_name, 9090, 9090, None)
+                    .await
+                {
+                    Ok(_) => {
+                        events::notify_info(
+                            state.seq.as_ref(),
+                            sender,
+                            format!(
+                                "Auto-discovered Prometheus port forward: localhost:9090 -> {}/{}:9090",
+                                namespace, pod_name
+                            ),
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            "Failed to start port forward for {}/{}: {}",
+                            namespace,
+                            pod_name,
+                            e
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     events::notify_info(
         state.seq.as_ref(),
         sender,
@@ -1182,6 +1231,82 @@ async fn find_pod_via_endpoints(
     }
 
     Ok(None)
+}
+
+/// Check if a local port is available
+fn is_port_available(port: u16) -> bool {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    match TcpListener::bind(addr) {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
+
+/// Find any Prometheus pod in a namespace by looking for pods with "prometheus" in the name
+async fn find_any_prometheus_pod(
+    client: &::kube::Client,
+    namespace: &str,
+) -> anyhow::Result<Option<String>> {
+    use ::kube::Api;
+    use k8s_openapi::api::core::v1::Pod;
+
+    let pod_api = Api::<Pod>::namespaced(client.clone(), namespace);
+    match pod_api.list(&Default::default()).await {
+        Ok(pods) => {
+            // Find first pod with "prometheus" in the name
+            for pod in pods.items {
+                if let Some(name) = pod.metadata.name.as_ref() {
+                    if name.to_lowercase().contains("prometheus") {
+                        return Ok(Some(name.clone()));
+                    }
+                }
+            }
+            Ok(None)
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+/// Auto-discover Prometheus services in the monitoring namespace and configure them
+async fn auto_discover_prometheus(client: &::kube::Client, context: &str) -> anyhow::Result<()> {
+    use ::kube::Api;
+    use k8s_openapi::api::core::v1::Service;
+
+    let svc_api = Api::<Service>::namespaced(client.clone(), "monitoring");
+    match svc_api.list(&Default::default()).await {
+        Ok(services) => {
+            // Look for prometheus-k8s or prometheus-stack-kube-prom-prometheus
+            for svc in services.items {
+                if let Some(name) = svc.metadata.name.as_ref() {
+                    if name.contains("prometheus")
+                        && !name.contains("operator")
+                        && !name.contains("adapter")
+                    {
+                        // Found a viable Prometheus service
+                        tracing::info!("Auto-discovered Prometheus service: monitoring/{}", name);
+
+                        // Update or create integration config
+                        if let Ok(mut cfg) = IntegrationConfig::load(context) {
+                            cfg.prometheus = Some(PrometheusConfig {
+                                enabled: true,
+                                namespace: "monitoring".to_string(),
+                                service: name.clone(),
+                                port: 9090,
+                            });
+                            let _ = cfg.save();
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::debug!("Failed to list services in monitoring namespace: {}", e);
+        }
+    }
+    Ok(())
 }
 
 /// Emit current port forward list to UI
