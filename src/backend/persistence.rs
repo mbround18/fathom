@@ -4,9 +4,53 @@
 
 use crate::sections::network::PortForward;
 use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Auto-start configuration for various Fathom services.
+/// Allows extensible gating of features that should start automatically on app initialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoStartConfig {
+    /// Whether to auto-start the MCP (Model Context Protocol) server
+    pub mcp_http: bool,
+}
+
+impl Default for AutoStartConfig {
+    fn default() -> Self {
+        Self { mcp_http: false }
+    }
+}
+
+impl AutoStartConfig {
+    /// Load auto-start configuration from disk
+    pub fn load() -> Result<Self> {
+        let config = load_config()?;
+        let auto_start_obj = config
+            .get("auto_start")
+            .and_then(|v| v.as_object())
+            .cloned();
+
+        if let Some(obj) = auto_start_obj {
+            let json_value = serde_json::Value::Object(obj);
+            serde_json::from_value(json_value)
+                .map_err(|e| anyhow!("Failed to deserialize auto-start config: {}", e))
+        } else {
+            Ok(Self::default())
+        }
+    }
+
+    /// Save auto-start configuration to disk
+    pub fn save(&self) -> Result<()> {
+        let mut config = load_config()?;
+        config["auto_start"] = serde_json::to_value(self)
+            .map_err(|e| anyhow!("Failed to serialize auto-start config: {}", e))?;
+        save_config(&config)?;
+        tracing::info!("Saved auto-start configuration");
+        Ok(())
+    }
+}
 
 /// Get the Fathom config directory (~/.fathom/)
 pub fn fathom_config_dir() -> Result<PathBuf> {
@@ -114,21 +158,17 @@ pub fn save_config(value: &serde_json::Value) -> Result<()> {
     save_json_file(&path, value)
 }
 
-/// Load MCP auto-start preference
+/// Load MCP auto-start preference (legacy function for backward compatibility)
 pub fn load_mcp_auto_start() -> Result<bool> {
-    let config = load_config()?;
-    Ok(config
-        .get("mcp")
-        .and_then(|mcp| mcp.get("auto_start"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false))
+    let auto_start = AutoStartConfig::load()?;
+    Ok(auto_start.mcp_http)
 }
 
-/// Save MCP auto-start preference
+/// Save MCP auto-start preference (legacy function for backward compatibility)
 pub fn save_mcp_auto_start(enabled: bool) -> Result<()> {
-    let mut config = load_config()?;
-    config["mcp"]["auto_start"] = serde_json::json!(enabled);
-    save_config(&config)?;
+    let mut config = AutoStartConfig::load()?;
+    config.mcp_http = enabled;
+    config.save()?;
     tracing::info!("Saved MCP auto-start preference: {}", enabled);
     Ok(())
 }

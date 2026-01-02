@@ -1,4 +1,7 @@
+use super::super::components::Table;
+use super::super::components::table::Column;
 use super::traits::{ViewAction, ViewComponent};
+use crate::app::ConfirmAction;
 use crate::protocol::{BackendCmd, BackendEvent, CronJobDetails, CronJobSummary};
 
 /// CronJob-specific state and rendering for the CronJobs view
@@ -6,6 +9,7 @@ pub struct CronJobsView {
     pub cronjobs: Vec<CronJobSummary>,
     pub selected: Option<(String, String)>,
     pub details: Option<CronJobDetails>,
+    pub table: Table<CronJobSummary>,
 }
 
 impl Default for CronJobsView {
@@ -20,8 +24,94 @@ impl CronJobsView {
             cronjobs: Vec::new(),
             selected: None,
             details: None,
+            table: Table::new(Vec::new()),
         }
     }
+}
+
+/// Render the cronjobs grid with Table component
+fn render_cronjobs_grid(ui: &mut egui::Ui, title: &str, table: &mut Table<CronJobSummary>, _cronjobs: &[CronJobSummary]) -> Option<(String, String)> {
+    ui.heading(title);
+    ui.separator();
+
+    // Search bar
+    ui.horizontal(|ui| {
+        ui.label("🔍 Search:");
+        ui.text_edit_singleline(&mut table.state.search_text);
+    });
+    ui.add_space(8.0);
+
+    let columns = vec![
+        Column {
+            header: "Namespace".to_string(),
+            width: 100.0,
+            sort_value: |c: &CronJobSummary| c.namespace.clone(),
+            render: |c: &CronJobSummary| c.namespace.clone(),
+        },
+        Column {
+            header: "Name".to_string(),
+            width: 150.0,
+            sort_value: |c: &CronJobSummary| c.name.clone(),
+            render: |c: &CronJobSummary| c.name.clone(),
+        },
+        Column {
+            header: "Schedule".to_string(),
+            width: 120.0,
+            sort_value: |c: &CronJobSummary| c.schedule.clone(),
+            render: |c: &CronJobSummary| c.schedule.clone(),
+        },
+        Column {
+            header: "Suspend".to_string(),
+            width: 70.0,
+            sort_value: |c: &CronJobSummary| if c.suspend { "Yes" } else { "No" }.to_string(),
+            render: |c: &CronJobSummary| if c.suspend { "Yes" } else { "No" }.to_string(),
+        },
+        Column {
+            header: "Active".to_string(),
+            width: 60.0,
+            sort_value: |c: &CronJobSummary| c.active.to_string(),
+            render: |c: &CronJobSummary| c.active.to_string(),
+        },
+        Column {
+            header: "Last Schedule".to_string(),
+            width: 150.0,
+            sort_value: |c: &CronJobSummary| c.last_schedule.clone().unwrap_or_default(),
+            render: |c: &CronJobSummary| c.last_schedule.as_deref().unwrap_or("-").to_string(),
+        },
+        Column {
+            header: "Age".to_string(),
+            width: 80.0,
+            sort_value: |c: &CronJobSummary| c.age.clone(),
+            render: |c: &CronJobSummary| c.age.clone(),
+        },
+    ];
+
+    let mut newly_selected: Option<(String, String)> = None;
+    
+    table.render_table(
+        ui,
+        &columns,
+        |cj: &CronJobSummary, search: &str| {
+            cj.namespace.to_lowercase().contains(search)
+                || cj.name.to_lowercase().contains(search)
+                || cj.schedule.to_lowercase().contains(search)
+        },
+        None,
+    );
+
+    // Check if a row was selected and return it
+    if let Some(selected_idx) = table.selected {
+        let filtered = table.filtered_items(|cj: &CronJobSummary, search: &str| {
+            cj.namespace.to_lowercase().contains(search)
+                || cj.name.to_lowercase().contains(search)
+                || cj.schedule.to_lowercase().contains(search)
+        });
+        if let Some((_orig_idx, cj)) = filtered.get(selected_idx) {
+            newly_selected = Some((cj.namespace.clone(), cj.name.clone()));
+        }
+    }
+
+    newly_selected
 }
 
 impl ViewComponent for CronJobsView {
@@ -32,43 +122,10 @@ impl ViewComponent for CronJobsView {
     fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 
-        ui.heading("CronJobs");
-        ui.separator();
+        // Update table data
+        self.table.set_items(self.cronjobs.clone());
 
-        let mut newly_selected: Option<(String, String)> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("cronjobs_grid")
-                .striped(true)
-                .min_col_width(100.0)
-                .show(ui, |ui| {
-                    ui.label("Namespace");
-                    ui.label("Name");
-                    ui.label("Schedule");
-                    ui.label("Suspend");
-                    ui.label("Active");
-                    ui.label("Last Schedule");
-                    ui.label("Age");
-                    ui.end_row();
-
-                    for cj in &self.cronjobs {
-                        let is_selected = self
-                            .selected
-                            .as_ref()
-                            .is_some_and(|(ns, name)| ns == &cj.namespace && name == &cj.name);
-
-                        if ui.selectable_label(is_selected, &cj.namespace).clicked() {
-                            newly_selected = Some((cj.namespace.clone(), cj.name.clone()));
-                        }
-                        ui.label(&cj.name);
-                        ui.label(&cj.schedule);
-                        ui.label(if cj.suspend { "Yes" } else { "No" });
-                        ui.label(cj.active.to_string());
-                        ui.label(cj.last_schedule.as_deref().unwrap_or("-"));
-                        ui.label(&cj.age);
-                        ui.end_row();
-                    }
-                });
-        });
+        let newly_selected = render_cronjobs_grid(ui, "CronJobs", &mut self.table, &self.cronjobs);
 
         if let Some((ns, name)) = newly_selected {
             self.selected = Some((ns.clone(), name.clone()));
@@ -114,10 +171,7 @@ impl ViewComponent for CronJobsView {
             ui.heading("CronJob");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::NotifyStatus(format!(
-                        "Delete cronjob {}/{}",
-                        ns, name
-                    )));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteCronJob(ns.clone(), name.clone())));
                 }
                 if ui.button("Close").clicked() {
                     self.selected = None;
@@ -127,7 +181,7 @@ impl ViewComponent for CronJobsView {
         });
 
         ui.horizontal(|ui| {
-            ui.label(ns);
+            ui.label(&ns);
             ui.label(format!("/{}", name));
         });
 
@@ -136,22 +190,68 @@ impl ViewComponent for CronJobsView {
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             if let Some(details) = &self.details {
-                ui.label(format!("Schedule: {}", details.schedule));
-                ui.label(format!("Suspend: {}", details.suspend));
-                ui.label(format!("Active: {}", details.active));
-                ui.label(format!(
-                    "Last Schedule: {}",
-                    details.last_schedule_time.as_deref().unwrap_or("-")
-                ));
-                ui.add_space(10.0);
-                ui.collapsing("Labels", |ui| {
-                    for (k, v) in &details.labels {
-                        ui.monospace(format!("{}={}", k, v));
+                // 📅 Schedule
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label("📅 Schedule");
+                        ui.separator();
+                        ui.monospace(format!("Schedule: {}", details.schedule));
+                        ui.monospace(format!("Suspended: {}", if details.suspend { "Yes" } else { "No" }));
+                        ui.monospace(format!("Concurrency Policy: {}", details.concurrency_policy));
+                    });
+                });
+                ui.add_space(8.0);
+
+                // ⏱️ Timing
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label("⏱️ Timing");
+                        ui.separator();
+                        if let Some(last_schedule) = &details.last_schedule_time {
+                            ui.monospace(format!("Last Schedule: {}", last_schedule));
+                        } else {
+                            ui.monospace("Last Schedule: Never");
+                        }
+                        ui.monospace(format!("Active Jobs: {}", details.active));
+                    });
+                });
+                ui.add_space(8.0);
+
+                // 🔧 Configuration
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label("🔧 Configuration");
+                        ui.separator();
+                        if let Some(deadline) = details.starting_deadline_seconds {
+                            ui.monospace(format!("Starting Deadline: {} seconds", deadline));
+                        }
+                        if let Some(successful_limit) = details.successful_jobs_history_limit {
+                            ui.monospace(format!("Successful Jobs History Limit: {}", successful_limit));
+                        }
+                        if let Some(failed_limit) = details.failed_jobs_history_limit {
+                            ui.monospace(format!("Failed Jobs History Limit: {}", failed_limit));
+                        }
+                    });
+                });
+                ui.add_space(8.0);
+
+                // 🏷️ Labels & Annotations
+                ui.collapsing("🏷️ Labels", |ui| {
+                    if details.labels.is_empty() {
+                        ui.label("(none)");
+                    } else {
+                        for (k, v) in &details.labels {
+                            ui.monospace(format!("{}={}", k, v));
+                        }
                     }
                 });
-                ui.collapsing("Annotations", |ui| {
-                    for (k, v) in &details.annotations {
-                        ui.monospace(format!("{}={}", k, v));
+                ui.collapsing("📝 Annotations", |ui| {
+                    if details.annotations.is_empty() {
+                        ui.label("(none)");
+                    } else {
+                        for (k, v) in &details.annotations {
+                            ui.monospace(format!("{}={}", k, v));
+                        }
                     }
                 });
             } else {

@@ -24,6 +24,12 @@ impl FathomApp {
                     ViewAction::Navigate(_) => {
                         // Context view shouldn't emit navigation
                     }
+                    ViewAction::OpenModal(_) => {
+                        // Context view shouldn't emit modals
+                    }
+                    ViewAction::OpenScaleModal(_, _, _, _) => {
+                        // Context view shouldn't emit scale modals
+                    }
                 }
             }
         });

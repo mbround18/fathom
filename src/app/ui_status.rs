@@ -27,6 +27,12 @@ impl FathomApp {
                         ViewAction::Navigate(_) => {
                             // Status view shouldn't emit navigation
                         }
+                        ViewAction::OpenModal(_) => {
+                            // Status view shouldn't emit modals
+                        }
+                        ViewAction::OpenScaleModal(_, _, _, _) => {
+                            // Status view shouldn't emit scale modals
+                        }
                     }
                 }
             });

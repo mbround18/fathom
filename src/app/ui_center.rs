@@ -28,6 +28,12 @@ impl FathomApp {
                     ViewAction::Navigate(section) => {
                         self.active_section = section;
                     }
+                    ViewAction::OpenModal(_) => {
+                        // Center view modals handled in right panel
+                    }
+                    ViewAction::OpenScaleModal(_, _, _, _) => {
+                        // Center view scale modals handled in right panel
+                    }
                 }
             }
         });

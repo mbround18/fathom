@@ -33,6 +33,107 @@ impl FathomApp {
                         ViewAction::Navigate(section) => {
                             self.active_section = section;
                         }
+                        ViewAction::OpenModal(confirm_action) => {
+                            // Update modal state in the modal view
+                            if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
+                                // Cast to ModalView and update its state
+                                let ptr = modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
+                                if !ptr.is_null() {
+                                    unsafe {
+                                        let (title, body, confirm_text) = match &confirm_action {
+                                            ConfirmAction::DeletePod(ns, name) => (
+                                                "Delete Pod".to_string(),
+                                                format!("Are you sure you want to delete pod {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::DeleteDeployment(ns, name) => (
+                                                "Delete Deployment".to_string(),
+                                                format!("Are you sure you want to delete deployment {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::DeleteDaemonSet(ns, name) => (
+                                                "Delete DaemonSet".to_string(),
+                                                format!("Are you sure you want to delete daemonset {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::DeleteStatefulSet(ns, name) => (
+                                                "Delete StatefulSet".to_string(),
+                                                format!("Are you sure you want to delete statefulset {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::DeleteReplicaSet(ns, name) => (
+                                                "Delete ReplicaSet".to_string(),
+                                                format!("Are you sure you want to delete replicaset {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::DeleteReplicationController(ns, name) => (
+                                                "Delete ReplicationController".to_string(),
+                                                format!("Are you sure you want to delete replication controller {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::DeleteJob(ns, name) => (
+                                                "Delete Job".to_string(),
+                                                format!("Are you sure you want to delete job {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::DeleteCronJob(ns, name) => (
+                                                "Delete CronJob".to_string(),
+                                                format!("Are you sure you want to delete cronjob {} in namespace {}?", name, ns),
+                                                "Delete".to_string(),
+                                            ),
+                                            ConfirmAction::RestartDeployment(ns, name) => (
+                                                "Restart Deployment".to_string(),
+                                                format!("Restart all pods in deployment {} in namespace {}?", name, ns),
+                                                "Restart".to_string(),
+                                            ),
+                                            ConfirmAction::RestartDaemonSet(ns, name) => (
+                                                "Restart DaemonSet".to_string(),
+                                                format!("Restart all pods in daemonset {} in namespace {}?", name, ns),
+                                                "Restart".to_string(),
+                                            ),
+                                            ConfirmAction::RestartStatefulSet(ns, name) => (
+                                                "Restart StatefulSet".to_string(),
+                                                format!("Restart all pods in statefulset {} in namespace {}?", name, ns),
+                                                "Restart".to_string(),
+                                            ),
+                                            ConfirmAction::RestartReplicaSet(ns, name) => (
+                                                "Restart ReplicaSet".to_string(),
+                                                format!("Restart all pods in replicaset {} in namespace {}?", name, ns),
+                                                "Restart".to_string(),
+                                            ),
+                                            ConfirmAction::RestartReplicationController(ns, name) => (
+                                                "Restart ReplicationController".to_string(),
+                                                format!("Restart all pods in replication controller {} in namespace {}?", name, ns),
+                                                "Restart".to_string(),
+                                            ),
+                                        };
+                                        (*ptr).state = views::ModalState::Confirm {
+                                            title,
+                                            body,
+                                            confirm_text,
+                                            action: confirm_action,
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                        ViewAction::OpenScaleModal(kind, namespace, name, current) => {
+                            // Update modal state with scale modal
+                            if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
+                                let ptr = modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
+                                if !ptr.is_null() {
+                                    unsafe {
+                                        (*ptr).state = views::ModalState::ScaleWorkload {
+                                            kind,
+                                            namespace,
+                                            name,
+                                            current,
+                                            desired: current,
+                                        };
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             });

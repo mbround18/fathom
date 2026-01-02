@@ -41,9 +41,12 @@ pub fn init(
     // Create MCP state
     let mcp_state = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
 
-    // Spawn MCP HTTP server if enabled
+    // Load auto-start configuration
+    let auto_start_config = persistence::AutoStartConfig::load().unwrap_or_default();
+
+    // Spawn MCP HTTP server if enabled via CLI args, only_mcp mode, or auto-start config
     // Port 18288: 1.8288 meters ≈ 1 fathom (unit of depth measurement)
-    let mcp_http_handle = if args.mcp_http || args.only_mcp {
+    let mcp_http_handle = if args.mcp_http || args.only_mcp || auto_start_config.mcp_http {
         tracing::info!(
             "Starting MCP HTTP server on http://127.0.0.1:{} (18288 = 1.8288m ≈ 1 fathom)",
             args.mcp_port

@@ -15,8 +15,8 @@ use protocol::{BackendCmd, BackendEventEnvelope};
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Enable MCP HTTP server (localhost:18288) [default: true]
-    #[arg(long, env = "FATHOM_MCP_HTTP_ENABLED", default_value_t = true)]
+    /// Enable MCP HTTP server (localhost:18288) [default: false]
+    #[arg(long, env = "FATHOM_MCP_HTTP_ENABLED")]
     pub mcp_http: bool,
 
     /// MCP HTTP server port (default: 18288 - 1.8288m ≈ 1 fathom)

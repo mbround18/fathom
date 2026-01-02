@@ -16,6 +16,7 @@ use views::{
     ViewComponent,
 };
 
+pub mod components;
 mod mailbox;
 mod search;
 pub mod shell;

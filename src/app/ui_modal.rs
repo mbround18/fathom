@@ -21,6 +21,12 @@ impl FathomApp {
                         ViewAction::Navigate(_) => {
                             // Modal shouldn't emit navigation
                         }
+                        ViewAction::OpenModal(_) => {
+                            // Modal shouldn't emit nested modals
+                        }
+                        ViewAction::OpenScaleModal(_, _, _, _) => {
+                            // Modal shouldn't emit nested modals
+                        }
                     }
                 }
             }

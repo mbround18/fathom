@@ -1,3 +1,4 @@
+use crate::app::{ConfirmAction, WorkloadKind};
 use crate::protocol::{BackendEvent, SectionKey};
 
 /// UI intent/action emitted by views to communicate with backend
@@ -9,6 +10,10 @@ pub enum ViewAction {
     NotifyStatus(String),
     /// Navigate to a different section
     Navigate(SectionKey),
+    /// Open a confirmation modal
+    OpenModal(ConfirmAction),
+    /// Open a scaling modal for a workload (namespace, name, current replicas, kind)
+    OpenScaleModal(WorkloadKind, String, String, i32),
 }
 
 /// Core trait for pluggable view components

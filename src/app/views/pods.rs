@@ -148,61 +148,201 @@ impl PodsView {
     fn render_pod_details_tab(&mut self, ui: &mut egui::Ui, _actions: &mut Vec<ViewAction>) {
         match &self.pod_details {
             Some(details) => {
-                // Show metrics if available
+                // Metrics section at top if available
                 if let Some(history) = &self.pod_metrics_history {
-                    ui.label("Metrics:");
-                    ui.add_space(4.0);
-                    for container in &history.containers {
-                        ui.label(&container.name);
-                        ui.label(format!(
-                            "  CPU: {} / Memory: {}",
-                            container
-                                .samples
-                                .last()
-                                .map(|s| format!("{}m", s.cpu_millicores))
-                                .unwrap_or_else(|| "-".to_string()),
-                            container
-                                .samples
-                                .last()
-                                .map(|s| format!("{}MB", s.memory_bytes / 1024.0 / 1024.0))
-                                .unwrap_or_else(|| "-".to_string())
-                        ));
-                    }
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("📊 Metrics").strong());
+                        ui.separator();
+
+                        for container in &history.containers {
+                            ui.label(egui::RichText::new(&container.name).strong());
+                            if let Some(sample) = container.samples.last() {
+                                let cpu_text = format!("{:.0}m", sample.cpu_millicores);
+                                let mem_text =
+                                    format!("{:.1}Mi", sample.memory_bytes / 1024.0 / 1024.0);
+
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("CPU: {}", cpu_text));
+                                    if let Some(limit) = container.cpu_limit_millicores {
+                                        ui.label(format!("/ {}m", limit as i32));
+                                    }
+                                });
+
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("Memory: {}", mem_text));
+                                    if let Some(limit) = container.memory_limit_bytes {
+                                        ui.label(format!("/ {:.1}Mi", limit / 1024.0 / 1024.0));
+                                    }
+                                });
+                            } else {
+                                ui.label("(no samples yet)");
+                            }
+                            ui.add_space(4.0);
+                        }
+                    });
+                    ui.add_space(8.0);
+                }
+
+                // Pod metadata section
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("ℹ️ Pod Info").strong());
                     ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.label("Namespace:");
+                        ui.monospace(&details.namespace);
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Created:");
+                        ui.monospace(&details.creation_timestamp);
+                    });
+                });
+                ui.add_space(8.0);
+
+                // Ownership chain if available
+                if details.owner.is_some() || details.resolved_owner.is_some() {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("🔗 Ownership").strong());
+                        ui.separator();
+
+                        if let Some(owner) = &details.owner {
+                            ui.horizontal(|ui| {
+                                ui.label("Direct owner:");
+                                ui.monospace(format!("{} / {}", owner.kind, owner.name));
+                            });
+                        }
+
+                        if let Some(resolved) = &details.resolved_owner {
+                            ui.horizontal(|ui| {
+                                ui.label("Resolved owner:");
+                                ui.monospace(format!("{} / {}", resolved.kind, resolved.name));
+                            });
+                        }
+                    });
+                    ui.add_space(8.0);
                 }
 
-                ui.monospace(format!("Created: {}", details.creation_timestamp));
-                ui.add_space(6.0);
+                // Containers section
+                ui.group(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "📦 Containers ({})",
+                            details.containers.len()
+                        ))
+                        .strong(),
+                    );
+                    ui.separator();
 
-                ui.label("Containers:");
-                for c in &details.containers {
-                    ui.monospace(format!("- {}", c));
+                    for container in &details.containers {
+                        ui.monospace(format!("• {}", container));
+                    }
+                });
+                ui.add_space(8.0);
+
+                // Ports section if any
+                if !details.ports.is_empty() {
+                    ui.group(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("🔌 Ports ({})", details.ports.len()))
+                                .strong(),
+                        );
+                        ui.separator();
+
+                        for port in &details.ports {
+                            let name_str = port.name.as_deref().unwrap_or("(unnamed)");
+                            ui.monospace(format!(
+                                "• {} : {} ({})",
+                                name_str, port.port, port.protocol
+                            ));
+                        }
+                    });
+                    ui.add_space(8.0);
                 }
 
-                ui.add_space(10.0);
-                ui.collapsing("Labels", |ui| {
-                    for (k, v) in &details.labels {
-                        ui.monospace(format!("{}={}", k, v));
-                    }
-                });
+                // Resource requests/limits
+                if !details.resource_specs.is_empty() {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("⚙️ Resources").strong());
+                        ui.separator();
 
-                ui.collapsing("Annotations", |ui| {
-                    for (k, v) in &details.annotations {
-                        ui.monospace(format!("{}={}", k, v));
-                    }
-                });
+                        for spec in &details.resource_specs {
+                            ui.label(egui::RichText::new(&spec.container).strong());
 
-                ui.add_space(10.0);
-                ui.collapsing("Raw JSON", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("CPU:");
+                                if let Some(req) = spec.cpu_request_millicores {
+                                    ui.monospace(format!("{}m", req as i32));
+                                }
+                                ui.label("/");
+                                if let Some(lim) = spec.cpu_limit_millicores {
+                                    ui.monospace(format!("{}m", lim as i32));
+                                } else {
+                                    ui.label("-");
+                                }
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.label("Memory:");
+                                if let Some(req) = spec.memory_request_bytes {
+                                    ui.monospace(format!("{:.0}Mi", req / 1024.0 / 1024.0));
+                                }
+                                ui.label("/");
+                                if let Some(lim) = spec.memory_limit_bytes {
+                                    ui.monospace(format!("{:.0}Mi", lim / 1024.0 / 1024.0));
+                                } else {
+                                    ui.label("-");
+                                }
+                            });
+                        }
+                    });
+                    ui.add_space(8.0);
+                }
+
+                // Labels
+                if !details.labels.is_empty() {
+                    ui.collapsing(
+                        egui::RichText::new(format!("🏷️  Labels ({})", details.labels.len()))
+                            .strong(),
+                        |ui| {
+                            for (k, v) in &details.labels {
+                                ui.monospace(format!("{} = {}", k, v));
+                            }
+                        },
+                    );
+                    ui.add_space(6.0);
+                }
+
+                // Annotations
+                if !details.annotations.is_empty() {
+                    ui.collapsing(
+                        egui::RichText::new(format!(
+                            "📝 Annotations ({})",
+                            details.annotations.len()
+                        ))
+                        .strong(),
+                        |ui| {
+                            for (k, v) in &details.annotations {
+                                ui.monospace(format!("{}", k));
+                                ui.monospace(format!("  {}", v));
+                                ui.add_space(2.0);
+                            }
+                        },
+                    );
+                    ui.add_space(6.0);
+                }
+
+                // Raw JSON
+                ui.collapsing("📄 Raw JSON", |ui| {
                     egui::ScrollArea::vertical()
-                        .max_height(250.0)
+                        .max_height(200.0)
                         .show(ui, |ui| {
                             ui.monospace(&details.raw_json);
                         });
                 });
             }
             None => {
-                ui.label("Loading details...");
+                ui.label("No pod selected or details still loading...");
             }
         }
     }
@@ -427,10 +567,9 @@ impl ViewComponent for PodsView {
             ui.heading("Pod");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    // TODO: Open modal via ViewAction in Phase 7
-                    actions.push(ViewAction::NotifyStatus(format!(
-                        "Delete pod {}/{}",
-                        ns, name
+                    actions.push(ViewAction::OpenModal(crate::app::ConfirmAction::DeletePod(
+                        ns.clone(),
+                        name.clone(),
                     )));
                 }
                 if ui.button("Close").clicked() {
