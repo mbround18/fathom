@@ -130,6 +130,7 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
 
 /// Renders metrics graphs for all containers in a pod/workload.
 /// Shows a header, then renders each container's metrics.
+/// Skips "unknown" containers.
 pub fn render_metrics_history(
     ui: &mut egui::Ui,
     containers: &[ContainerMetricsHistory],
@@ -140,6 +141,11 @@ pub fn render_metrics_history(
         ui.separator();
 
         for container in containers {
+            // Skip unknown containers
+            if container.name.to_lowercase() == "unknown" {
+                continue;
+            }
+
             ui.label(egui::RichText::new(&container.name).strong());
             render_container_metrics(ui, container);
             ui.add_space(4.0);
