@@ -1,9 +1,9 @@
 use super::{
     Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary,
     DeploymentDetails, DeploymentSummary, JobDetails, JobSummary, PodDetails, PodMetricsHistory,
-    PodMetricsSummary, PodSummary, ReplicaSetDetails, ReplicaSetSummary,
+    PodMetricsSummary, PodSummary, PrometheusMetrics, ReplicaSetDetails, ReplicaSetSummary,
     ReplicationControllerDetails, ReplicationControllerSummary, Route, StatefulSetDetails,
-    StatefulSetSummary, StreamId,
+    StatefulSetSummary, StreamId, WorkloadMetricsAggregate,
 };
 
 #[derive(Debug, Clone)]
@@ -92,9 +92,13 @@ pub enum ResourceReadEvent {
     PodDetailsUpdated(PodDetails),
     PodMetricsUpdated(PodMetricsSummary),
     PodMetricsHistoryUpdated(PodMetricsHistory),
+    PrometheusMetricsUpdated(PrometheusMetrics),
     DeploymentDetailsUpdated(DeploymentDetails),
+    DeploymentMetricsUpdated(WorkloadMetricsAggregate),
     DaemonSetDetailsUpdated(DaemonSetDetails),
+    DaemonSetMetricsUpdated(WorkloadMetricsAggregate),
     StatefulSetDetailsUpdated(StatefulSetDetails),
+    StatefulSetMetricsUpdated(WorkloadMetricsAggregate),
     ReplicaSetDetailsUpdated(ReplicaSetDetails),
     ReplicationControllerDetailsUpdated(ReplicationControllerDetails),
     JobDetailsUpdated(JobDetails),

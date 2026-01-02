@@ -16,23 +16,23 @@ impl FathomApp {
         for envelope in events {
             let event = &envelope.event;
 
-            // Route event to context view (always needs updates)
-            if let Some(view) = self.views.get_mut(&section_keys::context().to_string()) {
-                view.on_event(event);
-            }
+            // Route event to context view (always needs updates) - ensure it exists first
+            let context_section = section_keys::context();
+            let context_view = self.get_or_create_view(&context_section);
+            context_view.on_event(event);
 
             // Route event to active view
-            if let Some(view) = self.views.get_mut(&self.active_section.to_string()) {
-                view.on_event(event);
-            }
+            let active_section = self.active_section.clone();
+            let active_view = self.get_or_create_view(&active_section);
+            active_view.on_event(event);
 
-            match envelope.event {
+            match &envelope.event {
                 BackendEvent::System(ev) => match ev {
                     SystemEvent::BackendStarted => {
                         self.push_status("Backend started.".to_owned());
                     }
                     SystemEvent::Notification { level, message } => match level {
-                        NotificationLevel::Info => self.push_status(message),
+                        NotificationLevel::Info => self.push_status(message.clone()),
                         NotificationLevel::Warn => self.push_status(format!("WARN: {}", message)),
                         NotificationLevel::Error => self.push_status(format!("ERROR: {}", message)),
                     },
@@ -48,7 +48,7 @@ impl FathomApp {
                     }
                     SystemEvent::PrometheusConnectionTest { success, message } => {
                         self.prometheus_testing = false;
-                        if success {
+                        if *success {
                             self.prometheus_connected = true;
                             self.push_status("Prometheus connected successfully".to_owned());
                         } else {
@@ -58,7 +58,7 @@ impl FathomApp {
                     }
                     SystemEvent::GrafanaConnectionTest { success, message } => {
                         self.grafana_testing = false;
-                        if success {
+                        if *success {
                             self.grafana_connected = true;
                             self.push_status("Grafana connected successfully".to_owned());
                         } else {
@@ -79,7 +79,7 @@ impl FathomApp {
                         // ContextView handles this via on_event()
                     }
                     ResourceListEvent::PortForwardsUpdated(port_forwards) => {
-                        self.port_forwards = port_forwards;
+                        self.port_forwards = port_forwards.clone();
                     }
                     // Resource list updates now handled by views via on_event()
                     _ => {}

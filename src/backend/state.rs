@@ -1,3 +1,4 @@
+use crate::backend::metrics_provider::PrometheusClient;
 use crate::backend::portforward::PortForwardManager;
 use kube::Client;
 use std::sync::{Arc, RwLock, atomic::AtomicU64};
@@ -30,6 +31,8 @@ pub(super) struct BackendState {
     pub(super) metrics_unavailable_notified: bool,
     pub(super) metrics_forbidden_notified: bool,
     pub(super) metrics_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) workload_metrics_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) prometheus_client: Option<PrometheusClient>,
 
     pub(super) port_forward_manager: PortForwardManager,
 }
@@ -53,6 +56,8 @@ impl BackendState {
             metrics_unavailable_notified: false,
             metrics_forbidden_notified: false,
             metrics_poll_task: None,
+            workload_metrics_poll_task: None,
+            prometheus_client: None,
             port_forward_manager: PortForwardManager::new(),
         }
     }

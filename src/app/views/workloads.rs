@@ -3,8 +3,158 @@ use super::traits::{ViewAction, ViewComponent};
 use crate::app::{ConfirmAction, WorkloadKind};
 use crate::protocol::{
     BackendCmd, BackendEvent, DeploymentDetails, DeploymentSummary, ResourceListEvent,
-    ResourceReadEvent,
+    ResourceReadEvent, WorkloadMetricsAggregate,
 };
+
+/// Render aggregated metrics for a workload with per-container breakdown
+fn render_workload_metrics(ui: &mut egui::Ui, metrics: &WorkloadMetricsAggregate) {
+    ui.group(|ui| {
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new("📊 Resource Metrics (Aggregated)").strong());
+            ui.separator();
+
+            // Overall aggregate stats
+            ui.horizontal(|ui| {
+                ui.label("Replicas:");
+                ui.monospace(metrics.replica_count.to_string());
+            });
+
+            // CPU metrics
+            if let Some(cpu_pct) = metrics.total_cpu_usage_percent {
+                let color = if cpu_pct > 80.0 {
+                    egui::Color32::RED
+                } else if cpu_pct > 50.0 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::GREEN
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label("Total CPU:");
+                    ui.colored_label(color, format!("{:.1}%", cpu_pct));
+                });
+
+                if let Some(req) = metrics.total_cpu_request_millicores {
+                    ui.horizontal(|ui| {
+                        ui.label("  Requested:");
+                        ui.monospace(format!("{}m", req));
+                    });
+                }
+                if let Some(lim) = metrics.total_cpu_limit_millicores {
+                    ui.horizontal(|ui| {
+                        ui.label("  Limited:");
+                        ui.monospace(format!("{}m", lim));
+                    });
+                }
+            }
+
+            // Memory metrics
+            if let Some(mem_bytes) = metrics.total_memory_usage_bytes {
+                let mem_mb = mem_bytes as f64 / 1_048_576.0;
+                let color = if let Some(limit_bytes) = metrics.total_memory_limit_bytes {
+                    let limit_mb = limit_bytes as f64 / 1_048_576.0;
+                    let pct = (mem_bytes as f64 / limit_bytes as f64) * 100.0;
+                    if pct > 80.0 {
+                        egui::Color32::RED
+                    } else if pct > 50.0 {
+                        egui::Color32::YELLOW
+                    } else {
+                        egui::Color32::GREEN
+                    }
+                } else {
+                    egui::Color32::GRAY
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label("Total Memory:");
+                    ui.colored_label(color, format!("{:.1} MB", mem_mb));
+                    if let Some(limit_bytes) = metrics.total_memory_limit_bytes {
+                        let limit_mb = limit_bytes as f64 / 1_048_576.0;
+                        ui.label(format!("/ {:.1} MB", limit_mb));
+                    }
+                });
+
+                if let Some(req) = metrics.total_memory_request_bytes {
+                    let req_mb = req as f64 / 1_048_576.0;
+                    ui.horizontal(|ui| {
+                        ui.label("  Requested:");
+                        ui.monospace(format!("{:.1} MB", req_mb));
+                    });
+                }
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("📦 Per-Container Breakdown").strong());
+
+            // Per-container visualization
+            for container in &metrics.containers {
+                ui.horizontal(|ui| {
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new(&container.name).monospace().strong());
+
+                            // CPU bar
+                            if let Some(cpu_pct) = container.cpu_usage_percent {
+                                let bar_width = ui.available_width() - 40.0;
+                                let fill_fraction = (cpu_pct / 100.0).min(1.0);
+
+                                ui.horizontal(|ui| {
+                                    ui.label("CPU:");
+                                    let bar_color = if cpu_pct > 80.0 {
+                                        egui::Color32::RED
+                                    } else if cpu_pct > 50.0 {
+                                        egui::Color32::YELLOW
+                                    } else {
+                                        egui::Color32::GREEN
+                                    };
+
+                                    // Simple progress bar-like visualization
+                                    ui.colored_label(bar_color, format!("{:3.0}%", cpu_pct));
+                                });
+                            }
+
+                            // Memory bar
+                            if let Some(mem_bytes) = container.memory_usage_bytes {
+                                let mem_mb = mem_bytes as f64 / 1_048_576.0;
+                                let bar_color = if let Some(limit) = container.memory_limit_bytes {
+                                    let pct = (mem_bytes as f64 / limit as f64) * 100.0;
+                                    if pct > 80.0 {
+                                        egui::Color32::RED
+                                    } else if pct > 50.0 {
+                                        egui::Color32::YELLOW
+                                    } else {
+                                        egui::Color32::GREEN
+                                    }
+                                } else {
+                                    egui::Color32::GRAY
+                                };
+
+                                ui.horizontal(|ui| {
+                                    ui.label("Mem:");
+                                    ui.colored_label(
+                                        bar_color,
+                                        format!(
+                                            "{:6.1} MB{}",
+                                            mem_mb,
+                                            if let Some(lim) = container.memory_limit_bytes {
+                                                format!(" / {:.1} MB", lim as f64 / 1_048_576.0)
+                                            } else {
+                                                String::new()
+                                            }
+                                        ),
+                                    );
+                                });
+                            }
+                        });
+                    });
+                });
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new(format!("Last updated: {}", metrics.timestamp)).small());
+        });
+    });
+}
 
 /// Shared helper for rendering workload details panel
 fn render_workload_details(
@@ -151,6 +301,7 @@ pub struct WorkloadViewState {
     pub summaries: Vec<DeploymentSummary>,
     pub selected: Option<(String, String)>,
     pub details: Option<DeploymentDetails>,
+    pub metrics: Option<WorkloadMetricsAggregate>,
     pub workload_type: &'static str,
     pub supports_scaling: bool,
     pub table: Table<DeploymentSummary>,
@@ -162,6 +313,7 @@ impl WorkloadViewState {
             summaries: Vec::new(),
             selected: None,
             details: None,
+            metrics: None,
             workload_type,
             supports_scaling,
             table: Table::new(Vec::new()),
@@ -197,13 +349,19 @@ impl ViewComponent for DeploymentView {
 
         let newly_selected = render_workload_grid(ui, "Deployments", &mut self.0.table);
 
-        if let Some((ns, name)) = newly_selected {
-            self.0.selected = Some((ns.clone(), name.clone()));
-            self.0.details = None;
-            actions.push(ViewAction::SendCommand(BackendCmd::SelectDeployment {
-                namespace: ns,
-                name,
-            }));
+        // Only treat as newly selected if it's different from current selection
+        if newly_selected != self.0.selected {
+            if let Some((ns, name)) = newly_selected {
+                self.0.selected = Some((ns.clone(), name.clone()));
+                self.0.details = None;
+                actions.push(ViewAction::SendCommand(BackendCmd::SelectDeployment {
+                    namespace: ns,
+                    name,
+                }));
+            } else {
+                self.0.selected = None;
+                self.0.details = None;
+            }
         }
 
         actions
@@ -221,6 +379,14 @@ impl ViewComponent for DeploymentView {
         {
             if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
                 self.0.details = Some(details.clone());
+            }
+        }
+
+        if let BackendEvent::ResourceRead(ResourceReadEvent::DeploymentMetricsUpdated(metrics)) =
+            event
+        {
+            if Some((metrics.namespace.clone(), metrics.name.clone())) == self.0.selected {
+                self.0.metrics = Some(metrics.clone());
             }
         }
     }
@@ -310,6 +476,12 @@ impl ViewComponent for DeploymentView {
                 });
                 ui.add_space(8.0);
 
+                // Aggregated metrics if available
+                if let Some(metrics) = &self.0.metrics {
+                    render_workload_metrics(ui, metrics);
+                    ui.add_space(8.0);
+                }
+
                 // ℹ️ Metadata
                 ui.group(|ui| {
                     ui.vertical(|ui| {
@@ -391,7 +563,6 @@ impl ViewComponent for DeploymentView {
             }
         });
 
-        ctx.request_repaint();
         (true, actions)
     }
 
@@ -434,13 +605,19 @@ impl ViewComponent for DaemonSetView {
 
         let newly_selected = render_workload_grid(ui, "DaemonSets", &mut self.0.table);
 
-        if let Some((ns, name)) = newly_selected {
-            self.0.selected = Some((ns.clone(), name.clone()));
-            self.0.details = None;
-            actions.push(ViewAction::SendCommand(BackendCmd::SelectDaemonSet {
-                namespace: ns,
-                name,
-            }));
+        // Only treat as newly selected if it's different from current selection
+        if newly_selected != self.0.selected {
+            if let Some((ns, name)) = newly_selected {
+                self.0.selected = Some((ns.clone(), name.clone()));
+                self.0.details = None;
+                actions.push(ViewAction::SendCommand(BackendCmd::SelectDaemonSet {
+                    namespace: ns,
+                    name,
+                }));
+            } else {
+                self.0.selected = None;
+                self.0.details = None;
+            }
         }
 
         actions
@@ -477,10 +654,16 @@ impl ViewComponent for DaemonSetView {
             ui.heading("DaemonSet");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteDaemonSet(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteDaemonSet(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartDaemonSet(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartDaemonSet(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Close").clicked() {
                     self.0.selected = None;
@@ -602,7 +785,6 @@ impl ViewComponent for DaemonSetView {
             }
         });
 
-        ctx.request_repaint();
         (true, actions)
     }
 
@@ -645,13 +827,19 @@ impl ViewComponent for StatefulSetView {
 
         let newly_selected = render_workload_grid(ui, "StatefulSets", &mut self.0.table);
 
-        if let Some((ns, name)) = newly_selected {
-            self.0.selected = Some((ns.clone(), name.clone()));
-            self.0.details = None;
-            actions.push(ViewAction::SendCommand(BackendCmd::SelectStatefulSet {
-                namespace: ns,
-                name,
-            }));
+        // Only treat as newly selected if it's different from current selection
+        if newly_selected != self.0.selected {
+            if let Some((ns, name)) = newly_selected {
+                self.0.selected = Some((ns.clone(), name.clone()));
+                self.0.details = None;
+                actions.push(ViewAction::SendCommand(BackendCmd::SelectStatefulSet {
+                    namespace: ns,
+                    name,
+                }));
+            } else {
+                self.0.selected = None;
+                self.0.details = None;
+            }
         }
 
         actions
@@ -689,10 +877,16 @@ impl ViewComponent for StatefulSetView {
             ui.heading("StatefulSet");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteStatefulSet(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteStatefulSet(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartStatefulSet(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartStatefulSet(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Scale").clicked() {
                     // Get current replica count from the summary
@@ -831,7 +1025,6 @@ impl ViewComponent for StatefulSetView {
             }
         });
 
-        ctx.request_repaint();
         (true, actions)
     }
 
@@ -874,13 +1067,19 @@ impl ViewComponent for ReplicaSetView {
 
         let newly_selected = render_workload_grid(ui, "ReplicaSets", &mut self.0.table);
 
-        if let Some((ns, name)) = newly_selected {
-            self.0.selected = Some((ns.clone(), name.clone()));
-            self.0.details = None;
-            actions.push(ViewAction::SendCommand(BackendCmd::SelectReplicaSet {
-                namespace: ns,
-                name,
-            }));
+        // Only treat as newly selected if it's different from current selection
+        if newly_selected != self.0.selected {
+            if let Some((ns, name)) = newly_selected {
+                self.0.selected = Some((ns.clone(), name.clone()));
+                self.0.details = None;
+                actions.push(ViewAction::SendCommand(BackendCmd::SelectReplicaSet {
+                    namespace: ns,
+                    name,
+                }));
+            } else {
+                self.0.selected = None;
+                self.0.details = None;
+            }
         }
 
         actions
@@ -918,10 +1117,16 @@ impl ViewComponent for ReplicaSetView {
             ui.heading("ReplicaSet");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteReplicaSet(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteReplicaSet(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartReplicaSet(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartReplicaSet(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Scale").clicked() {
                     // Get current replica count from the summary
@@ -1060,7 +1265,6 @@ impl ViewComponent for ReplicaSetView {
             }
         });
 
-        ctx.request_repaint();
         (true, actions)
     }
 
@@ -1103,15 +1307,21 @@ impl ViewComponent for ReplicationControllerView {
 
         let newly_selected = render_workload_grid(ui, "ReplicationControllers", &mut self.0.table);
 
-        if let Some((ns, name)) = newly_selected {
-            self.0.selected = Some((ns.clone(), name.clone()));
-            self.0.details = None;
-            actions.push(ViewAction::SendCommand(
-                BackendCmd::SelectReplicationController {
-                    namespace: ns,
-                    name,
-                },
-            ));
+        // Only treat as newly selected if it's different from current selection
+        if newly_selected != self.0.selected {
+            if let Some((ns, name)) = newly_selected {
+                self.0.selected = Some((ns.clone(), name.clone()));
+                self.0.details = None;
+                actions.push(ViewAction::SendCommand(
+                    BackendCmd::SelectReplicationController {
+                        namespace: ns,
+                        name,
+                    },
+                ));
+            } else {
+                self.0.selected = None;
+                self.0.details = None;
+            }
         }
 
         actions
@@ -1137,7 +1347,7 @@ impl ViewComponent for ReplicationControllerView {
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
     ) -> (bool, Vec<ViewAction>) {
         if self.0.selected.is_none() {
             return (false, Vec::new());
@@ -1150,10 +1360,14 @@ impl ViewComponent for ReplicationControllerView {
             ui.heading("ReplicationController");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteReplicationController(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(
+                        ConfirmAction::DeleteReplicationController(ns.clone(), name.clone()),
+                    ));
                 }
                 if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartReplicationController(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(
+                        ConfirmAction::RestartReplicationController(ns.clone(), name.clone()),
+                    ));
                 }
                 if ui.button("Scale").clicked() {
                     // Get current replica count from the summary
@@ -1292,7 +1506,6 @@ impl ViewComponent for ReplicationControllerView {
             }
         });
 
-        ctx.request_repaint();
         (true, actions)
     }
 
@@ -1308,5 +1521,3 @@ impl ViewComponent for ReplicationControllerView {
         Vec::new()
     }
 }
-
-

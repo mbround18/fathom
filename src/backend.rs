@@ -17,6 +17,7 @@ mod interactions;
 mod jobs;
 mod kube;
 mod metrics;
+mod metrics_provider;
 pub mod persistence;
 mod pods;
 mod portforward;
@@ -28,6 +29,7 @@ mod sync;
 mod workload_common;
 
 use state::BackendState;
+use state::client_or_err;
 
 pub fn init(
     receiver: Receiver<BackendCmd>,
@@ -342,6 +344,30 @@ async fn handle_cmd(
             metrics::stop_metrics_polling(state);
         }
 
+        BackendCmd::StartWorkloadMetricsPolling {
+            namespace,
+            workload_name,
+            workload_kind,
+            interval_secs,
+        } => {
+            // TODO: Implement workload metrics polling
+            // This would start a background task that polls Prometheus for aggregated metrics
+            // across all pods matching the workload's selector
+            metrics::start_workload_metrics_polling(
+                state,
+                sender,
+                namespace,
+                workload_name,
+                workload_kind,
+                interval_secs,
+            )
+            .await?;
+        }
+
+        BackendCmd::StopWorkloadMetricsPolling => {
+            metrics::stop_workload_metrics_polling(state);
+        }
+
         BackendCmd::RefreshDeployments => {
             deployments::refresh_deployments(state, sender).await?;
         }
@@ -648,14 +674,48 @@ async fn handle_cmd(
                     format!("Failed to save Prometheus config: {}", e),
                 );
             } else {
-                events::notify_info(
-                    state.seq.as_ref(),
-                    sender,
-                    format!(
-                        "Configured Prometheus: {}/{} port {} (context: {})",
-                        namespace, service, port, context
-                    ),
-                );
+                // Start port-forward to Prometheus service
+                let client = client_or_err(state)?;
+
+                // Use port-forward manager to create a tunnel to the Prometheus service
+                // Note: Prometheus typically runs in a StatefulSet, we'll target the service pod
+                let pf_result = state
+                    .port_forward_manager
+                    .start(&client, &namespace, &service, port, 9090, None)
+                    .await;
+
+                match pf_result {
+                    Ok(_tunnel_id) => {
+                        // Create and store PrometheusClient
+                        let url = format!("http://localhost:{}", port);
+                        state.prometheus_client =
+                            Some(metrics_provider::PrometheusClient::new(url));
+
+                        events::notify_info(
+                            state.seq.as_ref(),
+                            sender,
+                            format!(
+                                "Configured Prometheus: {}/{} port {} (context: {}) - port-forward active",
+                                namespace, service, port, context
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        // Port-forward failed, but still configure the client (assumes manual port-forward)
+                        let url = format!("http://localhost:{}", port);
+                        state.prometheus_client =
+                            Some(metrics_provider::PrometheusClient::new(url));
+
+                        events::notify_info(
+                            state.seq.as_ref(),
+                            sender,
+                            format!(
+                                "Configured Prometheus: {}/{} port {} (context: {}) - port-forward failed, ensure manual tunnel is active: {}",
+                                namespace, service, port, context, e
+                            ),
+                        );
+                    }
+                }
             }
         }
         BackendCmd::TestPrometheusConnection {
@@ -667,6 +727,11 @@ async fn handle_cmd(
             let url = format!("http://localhost:{}/api/v1/query?query=up", port);
             match reqwest::Client::new().get(&url).send().await {
                 Ok(resp) if resp.status().is_success() => {
+                    // Connection successful - create and store client for future use
+                    let client_url = format!("http://localhost:{}", port);
+                    state.prometheus_client =
+                        Some(metrics_provider::PrometheusClient::new(client_url));
+
                     events::emit(
                         state.seq.as_ref(),
                         sender,

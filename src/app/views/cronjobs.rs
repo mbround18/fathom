@@ -30,7 +30,12 @@ impl CronJobsView {
 }
 
 /// Render the cronjobs grid with Table component
-fn render_cronjobs_grid(ui: &mut egui::Ui, title: &str, table: &mut Table<CronJobSummary>, _cronjobs: &[CronJobSummary]) -> Option<(String, String)> {
+fn render_cronjobs_grid(
+    ui: &mut egui::Ui,
+    title: &str,
+    table: &mut Table<CronJobSummary>,
+    _cronjobs: &[CronJobSummary],
+) -> Option<(String, String)> {
     ui.heading(title);
     ui.separator();
 
@@ -87,7 +92,7 @@ fn render_cronjobs_grid(ui: &mut egui::Ui, title: &str, table: &mut Table<CronJo
     ];
 
     let mut newly_selected: Option<(String, String)> = None;
-    
+
     table.render_table(
         ui,
         &columns,
@@ -171,7 +176,10 @@ impl ViewComponent for CronJobsView {
             ui.heading("CronJob");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteCronJob(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteCronJob(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Close").clicked() {
                     self.selected = None;
@@ -196,8 +204,14 @@ impl ViewComponent for CronJobsView {
                         ui.label("📅 Schedule");
                         ui.separator();
                         ui.monospace(format!("Schedule: {}", details.schedule));
-                        ui.monospace(format!("Suspended: {}", if details.suspend { "Yes" } else { "No" }));
-                        ui.monospace(format!("Concurrency Policy: {}", details.concurrency_policy));
+                        ui.monospace(format!(
+                            "Suspended: {}",
+                            if details.suspend { "Yes" } else { "No" }
+                        ));
+                        ui.monospace(format!(
+                            "Concurrency Policy: {}",
+                            details.concurrency_policy
+                        ));
                     });
                 });
                 ui.add_space(8.0);
@@ -226,7 +240,10 @@ impl ViewComponent for CronJobsView {
                             ui.monospace(format!("Starting Deadline: {} seconds", deadline));
                         }
                         if let Some(successful_limit) = details.successful_jobs_history_limit {
-                            ui.monospace(format!("Successful Jobs History Limit: {}", successful_limit));
+                            ui.monospace(format!(
+                                "Successful Jobs History Limit: {}",
+                                successful_limit
+                            ));
                         }
                         if let Some(failed_limit) = details.failed_jobs_history_limit {
                             ui.monospace(format!("Failed Jobs History Limit: {}", failed_limit));

@@ -180,6 +180,13 @@ pub enum BackendCmdV1 {
         interval_secs: u64,
     },
     StopMetricsPolling,
+    StartWorkloadMetricsPolling {
+        namespace: String,
+        workload_name: String,
+        workload_kind: String,
+        interval_secs: u64,
+    },
+    StopWorkloadMetricsPolling,
     ConfigurePrometheus {
         namespace: String,
         service: String,

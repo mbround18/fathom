@@ -29,6 +29,9 @@ pub struct Args {
 }
 
 fn main() -> eframe::Result<()> {
+    // Initialize rustls crypto provider (required for rustls 0.23+)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     init_tracing();
 
     let args = Args::parse();

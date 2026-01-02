@@ -1,7 +1,7 @@
 use super::traits::{ViewAction, ViewComponent};
 use crate::protocol::{
     BackendCmd, BackendEvent, PodDetails, PodMetricsHistory, PodMetricsSummary, PodSummary,
-    ResourceListEvent, ResourceReadEvent, StreamEvent,
+    PrometheusMetrics, ResourceListEvent, ResourceReadEvent, StreamEvent,
 };
 
 /// Pod-specific state and rendering for the Pods view
@@ -24,8 +24,10 @@ pub struct PodsView {
     // Metrics polling
     pub pod_metrics: Option<PodMetricsSummary>,
     pub pod_metrics_history: Option<PodMetricsHistory>,
+    pub pod_prometheus_metrics: Option<PrometheusMetrics>,
     pub pod_metrics_pending: bool,
     pub pod_metrics_polling_started: bool,
+    pub pod_metrics_interval_secs: u64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -78,8 +80,10 @@ impl PodsView {
             pod_logs: Vec::new(),
             pod_metrics: None,
             pod_metrics_history: None,
+            pod_prometheus_metrics: None,
             pod_metrics_pending: false,
             pod_metrics_polling_started: false,
+            pod_metrics_interval_secs: 15,
         }
     }
 
@@ -148,10 +152,92 @@ impl PodsView {
     fn render_pod_details_tab(&mut self, ui: &mut egui::Ui, _actions: &mut Vec<ViewAction>) {
         match &self.pod_details {
             Some(details) => {
-                // Metrics section at top if available
+                // Prometheus metrics section (displayed first if available)
+                if let Some(prom_metrics) = &self.pod_prometheus_metrics {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("📊 Prometheus Metrics").strong());
+                        ui.separator();
+
+                        // CPU metrics
+                        if let Some(cpu_pct) = prom_metrics.cpu.usage_percent {
+                            let color = if cpu_pct > 80.0 {
+                                egui::Color32::RED
+                            } else if cpu_pct > 50.0 {
+                                egui::Color32::YELLOW
+                            } else {
+                                egui::Color32::GREEN
+                            };
+
+                            ui.horizontal(|ui| {
+                                ui.label("CPU:");
+                                ui.colored_label(color, format!("{:.1}%", cpu_pct));
+                            });
+                        } else {
+                            ui.label("CPU: (unavailable)");
+                        }
+
+                        // Memory metrics
+                        if let Some(mem_bytes) = prom_metrics.memory.usage_bytes {
+                            let mem_mb = mem_bytes as f64 / 1_048_576.0;
+                            let color = if let Some(limit_bytes) = prom_metrics.memory.limit_bytes {
+                                let limit_mb = limit_bytes as f64 / 1_048_576.0;
+                                let pct = (mem_bytes as f64 / limit_bytes as f64) * 100.0;
+                                if pct > 80.0 {
+                                    egui::Color32::RED
+                                } else if pct > 50.0 {
+                                    egui::Color32::YELLOW
+                                } else {
+                                    egui::Color32::GREEN
+                                }
+                            } else {
+                                egui::Color32::GRAY
+                            };
+
+                            ui.horizontal(|ui| {
+                                ui.label("Memory:");
+                                ui.colored_label(color, format!("{:.1} MB", mem_mb));
+                                if let Some(limit_bytes) = prom_metrics.memory.limit_bytes {
+                                    let limit_mb = limit_bytes as f64 / 1_048_576.0;
+                                    ui.label(format!("/ {:.1} MB", limit_mb));
+                                }
+                            });
+                        } else {
+                            ui.label("Memory: (unavailable)");
+                        }
+
+                        // Network metrics
+                        if let Some(rx_bytes) = prom_metrics.network.bytes_in {
+                            let rx_mb = rx_bytes as f64 / 1_048_576.0;
+                            ui.horizontal(|ui| {
+                                ui.label("Network RX:");
+                                ui.monospace(format!("{:.2} MB", rx_mb));
+                            });
+                        }
+
+                        if let Some(tx_bytes) = prom_metrics.network.bytes_out {
+                            let tx_mb = tx_bytes as f64 / 1_048_576.0;
+                            ui.horizontal(|ui| {
+                                ui.label("Network TX:");
+                                ui.monospace(format!("{:.2} MB", tx_mb));
+                            });
+                        }
+
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Last updated: {}",
+                                prom_metrics.timestamp
+                            ))
+                            .small(),
+                        );
+                    });
+                    ui.add_space(8.0);
+                }
+
+                // Kubernetes metrics section (if available and different from Prometheus)
                 if let Some(history) = &self.pod_metrics_history {
                     ui.group(|ui| {
-                        ui.label(egui::RichText::new("📊 Metrics").strong());
+                        ui.label(egui::RichText::new("📈 Kubernetes Metrics").strong());
                         ui.separator();
 
                         for container in &history.containers {
@@ -577,6 +663,7 @@ impl ViewComponent for PodsView {
                     self.pod_details = None;
                     self.pod_logs.clear();
                     self.pod_metrics = None;
+                    self.pod_prometheus_metrics = None;
                     self.pod_metrics_history = None;
                     self.pod_metrics_pending = false;
                     self.pod_metrics_polling_started = false;
@@ -593,11 +680,35 @@ impl ViewComponent for PodsView {
 
         ui.separator();
 
-        // Tabs
+        // Tabs + metrics interval control
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.pod_tab, PodTab::Details, "Details");
             ui.selectable_value(&mut self.pod_tab, PodTab::Logs, "Logs");
             ui.selectable_value(&mut self.pod_tab, PodTab::Exec, "Exec");
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label("Metrics refresh (sec):");
+                let mut interval_str = self.pod_metrics_interval_secs.to_string();
+                let width = ui.available_width().min(60.0);
+                ui.text_edit_singleline(&mut interval_str);
+                if let Ok(parsed) = interval_str.parse::<u64>() {
+                    if parsed > 0 && parsed <= 300 {
+                        // Allow 1-300 seconds
+                        self.pod_metrics_interval_secs = parsed;
+                        // Restart polling with new interval
+                        if self.pod_metrics_polling_started {
+                            actions.push(ViewAction::SendCommand(BackendCmd::StopMetricsPolling));
+                            actions.push(ViewAction::SendCommand(
+                                BackendCmd::StartMetricsPolling {
+                                    namespace: ns.clone(),
+                                    name: name.clone(),
+                                    interval_secs: self.pod_metrics_interval_secs,
+                                },
+                            ));
+                        }
+                    }
+                }
+            });
         });
 
         // Auto-start metrics polling when details panel opens
@@ -606,7 +717,7 @@ impl ViewComponent for PodsView {
             actions.push(ViewAction::SendCommand(BackendCmd::StartMetricsPolling {
                 namespace: ns.clone(),
                 name: name.clone(),
-                interval_secs: 15,
+                interval_secs: self.pod_metrics_interval_secs,
             }));
         }
 
@@ -654,6 +765,15 @@ impl ViewComponent for PodsView {
                 self.pod_metrics_history = Some(metrics.clone());
             }
         }
+
+        // Handle Prometheus metrics updates
+        if let BackendEvent::ResourceRead(ResourceReadEvent::PrometheusMetricsUpdated(metrics)) =
+            event
+        {
+            if Some((metrics.namespace.clone(), metrics.name.clone())) == self.selected_pod {
+                self.pod_prometheus_metrics = Some(metrics.clone());
+            }
+        }
     }
 
     fn on_mount(&mut self) -> Vec<ViewAction> {
@@ -674,6 +794,7 @@ impl ViewComponent for PodsView {
         self.pod_details = None;
         self.pod_logs.clear();
         self.pod_metrics = None;
+        self.pod_prometheus_metrics = None;
         self.pod_metrics_history = None;
         self.pod_metrics_polling_started = false;
 

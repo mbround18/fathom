@@ -30,7 +30,12 @@ impl JobsView {
 }
 
 /// Render the jobs grid with Table component
-fn render_jobs_grid(ui: &mut egui::Ui, title: &str, table: &mut Table<JobSummary>, _jobs: &[JobSummary]) -> Option<(String, String)> {
+fn render_jobs_grid(
+    ui: &mut egui::Ui,
+    title: &str,
+    table: &mut Table<JobSummary>,
+    _jobs: &[JobSummary],
+) -> Option<(String, String)> {
     ui.heading(title);
     ui.separator();
 
@@ -94,7 +99,7 @@ fn render_jobs_grid(ui: &mut egui::Ui, title: &str, table: &mut Table<JobSummary
 
     // Use a RefCell or mutable wrapper to capture selection in the callback
     let mut newly_selected: Option<(String, String)> = None;
-    
+
     // Need to handle the callback differently since we can't use closures
     // Will handle selection in render method after table renders
     table.render_table(
@@ -177,7 +182,10 @@ impl ViewComponent for JobsView {
             ui.heading("Job");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteJob(ns.clone(), name.clone())));
+                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteJob(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Close").clicked() {
                     self.selected = None;
@@ -201,7 +209,11 @@ impl ViewComponent for JobsView {
                     ui.vertical(|ui| {
                         ui.label("📊 Status");
                         ui.separator();
-                        ui.monospace(format!("Completions: {}/{}", details.succeeded, details.completions.unwrap_or(0)));
+                        ui.monospace(format!(
+                            "Completions: {}/{}",
+                            details.succeeded,
+                            details.completions.unwrap_or(0)
+                        ));
                         ui.monospace(format!("Active: {}", details.active));
                         ui.monospace(format!("Succeeded: {}", details.succeeded));
                         ui.monospace(format!("Failed: {}", details.failed));
@@ -245,7 +257,10 @@ impl ViewComponent for JobsView {
                             ui.label("📋 Conditions");
                             ui.separator();
                             for condition in &details.conditions {
-                                ui.monospace(format!("{}: {}", condition.condition_type, condition.status));
+                                ui.monospace(format!(
+                                    "{}: {}",
+                                    condition.condition_type, condition.status
+                                ));
                                 if let Some(reason) = &condition.reason {
                                     ui.monospace(format!("  Reason: {}", reason));
                                 }

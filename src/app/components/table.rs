@@ -116,7 +116,7 @@ impl<T: Clone> Table<T> {
         items
     }
 
-    /// Render the table using egui
+    /// Render the table using egui Grid (proper column layout)
     pub fn render_table(
         &mut self,
         ui: &mut egui::Ui,
@@ -136,60 +136,51 @@ impl<T: Clone> Table<T> {
         // Get filtered items
         let mut items = self.filtered_items(search_fn);
 
-        // Table headers with sort indicators
-        let mut clicked_column: Option<usize> = None;
-        ui.horizontal(|ui| {
-            for (col_idx, column) in columns.iter().enumerate() {
-                let mut header_text = column.header.clone();
+        // Table grid layout
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("table_grid").striped(true).show(ui, |ui| {
+                // Column headers with sort indicators
+                let mut clicked_column: Option<usize> = None;
+                for (col_idx, column) in columns.iter().enumerate() {
+                    let mut header_text = column.header.clone();
 
-                // Add sort indicator
-                if self.state.sort_column == Some(col_idx) {
-                    header_text.push_str(match self.state.sort_dir {
-                        SortDir::Asc => " ▲",
-                        SortDir::Desc => " ▼",
-                    });
+                    // Add sort indicator
+                    if self.state.sort_column == Some(col_idx) {
+                        header_text.push_str(match self.state.sort_dir {
+                            SortDir::Asc => " ▲",
+                            SortDir::Desc => " ▼",
+                        });
+                    }
+
+                    if ui.button(&header_text).clicked() {
+                        clicked_column = Some(col_idx);
+                    }
+                }
+                ui.end_row();
+
+                // Handle sort after headers
+                if let Some(col_idx) = clicked_column {
+                    let sort_value_fn = columns[col_idx].sort_value;
+                    items = self.sort_items(col_idx, items, sort_value_fn);
                 }
 
-                if ui.selectable_label(false, &header_text).clicked() {
-                    clicked_column = Some(col_idx);
-                }
-            }
-        });
-
-        // Handle sort after ui.horizontal() completes
-        if let Some(col_idx) = clicked_column {
-            let sort_value_fn = columns[col_idx].sort_value;
-            items = self.sort_items(col_idx, items, sort_value_fn);
-        }
-
-        ui.separator();
-
-        // Table rows
-        egui::ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .show(ui, |ui| {
+                // Table rows
                 for (display_idx, (original_idx, item)) in items.iter().enumerate() {
                     let is_selected = self.selected == Some(display_idx);
 
-                    ui.horizontal(|ui| {
-                        let mut row_text = String::new();
-                        for column in columns.iter() {
-                            row_text.push_str(&format!(
-                                "{:<width$} | ",
-                                (column.render)(item),
-                                width = column.width as usize
-                            ));
-                        }
-
-                        if ui.selectable_label(is_selected, row_text).clicked() {
+                    for column in columns.iter() {
+                        let cell_text = (column.render)(item);
+                        if ui.selectable_label(is_selected, &cell_text).clicked() {
                             self.selected = Some(display_idx);
                             if let Some(callback) = on_row_clicked {
                                 callback(*original_idx);
                             }
                         }
-                    });
+                    }
+                    ui.end_row();
                 }
             });
+        });
     }
 }
 
