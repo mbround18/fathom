@@ -13,6 +13,11 @@ pub enum BackendCmdV1 {
     SetNamespaceFilter {
         namespaces: Vec<String>,
     },
+    RefreshNodes,
+    SelectNode {
+        name: String,
+    },
+    RefreshEvents,
 
     // Workloads / Pods section
     RefreshPods,
@@ -211,7 +216,10 @@ pub enum BackendCmdV1 {
     OpenMcpConfigDir,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
-
+    // Bulk operations
+    BulkDelete {
+        items: Vec<(String, String)>, // (namespace, name)
+    },
     // Future hook: allow UI to hint active section for prefetching (optional).
     SetActiveSection {
         section: SectionKey,

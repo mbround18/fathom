@@ -43,7 +43,7 @@ pub fn all_sections() -> Vec<SectionDef> {
         SectionDef {
             key: section_keys::nodes(),
             label: "Nodes",
-            group: NavGroup::Nodes,
+            group: NavGroup::Overview,
             scope: ScopeKind::Cluster,
         },
         SectionDef {
@@ -199,13 +199,13 @@ pub fn all_sections() -> Vec<SectionDef> {
         SectionDef {
             key: section_keys::namespaces(),
             label: "Namespaces",
-            group: NavGroup::Namespaces,
+            group: NavGroup::Overview,
             scope: ScopeKind::Cluster,
         },
         SectionDef {
             key: section_keys::events(),
             label: "Events",
-            group: NavGroup::Events,
+            group: NavGroup::Overview,
             scope: ScopeKind::Namespaced,
         },
         SectionDef {

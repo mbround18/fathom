@@ -21,6 +21,7 @@ pub struct PodsView {
 
     // Streaming state
     pub pod_logs: Vec<String>,
+    pub selected_container: Option<String>,
 
     // Metrics polling
     pub pod_metrics: Option<PodMetricsSummary>,
@@ -81,6 +82,7 @@ impl PodsView {
             pod_tab: PodTab::Details,
             pod_details: None,
             pod_logs: Vec::new(),
+            selected_container: None,
             pod_metrics: None,
             pod_metrics_history: None,
             pod_prometheus_metrics: None,
@@ -420,7 +422,7 @@ impl PodsView {
                     actions.push(ViewAction::SendCommand(BackendCmd::StartPodLogs {
                         namespace: ns.clone(),
                         name: name.clone(),
-                        container: None,
+                        container: self.selected_container.clone(),
                     }));
                 }
             }
@@ -432,13 +434,58 @@ impl PodsView {
             if ui.button("Clear").clicked() {
                 self.pod_logs.clear();
             }
+
+            ui.add_space(12.0);
+
+            // Container selector for multi-container pods
+            if let Some(details) = &self.pod_details {
+                if !details.containers.is_empty() {
+                    ui.label("Container:");
+
+                    let available_containers = &details.containers;
+                    let current_container =
+                        self.selected_container.as_deref().unwrap_or("(default)");
+
+                    egui::ComboBox::from_id_salt("pod_container_select")
+                        .selected_text(current_container)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_value(&mut self.selected_container, None, "(default)")
+                                .changed()
+                            {
+                                // Reset logs when changing container
+                                self.pod_logs.clear();
+                            }
+
+                            for container in available_containers {
+                                let mut selected =
+                                    self.selected_container.as_ref() == Some(container);
+                                if ui
+                                    .selectable_value(&mut selected, true, container)
+                                    .changed()
+                                {
+                                    self.selected_container = Some(container.clone());
+                                    self.pod_logs.clear();
+                                }
+                            }
+                        });
+                }
+            }
         });
 
         ui.add_space(8.0);
 
-        for line in &self.pod_logs {
-            ui.monospace(line);
-        }
+        // Scrollable logs area with monospace font
+        egui::ScrollArea::vertical()
+            .auto_shrink([false; 2])
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                for line in &self.pod_logs {
+                    ui.monospace(line);
+                }
+                // Auto-scroll to bottom by scrolling to the end
+                ui.scroll_to_cursor(Some(egui::Align::Center));
+            });
     }
 
     /// Render Exec tab content
@@ -598,6 +645,8 @@ impl ViewComponent for PodsView {
                         self.selected_pod = Some((ns.clone(), name.clone()));
                         self.pod_details = None;
                         self.pod_metrics = None;
+                        self.pod_metrics_history = None;
+                        self.pod_prometheus_metrics = None;
                         self.pod_metrics_pending = false;
                         self.pod_metrics_polling_started = false;
                         self.pod_metrics_polling_notified = false;
@@ -750,12 +799,50 @@ impl ViewComponent for PodsView {
             }
         }
 
-        // Handle metrics updates
+        // Handle metrics updates - merge with existing data to accumulate history
         if let BackendEvent::ResourceRead(ResourceReadEvent::PodMetricsHistoryUpdated(metrics)) =
             event
         {
             if Some((metrics.namespace.clone(), metrics.name.clone())) == self.selected_pod {
-                self.pod_metrics_history = Some(metrics.clone());
+                if let Some(ref mut existing) = self.pod_metrics_history {
+                    // Merge containers: update each container's samples while preserving old ones
+                    for new_container in &metrics.containers {
+                        if let Some(existing_container) = existing
+                            .containers
+                            .iter_mut()
+                            .find(|c| c.name == new_container.name)
+                        {
+                            // Merge samples: keep existing + add new ones
+                            // (assumes backend returns recent data)
+                            let mut merged_samples = existing_container.samples.clone();
+                            for new_sample in &new_container.samples {
+                                // Avoid duplicates by timestamp
+                                if !merged_samples
+                                    .iter()
+                                    .any(|s| s.timestamp == new_sample.timestamp)
+                                {
+                                    merged_samples.push(new_sample.clone());
+                                }
+                            }
+                            // Keep bounded history (max 100 samples)
+                            if merged_samples.len() > 100 {
+                                merged_samples = merged_samples
+                                    .into_iter()
+                                    .rev()
+                                    .take(100)
+                                    .collect::<Vec<_>>();
+                                merged_samples.reverse();
+                            }
+                            existing_container.samples = merged_samples;
+                        } else {
+                            // New container, add it
+                            existing.containers.push(new_container.clone());
+                        }
+                    }
+                } else {
+                    // First update, just store the metrics
+                    self.pod_metrics_history = Some(metrics.clone());
+                }
             }
         }
 
@@ -786,6 +873,7 @@ impl ViewComponent for PodsView {
         self.selected_pod = None;
         self.pod_details = None;
         self.pod_logs.clear();
+        self.selected_container = None;
         self.pod_metrics = None;
         self.pod_prometheus_metrics = None;
         self.pod_metrics_history = None;

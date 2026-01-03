@@ -106,6 +106,10 @@ impl FathomApp {
                                                 format!("Restart all pods in replication controller {} in namespace {}?", name, ns),
                                                 "Restart".to_string(),
                                             ),
+                                            ConfirmAction::BulkDelete(_) => {
+                                                // BulkDelete is handled by OpenBulkDeleteModal, not OpenModal
+                                                return;
+                                            }
                                         };
                                         (*ptr).state = views::ModalState::Confirm {
                                             title,

@@ -14,6 +14,9 @@ pub enum ModalState {
         confirm_text: String,
         action: ConfirmAction,
     },
+    BulkDelete {
+        items: Vec<(String, String)>, // (namespace, name)
+    },
     ScaleWorkload {
         kind: WorkloadKind,
         namespace: String,
@@ -167,6 +170,63 @@ impl ModalView {
                         current,
                         desired: desired_mut,
                     });
+                }
+            }
+
+            ModalState::BulkDelete { items } => {
+                let mut cancel = false;
+                let mut confirm = false;
+
+                let keep = ModalState::BulkDelete {
+                    items: items.clone(),
+                };
+
+                let item_count = items.len();
+                let title = format!("Delete {} item(s)?", item_count);
+                let mut body = format!(
+                    "Are you sure you want to delete these {} items?\n\n",
+                    item_count
+                );
+
+                // Show first 10 items, then truncate
+                for (i, (ns, name)) in items.iter().take(10).enumerate() {
+                    if i > 0 {
+                        body.push('\n');
+                    }
+                    body.push_str(&format!("  {}/{}", ns, name));
+                }
+
+                if item_count > 10 {
+                    body.push_str(&format!("\n  ... and {} more", item_count - 10));
+                }
+
+                body.push_str("\n\nThis action cannot be undone.");
+
+                egui::Window::new(&title)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.label(&body);
+                        ui.add_space(10.0);
+
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked() {
+                                cancel = true;
+                            }
+                            if ui.button("Delete All").clicked() {
+                                confirm = true;
+                            }
+                        });
+                    });
+
+                if cancel {
+                    next_modal = Some(ModalState::None);
+                } else if confirm {
+                    next_modal = Some(ModalState::None);
+                    confirm_action = Some(ConfirmAction::BulkDelete(items));
+                } else {
+                    next_modal = Some(keep);
                 }
             }
 
@@ -349,6 +409,12 @@ impl ModalView {
                     actions.push(ViewAction::SendCommand(
                         BackendCmd::RestartReplicationController { namespace, name },
                     ));
+                }
+                ConfirmAction::BulkDelete(items) => {
+                    // For each item, emit delete commands
+                    // The items list contains (namespace, name) tuples
+                    // We'll delegate the actual deletion to a backend handler
+                    actions.push(ViewAction::SendCommand(BackendCmd::BulkDelete { items }));
                 }
             }
         }

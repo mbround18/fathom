@@ -3,6 +3,7 @@ use crate::protocol::{
     SystemEvent, section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
@@ -18,6 +19,7 @@ mod jobs;
 mod kube;
 mod metrics;
 mod metrics_provider;
+mod nodes;
 pub mod persistence;
 mod pods;
 mod portforward;
@@ -38,7 +40,12 @@ pub fn init(
 ) {
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
 
-    let mut state = BackendState::new();
+    let state = BackendState::new();
+
+    // Clear metrics history on startup to begin fresh collection
+    if let Err(e) = persistence::clear_metrics_history() {
+        tracing::warn!("Failed to clear metrics history on startup: {}", e);
+    }
 
     // Create MCP state
     let mcp_state = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
@@ -74,19 +81,54 @@ pub fn init(
         "Backend thread started (tokio runtime ready).".to_owned(),
     );
 
+    let state = Arc::new(tokio::sync::Mutex::new(state));
+
+    // Use a channel to coordinate task completions for shutdown
+    let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
+
     loop {
+        // Try to receive a command (non-blocking check for shutdown signal first)
         let cmd = match receiver.recv() {
             Ok(cmd) => cmd,
             Err(_) => break,
         };
 
-        let result = rt.block_on(handle_cmd(cmd, &mut state, &sender));
-        match result {
-            Ok(should_exit) if should_exit => break,
-            Err(err) => events::notify_error(state.seq.as_ref(), &sender, err.to_string()),
-            _ => {}
-        }
+        tracing::debug!("Received command: {:?}", std::mem::discriminant(&cmd));
+
+        let state = state.clone();
+        let sender = sender.clone();
+        let task_tx = task_tx.clone();
+
+        // Spawn command handler as a background task
+        rt.spawn(async move {
+            let mut state = state.lock().await;
+            let result = handle_cmd(cmd, &mut state, &sender).await;
+            match result {
+                Ok(should_exit) if should_exit => {
+                    tracing::debug!("Command signaled shutdown");
+                }
+                Err(err) => events::notify_error(state.seq.as_ref(), &sender, err.to_string()),
+                _ => {}
+            }
+            // Signal task completion
+            let _ = task_tx.send(());
+        });
     }
+
+    // Give spawned tasks a moment to finish
+    rt.block_on(async {
+        // Allow some tasks to complete
+        for _ in 0..10 {
+            tokio::select! {
+                _ = task_rx.recv() => {
+                    // Task completed
+                }
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                    break;
+                }
+            }
+        }
+    });
 
     // Cleanup: abort MCP HTTP server if running
     if let Some(handle) = mcp_http_handle {
@@ -94,12 +136,15 @@ pub fn init(
     }
 
     // Final cleanup on exit
-    state::cleanup_all_tasks(&mut state);
-    events::notify_info(
-        state.seq.as_ref(),
-        &sender,
-        "Backend thread stopped.".to_owned(),
-    );
+    rt.block_on(async {
+        let mut final_state = state.lock().await;
+        state::cleanup_all_tasks(&mut final_state);
+        events::notify_info(
+            final_state.seq.as_ref(),
+            &sender,
+            "Backend thread stopped.".to_owned(),
+        );
+    });
 }
 
 async fn handle_cmd(
@@ -273,6 +318,183 @@ async fn handle_cmd(
 
         BackendCmd::RefreshNamespaces => {
             sync::refresh_namespaces(state, sender).await?;
+        }
+
+        BackendCmd::RefreshNodes => {
+            tracing::debug!("RefreshNodes command received");
+            // Best-effort: fetch node list and emit event
+            if let Some(client) = &state.client {
+                use k8s_openapi::api::core::v1::Node;
+                let api = ::kube::Api::<Node>::all(client.clone());
+                match api.list(&Default::default()).await {
+                    Ok(nodes) => {
+                        tracing::debug!("Fetched {} nodes from API", nodes.items.len());
+                        let summaries: Vec<crate::protocol::v1::NodeSummary> = nodes
+                            .items
+                            .into_iter()
+                            .map(|node| {
+                                let meta = &node.metadata;
+                                let status = &node.status;
+                                let allocatable = status
+                                    .as_ref()
+                                    .and_then(|s| s.allocatable.as_ref())
+                                    .map(|a| a.clone())
+                                    .unwrap_or_default();
+                                let cpu_str = allocatable
+                                    .get("cpu")
+                                    .and_then(|q| q.0.parse::<i64>().ok())
+                                    .unwrap_or(0);
+                                let mem_str = allocatable
+                                    .get("memory")
+                                    .and_then(|q| {
+                                        q.0.trim_end_matches("Ki")
+                                            .parse::<i64>()
+                                            .ok()
+                                            .map(|m| m * 1024)
+                                    })
+                                    .unwrap_or(0);
+
+                                crate::protocol::v1::NodeSummary {
+                                    name: meta.name.clone().unwrap_or_default(),
+                                    status: "Ready".to_string(), // TODO: parse from node conditions
+                                    role: meta
+                                        .labels
+                                        .as_ref()
+                                        .and_then(|l| l.get("node-role.kubernetes.io/master"))
+                                        .or_else(|| {
+                                            meta.labels.as_ref().and_then(|l| {
+                                                l.get("node-role.kubernetes.io/control-plane")
+                                            })
+                                        })
+                                        .map(|_| "control-plane".to_string())
+                                        .unwrap_or_else(|| "worker".to_string()),
+                                    pod_count: 0, // TODO: count pods on this node
+                                    cpu_allocatable_millicores: cpu_str * 1000,
+                                    memory_allocatable_bytes: mem_str,
+                                }
+                            })
+                            .collect();
+
+                        tracing::debug!(
+                            "Emitting NodesUpdated event with {} nodes",
+                            summaries.len()
+                        );
+                        events::emit(
+                            state.seq.as_ref(),
+                            sender,
+                            Route::global(section_keys::nodes()),
+                            Correlation::None,
+                            BackendEvent::ResourceList(ResourceListEvent::NodesUpdated(summaries)),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to list nodes: {}", e);
+                        events::notify_error(
+                            state.seq.as_ref(),
+                            sender,
+                            format!("Failed to list nodes: {}", e),
+                        );
+                    }
+                }
+            }
+        }
+
+        BackendCmd::SelectNode { name } => {
+            tracing::debug!("SelectNode command received for: {}", name);
+            // Fetch node details
+            if let Some(client) = &state.client {
+                use k8s_openapi::api::core::v1::Node;
+                let api = ::kube::Api::<Node>::all(client.clone());
+                match api.get(&name).await {
+                    Ok(node) => {
+                        let details = crate::backend::nodes::extract_node_details(&node)?;
+                        events::emit(
+                            state.seq.as_ref(),
+                            sender,
+                            Route::global(section_keys::nodes()),
+                            Correlation::None,
+                            BackendEvent::ResourceRead(
+                                crate::protocol::ResourceReadEvent::NodeDetailsUpdated(details),
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get node details: {}", e);
+                        events::notify_error(
+                            state.seq.as_ref(),
+                            sender,
+                            format!("Failed to get node details: {}", e),
+                        );
+                    }
+                }
+            }
+        }
+
+        BackendCmd::RefreshEvents => {
+            // Best-effort: fetch recent events and emit
+            if let Some(client) = &state.client {
+                use k8s_openapi::api::core::v1::Event;
+                let api = ::kube::Api::<Event>::all(client.clone());
+                match api.list(&Default::default()).await {
+                    Ok(event_list) => {
+                        let summaries: Vec<crate::protocol::v1::KubernetesEvent> = event_list
+                            .items
+                            .into_iter()
+                            .take(100) // Limit to last 100 events for performance
+                            .map(|event| {
+                                let involved = &event.involved_object;
+                                crate::protocol::v1::KubernetesEvent {
+                                    namespace: involved.namespace.clone().unwrap_or_default(),
+                                    name: event.metadata.name.clone().unwrap_or_default(),
+                                    event_type: event.type_.clone().unwrap_or_default(),
+                                    involved_object_kind: involved.kind.clone().unwrap_or_default(),
+                                    involved_object_name: involved.name.clone().unwrap_or_default(),
+                                    reason: event.reason.clone().unwrap_or_default(),
+                                    message: event.message.clone().unwrap_or_default(),
+                                    count: event.count.unwrap_or(1) as u32,
+                                    first_timestamp: event
+                                        .first_timestamp
+                                        .as_ref()
+                                        .map(|t| t.0.to_rfc3339())
+                                        .unwrap_or_default(),
+                                    last_timestamp: event
+                                        .last_timestamp
+                                        .as_ref()
+                                        .map(|t| t.0.to_rfc3339())
+                                        .unwrap_or_default(),
+                                    source: event
+                                        .source
+                                        .as_ref()
+                                        .and_then(|s| s.component.clone())
+                                        .unwrap_or_default(),
+                                }
+                            })
+                            .collect();
+
+                        let total_count = summaries.len() as u32;
+                        events::emit(
+                            state.seq.as_ref(),
+                            sender,
+                            Route::global(section_keys::events()),
+                            Correlation::None,
+                            BackendEvent::ResourceList(ResourceListEvent::EventsUpdated(
+                                crate::protocol::v1::EventsSummary {
+                                    events: summaries,
+                                    total_count,
+                                },
+                            )),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to list events: {}", e);
+                        events::notify_error(
+                            state.seq.as_ref(),
+                            sender,
+                            format!("Failed to list events: {}", e),
+                        );
+                    }
+                }
+            }
         }
 
         BackendCmd::SetNamespaceFilter { namespaces } => {
@@ -561,6 +783,59 @@ async fn handle_cmd(
             events::notify_info(state.seq.as_ref(), sender, "Simulating slow call...".into());
             tokio::time::sleep(Duration::from_secs(2)).await;
             events::notify_info(state.seq.as_ref(), sender, "Slow call done.".into());
+        }
+
+        BackendCmd::BulkDelete { items } => {
+            let mut success_count = 0;
+            let mut failed_items = Vec::new();
+
+            for (namespace, name) in items {
+                // Try to delete as pod first
+                if state.client.is_some() {
+                    pods::delete_pod(state, sender, &namespace, &name)
+                        .await
+                        .ok();
+                    success_count += 1;
+                } else {
+                    failed_items.push((namespace.clone(), name.clone()));
+                }
+
+                // If not a pod, we'd need to try other resource types
+                // For now, log the failure
+                failed_items.push((namespace.clone(), name.clone()));
+                tracing::warn!(
+                    namespace = %namespace,
+                    name = %name,
+                    "Failed to delete item in bulk delete"
+                );
+            }
+
+            if success_count > 0 {
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    format!("Deleted {} item(s)", success_count),
+                );
+            }
+
+            if !failed_items.is_empty() {
+                events::notify_error(
+                    state.seq.as_ref(),
+                    sender,
+                    format!(
+                        "Failed to delete {} item(s): {}",
+                        failed_items.len(),
+                        failed_items
+                            .iter()
+                            .map(|(ns, name)| format!("{}/{}", ns, name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                );
+            }
+
+            // Refresh the relevant sections
+            pods::refresh_pods(state, sender).await?;
         }
 
         BackendCmd::SetActiveSection { section } => {

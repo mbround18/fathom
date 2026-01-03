@@ -26,12 +26,16 @@ pub struct Column<T> {
     pub render: fn(&T) -> String,
 }
 
-/// Table state for sorting and searching
+/// Table state for sorting, searching, and multi-selection
 #[derive(Clone, Debug)]
 pub struct TableState {
     pub sort_column: Option<usize>,
     pub sort_dir: SortDir,
     pub search_text: String,
+    /// Indices of selected rows (in filtered view)
+    pub selected_rows: Vec<usize>,
+    /// Whether all currently visible (filtered) rows are selected
+    pub all_filtered_selected: bool,
 }
 
 impl Default for TableState {
@@ -40,11 +44,13 @@ impl Default for TableState {
             sort_column: None,
             sort_dir: SortDir::Asc,
             search_text: String::new(),
+            selected_rows: Vec::new(),
+            all_filtered_selected: false,
         }
     }
 }
 
-/// Generic sortable and searchable table component
+/// Generic sortable and searchable table component with multi-select support
 pub struct Table<T: Clone> {
     pub items: Vec<T>,
     pub state: TableState,
@@ -65,9 +71,59 @@ impl<T: Clone> Table<T> {
         self.items = items;
     }
 
+    /// Toggle selection of a specific row
+    pub fn toggle_selection(&mut self, row_idx: usize) {
+        if let Some(pos) = self.state.selected_rows.iter().position(|&x| x == row_idx) {
+            self.state.selected_rows.remove(pos);
+        } else {
+            self.state.selected_rows.push(row_idx);
+        }
+        self.state.all_filtered_selected = false;
+    }
+
+    /// Select all filtered rows
+    pub fn select_all_filtered(&mut self, filtered_count: usize) {
+        self.state.selected_rows.clear();
+        for i in 0..filtered_count {
+            self.state.selected_rows.push(i);
+        }
+        self.state.all_filtered_selected = true;
+    }
+
+    /// Deselect all rows
+    pub fn deselect_all(&mut self) {
+        self.state.selected_rows.clear();
+        self.state.all_filtered_selected = false;
+    }
+
+    /// Check if a row is selected
+    pub fn is_row_selected(&self, row_idx: usize) -> bool {
+        self.state.selected_rows.contains(&row_idx)
+    }
+
+    /// Get count of selected rows
+    pub fn selected_count(&self) -> usize {
+        self.state.selected_rows.len()
+    }
+
+    /// Check if all visible rows are selected
+    pub fn is_all_selected(&self) -> bool {
+        self.state.all_filtered_selected
+    }
+
+    /// Get selected row indices
+    pub fn get_selected_indices(&self) -> Vec<usize> {
+        self.state.selected_rows.clone()
+    }
+
+    /// Clear selections when filters change
+    pub fn on_filter_change(&mut self) {
+        self.deselect_all();
+    }
+
     /// Get the displayed items (sorted and filtered)
     pub fn filtered_items(&self, search_fn: fn(&T, &str) -> bool) -> Vec<(usize, T)> {
-        let mut items: Vec<(usize, T)> = self
+        let items: Vec<(usize, T)> = self
             .items
             .iter()
             .enumerate()
@@ -116,7 +172,7 @@ impl<T: Clone> Table<T> {
         items
     }
 
-    /// Render the table using egui Grid (proper column layout)
+    /// Render the table using egui Grid with multi-select checkboxes
     pub fn render_table(
         &mut self,
         ui: &mut egui::Ui,
@@ -134,11 +190,12 @@ impl<T: Clone> Table<T> {
                     .hint_text("Filter results…"),
             );
             if resp.changed() {
-                // Reset selected item when search changes since items are refiltered
+                self.on_filter_change();
             }
 
             if ui.button("Clear").clicked() {
                 self.state.search_text.clear();
+                self.on_filter_change();
             }
 
             ui.add_space(12.0);
@@ -186,11 +243,29 @@ impl<T: Clone> Table<T> {
         ui.add_space(6.0);
 
         // Get filtered items
-        let mut items = self.filtered_items(search_fn);
+        let items = self.filtered_items(search_fn);
+        let filtered_count = items.len();
 
         // Table grid layout
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("table_grid").striped(true).show(ui, |ui| {
+                // Checkbox header (3-state: unchecked, partial, all-checked)
+                let header_checkbox_state = if self.state.selected_rows.is_empty() {
+                    "☐"
+                } else if self.state.all_filtered_selected {
+                    "☑"
+                } else {
+                    "☒" // Partial selection
+                };
+
+                if ui.button(header_checkbox_state).clicked() {
+                    if self.state.all_filtered_selected {
+                        self.deselect_all();
+                    } else {
+                        self.select_all_filtered(filtered_count);
+                    }
+                }
+
                 // Column headers with sort indicators
                 let mut clicked_column: Option<usize> = None;
                 for (col_idx, column) in columns.iter().enumerate() {
@@ -211,18 +286,29 @@ impl<T: Clone> Table<T> {
                 ui.end_row();
 
                 // Handle sort after headers
-                if let Some(col_idx) = clicked_column {
+                let sorted_items = if let Some(col_idx) = clicked_column {
                     let sort_value_fn = columns[col_idx].sort_value;
-                    items = self.sort_items(col_idx, items, sort_value_fn);
-                }
+                    let sorted = items;
+                    self.sort_items(col_idx, sorted, sort_value_fn)
+                } else {
+                    items
+                };
 
                 // Table rows
-                for (display_idx, (original_idx, item)) in items.iter().enumerate() {
-                    let is_selected = self.selected == Some(display_idx);
+                for (display_idx, (original_idx, item)) in sorted_items.iter().enumerate() {
+                    let is_selected = self.is_row_selected(display_idx);
+
+                    // Checkbox for row selection
+                    let checkbox = if is_selected { "☑" } else { "☐" };
+                    if ui.button(checkbox).clicked() {
+                        self.toggle_selection(display_idx);
+                    }
+
+                    let is_highlighted = self.selected == Some(display_idx);
 
                     for column in columns.iter() {
                         let cell_text = (column.render)(item);
-                        if ui.selectable_label(is_selected, &cell_text).clicked() {
+                        if ui.selectable_label(is_highlighted, &cell_text).clicked() {
                             self.selected = Some(display_idx);
                             if let Some(callback) = on_row_clicked {
                                 callback(*original_idx);

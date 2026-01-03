@@ -1,7 +1,8 @@
 use super::{
     Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary,
-    DeploymentDetails, DeploymentSummary, JobDetails, JobSummary, PodDetails, PodMetricsHistory,
-    PodMetricsSummary, PodSummary, PrometheusMetrics, ReplicaSetDetails, ReplicaSetSummary,
+    DeploymentDetails, DeploymentSummary, EventsSummary, JobDetails, JobSummary, NamespaceDetails,
+    NamespaceSummary, NodeDetails, NodeSummary, PodDetails, PodMetricsHistory, PodMetricsSummary,
+    PodSummary, PrometheusMetrics, ReplicaSetDetails, ReplicaSetSummary,
     ReplicationControllerDetails, ReplicationControllerSummary, Route, StatefulSetDetails,
     StatefulSetSummary, StreamId, WorkloadMetricsAggregate,
 };
@@ -76,6 +77,8 @@ pub enum SystemEvent {
 #[derive(Debug, Clone)]
 pub enum ResourceListEvent {
     NamespacesUpdated(Vec<String>),
+    NodesUpdated(Vec<NodeSummary>),
+    NamespaceSummariesUpdated(Vec<NamespaceSummary>),
     PodsUpdated(Vec<PodSummary>),
     DeploymentsUpdated(Vec<DeploymentSummary>),
     DaemonSetsUpdated(Vec<DaemonSetSummary>),
@@ -84,11 +87,14 @@ pub enum ResourceListEvent {
     ReplicationControllersUpdated(Vec<ReplicationControllerSummary>),
     JobsUpdated(Vec<JobSummary>),
     CronJobsUpdated(Vec<CronJobSummary>),
+    EventsUpdated(EventsSummary),
     PortForwardsUpdated(Vec<crate::sections::network::PortForward>),
 }
 
 #[derive(Debug, Clone)]
 pub enum ResourceReadEvent {
+    NodeDetailsUpdated(NodeDetails),
+    NamespaceDetailsUpdated(NamespaceDetails),
     PodDetailsUpdated(PodDetails),
     PodMetricsUpdated(PodMetricsSummary),
     PodMetricsHistoryUpdated(PodMetricsHistory),

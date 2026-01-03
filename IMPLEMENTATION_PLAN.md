@@ -143,6 +143,7 @@ A comprehensive checklist of features and code cleanup tasks to complete the Fat
 
 ## 🖥️ UI/UX Polish
 
+- [ ] **Table Multi-Select** - Add checkbox column for bulk operations; header checkbox respects filters; bulk delete modal
 - [ ] **Loading States** - Show "Loading..." for all async operations
 - [ ] **Error Display** - Toast notifications for actionable errors
 - [ ] **Confirmation Modals** - Wire up delete/restart confirmation flows

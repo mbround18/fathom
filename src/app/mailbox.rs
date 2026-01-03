@@ -21,10 +21,18 @@ impl FathomApp {
             let context_view = self.get_or_create_view(&context_section);
             context_view.on_event(event);
 
-            // Route event to active view
-            let active_section = self.active_section.clone();
-            let active_view = self.get_or_create_view(&active_section);
-            active_view.on_event(event);
+            // For ResourceListEvents, broadcast to ALL views since multiple views may care about the same data
+            if matches!(&envelope.event, BackendEvent::ResourceList(_)) {
+                // Broadcast to all instantiated views
+                for view in self.views.values_mut() {
+                    view.on_event(event);
+                }
+            } else {
+                // For other events, route to active view only
+                let active_section = self.active_section.clone();
+                let active_view = self.get_or_create_view(&active_section);
+                active_view.on_event(event);
+            }
 
             match &envelope.event {
                 BackendEvent::System(ev) => match ev {

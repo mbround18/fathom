@@ -18,6 +18,7 @@ use super::events;
 use super::metrics_provider::{MetricsProviderTrait, PrometheusClient};
 use super::state::{BackendState, MetricsAvailability, client_or_err};
 use crate::backend::integrations::IntegrationConfig;
+use crate::backend::persistence;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -318,6 +319,12 @@ pub(super) async fn start_metrics_polling(
                 match result {
                     Ok(history) => {
                         has_failed = false;
+
+                        // Save metrics to ~/.fathom/metrics.json for historical tracking
+                        if let Err(e) = save_metrics_to_file(&history) {
+                            tracing::debug!("Failed to save metrics history: {}", e);
+                        }
+
                         events::emit(
                             seq_clone.as_ref(),
                             &sender_clone,
@@ -1167,5 +1174,105 @@ pub(super) fn stop_workload_metrics_polling(state: &mut BackendState) {
     if let Some(handle) = state.workload_metrics_poll_task.take() {
         handle.abort();
         tracing::info!("Stopped workload metrics polling");
+    }
+}
+
+/// Save metrics history to JSON file for persistence across sessions
+fn save_metrics_to_file(history: &PodMetricsHistory) -> anyhow::Result<()> {
+    // Load existing metrics or start with empty object
+    let mut all_metrics = persistence::load_metrics_history()?;
+
+    // Create a key for this pod (namespace/name)
+    let pod_key = format!("{}/{}", history.namespace, history.name);
+
+    // Convert containers to JSON-serializable format
+    let containers_json: Vec<serde_json::Value> = history
+        .containers
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "samples": c.samples.iter().map(|s| serde_json::json!({
+                    "timestamp": s.timestamp,
+                    "cpu_millicores": s.cpu_millicores,
+                    "memory_bytes": s.memory_bytes,
+                })).collect::<Vec<_>>(),
+                "cpu_request_millicores": c.cpu_request_millicores,
+                "cpu_limit_millicores": c.cpu_limit_millicores,
+                "memory_request_bytes": c.memory_request_bytes,
+                "memory_limit_bytes": c.memory_limit_bytes,
+            })
+        })
+        .collect();
+
+    // Update or create the pod entry
+    all_metrics[&pod_key] = serde_json::json!({
+        "namespace": history.namespace,
+        "name": history.name,
+        "containers": containers_json,
+        "last_updated": chrono::Utc::now().to_rfc3339(),
+    });
+
+    persistence::save_metrics_history(&all_metrics)?;
+    Ok(())
+}
+
+/// Load historical metrics for a pod from the persistence file
+pub(super) fn load_pod_metrics_history(
+    namespace: &str,
+    name: &str,
+) -> anyhow::Result<Option<PodMetricsHistory>> {
+    let all_metrics = persistence::load_metrics_history()?;
+    let pod_key = format!("{}/{}", namespace, name);
+
+    if let Some(pod_data) = all_metrics.get(&pod_key) {
+        // Parse containers from JSON
+        let containers: Vec<ContainerMetricsHistory> = pod_data
+            .get("containers")
+            .and_then(|c| c.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|container_obj| {
+                        let name = container_obj.get("name")?.as_str()?.to_string();
+                        let samples: Vec<MetricsSample> = container_obj
+                            .get("samples")
+                            .and_then(|s| s.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|sample| {
+                                        serde_json::from_value(sample.clone()).ok()
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+
+                        Some(ContainerMetricsHistory {
+                            name,
+                            samples,
+                            cpu_request_millicores: container_obj
+                                .get("cpu_request_millicores")
+                                .and_then(|v| v.as_f64()),
+                            cpu_limit_millicores: container_obj
+                                .get("cpu_limit_millicores")
+                                .and_then(|v| v.as_f64()),
+                            memory_request_bytes: container_obj
+                                .get("memory_request_bytes")
+                                .and_then(|v| v.as_f64()),
+                            memory_limit_bytes: container_obj
+                                .get("memory_limit_bytes")
+                                .and_then(|v| v.as_f64()),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(Some(PodMetricsHistory {
+            namespace: namespace.to_string(),
+            name: name.to_string(),
+            containers,
+        }))
+    } else {
+        Ok(None)
     }
 }

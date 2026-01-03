@@ -73,6 +73,40 @@ pub fn ports_config_path() -> Result<PathBuf> {
     Ok(fathom_config_dir()?.join("ports.json"))
 }
 
+/// Get the path to metrics.json
+pub fn metrics_history_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("metrics.json"))
+}
+
+/// Save metrics history to disk
+pub fn save_metrics_history(metrics: &serde_json::Value) -> Result<()> {
+    let path = metrics_history_path()?;
+    let json_str = serde_json::to_string_pretty(metrics)
+        .map_err(|e| anyhow!("Failed to serialize metrics: {}", e))?;
+    fs::write(&path, json_str)?;
+    Ok(())
+}
+
+/// Load metrics history from disk
+pub fn load_metrics_history() -> Result<serde_json::Value> {
+    let path = metrics_history_path()?;
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+    let json_str = fs::read_to_string(&path)?;
+    serde_json::from_str(&json_str).map_err(|e| anyhow!("Failed to deserialize metrics: {}", e))
+}
+
+/// Clear metrics history file on startup
+pub fn clear_metrics_history() -> Result<()> {
+    let path = metrics_history_path()?;
+    if path.exists() {
+        fs::remove_file(&path)?;
+        tracing::info!("Cleared metrics history file");
+    }
+    Ok(())
+}
+
 /// Get the path to integrations.json
 pub fn integrations_config_path() -> Result<PathBuf> {
     Ok(fathom_config_dir()?.join("integrations.json"))
@@ -106,7 +140,7 @@ pub fn save_json_file(path: &Path, value: &serde_json::Value) -> Result<()> {
     ensure_config_dir()?;
     let content = serde_json::to_string_pretty(value)?;
     fs::write(path, content)?;
-    tracing::info!("Saved configuration to {}", path.display());
+    tracing::debug!("Saved configuration to {}", path.display());
     Ok(())
 }
 

@@ -10,10 +10,10 @@ use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use std::collections::HashMap;
 use views::{
-    BoxedView, ContextView, CronJobsView, DaemonSetView, DeploymentView, IntegrationsView,
-    JobsView, McpIntegrationView, ModalState, ModalView, NavigationView, PlaceholderView, PodsView,
-    ReplicaSetView, ReplicationControllerView, StatefulSetView, StatusView, ViewAction,
-    ViewComponent,
+    BoxedView, ContextView, CronJobsView, DaemonSetView, DeploymentView, EventsView,
+    IntegrationsView, JobsView, McpIntegrationView, ModalState, ModalView, NamespacesView,
+    NavigationView, NodesView, OverviewView, PlaceholderView, PodsView, ReplicaSetView,
+    ReplicationControllerView, StatefulSetView, StatusView, ViewAction, ViewComponent,
 };
 
 pub mod components;
@@ -40,7 +40,11 @@ pub struct FathomApp {
     // Nav
     active_section: SectionKey,
 
-    // (View-specific state moved to individual view components)
+    // Cluster-level section states
+    pub overview_state: views::OverviewState,
+    pub events_state: views::EventsState,
+    pub nodes_state: views::NodesState,
+    pub namespaces_state: views::NamespacesState,
 
     // Port forwards
     port_forwards: Vec<crate::sections::network::PortForward>,
@@ -83,6 +87,7 @@ pub enum ConfirmAction {
     RestartStatefulSet(String, String),
     RestartReplicaSet(String, String),
     RestartReplicationController(String, String),
+    BulkDelete(Vec<(String, String)>), // Vec<(namespace, name)>
 }
 
 impl FathomApp {
@@ -93,6 +98,10 @@ impl FathomApp {
             views: HashMap::new(),
             previous_section: None,
             active_section: section_keys::overview(),
+            overview_state: views::OverviewState::default(),
+            events_state: views::EventsState::default(),
+            nodes_state: views::NodesState::default(),
+            namespaces_state: views::NamespacesState::default(),
             port_forwards: Vec::new(),
             prometheus_namespace: "monitoring".to_string(),
             prometheus_service: "prometheus".to_string(),
@@ -125,7 +134,7 @@ impl FathomApp {
             let view: BoxedView = if section_key == &section_keys::context() {
                 Box::new(ContextView::new())
             } else if section_key == &section_keys::navigation() {
-                Box::new(NavigationView)
+                Box::new(NavigationView::new())
             } else if section_key == &section_keys::status() {
                 Box::new(StatusView::new())
             } else if section_key == &section_keys::modal() {
@@ -156,6 +165,14 @@ impl FathomApp {
                 Box::new(IntegrationsView::new("FluxCD"))
             } else if section_key == &section_keys::integrations_mcp() {
                 Box::new(McpIntegrationView::new())
+            } else if section_key == &section_keys::overview() {
+                Box::new(OverviewView::new())
+            } else if section_key == &section_keys::nodes() {
+                Box::new(NodesView::new())
+            } else if section_key == &section_keys::events() {
+                Box::new(EventsView::new())
+            } else if section_key == &section_keys::namespaces() {
+                Box::new(NamespacesView::new())
             } else {
                 // Placeholder for sections not yet implemented
                 Box::new(PlaceholderView::new(section_key.clone()))
@@ -181,9 +198,27 @@ impl FathomApp {
                 }
             }
 
-            // On mount: call on_mount on new view
+            // On mount: call on_mount on new view and process returned actions
             let view = self.get_or_create_view(&current);
-            let _ = view.on_mount();
+            let actions = view.on_mount();
+
+            // Process actions returned from on_mount
+            for action in actions {
+                match action {
+                    ViewAction::SendCommand(cmd) => {
+                        self.send(cmd);
+                    }
+                    ViewAction::NotifyStatus(msg) => {
+                        self.push_status(msg);
+                    }
+                    ViewAction::Navigate(section) => {
+                        self.active_section = section;
+                    }
+                    ViewAction::OpenModal(_) | ViewAction::OpenScaleModal(_, _, _, _) => {
+                        // Modal actions from on_mount are ignored - modals are for user interactions in render()
+                    }
+                }
+            }
         }
     }
 
