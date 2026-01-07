@@ -189,6 +189,52 @@ pub enum BackendCmdV1 {
     },
     RefreshPortForwards,
 
+    // Network / Services section
+    RefreshServices,
+    SelectService {
+        namespace: String,
+        name: String,
+    },
+    DeleteService {
+        namespace: String,
+        name: String,
+    },
+
+    // Network / Endpoints section
+    RefreshEndpoints,
+    SelectEndpoint {
+        namespace: String,
+        name: String,
+    },
+
+    // Network / Ingresses section
+    RefreshIngresses,
+    SelectIngress {
+        namespace: String,
+        name: String,
+    },
+    DeleteIngress {
+        namespace: String,
+        name: String,
+    },
+
+    // Network / Ingress Classes section
+    RefreshIngressClasses,
+    SelectIngressClass {
+        name: String,
+    },
+
+    // Network / Network Policies section
+    RefreshNetworkPolicies,
+    SelectNetworkPolicy {
+        namespace: String,
+        name: String,
+    },
+    DeleteNetworkPolicy {
+        namespace: String,
+        name: String,
+    },
+
     // Integrations / Metrics section
     RefreshIntegrations,
     StartMetricsPolling {

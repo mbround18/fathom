@@ -43,6 +43,9 @@ pub struct PodDetails {
     /// Best-effort resolved owner (e.g. ReplicaSet -> Deployment).
     pub resolved_owner: Option<PodOwner>,
 
+    /// Names of PersistentVolumeClaims referenced by this Pod (best-effort)
+    pub persistent_volume_claims: Vec<String>,
+
     pub raw_json: String,
 }
 

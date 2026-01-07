@@ -182,8 +182,16 @@ pub mod section_keys {
         SectionKey::new("network/services")
     }
 
+    pub fn network_endpoints() -> SectionKey {
+        SectionKey::new("network/endpoints")
+    }
+
     pub fn network_ingress() -> SectionKey {
         SectionKey::new("network/ingress")
+    }
+
+    pub fn network_ingressclasses() -> SectionKey {
+        SectionKey::new("network/ingressclasses")
     }
 
     pub fn network_policies() -> SectionKey {

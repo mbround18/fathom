@@ -9,22 +9,29 @@ use tokio::runtime::Runtime;
 
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
 
+mod cmd;
 mod cronjobs;
 mod daemonsets;
 mod deployments;
+mod endpoints;
 mod events;
+mod ingressclasses;
+mod ingresses;
 mod integrations;
 mod interactions;
 mod jobs;
 mod kube;
+mod longhorn;
 mod metrics;
 mod metrics_provider;
+mod networkpolicies;
 mod nodes;
 pub mod persistence;
 mod pods;
 mod portforward;
 mod replicasets;
 mod replicationcontrollers;
+mod services;
 mod state;
 mod statefulsets;
 mod sync;
@@ -115,7 +122,7 @@ pub fn init(
         // Spawn command handler as a background task
         rt.spawn(async move {
             let mut state = state.lock().await;
-            let result = handle_cmd(cmd, &mut state, &sender).await;
+            let result = cmd::dispatch_cmd(cmd, &mut state, &sender).await;
             match result {
                 Ok(should_exit) if should_exit => {
                     tracing::debug!("Command signaled shutdown");
@@ -221,7 +228,8 @@ async fn handle_cmd(
             // Auto-discover Prometheus services in the monitoring namespace
             if let Some(client) = &state.client {
                 if let Some(ctx) = &state.current_context {
-                    let _ = auto_discover_prometheus(client, ctx).await;
+                    let _ =
+                        crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
                 }
             }
 
@@ -235,7 +243,9 @@ async fn handle_cmd(
             }
 
             // Ensure metrics are accessible via port forward
-            if let Err(e) = ensure_metrics_port_forward(state, sender).await {
+            if let Err(e) =
+                crate::backend::integrations::ensure_metrics_port_forward(state, sender).await
+            {
                 events::notify_info(
                     state.seq.as_ref(),
                     sender,
@@ -319,7 +329,8 @@ async fn handle_cmd(
             // Auto-discover Prometheus services in the monitoring namespace
             if let Some(client) = &state.client {
                 if let Some(ctx) = &state.current_context {
-                    let _ = auto_discover_prometheus(client, ctx).await;
+                    let _ =
+                        crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
                 }
             }
 
@@ -877,138 +888,64 @@ async fn handle_cmd(
                 cronjobs::refresh_cronjobs(state, sender).await?;
             }
         }
-        BackendCmd::StartPortForward {
-            namespace,
-            pod,
-            local_port,
-            remote_port,
-            container,
-        } => {
-            if let Some(client) = &state.client {
-                match state
-                    .port_forward_manager
-                    .start(client, &namespace, &pod, local_port, remote_port, container)
-                    .await
-                {
-                    Ok(tunnel_id) => {
-                        events::notify_info(
-                            state.seq.as_ref(),
-                            sender,
-                            format!(
-                                "Started port forward [{}]: {}/{} {}:{}",
-                                tunnel_id, namespace, pod, local_port, remote_port
-                            ),
-                        );
-                        // Emit updated list
-                        emit_port_forward_list(state, sender);
-                        // Persist to disk
-                        save_port_forwards_to_disk(state);
-                    }
-                    Err(e) => {
-                        events::notify_error(
-                            state.seq.as_ref(),
-                            sender,
-                            format!("Failed to start port forward: {}", e),
-                        );
-                    }
-                }
-            } else {
-                events::notify_error(
-                    state.seq.as_ref(),
-                    sender,
-                    "Not connected to cluster".to_owned(),
-                );
-            }
-        }
-        BackendCmd::StopPortForward { tunnel_id } => {
-            match state.port_forward_manager.stop(&tunnel_id).await {
-                Ok(_) => {
-                    events::notify_info(
-                        state.seq.as_ref(),
-                        sender,
-                        format!("Stopped port forward: {}", tunnel_id),
-                    );
-                    // Emit updated list
-                    emit_port_forward_list(state, sender);
-                    // Persist to disk
-                    save_port_forwards_to_disk(state);
-                }
-                Err(e) => {
-                    events::notify_error(
-                        state.seq.as_ref(),
-                        sender,
-                        format!("Failed to stop port forward: {}", e),
-                    );
-                }
-            }
-        }
-        BackendCmd::DeletePortForward { tunnel_id } => {
-            // First stop if active, then remove from manager
-            let _ = state.port_forward_manager.stop(&tunnel_id).await;
-            state.port_forward_manager.delete(&tunnel_id);
 
-            events::notify_info(
-                state.seq.as_ref(),
-                sender,
-                format!("Deleted port forward: {}", tunnel_id),
-            );
+        // Network / Services section
+        BackendCmd::RefreshServices => {
+            services::refresh_services(state, sender).await?;
+        }
 
-            // Emit updated list
-            emit_port_forward_list(state, sender);
-            // Persist to disk
-            save_port_forwards_to_disk(state);
+        BackendCmd::SelectService { namespace, name } => {
+            services::fetch_service_details(state, sender, &namespace, &name).await?;
         }
-        BackendCmd::UpdatePortForward {
-            tunnel_id,
-            local_port,
-            remote_port,
-            auto_start,
-        } => {
-            // Update the port forward configuration
-            if let Some(pf) = state.port_forward_manager.tunnels.get_mut(&tunnel_id) {
-                pf.local_port = local_port;
-                pf.remote_port = remote_port;
-                pf.auto_start = auto_start;
 
-                events::notify_info(
-                    state.seq.as_ref(),
-                    sender,
-                    format!("Updated port forward: {}", tunnel_id),
-                );
+        BackendCmd::DeleteService { namespace, name } => {
+            services::delete_service(state, sender, &namespace, &name).await?;
+        }
 
-                // Emit updated list
-                emit_port_forward_list(state, sender);
-                // Persist to disk
-                save_port_forwards_to_disk(state);
-            } else {
-                events::notify_error(
-                    state.seq.as_ref(),
-                    sender,
-                    format!("Port forward not found: {}", tunnel_id),
-                );
-            }
+        // Network / Endpoints section
+        BackendCmd::RefreshEndpoints => {
+            endpoints::refresh_endpoints(state, sender).await?;
         }
-        BackendCmd::RefreshPortForwards => {
-            // Emit current port forward list
-            emit_port_forward_list(state, sender);
-            events::notify_info(
-                state.seq.as_ref(),
-                sender,
-                "Port forwards refreshed".to_owned(),
-            );
+
+        BackendCmd::SelectEndpoint { namespace, name } => {
+            endpoints::fetch_endpoint_details(state, sender, &namespace, &name).await?;
         }
-        BackendCmd::CheckPortAvailability { port } => {
-            // Check if local port is available for port forwarding
-            let available = check_port_available(port);
-            let event = BackendEvent::System(SystemEvent::PortAvailability { port, available });
-            events::emit(
-                state.seq.as_ref(),
-                sender,
-                Route::global(section_keys::network_portforwards()),
-                Correlation::None,
-                event,
-            );
+
+        // Network / Ingresses section
+        BackendCmd::RefreshIngresses => {
+            ingresses::refresh_ingresses(state, sender).await?;
         }
+
+        BackendCmd::SelectIngress { namespace, name } => {
+            ingresses::fetch_ingress_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::DeleteIngress { namespace, name } => {
+            ingresses::delete_ingress(state, sender, &namespace, &name).await?;
+        }
+
+        // Network / Ingress Classes section
+        BackendCmd::RefreshIngressClasses => {
+            ingressclasses::refresh_ingress_classes(state, sender).await?;
+        }
+
+        BackendCmd::SelectIngressClass { name } => {
+            ingressclasses::fetch_ingress_class_details(state, sender, &name).await?;
+        }
+
+        // Network / Network Policies section
+        BackendCmd::RefreshNetworkPolicies => {
+            networkpolicies::refresh_network_policies(state, sender).await?;
+        }
+
+        BackendCmd::SelectNetworkPolicy { namespace, name } => {
+            networkpolicies::fetch_network_policy_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::DeleteNetworkPolicy { namespace, name } => {
+            networkpolicies::delete_network_policy(state, sender, &namespace, &name).await?;
+        }
+
         BackendCmd::ConfigurePrometheus {
             namespace,
             service,
@@ -1323,6 +1260,10 @@ async fn handle_cmd(
             );
             events::notify_info(state.seq.as_ref(), sender, "MCP server stopped".to_owned());
         }
+        _ => {
+            // This command is not handled in the core `handle_cmd` implementation.
+            // Some commands are handled upstream in `cmd::dispatch_cmd` (e.g., port-forward related commands).
+        }
     }
 
     Ok(false)
@@ -1401,13 +1342,15 @@ async fn restore_saved_port_forwards(
             format!("Restored {} port forwards", restored_count),
         );
         // Emit updated list to UI
-        emit_port_forward_list(state, sender);
+        crate::backend::portforward::emit_port_forward_list(state, sender);
     }
 
     Ok(())
 }
 
-/// Ensure Prometheus metrics are accessible via port forward
+// Ensure Prometheus metrics are accessible via port forward
+// Moved to backend/integrations.rs: ensure_metrics_port_forward()
+/*
 async fn ensure_metrics_port_forward(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
@@ -1472,8 +1415,8 @@ async fn ensure_metrics_port_forward(
                             ),
                         );
                         // Emit updated list and save to disk
-                        emit_port_forward_list(state, sender);
-                        save_port_forwards_to_disk(state);
+                        crate::backend::portforward::emit_port_forward_list(state, sender);
+                        crate::backend::portforward::save_port_forwards_to_disk(state);
                         return Ok(());
                     }
                     Err(e) => {
@@ -1496,7 +1439,7 @@ async fn ensure_metrics_port_forward(
     }
 
     // Fallback: Check if port 9090 is available locally and try to find any Prometheus instance
-    if is_port_available(9090) {
+    if crate::backend::portforward::is_local_port_available(9090) {
         // Try to find any Prometheus pod in common namespaces
         for namespace in &["monitoring", "prometheus", "kube-monitoring", "default"] {
             if let Ok(Some(pod_name)) = find_any_prometheus_pod(client, namespace).await {
@@ -1529,8 +1472,8 @@ async fn ensure_metrics_port_forward(
                             ),
                         );
                         // Emit updated list and save to disk
-                        emit_port_forward_list(state, sender);
-                        save_port_forwards_to_disk(state);
+                        crate::backend::portforward::emit_port_forward_list(state, sender);
+                        crate::backend::portforward::save_port_forwards_to_disk(state);
                         return Ok(());
                     }
                     Err(e) => {
@@ -1554,7 +1497,10 @@ async fn ensure_metrics_port_forward(
 
     Ok(())
 }
+*/
 
+// (moved to backend/integrations.rs)
+/*
 /// Find a pod backing a service by checking pod labels
 async fn find_pod_for_service(
     client: &::kube::Client,
@@ -1606,141 +1552,17 @@ async fn find_pod_for_service(
 
     Ok(None)
 }
+*/
 
-/// Resolve a pod backing a service using Endpoints (prefers ready addresses).
-async fn find_pod_via_endpoints(
-    client: &::kube::Client,
-    namespace: &str,
-    service: &str,
-) -> anyhow::Result<Option<String>> {
-    use ::kube::Api;
-    use k8s_openapi::api::core::v1::Endpoints;
+// Prometheus helpers moved to backend/integrations.rs
 
-    let ep_api = Api::<Endpoints>::namespaced(client.clone(), namespace);
-    if let Ok(eps) = ep_api.get(service).await {
-        if let Some(subsets) = eps.subsets {
-            for subset in subsets {
-                // Prefer ready addresses, fallback to not_ready_addresses
-                let candidates = subset
-                    .addresses
-                    .or(subset.not_ready_addresses)
-                    .unwrap_or_default();
-                for addr in candidates {
-                    if let Some(target_ref) = addr.target_ref {
-                        if target_ref.kind.as_deref() == Some("Pod") {
-                            if let Some(name) = target_ref.name {
-                                return Ok(Some(name));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+// Port availability helper now provided by backend/portforward.rs
 
-    Ok(None)
-}
+// Prometheus helpers moved to backend/integrations.rs
 
-/// Check if a local port is available
-fn is_port_available(port: u16) -> bool {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+// Prometheus helpers moved to backend/integrations.rs
 
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    match TcpListener::bind(addr) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
-}
-
-/// Find any Prometheus pod in a namespace by looking for pods with "prometheus" in the name
-async fn find_any_prometheus_pod(
-    client: &::kube::Client,
-    namespace: &str,
-) -> anyhow::Result<Option<String>> {
-    use ::kube::Api;
-    use k8s_openapi::api::core::v1::Pod;
-
-    let pod_api = Api::<Pod>::namespaced(client.clone(), namespace);
-    match pod_api.list(&Default::default()).await {
-        Ok(pods) => {
-            // Find first pod with "prometheus" in the name
-            for pod in pods.items {
-                if let Some(name) = pod.metadata.name.as_ref() {
-                    if name.to_lowercase().contains("prometheus") {
-                        return Ok(Some(name.clone()));
-                    }
-                }
-            }
-            Ok(None)
-        }
-        Err(_) => Ok(None),
-    }
-}
-
-/// Auto-discover Prometheus services in the monitoring namespace and configure them
-async fn auto_discover_prometheus(client: &::kube::Client, context: &str) -> anyhow::Result<()> {
-    use ::kube::Api;
-    use k8s_openapi::api::core::v1::Service;
-
-    let svc_api = Api::<Service>::namespaced(client.clone(), "monitoring");
-    match svc_api.list(&Default::default()).await {
-        Ok(services) => {
-            // Look for prometheus-k8s or prometheus-stack-kube-prom-prometheus
-            for svc in services.items {
-                if let Some(name) = svc.metadata.name.as_ref() {
-                    if name.contains("prometheus")
-                        && !name.contains("operator")
-                        && !name.contains("adapter")
-                    {
-                        // Found a viable Prometheus service
-                        tracing::info!("Auto-discovered Prometheus service: monitoring/{}", name);
-
-                        // Update or create integration config
-                        if let Ok(mut cfg) = IntegrationConfig::load(context) {
-                            cfg.prometheus = Some(PrometheusConfig {
-                                enabled: true,
-                                namespace: "monitoring".to_string(),
-                                service: name.clone(),
-                                port: 9090,
-                            });
-                            let _ = cfg.save();
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            tracing::debug!("Failed to list services in monitoring namespace: {}", e);
-        }
-    }
-    Ok(())
-}
-
-/// Emit current port forward list to UI
-fn emit_port_forward_list(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
-    let list = state.port_forward_manager.list();
-    events::emit(
-        state.seq.as_ref(),
-        sender,
-        Route::global(section_keys::network_portforwards()),
-        Correlation::None,
-        BackendEvent::ResourceList(ResourceListEvent::PortForwardsUpdated(list)),
-    );
-}
-
-/// Save active port forwards to disk
-fn save_port_forwards_to_disk(state: &BackendState) {
-    let list = state.port_forward_manager.list();
-    if let Err(e) = persistence::save_all_ports(&list) {
-        tracing::warn!("Failed to save port forwards to disk: {}", e);
-    }
-}
-
-/// Check if a local port is available (not in use)
-fn check_port_available(port: u16) -> bool {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    TcpListener::bind(addr).is_ok()
-}
+// Port forward helpers moved to backend/portforward.rs:
+// - emit_port_forward_list(state, sender)
+// - save_port_forwards_to_disk(state)
+// Port check helper centralized in backend/portforward.rs

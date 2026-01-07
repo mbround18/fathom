@@ -1,9 +1,25 @@
 use super::traits::{ViewAction, ViewComponent};
 use crate::app::components::{self, LogStreamId, LogStreamState, LogViewer};
 use crate::protocol::{
-    BackendCmd, BackendEvent, PodDetails, PodMetricsHistory, PodMetricsSummary, PodSummary,
-    PrometheusMetrics, ResourceListEvent, ResourceReadEvent, StreamEvent,
+    BackendCmd, BackendEvent, DiskUsage, PodDetails, PodMetricsHistory, PodMetricsSummary,
+    PodSummary, PrometheusMetrics, ResourceListEvent, ResourceReadEvent, StreamEvent, SystemEvent,
 };
+
+// Human-friendly bytes formatting (binary units)
+fn human_readable_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut val = bytes as f64;
+    let mut idx = 0usize;
+    while val >= 1024.0 && idx < UNITS.len() - 1 {
+        val /= 1024.0;
+        idx += 1;
+    }
+    if idx == 0 {
+        format!("{} {}", bytes, UNITS[idx])
+    } else {
+        format!("{:.1} {}", val, UNITS[idx])
+    }
+}
 
 /// Pod-specific state and rendering for the Pods view
 pub struct PodsView {
@@ -21,6 +37,9 @@ pub struct PodsView {
     // Details panel state
     pub pod_tab: PodTab,
     pub pod_details: Option<PodDetails>,
+
+    // Disk usage items (SystemEvent::DiskUsageUpdated)
+    pub disk_usage: Vec<DiskUsage>,
 
     // Logs streaming (now using generic LogStreamState)
     pub pod_logs_stream: Option<LogStreamState>,
@@ -93,6 +112,7 @@ impl PodsView {
             pod_metrics_polling_notified: false,
             pod_metrics_interval_secs: 15,
             pod_metrics_interval_prev: 15,
+            disk_usage: Vec::new(),
         }
     }
 
@@ -899,6 +919,13 @@ impl ViewComponent for PodsView {
         {
             if Some((metrics.namespace.clone(), metrics.name.clone())) == self.selected_pod {
                 self.pod_prometheus_metrics = Some(metrics.clone());
+            }
+        }
+
+        // Handle disk usage system events
+        if let BackendEvent::System(ev) = event {
+            if let SystemEvent::DiskUsageUpdated(items) = ev {
+                self.disk_usage = items.clone();
             }
         }
     }

@@ -86,6 +86,10 @@ impl FathomApp {
                     } => {
                         // Port availability check result - modal handles this via on_event
                     }
+                    SystemEvent::DiskUsageUpdated(items) => {
+                        self.disk_usage = items.clone();
+                        self.push_status(format!("Disk usage updated: {} item(s)", items.len()));
+                    }
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {

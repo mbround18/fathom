@@ -2,8 +2,14 @@
 //!
 //! This module handles kubectl port-forward operations via the Kubernetes API.
 
+use crate::backend::events;
+use crate::backend::persistence;
+use crate::protocol::{
+    BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent, Route, section_keys,
+};
 use crate::sections::network::{PortForward, PortForwardStatus};
 use anyhow::{Result, anyhow};
+use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::Pod;
 use kube::Client;
 use kube::api::Api;
@@ -197,5 +203,36 @@ impl PortForwardManager {
 impl Default for PortForwardManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Check if a local TCP port is available (not in use)
+pub fn is_local_port_available(port: u16) -> bool {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    TcpListener::bind(addr).is_ok()
+}
+
+/// Emit current port forward list to UI
+pub fn emit_port_forward_list(
+    state: &crate::backend::state::BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    let list = state.port_forward_manager.list();
+    events::emit(
+        state.seq.as_ref(),
+        sender,
+        Route::global(section_keys::network_portforwards()),
+        Correlation::None,
+        BackendEvent::ResourceList(ResourceListEvent::PortForwardsUpdated(list)),
+    );
+}
+
+/// Save active port forwards to disk
+pub fn save_port_forwards_to_disk(state: &crate::backend::state::BackendState) {
+    let list = state.port_forward_manager.list();
+    if let Err(e) = persistence::save_all_ports(&list) {
+        tracing::warn!("Failed to save port forwards to disk: {}", e);
     }
 }

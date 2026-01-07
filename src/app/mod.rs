@@ -67,6 +67,9 @@ pub struct FathomApp {
     grafana_api_key: String,
     grafana_connected: bool,
     grafana_testing: bool,
+
+    // Disk usage
+    disk_usage: Vec<crate::protocol::DiskUsage>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,6 +142,7 @@ impl FathomApp {
             prometheus_testing: false,
             grafana_url: String::new(),
             grafana_api_key: String::new(),
+            disk_usage: Vec::new(),
             grafana_connected: false,
             grafana_testing: false,
         };

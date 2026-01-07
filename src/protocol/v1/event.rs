@@ -1,9 +1,11 @@
 use super::{
     Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary,
-    DeploymentDetails, DeploymentSummary, EventsSummary, JobDetails, JobSummary, NamespaceDetails,
-    NamespaceSummary, NodeDetails, NodeSummary, PodDetails, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PrometheusMetrics, ReplicaSetDetails, ReplicaSetSummary,
-    ReplicationControllerDetails, ReplicationControllerSummary, Route, StatefulSetDetails,
+    DeploymentDetails, DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary,
+    IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
+    JobSummary, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary,
+    NodeDetails, NodeSummary, PodDetails, PodMetricsHistory, PodMetricsSummary, PodSummary,
+    PrometheusMetrics, ReplicaSetSummary, ReplicationControllerDetails,
+    ReplicationControllerSummary, Route, ServiceDetails, ServiceSummary, StatefulSetDetails,
     StatefulSetSummary, StreamId, WorkloadMetricsAggregate,
 };
 
@@ -77,6 +79,18 @@ pub enum SystemEvent {
         port: u16,
         available: bool,
     },
+
+    /// Disk usage metrics discovered via CRDs or Prometheus
+    DiskUsageUpdated(Vec<DiskUsage>),
+}
+
+#[derive(Debug, Clone)]
+pub struct DiskUsage {
+    pub namespace: String,
+    pub name: String,
+    pub provisioned_bytes: u64,
+    pub used_bytes: Option<u64>,
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +108,11 @@ pub enum ResourceListEvent {
     CronJobsUpdated(Vec<CronJobSummary>),
     EventsUpdated(EventsSummary),
     PortForwardsUpdated(Vec<crate::sections::network::PortForward>),
+    ServicesUpdated(Vec<ServiceSummary>),
+    EndpointsUpdated(Vec<EndpointSummary>),
+    IngressesUpdated(Vec<IngressSummary>),
+    IngressClassesUpdated(Vec<IngressClassSummary>),
+    NetworkPoliciesUpdated(Vec<NetworkPolicySummary>),
 }
 
 #[derive(Debug, Clone)]
@@ -110,10 +129,15 @@ pub enum ResourceReadEvent {
     DaemonSetMetricsUpdated(WorkloadMetricsAggregate),
     StatefulSetDetailsUpdated(StatefulSetDetails),
     StatefulSetMetricsUpdated(WorkloadMetricsAggregate),
-    ReplicaSetDetailsUpdated(ReplicaSetDetails),
+    ReplicaSetDetailsUpdated(super::replicasets::ReplicaSetDetails),
     ReplicationControllerDetailsUpdated(ReplicationControllerDetails),
     JobDetailsUpdated(JobDetails),
     CronJobDetailsUpdated(CronJobDetails),
+    ServiceDetailsUpdated(ServiceDetails),
+    EndpointDetailsUpdated(EndpointDetails),
+    IngressDetailsUpdated(IngressDetails),
+    IngressClassDetailsUpdated(IngressClassDetails),
+    NetworkPolicyDetailsUpdated(NetworkPolicyDetails),
 }
 
 #[derive(Debug, Clone)]
