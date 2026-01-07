@@ -970,7 +970,8 @@ async fn handle_cmd(
             }
         }
         BackendCmd::RefreshPortForwards => {
-            // TODO: Refresh port forward list
+            // Emit current port forward list
+            emit_port_forward_list(state, sender);
             events::notify_info(
                 state.seq.as_ref(),
                 sender,
