@@ -12,8 +12,9 @@ use std::collections::HashMap;
 use views::{
     BoxedView, ContextView, CronJobsView, DaemonSetView, DeploymentView, EventsView,
     IntegrationsView, JobsView, McpIntegrationView, ModalState, ModalView, NamespacesView,
-    NavigationView, NodesView, OverviewView, PlaceholderView, PodsView, ReplicaSetView,
-    ReplicationControllerView, StatefulSetView, StatusView, ViewAction, ViewComponent,
+    NavigationView, NodesView, OverviewView, PlaceholderView, PodsView, PortForwardsView,
+    ReplicaSetView, ReplicationControllerView, StatefulSetView, StatusView, ViewAction,
+    ViewComponent,
 };
 
 pub mod components;
@@ -137,7 +138,7 @@ impl FathomApp {
     }
 
     /// Get or create a view for the given section key.
-    fn get_or_create_view(&mut self, section_key: &SectionKey) -> &mut dyn ViewComponent {
+    pub fn get_or_create_view(&mut self, section_key: &SectionKey) -> &mut dyn ViewComponent {
         let key_str = section_key.to_string();
         if !self.views.contains_key(&key_str) {
             // Create the appropriate view based on section key
@@ -183,6 +184,8 @@ impl FathomApp {
                 Box::new(EventsView::new())
             } else if section_key == &section_keys::namespaces() {
                 Box::new(NamespacesView::new())
+            } else if section_key == &section_keys::network_portforwards() {
+                Box::new(PortForwardsView::new())
             } else {
                 // Placeholder for sections not yet implemented
                 Box::new(PlaceholderView::new(section_key.clone()))

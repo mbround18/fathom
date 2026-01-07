@@ -154,7 +154,7 @@ impl PodsView {
     }
 
     /// Render Details tab content
-    fn render_pod_details_tab(&mut self, ui: &mut egui::Ui, _actions: &mut Vec<ViewAction>) {
+    fn render_pod_details_tab(&mut self, ui: &mut egui::Ui, actions: &mut Vec<ViewAction>) {
         match &self.pod_details {
             Some(details) => {
                 // Prometheus metrics section (displayed first if available)
@@ -315,10 +315,30 @@ impl PodsView {
 
                         for port in &details.ports {
                             let name_str = port.name.as_deref().unwrap_or("(unnamed)");
-                            ui.monospace(format!(
-                                "• {} : {} ({})",
-                                name_str, port.port, port.protocol
-                            ));
+                            ui.horizontal(|ui| {
+                                ui.monospace(format!(
+                                    "• {} : {} ({})",
+                                    name_str, port.port, port.protocol
+                                ));
+                                if ui.small_button("⚡ Forward").clicked() {
+                                    let containers: Vec<String> = details
+                                        .containers
+                                        .iter()
+                                        .map(|c| {
+                                            c.split_whitespace().next().unwrap_or(c).to_string()
+                                        })
+                                        .collect();
+
+                                    actions.push(ViewAction::OpenModal(
+                                        crate::app::ConfirmAction::OpenPortForward {
+                                            namespace: details.namespace.clone(),
+                                            pod: details.name.clone(),
+                                            suggested_ports: vec![port.port],
+                                            containers,
+                                        },
+                                    ));
+                                }
+                            });
                         }
                     });
                     ui.add_space(8.0);
@@ -665,27 +685,6 @@ impl ViewComponent for PodsView {
                         ns.clone(),
                         name.clone(),
                     )));
-                }
-                // Port Forward button - extract ports from pod details
-                if let Some(details) = &self.pod_details {
-                    if !details.ports.is_empty() && ui.button("Port Forward").clicked() {
-                        let suggested_ports: Vec<u16> =
-                            details.ports.iter().map(|p| p.port).collect();
-                        let containers: Vec<String> = details
-                            .containers
-                            .iter()
-                            .map(|c| c.split_whitespace().next().unwrap_or(c).to_string())
-                            .collect();
-
-                        actions.push(ViewAction::OpenModal(
-                            crate::app::ConfirmAction::OpenPortForward {
-                                namespace: ns.clone(),
-                                pod: name.clone(),
-                                suggested_ports,
-                                containers,
-                            },
-                        ));
-                    }
                 }
                 if ui.button("Close").clicked() {
                     self.selected_pod = None;

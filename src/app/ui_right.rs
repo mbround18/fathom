@@ -34,6 +34,34 @@ impl FathomApp {
                             self.active_section = section;
                         }
                         ViewAction::OpenModal(confirm_action) => {
+                            // First check if it's OpenPortForward before doing the complex match
+                            match &confirm_action {
+                                ConfirmAction::OpenPortForward { namespace, pod, suggested_ports, containers } => {
+                                    // Ensure modal view exists
+                                    let _ = self.get_or_create_view(&section_keys::modal());
+                                    
+                                    // Now update its state
+                                    if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
+                                        let ptr = modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
+                                        if !ptr.is_null() {
+                                            unsafe {
+                                                let default_port = suggested_ports.first().copied().unwrap_or(8080);
+                                                (*ptr).state = views::ModalState::CreatePortForward {
+                                                    namespace: namespace.clone(),
+                                                    pod: pod.clone(),
+                                                    local_port: default_port.to_string(),
+                                                    remote_port: default_port.to_string(),
+                                                    container: containers.first().cloned().unwrap_or_default(),
+                                                };
+                                            }
+                                        }
+                                    }
+                                    return;
+                                }
+                                _ => {}
+                            }
+                            
+                            // Continue with other action types
                             // Update modal state in the modal view
                             if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
                                 // Cast to ModalView and update its state
@@ -155,18 +183,9 @@ impl FathomApp {
                                                 // BulkDelete is handled by OpenBulkDeleteModal, not OpenModal
                                                 return;
                                             }
-                                            ConfirmAction::OpenPortForward { namespace, pod, suggested_ports, containers } => {
-                                                // Open port forward modal with pre-populated data
-                                                // Use first suggested port as both local and remote default
-                                                let default_port = suggested_ports.first().copied().unwrap_or(8080);
-                                                (*ptr).state = views::ModalState::CreatePortForward {
-                                                    namespace: namespace.clone(),
-                                                    pod: pod.clone(),
-                                                    local_port: default_port.to_string(),
-                                                    remote_port: default_port.to_string(),
-                                                    container: containers.first().cloned().unwrap_or_default(),
-                                                };
-                                                return;
+                                            ConfirmAction::OpenPortForward { .. } => {
+                                                // OpenPortForward is handled above, should not reach here
+                                                unreachable!();
                                             }
                                         };
                                         (*ptr).state = views::ModalState::Confirm {
