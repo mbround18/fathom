@@ -80,6 +80,12 @@ impl FathomApp {
                     } => {
                         // McpIntegrationView handles this in on_event
                     }
+                    SystemEvent::PortAvailability {
+                        port: _,
+                        available: _,
+                    } => {
+                        // Port availability check result - modal handles this via on_event
+                    }
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {

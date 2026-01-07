@@ -106,8 +106,66 @@ impl FathomApp {
                                                 format!("Restart all pods in replication controller {} in namespace {}?", name, ns),
                                                 "Restart".to_string(),
                                             ),
+                                            ConfirmAction::ScaleDeployment(ns, name, current) => {
+                                                // Handle scale actions separately - they use ScaleWorkload modal
+                                                let modal_state = views::ModalState::ScaleWorkload {
+                                                    kind: crate::app::WorkloadKind::Deployment,
+                                                    namespace: ns.clone(),
+                                                    name: name.clone(),
+                                                    current: *current,
+                                                    desired: *current,
+                                                };
+                                                (*ptr).state = modal_state;
+                                                return;
+                                            }
+                                            ConfirmAction::ScaleStatefulSet(ns, name, current) => {
+                                                let modal_state = views::ModalState::ScaleWorkload {
+                                                    kind: crate::app::WorkloadKind::StatefulSet,
+                                                    namespace: ns.clone(),
+                                                    name: name.clone(),
+                                                    current: *current,
+                                                    desired: *current,
+                                                };
+                                                (*ptr).state = modal_state;
+                                                return;
+                                            }
+                                            ConfirmAction::ScaleReplicaSet(ns, name, current) => {
+                                                let modal_state = views::ModalState::ScaleWorkload {
+                                                    kind: crate::app::WorkloadKind::ReplicaSet,
+                                                    namespace: ns.clone(),
+                                                    name: name.clone(),
+                                                    current: *current,
+                                                    desired: *current,
+                                                };
+                                                (*ptr).state = modal_state;
+                                                return;
+                                            }
+                                            ConfirmAction::ScaleReplicationController(ns, name, current) => {
+                                                let modal_state = views::ModalState::ScaleWorkload {
+                                                    kind: crate::app::WorkloadKind::ReplicationController,
+                                                    namespace: ns.clone(),
+                                                    name: name.clone(),
+                                                    current: *current,
+                                                    desired: *current,
+                                                };
+                                                (*ptr).state = modal_state;
+                                                return;
+                                            }
                                             ConfirmAction::BulkDelete(_) => {
                                                 // BulkDelete is handled by OpenBulkDeleteModal, not OpenModal
+                                                return;
+                                            }
+                                            ConfirmAction::OpenPortForward { namespace, pod, suggested_ports, containers } => {
+                                                // Open port forward modal with pre-populated data
+                                                // Use first suggested port as both local and remote default
+                                                let default_port = suggested_ports.first().copied().unwrap_or(8080);
+                                                (*ptr).state = views::ModalState::CreatePortForward {
+                                                    namespace: namespace.clone(),
+                                                    pod: pod.clone(),
+                                                    local_port: default_port.to_string(),
+                                                    remote_port: default_port.to_string(),
+                                                    container: containers.first().cloned().unwrap_or_default(),
+                                                };
                                                 return;
                                             }
                                         };

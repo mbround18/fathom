@@ -1,5 +1,5 @@
 use super::traits::{ViewAction, ViewComponent};
-use crate::app::components;
+use crate::app::components::{self, LogStreamId, LogStreamState, LogViewer};
 use crate::protocol::{
     BackendCmd, BackendEvent, PodDetails, PodMetricsHistory, PodMetricsSummary, PodSummary,
     PrometheusMetrics, ResourceListEvent, ResourceReadEvent, StreamEvent,
@@ -19,9 +19,8 @@ pub struct PodsView {
     pub pod_tab: PodTab,
     pub pod_details: Option<PodDetails>,
 
-    // Streaming state
-    pub pod_logs: Vec<String>,
-    pub selected_container: Option<String>,
+    // Logs streaming (now using generic LogStreamState)
+    pub pod_logs_stream: Option<LogStreamState>,
 
     // Metrics polling
     pub pod_metrics: Option<PodMetricsSummary>,
@@ -81,8 +80,7 @@ impl PodsView {
             },
             pod_tab: PodTab::Details,
             pod_details: None,
-            pod_logs: Vec::new(),
-            selected_container: None,
+            pod_logs_stream: None,
             pod_metrics: None,
             pod_metrics_history: None,
             pod_prometheus_metrics: None,
@@ -415,77 +413,45 @@ impl PodsView {
 
     /// Render Logs tab content
     fn render_pod_logs_tab(&mut self, ui: &mut egui::Ui, actions: &mut Vec<ViewAction>) {
-        ui.horizontal(|ui| {
-            if ui.button("Start").clicked() {
+        // Initialize log stream if pod is selected and stream doesn't exist
+        if let Some((ns, name)) = &self.selected_pod {
+            if self.pod_logs_stream.is_none() {
+                let stream_id = LogStreamId::Pod {
+                    namespace: ns.clone(),
+                    name: name.clone(),
+                };
+                self.pod_logs_stream = Some(LogStreamState::new(stream_id));
+            }
+        }
+
+        if let Some(stream) = &mut self.pod_logs_stream {
+            // Get available containers from pod details
+            let containers = self
+                .pod_details
+                .as_ref()
+                .map(|d| d.containers.clone())
+                .unwrap_or_default();
+
+            // Render full log viewer with controls and filter
+            let (should_start, should_stop, _should_clear, _container_changed) =
+                LogViewer::render_full(ui, stream, &containers);
+
+            // Handle start action
+            if should_start {
                 if let Some((ns, name)) = &self.selected_pod {
-                    self.pod_logs.clear();
                     actions.push(ViewAction::SendCommand(BackendCmd::StartPodLogs {
                         namespace: ns.clone(),
                         name: name.clone(),
-                        container: self.selected_container.clone(),
+                        container: stream.container.clone(),
                     }));
                 }
             }
 
-            if ui.button("Stop").clicked() {
+            // Handle stop action
+            if should_stop {
                 actions.push(ViewAction::SendCommand(BackendCmd::StopPodLogs));
             }
-
-            if ui.button("Clear").clicked() {
-                self.pod_logs.clear();
-            }
-
-            ui.add_space(12.0);
-
-            // Container selector for multi-container pods
-            if let Some(details) = &self.pod_details {
-                if !details.containers.is_empty() {
-                    ui.label("Container:");
-
-                    let available_containers = &details.containers;
-                    let current_container =
-                        self.selected_container.as_deref().unwrap_or("(default)");
-
-                    egui::ComboBox::from_id_salt("pod_container_select")
-                        .selected_text(current_container)
-                        .show_ui(ui, |ui| {
-                            if ui
-                                .selectable_value(&mut self.selected_container, None, "(default)")
-                                .changed()
-                            {
-                                // Reset logs when changing container
-                                self.pod_logs.clear();
-                            }
-
-                            for container in available_containers {
-                                let mut selected =
-                                    self.selected_container.as_ref() == Some(container);
-                                if ui
-                                    .selectable_value(&mut selected, true, container)
-                                    .changed()
-                                {
-                                    self.selected_container = Some(container.clone());
-                                    self.pod_logs.clear();
-                                }
-                            }
-                        });
-                }
-            }
-        });
-
-        ui.add_space(8.0);
-
-        // Scrollable logs area with monospace font
-        egui::ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .stick_to_bottom(true)
-            .show(ui, |ui| {
-                for line in &self.pod_logs {
-                    ui.monospace(line);
-                }
-                // Auto-scroll to bottom by scrolling to the end
-                ui.scroll_to_cursor(Some(egui::Align::Center));
-            });
+        }
     }
 
     /// Render Exec tab content
@@ -642,6 +608,13 @@ impl ViewComponent for PodsView {
 
                     // Handle selection change
                     if let Some((ns, name)) = newly_selected {
+                        // Stop logs for previous pod if switching pods
+                        if let Some((prev_ns, prev_name)) = &self.selected_pod {
+                            if (prev_ns, prev_name) != (&ns, &name) {
+                                actions.push(ViewAction::SendCommand(BackendCmd::StopPodLogs));
+                            }
+                        }
+
                         self.selected_pod = Some((ns.clone(), name.clone()));
                         self.pod_details = None;
                         self.pod_metrics = None;
@@ -651,7 +624,7 @@ impl ViewComponent for PodsView {
                         self.pod_metrics_polling_started = false;
                         self.pod_metrics_polling_notified = false;
                         self.pod_metrics_interval_prev = self.pod_metrics_interval_secs;
-                        self.pod_logs.clear();
+                        self.pod_logs_stream = None;
 
                         actions.push(ViewAction::SendCommand(BackendCmd::SelectPod {
                             namespace: ns.clone(),
@@ -693,10 +666,31 @@ impl ViewComponent for PodsView {
                         name.clone(),
                     )));
                 }
+                // Port Forward button - extract ports from pod details
+                if let Some(details) = &self.pod_details {
+                    if !details.ports.is_empty() && ui.button("Port Forward").clicked() {
+                        let suggested_ports: Vec<u16> =
+                            details.ports.iter().map(|p| p.port).collect();
+                        let containers: Vec<String> = details
+                            .containers
+                            .iter()
+                            .map(|c| c.split_whitespace().next().unwrap_or(c).to_string())
+                            .collect();
+
+                        actions.push(ViewAction::OpenModal(
+                            crate::app::ConfirmAction::OpenPortForward {
+                                namespace: ns.clone(),
+                                pod: name.clone(),
+                                suggested_ports,
+                                containers,
+                            },
+                        ));
+                    }
+                }
                 if ui.button("Close").clicked() {
                     self.selected_pod = None;
                     self.pod_details = None;
-                    self.pod_logs.clear();
+                    self.pod_logs_stream = None;
                     self.pod_metrics = None;
                     self.pod_prometheus_metrics = None;
                     self.pod_metrics_history = None;
@@ -781,7 +775,6 @@ impl ViewComponent for PodsView {
         if let BackendEvent::ResourceList(ResourceListEvent::PodsUpdated(pods)) = event {
             self.pods = pods.clone();
         }
-
         // Handle pod details updates
         if let BackendEvent::ResourceRead(ResourceReadEvent::PodDetailsUpdated(details)) = event {
             if Some((details.namespace.clone(), details.name.clone())) == self.selected_pod {
@@ -789,13 +782,15 @@ impl ViewComponent for PodsView {
             }
         }
 
-        // Handle pod logs
+        // Handle pod logs streaming
         if let BackendEvent::Stream(StreamEvent::PodLogsChunk { lines, .. }) = event {
-            self.pod_logs.extend(lines.clone());
-            // Keep ring buffer bounded
-            const MAX_LOGS: usize = 1000;
-            if self.pod_logs.len() > MAX_LOGS {
-                self.pod_logs.drain(0..self.pod_logs.len() - MAX_LOGS);
+            if let Some(stream) = &mut self.pod_logs_stream {
+                stream.add_lines(lines.clone());
+                // Keep ring buffer bounded
+                const MAX_LOGS: usize = 1000;
+                if stream.logs.len() > MAX_LOGS {
+                    stream.logs.drain(0..stream.logs.len() - MAX_LOGS);
+                }
             }
         }
 
@@ -872,8 +867,7 @@ impl ViewComponent for PodsView {
 
         self.selected_pod = None;
         self.pod_details = None;
-        self.pod_logs.clear();
-        self.selected_container = None;
+        self.pod_logs_stream = None;
         self.pod_metrics = None;
         self.pod_prometheus_metrics = None;
         self.pod_metrics_history = None;

@@ -72,6 +72,11 @@ pub enum SystemEvent {
         running: bool,
         message: String,
     },
+
+    PortAvailability {
+        port: u16,
+        available: bool,
+    },
 }
 
 #[derive(Debug, Clone)]

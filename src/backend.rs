@@ -931,6 +931,18 @@ async fn handle_cmd(
                 "Port forwards refreshed".to_owned(),
             );
         }
+        BackendCmd::CheckPortAvailability { port } => {
+            // Check if local port is available for port forwarding
+            let available = check_port_available(port);
+            let event = BackendEvent::System(SystemEvent::PortAvailability { port, available });
+            events::emit(
+                state.seq.as_ref(),
+                sender,
+                Route::global(section_keys::network_portforwards()),
+                Correlation::None,
+                event,
+            );
+        }
         BackendCmd::ConfigurePrometheus {
             namespace,
             service,
@@ -1602,4 +1614,12 @@ fn save_port_forwards_to_disk(state: &BackendState) {
     if let Err(e) = persistence::save_all_ports(&list) {
         tracing::warn!("Failed to save port forwards to disk: {}", e);
     }
+}
+
+/// Check if a local port is available (not in use)
+fn check_port_available(port: u16) -> bool {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    TcpListener::bind(addr).is_ok()
 }

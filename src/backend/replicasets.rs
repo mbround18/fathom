@@ -196,6 +196,10 @@ pub(super) async fn fetch_replicaset_details(
         rs.spec.as_ref().and_then(|s| s.template.as_ref()),
     );
 
+    let ports = workload_common::ports_from_pod_template(
+        rs.spec.as_ref().and_then(|s| s.template.as_ref()),
+    );
+
     let pod_selector = rs
         .spec
         .as_ref()
@@ -213,6 +217,7 @@ pub(super) async fn fetch_replicaset_details(
         labels,
         annotations,
         containers,
+        ports,
         pod_selector,
         pods,
         raw_json,

@@ -165,6 +165,9 @@ pub enum BackendCmdV1 {
         name: String,
     },
     // Network / Port Forwards section
+    CheckPortAvailability {
+        port: u16,
+    },
     StartPortForward {
         namespace: String,
         pod: String,

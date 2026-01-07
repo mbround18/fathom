@@ -410,11 +410,51 @@ impl ModalView {
                         BackendCmd::RestartReplicationController { namespace, name },
                     ));
                 }
+                ConfirmAction::ScaleDeployment(namespace, name, _current) => {
+                    // Open ScaleWorkload modal instead of direct action
+                    self.state = ModalState::ScaleWorkload {
+                        kind: WorkloadKind::Deployment,
+                        namespace,
+                        name,
+                        current: _current,
+                        desired: _current,
+                    };
+                }
+                ConfirmAction::ScaleStatefulSet(namespace, name, _current) => {
+                    self.state = ModalState::ScaleWorkload {
+                        kind: WorkloadKind::StatefulSet,
+                        namespace,
+                        name,
+                        current: _current,
+                        desired: _current,
+                    };
+                }
+                ConfirmAction::ScaleReplicaSet(namespace, name, _current) => {
+                    self.state = ModalState::ScaleWorkload {
+                        kind: WorkloadKind::ReplicaSet,
+                        namespace,
+                        name,
+                        current: _current,
+                        desired: _current,
+                    };
+                }
+                ConfirmAction::ScaleReplicationController(namespace, name, _current) => {
+                    self.state = ModalState::ScaleWorkload {
+                        kind: WorkloadKind::ReplicationController,
+                        namespace,
+                        name,
+                        current: _current,
+                        desired: _current,
+                    };
+                }
                 ConfirmAction::BulkDelete(items) => {
                     // For each item, emit delete commands
                     // The items list contains (namespace, name) tuples
                     // We'll delegate the actual deletion to a backend handler
                     actions.push(ViewAction::SendCommand(BackendCmd::BulkDelete { items }));
+                }
+                ConfirmAction::OpenPortForward { .. } => {
+                    // Handled in ui_right.rs - opens CreatePortForward modal instead
                 }
             }
         }

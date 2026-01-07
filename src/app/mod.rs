@@ -87,7 +87,17 @@ pub enum ConfirmAction {
     RestartStatefulSet(String, String),
     RestartReplicaSet(String, String),
     RestartReplicationController(String, String),
-    BulkDelete(Vec<(String, String)>), // Vec<(namespace, name)>
+    ScaleDeployment(String, String, i32), // namespace, name, current_replicas
+    ScaleStatefulSet(String, String, i32), // namespace, name, current_replicas
+    ScaleReplicaSet(String, String, i32), // namespace, name, current_replicas
+    ScaleReplicationController(String, String, i32), // namespace, name, current_replicas
+    BulkDelete(Vec<(String, String)>),    // Vec<(namespace, name)>
+    OpenPortForward {
+        namespace: String,
+        pod: String,
+        suggested_ports: Vec<u16>,
+        containers: Vec<String>,
+    },
 }
 
 impl FathomApp {

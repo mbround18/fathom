@@ -28,6 +28,9 @@ pub struct WorkloadDetails {
     pub annotations: BTreeMap<String, String>,
     pub containers: Vec<String>,
 
+    // Container ports from pod template spec
+    pub ports: Vec<super::ContainerPort>,
+
     // Best-effort association: derived from selectors (usually `.spec.selector.matchLabels`).
     // If empty, we could not derive a selector.
     pub pod_selector: String,

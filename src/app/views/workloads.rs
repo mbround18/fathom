@@ -450,6 +450,32 @@ impl ViewComponent for DeploymentView {
                         current,
                     ));
                 }
+                // Port Forward button - extract ports from deployment template
+                if let Some(details) = &self.0.details {
+                    if !details.ports.is_empty()
+                        && !details.pods.is_empty()
+                        && ui.button("Port Forward").clicked()
+                    {
+                        // Use first available pod
+                        let pod = &details.pods[0];
+                        let suggested_ports: Vec<u16> =
+                            details.ports.iter().map(|p| p.port).collect();
+                        let containers: Vec<String> = details
+                            .containers
+                            .iter()
+                            .map(|c| c.split_whitespace().next().unwrap_or(c).to_string())
+                            .collect();
+
+                        actions.push(ViewAction::OpenModal(
+                            crate::app::ConfirmAction::OpenPortForward {
+                                namespace: pod.namespace.clone(),
+                                pod: pod.name.clone(),
+                                suggested_ports,
+                                containers,
+                            },
+                        ));
+                    }
+                }
                 if ui.button("Close").clicked() {
                     self.0.selected = None;
                     self.0.details = None;
@@ -694,6 +720,32 @@ impl ViewComponent for DaemonSetView {
                         ns.clone(),
                         name.clone(),
                     )));
+                }
+                // Port Forward button - extract ports from daemonset template
+                if let Some(details) = &self.0.details {
+                    if !details.ports.is_empty()
+                        && !details.pods.is_empty()
+                        && ui.button("Port Forward").clicked()
+                    {
+                        // Use first available pod
+                        let pod = &details.pods[0];
+                        let suggested_ports: Vec<u16> =
+                            details.ports.iter().map(|p| p.port).collect();
+                        let containers: Vec<String> = details
+                            .containers
+                            .iter()
+                            .map(|c| c.split_whitespace().next().unwrap_or(c).to_string())
+                            .collect();
+
+                        actions.push(ViewAction::OpenModal(
+                            crate::app::ConfirmAction::OpenPortForward {
+                                namespace: pod.namespace.clone(),
+                                pod: pod.name.clone(),
+                                suggested_ports,
+                                containers,
+                            },
+                        ));
+                    }
                 }
                 if ui.button("Close").clicked() {
                     self.0.selected = None;
@@ -947,6 +999,32 @@ impl ViewComponent for StatefulSetView {
                         name.clone(),
                         current,
                     ));
+                }
+                // Port Forward button - extract ports from statefulset template
+                if let Some(details) = &self.0.details {
+                    if !details.ports.is_empty()
+                        && !details.pods.is_empty()
+                        && ui.button("Port Forward").clicked()
+                    {
+                        // Use first available pod
+                        let pod = &details.pods[0];
+                        let suggested_ports: Vec<u16> =
+                            details.ports.iter().map(|p| p.port).collect();
+                        let containers: Vec<String> = details
+                            .containers
+                            .iter()
+                            .map(|c| c.split_whitespace().next().unwrap_or(c).to_string())
+                            .collect();
+
+                        actions.push(ViewAction::OpenModal(
+                            crate::app::ConfirmAction::OpenPortForward {
+                                namespace: pod.namespace.clone(),
+                                pod: pod.name.clone(),
+                                suggested_ports,
+                                containers,
+                            },
+                        ));
+                    }
                 }
                 if ui.button("Close").clicked() {
                     self.0.selected = None;
