@@ -927,13 +927,13 @@ async fn handle_cmd(
             // First stop if active, then remove from manager
             let _ = state.port_forward_manager.stop(&tunnel_id).await;
             state.port_forward_manager.delete(&tunnel_id);
-            
+
             events::notify_info(
                 state.seq.as_ref(),
                 sender,
                 format!("Deleted port forward: {}", tunnel_id),
             );
-            
+
             // Emit updated list
             emit_port_forward_list(state, sender);
             // Persist to disk
@@ -950,13 +950,13 @@ async fn handle_cmd(
                 pf.local_port = local_port;
                 pf.remote_port = remote_port;
                 pf.auto_start = auto_start;
-                
+
                 events::notify_info(
                     state.seq.as_ref(),
                     sender,
                     format!("Updated port forward: {}", tunnel_id),
                 );
-                
+
                 // Emit updated list
                 emit_port_forward_list(state, sender);
                 // Persist to disk
@@ -1318,7 +1318,7 @@ async fn restore_saved_port_forwards(
         if !port_config.auto_start {
             continue;
         }
-        
+
         match state
             .port_forward_manager
             .start(

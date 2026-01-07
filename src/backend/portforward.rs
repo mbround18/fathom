@@ -175,7 +175,7 @@ impl PortForwardManager {
         if let Some(task) = self.tunnel_tasks.remove(tunnel_id) {
             task.abort();
         }
-        
+
         // Remove from tunnels map
         self.tunnels.remove(tunnel_id);
     }

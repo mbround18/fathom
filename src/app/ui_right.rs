@@ -39,7 +39,7 @@ impl FathomApp {
                                 ConfirmAction::OpenPortForward { namespace, pod, suggested_ports, containers } => {
                                     // Ensure modal view exists
                                     let _ = self.get_or_create_view(&section_keys::modal());
-                                    
+
                                     // Now update its state
                                     if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
                                         let ptr = modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
@@ -61,7 +61,7 @@ impl FathomApp {
                                 ConfirmAction::EditPortForward { tunnel_id, namespace, pod, local_port, remote_port, container } => {
                                     // Ensure modal view exists
                                     let _ = self.get_or_create_view(&section_keys::modal());
-                                    
+
                                     // Now update its state
                                     if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
                                         let ptr = modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
@@ -82,7 +82,7 @@ impl FathomApp {
                                 }
                                 _ => {}
                             }
-                            
+
                             // Continue with other action types
                             // Update modal state in the modal view
                             if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
