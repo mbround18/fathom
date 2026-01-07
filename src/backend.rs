@@ -923,6 +923,52 @@ async fn handle_cmd(
                 }
             }
         }
+        BackendCmd::DeletePortForward { tunnel_id } => {
+            // First stop if active, then remove from manager
+            let _ = state.port_forward_manager.stop(&tunnel_id).await;
+            state.port_forward_manager.delete(&tunnel_id);
+            
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                format!("Deleted port forward: {}", tunnel_id),
+            );
+            
+            // Emit updated list
+            emit_port_forward_list(state, sender);
+            // Persist to disk
+            save_port_forwards_to_disk(state);
+        }
+        BackendCmd::UpdatePortForward {
+            tunnel_id,
+            local_port,
+            remote_port,
+            auto_start,
+        } => {
+            // Update the port forward configuration
+            if let Some(pf) = state.port_forward_manager.tunnels.get_mut(&tunnel_id) {
+                pf.local_port = local_port;
+                pf.remote_port = remote_port;
+                pf.auto_start = auto_start;
+                
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    format!("Updated port forward: {}", tunnel_id),
+                );
+                
+                // Emit updated list
+                emit_port_forward_list(state, sender);
+                // Persist to disk
+                save_port_forwards_to_disk(state);
+            } else {
+                events::notify_error(
+                    state.seq.as_ref(),
+                    sender,
+                    format!("Port forward not found: {}", tunnel_id),
+                );
+            }
+        }
         BackendCmd::RefreshPortForwards => {
             // TODO: Refresh port forward list
             events::notify_info(
@@ -1268,6 +1314,11 @@ async fn restore_saved_port_forwards(
     let mut restored_count = 0;
 
     for port_config in saved_ports {
+        // Only restore port forwards with auto_start enabled
+        if !port_config.auto_start {
+            continue;
+        }
+        
         match state
             .port_forward_manager
             .start(
@@ -1280,7 +1331,11 @@ async fn restore_saved_port_forwards(
             )
             .await
         {
-            Ok(_) => {
+            Ok(tunnel_id) => {
+                // Update the tunnel with auto_start flag
+                if let Some(tunnel) = state.port_forward_manager.tunnels.get_mut(&tunnel_id) {
+                    tunnel.auto_start = true;
+                }
                 restored_count += 1;
                 events::notify_info(
                     state.seq.as_ref(),
@@ -1370,6 +1425,9 @@ async fn ensure_metrics_port_forward(
                                 port, namespace, pod_name, port
                             ),
                         );
+                        // Emit updated list and save to disk
+                        emit_port_forward_list(state, sender);
+                        save_port_forwards_to_disk(state);
                         return Ok(());
                     }
                     Err(e) => {
@@ -1410,6 +1468,9 @@ async fn ensure_metrics_port_forward(
                                 namespace, pod_name
                             ),
                         );
+                        // Emit updated list and save to disk
+                        emit_port_forward_list(state, sender);
+                        save_port_forwards_to_disk(state);
                         return Ok(());
                     }
                     Err(e) => {

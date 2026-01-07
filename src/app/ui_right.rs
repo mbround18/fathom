@@ -34,7 +34,7 @@ impl FathomApp {
                             self.active_section = section;
                         }
                         ViewAction::OpenModal(confirm_action) => {
-                            // First check if it's OpenPortForward before doing the complex match
+                            // First check if it's OpenPortForward or EditPortForward before doing the complex match
                             match &confirm_action {
                                 ConfirmAction::OpenPortForward { namespace, pod, suggested_ports, containers } => {
                                     // Ensure modal view exists
@@ -52,6 +52,28 @@ impl FathomApp {
                                                     local_port: default_port.to_string(),
                                                     remote_port: default_port.to_string(),
                                                     container: containers.first().cloned().unwrap_or_default(),
+                                                };
+                                            }
+                                        }
+                                    }
+                                    return;
+                                }
+                                ConfirmAction::EditPortForward { tunnel_id, namespace, pod, local_port, remote_port, container } => {
+                                    // Ensure modal view exists
+                                    let _ = self.get_or_create_view(&section_keys::modal());
+                                    
+                                    // Now update its state
+                                    if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string()) {
+                                        let ptr = modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
+                                        if !ptr.is_null() {
+                                            unsafe {
+                                                (*ptr).state = views::ModalState::EditPortForward {
+                                                    tunnel_id: tunnel_id.clone(),
+                                                    namespace: namespace.clone(),
+                                                    pod: pod.clone(),
+                                                    local_port: local_port.to_string(),
+                                                    remote_port: remote_port.to_string(),
+                                                    container: container.clone(),
                                                 };
                                             }
                                         }
@@ -187,6 +209,10 @@ impl FathomApp {
                                                 // OpenPortForward is handled above, should not reach here
                                                 unreachable!();
                                             }
+                                            ConfirmAction::EditPortForward { .. } => {
+                                                // EditPortForward is handled above, should not reach here
+                                                unreachable!();
+                                            }
                                         };
                                         (*ptr).state = views::ModalState::Confirm {
                                             title,
@@ -213,6 +239,12 @@ impl FathomApp {
                                         };
                                     }
                                 }
+                            }
+                        }
+                        ViewAction::OpenUrl(url) => {
+                            if let Err(e) = open::that(&url) {
+                                tracing::warn!("Failed to open URL {}: {}", url, e);
+                                self.push_status(format!("Failed to open URL: {}", e));
                             }
                         }
                     }

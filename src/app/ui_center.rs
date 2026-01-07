@@ -34,6 +34,12 @@ impl FathomApp {
                     ViewAction::OpenScaleModal(_, _, _, _) => {
                         // Center view scale modals handled in right panel
                     }
+                    ViewAction::OpenUrl(url) => {
+                        if let Err(e) = open::that(&url) {
+                            tracing::warn!("Failed to open URL {}: {}", url, e);
+                            self.push_status(format!("Failed to open URL: {}", e));
+                        }
+                    }
                 }
             }
         });

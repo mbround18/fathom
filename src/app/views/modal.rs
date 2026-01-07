@@ -31,6 +31,14 @@ pub enum ModalState {
         remote_port: String,
         container: String,
     },
+    EditPortForward {
+        tunnel_id: String,
+        namespace: String,
+        pod: String,
+        local_port: String,
+        remote_port: String,
+        container: String,
+    },
 }
 
 impl ModalState {
@@ -325,6 +333,99 @@ impl ModalView {
                     next_modal = Some(keep);
                 }
             }
+
+            ModalState::EditPortForward {
+                tunnel_id,
+                namespace,
+                pod,
+                local_port,
+                remote_port,
+                container,
+            } => {
+                let mut local_port_mut = local_port.clone();
+                let mut remote_port_mut = remote_port.clone();
+                let mut container_mut = container.clone();
+                let mut cancel = false;
+                let mut save = false;
+
+                let keep = ModalState::EditPortForward {
+                    tunnel_id: tunnel_id.clone(),
+                    namespace: namespace.clone(),
+                    pod: pod.clone(),
+                    local_port: local_port_mut.clone(),
+                    remote_port: remote_port_mut.clone(),
+                    container: container_mut.clone(),
+                };
+
+                egui::Window::new("Edit Port Forward")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.label(format!("Namespace: {}", namespace));
+                        ui.label(format!("Pod: {}", pod));
+                        ui.add_space(8.0);
+
+                        ui.horizontal(|ui| {
+                            ui.label("Local port:");
+                            ui.text_edit_singleline(&mut local_port_mut);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Remote port:");
+                            ui.text_edit_singleline(&mut remote_port_mut);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Container (optional):");
+                            ui.text_edit_singleline(&mut container_mut);
+                        });
+
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked() {
+                                cancel = true;
+                            }
+                            if ui.button("Save").clicked() {
+                                save = true;
+                            }
+                        });
+                    });
+
+                if cancel {
+                    next_modal = Some(ModalState::None);
+                } else if save {
+                    next_modal = Some(ModalState::None);
+                    // Parse ports and send update command
+                    if let (Ok(local), Ok(remote)) = (
+                        local_port_mut.parse::<u16>(),
+                        remote_port_mut.parse::<u16>(),
+                    ) {
+                        // First stop the current tunnel
+                        actions.push(ViewAction::SendCommand(BackendCmd::StopPortForward {
+                            tunnel_id: tunnel_id.clone(),
+                        }));
+                        // Then delete it
+                        actions.push(ViewAction::SendCommand(BackendCmd::DeletePortForward {
+                            tunnel_id: tunnel_id.clone(),
+                        }));
+                        // Create new one with updated ports
+                        actions.push(ViewAction::SendCommand(BackendCmd::StartPortForward {
+                            namespace: namespace.clone(),
+                            pod: pod.clone(),
+                            local_port: local,
+                            remote_port: remote,
+                            container: if container_mut.is_empty() {
+                                None
+                            } else {
+                                Some(container_mut)
+                            },
+                        }));
+                    }
+                } else {
+                    next_modal = Some(keep);
+                }
+            }
         }
 
         // Process collected actions
@@ -455,6 +556,9 @@ impl ModalView {
                 }
                 ConfirmAction::OpenPortForward { .. } => {
                     // Handled in ui_right.rs - opens CreatePortForward modal instead
+                }
+                ConfirmAction::EditPortForward { .. } => {
+                    // Handled in ui_right.rs - opens EditPortForward modal instead
                 }
             }
         }

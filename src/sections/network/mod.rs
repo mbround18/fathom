@@ -13,6 +13,8 @@ pub struct PortForward {
     pub remote_port: u16,
     pub container: Option<String>,
     pub status: PortForwardStatus,
+    #[serde(default)]
+    pub auto_start: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

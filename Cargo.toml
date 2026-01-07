@@ -55,6 +55,7 @@ clap = { version = "4.5", features = ["derive", "env"] }
 # Native file dialogs for saving logs
 rfd = "0.14"
 arboard = "3.6"
+open = "1.1"
 
 [build-dependencies]
 embed-resource = "3.0.6"

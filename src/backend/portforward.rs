@@ -63,6 +63,7 @@ impl PortForwardManager {
             remote_port,
             container: container.clone(),
             status: PortForwardStatus::Connecting,
+            auto_start: false, // Default to false; can be changed via UpdatePortForward command
         };
 
         // Spawn port forward task
@@ -166,6 +167,17 @@ impl PortForwardManager {
         }
 
         Ok(())
+    }
+
+    /// Delete a port forward tunnel completely
+    pub fn delete(&mut self, tunnel_id: &str) {
+        // Abort the task if it exists
+        if let Some(task) = self.tunnel_tasks.remove(tunnel_id) {
+            task.abort();
+        }
+        
+        // Remove from tunnels map
+        self.tunnels.remove(tunnel_id);
     }
 
     /// Get all active tunnels

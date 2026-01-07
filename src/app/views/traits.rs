@@ -14,6 +14,8 @@ pub enum ViewAction {
     OpenModal(ConfirmAction),
     /// Open a scaling modal for a workload (namespace, name, current replicas, kind)
     OpenScaleModal(WorkloadKind, String, String, i32),
+    /// Open a URL in the default browser
+    OpenUrl(String),
 }
 
 /// Core trait for pluggable view components

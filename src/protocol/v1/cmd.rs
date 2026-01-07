@@ -178,6 +178,15 @@ pub enum BackendCmdV1 {
     StopPortForward {
         tunnel_id: String,
     },
+    DeletePortForward {
+        tunnel_id: String,
+    },
+    UpdatePortForward {
+        tunnel_id: String,
+        local_port: u16,
+        remote_port: u16,
+        auto_start: bool,
+    },
     RefreshPortForwards,
 
     // Integrations / Metrics section

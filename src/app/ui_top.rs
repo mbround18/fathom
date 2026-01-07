@@ -30,6 +30,12 @@ impl FathomApp {
                     ViewAction::OpenScaleModal(_, _, _, _) => {
                         // Context view shouldn't emit scale modals
                     }
+                    ViewAction::OpenUrl(url) => {
+                        if let Err(e) = open::that(&url) {
+                            tracing::warn!("Failed to open URL {}: {}", url, e);
+                            self.push_status(format!("Failed to open URL: {}", e));
+                        }
+                    }
                 }
             }
         });
