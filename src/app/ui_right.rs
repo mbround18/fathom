@@ -4,25 +4,45 @@ impl FathomApp {
     /// Render right panel (details/tabs)
     ///
     /// Delegates to the active view's render_details() method.
+    /// The panel is only shown if the active view has content to display.
     pub(super) fn render_right_panel(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::right("right_panel")
-            .default_width(400.0)
-            .show(ctx, |ui| {
-                // Get the active view and render its details panel
-                let key = self.active_section.clone();
-                let view = self.get_or_create_view(&key);
+        // Show panel on first render, or if we determined there was content last frame
+        // This allows the view to determine if content exists
+        let should_attempt_render = self.show_details_panel || ctx.input(|i| i.time == 0.0);
 
-                let (has_content, actions) = view.render_details(ui, ctx);
+        if !should_attempt_render {
+            return;
+        }
 
-                // Show placeholder if view has no content to display
-                if !has_content {
-                    ui.heading("Details");
-                    ui.separator();
-                    ui.label("Select a resource to view details.");
-                }
+        let panel = egui::SidePanel::right("right_panel").default_width(400.0);
 
-                // Process actions returned by details panel
-                for action in actions {
+        // Only show panel if we actually have content
+        let show_panel = panel.show(ctx, |ui| {
+            let key = self.active_section.clone();
+            let view = self.get_or_create_view(&key);
+
+            let (has_content, actions) = view.render_details(ui, ctx);
+
+            // Update visibility for next frame: show panel if there's content
+            self.show_details_panel = has_content;
+
+            has_content
+        });
+
+        // If no content, don't show the panel next time
+        if let Some(false) = show_panel.inner {
+            self.show_details_panel = false;
+            return;
+        }
+
+        // Get the panel output to handle actions
+        let key = self.active_section.clone();
+        if let Some(view) = self.views.get_mut(&key.to_string()) {
+            let mut dummy_ui = egui::Ui::__test();
+            let (_has_content, actions) = view.render_details(&mut dummy_ui, ctx);
+
+            // Process actions returned by details panel
+            for action in actions {
                     match action {
                         ViewAction::SendCommand(cmd) => {
                             self.send(cmd);

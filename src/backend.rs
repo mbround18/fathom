@@ -1414,6 +1414,23 @@ async fn ensure_metrics_port_forward(
         // Check if a pod matching the service exists
         match find_pod_for_service(client, &namespace, &service).await {
             Ok(Some(pod_name)) => {
+                // Check if a port forward for this pod already exists
+                let existing = state
+                    .port_forward_manager
+                    .list()
+                    .iter()
+                    .any(|pf| pf.namespace == namespace && pf.pod == pod_name && pf.local_port == port);
+
+                if existing {
+                    tracing::debug!(
+                        "Port forward for {}/{} on port {} already exists, skipping",
+                        namespace,
+                        pod_name,
+                        port
+                    );
+                    return Ok(());
+                }
+
                 match state
                     .port_forward_manager
                     .start(client, &namespace, &pod_name, port, port, None)
@@ -1457,6 +1474,22 @@ async fn ensure_metrics_port_forward(
         // Try to find any Prometheus pod in common namespaces
         for namespace in &["monitoring", "prometheus", "kube-monitoring", "default"] {
             if let Ok(Some(pod_name)) = find_any_prometheus_pod(client, namespace).await {
+                // Check if a port forward for this pod already exists
+                let existing = state
+                    .port_forward_manager
+                    .list()
+                    .iter()
+                    .any(|pf| pf.namespace == *namespace && pf.pod == pod_name && pf.local_port == 9090);
+
+                if existing {
+                    tracing::debug!(
+                        "Port forward for {}/{} on port 9090 already exists, skipping",
+                        namespace,
+                        pod_name
+                    );
+                    return Ok(());
+                }
+
                 match state
                     .port_forward_manager
                     .start(client, namespace, &pod_name, 9090, 9090, None)

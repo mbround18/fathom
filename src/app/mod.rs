@@ -41,6 +41,9 @@ pub struct FathomApp {
     // Nav
     active_section: SectionKey,
 
+    // UI state
+    show_details_panel: bool,
+
     // Cluster-level section states
     pub overview_state: views::OverviewState,
     pub events_state: views::EventsState,
@@ -117,6 +120,7 @@ impl FathomApp {
             views: HashMap::new(),
             previous_section: None,
             active_section: section_keys::overview(),
+            show_details_panel: false,
             overview_state: views::OverviewState::default(),
             events_state: views::EventsState::default(),
             nodes_state: views::NodesState::default(),
@@ -211,6 +215,9 @@ impl FathomApp {
             let prev = self.previous_section.clone();
             let current = self.active_section.clone();
             self.previous_section = Some(current.clone());
+
+            // Reset details panel visibility on section change
+            self.show_details_panel = false;
 
             // On unmount: call on_unmount on previous view
             if let Some(prev_key) = prev {
