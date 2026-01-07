@@ -446,6 +446,10 @@ impl eframe::App for FathomApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // Send shutdown command to backend for clean exit
-        let _ = self.backend_tx.send(BackendCmd::Shutdown);
+        // This triggers cleanup of all background tasks (port forwards, metrics watches, etc.)
+        match self.backend_tx.send(BackendCmd::Shutdown) {
+            Ok(_) => tracing::info!("Sent Shutdown command to backend"),
+            Err(e) => tracing::error!("Failed to send Shutdown command to backend: {}", e),
+        }
     }
 }

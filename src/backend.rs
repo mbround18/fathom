@@ -154,12 +154,14 @@ async fn handle_cmd(
 ) -> anyhow::Result<bool> {
     match cmd {
         BackendCmd::Shutdown => {
+            tracing::info!("Shutdown command received, cleaning up all background tasks...");
             events::notify_info(
                 state.seq.as_ref(),
                 sender,
                 "Shutting down backend...".to_owned(),
             );
             state::cleanup_all_tasks(state);
+            tracing::info!("All background tasks cleaned up, exiting backend");
             return Ok(true); // Signal to exit loop
         }
         BackendCmd::Initialize => {

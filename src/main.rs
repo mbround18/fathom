@@ -80,8 +80,28 @@ fn main() -> eframe::Result<()> {
         Box::new(|_cc| Ok(Box::new(FathomApp::new(gui_rx, backend_tx)))),
     );
 
-    // After GUI closes, join backend thread for clean shutdown
-    let _ = backend_thread.join();
+    // After GUI closes, wait for backend thread with a timeout
+    // The FathomApp::on_exit() should have already sent Shutdown command
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(3);
+
+    loop {
+        if backend_thread.is_finished() {
+            tracing::info!("Backend thread exited cleanly");
+            let _ = backend_thread.join();
+            break;
+        }
+
+        if start.elapsed() > timeout {
+            tracing::warn!(
+                "Backend thread did not exit after {:.1}s, force exiting",
+                start.elapsed().as_secs_f64()
+            );
+            std::process::exit(1);
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 
     result
 }

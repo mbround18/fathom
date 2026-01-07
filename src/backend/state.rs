@@ -90,13 +90,28 @@ pub(super) fn stop_logs(state: &mut BackendState) {
 }
 
 pub(super) fn cleanup_all_tasks(state: &mut BackendState) {
+    // Abort all background tasks
+    tracing::debug!("Aborting log task");
     abort_task(&mut state.log_task);
+    tracing::debug!("Aborting pod watch task");
     abort_task(&mut state.pod_watch_task);
+    tracing::debug!("Aborting namespace sync task");
     abort_task(&mut state.namespace_sync_task);
+    tracing::debug!("Aborting deployment watch task");
     abort_task(&mut state.deployment_watch_task);
+    tracing::debug!("Aborting daemonset watch task");
     abort_task(&mut state.daemonset_watch_task);
+    tracing::debug!("Aborting statefulset watch task");
     abort_task(&mut state.statefulset_watch_task);
+    tracing::debug!("Aborting metrics poll task");
+    abort_task(&mut state.metrics_poll_task);
+    tracing::debug!("Aborting workload metrics poll task");
+    abort_task(&mut state.workload_metrics_poll_task);
+
+    // Cleanup port forwards and their associated tasks
+    tracing::debug!("Cleaning up port forward manager");
     state.port_forward_manager.cleanup_all();
+    tracing::info!("All background tasks aborted and cleaned up");
 }
 
 pub(super) fn client_or_err(state: &BackendState) -> anyhow::Result<Client> {
