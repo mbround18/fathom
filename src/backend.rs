@@ -40,30 +40,35 @@ pub fn init(
 ) {
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
 
-    let state = BackendState::new();
+    let mut state = BackendState::new();
 
     // Clear metrics history on startup to begin fresh collection
     if let Err(e) = persistence::clear_metrics_history() {
         tracing::warn!("Failed to clear metrics history on startup: {}", e);
     }
 
-    // Create MCP state
+    // Create MCP state and persist port
     let mcp_state = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
+    state.mcp_state = Some(mcp_state.clone());
+    state.mcp_port = args.mcp_port;
 
     // Load auto-start configuration
     let auto_start_config = persistence::AutoStartConfig::load().unwrap_or_default();
 
     // Spawn MCP HTTP server if enabled via CLI args, only_mcp mode, or auto-start config
     // Port 18288: 1.8288 meters ≈ 1 fathom (unit of depth measurement)
-    let mcp_http_handle = if args.mcp_http || args.only_mcp || auto_start_config.mcp_http {
+    let initial_mcp_http_handle = if args.mcp_http || args.only_mcp || auto_start_config.mcp_http {
         tracing::info!(
             "Starting MCP HTTP server on http://127.0.0.1:{} (18288 = 1.8288m ≈ 1 fathom)",
             args.mcp_port
         );
-        Some(rt.spawn(crate::mcp_server::run_http_mcp_server(
-            mcp_state.clone(),
-            args.mcp_port,
-        )))
+        Some(rt.spawn({
+            let s = mcp_state.clone();
+            let p = args.mcp_port;
+            async move {
+                let _ = crate::mcp_server::run_http_mcp_server(s, p).await;
+            }
+        }))
     } else {
         None
     };
@@ -81,7 +86,15 @@ pub fn init(
         "Backend thread started (tokio runtime ready).".to_owned(),
     );
 
+    // Wrap state in Arc<Mutex> and store initial MCP handle if present
     let state = Arc::new(tokio::sync::Mutex::new(state));
+    if let Some(handle) = initial_mcp_http_handle {
+        let state_clone = state.clone();
+        rt.block_on(async move {
+            let mut s = state_clone.lock().await;
+            s.mcp_http_task = Some(handle);
+        });
+    }
 
     // Use a channel to coordinate task completions for shutdown
     let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -131,8 +144,12 @@ pub fn init(
     });
 
     // Cleanup: abort MCP HTTP server if running
-    if let Some(handle) = mcp_http_handle {
-        handle.abort();
+    {
+        let state_arc = state.clone();
+        rt.block_on(async move {
+            let mut s = state_arc.lock().await;
+            state::abort_task(&mut s.mcp_http_task);
+        });
     }
 
     // Final cleanup on exit
@@ -1234,54 +1251,65 @@ async fn handle_cmd(
             }
         },
         BackendCmd::StartMcpServer => {
-            // Initialize MCP server with current state
-            let mcp_state = crate::mcp_server::McpAppState::new();
-            let seq = state.seq.clone();
-            let event_sender = sender.clone();
+            // If already running, ignore
+            if state.mcp_http_task.is_some() {
+                events::notify_info(
+                    state.seq.as_ref(),
+                    sender,
+                    "MCP server already running".to_owned(),
+                );
+                return Ok(false);
+            }
 
-            // Spawn async task to initialize server
+            // Ensure state exists
+            let mcp_state = match &state.mcp_state {
+                Some(s) => s.clone(),
+                None => {
+                    let s = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
+                    state.mcp_state = Some(s.clone());
+                    s
+                }
+            };
+
+            // Initialize config files (best-effort)
+            let init_state = (*mcp_state).clone();
             tokio::spawn(async move {
-                match crate::mcp_server::initialize_mcp_server(mcp_state).await {
-                    Ok(_) => {
-                        // Emit MCP server status event
-                        events::emit(
-                            seq.as_ref(),
-                            &event_sender,
-                            Route::global(section_keys::integrations_mcp()),
-                            Correlation::None,
-                            BackendEvent::System(SystemEvent::McpServerStatus {
-                                running: true,
-                                message: "MCP server started successfully".to_owned(),
-                            }),
-                        );
-                        events::notify_info(
-                            seq.as_ref(),
-                            &event_sender,
-                            "MCP server started successfully".to_owned(),
-                        );
-                    }
-                    Err(e) => {
-                        // Emit failure status event
-                        events::emit(
-                            seq.as_ref(),
-                            &event_sender,
-                            Route::global(section_keys::integrations_mcp()),
-                            Correlation::None,
-                            BackendEvent::System(SystemEvent::McpServerStatus {
-                                running: false,
-                                message: format!("Failed to start: {}", e),
-                            }),
-                        );
-                        events::notify_error(
-                            seq.as_ref(),
-                            &event_sender,
-                            format!("Failed to start MCP server: {}", e),
-                        );
-                    }
+                let _ = crate::mcp_server::initialize_mcp_server(init_state).await;
+            });
+
+            // Start HTTP server task
+            let port = state.mcp_port;
+            let handle = tokio::spawn({
+                let s = mcp_state.clone();
+                async move {
+                    let _ = crate::mcp_server::run_http_mcp_server(s, port).await;
                 }
             });
+            state.mcp_http_task = Some(handle);
+
+            events::emit(
+                state.seq.as_ref(),
+                sender,
+                Route::global(section_keys::integrations_mcp()),
+                Correlation::None,
+                BackendEvent::System(SystemEvent::McpServerStatus {
+                    running: true,
+                    message: format!("MCP HTTP server starting on http://127.0.0.1:{}", port),
+                }),
+            );
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                format!(
+                    "MCP HTTP server starting on http://127.0.0.1:{} (1 fathom ≈ 1.8288m)",
+                    port
+                ),
+            );
         }
         BackendCmd::StopMcpServer => {
+            // Abort HTTP task if running
+            state::abort_task(&mut state.mcp_http_task);
+
             // Emit MCP server stopped event
             events::emit(
                 state.seq.as_ref(),

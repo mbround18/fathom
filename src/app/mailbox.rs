@@ -89,8 +89,10 @@ impl FathomApp {
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {
-                    ResourceListEvent::NamespacesUpdated(_namespaces) => {
+                    ResourceListEvent::NamespacesUpdated(namespaces) => {
                         // ContextView handles this via on_event()
+                        // Also update the app's namespace filter list
+                        self.update_available_namespaces(namespaces.clone());
                     }
                     ResourceListEvent::PortForwardsUpdated(port_forwards) => {
                         self.port_forwards = port_forwards.clone();

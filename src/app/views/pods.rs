@@ -15,6 +15,9 @@ pub struct PodsView {
     pub pod_search: String,
     pub pods_sort: PodsSort,
 
+    // Namespace filtering (synced from FathomApp)
+    pub namespace_filter: Vec<String>, // Empty = show all
+
     // Details panel state
     pub pod_tab: PodTab,
     pub pod_details: Option<PodDetails>,
@@ -78,6 +81,7 @@ impl PodsView {
                 key: PodsSortKey::Namespace,
                 dir: SortDir::Asc,
             },
+            namespace_filter: Vec::new(),
             pod_tab: PodTab::Details,
             pod_details: None,
             pod_logs_stream: None,
@@ -93,11 +97,24 @@ impl PodsView {
     }
 
     /// Get the search-filtered and sorted pod list
+    /// Set the namespace filter from FathomApp
+    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.namespace_filter = filter;
+    }
+
+    /// Check if pod passes namespace filter (empty filter = show all)
+    fn namespace_matches_filter(&self, pod: &PodSummary) -> bool {
+        if self.namespace_filter.is_empty() {
+            return true;
+        }
+        self.namespace_filter.contains(&pod.namespace)
+    }
+
     pub fn filtered_pods(&self) -> Vec<PodSummary> {
         let mut filtered: Vec<_> = self
             .pods
             .iter()
-            .filter(|p| self.search_matches(p))
+            .filter(|p| self.search_matches(p) && self.namespace_matches_filter(p))
             .cloned()
             .collect();
 
@@ -452,8 +469,22 @@ impl PodsView {
                 .map(|d| d.containers.clone())
                 .unwrap_or_default();
 
+            // Render streaming status indicator
+            ui.horizontal(|ui| {
+                if stream.is_running {
+                    // Green light + "Streaming" label
+                    ui.colored_label(egui::Color32::GREEN, "●");
+                    ui.label("Streaming");
+                } else {
+                    // Red circle + prompt
+                    ui.colored_label(egui::Color32::RED, "●");
+                    ui.label("Click Start to Stream Logs");
+                }
+            });
+            ui.add_space(8.0);
+
             // Render full log viewer with controls and filter
-            let (should_start, should_stop, _should_clear, _container_changed) =
+            let (should_start, should_stop, _should_clear, container_changed) =
                 LogViewer::render_full(ui, stream, &containers);
 
             // Handle start action
@@ -464,12 +495,27 @@ impl PodsView {
                         name: name.clone(),
                         container: stream.container.clone(),
                     }));
+                    stream.is_running = true;
                 }
             }
 
             // Handle stop action
             if should_stop {
                 actions.push(ViewAction::SendCommand(BackendCmd::StopPodLogs));
+                stream.is_running = false;
+            }
+
+            // If container changed while streaming, switch streams
+            if container_changed && stream.is_running {
+                // Stop current and start new container stream
+                actions.push(ViewAction::SendCommand(BackendCmd::StopPodLogs));
+                if let Some((ns, name)) = &self.selected_pod {
+                    actions.push(ViewAction::SendCommand(BackendCmd::StartPodLogs {
+                        namespace: ns.clone(),
+                        name: name.clone(),
+                        container: stream.container.clone(),
+                    }));
+                }
             }
         }
     }
@@ -790,6 +836,13 @@ impl ViewComponent for PodsView {
                 if stream.logs.len() > MAX_LOGS {
                     stream.logs.drain(0..stream.logs.len() - MAX_LOGS);
                 }
+            }
+        }
+
+        // Mark stream stopped when backend closes it
+        if let BackendEvent::Stream(StreamEvent::StreamClosed { .. }) = event {
+            if let Some(stream) = &mut self.pod_logs_stream {
+                stream.is_running = false;
             }
         }
 

@@ -9,9 +9,16 @@ impl FathomApp {
     /// 3. Process ViewActions returned by render
     pub(super) fn render_center(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Prepare namespace filter before getting view (to avoid borrow conflicts)
+            let filter = self.selected_namespaces.clone();
+
             // Get the view for the active section
             let key = self.active_section.clone();
             let view = self.get_or_create_view(&key);
+            let view_id = view.id().to_string();
+
+            // Drop the mutable borrow from get_or_create_view before calling apply_namespace_filter_to_view
+            FathomApp::apply_namespace_filter_to_view(view, &view_id, &filter);
 
             // Render view and collect actions
             let actions = view.render(ui, ctx);

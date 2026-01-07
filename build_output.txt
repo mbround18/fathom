@@ -1,0 +1,170 @@
+   Compiling fathom v0.1.0 (C:\Users\micha\development\fathom)
+warning: unused imports: `CronJobDetails`, `CronJobSummary`, `DaemonSetDetails`, `DaemonSetSummary`, `DeploymentDetails`, `DeploymentSummary`, `JobDetails`, `JobSummary`, `PodDetails`, `PodMetricsHistory`, `PodMetricsSummary`, `ReplicaSetDetails`, `ReplicaSetSummary`, `ReplicationControllerDetails`, `ReplicationControllerSummary`, `ResourceListEvent`, `StatefulSetDetails`, and `StatefulSetSummary`
+ --> src\app\mod.rs:2:53
+  |
+2 |     BackendCmd, BackendEvent, BackendEventEnvelope, CronJobDetails, CronJobSummary,
+  |                                                     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+3 |     DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary, JobDetails,
+  |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^
+4 |     JobSummary, NotificationLevel, PodDetails, PodMetricsHistory, PodMetricsSummary, PodSummary,
+  |     ^^^^^^^^^^                     ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+5 |     ReplicaSetDetails, ReplicaSetSummary, ReplicationControllerDetails,
+  |     ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6 |     ReplicationControllerSummary, ResourceListEvent, ScopeKind, SectionKey, StatefulSetDetails,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^                         ^^^^^^^^^^^^^^^^^^
+7 |     StatefulSetSummary, SystemEvent, section_keys,
+  |     ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `render_container_metrics`
+ --> src\app\components\mod.rs:7:25
+  |
+7 | pub use metrics_graph::{render_container_metrics, render_metrics_history};
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `WorkloadActionKind` and `WorkloadActions`
+ --> src\app\components\mod.rs:9:28
+  |
+9 | pub use workload_actions::{WorkloadActionKind, WorkloadActions};
+  |                            ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+
+warning: unused import: `shell::Shell`
+ --> src\app\shell\mod.rs:3:9
+  |
+3 | pub use shell::Shell;
+  |         ^^^^^^^^^^^^
+
+warning: unused imports: `PodTab`, `PodsSortKey`, `PodsSort`, and `SortDir`
+  --> src\app\views\mod.rs:32:16
+   |
+32 | pub use pods::{PodTab, PodsSort, PodsSortKey, PodsView, SortDir};
+   |                ^^^^^^  ^^^^^^^^  ^^^^^^^^^^^            ^^^^^^^
+
+warning: unused import: `registry::ViewRegistry`
+  --> src\app\views\mod.rs:34:9
+   |
+34 | pub use registry::ViewRegistry;
+   |         ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `WorkloadViewState`
+  --> src\app\views\mod.rs:39:5
+   |
+39 |     WorkloadViewState,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrometheusMetrics`
+ --> src\backend\metrics.rs:4:24
+  |
+4 |     PodMetricsSummary, PrometheusMetrics, ResourceReadEvent, Route, WorkloadMetricsAggregate,
+  |                        ^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `MetricsProviderTrait` and `PrometheusClient`
+  --> src\backend\metrics.rs:18:31
+   |
+18 | use super::metrics_provider::{MetricsProviderTrait, PrometheusClient};
+   |                               ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused variable: `prom_client`
+   --> src\backend\metrics.rs:747:17
+    |
+747 |     if let Some(prom_client) = &state.prometheus_client {
+    |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_prom_client`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+error[E0609]: no field `name` on type `&std::string::String`
+  --> src\app\mailbox.rs:95:81
+   |
+95 |                         let ns_names: Vec<String> = namespaces.iter().map(|n| n.name.clone()).collect();
+   |                                                                                 ^^^^ unknown field
+
+error[E0502]: cannot borrow `*self` as immutable because it is also borrowed as mutable
+  --> src\app\ui_center.rs:18:13
+   |
+15 |             let view = self.get_or_create_view(&key);
+   |                        ---- mutable borrow occurs here
+...
+18 |             self.sync_namespace_filter_to_view(view);
+   |             ^^^^ immutable borrow occurs here  ---- mutable borrow later used here
+
+warning: unused variable: `checkbox`
+  --> src\app\ui_top.rs:25:29
+   |
+25 |                     let mut checkbox = is_selected && !self.selected_namespaces.is_empty();
+   |                             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_checkbox`
+
+warning: variable does not need to be mutable
+  --> src\app\ui_top.rs:25:25
+   |
+25 |                     let mut checkbox = is_selected && !self.selected_namespaces.is_empty();
+   |                         ----^^^^^^^^
+   |                         |
+   |                         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `keep`
+   --> src\app\views\modal.rs:135:21
+    |
+135 |                 let keep = ModalState::ScaleWorkload {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_keep`
+
+warning: variable does not need to be mutable
+   --> src\app\views\nodes.rs:130:13
+    |
+130 |         let mut actions = Vec::new();
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `ui`
+   --> src\app\views\portforwards.rs:210:9
+    |
+210 |         ui: &mut egui::Ui,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_ui`
+
+warning: unused variable: `limit_mb`
+  --> src\app\views\workloads.rs:55:25
+   |
+55 |                     let limit_mb = limit_bytes as f64 / 1_048_576.0;
+   |                         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_limit_mb`
+
+warning: unused variable: `bar_width`
+  --> src\app\views\workloads.rs:98:37
+   |
+98 | ...                   let bar_width = ui.available_width() - 40.0;
+   |                           ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bar_width`
+
+warning: unused variable: `fill_fraction`
+  --> src\app\views\workloads.rs:99:37
+   |
+99 | ...                   let fill_fraction = (cpu_pct / 100.0).min(1.0);
+   |                           ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fill_fraction`
+
+warning: unused variable: `on_row_clicked`
+   --> src\app\views\workloads.rs:282:9
+    |
+282 |     let on_row_clicked = |original_idx: usize| {
+    |         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_on_row_clicked`
+
+warning: unused variable: `original_idx`
+   --> src\app\views\workloads.rs:282:27
+    |
+282 |     let on_row_clicked = |original_idx: usize| {
+    |                           ^^^^^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+282 |     let on_row_clicked = |_original_idx: usize| {
+    |                           +
+help: you might have meant to pattern match on the similarly named constant `MAX_SAMPLES`
+    |
+282 -     let on_row_clicked = |original_idx: usize| {
+282 +     let on_row_clicked = |backend::metrics::start_metrics_polling::{closure#0}::{closure#4}::MAX_SAMPLES: usize| {
+    |
+
+Some errors have detailed explanations: E0502, E0609.
+For more information about an error, try `rustc --explain E0502`.
+warning: `fathom` (bin "fathom") generated 20 warnings
+error: could not compile `fathom` (bin "fathom") due to 2 previous errors; 20 warnings emitted

@@ -6,17 +6,17 @@ A comprehensive checklist of features and code cleanup tasks to complete the Fat
 
 ### Workloads - Pods
 - [x] **Pod Details Display** - Fully render pod details panel with metadata, status, containers
-- [ ] **Pod Logs Streaming** - Real-time log streaming from pod containers with pause/resume
+- [x] **Pod Logs Streaming** - Real-time log streaming from pod containers with pause/resume
 - [x] **Pod Metrics** - Fetch and display CPU/memory metrics in details panel
 - [x] **Pod Deletion** - Implement delete pod with confirmation modal
-- [ ] **Container Selection** - Allow switching between pod containers for log viewing
+- [x] **Container Selection** - Allow switching between pod containers for log viewing
 
 ### Workloads - Deployments
 - [x] **Deployment Details Panel** - Show replicas, strategy, selector, conditions
-- [ ] **Deployment Scaling** - Scale replica count with confirmation modal
+- [x] **Deployment Scaling** - Scale replica count with confirmation modal
 - [x] **Deployment Restart** - Trigger rolling restart of deployment
-- [ ] **Deployment Deletion** - Delete deployment with confirmation
-- [ ] **Deployment Metrics** - Display CPU/memory across pods
+- [x] **Deployment Deletion** - Delete deployment with confirmation
+- [x] **Deployment Metrics** - Display CPU/memory across pods
 
 ### Workloads - DaemonSets
 - [ ] **DaemonSet Details** - Display daemon set configuration and status
@@ -52,11 +52,11 @@ A comprehensive checklist of features and code cleanup tasks to complete the Fat
 - [ ] **CronJob Deletion** - Delete with confirmation
 
 ### Network - Port Forwards
-- [ ] **Port Forward Creation** - Create local→remote port forward with UI form
-- [ ] **Port Forward Listing** - List all active port forwards
-- [ ] **Port Forward Termination** - Stop active port forward
-- [ ] **Port Forward Persistence** - Save/restore across sessions
-- [ ] **Port Forward Status Display** - Show connection status (connecting/active/error)
+- [x] **Port Forward Creation** - Create local→remote port forward with UI form
+- [x] **Port Forward Listing** - List all active port forwards
+- [x] **Port Forward Termination** - Stop active port forward
+- [x] **Port Forward Persistence** - Save/restore across sessions
+- [x] **Port Forward Status Display** - Show connection status (connecting/active/error)
 
 ### Integrations - Metrics (Prometheus)
 - [ ] **Metrics API Detection** - Probe and notify if metrics-server missing

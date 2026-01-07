@@ -44,6 +44,10 @@ pub struct FathomApp {
     // UI state
     show_details_panel: bool,
 
+    // Filtering
+    pub selected_namespaces: Vec<String>, // Empty = show all
+    pub all_namespaces: Vec<String>,      // Available namespaces for filter dropdown
+
     // Cluster-level section states
     pub overview_state: views::OverviewState,
     pub events_state: views::EventsState,
@@ -121,6 +125,8 @@ impl FathomApp {
             previous_section: None,
             active_section: section_keys::overview(),
             show_details_panel: false,
+            selected_namespaces: Vec::new(), // Empty = show all
+            all_namespaces: Vec::new(),
             overview_state: views::OverviewState::default(),
             events_state: views::EventsState::default(),
             nodes_state: views::NodesState::default(),
@@ -147,6 +153,166 @@ impl FathomApp {
         let _ = app.backend_tx.send(BackendCmd::Initialize);
 
         app
+    }
+
+    /// Apply namespace filter to a view by its ID
+    pub fn apply_namespace_filter_to_view(
+        view: &mut dyn ViewComponent,
+        view_id: &str,
+        filter: &[String],
+    ) {
+        // Use unsafe pointer casting to call set_namespace_filter on view types that support it
+        // This is safe because we only call the method on views that actually have it
+        if view_id == "workloads_pods" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::PodsView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter.to_vec());
+                }
+            }
+        } else if view_id == "workloads_deployments" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::DeploymentView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter.to_vec());
+                }
+            }
+        } else if view_id == "workloads_daemonsets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::DaemonSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter.to_vec());
+                }
+            }
+        } else if view_id == "workloads_statefulsets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::StatefulSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter.to_vec());
+                }
+            }
+        } else if view_id == "workloads_replicasets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicaSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter.to_vec());
+                }
+            }
+        } else if view_id == "workloads_replicationcontrollers" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicationControllerView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter.to_vec());
+                }
+            }
+        }
+    }
+
+    /// Sync the namespace filter from FathomApp to the view if it supports it (with explicit filter parameter)
+    pub fn sync_namespace_filter_to_view_with_filter(
+        &self,
+        view: &mut dyn ViewComponent,
+        filter: Vec<String>,
+    ) {
+        let view_id = view.id();
+
+        // Use unsafe pointer casting to call set_namespace_filter on view types that support it
+        // This is safe because we only call the method on views that actually have it
+        if view_id == "workloads_pods" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::PodsView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_deployments" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::DeploymentView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_daemonsets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::DaemonSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_statefulsets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::StatefulSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_replicasets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicaSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_replicationcontrollers" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicationControllerView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        }
+    }
+
+    /// Sync the namespace filter from FathomApp to the view if it supports it
+    pub fn sync_namespace_filter_to_view(&self, view: &mut dyn ViewComponent) {
+        let filter = self.selected_namespaces.clone();
+        let view_id = view.id();
+
+        // Use unsafe pointer casting to call set_namespace_filter on view types that support it
+        // This is safe because we only call the method on views that actually have it
+        if view_id == "workloads_pods" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::PodsView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_deployments" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::DeploymentView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_daemonsets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::DaemonSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_statefulsets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::StatefulSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_replicasets" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicaSetView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        } else if view_id == "workloads_replicationcontrollers" {
+            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicationControllerView;
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).set_namespace_filter(filter);
+                }
+            }
+        }
     }
 
     /// Get or create a view for the given section key.
@@ -432,6 +598,30 @@ impl FathomApp {
                     container: container.unwrap_or_default(),
                 };
             }
+        }
+    }
+
+    /// Check if a namespace matches the current filter
+    /// Returns true if: no filter selected (show all), or namespace is in selected_namespaces
+    pub fn namespace_matches_filter(&self, namespace: &str) -> bool {
+        if self.selected_namespaces.is_empty() {
+            // No filter = show all
+            return true;
+        }
+        self.selected_namespaces.contains(&namespace.to_string())
+    }
+
+    /// Update the list of available namespaces
+    pub fn update_available_namespaces(&mut self, namespaces: Vec<String>) {
+        self.all_namespaces = namespaces;
+    }
+
+    /// Toggle a namespace in the filter
+    pub fn toggle_namespace_selection(&mut self, namespace: &str) {
+        if let Some(pos) = self.selected_namespaces.iter().position(|n| n == namespace) {
+            self.selected_namespaces.remove(pos);
+        } else {
+            self.selected_namespaces.push(namespace.to_string());
         }
     }
 }

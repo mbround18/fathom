@@ -307,6 +307,7 @@ pub struct WorkloadViewState {
     pub table: Table<DeploymentSummary>,
     pub metrics_polling_started: bool,
     pub metrics_interval_secs: u64,
+    pub namespace_filter: Vec<String>, // Empty = show all
 }
 
 impl WorkloadViewState {
@@ -321,6 +322,7 @@ impl WorkloadViewState {
             table: Table::new(Vec::new()),
             metrics_polling_started: false,
             metrics_interval_secs: 15,
+            namespace_filter: Vec::new(),
         }
     }
 }
@@ -331,6 +333,11 @@ pub struct DeploymentView(pub WorkloadViewState);
 impl DeploymentView {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the namespace filter from FathomApp
+    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.0.namespace_filter = filter;
     }
 }
 
@@ -348,8 +355,23 @@ impl ViewComponent for DeploymentView {
     fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 
+        // Filter by namespace (empty filter = show all)
+        let filtered: Vec<DeploymentSummary> = self
+            .0
+            .summaries
+            .iter()
+            .filter(|s| {
+                if self.0.namespace_filter.is_empty() {
+                    true
+                } else {
+                    self.0.namespace_filter.contains(&s.namespace)
+                }
+            })
+            .cloned()
+            .collect();
+
         // Update table data
-        self.0.table.set_items(self.0.summaries.clone());
+        self.0.table.set_items(filtered);
 
         let newly_selected = render_workload_grid(ui, "Deployments", &mut self.0.table);
 
@@ -601,6 +623,11 @@ impl DaemonSetView {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Set the namespace filter from FathomApp
+    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.0.namespace_filter = filter;
+    }
 }
 
 impl Default for DaemonSetView {
@@ -617,8 +644,23 @@ impl ViewComponent for DaemonSetView {
     fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 
+        // Filter by namespace (empty filter = show all)
+        let filtered: Vec<DeploymentSummary> = self
+            .0
+            .summaries
+            .iter()
+            .filter(|s| {
+                if self.0.namespace_filter.is_empty() {
+                    true
+                } else {
+                    self.0.namespace_filter.contains(&s.namespace)
+                }
+            })
+            .cloned()
+            .collect();
+
         // Update table data
-        self.0.table.set_items(self.0.summaries.clone());
+        self.0.table.set_items(filtered);
 
         let newly_selected = render_workload_grid(ui, "DaemonSets", &mut self.0.table);
 
@@ -877,6 +919,11 @@ impl StatefulSetView {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Set the namespace filter from FathomApp
+    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.0.namespace_filter = filter;
+    }
 }
 
 impl Default for StatefulSetView {
@@ -893,8 +940,23 @@ impl ViewComponent for StatefulSetView {
     fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 
+        // Filter by namespace (empty filter = show all)
+        let filtered: Vec<DeploymentSummary> = self
+            .0
+            .summaries
+            .iter()
+            .filter(|s| {
+                if self.0.namespace_filter.is_empty() {
+                    true
+                } else {
+                    self.0.namespace_filter.contains(&s.namespace)
+                }
+            })
+            .cloned()
+            .collect();
+
         // Update table data
-        self.0.table.set_items(self.0.summaries.clone());
+        self.0.table.set_items(filtered);
 
         let newly_selected = render_workload_grid(ui, "StatefulSets", &mut self.0.table);
 
@@ -1171,6 +1233,11 @@ impl ReplicaSetView {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Set the namespace filter from FathomApp
+    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.0.namespace_filter = filter;
+    }
 }
 
 impl Default for ReplicaSetView {
@@ -1187,8 +1254,23 @@ impl ViewComponent for ReplicaSetView {
     fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 
+        // Filter by namespace (empty filter = show all)
+        let filtered: Vec<DeploymentSummary> = self
+            .0
+            .summaries
+            .iter()
+            .filter(|s| {
+                if self.0.namespace_filter.is_empty() {
+                    true
+                } else {
+                    self.0.namespace_filter.contains(&s.namespace)
+                }
+            })
+            .cloned()
+            .collect();
+
         // Update table data
-        self.0.table.set_items(self.0.summaries.clone());
+        self.0.table.set_items(filtered);
 
         let newly_selected = render_workload_grid(ui, "ReplicaSets", &mut self.0.table);
 
@@ -1424,6 +1506,11 @@ impl ReplicationControllerView {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Set the namespace filter from FathomApp
+    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.0.namespace_filter = filter;
+    }
 }
 
 impl Default for ReplicationControllerView {
@@ -1440,8 +1527,23 @@ impl ViewComponent for ReplicationControllerView {
     fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 
+        // Filter by namespace (empty filter = show all)
+        let filtered: Vec<DeploymentSummary> = self
+            .0
+            .summaries
+            .iter()
+            .filter(|s| {
+                if self.0.namespace_filter.is_empty() {
+                    true
+                } else {
+                    self.0.namespace_filter.contains(&s.namespace)
+                }
+            })
+            .cloned()
+            .collect();
+
         // Update table data
-        self.0.table.set_items(self.0.summaries.clone());
+        self.0.table.set_items(filtered);
 
         let newly_selected = render_workload_grid(ui, "ReplicationControllers", &mut self.0.table);
 

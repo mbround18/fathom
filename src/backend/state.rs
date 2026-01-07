@@ -36,6 +36,11 @@ pub(super) struct BackendState {
     pub(super) prometheus_client: Option<PrometheusClient>,
 
     pub(super) port_forward_manager: PortForwardManager,
+
+    // MCP HTTP server task and configuration
+    pub(super) mcp_http_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) mcp_state: Option<std::sync::Arc<crate::mcp_server::McpAppState>>,
+    pub(super) mcp_port: u16,
 }
 
 impl BackendState {
@@ -61,6 +66,9 @@ impl BackendState {
             workload_metrics_poll_task: None,
             prometheus_client: None,
             port_forward_manager: PortForwardManager::new(),
+            mcp_http_task: None,
+            mcp_state: None,
+            mcp_port: 18288,
         }
     }
 

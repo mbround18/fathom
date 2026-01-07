@@ -163,7 +163,7 @@ pub(super) async fn fetch_pod_details(
         .map(|s| {
             s.containers
                 .iter()
-                .map(|c| format!("{} ({})", c.name, c.image.clone().unwrap_or_default()))
+                .map(|c| c.name.clone())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
