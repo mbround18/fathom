@@ -28,12 +28,12 @@ fn main() -> eframe::Result<()> {
     let (backend_tx, backend_rx) = unbounded::<BackendCmd>();
 
     // Clone backend_tx for Ctrl+C handler
-    let backend_tx_shutdown = backend_tx.clone();
+    let _backend_tx_shutdown = backend_tx.clone();
 
     // Handle Ctrl+C gracefully
     ctrlc::set_handler(move || {
         tracing::info!("Received Ctrl+C, shutting down...");
-        let _ = backend_tx_shutdown.send(BackendCmd::Shutdown);
+        // Channel will be closed when backend_tx is dropped, signaling backend to exit
 
         // Give backend 500ms to clean up, then force exit
         // (eframe window may still be open, blocking run_native())
@@ -42,10 +42,8 @@ fn main() -> eframe::Result<()> {
     })
     .expect("Error setting Ctrl+C handler");
 
-    // Clone args before moving into thread
-    let args_for_backend = args.clone();
     let backend_thread = thread::spawn(move || {
-        backend::init(backend_rx, gui_tx, args_for_backend);
+        backend::init(backend_rx, gui_tx);
     });
 
     // Only-MCP mode: skip GUI, block on backend thread

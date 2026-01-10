@@ -1,46 +1,22 @@
 use super::*;
 
 impl FathomApp {
-    /// Render status panel using view component
-    ///
-    /// Uses StatusView to manage and display the status log.
+    /// Render status panel at the bottom of the window
     pub(super) fn render_bottom_status(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("status")
             .resizable(true)
             .default_height(140.0)
             .show(ctx, |ui| {
-                // Get the status view
-                let status_view = self.get_or_create_view(&section_keys::status());
+                ui.heading("Status Log");
+                ui.separator();
 
-                // Render status and collect actions
-                let actions = status_view.render(ui, ctx);
-
-                // Process any actions (status view typically emits none)
-                for action in actions {
-                    match action {
-                        ViewAction::SendCommand(cmd) => {
-                            self.send(cmd);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        for line in &self.status_log {
+                            ui.monospace(line);
                         }
-                        ViewAction::NotifyStatus(msg) => {
-                            self.push_status(msg);
-                        }
-                        ViewAction::Navigate(_) => {
-                            // Status view shouldn't emit navigation
-                        }
-                        ViewAction::OpenModal(_) => {
-                            // Status view shouldn't emit modals
-                        }
-                        ViewAction::OpenScaleModal(_, _, _, _) => {
-                            // Status view shouldn't emit scale modals
-                        }
-                        ViewAction::OpenUrl(url) => {
-                            if let Err(e) = open::that(&url) {
-                                tracing::warn!("Failed to open URL {}: {}", url, e);
-                                self.push_status(format!("Failed to open URL: {}", e));
-                            }
-                        }
-                    }
-                }
+                    });
             });
     }
 }

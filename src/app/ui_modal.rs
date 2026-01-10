@@ -2,38 +2,79 @@ use super::*;
 
 impl FathomApp {
     pub(super) fn render_modal(&mut self, ctx: &egui::Context) {
-        // Get the modal view and render modals directly from ctx
-        if let Some(view) = self.views.get_mut(&section_keys::modal().to_string()) {
-            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut ModalView;
-            if let Some(modal_view) = unsafe { ptr.as_mut() } {
-                // Call render_modal_window which handles egui::Window rendering
-                let actions = modal_view.render_modal_window(ctx);
-
-                // Process returned actions
-                for action in actions {
-                    match action {
-                        ViewAction::SendCommand(cmd) => {
-                            self.send(cmd);
+        let modal = self.modal.clone();
+        match modal {
+            ModalState::None => {}
+            ModalState::Confirm {
+                title,
+                body,
+                confirm_text,
+                action,
+            } => {
+                let mut open = true;
+                let mut should_close = false;
+                egui::Window::new(title).open(&mut open).show(ctx, |ui| {
+                    ui.label(&body);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
                         }
-                        ViewAction::NotifyStatus(msg) => {
-                            self.push_status(msg);
-                        }
-                        ViewAction::Navigate(_) => {
-                            // Modal shouldn't emit navigation
-                        }
-                        ViewAction::OpenModal(_) => {
-                            // Modal shouldn't emit nested modals
-                        }
-                        ViewAction::OpenScaleModal(_, _, _, _) => {
-                            // Modal shouldn't emit nested modals
-                        }
-                        ViewAction::OpenUrl(url) => {
-                            if let Err(e) = open::that(&url) {
-                                tracing::warn!("Failed to open URL {}: {}", url, e);
-                                self.push_status(format!("Failed to open URL: {}", e));
+                        if ui.button(&confirm_text).clicked() {
+                            match action {
+                                ConfirmAction::DeletePod { namespace, name } => {
+                                    self.send(BackendCmd::DeletePod { namespace, name });
+                                }
+                                ConfirmAction::DeleteDeployment { namespace, name } => {
+                                    self.send(BackendCmd::DeleteDeployment { namespace, name });
+                                }
+                                ConfirmAction::RestartDeployment { namespace, name } => {
+                                    self.send(BackendCmd::RestartDeployment { namespace, name });
+                                }
                             }
+                            should_close = true;
                         }
-                    }
+                    });
+                });
+                if !open || should_close {
+                    self.modal = ModalState::None;
+                }
+            }
+            ModalState::ScaleDeployment {
+                namespace,
+                name,
+                current,
+                desired,
+            } => {
+                let mut open = true;
+                let mut should_close = false;
+                let mut new_desired = desired;
+                egui::Window::new("Scale Deployment")
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        ui.label(format!("{}/{}", namespace, name));
+                        ui.label(format!("Current: {}", current));
+                        ui.horizontal(|ui| {
+                            ui.label("Desired:");
+                            ui.add(egui::Slider::new(&mut new_desired, 0..=10).show_value(true));
+                        });
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked() {
+                                should_close = true;
+                            }
+                            if ui.button("Scale").clicked() {
+                                self.send(BackendCmd::ScaleDeployment {
+                                    namespace,
+                                    name,
+                                    replicas: new_desired as i32,
+                                });
+                                should_close = true;
+                            }
+                        });
+                    });
+                if !open || should_close {
+                    self.modal = ModalState::None;
                 }
             }
         }

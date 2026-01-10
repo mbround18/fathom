@@ -1,37 +1,49 @@
 use super::*;
 
 impl FathomApp {
-    /// Render left navigation panel using view component
-    ///
-    /// Uses NavigationView to display sections. Processes Navigate actions
-    /// to update active section.
     pub(super) fn render_left_nav(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("left_nav")
             .resizable(false)
             .default_width(170.0)
             .show(ctx, |ui| {
-                // Get the navigation view (always the same instance)
-                let nav_view = self.get_or_create_view(&section_keys::navigation());
+                ui.heading("Workloads");
+                ui.separator();
 
-                // Render navigation and collect actions
-                let actions = nav_view.render(ui, ctx);
+                let deploy_selected = self.active_section == section_keys::workloads_deployments();
+                if ui
+                    .selectable_label(deploy_selected, "Deployments")
+                    .clicked()
+                {
+                    self.active_section = section_keys::workloads_deployments();
 
-                // Process returned actions
-                for action in actions {
-                    match action {
-                        ViewAction::Navigate(section) => {
-                            self.active_section = section;
-                            self.send(BackendCmd::SetActiveSection {
-                                section: self.active_section.clone(),
-                            });
-                        }
-                        _ => {
-                            // Navigation view only emits Navigate actions
-                        }
-                    }
+                    // Leaving the pods view should close the pods side panel.
+                    self.selected_pod = None;
+                    self.pod_details = None;
+                    self.pod_metrics = None;
+                    self.pod_logs.clear();
+                    self.send(BackendCmd::StopPodLogs);
+
+                    self.send(BackendCmd::SetActiveSection {
+                        section: self.active_section.clone(),
+                    });
                 }
 
+                let pods_selected = self.active_section == section_keys::workloads_pods();
+                if ui.selectable_label(pods_selected, "Pods").clicked() {
+                    self.active_section = section_keys::workloads_pods();
+
+                    // Leaving deployments should close the deployments side panel.
+                    self.selected_deployment = None;
+                    self.deployment_details = None;
+
+                    self.send(BackendCmd::SetActiveSection {
+                        section: self.active_section.clone(),
+                    });
+                }
+
+                ui.add_space(12.0);
                 ui.separator();
+
                 if ui.button("Simulate Slow Call").clicked() {
                     self.send(BackendCmd::SimulateSlowCall);
                 }

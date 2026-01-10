@@ -1,342 +1,387 @@
 use super::*;
 
 impl FathomApp {
-    /// Render right panel (details/tabs)
-    ///
-    /// Delegates to the active view's render_details() method.
-    /// The panel is only shown if the active view has content to display.
     pub(super) fn render_right_panel(&mut self, ctx: &egui::Context) {
-        // Show panel on first render, or if we determined there was content last frame
-        // This allows the view to determine if content exists
-        let should_attempt_render = self.show_details_panel || ctx.input(|i| i.time == 0.0);
-
-        if !should_attempt_render {
+        if self.active_section == section_keys::workloads_pods() {
+            if self.selected_pod.is_none() {
+                return;
+            }
+            self.render_pod_right_panel(ctx);
             return;
         }
 
-        let panel = egui::SidePanel::right("right_panel").default_width(400.0);
+        if self.active_section == section_keys::workloads_deployments() {
+            if self.selected_deployment.is_none() {
+                return;
+            }
+            self.render_deployment_right_panel(ctx);
+            return;
+        }
+    }
 
-        // Capture actions emitted during details rendering to process after layout
-        let mut captured_actions: Vec<ViewAction> = Vec::new();
+    fn render_pod_right_panel(&mut self, ctx: &egui::Context) {
+        let Some((ns, name)) = self.selected_pod.clone() else {
+            return;
+        };
 
-        // Only show panel if we actually have content
-        let show_panel = panel.show(ctx, |ui| {
-            let key = self.active_section.clone();
-            let view = self.get_or_create_view(&key);
+        egui::SidePanel::right("right_panel")
+            .resizable(true)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("Pod");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Delete").clicked() {
+                            self.open_confirm(
+                                "Delete pod?",
+                                format!("Delete {}/{}?", ns, name),
+                                "Delete",
+                                ConfirmAction::DeletePod {
+                                    namespace: ns.clone(),
+                                    name: name.clone(),
+                                },
+                            );
+                        }
+                        if ui.button("Close").clicked() {
+                            self.selected_pod = None;
+                            self.pod_details = None;
+                            self.pod_metrics = None;
+                            self.pod_logs.clear();
+                            self.send(BackendCmd::StopPodLogs);
+                        }
+                    });
+                });
 
-            let (has_content, actions) = view.render_details(ui, ctx);
+                ui.label(format!("{}/{}", ns, name));
 
-            // Update visibility for next frame: show panel if there's content
-            self.show_details_panel = has_content;
+                ui.separator();
 
-            // Save actions for processing after the panel is laid out
-            captured_actions = actions;
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.pod_tab, PodTab::Details, "Details");
+                    ui.selectable_value(&mut self.pod_tab, PodTab::Logs, "Logs");
+                    ui.selectable_value(&mut self.pod_tab, PodTab::Metrics, "Metrics");
+                    ui.selectable_value(&mut self.pod_tab, PodTab::Exec, "Exec");
+                });
 
-            has_content
+                ui.add_space(8.0);
+
+                match self.pod_tab {
+                    PodTab::Details => self.render_pod_details(ui),
+                    PodTab::Logs => self.render_pod_logs(ui),
+                    PodTab::Metrics => self.render_pod_metrics(ui),
+                    PodTab::Exec => self.render_pod_exec(ui),
+                }
+            });
+    }
+
+    fn render_deployment_right_panel(&mut self, ctx: &egui::Context) {
+        let Some((ns, name)) = self.selected_deployment.clone() else {
+            return;
+        };
+
+        // Best-effort: find the current summary for scale defaults.
+        let summary = self
+            .deployments
+            .iter()
+            .find(|d| d.namespace == ns && d.name == name)
+            .cloned();
+
+        egui::SidePanel::right("right_panel")
+            .resizable(true)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("Deployment");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Delete").clicked() {
+                            self.open_confirm(
+                                "Delete deployment?",
+                                format!("Delete {}/{}?", ns, name),
+                                "Delete",
+                                ConfirmAction::DeleteDeployment {
+                                    namespace: ns.clone(),
+                                    name: name.clone(),
+                                },
+                            );
+                        }
+
+                        if ui.button("Restart").clicked() {
+                            self.open_confirm(
+                                "Restart deployment?",
+                                format!("This will trigger a rollout for {}/{}.", ns, name),
+                                "Restart",
+                                ConfirmAction::RestartDeployment {
+                                    namespace: ns.clone(),
+                                    name: name.clone(),
+                                },
+                            );
+                        }
+
+                        if ui.button("Scale").clicked() {
+                            let (current_ready, desired) = summary
+                                .as_ref()
+                                .map(|d| (d.ready, d.desired))
+                                .unwrap_or((0, 1));
+                            self.open_scale_deployment(
+                                ns.clone(),
+                                name.clone(),
+                                current_ready,
+                                desired,
+                            );
+                        }
+
+                        if ui.button("Close").clicked() {
+                            self.selected_deployment = None;
+                            self.deployment_details = None;
+                        }
+                    });
+                });
+
+                ui.label(format!("{}/{}", ns, name));
+                ui.separator();
+                self.render_deployment_details(ui);
+            });
+    }
+
+    fn render_deployment_details(&mut self, ui: &mut egui::Ui) {
+        let details = self.deployment_details.clone();
+
+        match details {
+            Some(details) => {
+                ui.monospace(format!("Created: {}", details.creation_timestamp));
+                ui.add_space(6.0);
+
+                ui.label("Containers:");
+                for c in &details.containers {
+                    ui.monospace(format!("- {}", c));
+                }
+
+                ui.add_space(10.0);
+                ui.collapsing("Labels", |ui| {
+                    for (k, v) in &details.labels {
+                        ui.monospace(format!("{}={}", k, v));
+                    }
+                });
+
+                ui.collapsing("Annotations", |ui| {
+                    for (k, v) in &details.annotations {
+                        ui.monospace(format!("{}={}", k, v));
+                    }
+                });
+
+                ui.add_space(10.0);
+                let mut refresh_clicked = false;
+                let mut open_pod: Option<(String, String)> = None;
+                let mut delete_pod: Option<(String, String)> = None;
+
+                ui.collapsing("Associated Pods", |ui| {
+                    if details.pod_selector.is_empty() {
+                        ui.label("No selector derived (missing matchLabels).");
+                        return;
+                    }
+
+                    ui.monospace(format!("selector: {}", details.pod_selector));
+                    ui.add_space(6.0);
+
+                    refresh_clicked = ui.button("Refresh").clicked();
+
+                    ui.add_space(6.0);
+                    if details.pods.is_empty() {
+                        ui.label("No matching pods.");
+                        return;
+                    }
+
+                    for p in &details.pods {
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.monospace(format!(
+                                "{}  {}  {}/{}",
+                                p.name, p.phase, p.ready, p.total
+                            ));
+
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("Delete").clicked() {
+                                        delete_pod = Some((p.namespace.clone(), p.name.clone()));
+                                    }
+
+                                    if ui.button("Open").clicked() {
+                                        open_pod = Some((p.namespace.clone(), p.name.clone()));
+                                    }
+                                },
+                            );
+                        });
+                    }
+                });
+
+                if refresh_clicked {
+                    self.deployment_details = None;
+                    self.send(BackendCmd::SelectDeployment {
+                        namespace: details.namespace.clone(),
+                        name: details.name.clone(),
+                    });
+                }
+
+                if let Some((ns, name)) = delete_pod {
+                    self.open_confirm(
+                        "Delete pod?",
+                        format!("Delete {}/{}?", ns, name),
+                        "Delete",
+                        ConfirmAction::DeletePod {
+                            namespace: ns,
+                            name,
+                        },
+                    );
+                }
+
+                if let Some((ns, name)) = open_pod {
+                    // Reuse the Pods section right panel for full pod actions.
+                    self.active_section = section_keys::workloads_pods();
+                    self.selected_pod = Some((ns.clone(), name.clone()));
+                    self.pod_details = None;
+                    self.pod_metrics = None;
+                    self.pod_logs.clear();
+                    self.send(BackendCmd::SetActiveSection {
+                        section: self.active_section.clone(),
+                    });
+                    self.send(BackendCmd::SelectPod {
+                        namespace: ns,
+                        name,
+                    });
+                }
+
+                ui.add_space(10.0);
+                ui.collapsing("Raw JSON", |ui| {
+                    let height = ui.available_height().max(250.0);
+                    egui::ScrollArea::vertical()
+                        .max_height(height)
+                        .show(ui, |ui| {
+                            ui.monospace(&details.raw_json);
+                        });
+                });
+            }
+            None => {
+                ui.label("Select a deployment to view details.");
+            }
+        }
+    }
+
+    fn render_pod_details(&mut self, ui: &mut egui::Ui) {
+        match &self.pod_details {
+            Some(details) => {
+                ui.monospace(format!("Created: {}", details.creation_timestamp));
+                ui.add_space(6.0);
+
+                ui.label("Containers:");
+                for c in &details.containers {
+                    ui.monospace(format!("- {}", c));
+                }
+
+                ui.add_space(10.0);
+                ui.collapsing("Labels", |ui| {
+                    for (k, v) in &details.labels {
+                        ui.monospace(format!("{}={}", k, v));
+                    }
+                });
+
+                ui.collapsing("Annotations", |ui| {
+                    for (k, v) in &details.annotations {
+                        ui.monospace(format!("{}={}", k, v));
+                    }
+                });
+
+                ui.add_space(10.0);
+                ui.collapsing("Raw JSON", |ui| {
+                    let height = ui.available_height().max(250.0);
+                    egui::ScrollArea::vertical()
+                        .max_height(height)
+                        .show(ui, |ui| {
+                            ui.monospace(&details.raw_json);
+                        });
+                });
+            }
+            None => {
+                ui.label("Select a pod to view details.");
+            }
+        }
+    }
+
+    fn render_pod_logs(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let enabled = self.selected_pod.is_some();
+            if ui
+                .add_enabled(enabled, egui::Button::new("Start"))
+                .clicked()
+            {
+                if let Some((ns, name)) = &self.selected_pod {
+                    self.pod_logs.clear();
+                    self.send(BackendCmd::StartPodLogs {
+                        namespace: ns.clone(),
+                        name: name.clone(),
+                        container: None,
+                    });
+                }
+            }
+
+            if ui.button("Stop").clicked() {
+                self.send(BackendCmd::StopPodLogs);
+            }
+
+            if ui.button("Clear").clicked() {
+                self.pod_logs.clear();
+            }
         });
 
-        // If no content, don't show the panel next time
-        if !show_panel.inner {
-            self.show_details_panel = false;
-            return;
-        }
+        ui.add_space(8.0);
 
-        // Process actions returned by details panel
-        for action in captured_actions {
-            match action {
-                ViewAction::SendCommand(cmd) => {
-                    self.send(cmd);
-                }
-                ViewAction::NotifyStatus(msg) => {
-                    self.push_status(msg);
-                }
-                ViewAction::Navigate(section) => {
-                    self.active_section = section;
-                }
-                ViewAction::OpenModal(confirm_action) => {
-                    // First check if it's OpenPortForward or EditPortForward before doing the complex match
-                    match &confirm_action {
-                        ConfirmAction::OpenPortForward {
-                            namespace,
-                            pod,
-                            suggested_ports,
-                            containers,
-                        } => {
-                            // Ensure modal view exists
-                            let _ = self.get_or_create_view(&section_keys::modal());
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for line in &self.pod_logs {
+                ui.monospace(line);
+            }
+        });
+    }
 
-                            // Now update its state
-                            if let Some(modal_view) =
-                                self.views.get_mut(&section_keys::modal().to_string())
-                            {
-                                let ptr = modal_view.as_mut() as *mut dyn ViewComponent
-                                    as *mut views::ModalView;
-                                if !ptr.is_null() {
-                                    unsafe {
-                                        let default_port =
-                                            suggested_ports.first().copied().unwrap_or(8080);
-                                        (*ptr).state = views::ModalState::CreatePortForward {
-                                            namespace: namespace.clone(),
-                                            pod: pod.clone(),
-                                            local_port: default_port.to_string(),
-                                            remote_port: default_port.to_string(),
-                                            container: containers
-                                                .first()
-                                                .cloned()
-                                                .unwrap_or_default(),
-                                        };
-                                    }
-                                }
-                            }
-                            return;
-                        }
-                        ConfirmAction::EditPortForward {
-                            tunnel_id,
-                            namespace,
-                            pod,
-                            local_port,
-                            remote_port,
-                            container,
-                        } => {
-                            // Ensure modal view exists
-                            let _ = self.get_or_create_view(&section_keys::modal());
-
-                            // Now update its state
-                            if let Some(modal_view) =
-                                self.views.get_mut(&section_keys::modal().to_string())
-                            {
-                                let ptr = modal_view.as_mut() as *mut dyn ViewComponent
-                                    as *mut views::ModalView;
-                                if !ptr.is_null() {
-                                    unsafe {
-                                        (*ptr).state = views::ModalState::EditPortForward {
-                                            tunnel_id: tunnel_id.clone(),
-                                            namespace: namespace.clone(),
-                                            pod: pod.clone(),
-                                            local_port: local_port.to_string(),
-                                            remote_port: remote_port.to_string(),
-                                            container: container.clone(),
-                                        };
-                                    }
-                                }
-                            }
-                            return;
-                        }
-                        _ => {}
-                    }
-
-                    // Continue with other action types
-                    // Update modal state in the modal view
-                    if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string())
-                    {
-                        // Cast to ModalView and update its state
-                        let ptr =
-                            modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
-                        if !ptr.is_null() {
-                            unsafe {
-                                let (title, body, confirm_text) = match &confirm_action {
-                                    ConfirmAction::DeletePod(ns, name) => (
-                                        "Delete Pod".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete pod {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::DeleteDeployment(ns, name) => (
-                                        "Delete Deployment".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete deployment {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::DeleteDaemonSet(ns, name) => (
-                                        "Delete DaemonSet".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete daemonset {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::DeleteStatefulSet(ns, name) => (
-                                        "Delete StatefulSet".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete statefulset {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::DeleteReplicaSet(ns, name) => (
-                                        "Delete ReplicaSet".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete replicaset {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::DeleteReplicationController(ns, name) => (
-                                        "Delete ReplicationController".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete replication controller {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::DeleteJob(ns, name) => (
-                                        "Delete Job".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete job {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::DeleteCronJob(ns, name) => (
-                                        "Delete CronJob".to_string(),
-                                        format!(
-                                            "Are you sure you want to delete cronjob {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Delete".to_string(),
-                                    ),
-                                    ConfirmAction::RestartDeployment(ns, name) => (
-                                        "Restart Deployment".to_string(),
-                                        format!(
-                                            "Restart all pods in deployment {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Restart".to_string(),
-                                    ),
-                                    ConfirmAction::RestartDaemonSet(ns, name) => (
-                                        "Restart DaemonSet".to_string(),
-                                        format!(
-                                            "Restart all pods in daemonset {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Restart".to_string(),
-                                    ),
-                                    ConfirmAction::RestartStatefulSet(ns, name) => (
-                                        "Restart StatefulSet".to_string(),
-                                        format!(
-                                            "Restart all pods in statefulset {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Restart".to_string(),
-                                    ),
-                                    ConfirmAction::RestartReplicaSet(ns, name) => (
-                                        "Restart ReplicaSet".to_string(),
-                                        format!(
-                                            "Restart all pods in replicaset {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Restart".to_string(),
-                                    ),
-                                    ConfirmAction::RestartReplicationController(ns, name) => (
-                                        "Restart ReplicationController".to_string(),
-                                        format!(
-                                            "Restart all pods in replication controller {} in namespace {}?",
-                                            name, ns
-                                        ),
-                                        "Restart".to_string(),
-                                    ),
-                                    ConfirmAction::ScaleDeployment(ns, name, current) => {
-                                        // Handle scale actions separately - they use ScaleWorkload modal
-                                        let modal_state = views::ModalState::ScaleWorkload {
-                                            kind: crate::app::WorkloadKind::Deployment,
-                                            namespace: ns.clone(),
-                                            name: name.clone(),
-                                            current: *current,
-                                            desired: *current,
-                                        };
-                                        (*ptr).state = modal_state;
-                                        return;
-                                    }
-                                    ConfirmAction::ScaleStatefulSet(ns, name, current) => {
-                                        let modal_state = views::ModalState::ScaleWorkload {
-                                            kind: crate::app::WorkloadKind::StatefulSet,
-                                            namespace: ns.clone(),
-                                            name: name.clone(),
-                                            current: *current,
-                                            desired: *current,
-                                        };
-                                        (*ptr).state = modal_state;
-                                        return;
-                                    }
-                                    ConfirmAction::ScaleReplicaSet(ns, name, current) => {
-                                        let modal_state = views::ModalState::ScaleWorkload {
-                                            kind: crate::app::WorkloadKind::ReplicaSet,
-                                            namespace: ns.clone(),
-                                            name: name.clone(),
-                                            current: *current,
-                                            desired: *current,
-                                        };
-                                        (*ptr).state = modal_state;
-                                        return;
-                                    }
-                                    ConfirmAction::ScaleReplicationController(
-                                        ns,
-                                        name,
-                                        current,
-                                    ) => {
-                                        let modal_state = views::ModalState::ScaleWorkload {
-                                            kind: crate::app::WorkloadKind::ReplicationController,
-                                            namespace: ns.clone(),
-                                            name: name.clone(),
-                                            current: *current,
-                                            desired: *current,
-                                        };
-                                        (*ptr).state = modal_state;
-                                        return;
-                                    }
-                                    ConfirmAction::BulkDelete(_) => {
-                                        // BulkDelete is handled by OpenBulkDeleteModal, not OpenModal
-                                        return;
-                                    }
-                                    ConfirmAction::OpenPortForward { .. } => {
-                                        // OpenPortForward is handled above, should not reach here
-                                        unreachable!();
-                                    }
-                                    ConfirmAction::EditPortForward { .. } => {
-                                        // EditPortForward is handled above, should not reach here
-                                        unreachable!();
-                                    }
-                                };
-                                (*ptr).state = views::ModalState::Confirm {
-                                    title,
-                                    body,
-                                    confirm_text,
-                                    action: confirm_action,
-                                };
-                            }
-                        }
-                    }
+    fn render_pod_metrics(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let enabled = self.selected_pod.is_some();
+            if ui
+                .add_enabled(enabled, egui::Button::new("Refresh Metrics"))
+                .clicked()
+            {
+                if let Some((ns, name)) = &self.selected_pod {
+                    self.pod_metrics = None;
+                    self.send(BackendCmd::FetchPodMetrics {
+                        namespace: ns.clone(),
+                        name: name.clone(),
+                    });
                 }
-                ViewAction::OpenScaleModal(kind, namespace, name, current) => {
-                    // Update modal state with scale modal
-                    if let Some(modal_view) = self.views.get_mut(&section_keys::modal().to_string())
-                    {
-                        let ptr =
-                            modal_view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
-                        if !ptr.is_null() {
-                            unsafe {
-                                (*ptr).state = views::ModalState::ScaleWorkload {
-                                    kind,
-                                    namespace,
-                                    name,
-                                    current,
-                                    desired: current,
-                                };
-                            }
-                        }
-                    }
-                }
-                ViewAction::OpenUrl(url) => {
-                    if let Err(e) = open::that(&url) {
-                        tracing::warn!("Failed to open URL {}: {}", url, e);
-                        self.push_status(format!("Failed to open URL: {}", e));
+            }
+        });
+
+        ui.add_space(8.0);
+
+        match &self.pod_metrics {
+            Some(metrics) => {
+                if metrics.containers.is_empty() {
+                    ui.label(
+                        "No metrics returned (metrics-server may be missing or RBAC denies access).",
+                    );
+                } else {
+                    ui.label("Containers:");
+                    for c in &metrics.containers {
+                        ui.monospace(format!("{}  cpu={}  mem={} ", c.name, c.cpu, c.memory));
                     }
                 }
             }
+            None => {
+                ui.label("Select a pod, then click Refresh Metrics.");
+            }
         }
+    }
+
+    fn render_pod_exec(&mut self, ui: &mut egui::Ui) {
+        ui.label("Terminal/exec UI is planned, not wired yet.");
+        ui.add_enabled(false, egui::Button::new("Open Exec Session"));
     }
 }

@@ -1,125 +1,102 @@
 use super::*;
-use crate::protocol::{ResourceListEvent, StreamEvent};
 
 impl FathomApp {
     pub(super) fn check_mailbox(&mut self) {
-        // First, handle view switching and lifecycle
-        self.handle_view_switch();
-
-        // Collect events first
-        let mut events = Vec::new();
         while let Ok(envelope) = self.gui_rx.try_recv() {
-            events.push(envelope);
-        }
-
-        // Now process events
-        for envelope in events {
-            let event = &envelope.event;
-
-            // Route event to context view (always needs updates) - ensure it exists first
-            let context_section = section_keys::context();
-            let context_view = self.get_or_create_view(&context_section);
-            context_view.on_event(event);
-
-            // For ResourceListEvents, broadcast to ALL views since multiple views may care about the same data
-            if matches!(&envelope.event, BackendEvent::ResourceList(_)) {
-                // Broadcast to all instantiated views
-                for view in self.views.values_mut() {
-                    view.on_event(event);
-                }
-            } else {
-                // For other events, route to active view only
-                let active_section = self.active_section.clone();
-                let active_view = self.get_or_create_view(&active_section);
-                active_view.on_event(event);
-            }
-
-            match &envelope.event {
+            match envelope.event {
                 BackendEvent::System(ev) => match ev {
                     SystemEvent::BackendStarted => {
                         self.push_status("Backend started.".to_owned());
                     }
                     SystemEvent::Notification { level, message } => match level {
-                        NotificationLevel::Info => self.push_status(message.clone()),
+                        NotificationLevel::Info => self.push_status(message),
                         NotificationLevel::Warn => self.push_status(format!("WARN: {}", message)),
                         NotificationLevel::Error => self.push_status(format!("ERROR: {}", message)),
                     },
-                    SystemEvent::ContextsUpdated { .. } => {
-                        // ContextView handles this in on_event
+                    SystemEvent::ContextsUpdated { contexts, current } => {
+                        self.contexts = contexts;
+                        self.current_context = current;
                     }
-                    SystemEvent::ContextChanged { .. } => {
-                        // ContextView handles this in on_event
-                        // Views handle their own state cleanup via on_unmount/on_mount lifecycle
+                    SystemEvent::ContextChanged { current } => {
+                        self.current_context = current;
+
+                        // Global invalidation: switching clusters invalidates selections and caches.
+                        self.selected_pod = None;
+                        self.pod_details = None;
+                        self.pod_metrics = None;
+                        self.pod_logs.clear();
+
+                        self.selected_deployment = None;
+                        self.deployment_details = None;
+
+                        // Backend resets namespace filter to "all" on context switch.
+                        self.select_all_namespaces = true;
+                        self.selected_namespaces.clear();
                     }
-                    SystemEvent::NamespaceFilterChanged { .. } => {
-                        // ContextView handles this in on_event
-                    }
-                    SystemEvent::PrometheusConnectionTest { success, message } => {
-                        self.prometheus_testing = false;
-                        if *success {
-                            self.prometheus_connected = true;
-                            self.push_status("Prometheus connected successfully".to_owned());
+                    SystemEvent::NamespaceFilterChanged { namespaces } => {
+                        if namespaces.is_empty() {
+                            self.select_all_namespaces = true;
+                            self.selected_namespaces.clear();
                         } else {
-                            self.prometheus_connected = false;
-                            self.push_status(format!("Prometheus connection failed: {}", message));
+                            self.select_all_namespaces = false;
+                            self.selected_namespaces = namespaces.into_iter().collect();
                         }
                     }
-                    SystemEvent::GrafanaConnectionTest { success, message } => {
-                        self.grafana_testing = false;
-                        if *success {
-                            self.grafana_connected = true;
-                            self.push_status("Grafana connected successfully".to_owned());
-                        } else {
-                            self.grafana_connected = false;
-                            self.push_status(format!("Grafana connection failed: {}", message));
-                        }
-                    }
-                    SystemEvent::McpServerStatus {
-                        running: _,
-                        message: _,
-                    } => {
-                        // McpIntegrationView handles this in on_event
-                    }
-                    SystemEvent::PortAvailability {
-                        port: _,
-                        available: _,
-                    } => {
-                        // Port availability check result - modal handles this via on_event
-                    }
-                    SystemEvent::DiskUsageUpdated(items) => {
-                        self.disk_usage = items.clone();
-                        self.push_status(format!("Disk usage updated: {} item(s)", items.len()));
+                    SystemEvent::DiskUsageUpdated(_) => {
+                        // TODO: Handle disk usage updates
                     }
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {
                     ResourceListEvent::NamespacesUpdated(namespaces) => {
-                        // ContextView handles this via on_event()
-                        // Also update the app's namespace filter list
-                        self.update_available_namespaces(namespaces.clone());
+                        self.namespaces = namespaces;
+                        if self.select_all_namespaces {
+                            self.selected_namespaces.clear();
+                        }
                     }
-                    ResourceListEvent::PortForwardsUpdated(port_forwards) => {
-                        self.port_forwards = port_forwards.clone();
+                    ResourceListEvent::PodsUpdated(pods) => {
+                        self.pods = pods;
                     }
-                    // Resource list updates now handled by views via on_event()
-                    _ => {}
+                    ResourceListEvent::DeploymentsUpdated(deployments) => {
+                        self.deployments = deployments;
+                    }
+                    _ => {
+                        // Ignore other resource list events for now
+                    }
                 },
 
-                BackendEvent::ResourceRead(_ev) => {
-                    // Resource details updates now handled by views via on_event()
-                }
+                BackendEvent::ResourceRead(ev) => match ev {
+                    ResourceReadEvent::PodDetailsUpdated(details) => {
+                        self.pod_details = Some(details);
+                    }
+                    ResourceReadEvent::PodMetricsUpdated(metrics) => {
+                        self.pod_metrics = Some(metrics);
+                    }
+                    ResourceReadEvent::DeploymentDetailsUpdated(details) => {
+                        self.deployment_details = Some(details);
+                    }
+                    _ => {
+                        // Ignore other resource read events for now
+                    }
+                },
 
                 BackendEvent::Stream(ev) => match ev {
-                    StreamEvent::PortForwardTunnel {
-                        tunnel_id: _,
-                        status: _,
-                        local_endpoint: _,
+                    StreamEvent::PodLogsChunk {
+                        stream_id: _,
+                        lines,
                     } => {
-                        // TODO: Handle port forward status updates
-                        self.push_status("Port forward status updated".to_string());
+                        self.pod_logs.extend(lines);
+                        if self.pod_logs.len() > 2000 {
+                            let drain = self.pod_logs.len() - 2000;
+                            self.pod_logs.drain(0..drain);
+                        }
                     }
-                    // Other stream events handled by views via on_event()
-                    _ => {}
+                    StreamEvent::StreamClosed {
+                        stream_id: _,
+                        reason,
+                    } => {
+                        self.push_status(format!("Log stream closed: {}", reason));
+                    }
                 },
             }
         }

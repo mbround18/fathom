@@ -19,6 +19,7 @@ mod replicationcontrollers;
 mod route;
 mod services;
 mod statefulsets;
+mod storage;
 mod workloads;
 
 pub use cmd::*;
@@ -42,4 +43,5 @@ pub use replicationcontrollers::*;
 pub use route::*;
 pub use services::*;
 pub use statefulsets::*;
+pub use storage::*;
 pub use workloads::*;

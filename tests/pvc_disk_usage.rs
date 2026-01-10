@@ -1,4 +1,4 @@
-use fathom::app::views::pods::{format_pvc_storage_lines, pod_pvc_usage};
+use fathom::app::utilities::{format_pvc_storage_lines, pod_pvc_usage};
 use fathom::protocol::DiskUsage;
 
 #[test]

@@ -1227,24 +1227,24 @@ pub(super) fn load_pod_metrics_history(
 
     if let Some(pod_data) = all_metrics.get(&pod_key) {
         // Parse containers from JSON
-        let containers: Vec<ContainerMetricsHistory> = pod_data
-            .get("containers")
-            .and_then(|c| c.as_array())
-            .map(|arr| {
-                arr.iter()
+        let containers: Vec<ContainerMetricsHistory> =
+            if let Some(containers_json) = pod_data.get("containers").and_then(|c| c.as_array()) {
+                containers_json
+                    .iter()
                     .filter_map(|container_obj| {
                         let name = container_obj.get("name")?.as_str()?.to_string();
-                        let samples: Vec<MetricsSample> = container_obj
-                            .get("samples")
-                            .and_then(|s| s.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|sample| {
-                                        serde_json::from_value(sample.clone()).ok()
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+                        let samples: Vec<MetricsSample> = if let Some(samples_json) =
+                            container_obj.get("samples").and_then(|s| s.as_array())
+                        {
+                            samples_json
+                                .iter()
+                                .filter_map(|sample: &serde_json::Value| {
+                                    serde_json::from_value(sample.clone()).ok()
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
 
                         Some(ContainerMetricsHistory {
                             name,
@@ -1264,8 +1264,9 @@ pub(super) fn load_pod_metrics_history(
                         })
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            } else {
+                Vec::new()
+            };
 
         Ok(Some(PodMetricsHistory {
             namespace: namespace.to_string(),

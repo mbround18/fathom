@@ -220,12 +220,13 @@ pub fn emit_port_forward_list(
     sender: &Sender<BackendEventEnvelope>,
 ) {
     let list = state.port_forward_manager.list();
+    let port_forward_names: Vec<String> = list.iter().map(|pf| pf.id.clone()).collect();
     events::emit(
         state.seq.as_ref(),
         sender,
         Route::global(section_keys::network_portforwards()),
         Correlation::None,
-        BackendEvent::ResourceList(ResourceListEvent::PortForwardsUpdated(list)),
+        BackendEvent::ResourceList(ResourceListEvent::PortForwardsUpdated(port_forward_names)),
     );
 }
 
