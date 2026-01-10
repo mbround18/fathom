@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
+use crate::config::Args;
 
 mod cmd;
 mod cronjobs;
@@ -43,7 +44,7 @@ use state::client_or_err;
 pub fn init(
     receiver: Receiver<BackendCmd>,
     sender: Sender<BackendEventEnvelope>,
-    args: crate::Args,
+    args: Args,
 ) {
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
 

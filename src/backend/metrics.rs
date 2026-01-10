@@ -1,7 +1,7 @@
 use crate::protocol::{
     BackendEvent, BackendEventEnvelope, ContainerMetrics, ContainerMetricsAggregate,
     ContainerMetricsHistory, ContainerResourceSpec, Correlation, MetricsSample, PodMetricsHistory,
-    PodMetricsSummary, PrometheusMetrics, ResourceReadEvent, Route, WorkloadMetricsAggregate,
+    PodMetricsSummary, ResourceReadEvent, Route, WorkloadMetricsAggregate,
     section_keys,
 };
 use crossbeam_channel::Sender;
@@ -15,7 +15,6 @@ use kube::{
 use std::time::Duration;
 
 use super::events;
-use super::metrics_provider::{MetricsProviderTrait, PrometheusClient};
 use super::state::{BackendState, MetricsAvailability, client_or_err};
 use crate::backend::integrations::IntegrationConfig;
 use crate::backend::persistence;
@@ -744,7 +743,7 @@ pub(super) async fn aggregate_workload_metrics(
     let replica_count = pods.len() as u32;
 
     // Collect metrics from Prometheus if available
-    if let Some(prom_client) = &state.prometheus_client {
+    if let Some(_prom_client) = &state.prometheus_client {
         let prom_config = state
             .current_context
             .as_ref()

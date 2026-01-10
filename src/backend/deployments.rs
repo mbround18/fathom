@@ -12,7 +12,6 @@ use kube::{
 use serde_json::json;
 use std::collections::BTreeMap;
 
-use super::interactions;
 use super::pods;
 use super::state::client_or_err;
 use super::{events, state::BackendState};
@@ -93,18 +92,6 @@ pub(super) async fn delete_deployment(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
-
-    let ts = Utc::now().to_rfc3339();
-    let _ = interactions::annotate_action(
-        &api,
-        name,
-        state.current_context.as_deref(),
-        "delete",
-        &ts,
-        json!({}),
-    )
-    .await;
-
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
         state.seq.as_ref(),
@@ -123,18 +110,6 @@ pub(super) async fn scale_deployment(
 ) -> anyhow::Result<()> {
     let client = client_or_err(state)?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
-
-    let ts = Utc::now().to_rfc3339();
-    let _ = interactions::annotate_action(
-        &api,
-        name,
-        state.current_context.as_deref(),
-        "scale",
-        &ts,
-        json!({"replicas": replicas}),
-    )
-    .await;
-
     let patch = json!({"spec": {"replicas": replicas }});
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
@@ -155,17 +130,6 @@ pub(super) async fn restart_deployment(
     let client = client_or_err(state)?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
     let ts = Utc::now().to_rfc3339();
-
-    let _ = interactions::annotate_action(
-        &api,
-        name,
-        state.current_context.as_deref(),
-        "restart",
-        &ts,
-        json!({"restartedAt": ts}),
-    )
-    .await;
-
     let patch = json!({
         "spec": {
             "template": {
@@ -229,28 +193,6 @@ pub(super) async fn fetch_deployment_details(
         })
         .unwrap_or_default();
 
-    let ports: Vec<crate::protocol::ContainerPort> = deploy
-        .spec
-        .as_ref()
-        .and_then(|s| s.template.spec.as_ref())
-        .map(|ps| {
-            ps.containers
-                .iter()
-                .flat_map(|c| {
-                    c.ports
-                        .iter()
-                        .flatten()
-                        .map(|p| crate::protocol::ContainerPort {
-                            container: c.name.clone(),
-                            name: p.name.clone(),
-                            port: p.container_port as u16,
-                            protocol: p.protocol.clone().unwrap_or_else(|| "TCP".to_owned()),
-                        })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
     // Best-effort association via `.spec.selector.matchLabels`.
     // This won’t cover matchExpressions, but works for the common case.
     let pod_selector = deploy
@@ -284,7 +226,6 @@ pub(super) async fn fetch_deployment_details(
         labels,
         annotations,
         containers,
-        ports,
         pod_selector,
         pods,
         raw_json,

@@ -6,28 +6,14 @@ use tracing_subscriber::EnvFilter;
 
 mod app;
 mod backend;
+mod config;
 mod mcp_server;
 mod protocol;
 pub mod sections;
 use protocol::{BackendCmd, BackendEventEnvelope};
+use crate::config::Args;
 
 /// Fathom - Kubernetes Dashboard with MCP integration
-#[derive(Parser, Debug, Clone)]
-#[command(version, about, long_about = None)]
-pub struct Args {
-    /// Enable MCP HTTP server (localhost:18288) [default: false]
-    #[arg(long, env = "FATHOM_MCP_HTTP_ENABLED")]
-    pub mcp_http: bool,
-
-    /// MCP HTTP server port (default: 18288 - 1.8288m ≈ 1 fathom)
-    #[arg(long, env = "FATHOM_MCP_PORT", default_value = "18288")]
-    pub mcp_port: u16,
-
-    /// Run only MCP server (headless, no UI)
-    #[arg(long, env = "FATHOM_ONLY_MCP")]
-    pub only_mcp: bool,
-}
-
 fn main() -> eframe::Result<()> {
     // Initialize rustls crypto provider (required for rustls 0.23+)
     let _ = rustls::crypto::ring::default_provider().install_default();

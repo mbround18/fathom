@@ -23,7 +23,7 @@ impl FathomApp {
                 for namespace in available_ns {
                     let is_selected = self.namespace_matches_filter(&namespace)
                         || self.selected_namespaces.is_empty();
-                    let mut checkbox = is_selected && !self.selected_namespaces.is_empty();
+                    let _checkbox = is_selected && !self.selected_namespaces.is_empty();
 
                     // If no filter selected, show all as selected but don't check the box
                     if self.selected_namespaces.is_empty() {

@@ -52,7 +52,7 @@ fn render_workload_metrics(ui: &mut egui::Ui, metrics: &WorkloadMetricsAggregate
             if let Some(mem_bytes) = metrics.total_memory_usage_bytes {
                 let mem_mb = mem_bytes as f64 / 1_048_576.0;
                 let color = if let Some(limit_bytes) = metrics.total_memory_limit_bytes {
-                    let limit_mb = limit_bytes as f64 / 1_048_576.0;
+                    let _limit_mb = limit_bytes as f64 / 1_048_576.0;
                     let pct = (mem_bytes as f64 / limit_bytes as f64) * 100.0;
                     if pct > 80.0 {
                         egui::Color32::RED
@@ -95,8 +95,8 @@ fn render_workload_metrics(ui: &mut egui::Ui, metrics: &WorkloadMetricsAggregate
 
                             // CPU bar
                             if let Some(cpu_pct) = container.cpu_usage_percent {
-                                let bar_width = ui.available_width() - 40.0;
-                                let fill_fraction = (cpu_pct / 100.0).min(1.0);
+                                let _bar_width = ui.available_width() - 40.0;
+                                let _fill_fraction = (cpu_pct / 100.0).min(1.0);
 
                                 ui.horizontal(|ui| {
                                     ui.label("CPU:");
@@ -685,14 +685,36 @@ impl ViewComponent for DaemonSetView {
     fn on_event(&mut self, event: &BackendEvent) {
         if let BackendEvent::ResourceList(ResourceListEvent::DaemonSetsUpdated(daemonsets)) = event
         {
-            self.0.summaries = daemonsets.clone();
+            // Convert WorkloadSummary to DeploymentSummary (same fields)
+            self.0.summaries = daemonsets
+                .iter()
+                .map(|w| DeploymentSummary {
+                    name: w.name.clone(),
+                    namespace: w.namespace.clone(),
+                    desired: w.desired,
+                    ready: w.ready,
+                    updated: w.updated,
+                    available: w.available,
+                })
+                .collect();
         }
 
         if let BackendEvent::ResourceRead(ResourceReadEvent::DaemonSetDetailsUpdated(details)) =
             event
         {
             if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                self.0.details = Some(details.clone());
+                // Convert WorkloadDetails to DeploymentDetails (same fields)
+                self.0.details = Some(DeploymentDetails {
+                    namespace: details.namespace.clone(),
+                    name: details.name.clone(),
+                    creation_timestamp: details.creation_timestamp.clone(),
+                    labels: details.labels.clone(),
+                    annotations: details.annotations.clone(),
+                    containers: details.containers.clone(),
+                    pod_selector: details.pod_selector.clone(),
+                    pods: details.pods.clone(),
+                    raw_json: details.raw_json.clone(),
+                });
             }
         }
     }
@@ -793,45 +815,6 @@ impl ViewComponent for DaemonSetView {
                 ui.add_space(8.0);
 
                 // � Ports (if any)
-                if !details.ports.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label("🔌 Ports");
-                            ui.separator();
-                            for port in &details.ports {
-                                let name_str = port.name.as_deref().unwrap_or("(unnamed)");
-                                ui.horizontal(|ui| {
-                                    ui.monospace(format!(
-                                        "• {} : {} / {}",
-                                        name_str, port.port, port.protocol
-                                    ));
-                                    // Only show Forward button if there are running pods
-                                    if !details.pods.is_empty()
-                                        && ui.small_button("⚡ Forward").clicked()
-                                    {
-                                        let pod = &details.pods[0];
-                                        let containers: Vec<String> = details
-                                            .containers
-                                            .iter()
-                                            .map(|c| {
-                                                c.split_whitespace().next().unwrap_or(c).to_string()
-                                            })
-                                            .collect();
-                                        actions.push(ViewAction::OpenModal(
-                                            crate::app::ConfirmAction::OpenPortForward {
-                                                namespace: pod.namespace.clone(),
-                                                pod: pod.name.clone(),
-                                                suggested_ports: vec![port.port],
-                                                containers,
-                                            },
-                                        ));
-                                    }
-                                });
-                            }
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
 
                 // �🔍 Selector
                 if !details.pod_selector.is_empty() {
@@ -982,14 +965,36 @@ impl ViewComponent for StatefulSetView {
         if let BackendEvent::ResourceList(ResourceListEvent::StatefulSetsUpdated(statefulsets)) =
             event
         {
-            self.0.summaries = statefulsets.clone();
+            // Convert WorkloadSummary to DeploymentSummary (same fields)
+            self.0.summaries = statefulsets
+                .iter()
+                .map(|w| DeploymentSummary {
+                    name: w.name.clone(),
+                    namespace: w.namespace.clone(),
+                    desired: w.desired,
+                    ready: w.ready,
+                    updated: w.updated,
+                    available: w.available,
+                })
+                .collect();
         }
 
         if let BackendEvent::ResourceRead(ResourceReadEvent::StatefulSetDetailsUpdated(details)) =
             event
         {
             if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                self.0.details = Some(details.clone());
+                // Convert WorkloadDetails to DeploymentDetails (same fields)
+                self.0.details = Some(DeploymentDetails {
+                    namespace: details.namespace.clone(),
+                    name: details.name.clone(),
+                    creation_timestamp: details.creation_timestamp.clone(),
+                    labels: details.labels.clone(),
+                    annotations: details.annotations.clone(),
+                    containers: details.containers.clone(),
+                    pod_selector: details.pod_selector.clone(),
+                    pods: details.pods.clone(),
+                    raw_json: details.raw_json.clone(),
+                });
             }
         }
     }
@@ -1107,45 +1112,6 @@ impl ViewComponent for StatefulSetView {
                 ui.add_space(8.0);
 
                 // � Ports (if any)
-                if !details.ports.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label("🔌 Ports");
-                            ui.separator();
-                            for port in &details.ports {
-                                let name_str = port.name.as_deref().unwrap_or("(unnamed)");
-                                ui.horizontal(|ui| {
-                                    ui.monospace(format!(
-                                        "• {} : {} / {}",
-                                        name_str, port.port, port.protocol
-                                    ));
-                                    // Only show Forward button if there are running pods
-                                    if !details.pods.is_empty()
-                                        && ui.small_button("⚡ Forward").clicked()
-                                    {
-                                        let pod = &details.pods[0];
-                                        let containers: Vec<String> = details
-                                            .containers
-                                            .iter()
-                                            .map(|c| {
-                                                c.split_whitespace().next().unwrap_or(c).to_string()
-                                            })
-                                            .collect();
-                                        actions.push(ViewAction::OpenModal(
-                                            crate::app::ConfirmAction::OpenPortForward {
-                                                namespace: pod.namespace.clone(),
-                                                pod: pod.name.clone(),
-                                                suggested_ports: vec![port.port],
-                                                containers,
-                                            },
-                                        ));
-                                    }
-                                });
-                            }
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
 
                 // �🔍 Selector
                 if !details.pod_selector.is_empty() {
@@ -1296,14 +1262,36 @@ impl ViewComponent for ReplicaSetView {
         if let BackendEvent::ResourceList(ResourceListEvent::ReplicaSetsUpdated(replicasets)) =
             event
         {
-            self.0.summaries = replicasets.clone();
+            // Convert WorkloadSummary to DeploymentSummary (same fields)
+            self.0.summaries = replicasets
+                .iter()
+                .map(|w| DeploymentSummary {
+                    name: w.name.clone(),
+                    namespace: w.namespace.clone(),
+                    desired: w.desired,
+                    ready: w.ready,
+                    updated: w.updated,
+                    available: w.available,
+                })
+                .collect();
         }
 
         if let BackendEvent::ResourceRead(ResourceReadEvent::ReplicaSetDetailsUpdated(details)) =
             event
         {
             if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                self.0.details = Some(details.clone());
+                // Convert WorkloadDetails to DeploymentDetails (same fields)
+                self.0.details = Some(DeploymentDetails {
+                    namespace: details.namespace.clone(),
+                    name: details.name.clone(),
+                    creation_timestamp: details.creation_timestamp.clone(),
+                    labels: details.labels.clone(),
+                    annotations: details.annotations.clone(),
+                    containers: details.containers.clone(),
+                    pod_selector: details.pod_selector.clone(),
+                    pods: details.pods.clone(),
+                    raw_json: details.raw_json.clone(),
+                });
             }
         }
     }
@@ -1571,7 +1559,18 @@ impl ViewComponent for ReplicationControllerView {
         if let BackendEvent::ResourceList(ResourceListEvent::ReplicationControllersUpdated(rcs)) =
             event
         {
-            self.0.summaries = rcs.clone();
+            // Convert WorkloadSummary to DeploymentSummary (same fields)
+            self.0.summaries = rcs
+                .iter()
+                .map(|w| DeploymentSummary {
+                    name: w.name.clone(),
+                    namespace: w.namespace.clone(),
+                    desired: w.desired,
+                    ready: w.ready,
+                    updated: w.updated,
+                    available: w.available,
+                })
+                .collect();
         }
 
         if let BackendEvent::ResourceRead(ResourceReadEvent::ReplicationControllerDetailsUpdated(
@@ -1579,7 +1578,18 @@ impl ViewComponent for ReplicationControllerView {
         )) = event
         {
             if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                self.0.details = Some(details.clone());
+                // Convert WorkloadDetails to DeploymentDetails (same fields)
+                self.0.details = Some(DeploymentDetails {
+                    namespace: details.namespace.clone(),
+                    name: details.name.clone(),
+                    creation_timestamp: details.creation_timestamp.clone(),
+                    labels: details.labels.clone(),
+                    annotations: details.annotations.clone(),
+                    containers: details.containers.clone(),
+                    pod_selector: details.pod_selector.clone(),
+                    pods: details.pods.clone(),
+                    raw_json: details.raw_json.clone(),
+                });
             }
         }
     }

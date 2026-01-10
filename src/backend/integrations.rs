@@ -14,7 +14,6 @@ use crossbeam_channel::Sender;
 use kube::Client;
 use kube::api::Api;
 use kube::api::ListParams;
-use kube::core::{ApiResource, GroupVersionKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

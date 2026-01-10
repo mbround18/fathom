@@ -1,10 +1,6 @@
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, CronJobDetails, CronJobSummary,
-    DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary, JobDetails,
-    JobSummary, NotificationLevel, PodDetails, PodMetricsHistory, PodMetricsSummary, PodSummary,
-    ReplicaSetDetails, ReplicaSetSummary, ReplicationControllerDetails,
-    ReplicationControllerSummary, ResourceListEvent, ScopeKind, SectionKey, StatefulSetDetails,
-    StatefulSetSummary, SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, NotificationLevel, PodSummary, ScopeKind,
+    SectionKey, SystemEvent, section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
