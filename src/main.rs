@@ -10,8 +10,8 @@ mod config;
 mod mcp_server;
 mod protocol;
 pub mod sections;
-use protocol::{BackendCmd, BackendEventEnvelope};
 use crate::config::Args;
+use protocol::{BackendCmd, BackendEventEnvelope};
 
 /// Fathom - Kubernetes Dashboard with MCP integration
 fn main() -> eframe::Result<()> {

@@ -9,7 +9,6 @@ use kube::{
     api::{Api, ListParams},
 };
 
-
 use super::state::client_or_err;
 use super::{events, state::BackendState};
 

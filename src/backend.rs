@@ -41,11 +41,7 @@ mod workload_common;
 use state::BackendState;
 use state::client_or_err;
 
-pub fn init(
-    receiver: Receiver<BackendCmd>,
-    sender: Sender<BackendEventEnvelope>,
-    args: Args,
-) {
+pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>, args: Args) {
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
 
     let mut state = BackendState::new();

@@ -1,8 +1,7 @@
 use crate::protocol::{
     BackendEvent, BackendEventEnvelope, ContainerMetrics, ContainerMetricsAggregate,
     ContainerMetricsHistory, ContainerResourceSpec, Correlation, MetricsSample, PodMetricsHistory,
-    PodMetricsSummary, ResourceReadEvent, Route, WorkloadMetricsAggregate,
-    section_keys,
+    PodMetricsSummary, ResourceReadEvent, Route, WorkloadMetricsAggregate, section_keys,
 };
 use crossbeam_channel::Sender;
 use kube::api::ListParams;
