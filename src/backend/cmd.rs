@@ -16,6 +16,17 @@ pub async fn dispatch_cmd(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<bool> {
     match cmd {
+        BackendCmd::Shutdown => {
+            tracing::info!("Shutdown command received, cleaning up all background tasks...");
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                "Shutting down backend...".to_owned(),
+            );
+            super::state::cleanup_all_tasks(state);
+            tracing::info!("All background tasks cleaned up, exiting backend");
+            return Ok(true); // Signal to exit loop
+        }
         BackendCmd::StartPortForward {
             namespace,
             pod,
@@ -141,6 +152,9 @@ pub async fn dispatch_cmd(
             );
             Ok(false)
         }
-        other => super::handle_cmd(other, state, sender).await,
+        other => {
+            super::handle_cmd(other, state, sender).await?;
+            Ok(false)
+        }
     }
 }

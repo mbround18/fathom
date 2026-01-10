@@ -132,7 +132,7 @@ impl ModalView {
                 let mut cancel = false;
                 let mut apply = false;
 
-                let _keep = ModalState::ScaleWorkload {
+                let keep = ModalState::ScaleWorkload {
                     kind: kind.clone(),
                     namespace: namespace.clone(),
                     name: name.clone(),

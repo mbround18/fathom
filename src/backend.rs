@@ -172,19 +172,8 @@ async fn handle_cmd(
     cmd: BackendCmd,
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     match cmd {
-        BackendCmd::Shutdown => {
-            tracing::info!("Shutdown command received, cleaning up all background tasks...");
-            events::notify_info(
-                state.seq.as_ref(),
-                sender,
-                "Shutting down backend...".to_owned(),
-            );
-            state::cleanup_all_tasks(state);
-            tracing::info!("All background tasks cleaned up, exiting backend");
-            return Ok(true); // Signal to exit loop
-        }
         BackendCmd::Initialize => {
             // Contexts can be loaded even before we connect.
             let _ = kube::load_and_send_contexts(
@@ -253,12 +242,6 @@ async fn handle_cmd(
             sync::refresh_namespaces(state, sender).await?;
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
-            daemonsets::refresh_daemonsets(state, sender).await?;
-            statefulsets::refresh_statefulsets(state, sender).await?;
-            replicasets::refresh_replicasets(state, sender).await?;
-            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
-            jobs::refresh_jobs(state, sender).await?;
-            cronjobs::refresh_cronjobs(state, sender).await?;
 
             sync::ensure_background_sync(state, sender).await?;
         }
@@ -334,10 +317,6 @@ async fn handle_cmd(
             sync::refresh_namespaces(state, sender).await?;
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
-            daemonsets::refresh_daemonsets(state, sender).await?;
-            statefulsets::refresh_statefulsets(state, sender).await?;
-            replicasets::refresh_replicasets(state, sender).await?;
-            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
             sync::ensure_background_sync(state, sender).await?;
 
             events::notify_info(state.seq.as_ref(), sender, "Context switched.".to_owned());
@@ -541,10 +520,6 @@ async fn handle_cmd(
             );
             pods::refresh_pods(state, sender).await?;
             deployments::refresh_deployments(state, sender).await?;
-            daemonsets::refresh_daemonsets(state, sender).await?;
-            statefulsets::refresh_statefulsets(state, sender).await?;
-            replicasets::refresh_replicasets(state, sender).await?;
-            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
         }
 
         BackendCmd::RefreshPods => {
@@ -659,153 +634,6 @@ async fn handle_cmd(
             deployments::refresh_deployments(state, sender).await?;
         }
 
-        BackendCmd::RefreshDaemonSets => {
-            daemonsets::refresh_daemonsets(state, sender).await?;
-        }
-
-        BackendCmd::SelectDaemonSet { namespace, name } => {
-            daemonsets::fetch_daemonset_details(state, sender, &namespace, &name).await?;
-        }
-
-        BackendCmd::RestartDaemonSet { namespace, name } => {
-            daemonsets::restart_daemonset(state, sender, &namespace, &name).await?;
-            daemonsets::refresh_daemonsets(state, sender).await?;
-        }
-
-        BackendCmd::DeleteDaemonSet { namespace, name } => {
-            daemonsets::delete_daemonset(state, sender, &namespace, &name).await?;
-            daemonsets::refresh_daemonsets(state, sender).await?;
-        }
-
-        BackendCmd::RefreshStatefulSets => {
-            statefulsets::refresh_statefulsets(state, sender).await?;
-        }
-
-        BackendCmd::SelectStatefulSet { namespace, name } => {
-            statefulsets::fetch_statefulset_details(state, sender, &namespace, &name).await?;
-        }
-
-        BackendCmd::ScaleStatefulSet {
-            namespace,
-            name,
-            replicas,
-        } => {
-            statefulsets::scale_statefulset(state, sender, &namespace, &name, replicas).await?;
-            statefulsets::refresh_statefulsets(state, sender).await?;
-        }
-
-        BackendCmd::RestartStatefulSet { namespace, name } => {
-            statefulsets::restart_statefulset(state, sender, &namespace, &name).await?;
-            statefulsets::refresh_statefulsets(state, sender).await?;
-        }
-
-        BackendCmd::DeleteStatefulSet { namespace, name } => {
-            statefulsets::delete_statefulset(state, sender, &namespace, &name).await?;
-            statefulsets::refresh_statefulsets(state, sender).await?;
-        }
-
-        BackendCmd::RefreshReplicaSets => {
-            replicasets::refresh_replicasets(state, sender).await?;
-        }
-
-        BackendCmd::SelectReplicaSet { namespace, name } => {
-            replicasets::fetch_replicaset_details(state, sender, &namespace, &name).await?;
-        }
-
-        BackendCmd::ScaleReplicaSet {
-            namespace,
-            name,
-            replicas,
-        } => {
-            replicasets::scale_replicaset(state, sender, &namespace, &name, replicas).await?;
-            replicasets::refresh_replicasets(state, sender).await?;
-        }
-
-        BackendCmd::RestartReplicaSet { namespace, name } => {
-            replicasets::restart_replicaset(state, sender, &namespace, &name).await?;
-            replicasets::refresh_replicasets(state, sender).await?;
-        }
-
-        BackendCmd::DeleteReplicaSet { namespace, name } => {
-            replicasets::delete_replicaset(state, sender, &namespace, &name).await?;
-            replicasets::refresh_replicasets(state, sender).await?;
-        }
-
-        BackendCmd::RefreshReplicationControllers => {
-            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
-        }
-
-        BackendCmd::SelectReplicationController { namespace, name } => {
-            replicationcontrollers::fetch_replicationcontroller_details(
-                state, sender, &namespace, &name,
-            )
-            .await?;
-        }
-
-        BackendCmd::ScaleReplicationController {
-            namespace,
-            name,
-            replicas,
-        } => {
-            replicationcontrollers::scale_replicationcontroller(
-                state, sender, &namespace, &name, replicas,
-            )
-            .await?;
-            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
-        }
-
-        BackendCmd::RestartReplicationController { namespace, name } => {
-            replicationcontrollers::restart_replicationcontroller(state, sender, &namespace, &name)
-                .await?;
-            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
-        }
-
-        BackendCmd::DeleteReplicationController { namespace, name } => {
-            replicationcontrollers::delete_replicationcontroller(state, sender, &namespace, &name)
-                .await?;
-            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
-        }
-
-        BackendCmd::RefreshJobs => {
-            jobs::refresh_jobs(state, sender).await?;
-        }
-
-        BackendCmd::SelectJob { namespace, name } => {
-            jobs::fetch_job_details(state, sender, &namespace, &name).await?;
-        }
-
-        BackendCmd::DeleteJob { namespace, name } => {
-            jobs::delete_job(state, sender, &namespace, &name).await?;
-            jobs::refresh_jobs(state, sender).await?;
-        }
-
-        BackendCmd::RefreshCronJobs => {
-            cronjobs::refresh_cronjobs(state, sender).await?;
-        }
-
-        BackendCmd::SelectCronJob { namespace, name } => {
-            cronjobs::fetch_cronjob_details(state, sender, &namespace, &name).await?;
-        }
-
-        BackendCmd::SuspendCronJob {
-            namespace,
-            name,
-            suspend,
-        } => {
-            cronjobs::suspend_cronjob(state, sender, &namespace, &name, suspend).await?;
-            cronjobs::fetch_cronjob_details(state, sender, &namespace, &name).await?;
-        }
-
-        BackendCmd::TriggerCronJob { namespace, name } => {
-            cronjobs::trigger_cronjob(state, sender, &namespace, &name).await?;
-            cronjobs::refresh_cronjobs(state, sender).await?;
-        }
-
-        BackendCmd::DeleteCronJob { namespace, name } => {
-            cronjobs::delete_cronjob(state, sender, &namespace, &name).await?;
-            cronjobs::refresh_cronjobs(state, sender).await?;
-        }
-
         BackendCmd::SimulateSlowCall => {
             events::notify_info(state.seq.as_ref(), sender, "Simulating slow call...".into());
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -871,18 +699,6 @@ async fn handle_cmd(
                 pods::refresh_pods(state, sender).await?;
             } else if section == section_keys::workloads_deployments() {
                 deployments::refresh_deployments(state, sender).await?;
-            } else if section == section_keys::workloads_daemonsets() {
-                daemonsets::refresh_daemonsets(state, sender).await?;
-            } else if section == section_keys::workloads_statefulsets() {
-                statefulsets::refresh_statefulsets(state, sender).await?;
-            } else if section == section_keys::workloads_replicasets() {
-                replicasets::refresh_replicasets(state, sender).await?;
-            } else if section == section_keys::workloads_replicationcontrollers() {
-                replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
-            } else if section == section_keys::workloads_jobs() {
-                jobs::refresh_jobs(state, sender).await?;
-            } else if section == section_keys::workloads_cronjobs() {
-                cronjobs::refresh_cronjobs(state, sender).await?;
             }
         }
 
@@ -1192,7 +1008,7 @@ async fn handle_cmd(
                     sender,
                     "MCP server already running".to_owned(),
                 );
-                return Ok(false);
+                return Ok(());
             }
 
             // Ensure state exists
@@ -1263,7 +1079,7 @@ async fn handle_cmd(
         }
     }
 
-    Ok(false)
+    Ok(())
 }
 
 /// Restore saved port forwards from previous session

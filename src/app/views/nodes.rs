@@ -127,7 +127,7 @@ impl ViewComponent for NodesView {
             return (false, Vec::new());
         };
 
-        let actions = Vec::new();
+        let mut actions = Vec::new();
 
         ui.heading("Node");
         ui.separator();

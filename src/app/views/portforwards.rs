@@ -207,7 +207,7 @@ impl ViewComponent for PortForwardsView {
 
     fn render_details(
         &mut self,
-        _ui: &mut egui::Ui,
+        ui: &mut egui::Ui,
         _ctx: &egui::Context,
     ) -> (bool, Vec<ViewAction>) {
         // No details panel for port forwards
