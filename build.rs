@@ -8,10 +8,11 @@ fn main() {
         let icon_path = Path::new("assets/icon.png");
         let ico_path = Path::new("assets/icon.ico");
 
-        if icon_path.exists() && !ico_path.exists() {
-            if let Err(e) = convert_png_to_ico(icon_path, ico_path) {
-                println!("cargo:warning=Failed to convert PNG to ICO: {}", e);
-            }
+        if icon_path.exists()
+            && !ico_path.exists()
+            && let Err(e) = convert_png_to_ico(icon_path, ico_path)
+        {
+            println!("cargo:warning=Failed to convert PNG to ICO: {}", e);
         }
 
         // Embed the icon resource

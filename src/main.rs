@@ -1,16 +1,27 @@
 use app::FathomApp;
+use clap::Parser;
 use crossbeam_channel::unbounded;
 use std::thread;
 use tracing_subscriber::EnvFilter;
 
 mod app;
 mod backend;
+mod config;
+mod mcp_server;
 mod protocol;
 pub mod sections;
 use protocol::{BackendCmd, BackendEventEnvelope};
 
+use crate::config::Args;
+
+/// Fathom - Kubernetes Dashboard with MCP integration
 fn main() -> eframe::Result<()> {
+    // Initialize rustls crypto provider (required for rustls 0.23+)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     init_tracing();
+
+    let args = Args::parse();
 
     // Channels (UI thread never awaits; backend owns tokio runtime)
     let (gui_tx, gui_rx) = unbounded::<BackendEventEnvelope>();
@@ -31,10 +42,20 @@ fn main() -> eframe::Result<()> {
     })
     .expect("Error setting Ctrl+C handler");
 
+    // Clone args before moving into thread
+    let args_for_backend = args.clone();
     let backend_thread = thread::spawn(move || {
-        backend::init(backend_rx, gui_tx);
+        backend::init(backend_rx, gui_tx, args_for_backend);
     });
 
+    // Only-MCP mode: skip GUI, block on backend thread
+    if args.only_mcp {
+        tracing::info!("Running in headless MCP-only mode");
+        let _ = backend_thread.join();
+        return Ok(());
+    }
+
+    // Normal mode: run GUI + backend
     let icon_data = load_icon();
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_icon(icon_data),
@@ -46,8 +67,28 @@ fn main() -> eframe::Result<()> {
         Box::new(|_cc| Ok(Box::new(FathomApp::new(gui_rx, backend_tx)))),
     );
 
-    // After GUI closes, join backend thread for clean shutdown
-    let _ = backend_thread.join();
+    // After GUI closes, wait for backend thread with a timeout
+    // The FathomApp::on_exit() should have already sent Shutdown command
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(3);
+
+    loop {
+        if backend_thread.is_finished() {
+            tracing::info!("Backend thread exited cleanly");
+            let _ = backend_thread.join();
+            break;
+        }
+
+        if start.elapsed() > timeout {
+            tracing::warn!(
+                "Backend thread did not exit after {:.1}s, force exiting",
+                start.elapsed().as_secs_f64()
+            );
+            std::process::exit(1);
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 
     result
 }

@@ -1,35 +1,46 @@
 use super::*;
 
 impl FathomApp {
+    /// Render status panel using view component
+    ///
+    /// Uses StatusView to manage and display the status log.
     pub(super) fn render_bottom_status(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("status")
             .resizable(true)
             .default_height(140.0)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Status Log");
-                    if ui.button("Clear").clicked() {
-                        self.status_log.clear();
-                    }
-                    if ui.button("Copy").clicked() {
-                        let text = self.status_log.join("\n");
-                        ctx.output_mut(|o| {
-                            o.commands.push(egui::output::OutputCommand::CopyText(text));
-                        });
-                    }
-                    let toggle = ui.selectable_label(self.status_auto_scroll, "Auto-scroll");
-                    if toggle.clicked() {
-                        self.status_auto_scroll = !self.status_auto_scroll;
-                    }
-                });
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .stick_to_bottom(self.status_auto_scroll)
-                    .show(ui, |ui| {
-                        for line in &self.status_log {
-                            ui.monospace(line);
+                // Get the status view
+                let status_view = self.get_or_create_view(&section_keys::status());
+
+                // Render status and collect actions
+                let actions = status_view.render(ui, ctx);
+
+                // Process any actions (status view typically emits none)
+                for action in actions {
+                    match action {
+                        ViewAction::SendCommand(cmd) => {
+                            self.send(cmd);
                         }
-                    });
+                        ViewAction::NotifyStatus(msg) => {
+                            self.push_status(msg);
+                        }
+                        ViewAction::Navigate(_) => {
+                            // Status view shouldn't emit navigation
+                        }
+                        ViewAction::OpenModal(_) => {
+                            // Status view shouldn't emit modals
+                        }
+                        ViewAction::OpenScaleModal(_, _, _, _) => {
+                            // Status view shouldn't emit scale modals
+                        }
+                        ViewAction::OpenUrl(url) => {
+                            if let Err(e) = open::that(&url) {
+                                tracing::warn!("Failed to open URL {}: {}", url, e);
+                                self.push_status(format!("Failed to open URL: {}", e));
+                            }
+                        }
+                    }
+                }
             });
     }
 }

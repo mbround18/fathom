@@ -229,6 +229,28 @@ pub(super) async fn fetch_deployment_details(
         })
         .unwrap_or_default();
 
+    let ports: Vec<crate::protocol::ContainerPort> = deploy
+        .spec
+        .as_ref()
+        .and_then(|s| s.template.spec.as_ref())
+        .map(|ps| {
+            ps.containers
+                .iter()
+                .flat_map(|c| {
+                    c.ports
+                        .iter()
+                        .flatten()
+                        .map(|p| crate::protocol::ContainerPort {
+                            container: c.name.clone(),
+                            name: p.name.clone(),
+                            port: p.container_port as u16,
+                            protocol: p.protocol.clone().unwrap_or_else(|| "TCP".to_owned()),
+                        })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     // Best-effort association via `.spec.selector.matchLabels`.
     // This won’t cover matchExpressions, but works for the common case.
     let pod_selector = deploy
@@ -262,6 +284,7 @@ pub(super) async fn fetch_deployment_details(
         labels,
         annotations,
         containers,
+        ports,
         pod_selector,
         pods,
         raw_json,

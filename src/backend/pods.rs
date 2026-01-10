@@ -163,7 +163,7 @@ pub(super) async fn fetch_pod_details(
         .map(|s| {
             s.containers
                 .iter()
-                .map(|c| format!("{} ({})", c.name, c.image.clone().unwrap_or_default()))
+                .map(|c| c.name.clone())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -188,6 +188,26 @@ pub(super) async fn fetch_pod_details(
 
     let resource_specs: Vec<ContainerResourceSpec> = extract_resource_specs(&pod);
 
+    // Best-effort collect PVC claim names from pod.spec.volumes (volumes may be optional)
+    let persistent_volume_claims: Vec<String> = pod
+        .spec
+        .as_ref()
+        .map(|s| {
+            s.volumes
+                .as_ref()
+                .map(|vols| {
+                    vols.iter()
+                        .filter_map(|v| {
+                            v.persistent_volume_claim
+                                .as_ref()
+                                .map(|p| p.claim_name.clone())
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+
     let raw_json = serde_json::to_string_pretty(&pod)?;
 
     let details = PodDetails {
@@ -199,6 +219,7 @@ pub(super) async fn fetch_pod_details(
         containers,
         ports,
         resource_specs,
+        persistent_volume_claims,
         owner,
         resolved_owner,
         raw_json,

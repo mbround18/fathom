@@ -1,9 +1,12 @@
 use super::{
     Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary,
-    DeploymentDetails, DeploymentSummary, JobDetails, JobSummary, PodDetails, PodMetricsHistory,
-    PodMetricsSummary, PodSummary, ReplicaSetDetails, ReplicaSetSummary,
-    ReplicationControllerDetails, ReplicationControllerSummary, Route, StatefulSetDetails,
-    StatefulSetSummary, StreamId,
+    DeploymentDetails, DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary,
+    IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
+    JobSummary, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary,
+    NodeDetails, NodeSummary, PodDetails, PodMetricsHistory, PodMetricsSummary, PodSummary,
+    PrometheusMetrics, ReplicaSetSummary, ReplicationControllerDetails,
+    ReplicationControllerSummary, Route, ServiceDetails, ServiceSummary, StatefulSetDetails,
+    StatefulSetSummary, StreamId, WorkloadMetricsAggregate,
 };
 
 #[derive(Debug, Clone)]
@@ -66,11 +69,35 @@ pub enum SystemEvent {
         success: bool,
         message: String,
     },
+
+    McpServerStatus {
+        running: bool,
+        message: String,
+    },
+
+    PortAvailability {
+        port: u16,
+        available: bool,
+    },
+
+    /// Disk usage metrics discovered via CRDs or Prometheus
+    DiskUsageUpdated(Vec<DiskUsage>),
+}
+
+#[derive(Debug, Clone)]
+pub struct DiskUsage {
+    pub namespace: String,
+    pub name: String,
+    pub provisioned_bytes: u64,
+    pub used_bytes: Option<u64>,
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum ResourceListEvent {
     NamespacesUpdated(Vec<String>),
+    NodesUpdated(Vec<NodeSummary>),
+    NamespaceSummariesUpdated(Vec<NamespaceSummary>),
     PodsUpdated(Vec<PodSummary>),
     DeploymentsUpdated(Vec<DeploymentSummary>),
     DaemonSetsUpdated(Vec<DaemonSetSummary>),
@@ -79,21 +106,38 @@ pub enum ResourceListEvent {
     ReplicationControllersUpdated(Vec<ReplicationControllerSummary>),
     JobsUpdated(Vec<JobSummary>),
     CronJobsUpdated(Vec<CronJobSummary>),
+    EventsUpdated(EventsSummary),
     PortForwardsUpdated(Vec<crate::sections::network::PortForward>),
+    ServicesUpdated(Vec<ServiceSummary>),
+    EndpointsUpdated(Vec<EndpointSummary>),
+    IngressesUpdated(Vec<IngressSummary>),
+    IngressClassesUpdated(Vec<IngressClassSummary>),
+    NetworkPoliciesUpdated(Vec<NetworkPolicySummary>),
 }
 
 #[derive(Debug, Clone)]
 pub enum ResourceReadEvent {
+    NodeDetailsUpdated(NodeDetails),
+    NamespaceDetailsUpdated(NamespaceDetails),
     PodDetailsUpdated(PodDetails),
     PodMetricsUpdated(PodMetricsSummary),
     PodMetricsHistoryUpdated(PodMetricsHistory),
+    PrometheusMetricsUpdated(PrometheusMetrics),
     DeploymentDetailsUpdated(DeploymentDetails),
+    DeploymentMetricsUpdated(WorkloadMetricsAggregate),
     DaemonSetDetailsUpdated(DaemonSetDetails),
+    DaemonSetMetricsUpdated(WorkloadMetricsAggregate),
     StatefulSetDetailsUpdated(StatefulSetDetails),
-    ReplicaSetDetailsUpdated(ReplicaSetDetails),
+    StatefulSetMetricsUpdated(WorkloadMetricsAggregate),
+    ReplicaSetDetailsUpdated(super::replicasets::ReplicaSetDetails),
     ReplicationControllerDetailsUpdated(ReplicationControllerDetails),
     JobDetailsUpdated(JobDetails),
     CronJobDetailsUpdated(CronJobDetails),
+    ServiceDetailsUpdated(ServiceDetails),
+    EndpointDetailsUpdated(EndpointDetails),
+    IngressDetailsUpdated(IngressDetails),
+    IngressClassDetailsUpdated(IngressClassDetails),
+    NetworkPolicyDetailsUpdated(NetworkPolicyDetails),
 }
 
 #[derive(Debug, Clone)]

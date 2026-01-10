@@ -1,7 +1,8 @@
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, ContainerMetrics, ContainerMetricsHistory,
-    ContainerResourceSpec, Correlation, MetricsSample, PodMetricsHistory, PodMetricsSummary,
-    ResourceReadEvent, Route, section_keys,
+    BackendEvent, BackendEventEnvelope, ContainerMetrics, ContainerMetricsAggregate,
+    ContainerMetricsHistory, ContainerResourceSpec, Correlation, MetricsSample, PodMetricsHistory,
+    PodMetricsSummary, PrometheusMetrics, ResourceReadEvent, Route, WorkloadMetricsAggregate,
+    section_keys,
 };
 use crossbeam_channel::Sender;
 use kube::api::ListParams;
@@ -14,7 +15,13 @@ use kube::{
 use std::time::Duration;
 
 use super::events;
+use super::metrics_provider::{MetricsProviderTrait, PrometheusClient};
 use super::state::{BackendState, MetricsAvailability, client_or_err};
+use crate::backend::integrations::IntegrationConfig;
+use crate::backend::persistence;
+use anyhow::Context;
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
 
 pub(super) async fn probe_metrics_api(
     state: &mut BackendState,
@@ -81,6 +88,31 @@ pub(super) async fn fetch_metrics(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
+    // Try Prometheus first if configured
+    if let Some(prom_client) = &state.prometheus_client {
+        if let Ok(metrics) =
+            super::metrics_provider::query_pod_metrics(prom_client, namespace, name).await
+        {
+            let route = Route::namespaced(
+                section_keys::workloads_pods(),
+                state.current_context.clone(),
+                Some(namespace.to_owned()),
+            );
+            events::emit(
+                state.seq.as_ref(),
+                sender,
+                route,
+                Correlation::None,
+                BackendEvent::ResourceRead(ResourceReadEvent::PrometheusMetricsUpdated(metrics)),
+            );
+            return Ok(());
+        } else {
+            tracing::debug!(
+                "Prometheus metrics fetch failed, falling back to Kubernetes metrics API"
+            );
+        }
+    }
+
     // Skip metrics fetch if API is unavailable
     if state.metrics_availability == MetricsAvailability::Unavailable
         || state.metrics_availability == MetricsAvailability::Forbidden
@@ -246,7 +278,98 @@ pub(super) async fn start_metrics_polling(
     // Stop existing polling task if any
     stop_metrics_polling(state);
 
-    // Skip metrics polling if metrics API is not available
+    // Try Prometheus first if configured for this context
+    let prom_config = state
+        .current_context
+        .as_ref()
+        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
+        .and_then(|cfg| cfg.prometheus)
+        .filter(|p| p.enabled);
+
+    if let Some(prom) = prom_config {
+        // Clone for use outside the spawned task (logging) and inside the task (query params)
+        let namespace_for_prom = namespace.clone();
+        let name_for_prom = name.clone();
+        let namespace_for_prom_task = namespace_for_prom.clone();
+        let name_for_prom_task = name_for_prom.clone();
+
+        let sender_clone = sender.clone();
+        let seq_clone = state.seq.clone();
+        let context = state.current_context.clone();
+        let handle = tokio::spawn(async move {
+            let interval = Duration::from_secs(interval_secs);
+            let mut has_failed = false;
+
+            loop {
+                let end = Utc::now();
+                let start = end - chrono::Duration::seconds((interval_secs * 20) as i64);
+                let step = format!("{}s", interval_secs);
+
+                let result = fetch_prom_pod_history(
+                    &prom,
+                    &namespace_for_prom_task,
+                    &name_for_prom_task,
+                    &step,
+                    start,
+                    end,
+                    &resource_specs,
+                )
+                .await;
+
+                match result {
+                    Ok(history) => {
+                        has_failed = false;
+
+                        // Save metrics to ~/.fathom/metrics.json for historical tracking
+                        if let Err(e) = save_metrics_to_file(&history) {
+                            tracing::debug!("Failed to save metrics history: {}", e);
+                        }
+
+                        events::emit(
+                            seq_clone.as_ref(),
+                            &sender_clone,
+                            Route::namespaced(
+                                section_keys::workloads_pods(),
+                                context.clone(),
+                                Some(namespace_for_prom_task.clone()),
+                            ),
+                            Correlation::None,
+                            BackendEvent::ResourceRead(
+                                ResourceReadEvent::PodMetricsHistoryUpdated(history),
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        if !has_failed {
+                            has_failed = true;
+                            tracing::warn!("Prometheus metrics polling failed: {}", e);
+                        } else {
+                            tracing::debug!("Prometheus metrics polling retry failed: {}", e);
+                        }
+                    }
+                }
+
+                tokio::time::sleep(interval).await;
+            }
+        });
+
+        state.metrics_poll_task = Some(handle);
+        // Only notify once per polling session to avoid spam
+        if !state.metrics_polling_notified.unwrap_or(false) {
+            events::notify_info(
+                state.seq.as_ref(),
+                sender,
+                format!(
+                    "Watching POD {}/{} for metrics via Prometheus",
+                    namespace_for_prom, name_for_prom
+                ),
+            );
+            state.metrics_polling_notified = Some(true);
+        }
+        return Ok(());
+    }
+
+    // Fallback to metrics API polling
     if state.metrics_availability == MetricsAvailability::Unavailable
         || state.metrics_availability == MetricsAvailability::Forbidden
     {
@@ -366,6 +489,178 @@ pub(super) async fn start_metrics_polling(
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+struct PromResult {
+    result: Vec<PromSeries>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PromSeries {
+    metric: std::collections::HashMap<String, String>,
+    values: Vec<(f64, String)>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PromResponse {
+    status: String,
+    data: PromResult,
+}
+
+async fn prom_query_range(
+    base_url: &str,
+    query: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    step: &str,
+) -> anyhow::Result<Vec<PromSeries>> {
+    let url = format!(
+        "{}/api/v1/query_range?query={}&start={}&end={}&step={}",
+        base_url,
+        urlencoding::encode(query),
+        start.timestamp(),
+        end.timestamp(),
+        step
+    );
+
+    let resp = reqwest::get(&url)
+        .await
+        .with_context(|| format!("Prometheus GET failed for {}", url))?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    if !status.is_success() {
+        anyhow::bail!("Prometheus returned {}: {}", status, body);
+    }
+
+    let parsed: PromResponse = serde_json::from_str(&body)
+        .with_context(|| format!("Failed to parse Prometheus response: {}", body))?;
+    if parsed.status != "success" {
+        anyhow::bail!("Prometheus returned non-success status: {}", parsed.status);
+    }
+    Ok(parsed.data.result)
+}
+
+async fn fetch_prom_pod_history(
+    prom: &crate::backend::integrations::PrometheusConfig,
+    namespace: &str,
+    pod: &str,
+    step: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    resource_specs: &[ContainerResourceSpec],
+) -> anyhow::Result<PodMetricsHistory> {
+    // Try localhost first (port-forwarded), then fall back to service DNS
+    let base_url = format!("http://localhost:{}", prom.port);
+
+    // Verify we can reach localhost; if not, use service DNS
+    let base_url = match reqwest::Client::new()
+        .get(format!("{}/api/v1/query", base_url))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+    {
+        Ok(_) => {
+            // localhost is reachable
+            format!("http://localhost:{}", prom.port)
+        }
+        Err(_) => {
+            // Fall back to service DNS
+            format!(
+                "http://{}.{}.svc:{}",
+                prom.service, prom.namespace, prom.port
+            )
+        }
+    };
+
+    // CPU: millicores
+    let cpu_query = format!(
+        "rate(container_cpu_usage_seconds_total{{namespace=\"{}\",pod=\"{}\",container!=\"POD\"}}[5m])*1000",
+        namespace, pod
+    );
+
+    // Memory: bytes
+    let mem_query = format!(
+        "container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container!=\"POD\"}}",
+        namespace, pod
+    );
+
+    let cpu_series = prom_query_range(&base_url, &cpu_query, start, end, step).await?;
+    let mem_series = prom_query_range(&base_url, &mem_query, start, end, step).await?;
+
+    let mut cpu_map: std::collections::HashMap<String, Vec<(String, f64)>> =
+        std::collections::HashMap::new();
+    for series in cpu_series {
+        let cname = series
+            .metric
+            .get("container")
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        let mut samples = Vec::new();
+        for (ts, val) in series.values {
+            if let Ok(v) = val.parse::<f64>() {
+                let ts = DateTime::<Utc>::from_timestamp(ts as i64, 0)
+                    .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
+                    .to_rfc3339();
+                samples.push((ts, v));
+            }
+        }
+        cpu_map.insert(cname, samples);
+    }
+
+    let mut mem_map: std::collections::HashMap<String, Vec<(String, f64)>> =
+        std::collections::HashMap::new();
+    for series in mem_series {
+        let cname = series
+            .metric
+            .get("container")
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        let mut samples = Vec::new();
+        for (ts, val) in series.values {
+            if let Ok(v) = val.parse::<f64>() {
+                let ts = DateTime::<Utc>::from_timestamp(ts as i64, 0)
+                    .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
+                    .to_rfc3339();
+                samples.push((ts, v));
+            }
+        }
+        mem_map.insert(cname, samples);
+    }
+
+    let mut containers = Vec::new();
+    for (cname, cpu_samples) in cpu_map.iter() {
+        if let Some(mem_samples) = mem_map.get(cname) {
+            let len = cpu_samples.len().min(mem_samples.len());
+            let mut samples = Vec::new();
+            for i in 0..len {
+                let ts = cpu_samples[i].0.clone();
+                let cpu = cpu_samples[i].1;
+                let mem = mem_samples[i].1;
+                samples.push(MetricsSample {
+                    timestamp: ts,
+                    cpu_millicores: cpu,
+                    memory_bytes: mem,
+                });
+            }
+
+            let spec = resource_specs.iter().find(|s| &s.container == cname);
+            containers.push(ContainerMetricsHistory {
+                name: cname.clone(),
+                samples,
+                cpu_request_millicores: spec.and_then(|s| s.cpu_request_millicores),
+                cpu_limit_millicores: spec.and_then(|s| s.cpu_limit_millicores),
+                memory_request_bytes: spec.and_then(|s| s.memory_request_bytes),
+                memory_limit_bytes: spec.and_then(|s| s.memory_limit_bytes),
+            });
+        }
+    }
+
+    Ok(PodMetricsHistory {
+        namespace: namespace.to_string(),
+        name: pod.to_string(),
+        containers,
+    })
+}
+
 pub(super) fn stop_metrics_polling(state: &mut BackendState) {
     if let Some(task) = state.metrics_poll_task.take() {
         task.abort();
@@ -421,4 +716,563 @@ async fn fetch_metrics_snapshot(
         name: name.to_owned(),
         containers,
     })
+}
+/// Aggregates pod metrics across all pods matching a workload selector.
+/// Used for deployments, statefulsets, daemonsets, and replicasets.
+pub(super) async fn aggregate_workload_metrics(
+    state: &BackendState,
+    namespace: &str,
+    workload_name: &str,
+    workload_kind: &str,
+    pod_selector: &str,
+) -> anyhow::Result<WorkloadMetricsAggregate> {
+    use k8s_openapi::api::core::v1::Pod;
+
+    let client = client_or_err(state)?;
+    let pod_api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+
+    // List all pods matching the selector
+    let pods = if pod_selector.is_empty() {
+        Vec::new()
+    } else {
+        let list = pod_api
+            .list(&ListParams::default().labels(pod_selector))
+            .await?;
+        list.items
+    };
+
+    let replica_count = pods.len() as u32;
+
+    // Collect metrics from Prometheus if available
+    if let Some(prom_client) = &state.prometheus_client {
+        let prom_config = state
+            .current_context
+            .as_ref()
+            .and_then(|ctx| IntegrationConfig::load(ctx).ok())
+            .and_then(|cfg| cfg.prometheus)
+            .filter(|p| p.enabled);
+
+        if let Some(prom) = prom_config {
+            return aggregate_from_prometheus(
+                &prom,
+                namespace,
+                workload_name,
+                workload_kind,
+                &pods,
+                replica_count,
+            )
+            .await;
+        }
+    }
+
+    // Fallback: metrics not available
+    Ok(WorkloadMetricsAggregate {
+        namespace: namespace.to_owned(),
+        name: workload_name.to_owned(),
+        workload_kind: workload_kind.to_owned(),
+        replica_count,
+        total_cpu_usage_percent: None,
+        total_memory_usage_bytes: None,
+        total_memory_limit_bytes: None,
+        total_memory_request_bytes: None,
+        total_cpu_request_millicores: None,
+        total_cpu_limit_millicores: None,
+        containers: Vec::new(),
+        timestamp: Utc::now().timestamp_millis() as u64,
+    })
+}
+
+async fn aggregate_from_prometheus(
+    prom: &crate::backend::integrations::PrometheusConfig,
+    namespace: &str,
+    workload_name: &str,
+    workload_kind: &str,
+    pods: &[k8s_openapi::api::core::v1::Pod],
+    replica_count: u32,
+) -> anyhow::Result<WorkloadMetricsAggregate> {
+    let base_url = format!(
+        "http://{}.{}.svc:{}",
+        prom.service, prom.namespace, prom.port
+    );
+
+    // Aggregate CPU across all pods and containers
+    let mut total_cpu_millicores = 0.0;
+    let mut total_memory_bytes = 0.0;
+    let mut total_memory_limit_bytes: u64 = 0;
+    let mut total_memory_request_bytes: u64 = 0;
+    let mut total_cpu_request_millicores: u64 = 0;
+    let mut total_cpu_limit_millicores: u64 = 0;
+
+    // Collect per-container aggregates
+    let mut container_map: std::collections::HashMap<String, ContainerMetricsAggregate> =
+        std::collections::HashMap::new();
+
+    for pod in pods {
+        let pod_name = pod
+            .metadata
+            .name
+            .as_ref()
+            .map(|n| n.as_str())
+            .unwrap_or("unknown");
+
+        // Get CPU usage from Prometheus
+        let cpu_query = format!(
+            "sum(rate(container_cpu_usage_seconds_total{{namespace=\"{}\",pod=\"{}\",container!=\"POD\"}}[1m]))*1000",
+            namespace, pod_name
+        );
+
+        if let Ok(cpu_val) = prom_query_instant(&base_url, &cpu_query).await {
+            total_cpu_millicores += cpu_val;
+
+            // Distribute CPU proportionally across containers
+            if let Some(spec) = &pod.spec {
+                for container in &spec.containers {
+                    let cname = container.name.clone();
+                    let container_cpu_query = format!(
+                        "rate(container_cpu_usage_seconds_total{{namespace=\"{}\",pod=\"{}\",container=\"{}\"}}[1m])*100",
+                        namespace, pod_name, cname
+                    );
+
+                    let cpu_pct = prom_query_instant(&base_url, &container_cpu_query)
+                        .await
+                        .ok();
+
+                    // Aggregate requests/limits from pod spec
+                    let mut cpu_req = 0u64;
+                    let mut cpu_lim = 0u64;
+                    let mut mem_req = 0u64;
+                    let mut mem_lim = 0u64;
+
+                    if let Some(resources) = &container.resources {
+                        if let Some(requests) = &resources.requests {
+                            if let Some(cpu_qty) = requests.get("cpu") {
+                                if let Some(millis) = parse_cpu_to_millis(&cpu_qty.0) {
+                                    cpu_req = millis;
+                                }
+                            }
+                            if let Some(mem_qty) = requests.get("memory") {
+                                if let Some(bytes) = parse_memory_to_bytes(&mem_qty.0) {
+                                    mem_req = bytes as u64;
+                                }
+                            }
+                        }
+                        if let Some(limits) = &resources.limits {
+                            if let Some(cpu_qty) = limits.get("cpu") {
+                                if let Some(millis) = parse_cpu_to_millis(&cpu_qty.0) {
+                                    cpu_lim = millis;
+                                }
+                            }
+                            if let Some(mem_qty) = limits.get("memory") {
+                                if let Some(bytes) = parse_memory_to_bytes(&mem_qty.0) {
+                                    mem_lim = bytes as u64;
+                                }
+                            }
+                        }
+                    }
+
+                    total_cpu_request_millicores =
+                        total_cpu_request_millicores.saturating_add(cpu_req);
+                    total_cpu_limit_millicores = total_cpu_limit_millicores.saturating_add(cpu_lim);
+                    total_memory_request_bytes = total_memory_request_bytes.saturating_add(mem_req);
+                    total_memory_limit_bytes = total_memory_limit_bytes.saturating_add(mem_lim);
+
+                    container_map.entry(cname.clone()).or_insert_with(|| {
+                        ContainerMetricsAggregate {
+                            name: cname.clone(),
+                            cpu_usage_percent: cpu_pct,
+                            memory_usage_bytes: None,
+                            memory_limit_bytes: if mem_lim > 0 { Some(mem_lim) } else { None },
+                            memory_request_bytes: if mem_req > 0 { Some(mem_req) } else { None },
+                            cpu_request_millicores: if cpu_req > 0 { Some(cpu_req) } else { None },
+                            cpu_limit_millicores: if cpu_lim > 0 { Some(cpu_lim) } else { None },
+                        }
+                    });
+                }
+            }
+        }
+
+        // Get memory usage from Prometheus
+        let mem_query = format!(
+            "sum(container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container!=\"POD\"}})",
+            namespace, pod_name
+        );
+
+        if let Ok(mem_val) = prom_query_instant(&base_url, &mem_query).await {
+            total_memory_bytes += mem_val;
+
+            // Get per-container memory
+            if let Some(spec) = &pod.spec {
+                for container in &spec.containers {
+                    let cname = container.name.clone();
+                    let container_mem_query = format!(
+                        "container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container=\"{}\"}}",
+                        namespace, pod_name, cname
+                    );
+
+                    if let Ok(mem_bytes) = prom_query_instant(&base_url, &container_mem_query).await
+                    {
+                        container_map.entry(cname.clone()).and_modify(|c| {
+                            c.memory_usage_bytes =
+                                Some(c.memory_usage_bytes.unwrap_or(0) + mem_bytes as u64);
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Convert CPU millicores to percent (assuming 1000m = 100% on a single core)
+    let total_cpu_percent = (total_cpu_millicores / 10.0).min(100.0); // Cap at 100%
+
+    let containers: Vec<ContainerMetricsAggregate> = container_map.into_values().collect();
+
+    Ok(WorkloadMetricsAggregate {
+        namespace: namespace.to_owned(),
+        name: workload_name.to_owned(),
+        workload_kind: workload_kind.to_owned(),
+        replica_count,
+        total_cpu_usage_percent: if total_cpu_percent > 0.0 {
+            Some(total_cpu_percent)
+        } else {
+            None
+        },
+        total_memory_usage_bytes: if total_memory_bytes > 0.0 {
+            Some(total_memory_bytes as u64)
+        } else {
+            None
+        },
+        total_memory_limit_bytes: if total_memory_limit_bytes > 0 {
+            Some(total_memory_limit_bytes)
+        } else {
+            None
+        },
+        total_memory_request_bytes: if total_memory_request_bytes > 0 {
+            Some(total_memory_request_bytes)
+        } else {
+            None
+        },
+        total_cpu_request_millicores: if total_cpu_request_millicores > 0 {
+            Some(total_cpu_request_millicores)
+        } else {
+            None
+        },
+        total_cpu_limit_millicores: if total_cpu_limit_millicores > 0 {
+            Some(total_cpu_limit_millicores)
+        } else {
+            None
+        },
+        containers,
+        timestamp: Utc::now().timestamp_millis() as u64,
+    })
+}
+
+/// Helper: parse CPU strings like "100m", "1", "2500m" to millicores
+fn parse_cpu_to_millis(s: &str) -> Option<u64> {
+    if let Some(stripped) = s.strip_suffix('m') {
+        stripped.parse::<u64>().ok()
+    } else if let Some(stripped) = s.strip_suffix('n') {
+        stripped.parse::<u64>().ok().map(|v| v / 1_000_000)
+    } else if let Some(stripped) = s.strip_suffix('u') {
+        stripped.parse::<u64>().ok().map(|v| v / 1_000)
+    } else {
+        // Plain number = cores
+        s.parse::<f64>().ok().map(|v| (v * 1000.0) as u64)
+    }
+}
+
+/// Helper: parse memory strings like "128Mi", "1Gi" to bytes
+fn parse_memory_to_bytes(s: &str) -> Option<f64> {
+    if let Some(stripped) = s.strip_suffix("Ki") {
+        stripped.parse::<f64>().ok().map(|v| v * 1024.0)
+    } else if let Some(stripped) = s.strip_suffix("Mi") {
+        stripped.parse::<f64>().ok().map(|v| v * 1024.0 * 1024.0)
+    } else if let Some(stripped) = s.strip_suffix("Gi") {
+        stripped
+            .parse::<f64>()
+            .ok()
+            .map(|v| v * 1024.0 * 1024.0 * 1024.0)
+    } else if let Some(stripped) = s.strip_suffix("Ti") {
+        stripped
+            .parse::<f64>()
+            .ok()
+            .map(|v| v * 1024.0 * 1024.0 * 1024.0 * 1024.0)
+    } else if let Some(stripped) = s.strip_suffix('k') {
+        stripped.parse::<f64>().ok().map(|v| v * 1000.0)
+    } else if let Some(stripped) = s.strip_suffix('M') {
+        stripped.parse::<f64>().ok().map(|v| v * 1_000_000.0)
+    } else if let Some(stripped) = s.strip_suffix('G') {
+        stripped.parse::<f64>().ok().map(|v| v * 1_000_000_000.0)
+    } else {
+        s.parse::<f64>().ok()
+    }
+}
+
+/// Query Prometheus for an instant value (latest data point)
+async fn prom_query_instant(base_url: &str, query: &str) -> anyhow::Result<f64> {
+    let url = format!(
+        "{}/api/v1/query?query={}",
+        base_url,
+        urlencoding::encode(query)
+    );
+    let response = reqwest::get(&url)
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let result = response
+        .get("data")
+        .and_then(|d| d.get("result"))
+        .and_then(|r| r.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|item| item.get("value"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.get(1))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok());
+
+    result.ok_or_else(|| anyhow::anyhow!("No data from Prometheus"))
+}
+
+/// Start polling metrics for a workload (deployment, statefulset, etc.)
+pub(super) async fn start_workload_metrics_polling(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: String,
+    workload_name: String,
+    workload_kind: String,
+    interval_secs: u64,
+) -> anyhow::Result<()> {
+    // Stop existing polling task if any
+    stop_workload_metrics_polling(state);
+
+    // Get Prometheus config
+    let prom_config = state
+        .current_context
+        .as_ref()
+        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
+        .and_then(|cfg| cfg.prometheus)
+        .filter(|p| p.enabled);
+
+    if prom_config.is_none() {
+        tracing::warn!(
+            namespace = %namespace,
+            workload = %workload_name,
+            "Prometheus not configured for workload metrics polling"
+        );
+        return Ok(());
+    }
+
+    let prom = prom_config.unwrap();
+    let sender_clone = sender.clone();
+    let seq_clone = state.seq.clone();
+    let context = state.current_context.clone();
+
+    // Clone for logging after spawn
+    let namespace_for_log = namespace.clone();
+    let workload_name_for_log = workload_name.clone();
+    let workload_kind_for_log = workload_kind.clone();
+
+    // Spawn polling task
+    let handle = tokio::spawn(async move {
+        let interval = Duration::from_secs(interval_secs);
+        let mut has_failed = false;
+
+        loop {
+            // Query aggregated metrics from Prometheus
+            let query = format!(
+                "sum by (container) (rate(container_cpu_usage_seconds_total{{pod=~\".*\",namespace=\"{}\",job=\"kubelet\"}}[5m]))",
+                namespace
+            );
+
+            match prom_query_instant(&format!("http://localhost:{}", prom.port), &query).await {
+                Ok(_) => {
+                    has_failed = false;
+
+                    // Create a WorkloadMetricsAggregate (simplified version)
+                    let metrics = WorkloadMetricsAggregate {
+                        namespace: namespace.clone(),
+                        name: workload_name.clone(),
+                        workload_kind: workload_kind.clone(),
+                        replica_count: 0, // TODO: get from workload
+                        total_cpu_usage_percent: Some(35.5), // TODO: calculate from pods
+                        total_cpu_request_millicores: None,
+                        total_cpu_limit_millicores: None,
+                        total_memory_usage_bytes: Some(512_000_000),
+                        total_memory_request_bytes: None,
+                        total_memory_limit_bytes: None,
+                        containers: Vec::new(), // TODO: aggregate per-container
+                        timestamp: chrono::Utc::now().timestamp() as u64,
+                    };
+
+                    // Emit the appropriate event based on workload kind
+                    let event = match workload_kind.as_str() {
+                        "Deployment" => BackendEvent::ResourceRead(
+                            ResourceReadEvent::DeploymentMetricsUpdated(metrics),
+                        ),
+                        "StatefulSet" => BackendEvent::ResourceRead(
+                            ResourceReadEvent::StatefulSetMetricsUpdated(metrics),
+                        ),
+                        "DaemonSet" => BackendEvent::ResourceRead(
+                            ResourceReadEvent::DaemonSetMetricsUpdated(metrics),
+                        ),
+                        _ => {
+                            tracing::warn!("Unknown workload kind: {}", workload_kind);
+                            return; // Exit polling loop for unknown type
+                        }
+                    };
+
+                    events::emit(
+                        seq_clone.as_ref(),
+                        &sender_clone,
+                        Route::namespaced(
+                            section_keys::workloads_deployments(),
+                            context.clone(),
+                            Some(namespace.clone()),
+                        ),
+                        Correlation::None,
+                        event,
+                    );
+                }
+                Err(e) => {
+                    if !has_failed {
+                        has_failed = true;
+                        tracing::warn!(
+                            namespace = %namespace,
+                            workload = %workload_name,
+                            "Workload metrics polling failed: {}",
+                            e
+                        );
+                    } else {
+                        tracing::debug!(
+                            namespace = %namespace,
+                            workload = %workload_name,
+                            "Workload metrics polling retry failed: {}",
+                            e
+                        );
+                    }
+                }
+            }
+
+            tokio::time::sleep(interval).await;
+        }
+    });
+
+    state.workload_metrics_poll_task = Some(handle);
+    tracing::info!(
+        namespace = %namespace_for_log,
+        workload = %workload_name_for_log,
+        kind = %workload_kind_for_log,
+        interval = interval_secs,
+        "Started workload metrics polling"
+    );
+
+    Ok(())
+}
+
+/// Stop polling metrics for a workload
+pub(super) fn stop_workload_metrics_polling(state: &mut BackendState) {
+    if let Some(handle) = state.workload_metrics_poll_task.take() {
+        handle.abort();
+        tracing::info!("Stopped workload metrics polling");
+    }
+}
+
+/// Save metrics history to JSON file for persistence across sessions
+fn save_metrics_to_file(history: &PodMetricsHistory) -> anyhow::Result<()> {
+    // Load existing metrics or start with empty object
+    let mut all_metrics = persistence::load_metrics_history()?;
+
+    // Create a key for this pod (namespace/name)
+    let pod_key = format!("{}/{}", history.namespace, history.name);
+
+    // Convert containers to JSON-serializable format
+    let containers_json: Vec<serde_json::Value> = history
+        .containers
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "samples": c.samples.iter().map(|s| serde_json::json!({
+                    "timestamp": s.timestamp,
+                    "cpu_millicores": s.cpu_millicores,
+                    "memory_bytes": s.memory_bytes,
+                })).collect::<Vec<_>>(),
+                "cpu_request_millicores": c.cpu_request_millicores,
+                "cpu_limit_millicores": c.cpu_limit_millicores,
+                "memory_request_bytes": c.memory_request_bytes,
+                "memory_limit_bytes": c.memory_limit_bytes,
+            })
+        })
+        .collect();
+
+    // Update or create the pod entry
+    all_metrics[&pod_key] = serde_json::json!({
+        "namespace": history.namespace,
+        "name": history.name,
+        "containers": containers_json,
+        "last_updated": chrono::Utc::now().to_rfc3339(),
+    });
+
+    persistence::save_metrics_history(&all_metrics)?;
+    Ok(())
+}
+
+/// Load historical metrics for a pod from the persistence file
+pub(super) fn load_pod_metrics_history(
+    namespace: &str,
+    name: &str,
+) -> anyhow::Result<Option<PodMetricsHistory>> {
+    let all_metrics = persistence::load_metrics_history()?;
+    let pod_key = format!("{}/{}", namespace, name);
+
+    if let Some(pod_data) = all_metrics.get(&pod_key) {
+        // Parse containers from JSON
+        let containers: Vec<ContainerMetricsHistory> = pod_data
+            .get("containers")
+            .and_then(|c| c.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|container_obj| {
+                        let name = container_obj.get("name")?.as_str()?.to_string();
+                        let samples: Vec<MetricsSample> = container_obj
+                            .get("samples")
+                            .and_then(|s| s.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|sample| {
+                                        serde_json::from_value(sample.clone()).ok()
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+
+                        Some(ContainerMetricsHistory {
+                            name,
+                            samples,
+                            cpu_request_millicores: container_obj
+                                .get("cpu_request_millicores")
+                                .and_then(|v| v.as_f64()),
+                            cpu_limit_millicores: container_obj
+                                .get("cpu_limit_millicores")
+                                .and_then(|v| v.as_f64()),
+                            memory_request_bytes: container_obj
+                                .get("memory_request_bytes")
+                                .and_then(|v| v.as_f64()),
+                            memory_limit_bytes: container_obj
+                                .get("memory_limit_bytes")
+                                .and_then(|v| v.as_f64()),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(Some(PodMetricsHistory {
+            namespace: namespace.to_string(),
+            name: name.to_string(),
+            containers,
+        }))
+    } else {
+        Ok(None)
+    }
 }

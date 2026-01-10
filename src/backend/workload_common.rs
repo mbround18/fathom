@@ -35,6 +35,30 @@ pub(super) fn containers_from_pod_template(
         .unwrap_or_default()
 }
 
+pub(super) fn ports_from_pod_template(
+    template: Option<&k8s_openapi::api::core::v1::PodTemplateSpec>,
+) -> Vec<crate::protocol::ContainerPort> {
+    template
+        .and_then(|t| t.spec.as_ref())
+        .map(|ps| {
+            ps.containers
+                .iter()
+                .flat_map(|c| {
+                    c.ports
+                        .iter()
+                        .flatten()
+                        .map(|p| crate::protocol::ContainerPort {
+                            container: c.name.clone(),
+                            name: p.name.clone(),
+                            port: p.container_port as u16,
+                            protocol: p.protocol.clone().unwrap_or_else(|| "TCP".to_owned()),
+                        })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub(super) fn selector_string_from_match_labels(
     match_labels: Option<&BTreeMap<String, String>>,
 ) -> String {

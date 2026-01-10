@@ -167,6 +167,8 @@ pub(super) async fn fetch_daemonset_details(
     let containers =
         workload_common::containers_from_pod_template(ds.spec.as_ref().map(|s| &s.template));
 
+    let ports = workload_common::ports_from_pod_template(ds.spec.as_ref().map(|s| &s.template));
+
     let pod_selector = ds
         .spec
         .as_ref()
@@ -184,6 +186,7 @@ pub(super) async fn fetch_daemonset_details(
         labels,
         annotations,
         containers,
+        ports,
         pod_selector,
         pods,
         raw_json,

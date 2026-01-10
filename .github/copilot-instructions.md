@@ -109,6 +109,13 @@
 - Auto-fetch metrics on selection/tab open to ensure freshness.
 - Use clear messaging: "Fetching metrics…" (pending), "(metrics not loaded)" (unavailable), or actual values.
 
+### Form Layout
+
+- Keep forms visually symmetric: align labels and inputs on a consistent grid.
+- Use one pattern per form: either inline (`Label: <input>`) with padded spacing so inputs start at the same x-position, or stacked (`Label` on its own line with the input directly beneath). Apply the chosen pattern uniformly.
+- Keep label widths consistent within a form; add padding/margins so fields line up.
+- Avoid mixing inline and stacked patterns in the same form and avoid ragged alignment.
+
 ### Modal Actions
 
 - Destructive actions (delete, restart) require confirmation modal.

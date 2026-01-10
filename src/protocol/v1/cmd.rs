@@ -13,6 +13,11 @@ pub enum BackendCmdV1 {
     SetNamespaceFilter {
         namespaces: Vec<String>,
     },
+    RefreshNodes,
+    SelectNode {
+        name: String,
+    },
+    RefreshEvents,
 
     // Workloads / Pods section
     RefreshPods,
@@ -160,6 +165,9 @@ pub enum BackendCmdV1 {
         name: String,
     },
     // Network / Port Forwards section
+    CheckPortAvailability {
+        port: u16,
+    },
     StartPortForward {
         namespace: String,
         pod: String,
@@ -170,7 +178,62 @@ pub enum BackendCmdV1 {
     StopPortForward {
         tunnel_id: String,
     },
+    DeletePortForward {
+        tunnel_id: String,
+    },
+    UpdatePortForward {
+        tunnel_id: String,
+        local_port: u16,
+        remote_port: u16,
+        auto_start: bool,
+    },
     RefreshPortForwards,
+
+    // Network / Services section
+    RefreshServices,
+    SelectService {
+        namespace: String,
+        name: String,
+    },
+    DeleteService {
+        namespace: String,
+        name: String,
+    },
+
+    // Network / Endpoints section
+    RefreshEndpoints,
+    SelectEndpoint {
+        namespace: String,
+        name: String,
+    },
+
+    // Network / Ingresses section
+    RefreshIngresses,
+    SelectIngress {
+        namespace: String,
+        name: String,
+    },
+    DeleteIngress {
+        namespace: String,
+        name: String,
+    },
+
+    // Network / Ingress Classes section
+    RefreshIngressClasses,
+    SelectIngressClass {
+        name: String,
+    },
+
+    // Network / Network Policies section
+    RefreshNetworkPolicies,
+    SelectNetworkPolicy {
+        namespace: String,
+        name: String,
+    },
+    DeleteNetworkPolicy {
+        namespace: String,
+        name: String,
+    },
 
     // Integrations / Metrics section
     RefreshIntegrations,
@@ -180,6 +243,13 @@ pub enum BackendCmdV1 {
         interval_secs: u64,
     },
     StopMetricsPolling,
+    StartWorkloadMetricsPolling {
+        namespace: String,
+        workload_name: String,
+        workload_kind: String,
+        interval_secs: u64,
+    },
+    StopWorkloadMetricsPolling,
     ConfigurePrometheus {
         namespace: String,
         service: String,
@@ -198,9 +268,16 @@ pub enum BackendCmdV1 {
         base_url: String,
         api_key: String,
     },
+    // MCP Server integration
+    StartMcpServer,
+    StopMcpServer,
+    OpenMcpConfigDir,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
-
+    // Bulk operations
+    BulkDelete {
+        items: Vec<(String, String)>, // (namespace, name)
+    },
     // Future hook: allow UI to hint active section for prefetching (optional).
     SetActiveSection {
         section: SectionKey,
