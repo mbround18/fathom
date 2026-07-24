@@ -476,6 +476,24 @@ impl ModalView {
                         name,
                     }));
                 }
+                ConfirmAction::DeleteService(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteService {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteIngress(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteIngress {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteNetworkPolicy(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteNetworkPolicy {
+                        namespace,
+                        name,
+                    }));
+                }
                 ConfirmAction::DeleteCronJob(namespace, name) => {
                     actions.push(ViewAction::SendCommand(BackendCmd::DeleteCronJob {
                         namespace,

@@ -6,11 +6,12 @@ use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use std::collections::HashMap;
 use views::{
-    BoxedView, ContextView, CronJobsView, DaemonSetView, DeploymentView, EventsView,
-    IntegrationsView, JobsView, McpIntegrationView, ModalState, ModalView, NamespacesView,
-    NavigationView, NodesView, OverviewView, PlaceholderView, PodsView, PortForwardsView,
-    ReplicaSetView, ReplicationControllerView, StatefulSetView, StatusView, ViewAction,
-    ViewComponent,
+    BoxedView, ContextView, CronJobsView, DaemonSetView, DeploymentView, EndpointsView,
+    EventsView, IngressClassesView, IngressesView, IntegrationsView, JobsView,
+    McpIntegrationView, ModalState, ModalView, NamespacesView, NavigationView,
+    NetworkPoliciesView, NodesView, OverviewView, PlaceholderView, PodsView, PortForwardsView,
+    ReplicaSetView, ReplicationControllerView, ServicesView, StatefulSetView, StatusView,
+    ViewAction, ViewComponent,
 };
 
 pub mod components;
@@ -89,6 +90,9 @@ pub enum ConfirmAction {
     DeleteReplicationController(String, String),
     DeleteJob(String, String),
     DeleteCronJob(String, String),
+    DeleteService(String, String),
+    DeleteIngress(String, String),
+    DeleteNetworkPolicy(String, String),
     RestartDeployment(String, String),
     RestartDaemonSet(String, String),
     RestartStatefulSet(String, String),
@@ -364,6 +368,16 @@ impl FathomApp {
                 Box::new(NamespacesView::new())
             } else if section_key == &section_keys::network_portforwards() {
                 Box::new(PortForwardsView::new())
+            } else if section_key == &section_keys::network_services() {
+                Box::new(ServicesView::new())
+            } else if section_key == &section_keys::network_endpoints() {
+                Box::new(EndpointsView::new())
+            } else if section_key == &section_keys::network_ingress() {
+                Box::new(IngressesView::new())
+            } else if section_key == &section_keys::network_ingressclasses() {
+                Box::new(IngressClassesView::new())
+            } else if section_key == &section_keys::network_policies() {
+                Box::new(NetworkPoliciesView::new())
             } else {
                 // Placeholder for sections not yet implemented
                 Box::new(PlaceholderView::new(section_key.clone()))

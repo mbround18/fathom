@@ -183,6 +183,30 @@ impl FathomApp {
                                         ),
                                         "Delete".to_string(),
                                     ),
+                                    ConfirmAction::DeleteService(ns, name) => (
+                                        "Delete Service".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete service {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteIngress(ns, name) => (
+                                        "Delete Ingress".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete ingress {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteNetworkPolicy(ns, name) => (
+                                        "Delete Network Policy".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete network policy {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
                                     ConfirmAction::DeleteJob(ns, name) => (
                                         "Delete Job".to_string(),
                                         format!(

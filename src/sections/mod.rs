@@ -161,10 +161,22 @@ pub fn all_sections() -> Vec<SectionDef> {
             scope: ScopeKind::Namespaced,
         },
         SectionDef {
+            key: section_keys::network_endpoints(),
+            label: "Endpoints",
+            group: NavGroup::Network,
+            scope: ScopeKind::Namespaced,
+        },
+        SectionDef {
             key: section_keys::network_ingress(),
             label: "Ingress",
             group: NavGroup::Network,
             scope: ScopeKind::Namespaced,
+        },
+        SectionDef {
+            key: section_keys::network_ingressclasses(),
+            label: "IngressClasses",
+            group: NavGroup::Network,
+            scope: ScopeKind::Cluster,
         },
         SectionDef {
             key: section_keys::network_policies(),
