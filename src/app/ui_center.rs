@@ -27,6 +27,20 @@ impl FathomApp {
             for action in actions {
                 match action {
                     ViewAction::SendCommand(cmd) => {
+                        // When a selection command is sent, show the details panel
+                        match &cmd {
+                            BackendCmd::SelectPod { .. }
+                            | BackendCmd::SelectDeployment { .. }
+                            | BackendCmd::SelectDaemonSet { .. }
+                            | BackendCmd::SelectStatefulSet { .. }
+                            | BackendCmd::SelectReplicaSet { .. }
+                            | BackendCmd::SelectReplicationController { .. }
+                            | BackendCmd::SelectJob { .. }
+                            | BackendCmd::SelectCronJob { .. } => {
+                                self.show_details_panel = true;
+                            }
+                            _ => {}
+                        }
                         self.send(cmd);
                     }
                     ViewAction::NotifyStatus(msg) => {

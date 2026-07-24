@@ -1,4 +1,5 @@
 *.log
+graphify-out/
 
 
 # Created by https://www.toptal.com/developers/gitignore/api/rust,visualstudiocode

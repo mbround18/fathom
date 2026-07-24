@@ -13,38 +13,6 @@ impl FathomApp {
                 // Render context and collect actions
                 let actions = context_view.render(ui, ctx);
 
-                // Add namespace filter
-                ui.separator();
-                ui.label("Filter by namespace:");
-
-                // Create a copy of namespaces for iteration
-                let available_ns = self.all_namespaces.clone();
-
-                for namespace in available_ns {
-                    let is_selected = self.namespace_matches_filter(&namespace)
-                        || self.selected_namespaces.is_empty();
-                    let _checkbox = is_selected && !self.selected_namespaces.is_empty();
-
-                    // If no filter selected, show all as selected but don't check the box
-                    if self.selected_namespaces.is_empty() {
-                        if ui.selectable_label(false, &namespace).clicked() {
-                            self.toggle_namespace_selection(&namespace);
-                        }
-                    } else if ui
-                        .selectable_label(self.selected_namespaces.contains(&namespace), &namespace)
-                        .clicked()
-                    {
-                        self.toggle_namespace_selection(&namespace);
-                    }
-                }
-
-                // "Show All" button
-                if !self.selected_namespaces.is_empty() {
-                    if ui.button("Show All").clicked() {
-                        self.selected_namespaces.clear();
-                    }
-                }
-
                 // Process returned actions
                 for action in actions {
                     match action {
