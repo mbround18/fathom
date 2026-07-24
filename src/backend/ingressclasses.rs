@@ -10,24 +10,23 @@ use kube::{
 };
 use std::collections::BTreeMap;
 
-use super::state::client_or_err;
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_ingress_classes(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<IngressClass> = Api::all(client);
 
     let classes = api.list(&ListParams::default()).await?;
     let summaries = ingress_classes_to_summaries(classes.items);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::cluster(
             section_keys::network_ingressclasses(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
         ),
         Correlation::None,
         BackendEvent::ResourceList(ResourceListEvent::IngressClassesUpdated(summaries)),
@@ -58,17 +57,17 @@ pub(super) async fn fetch_ingress_class_details(
     sender: &Sender<BackendEventEnvelope>,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<IngressClass> = Api::all(client);
     let class = api.get(name).await?;
 
     let details = ingress_class_to_details(class);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::cluster(
             section_keys::network_ingressclasses(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
         ),
         Correlation::None,
         BackendEvent::ResourceRead(ResourceReadEvent::IngressClassDetailsUpdated(details)),

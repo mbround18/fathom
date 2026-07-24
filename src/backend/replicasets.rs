@@ -11,25 +11,24 @@ use serde_json::json;
 use super::{events, state::BackendState};
 
 use super::interactions;
-use super::state::client_or_err;
 use super::workload_common;
 
 pub(super) async fn refresh_replicasets(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicaSet> = Api::all(client);
 
     let replicasets = api.list(&ListParams::default()).await?;
-    let summaries = replicasets_to_summaries(replicasets.items, &state.namespace_filter);
+    let summaries = replicasets_to_summaries(replicasets.items, &state.cluster.namespace_filter);
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_replicasets(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -80,14 +79,14 @@ pub(super) async fn delete_replicaset(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicaSet> = Api::namespaced(client, namespace);
 
     let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "delete",
         &ts,
         json!({}),
@@ -96,7 +95,7 @@ pub(super) async fn delete_replicaset(
 
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Deleted replicaset {}/{}", namespace, name),
     );
@@ -110,14 +109,14 @@ pub(super) async fn scale_replicaset(
     name: &str,
     replicas: i32,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicaSet> = Api::namespaced(client, namespace);
 
     let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "scale",
         &ts,
         json!({"replicas": replicas}),
@@ -128,7 +127,7 @@ pub(super) async fn scale_replicaset(
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Scaled replicaset {}/{} to {}", namespace, name, replicas),
     );
@@ -143,7 +142,7 @@ pub(super) async fn restart_replicaset(
 ) -> anyhow::Result<()> {
     // Best-effort "restart": delete pods matching the ReplicaSet selector.
     // Unlike Deployments, changing the RS template alone won't reliably restart existing pods.
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicaSet> = Api::namespaced(client, namespace);
     let rs = api.get(name).await?;
 
@@ -160,7 +159,7 @@ pub(super) async fn restart_replicaset(
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "restart",
         &ts,
         json!({"deletedPods": deleted}),
@@ -168,7 +167,7 @@ pub(super) async fn restart_replicaset(
     .await;
 
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!(
             "Restart requested for replicaset {}/{} (deleted {} matching pods)",
@@ -184,7 +183,7 @@ pub(super) async fn fetch_replicaset_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicaSet> = Api::namespaced(client, namespace);
     let rs = api.get(name).await?;
 
@@ -224,11 +223,11 @@ pub(super) async fn fetch_replicaset_details(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_replicasets(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_owned()),
         ),
         Correlation::None,

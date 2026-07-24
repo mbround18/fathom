@@ -14,7 +14,7 @@ use kube::{
 use std::time::Duration;
 
 use super::events;
-use super::state::{BackendState, MetricsAvailability, client_or_err};
+use super::state::{BackendState, MetricsAvailability};
 use crate::backend::integrations::IntegrationConfig;
 use crate::backend::persistence;
 use anyhow::Context;
@@ -25,23 +25,23 @@ pub(super) async fn probe_metrics_api(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    if state.metrics_availability != MetricsAvailability::Unknown {
+    if state.metrics.availability != MetricsAvailability::Unknown {
         return Ok(());
     }
 
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let availability = detect_metrics_api(&client).await;
-    state.metrics_availability = availability;
+    state.metrics.availability = availability;
 
     match availability {
         MetricsAvailability::Available => {
             // No UI noise needed.
         }
         MetricsAvailability::Unavailable => {
-            if !state.metrics_unavailable_notified {
-                state.metrics_unavailable_notified = true;
+            if !state.metrics.unavailable_notified {
+                state.metrics.unavailable_notified = true;
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     "Metrics API not detected in this cluster (metrics-server missing?)."
                         .to_owned(),
@@ -49,10 +49,10 @@ pub(super) async fn probe_metrics_api(
             }
         }
         MetricsAvailability::Forbidden => {
-            if !state.metrics_forbidden_notified {
-                state.metrics_forbidden_notified = true;
+            if !state.metrics.forbidden_notified {
+                state.metrics.forbidden_notified = true;
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     "Metrics API detected but access is forbidden (RBAC).".to_owned(),
                 );
@@ -87,17 +87,17 @@ pub(super) async fn fetch_metrics(
     name: &str,
 ) -> anyhow::Result<()> {
     // Try Prometheus first if configured
-    if let Some(prom_client) = &state.prometheus_client {
+    if let Some(prom_client) = &state.metrics.prometheus_client {
         if let Ok(metrics) =
             super::metrics_provider::query_pod_metrics(prom_client, namespace, name).await
         {
             let route = Route::namespaced(
                 section_keys::workloads_pods(),
-                state.current_context.clone(),
+                state.cluster.current_context.clone(),
                 Some(namespace.to_owned()),
             );
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 route,
                 Correlation::None,
@@ -112,8 +112,8 @@ pub(super) async fn fetch_metrics(
     }
 
     // Skip metrics fetch if API is unavailable
-    if state.metrics_availability == MetricsAvailability::Unavailable
-        || state.metrics_availability == MetricsAvailability::Forbidden
+    if state.metrics.availability == MetricsAvailability::Unavailable
+        || state.metrics.availability == MetricsAvailability::Forbidden
     {
         tracing::debug!("Skipping metrics fetch: metrics API unavailable");
         return Ok(());
@@ -122,7 +122,7 @@ pub(super) async fn fetch_metrics(
     // Ensure we do at least a best-effort discovery per context.
     probe_metrics_api(state, sender).await?;
 
-    match state.metrics_availability {
+    match state.metrics.availability {
         MetricsAvailability::Available => {}
         MetricsAvailability::Unavailable => return Ok(()),
         MetricsAvailability::Forbidden => return Ok(()),
@@ -131,7 +131,7 @@ pub(super) async fn fetch_metrics(
         }
     }
 
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
 
     let gvk = GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "PodMetrics");
     let resource = ApiResource::from_gvk(&gvk);
@@ -178,11 +178,11 @@ pub(super) async fn fetch_metrics(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_pods(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_owned()),
         ),
         Correlation::None,
@@ -278,7 +278,7 @@ pub(super) async fn start_metrics_polling(
 
     // Try Prometheus first if configured for this context
     let prom_config = state
-        .current_context
+        .cluster.current_context
         .as_ref()
         .and_then(|ctx| IntegrationConfig::load(ctx).ok())
         .and_then(|cfg| cfg.prometheus)
@@ -292,8 +292,8 @@ pub(super) async fn start_metrics_polling(
         let name_for_prom_task = name_for_prom.clone();
 
         let sender_clone = sender.clone();
-        let seq_clone = state.seq.clone();
-        let context = state.current_context.clone();
+        let seq_clone = state.cluster.seq.clone();
+        let context = state.cluster.current_context.clone();
         let handle = tokio::spawn(async move {
             let interval = Duration::from_secs(interval_secs);
             let mut has_failed = false;
@@ -351,40 +351,40 @@ pub(super) async fn start_metrics_polling(
             }
         });
 
-        state.metrics_poll_task = Some(handle);
+        state.metrics.poll_task = Some(handle);
         // Only notify once per polling session to avoid spam
-        if !state.metrics_polling_notified.unwrap_or(false) {
+        if !state.metrics.polling_notified.unwrap_or(false) {
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 format!(
                     "Watching POD {}/{} for metrics via Prometheus",
                     namespace_for_prom, name_for_prom
                 ),
             );
-            state.metrics_polling_notified = Some(true);
+            state.metrics.polling_notified = Some(true);
         }
         return Ok(());
     }
 
     // Fallback to metrics API polling
-    if state.metrics_availability == MetricsAvailability::Unavailable
-        || state.metrics_availability == MetricsAvailability::Forbidden
+    if state.metrics.availability == MetricsAvailability::Unavailable
+        || state.metrics.availability == MetricsAvailability::Forbidden
     {
         tracing::debug!("Skipping metrics polling: metrics API unavailable");
         return Ok(());
     }
 
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Watching POD {}/{} for metrics", namespace, name),
     );
 
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let sender_clone = sender.clone();
-    let seq_clone = state.seq.clone();
-    let context = state.current_context.clone();
+    let seq_clone = state.cluster.seq.clone();
+    let context = state.cluster.current_context.clone();
 
     let handle = tokio::spawn(async move {
         let interval = Duration::from_secs(interval_secs);
@@ -483,7 +483,7 @@ pub(super) async fn start_metrics_polling(
         }
     });
 
-    state.metrics_poll_task = Some(handle);
+    state.metrics.poll_task = Some(handle);
     Ok(())
 }
 
@@ -660,7 +660,7 @@ async fn fetch_prom_pod_history(
 }
 
 pub(super) fn stop_metrics_polling(state: &mut BackendState) {
-    if let Some(task) = state.metrics_poll_task.take() {
+    if let Some(task) = state.metrics.poll_task.take() {
         task.abort();
         tracing::info!("Stopped watching pod for metrics");
     }
@@ -726,7 +726,7 @@ pub(super) async fn aggregate_workload_metrics(
 ) -> anyhow::Result<WorkloadMetricsAggregate> {
     use k8s_openapi::api::core::v1::Pod;
 
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let pod_api: Api<Pod> = Api::namespaced(client.clone(), namespace);
 
     // List all pods matching the selector
@@ -742,8 +742,9 @@ pub(super) async fn aggregate_workload_metrics(
     let replica_count = pods.len() as u32;
 
     // Collect metrics from Prometheus if available
-    if let Some(_prom_client) = &state.prometheus_client {
+    if let Some(_prom_client) = &state.metrics.prometheus_client {
         let prom_config = state
+            .cluster
             .current_context
             .as_ref()
             .and_then(|ctx| IntegrationConfig::load(ctx).ok())
@@ -1045,7 +1046,7 @@ pub(super) async fn start_workload_metrics_polling(
 
     // Get Prometheus config
     let prom_config = state
-        .current_context
+        .cluster.current_context
         .as_ref()
         .and_then(|ctx| IntegrationConfig::load(ctx).ok())
         .and_then(|cfg| cfg.prometheus)
@@ -1062,8 +1063,8 @@ pub(super) async fn start_workload_metrics_polling(
 
     let prom = prom_config.unwrap();
     let sender_clone = sender.clone();
-    let seq_clone = state.seq.clone();
-    let context = state.current_context.clone();
+    let seq_clone = state.cluster.seq.clone();
+    let context = state.cluster.current_context.clone();
 
     // Clone for logging after spawn
     let namespace_for_log = namespace.clone();
@@ -1155,7 +1156,7 @@ pub(super) async fn start_workload_metrics_polling(
         }
     });
 
-    state.workload_metrics_poll_task = Some(handle);
+    state.metrics.workload_poll_task = Some(handle);
     tracing::info!(
         namespace = %namespace_for_log,
         workload = %workload_name_for_log,
@@ -1169,7 +1170,7 @@ pub(super) async fn start_workload_metrics_polling(
 
 /// Stop polling metrics for a workload
 pub(super) fn stop_workload_metrics_polling(state: &mut BackendState) {
-    if let Some(handle) = state.workload_metrics_poll_task.take() {
+    if let Some(handle) = state.metrics.workload_poll_task.take() {
         handle.abort();
         tracing::info!("Stopped workload metrics polling");
     }

@@ -10,38 +10,34 @@ use kube::{
 };
 use std::time::Duration;
 
-use super::state::{BackendState, client_or_err};
-use super::{events, pods, state};
+use super::state::BackendState;
+use super::{events, pods};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
 
     // If tasks already exist, keep them running.
-    if state.pod_watch_task.is_some() && state.namespace_sync_task.is_some() {
+    if state.watch_tasks.pod_watch_task.is_some() && state.watch_tasks.namespace_sync_task.is_some() {
         return Ok(());
     }
 
     // Restart cleanly if partially running.
-    state::abort_task(&mut state.pod_watch_task);
-    state::abort_task(&mut state.namespace_sync_task);
-    state::abort_task(&mut state.deployment_watch_task);
-    state::abort_task(&mut state.daemonset_watch_task);
-    state::abort_task(&mut state.statefulset_watch_task);
+    state.watch_tasks.abort_all();
 
     let sender_for_watch = sender.clone();
     let sender_for_ns = sender.clone();
-    let filter_shared = state.namespace_filter_shared.clone();
-    let seq_for_watch = state.seq.clone();
-    let seq_for_ns = state.seq.clone();
-    let context_for_watch = state.current_context.clone();
-    let context_for_ns = state.current_context.clone();
+    let filter_shared = state.cluster.namespace_filter_shared.clone();
+    let seq_for_watch = state.cluster.seq.clone();
+    let seq_for_ns = state.cluster.seq.clone();
+    let context_for_watch = state.cluster.current_context.clone();
+    let context_for_ns = state.cluster.current_context.clone();
 
     // Pod watcher: watch for pod changes with exponential backoff retry
     let client_for_watch = client.clone();
-    state.pod_watch_task = Some(tokio::spawn(async move {
+    state.watch_tasks.pod_watch_task = Some(tokio::spawn(async move {
         events::notify_info(
             seq_for_watch.as_ref(),
             &sender_for_watch,
@@ -108,7 +104,7 @@ pub(super) async fn ensure_background_sync(
 
     // Namespace refresher: refresh namespaces periodically with improved reliability
     let client_for_ns = client.clone();
-    state.namespace_sync_task = Some(tokio::spawn(async move {
+    state.watch_tasks.namespace_sync_task = Some(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(30));
         loop {
             ticker.tick().await;
@@ -149,7 +145,7 @@ pub(super) async fn refresh_namespaces(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Namespace> = Api::all(client);
 
     let ns_list = api.list(&ListParams::default()).await?;
@@ -161,9 +157,9 @@ pub(super) async fn refresh_namespaces(
     namespaces.sort();
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
-        Route::cluster(section_keys::system(), state.current_context.clone()),
+        Route::cluster(section_keys::system(), state.cluster.current_context.clone()),
         Correlation::None,
         BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
     );

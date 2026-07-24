@@ -109,7 +109,7 @@ pub(super) async fn connect_client_for_current_context(
     state: &BackendState,
 ) -> anyhow::Result<Client> {
     // If we have a selected context and kubeconfig exists, use it; otherwise fall back.
-    if let Some(ctx) = state.current_context.clone() {
+    if let Some(ctx) = state.cluster.current_context.clone() {
         if let Ok(kubeconfig) = load_kubeconfig() {
             let opts = KubeConfigOptions {
                 context: Some(ctx),

@@ -174,7 +174,7 @@ pub async fn fetch_disk_usage(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let context = state.current_context.as_deref();
+    let context = state.cluster.current_context.as_deref();
     let provider = detect_disk_provider(client, context).await;
 
     match provider {
@@ -183,7 +183,7 @@ pub async fn fetch_disk_usage(
                 .await
                 .unwrap_or_default();
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::integrations_metrics()),
                 Correlation::None,
@@ -234,7 +234,7 @@ pub async fn fetch_disk_usage(
                         });
                     }
                     events::emit(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         Route::global(section_keys::integrations_metrics()),
                         Correlation::None,
@@ -246,7 +246,7 @@ pub async fn fetch_disk_usage(
         DiskUsageProvider::None => {
             // Nothing available; emit info to user
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 "No disk usage provider detected (no Longhorn CRDs and no Prometheus).".to_owned(),
             );
@@ -262,12 +262,14 @@ pub(super) async fn ensure_metrics_port_forward(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state
+        .cluster
         .client
         .clone()
         .ok_or_else(|| anyhow::anyhow!("No Kubernetes client"))?;
 
     // Load user-configured Prometheus first (per context), then fall back to common defaults
     let context = state
+        .cluster
         .current_context
         .clone()
         .unwrap_or_else(|| "default".to_owned());
@@ -313,7 +315,7 @@ pub(super) async fn ensure_metrics_port_forward(
                 {
                     Ok(_) => {
                         events::notify_info(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!(
                                 "Auto-started Prometheus port forward: localhost:{} -> {}/{}:{}",
@@ -370,7 +372,7 @@ pub(super) async fn ensure_metrics_port_forward(
                 {
                     Ok(_) => {
                         events::notify_info(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!(
                                 "Auto-discovered Prometheus port forward: localhost:9090 -> {}/{}:9090",
@@ -399,7 +401,7 @@ pub(super) async fn ensure_metrics_port_forward(
     let _ = fetch_disk_usage(&client, state, sender).await;
 
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         "Prometheus auto port-forward not started (no matching service/pod found). Configure a port forward under Network > Port Forwards or adjust Prometheus settings under Integrations.".to_owned(),
     );

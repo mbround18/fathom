@@ -39,7 +39,6 @@ mod sync;
 mod workload_common;
 
 use state::BackendState;
-use state::client_or_err;
 
 pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>, args: Args) {
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
@@ -53,8 +52,8 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
 
     // Create MCP state and persist port
     let mcp_state = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
-    state.mcp_state = Some(mcp_state.clone());
-    state.mcp_port = args.mcp_port;
+    state.mcp.state = Some(mcp_state.clone());
+    state.mcp.port = args.mcp_port;
 
     // Load auto-start configuration
     let auto_start_config = persistence::AutoStartConfig::load().unwrap_or_default();
@@ -78,14 +77,14 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         &sender,
         Route::global(section_keys::system()),
         Correlation::None,
         BackendEvent::System(SystemEvent::BackendStarted),
     );
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         &sender,
         "Backend thread started (tokio runtime ready).".to_owned(),
     );
@@ -96,7 +95,7 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
         let state_clone = state.clone();
         rt.block_on(async move {
             let mut s = state_clone.lock().await;
-            s.mcp_http_task = Some(handle);
+            s.mcp.http_task = Some(handle);
         });
     }
 
@@ -124,7 +123,7 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
                 Ok(should_exit) if should_exit => {
                     tracing::debug!("Command signaled shutdown");
                 }
-                Err(err) => events::notify_error(state.seq.as_ref(), &sender, err.to_string()),
+                Err(err) => events::notify_error(state.cluster.seq.as_ref(), &sender, err.to_string()),
                 _ => {}
             }
             // Signal task completion
@@ -152,7 +151,7 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
         let state_arc = state.clone();
         rt.block_on(async move {
             let mut s = state_arc.lock().await;
-            state::abort_task(&mut s.mcp_http_task);
+            state::abort_task(&mut s.mcp.http_task);
         });
     }
 
@@ -161,7 +160,7 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
         let mut final_state = state.lock().await;
         state::cleanup_all_tasks(&mut final_state);
         events::notify_info(
-            final_state.seq.as_ref(),
+            final_state.cluster.seq.as_ref(),
             &sender,
             "Backend thread stopped.".to_owned(),
         );
@@ -177,43 +176,46 @@ async fn handle_cmd(
         BackendCmd::Initialize => {
             // Contexts can be loaded even before we connect.
             let _ = kube::load_and_send_contexts(
-                state.seq.as_ref(),
-                state.current_context.clone(),
+                state.cluster.seq.as_ref(),
+                state.cluster.current_context.clone(),
                 sender,
             );
 
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 "Connecting to cluster (kubeconfig/in-cluster)...".to_owned(),
             );
 
             let client = kube::connect_client_for_current_context(state).await?;
-            state.client = Some(client);
+            state.cluster.client = Some(client);
 
             // Best-effort: if we didn't have an explicit context selection, treat kubeconfig's
             // current context as the backend-authoritative active context.
-            if state.current_context.is_none() {
-                state.current_context = kube::read_kubeconfig_current_context();
+            if state.cluster.current_context.is_none() {
+                state.cluster.current_context = kube::read_kubeconfig_current_context();
+            }
+            if let (Some(mcp), Some(ctx)) = (&state.mcp.state, &state.cluster.current_context) {
+                mcp.set_context(ctx.clone()).await;
             }
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::system()),
                 Correlation::None,
                 BackendEvent::System(SystemEvent::ContextChanged {
-                    current: state.current_context.clone(),
+                    current: state.cluster.current_context.clone(),
                 }),
             );
 
-            events::notify_info(state.seq.as_ref(), sender, "Connected.".to_owned());
+            events::notify_info(state.cluster.seq.as_ref(), sender, "Connected.".to_owned());
 
             // Discover optional backing services.
             metrics::probe_metrics_api(state, sender).await?;
 
             // Auto-discover Prometheus services in the monitoring namespace
-            if let Some(client) = &state.client {
-                if let Some(ctx) = &state.current_context {
+            if let Some(client) = &state.cluster.client {
+                if let Some(ctx) = &state.cluster.current_context {
                     let _ =
                         crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
                 }
@@ -222,7 +224,7 @@ async fn handle_cmd(
             // Restore saved port forwards from last session
             if let Err(e) = restore_saved_port_forwards(state, sender).await {
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!("Note: Could not restore port forwards: {}", e),
                 );
@@ -233,7 +235,7 @@ async fn handle_cmd(
                 crate::backend::integrations::ensure_metrics_port_forward(state, sender).await
             {
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!("Note: Could not auto-setup metrics port forward: {}", e),
                 );
@@ -248,28 +250,31 @@ async fn handle_cmd(
 
         BackendCmd::RefreshContexts => {
             let _ = kube::load_and_send_contexts(
-                state.seq.as_ref(),
-                state.current_context.clone(),
+                state.cluster.seq.as_ref(),
+                state.cluster.current_context.clone(),
                 sender,
             );
         }
 
         BackendCmd::SetContext { context } => {
             // Stop background activity and reconnect with the new context.
-            state::stop_logs(state);
-            state::abort_task(&mut state.pod_watch_task);
-            state::abort_task(&mut state.namespace_sync_task);
+            state.log_stream.stop();
+            state::abort_task(&mut state.watch_tasks.pod_watch_task);
+            state::abort_task(&mut state.watch_tasks.namespace_sync_task);
 
-            state.current_context = Some(context.clone());
-            state.reset_metrics_probe();
+            state.cluster.current_context = Some(context.clone());
+            state.metrics.reset_probe();
+            if let Some(mcp) = &state.mcp.state {
+                mcp.set_context(context.clone()).await;
+            }
 
             // Context switch invalidates namespace filters; reset to "all" on the backend.
-            state.namespace_filter.clear();
-            if let Ok(mut shared) = state.namespace_filter_shared.write() {
+            state.cluster.namespace_filter.clear();
+            if let Ok(mut shared) = state.cluster.namespace_filter_shared.write() {
                 shared.clear();
             }
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::system()),
                 Correlation::None,
@@ -279,36 +284,36 @@ async fn handle_cmd(
             );
 
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 format!("Switching context to '{}'...", context),
             );
 
             let client = kube::connect_client_for_current_context(state).await?;
-            state.client = Some(client);
+            state.cluster.client = Some(client);
 
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::system()),
                 Correlation::None,
                 BackendEvent::System(SystemEvent::ContextChanged {
-                    current: state.current_context.clone(),
+                    current: state.cluster.current_context.clone(),
                 }),
             );
 
             // Re-load contexts so UI reflects the selected one.
             let _ = kube::load_and_send_contexts(
-                state.seq.as_ref(),
-                state.current_context.clone(),
+                state.cluster.seq.as_ref(),
+                state.cluster.current_context.clone(),
                 sender,
             );
 
             metrics::probe_metrics_api(state, sender).await?;
 
             // Auto-discover Prometheus services in the monitoring namespace
-            if let Some(client) = &state.client {
-                if let Some(ctx) = &state.current_context {
+            if let Some(client) = &state.cluster.client {
+                if let Some(ctx) = &state.cluster.current_context {
                     let _ =
                         crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
                 }
@@ -319,7 +324,7 @@ async fn handle_cmd(
             deployments::refresh_deployments(state, sender).await?;
             sync::ensure_background_sync(state, sender).await?;
 
-            events::notify_info(state.seq.as_ref(), sender, "Context switched.".to_owned());
+            events::notify_info(state.cluster.seq.as_ref(), sender, "Context switched.".to_owned());
         }
 
         BackendCmd::RefreshNamespaces => {
@@ -329,7 +334,7 @@ async fn handle_cmd(
         BackendCmd::RefreshNodes => {
             tracing::debug!("RefreshNodes command received");
             // Best-effort: fetch node list and emit event
-            if let Some(client) = &state.client {
+            if let Some(client) = &state.cluster.client {
                 use k8s_openapi::api::core::v1::Node;
                 let api = ::kube::Api::<Node>::all(client.clone());
                 match api.list(&Default::default()).await {
@@ -386,7 +391,7 @@ async fn handle_cmd(
                             summaries.len()
                         );
                         events::emit(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             Route::global(section_keys::nodes()),
                             Correlation::None,
@@ -396,7 +401,7 @@ async fn handle_cmd(
                     Err(e) => {
                         tracing::warn!("Failed to list nodes: {}", e);
                         events::notify_error(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!("Failed to list nodes: {}", e),
                         );
@@ -408,14 +413,14 @@ async fn handle_cmd(
         BackendCmd::SelectNode { name } => {
             tracing::debug!("SelectNode command received for: {}", name);
             // Fetch node details
-            if let Some(client) = &state.client {
+            if let Some(client) = &state.cluster.client {
                 use k8s_openapi::api::core::v1::Node;
                 let api = ::kube::Api::<Node>::all(client.clone());
                 match api.get(&name).await {
                     Ok(node) => {
                         let details = crate::backend::nodes::extract_node_details(&node)?;
                         events::emit(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             Route::global(section_keys::nodes()),
                             Correlation::None,
@@ -427,7 +432,7 @@ async fn handle_cmd(
                     Err(e) => {
                         tracing::warn!("Failed to get node details: {}", e);
                         events::notify_error(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!("Failed to get node details: {}", e),
                         );
@@ -438,7 +443,7 @@ async fn handle_cmd(
 
         BackendCmd::RefreshEvents => {
             // Best-effort: fetch recent events and emit
-            if let Some(client) = &state.client {
+            if let Some(client) = &state.cluster.client {
                 use k8s_openapi::api::core::v1::Event;
                 let api = ::kube::Api::<Event>::all(client.clone());
                 match api.list(&Default::default()).await {
@@ -479,7 +484,7 @@ async fn handle_cmd(
 
                         let total_count = summaries.len() as u32;
                         events::emit(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             Route::global(section_keys::events()),
                             Correlation::None,
@@ -494,7 +499,7 @@ async fn handle_cmd(
                     Err(e) => {
                         tracing::warn!("Failed to list events: {}", e);
                         events::notify_error(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!("Failed to list events: {}", e),
                         );
@@ -504,18 +509,18 @@ async fn handle_cmd(
         }
 
         BackendCmd::SetNamespaceFilter { namespaces } => {
-            state.namespace_filter = namespaces;
-            if let Ok(mut shared) = state.namespace_filter_shared.write() {
-                *shared = state.namespace_filter.clone();
+            state.cluster.namespace_filter = namespaces;
+            if let Ok(mut shared) = state.cluster.namespace_filter_shared.write() {
+                *shared = state.cluster.namespace_filter.clone();
             }
 
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::system()),
                 Correlation::None,
                 BackendEvent::System(SystemEvent::NamespaceFilterChanged {
-                    namespaces: state.namespace_filter.clone(),
+                    namespaces: state.cluster.namespace_filter.clone(),
                 }),
             );
             pods::refresh_pods(state, sender).await?;
@@ -544,7 +549,7 @@ async fn handle_cmd(
         }
 
         BackendCmd::StopPodLogs => {
-            state::stop_logs(state);
+            state.log_stream.stop();
         }
 
         BackendCmd::FetchPodMetrics { namespace, name } => {
@@ -558,7 +563,7 @@ async fn handle_cmd(
         } => {
             // Fetch pod to get resource specs
             use k8s_openapi::api::core::v1::Pod;
-            let client = match &state.client {
+            let client = match &state.cluster.client {
                 Some(c) => c,
                 None => anyhow::bail!("No Kubernetes client available"),
             };
@@ -634,10 +639,162 @@ async fn handle_cmd(
             deployments::refresh_deployments(state, sender).await?;
         }
 
+        // Workloads / DaemonSets section
+        BackendCmd::RefreshDaemonSets => {
+            daemonsets::refresh_daemonsets(state, sender).await?;
+        }
+
+        BackendCmd::SelectDaemonSet { namespace, name } => {
+            daemonsets::fetch_daemonset_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::RestartDaemonSet { namespace, name } => {
+            daemonsets::restart_daemonset(state, sender, &namespace, &name).await?;
+            daemonsets::refresh_daemonsets(state, sender).await?;
+        }
+
+        BackendCmd::DeleteDaemonSet { namespace, name } => {
+            daemonsets::delete_daemonset(state, sender, &namespace, &name).await?;
+            daemonsets::refresh_daemonsets(state, sender).await?;
+        }
+
+        // Workloads / StatefulSets section
+        BackendCmd::RefreshStatefulSets => {
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        BackendCmd::SelectStatefulSet { namespace, name } => {
+            statefulsets::fetch_statefulset_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::ScaleStatefulSet {
+            namespace,
+            name,
+            replicas,
+        } => {
+            statefulsets::scale_statefulset(state, sender, &namespace, &name, replicas).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        BackendCmd::RestartStatefulSet { namespace, name } => {
+            statefulsets::restart_statefulset(state, sender, &namespace, &name).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        BackendCmd::DeleteStatefulSet { namespace, name } => {
+            statefulsets::delete_statefulset(state, sender, &namespace, &name).await?;
+            statefulsets::refresh_statefulsets(state, sender).await?;
+        }
+
+        // Workloads / ReplicaSets section
+        BackendCmd::RefreshReplicaSets => {
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        BackendCmd::SelectReplicaSet { namespace, name } => {
+            replicasets::fetch_replicaset_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::ScaleReplicaSet {
+            namespace,
+            name,
+            replicas,
+        } => {
+            replicasets::scale_replicaset(state, sender, &namespace, &name, replicas).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        BackendCmd::RestartReplicaSet { namespace, name } => {
+            replicasets::restart_replicaset(state, sender, &namespace, &name).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        BackendCmd::DeleteReplicaSet { namespace, name } => {
+            replicasets::delete_replicaset(state, sender, &namespace, &name).await?;
+            replicasets::refresh_replicasets(state, sender).await?;
+        }
+
+        // Workloads / ReplicationControllers section
+        BackendCmd::RefreshReplicationControllers => {
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
+        BackendCmd::SelectReplicationController { namespace, name } => {
+            replicationcontrollers::fetch_replicationcontroller_details(
+                state, sender, &namespace, &name,
+            )
+            .await?;
+        }
+
+        BackendCmd::ScaleReplicationController {
+            namespace,
+            name,
+            replicas,
+        } => {
+            replicationcontrollers::scale_replicationcontroller(
+                state, sender, &namespace, &name, replicas,
+            )
+            .await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
+        BackendCmd::RestartReplicationController { namespace, name } => {
+            replicationcontrollers::restart_replicationcontroller(state, sender, &namespace, &name)
+                .await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
+        BackendCmd::DeleteReplicationController { namespace, name } => {
+            replicationcontrollers::delete_replicationcontroller(state, sender, &namespace, &name)
+                .await?;
+            replicationcontrollers::refresh_replicationcontrollers(state, sender).await?;
+        }
+
+        // Workloads / Jobs section
+        BackendCmd::RefreshJobs => {
+            jobs::refresh_jobs(state, sender).await?;
+        }
+
+        BackendCmd::SelectJob { namespace, name } => {
+            jobs::fetch_job_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::DeleteJob { namespace, name } => {
+            jobs::delete_job(state, sender, &namespace, &name).await?;
+            jobs::refresh_jobs(state, sender).await?;
+        }
+
+        // Workloads / CronJobs section
+        BackendCmd::RefreshCronJobs => {
+            cronjobs::refresh_cronjobs(state, sender).await?;
+        }
+
+        BackendCmd::SelectCronJob { namespace, name } => {
+            cronjobs::fetch_cronjob_details(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::SuspendCronJob {
+            namespace,
+            name,
+            suspend,
+        } => {
+            cronjobs::suspend_cronjob(state, sender, &namespace, &name, suspend).await?;
+            cronjobs::refresh_cronjobs(state, sender).await?;
+        }
+
+        BackendCmd::TriggerCronJob { namespace, name } => {
+            cronjobs::trigger_cronjob(state, sender, &namespace, &name).await?;
+        }
+
+        BackendCmd::DeleteCronJob { namespace, name } => {
+            cronjobs::delete_cronjob(state, sender, &namespace, &name).await?;
+            cronjobs::refresh_cronjobs(state, sender).await?;
+        }
+
         BackendCmd::SimulateSlowCall => {
-            events::notify_info(state.seq.as_ref(), sender, "Simulating slow call...".into());
+            events::notify_info(state.cluster.seq.as_ref(), sender, "Simulating slow call...".into());
             tokio::time::sleep(Duration::from_secs(2)).await;
-            events::notify_info(state.seq.as_ref(), sender, "Slow call done.".into());
+            events::notify_info(state.cluster.seq.as_ref(), sender, "Slow call done.".into());
         }
 
         BackendCmd::BulkDelete { items } => {
@@ -646,7 +803,7 @@ async fn handle_cmd(
 
             for (namespace, name) in items {
                 // Try to delete as pod first
-                if state.client.is_some() {
+                if state.cluster.client.is_some() {
                     pods::delete_pod(state, sender, &namespace, &name)
                         .await
                         .ok();
@@ -667,7 +824,7 @@ async fn handle_cmd(
 
             if success_count > 0 {
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!("Deleted {} item(s)", success_count),
                 );
@@ -675,7 +832,7 @@ async fn handle_cmd(
 
             if !failed_items.is_empty() {
                 events::notify_error(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!(
                         "Failed to delete {} item(s): {}",
@@ -765,6 +922,7 @@ async fn handle_cmd(
             port,
         } => {
             let context = state
+                .cluster
                 .current_context
                 .clone()
                 .unwrap_or_else(|| "default".to_owned());
@@ -787,13 +945,13 @@ async fn handle_cmd(
 
             if let Err(e) = cfg.save() {
                 events::notify_error(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!("Failed to save Prometheus config: {}", e),
                 );
             } else {
                 // Start port-forward to Prometheus service
-                let client = client_or_err(state)?;
+                let client = state.cluster.client_or_err()?;
 
                 // Use port-forward manager to create a tunnel to the Prometheus service
                 // Note: Prometheus typically runs in a StatefulSet, we'll target the service pod
@@ -806,11 +964,11 @@ async fn handle_cmd(
                     Ok(_tunnel_id) => {
                         // Create and store PrometheusClient
                         let url = format!("http://localhost:{}", port);
-                        state.prometheus_client =
+                        state.metrics.prometheus_client =
                             Some(metrics_provider::PrometheusClient::new(url));
 
                         events::notify_info(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!(
                                 "Configured Prometheus: {}/{} port {} (context: {}) - port-forward active",
@@ -821,11 +979,11 @@ async fn handle_cmd(
                     Err(e) => {
                         // Port-forward failed, but still configure the client (assumes manual port-forward)
                         let url = format!("http://localhost:{}", port);
-                        state.prometheus_client =
+                        state.metrics.prometheus_client =
                             Some(metrics_provider::PrometheusClient::new(url));
 
                         events::notify_info(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!(
                                 "Configured Prometheus: {}/{} port {} (context: {}) - port-forward failed, ensure manual tunnel is active: {}",
@@ -847,11 +1005,11 @@ async fn handle_cmd(
                 Ok(resp) if resp.status().is_success() => {
                     // Connection successful - create and store client for future use
                     let client_url = format!("http://localhost:{}", port);
-                    state.prometheus_client =
+                    state.metrics.prometheus_client =
                         Some(metrics_provider::PrometheusClient::new(client_url));
 
                     events::emit(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         Route::global(section_keys::integrations_metrics()),
                         Correlation::None,
@@ -863,7 +1021,7 @@ async fn handle_cmd(
                 }
                 Ok(resp) => {
                     events::emit(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         Route::global(section_keys::integrations_metrics()),
                         Correlation::None,
@@ -875,7 +1033,7 @@ async fn handle_cmd(
                 }
                 Err(e) => {
                     events::emit(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         Route::global(section_keys::integrations_metrics()),
                         Correlation::None,
@@ -896,7 +1054,7 @@ async fn handle_cmd(
         } => {
             // TODO: Configure Grafana integration
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 format!("Configured Grafana: {}", base_url),
             );
@@ -913,7 +1071,7 @@ async fn handle_cmd(
             {
                 Ok(resp) if resp.status().is_success() => {
                     events::emit(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         Route::global(section_keys::integrations_grafana()),
                         Correlation::None,
@@ -925,7 +1083,7 @@ async fn handle_cmd(
                 }
                 Ok(resp) => {
                     events::emit(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         Route::global(section_keys::integrations_grafana()),
                         Correlation::None,
@@ -937,7 +1095,7 @@ async fn handle_cmd(
                 }
                 Err(e) => {
                     events::emit(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         Route::global(section_keys::integrations_grafana()),
                         Correlation::None,
@@ -952,7 +1110,7 @@ async fn handle_cmd(
         BackendCmd::RefreshIntegrations => {
             // TODO: Refresh integrations status
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 "Integrations refreshed".to_owned(),
             );
@@ -961,7 +1119,7 @@ async fn handle_cmd(
             Ok(path) => {
                 if let Err(e) = std::fs::create_dir_all(&path) {
                     events::notify_error(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         format!("Failed to create MCP dir: {}", e),
                     );
@@ -977,14 +1135,14 @@ async fn handle_cmd(
                     match tokio::process::Command::new(cmd).arg(&path).spawn() {
                         Ok(_) => {
                             events::notify_info(
-                                state.seq.as_ref(),
+                                state.cluster.seq.as_ref(),
                                 sender,
                                 format!("Opening MCP config directory: {}", path.display()),
                             );
                         }
                         Err(e) => {
                             events::notify_error(
-                                state.seq.as_ref(),
+                                state.cluster.seq.as_ref(),
                                 sender,
                                 format!("Failed to open MCP directory: {}", e),
                             );
@@ -994,7 +1152,7 @@ async fn handle_cmd(
             }
             Err(e) => {
                 events::notify_error(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!("Failed to resolve MCP dir: {}", e),
                 );
@@ -1002,9 +1160,9 @@ async fn handle_cmd(
         },
         BackendCmd::StartMcpServer => {
             // If already running, ignore
-            if state.mcp_http_task.is_some() {
+            if state.mcp.http_task.is_some() {
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     "MCP server already running".to_owned(),
                 );
@@ -1012,11 +1170,11 @@ async fn handle_cmd(
             }
 
             // Ensure state exists
-            let mcp_state = match &state.mcp_state {
+            let mcp_state = match &state.mcp.state {
                 Some(s) => s.clone(),
                 None => {
                     let s = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
-                    state.mcp_state = Some(s.clone());
+                    state.mcp.state = Some(s.clone());
                     s
                 }
             };
@@ -1028,17 +1186,17 @@ async fn handle_cmd(
             });
 
             // Start HTTP server task
-            let port = state.mcp_port;
+            let port = state.mcp.port;
             let handle = tokio::spawn({
                 let s = mcp_state.clone();
                 async move {
                     let _ = crate::mcp_server::run_http_mcp_server(s, port).await;
                 }
             });
-            state.mcp_http_task = Some(handle);
+            state.mcp.http_task = Some(handle);
 
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::integrations_mcp()),
                 Correlation::None,
@@ -1048,7 +1206,7 @@ async fn handle_cmd(
                 }),
             );
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 format!(
                     "MCP HTTP server starting on http://127.0.0.1:{} (1 fathom ≈ 1.8288m)",
@@ -1058,11 +1216,11 @@ async fn handle_cmd(
         }
         BackendCmd::StopMcpServer => {
             // Abort HTTP task if running
-            state::abort_task(&mut state.mcp_http_task);
+            state::abort_task(&mut state.mcp.http_task);
 
             // Emit MCP server stopped event
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::integrations_mcp()),
                 Correlation::None,
@@ -1071,7 +1229,7 @@ async fn handle_cmd(
                     message: "MCP server stopped".to_owned(),
                 }),
             );
-            events::notify_info(state.seq.as_ref(), sender, "MCP server stopped".to_owned());
+            events::notify_info(state.cluster.seq.as_ref(), sender, "MCP server stopped".to_owned());
         }
         _ => {
             // This command is not handled in the core `handle_cmd` implementation.
@@ -1093,6 +1251,7 @@ async fn restore_saved_port_forwards(
     }
 
     let client = state
+        .cluster
         .client
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("No Kubernetes client"))?;
@@ -1123,7 +1282,7 @@ async fn restore_saved_port_forwards(
                 }
                 restored_count += 1;
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!(
                         "Restored port forward: {}:{} -> {}:{}/{}",
@@ -1137,7 +1296,7 @@ async fn restore_saved_port_forwards(
             }
             Err(e) => {
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!(
                         "Failed to restore port forward for {}/{}: {}",
@@ -1150,7 +1309,7 @@ async fn restore_saved_port_forwards(
 
     if restored_count > 0 {
         events::notify_info(
-            state.seq.as_ref(),
+            state.cluster.seq.as_ref(),
             sender,
             format!("Restored {} port forwards", restored_count),
         );
@@ -1169,6 +1328,7 @@ async fn ensure_metrics_port_forward(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state
+        .cluster
         .client
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("No Kubernetes client"))?;
@@ -1220,7 +1380,7 @@ async fn ensure_metrics_port_forward(
                 {
                     Ok(_) => {
                         events::notify_info(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!(
                                 "Auto-started Prometheus port forward: localhost:{} -> {}/{}:{}",
@@ -1277,7 +1437,7 @@ async fn ensure_metrics_port_forward(
                 {
                     Ok(_) => {
                         events::notify_info(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!(
                                 "Auto-discovered Prometheus port forward: localhost:9090 -> {}/{}:9090",
@@ -1303,7 +1463,7 @@ async fn ensure_metrics_port_forward(
     }
 
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         "Prometheus auto port-forward not started (no matching service/pod found). Configure a port forward under Network > Port Forwards or adjust Prometheus settings under Integrations.".to_owned(),
     );

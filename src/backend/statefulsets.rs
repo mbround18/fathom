@@ -11,25 +11,24 @@ use serde_json::json;
 use super::{events, state::BackendState};
 
 use super::interactions;
-use super::state::client_or_err;
 use super::workload_common;
 
 pub(super) async fn refresh_statefulsets(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<StatefulSet> = Api::all(client);
 
     let statefulsets = api.list(&ListParams::default()).await?;
-    let summaries = statefulsets_to_summaries(statefulsets.items, &state.namespace_filter);
+    let summaries = statefulsets_to_summaries(statefulsets.items, &state.cluster.namespace_filter);
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_statefulsets(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -87,14 +86,14 @@ pub(super) async fn delete_statefulset(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<StatefulSet> = Api::namespaced(client, namespace);
 
     let ts = Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "delete",
         &ts,
         json!({}),
@@ -103,7 +102,7 @@ pub(super) async fn delete_statefulset(
 
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Deleted statefulset {}/{}", namespace, name),
     );
@@ -117,14 +116,14 @@ pub(super) async fn scale_statefulset(
     name: &str,
     replicas: i32,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<StatefulSet> = Api::namespaced(client, namespace);
 
     let ts = Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "scale",
         &ts,
         json!({"replicas": replicas}),
@@ -135,7 +134,7 @@ pub(super) async fn scale_statefulset(
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Scaled statefulset {}/{} to {}", namespace, name, replicas),
     );
@@ -148,14 +147,14 @@ pub(super) async fn restart_statefulset(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<StatefulSet> = Api::namespaced(client, namespace);
     let ts = Utc::now().to_rfc3339();
 
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "restart",
         &ts,
         json!({"restartedAt": ts}),
@@ -174,7 +173,7 @@ pub(super) async fn restart_statefulset(
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Restart requested for statefulset {}/{}", namespace, name),
     );
@@ -187,7 +186,7 @@ pub(super) async fn fetch_statefulset_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<StatefulSet> = Api::namespaced(client, namespace);
     let ss = api.get(name).await?;
 
@@ -224,11 +223,11 @@ pub(super) async fn fetch_statefulset_details(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_statefulsets(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_owned()),
         ),
         Correlation::None,

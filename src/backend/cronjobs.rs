@@ -9,25 +9,24 @@ use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams};
 use serde_json::json;
 
 use super::interactions;
-use super::state::client_or_err;
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_cronjobs(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<CronJob> = Api::all(client);
 
     let cronjobs = api.list(&ListParams::default()).await?;
-    let summaries = cronjobs_to_summaries(cronjobs.items, &state.namespace_filter);
+    let summaries = cronjobs_to_summaries(cronjobs.items, &state.cluster.namespace_filter);
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_cronjobs(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -113,7 +112,7 @@ pub(super) async fn fetch_cronjob_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<CronJob> = Api::namespaced(client, namespace);
     let cronjob = api.get(name).await?;
 
@@ -180,11 +179,11 @@ pub(super) async fn fetch_cronjob_details(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_cronjobs(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_string()),
         ),
         Correlation::None,
@@ -199,14 +198,14 @@ pub(super) async fn delete_cronjob(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<CronJob> = Api::namespaced(client, namespace);
 
     let ts = Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "delete",
         &ts,
         json!({}),
@@ -215,7 +214,7 @@ pub(super) async fn delete_cronjob(
 
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Deleted cronjob {}/{}", namespace, name),
     );
@@ -229,7 +228,7 @@ pub(super) async fn suspend_cronjob(
     name: &str,
     suspend: bool,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<CronJob> = Api::namespaced(client, namespace);
 
     let ts = Utc::now().to_rfc3339();
@@ -237,7 +236,7 @@ pub(super) async fn suspend_cronjob(
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         action,
         &ts,
         json!({"suspend": suspend}),
@@ -257,7 +256,7 @@ pub(super) async fn suspend_cronjob(
     } else {
         format!("Resumed cronjob {}/{}", namespace, name)
     };
-    events::notify_info(state.seq.as_ref(), sender, msg);
+    events::notify_info(state.cluster.seq.as_ref(), sender, msg);
     Ok(())
 }
 
@@ -268,7 +267,7 @@ pub(super) async fn trigger_cronjob(
     name: &str,
 ) -> anyhow::Result<()> {
     use k8s_openapi::api::batch::v1::Job;
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let cj_api: Api<CronJob> = Api::namespaced(client.clone(), namespace);
     let job_api: Api<Job> = Api::namespaced(client, namespace);
 
@@ -276,7 +275,7 @@ pub(super) async fn trigger_cronjob(
     let _ = interactions::annotate_action(
         &cj_api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "trigger",
         &ts,
         json!({}),
@@ -313,7 +312,7 @@ pub(super) async fn trigger_cronjob(
 
     job_api.create(&Default::default(), &job).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!(
             "Triggered cronjob {}/{} -> job {}",

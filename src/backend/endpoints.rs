@@ -11,24 +11,23 @@ use kube::{
 };
 use std::collections::BTreeMap;
 
-use super::state::client_or_err;
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_endpoints(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Endpoints> = Api::all(client);
 
     let endpoints = api.list(&ListParams::default()).await?;
-    let summaries = endpoints_to_summaries(endpoints.items, &state.namespace_filter);
+    let summaries = endpoints_to_summaries(endpoints.items, &state.cluster.namespace_filter);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::network_endpoints(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -82,17 +81,17 @@ pub(super) async fn fetch_endpoint_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Endpoints> = Api::namespaced(client, namespace);
     let ep = api.get(name).await?;
 
     let details = endpoint_to_details(ep);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::network_endpoints(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_string()),
         ),
         Correlation::None,

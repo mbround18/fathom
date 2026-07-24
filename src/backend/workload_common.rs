@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 
 use super::pods;
 use super::state::BackendState;
-use super::state::client_or_err;
 
 pub(super) fn map_opt_btreemap(map: Option<BTreeMap<String, String>>) -> BTreeMap<String, String> {
     map.unwrap_or_default().into_iter().collect()
@@ -85,7 +84,7 @@ pub(super) async fn pods_for_selector(
         return Ok(Vec::new());
     }
 
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let pod_api: Api<Pod> = Api::namespaced(client, namespace);
     let list = pod_api
         .list(&ListParams::default().labels(selector))
@@ -102,7 +101,7 @@ pub(super) async fn delete_pods_for_selector(
         return Ok(0);
     }
 
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let pod_api: Api<Pod> = Api::namespaced(client, namespace);
     let list = pod_api
         .list(&ListParams::default().labels(selector))

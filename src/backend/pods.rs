@@ -14,24 +14,23 @@ use kube::{
 use std::collections::{BTreeMap, HashMap};
 
 use super::interactions;
-use super::state::{client_or_err, stop_logs};
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_pods(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Pod> = Api::all(client);
 
     let pods = api.list(&ListParams::default()).await?;
-    let summaries = pods_to_summaries(pods.items, &state.namespace_filter);
+    let summaries = pods_to_summaries(pods.items, &state.cluster.namespace_filter);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_pods(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -46,14 +45,14 @@ pub(super) async fn delete_pod(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Pod> = Api::namespaced(client, namespace);
 
     let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "delete",
         &ts,
         serde_json::json!({}),
@@ -62,7 +61,7 @@ pub(super) async fn delete_pod(
 
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Deleted pod {}/{}", namespace, name),
     );
@@ -129,7 +128,7 @@ pub(super) async fn fetch_pod_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Pod> = Api::namespaced(client, namespace);
     let pod = api.get(name).await?;
 
@@ -226,11 +225,11 @@ pub(super) async fn fetch_pod_details(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_pods(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_owned()),
         ),
         Correlation::None,
@@ -266,7 +265,7 @@ async fn resolve_pod_owner(
 
     // Best-effort resolve ReplicaSet -> Deployment.
     if r.kind == "ReplicaSet" {
-        if let Ok(client) = client_or_err(state) {
+        if let Ok(client) = state.cluster.client_or_err() {
             let rs_api: Api<ReplicaSet> = Api::namespaced(client, namespace);
             if let Ok(rs) = rs_api.get(&r.name).await {
                 let rs_refs = rs.metadata.owner_references.unwrap_or_default();
@@ -299,11 +298,11 @@ pub(super) async fn start_logs(
     name: String,
     container: Option<String>,
 ) -> anyhow::Result<()> {
-    stop_logs(state);
+    state.log_stream.stop();
 
-    let stream_id = state.next_stream_id();
+    let stream_id = state.log_stream.next_id();
 
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Pod> = Api::namespaced(client.clone(), &namespace);
 
     let log_params = LogParams {
@@ -314,8 +313,8 @@ pub(super) async fn start_logs(
     };
 
     let sender_cloned = sender.clone();
-    let seq = state.seq.clone();
-    let context = state.current_context.clone();
+    let seq = state.cluster.seq.clone();
+    let context = state.cluster.current_context.clone();
     let route = Route::namespaced(
         section_keys::workloads_pods(),
         context,
@@ -380,7 +379,7 @@ pub(super) async fn start_logs(
         );
     });
 
-    state.log_task = Some(handle);
+    state.log_stream.log_task = Some(handle);
     Ok(())
 }
 

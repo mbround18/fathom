@@ -19,7 +19,7 @@ pub async fn dispatch_cmd(
         BackendCmd::Shutdown => {
             tracing::info!("Shutdown command received, cleaning up all background tasks...");
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 "Shutting down backend...".to_owned(),
             );
@@ -34,7 +34,7 @@ pub async fn dispatch_cmd(
             remote_port,
             container,
         } => {
-            if let Some(client) = &state.client {
+            if let Some(client) = &state.cluster.client {
                 match state
                     .port_forward_manager
                     .start(client, &namespace, &pod, local_port, remote_port, container)
@@ -42,7 +42,7 @@ pub async fn dispatch_cmd(
                 {
                     Ok(tunnel_id) => {
                         events::notify_info(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!(
                                 "Started port forward [{}]: {}/{} {}:{}",
@@ -55,7 +55,7 @@ pub async fn dispatch_cmd(
                     }
                     Err(e) => {
                         events::notify_error(
-                            state.seq.as_ref(),
+                            state.cluster.seq.as_ref(),
                             sender,
                             format!("Failed to start port forward: {}", e),
                         );
@@ -63,7 +63,7 @@ pub async fn dispatch_cmd(
                 }
             } else {
                 events::notify_error(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     "Not connected to cluster".to_owned(),
                 );
@@ -74,7 +74,7 @@ pub async fn dispatch_cmd(
             match state.port_forward_manager.stop(&tunnel_id).await {
                 Ok(_) => {
                     events::notify_info(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         format!("Stopped port forward: {}", tunnel_id),
                     );
@@ -83,7 +83,7 @@ pub async fn dispatch_cmd(
                 }
                 Err(e) => {
                     events::notify_error(
-                        state.seq.as_ref(),
+                        state.cluster.seq.as_ref(),
                         sender,
                         format!("Failed to stop port forward: {}", e),
                     );
@@ -96,7 +96,7 @@ pub async fn dispatch_cmd(
             state.port_forward_manager.delete(&tunnel_id);
 
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 format!("Deleted port forward: {}", tunnel_id),
             );
@@ -116,7 +116,7 @@ pub async fn dispatch_cmd(
                 pf.auto_start = auto_start;
 
                 events::notify_info(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!("Updated port forward: {}", tunnel_id),
                 );
@@ -124,7 +124,7 @@ pub async fn dispatch_cmd(
                 portforward::save_port_forwards_to_disk(state);
             } else {
                 events::notify_error(
-                    state.seq.as_ref(),
+                    state.cluster.seq.as_ref(),
                     sender,
                     format!("Port forward not found: {}", tunnel_id),
                 );
@@ -134,7 +134,7 @@ pub async fn dispatch_cmd(
         BackendCmd::RefreshPortForwards => {
             portforward::emit_port_forward_list(state, sender);
             events::notify_info(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 "Port forwards refreshed".to_owned(),
             );
@@ -144,7 +144,7 @@ pub async fn dispatch_cmd(
             let available = portforward::is_local_port_available(port);
             let event = BackendEvent::System(SystemEvent::PortAvailability { port, available });
             events::emit(
-                state.seq.as_ref(),
+                state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::network_portforwards()),
                 Correlation::None,

@@ -11,25 +11,24 @@ use serde_json::json;
 use super::{events, state::BackendState};
 
 use super::interactions;
-use super::state::client_or_err;
 use super::workload_common;
 
 pub(super) async fn refresh_replicationcontrollers(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicationController> = Api::all(client);
 
     let rcs = api.list(&ListParams::default()).await?;
-    let summaries = replicationcontrollers_to_summaries(rcs.items, &state.namespace_filter);
+    let summaries = replicationcontrollers_to_summaries(rcs.items, &state.cluster.namespace_filter);
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_replicationcontrollers(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -74,14 +73,14 @@ pub(super) async fn delete_replicationcontroller(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
 
     let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "delete",
         &ts,
         json!({}),
@@ -90,7 +89,7 @@ pub(super) async fn delete_replicationcontroller(
 
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Deleted replicationcontroller {}/{}", namespace, name),
     );
@@ -104,14 +103,14 @@ pub(super) async fn scale_replicationcontroller(
     name: &str,
     replicas: i32,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
 
     let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "scale",
         &ts,
         json!({"replicas": replicas}),
@@ -122,7 +121,7 @@ pub(super) async fn scale_replicationcontroller(
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!(
             "Scaled replicationcontroller {}/{} to {}",
@@ -139,7 +138,7 @@ pub(super) async fn restart_replicationcontroller(
     name: &str,
 ) -> anyhow::Result<()> {
     // Best-effort "restart": delete pods matching the RC selector.
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
     let rc = api.get(name).await?;
 
@@ -156,7 +155,7 @@ pub(super) async fn restart_replicationcontroller(
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "restart",
         &ts,
         json!({"deletedPods": deleted}),
@@ -164,7 +163,7 @@ pub(super) async fn restart_replicationcontroller(
     .await;
 
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!(
             "Restart requested for replicationcontroller {}/{} (deleted {} matching pods)",
@@ -180,7 +179,7 @@ pub(super) async fn fetch_replicationcontroller_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
     let rc = api.get(name).await?;
 
@@ -220,11 +219,11 @@ pub(super) async fn fetch_replicationcontroller_details(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_replicationcontrollers(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_owned()),
         ),
         Correlation::None,

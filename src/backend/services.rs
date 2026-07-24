@@ -11,24 +11,23 @@ use kube::{
 use std::collections::BTreeMap;
 
 use super::interactions;
-use super::state::client_or_err;
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_services(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Service> = Api::all(client);
 
     let services = api.list(&ListParams::default()).await?;
-    let summaries = services_to_summaries(services.items, &state.namespace_filter);
+    let summaries = services_to_summaries(services.items, &state.cluster.namespace_filter);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::network_services(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -95,17 +94,17 @@ pub(super) async fn fetch_service_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Service> = Api::namespaced(client, namespace);
     let svc = api.get(name).await?;
 
     let details = service_to_details(svc);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::network_services(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_string()),
         ),
         Correlation::None,
@@ -222,14 +221,14 @@ pub(super) async fn delete_service(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Service> = Api::namespaced(client, namespace);
 
     let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "delete",
         &ts,
         serde_json::json!({}),

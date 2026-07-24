@@ -221,7 +221,7 @@ pub fn emit_port_forward_list(
 ) {
     let list = state.port_forward_manager.list();
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::global(section_keys::network_portforwards()),
         Correlation::None,

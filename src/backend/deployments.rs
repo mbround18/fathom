@@ -13,24 +13,23 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 use super::pods;
-use super::state::client_or_err;
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_deployments(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Deployment> = Api::all(client);
 
     let deployments = api.list(&ListParams::default()).await?;
-    let summaries = deployments_to_summaries(deployments.items, &state.namespace_filter);
+    let summaries = deployments_to_summaries(deployments.items, &state.cluster.namespace_filter);
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_deployments(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -90,11 +89,11 @@ pub(super) async fn delete_deployment(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Deleted deployment {}/{}", namespace, name),
     );
@@ -108,13 +107,13 @@ pub(super) async fn scale_deployment(
     name: &str,
     replicas: i32,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
     let patch = json!({"spec": {"replicas": replicas }});
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Scaled deployment {}/{} to {}", namespace, name, replicas),
     );
@@ -127,7 +126,7 @@ pub(super) async fn restart_deployment(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
     let ts = Utc::now().to_rfc3339();
     let patch = json!({
@@ -142,7 +141,7 @@ pub(super) async fn restart_deployment(
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Restart requested for deployment {}/{}", namespace, name),
     );
@@ -155,7 +154,7 @@ pub(super) async fn fetch_deployment_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Deployment> = Api::namespaced(client, namespace);
     let deploy = api.get(name).await?;
 
@@ -210,7 +209,7 @@ pub(super) async fn fetch_deployment_details(
     let pods = if pod_selector.is_empty() {
         Vec::new()
     } else {
-        let pod_api: Api<Pod> = Api::namespaced(client_or_err(state)?, namespace);
+        let pod_api: Api<Pod> = Api::namespaced(state.cluster.client_or_err()?, namespace);
         let list = pod_api
             .list(&ListParams::default().labels(&pod_selector))
             .await?;
@@ -232,11 +231,11 @@ pub(super) async fn fetch_deployment_details(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_deployments(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_owned()),
         ),
         Correlation::None,

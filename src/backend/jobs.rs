@@ -9,25 +9,24 @@ use kube::api::{Api, DeleteParams, ListParams};
 use serde_json::json;
 
 use super::interactions;
-use super::state::client_or_err;
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_jobs(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Job> = Api::all(client);
 
     let jobs = api.list(&ListParams::default()).await?;
-    let summaries = jobs_to_summaries(jobs.items, &state.namespace_filter);
+    let summaries = jobs_to_summaries(jobs.items, &state.cluster.namespace_filter);
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_jobs(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             None,
         ),
         Correlation::None,
@@ -120,7 +119,7 @@ pub(super) async fn fetch_job_details(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Job> = Api::namespaced(client, namespace);
     let job = api.get(name).await?;
 
@@ -225,11 +224,11 @@ pub(super) async fn fetch_job_details(
     };
 
     events::emit(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         Route::namespaced(
             section_keys::workloads_jobs(),
-            state.current_context.clone(),
+            state.cluster.current_context.clone(),
             Some(namespace.to_string()),
         ),
         Correlation::None,
@@ -244,14 +243,14 @@ pub(super) async fn delete_job(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let client = client_or_err(state)?;
+    let client = state.cluster.client_or_err()?;
     let api: Api<Job> = Api::namespaced(client, namespace);
 
     let ts = Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.current_context.as_deref(),
+        state.cluster.current_context.as_deref(),
         "delete",
         &ts,
         json!({}),
@@ -260,7 +259,7 @@ pub(super) async fn delete_job(
 
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.seq.as_ref(),
+        state.cluster.seq.as_ref(),
         sender,
         format!("Deleted job {}/{}", namespace, name),
     );
