@@ -494,6 +494,90 @@ impl ModalView {
                         name,
                     }));
                 }
+                ConfirmAction::DeletePersistentVolume(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePersistentVolume { name }));
+                }
+                ConfirmAction::DeletePersistentVolumeClaim(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePersistentVolumeClaim {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteStorageClass(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteStorageClass { name }));
+                }
+                ConfirmAction::DeleteRole(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteRole {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteRoleBinding(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteRoleBinding {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteClusterRole(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteClusterRole { name }));
+                }
+                ConfirmAction::DeleteClusterRoleBinding(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteClusterRoleBinding { name }));
+                }
+                ConfirmAction::DeleteConfigMap(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteConfigMap {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteSecret(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteSecret {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteResourceQuota(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteResourceQuota {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteLimitRange(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteLimitRange {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteHorizontalPodAutoscaler(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteHorizontalPodAutoscaler {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeletePodDisruptionBudget(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePodDisruptionBudget {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeletePriorityClass(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePriorityClass { name }));
+                }
+                ConfirmAction::DeleteRuntimeClass(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteRuntimeClass { name }));
+                }
+                ConfirmAction::DeleteLease(namespace, name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteLease {
+                        namespace,
+                        name,
+                    }));
+                }
+                ConfirmAction::DeleteMutatingWebhookConfiguration(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteMutatingWebhookConfiguration { name }));
+                }
+                ConfirmAction::DeleteValidatingWebhookConfiguration(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteValidatingWebhookConfiguration { name }));
+                }
                 ConfirmAction::DeleteCronJob(namespace, name) => {
                     actions.push(ViewAction::SendCommand(BackendCmd::DeleteCronJob {
                         namespace,

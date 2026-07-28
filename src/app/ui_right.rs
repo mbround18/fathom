@@ -207,6 +207,150 @@ impl FathomApp {
                                         ),
                                         "Delete".to_string(),
                                     ),
+                                    ConfirmAction::DeletePersistentVolume(name) => (
+                                        "Delete Persistent Volume".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete persistent volume {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeletePersistentVolumeClaim(ns, name) => (
+                                        "Delete Persistent Volume Claim".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete persistent volume claim {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteStorageClass(name) => (
+                                        "Delete Storage Class".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete storage class {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteRole(ns, name) => (
+                                        "Delete Role".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete role {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteRoleBinding(ns, name) => (
+                                        "Delete Role Binding".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete role binding {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteClusterRole(name) => (
+                                        "Delete Cluster Role".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete cluster role {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteClusterRoleBinding(name) => (
+                                        "Delete Cluster Role Binding".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete cluster role binding {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteConfigMap(ns, name) => (
+                                        "Delete Config Map".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete config map {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteSecret(ns, name) => (
+                                        "Delete Secret".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete secret {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteResourceQuota(ns, name) => (
+                                        "Delete Resource Quota".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete resource quota {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteLimitRange(ns, name) => (
+                                        "Delete Limit Range".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete limit range {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteHorizontalPodAutoscaler(ns, name) => (
+                                        "Delete Horizontal Pod Autoscaler".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete horizontal pod autoscaler {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeletePodDisruptionBudget(ns, name) => (
+                                        "Delete Pod Disruption Budget".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete pod disruption budget {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeletePriorityClass(name) => (
+                                        "Delete Priority Class".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete priority class {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteRuntimeClass(name) => (
+                                        "Delete Runtime Class".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete runtime class {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteLease(ns, name) => (
+                                        "Delete Lease".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete lease {} in namespace {}?",
+                                            name, ns
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteMutatingWebhookConfiguration(name) => (
+                                        "Delete Mutating Webhook Configuration".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete mutating webhook configuration {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
+                                    ConfirmAction::DeleteValidatingWebhookConfiguration(name) => (
+                                        "Delete Validating Webhook Configuration".to_string(),
+                                        format!(
+                                            "Are you sure you want to delete validating webhook configuration {}?",
+                                            name
+                                        ),
+                                        "Delete".to_string(),
+                                    ),
                                     ConfirmAction::DeleteJob(ns, name) => (
                                         "Delete Job".to_string(),
                                         format!(

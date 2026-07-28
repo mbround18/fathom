@@ -282,6 +282,97 @@ pub enum BackendCmdV1 {
     SetActiveSection {
         section: SectionKey,
     },
+
+    // Storage / Config / Access resources
+    // storage_pv
+    RefreshPersistentVolumes,
+    SelectPersistentVolume { name: String },
+    DeletePersistentVolume { name: String },
+
+    // storage_pvc
+    RefreshPersistentVolumeClaims,
+    SelectPersistentVolumeClaim { namespace: String, name: String },
+    DeletePersistentVolumeClaim { namespace: String, name: String },
+
+    // storage_storageclasses
+    RefreshStorageClasses,
+    SelectStorageClass { name: String },
+    DeleteStorageClass { name: String },
+
+    // access_roles
+    RefreshRoles,
+    SelectRole { namespace: String, name: String },
+    DeleteRole { namespace: String, name: String },
+
+    // access_rolebindings
+    RefreshRoleBindings,
+    SelectRoleBinding { namespace: String, name: String },
+    DeleteRoleBinding { namespace: String, name: String },
+
+    // access_clusterroles
+    RefreshClusterRoles,
+    SelectClusterRole { name: String },
+    DeleteClusterRole { name: String },
+
+    // access_clusterrolebindings
+    RefreshClusterRoleBindings,
+    SelectClusterRoleBinding { name: String },
+    DeleteClusterRoleBinding { name: String },
+
+    // config_configmaps
+    RefreshConfigMaps,
+    SelectConfigMap { namespace: String, name: String },
+    DeleteConfigMap { namespace: String, name: String },
+
+    // config_secrets
+    RefreshSecrets,
+    SelectSecret { namespace: String, name: String },
+    DeleteSecret { namespace: String, name: String },
+
+    // config_resourcequotas
+    RefreshResourceQuotas,
+    SelectResourceQuota { namespace: String, name: String },
+    DeleteResourceQuota { namespace: String, name: String },
+
+    // config_limitranges
+    RefreshLimitRanges,
+    SelectLimitRange { namespace: String, name: String },
+    DeleteLimitRange { namespace: String, name: String },
+
+    // config_horizontalpodautoscalers
+    RefreshHorizontalPodAutoscalers,
+    SelectHorizontalPodAutoscaler { namespace: String, name: String },
+    DeleteHorizontalPodAutoscaler { namespace: String, name: String },
+
+    // config_poddisruptionbudgets
+    RefreshPodDisruptionBudgets,
+    SelectPodDisruptionBudget { namespace: String, name: String },
+    DeletePodDisruptionBudget { namespace: String, name: String },
+
+    // config_priorityclasses
+    RefreshPriorityClasses,
+    SelectPriorityClass { name: String },
+    DeletePriorityClass { name: String },
+
+    // config_runtimeclasses
+    RefreshRuntimeClasses,
+    SelectRuntimeClass { name: String },
+    DeleteRuntimeClass { name: String },
+
+    // config_leases
+    RefreshLeases,
+    SelectLease { namespace: String, name: String },
+    DeleteLease { namespace: String, name: String },
+
+    // config_mutatingwebhooks
+    RefreshMutatingWebhookConfigurations,
+    SelectMutatingWebhookConfiguration { name: String },
+    DeleteMutatingWebhookConfiguration { name: String },
+
+    // config_validatingwebhooks
+    RefreshValidatingWebhookConfigurations,
+    SelectValidatingWebhookConfiguration { name: String },
+    DeleteValidatingWebhookConfiguration { name: String },
 }
 
 pub type BackendCmd = BackendCmdV1;

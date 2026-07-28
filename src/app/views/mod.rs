@@ -21,6 +21,24 @@ pub mod services;
 pub mod status;
 pub mod traits;
 pub mod workloads;
+pub mod persistentvolumes;
+pub mod persistentvolumeclaims;
+pub mod storageclasses;
+pub mod roles;
+pub mod rolebindings;
+pub mod clusterroles;
+pub mod clusterrolebindings;
+pub mod configmaps;
+pub mod secrets;
+pub mod resourcequotas;
+pub mod limitranges;
+pub mod horizontalpodautoscalers;
+pub mod poddisruptionbudgets;
+pub mod priorityclasses;
+pub mod runtimeclasses;
+pub mod leases;
+pub mod mutatingwebhooks;
+pub mod validatingwebhooks;
 
 pub use context::ContextView;
 pub use cronjobs::CronJobsView;
@@ -48,3 +66,21 @@ pub use workloads::{
     DaemonSetView, DeploymentView, ReplicaSetView, ReplicationControllerView, StatefulSetView,
     WorkloadViewState,
 };
+pub use persistentvolumes::PersistentVolumesView;
+pub use persistentvolumeclaims::PersistentVolumeClaimsView;
+pub use storageclasses::StorageClassesView;
+pub use roles::RolesView;
+pub use rolebindings::RoleBindingsView;
+pub use clusterroles::ClusterRolesView;
+pub use clusterrolebindings::ClusterRoleBindingsView;
+pub use configmaps::ConfigMapsView;
+pub use secrets::SecretsView;
+pub use resourcequotas::ResourceQuotasView;
+pub use limitranges::LimitRangesView;
+pub use horizontalpodautoscalers::HorizontalPodAutoscalersView;
+pub use poddisruptionbudgets::PodDisruptionBudgetsView;
+pub use priorityclasses::PriorityClassesView;
+pub use runtimeclasses::RuntimeClassesView;
+pub use leases::LeasesView;
+pub use mutatingwebhooks::MutatingWebhooksView;
+pub use validatingwebhooks::ValidatingWebhooksView;

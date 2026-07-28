@@ -6,12 +6,16 @@ use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use std::collections::HashMap;
 use views::{
-    BoxedView, ContextView, CronJobsView, DaemonSetView, DeploymentView, EndpointsView,
-    EventsView, IngressClassesView, IngressesView, IntegrationsView, JobsView,
-    McpIntegrationView, ModalState, ModalView, NamespacesView, NavigationView,
-    NetworkPoliciesView, NodesView, OverviewView, PlaceholderView, PodsView, PortForwardsView,
-    ReplicaSetView, ReplicationControllerView, ServicesView, StatefulSetView, StatusView,
-    ViewAction, ViewComponent,
+    BoxedView, ClusterRoleBindingsView, ClusterRolesView, ConfigMapsView, ContextView,
+    CronJobsView, DaemonSetView, DeploymentView, EndpointsView, EventsView,
+    HorizontalPodAutoscalersView, IngressClassesView, IngressesView, IntegrationsView, JobsView,
+    LeasesView, LimitRangesView, McpIntegrationView, ModalState, ModalView,
+    MutatingWebhooksView, NamespacesView, NavigationView, NetworkPoliciesView, NodesView,
+    OverviewView, PersistentVolumeClaimsView, PersistentVolumesView, PlaceholderView,
+    PodDisruptionBudgetsView, PodsView, PortForwardsView, PriorityClassesView,
+    ReplicaSetView, ReplicationControllerView, ResourceQuotasView, RoleBindingsView, RolesView,
+    RuntimeClassesView, SecretsView, ServicesView, StatefulSetView, StatusView, StorageClassesView,
+    ValidatingWebhooksView, ViewAction, ViewComponent,
 };
 
 pub mod components;
@@ -93,6 +97,24 @@ pub enum ConfirmAction {
     DeleteService(String, String),
     DeleteIngress(String, String),
     DeleteNetworkPolicy(String, String),
+    DeletePersistentVolume(String),
+    DeletePersistentVolumeClaim(String, String),
+    DeleteStorageClass(String),
+    DeleteRole(String, String),
+    DeleteRoleBinding(String, String),
+    DeleteClusterRole(String),
+    DeleteClusterRoleBinding(String),
+    DeleteConfigMap(String, String),
+    DeleteSecret(String, String),
+    DeleteResourceQuota(String, String),
+    DeleteLimitRange(String, String),
+    DeleteHorizontalPodAutoscaler(String, String),
+    DeletePodDisruptionBudget(String, String),
+    DeletePriorityClass(String),
+    DeleteRuntimeClass(String),
+    DeleteLease(String, String),
+    DeleteMutatingWebhookConfiguration(String),
+    DeleteValidatingWebhookConfiguration(String),
     RestartDeployment(String, String),
     RestartDaemonSet(String, String),
     RestartStatefulSet(String, String),
@@ -378,6 +400,42 @@ impl FathomApp {
                 Box::new(IngressClassesView::new())
             } else if section_key == &section_keys::network_policies() {
                 Box::new(NetworkPoliciesView::new())
+            } else if section_key == &section_keys::storage_pv() {
+                Box::new(PersistentVolumesView::new())
+            } else if section_key == &section_keys::storage_pvc() {
+                Box::new(PersistentVolumeClaimsView::new())
+            } else if section_key == &section_keys::storage_storageclasses() {
+                Box::new(StorageClassesView::new())
+            } else if section_key == &section_keys::access_roles() {
+                Box::new(RolesView::new())
+            } else if section_key == &section_keys::access_rolebindings() {
+                Box::new(RoleBindingsView::new())
+            } else if section_key == &section_keys::access_clusterroles() {
+                Box::new(ClusterRolesView::new())
+            } else if section_key == &section_keys::access_clusterrolebindings() {
+                Box::new(ClusterRoleBindingsView::new())
+            } else if section_key == &section_keys::config_configmaps() {
+                Box::new(ConfigMapsView::new())
+            } else if section_key == &section_keys::config_secrets() {
+                Box::new(SecretsView::new())
+            } else if section_key == &section_keys::config_resourcequotas() {
+                Box::new(ResourceQuotasView::new())
+            } else if section_key == &section_keys::config_limitranges() {
+                Box::new(LimitRangesView::new())
+            } else if section_key == &section_keys::config_horizontalpodautoscalers() {
+                Box::new(HorizontalPodAutoscalersView::new())
+            } else if section_key == &section_keys::config_poddisruptionbudgets() {
+                Box::new(PodDisruptionBudgetsView::new())
+            } else if section_key == &section_keys::config_priorityclasses() {
+                Box::new(PriorityClassesView::new())
+            } else if section_key == &section_keys::config_runtimeclasses() {
+                Box::new(RuntimeClassesView::new())
+            } else if section_key == &section_keys::config_leases() {
+                Box::new(LeasesView::new())
+            } else if section_key == &section_keys::config_mutatingwebhooks() {
+                Box::new(MutatingWebhooksView::new())
+            } else if section_key == &section_keys::config_validatingwebhooks() {
+                Box::new(ValidatingWebhooksView::new())
             } else {
                 // Placeholder for sections not yet implemented
                 Box::new(PlaceholderView::new(section_key.clone()))
