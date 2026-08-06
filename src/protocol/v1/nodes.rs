@@ -7,6 +7,7 @@ pub struct NodeSummary {
     pub status: String, // Ready, NotReady, Unknown
     pub role: String,   // master, worker, or empty
     pub pod_count: u32,
+    pub pod_capacity: u32,
     pub cpu_allocatable_millicores: i64,
     pub memory_allocatable_bytes: i64,
 }

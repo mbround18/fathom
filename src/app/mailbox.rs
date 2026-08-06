@@ -112,11 +112,15 @@ impl FathomApp {
                 BackendEvent::Stream(ev) => match ev {
                     StreamEvent::PortForwardTunnel {
                         tunnel_id: _,
-                        status: _,
+                        status,
                         local_endpoint: _,
                     } => {
-                        // TODO: Handle port forward status updates
-                        self.push_status("Port forward status updated".to_string());
+                        // Broadcast to all views so PortForwardsView can update status indicators
+                        // regardless of which view is currently active
+                        for view in self.views.values_mut() {
+                            view.on_event(event);
+                        }
+                        self.push_status(format!("Port forward status: {:?}", status));
                     }
                     // Other stream events handled by views via on_event()
                     _ => {}

@@ -77,6 +77,10 @@ pub trait ViewComponent: Send {
     fn on_unmount(&mut self) -> Vec<ViewAction> {
         Vec::new()
     }
+
+    /// Apply a namespace filter (empty = show all) to views that scope their
+    /// resource list by namespace. No-op for views that don't.
+    fn set_namespace_filter(&mut self, _filter: Vec<String>) {}
 }
 
 /// Trait for views that can be boxed dynamically

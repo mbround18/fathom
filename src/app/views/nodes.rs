@@ -1,3 +1,4 @@
+use super::detail_sections::render_raw_json_collapsing;
 /// Nodes section: displays node list with status, resource allocation, and pod capacity.
 use egui::{RichText, ScrollArea, Ui};
 
@@ -241,13 +242,7 @@ impl ViewComponent for NodesView {
                 }
 
                 ui.add_space(12.0);
-                ui.collapsing("Raw JSON", |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(250.0)
-                        .show(ui, |ui| {
-                            ui.monospace(&details.raw_json);
-                        });
-                });
+                render_raw_json_collapsing(ui, &details.raw_json);
 
                 (true, actions)
             }

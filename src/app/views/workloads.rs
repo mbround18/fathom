@@ -1,9 +1,10 @@
 use super::super::components::Table;
+use super::detail_sections::{render_kv_collapsing, render_raw_json_collapsing};
 use super::traits::{ViewAction, ViewComponent};
 use crate::app::{ConfirmAction, WorkloadKind};
 use crate::protocol::{
-    BackendCmd, BackendEvent, DeploymentDetails, DeploymentSummary, ResourceListEvent,
-    ResourceReadEvent, WorkloadMetricsAggregate,
+    BackendCmd, BackendEvent, ResourceListEvent, ResourceReadEvent, WorkloadDetails,
+    WorkloadMetricsAggregate, WorkloadSummary,
 };
 
 /// Render aggregated metrics for a workload with per-container breakdown
@@ -95,9 +96,6 @@ fn render_workload_metrics(ui: &mut egui::Ui, metrics: &WorkloadMetricsAggregate
 
                             // CPU bar
                             if let Some(cpu_pct) = container.cpu_usage_percent {
-                                let _bar_width = ui.available_width() - 40.0;
-                                let _fill_fraction = (cpu_pct / 100.0).min(1.0);
-
                                 ui.horizontal(|ui| {
                                     ui.label("CPU:");
                                     let bar_color = if cpu_pct > 80.0 {
@@ -156,80 +154,11 @@ fn render_workload_metrics(ui: &mut egui::Ui, metrics: &WorkloadMetricsAggregate
     });
 }
 
-/// Shared helper for rendering workload details panel
-fn render_workload_details(
-    ui: &mut egui::Ui,
-    workload_type: &str,
-    details: &Option<DeploymentDetails>,
-    supports_scaling: bool,
-    actions: &mut Vec<ViewAction>,
-) {
-    let Some(details) = details else {
-        ui.label(format!(
-            "Loading {} details...",
-            workload_type.to_lowercase()
-        ));
-        return;
-    };
-
-    ui.monospace(format!("Created: {}", details.creation_timestamp));
-    ui.add_space(6.0);
-
-    ui.label(format!("Namespace: {}", details.namespace));
-    ui.label(format!("Containers: {}", details.containers.join(", ")));
-
-    if supports_scaling {
-        ui.add_space(8.0);
-        if ui.button(format!("Scale {}", workload_type)).clicked() {
-            // TODO: Open scale modal in Phase 7
-            actions.push(ViewAction::NotifyStatus(format!(
-                "Scale {} to replicas",
-                workload_type.to_lowercase()
-            )));
-        }
-    }
-
-    ui.add_space(10.0);
-    ui.collapsing("Labels", |ui| {
-        for (k, v) in &details.labels {
-            ui.monospace(format!("{}={}", k, v));
-        }
-    });
-
-    ui.collapsing("Annotations", |ui| {
-        for (k, v) in &details.annotations {
-            ui.monospace(format!("{}={}", k, v));
-        }
-    });
-
-    ui.add_space(10.0);
-    ui.collapsing("Raw JSON", |ui| {
-        egui::ScrollArea::vertical()
-            .max_height(250.0)
-            .show(ui, |ui| {
-                ui.monospace(&details.raw_json);
-            });
-    });
-
-    // Show related pods if available
-    if !details.pods.is_empty() {
-        ui.add_space(10.0);
-        ui.collapsing(format!("Pods ({})", details.pods.len()), |ui| {
-            for pod in &details.pods {
-                ui.monospace(format!(
-                    "- {}: {} ({}/{})",
-                    pod.name, pod.phase, pod.ready, pod.total
-                ));
-            }
-        });
-    }
-}
-
 /// Shared helper for rendering workload grids using the Table component
 fn render_workload_grid(
     ui: &mut egui::Ui,
     title: &str,
-    table: &mut Table<DeploymentSummary>,
+    table: &mut Table<WorkloadSummary>,
 ) -> Option<(String, String)> {
     ui.heading(title);
     ui.separator();
@@ -238,50 +167,43 @@ fn render_workload_grid(
         super::super::components::table::Column {
             header: "Namespace".to_string(),
             width: 100.0,
-            sort_value: |w: &DeploymentSummary| w.namespace.clone(),
-            render: |w: &DeploymentSummary| w.namespace.clone(),
+            sort_value: |w: &WorkloadSummary| w.namespace.clone(),
+            render: |w: &WorkloadSummary| w.namespace.clone(),
         },
         super::super::components::table::Column {
             header: "Name".to_string(),
             width: 150.0,
-            sort_value: |w: &DeploymentSummary| w.name.clone(),
-            render: |w: &DeploymentSummary| w.name.clone(),
+            sort_value: |w: &WorkloadSummary| w.name.clone(),
+            render: |w: &WorkloadSummary| w.name.clone(),
         },
         super::super::components::table::Column {
             header: "Ready".to_string(),
             width: 60.0,
-            sort_value: |w: &DeploymentSummary| w.ready.to_string(),
-            render: |w: &DeploymentSummary| w.ready.to_string(),
+            sort_value: |w: &WorkloadSummary| w.ready.to_string(),
+            render: |w: &WorkloadSummary| w.ready.to_string(),
         },
         super::super::components::table::Column {
             header: "Updated".to_string(),
             width: 60.0,
-            sort_value: |w: &DeploymentSummary| w.updated.to_string(),
-            render: |w: &DeploymentSummary| w.updated.to_string(),
+            sort_value: |w: &WorkloadSummary| w.updated.to_string(),
+            render: |w: &WorkloadSummary| w.updated.to_string(),
         },
         super::super::components::table::Column {
             header: "Available".to_string(),
             width: 60.0,
-            sort_value: |w: &DeploymentSummary| w.available.to_string(),
-            render: |w: &DeploymentSummary| w.available.to_string(),
+            sort_value: |w: &WorkloadSummary| w.available.to_string(),
+            render: |w: &WorkloadSummary| w.available.to_string(),
         },
         super::super::components::table::Column {
             header: "Desired".to_string(),
             width: 60.0,
-            sort_value: |w: &DeploymentSummary| w.desired.to_string(),
-            render: |w: &DeploymentSummary| w.desired.to_string(),
+            sort_value: |w: &WorkloadSummary| w.desired.to_string(),
+            render: |w: &WorkloadSummary| w.desired.to_string(),
         },
     ];
 
-    let search_fn = |w: &DeploymentSummary, query: &str| {
+    let search_fn = |w: &WorkloadSummary, query: &str| {
         w.namespace.to_lowercase().contains(query) || w.name.to_lowercase().contains(query)
-    };
-
-    // Track selected row to emit selection action
-    let mut newly_selected: Option<(String, String)> = None;
-    let on_row_clicked = |original_idx: usize| {
-        // We'll capture this in the render_table call
-        // This is a limitation of the current design - we'll handle this differently
     };
 
     table.render_table(ui, &columns, search_fn, None);
@@ -289,36 +211,180 @@ fn render_workload_grid(
     // Extract selected from table and convert back to (namespace, name)
     if let Some(selected_idx) = table.selected {
         if let Some(item) = table.items.get(selected_idx) {
-            newly_selected = Some((item.namespace.clone(), item.name.clone()));
+            return Some((item.namespace.clone(), item.name.clone()));
         }
     }
 
-    newly_selected
+    None
 }
 
-/// Generic state shared by all workload views
-pub struct WorkloadViewState {
-    pub summaries: Vec<DeploymentSummary>,
-    pub selected: Option<(String, String)>,
-    pub details: Option<DeploymentDetails>,
-    pub metrics: Option<WorkloadMetricsAggregate>,
-    pub workload_type: &'static str,
+/// Per-kind wiring that differs across the 5 workload kinds (Deployment,
+/// DaemonSet, StatefulSet, ReplicaSet, ReplicationController). Everything
+/// else — table rendering, selection, details panel layout — is shared by
+/// [`WorkloadView`]. Kept as static function pointers (not closures with
+/// captures) so each kind is a plain `'static` data table, not a trait object.
+pub struct WorkloadKindConfig {
+    pub view_id: &'static str,
+    pub label: &'static str,
+    pub grid_title: &'static str,
+    pub kind: WorkloadKind,
     pub supports_scaling: bool,
-    pub table: Table<DeploymentSummary>,
+    pub refresh_cmd: BackendCmd,
+    pub select_cmd: fn(String, String) -> BackendCmd,
+    pub delete_action: fn(String, String) -> ConfirmAction,
+    pub restart_action: fn(String, String) -> ConfirmAction,
+    pub match_list: fn(&BackendEvent) -> Option<Vec<WorkloadSummary>>,
+    pub match_details: fn(&BackendEvent) -> Option<WorkloadDetails>,
+    /// `None` for kinds where the backend doesn't (yet) emit a per-kind
+    /// metrics event (ReplicaSet, ReplicationController).
+    pub match_metrics: Option<fn(&BackendEvent) -> Option<WorkloadMetricsAggregate>>,
+}
+
+pub static DEPLOYMENT_CONFIG: WorkloadKindConfig = WorkloadKindConfig {
+    view_id: "workloads_deployments",
+    label: "Deployment",
+    grid_title: "Deployments",
+    kind: WorkloadKind::Deployment,
+    supports_scaling: true,
+    refresh_cmd: BackendCmd::RefreshDeployments,
+    select_cmd: |namespace, name| BackendCmd::SelectDeployment { namespace, name },
+    delete_action: ConfirmAction::DeleteDeployment,
+    restart_action: ConfirmAction::RestartDeployment,
+    match_list: |event| match event {
+        BackendEvent::ResourceList(ResourceListEvent::DeploymentsUpdated(v)) => Some(v.clone()),
+        _ => None,
+    },
+    match_details: |event| match event {
+        BackendEvent::ResourceRead(ResourceReadEvent::DeploymentDetailsUpdated(d)) => {
+            Some(d.clone())
+        }
+        _ => None,
+    },
+    match_metrics: Some(|event| match event {
+        BackendEvent::ResourceRead(ResourceReadEvent::DeploymentMetricsUpdated(m)) => {
+            Some(m.clone())
+        }
+        _ => None,
+    }),
+};
+
+pub static DAEMONSET_CONFIG: WorkloadKindConfig = WorkloadKindConfig {
+    view_id: "workloads_daemonsets",
+    label: "DaemonSet",
+    grid_title: "DaemonSets",
+    kind: WorkloadKind::DaemonSet,
+    supports_scaling: false,
+    refresh_cmd: BackendCmd::RefreshDaemonSets,
+    select_cmd: |namespace, name| BackendCmd::SelectDaemonSet { namespace, name },
+    delete_action: ConfirmAction::DeleteDaemonSet,
+    restart_action: ConfirmAction::RestartDaemonSet,
+    match_list: |event| match event {
+        BackendEvent::ResourceList(ResourceListEvent::DaemonSetsUpdated(v)) => Some(v.clone()),
+        _ => None,
+    },
+    match_details: |event| match event {
+        BackendEvent::ResourceRead(ResourceReadEvent::DaemonSetDetailsUpdated(d)) => {
+            Some(d.clone())
+        }
+        _ => None,
+    },
+    // Backend does emit DaemonSetMetricsUpdated, but the values are a hardcoded
+    // stub today (see backend/metrics.rs) — not wiring it up here so this view
+    // doesn't newly display fabricated numbers; matches prior behavior.
+    match_metrics: None,
+};
+
+pub static STATEFULSET_CONFIG: WorkloadKindConfig = WorkloadKindConfig {
+    view_id: "workloads_statefulsets",
+    label: "StatefulSet",
+    grid_title: "StatefulSets",
+    kind: WorkloadKind::StatefulSet,
+    supports_scaling: true,
+    refresh_cmd: BackendCmd::RefreshStatefulSets,
+    select_cmd: |namespace, name| BackendCmd::SelectStatefulSet { namespace, name },
+    delete_action: ConfirmAction::DeleteStatefulSet,
+    restart_action: ConfirmAction::RestartStatefulSet,
+    match_list: |event| match event {
+        BackendEvent::ResourceList(ResourceListEvent::StatefulSetsUpdated(v)) => Some(v.clone()),
+        _ => None,
+    },
+    match_details: |event| match event {
+        BackendEvent::ResourceRead(ResourceReadEvent::StatefulSetDetailsUpdated(d)) => {
+            Some(d.clone())
+        }
+        _ => None,
+    },
+    // See DAEMONSET_CONFIG note: metrics values are a stub, not wired up.
+    match_metrics: None,
+};
+
+pub static REPLICASET_CONFIG: WorkloadKindConfig = WorkloadKindConfig {
+    view_id: "workloads_replicasets",
+    label: "ReplicaSet",
+    grid_title: "ReplicaSets",
+    kind: WorkloadKind::ReplicaSet,
+    supports_scaling: true,
+    refresh_cmd: BackendCmd::RefreshReplicaSets,
+    select_cmd: |namespace, name| BackendCmd::SelectReplicaSet { namespace, name },
+    delete_action: ConfirmAction::DeleteReplicaSet,
+    restart_action: ConfirmAction::RestartReplicaSet,
+    match_list: |event| match event {
+        BackendEvent::ResourceList(ResourceListEvent::ReplicaSetsUpdated(v)) => Some(v.clone()),
+        _ => None,
+    },
+    match_details: |event| match event {
+        BackendEvent::ResourceRead(ResourceReadEvent::ReplicaSetDetailsUpdated(d)) => {
+            Some(d.clone())
+        }
+        _ => None,
+    },
+    match_metrics: None,
+};
+
+pub static REPLICATIONCONTROLLER_CONFIG: WorkloadKindConfig = WorkloadKindConfig {
+    view_id: "workloads_replicationcontrollers",
+    label: "ReplicationController",
+    grid_title: "ReplicationControllers",
+    kind: WorkloadKind::ReplicationController,
+    supports_scaling: true,
+    refresh_cmd: BackendCmd::RefreshReplicationControllers,
+    select_cmd: |namespace, name| BackendCmd::SelectReplicationController { namespace, name },
+    delete_action: ConfirmAction::DeleteReplicationController,
+    restart_action: ConfirmAction::RestartReplicationController,
+    match_list: |event| match event {
+        BackendEvent::ResourceList(ResourceListEvent::ReplicationControllersUpdated(v)) => {
+            Some(v.clone())
+        }
+        _ => None,
+    },
+    match_details: |event| match event {
+        BackendEvent::ResourceRead(ResourceReadEvent::ReplicationControllerDetailsUpdated(d)) => {
+            Some(d.clone())
+        }
+        _ => None,
+    },
+    match_metrics: None,
+};
+
+/// State shared by all workload kinds
+pub struct WorkloadViewState {
+    pub summaries: Vec<WorkloadSummary>,
+    pub selected: Option<(String, String)>,
+    pub details: Option<WorkloadDetails>,
+    pub metrics: Option<WorkloadMetricsAggregate>,
+    pub table: Table<WorkloadSummary>,
     pub metrics_polling_started: bool,
     pub metrics_interval_secs: u64,
     pub namespace_filter: Vec<String>, // Empty = show all
 }
 
 impl WorkloadViewState {
-    pub fn new(workload_type: &'static str, supports_scaling: bool) -> Self {
+    fn new() -> Self {
         Self {
             summaries: Vec::new(),
             selected: None,
             details: None,
             metrics: None,
-            workload_type,
-            supports_scaling,
             table: Table::new(Vec::new()),
             metrics_polling_started: false,
             metrics_interval_secs: 15,
@@ -327,66 +393,82 @@ impl WorkloadViewState {
     }
 }
 
-/// Deployment view
-pub struct DeploymentView(pub WorkloadViewState);
+/// Single [`ViewComponent`] implementation shared by all 5 workload kinds.
+/// Kind-specific behavior (command variants, event matching, scaling support)
+/// comes from the `'static` [`WorkloadKindConfig`] rather than a bespoke
+/// struct + impl per kind.
+pub struct WorkloadView {
+    state: WorkloadViewState,
+    config: &'static WorkloadKindConfig,
+}
 
-impl DeploymentView {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the namespace filter from FathomApp
-    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
-        self.0.namespace_filter = filter;
+impl WorkloadView {
+    pub fn new(config: &'static WorkloadKindConfig) -> Self {
+        Self {
+            state: WorkloadViewState::new(),
+            config,
+        }
     }
 }
 
-impl Default for DeploymentView {
-    fn default() -> Self {
-        Self(WorkloadViewState::new("Deployment", true))
-    }
+pub fn deployment_view() -> WorkloadView {
+    WorkloadView::new(&DEPLOYMENT_CONFIG)
 }
 
-impl ViewComponent for DeploymentView {
+pub fn daemonset_view() -> WorkloadView {
+    WorkloadView::new(&DAEMONSET_CONFIG)
+}
+
+pub fn statefulset_view() -> WorkloadView {
+    WorkloadView::new(&STATEFULSET_CONFIG)
+}
+
+pub fn replicaset_view() -> WorkloadView {
+    WorkloadView::new(&REPLICASET_CONFIG)
+}
+
+pub fn replicationcontroller_view() -> WorkloadView {
+    WorkloadView::new(&REPLICATIONCONTROLLER_CONFIG)
+}
+
+impl ViewComponent for WorkloadView {
     fn id(&self) -> &'static str {
-        "workloads_deployments"
+        self.config.view_id
+    }
+
+    fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.state.namespace_filter = filter;
     }
 
     fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 
         // Filter by namespace (empty filter = show all)
-        let filtered: Vec<DeploymentSummary> = self
-            .0
+        let filtered: Vec<WorkloadSummary> = self
+            .state
             .summaries
             .iter()
             .filter(|s| {
-                if self.0.namespace_filter.is_empty() {
-                    true
-                } else {
-                    self.0.namespace_filter.contains(&s.namespace)
-                }
+                self.state.namespace_filter.is_empty()
+                    || self.state.namespace_filter.contains(&s.namespace)
             })
             .cloned()
             .collect();
 
-        // Update table data
-        self.0.table.set_items(filtered);
+        self.state.table.set_items(filtered);
 
-        let newly_selected = render_workload_grid(ui, "Deployments", &mut self.0.table);
+        let newly_selected =
+            render_workload_grid(ui, self.config.grid_title, &mut self.state.table);
 
         // Only treat as newly selected if it's different from current selection
-        if newly_selected != self.0.selected {
+        if newly_selected != self.state.selected {
             if let Some((ns, name)) = newly_selected {
-                self.0.selected = Some((ns.clone(), name.clone()));
-                self.0.details = None;
-                actions.push(ViewAction::SendCommand(BackendCmd::SelectDeployment {
-                    namespace: ns,
-                    name,
-                }));
+                self.state.selected = Some((ns.clone(), name.clone()));
+                self.state.details = None;
+                actions.push(ViewAction::SendCommand((self.config.select_cmd)(ns, name)));
             } else {
-                self.0.selected = None;
-                self.0.details = None;
+                self.state.selected = None;
+                self.state.details = None;
             }
         }
 
@@ -394,25 +476,21 @@ impl ViewComponent for DeploymentView {
     }
 
     fn on_event(&mut self, event: &BackendEvent) {
-        if let BackendEvent::ResourceList(ResourceListEvent::DeploymentsUpdated(deployments)) =
-            event
-        {
-            self.0.summaries = deployments.clone();
+        if let Some(summaries) = (self.config.match_list)(event) {
+            self.state.summaries = summaries;
         }
 
-        if let BackendEvent::ResourceRead(ResourceReadEvent::DeploymentDetailsUpdated(details)) =
-            event
-        {
-            if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                self.0.details = Some(details.clone());
+        if let Some(details) = (self.config.match_details)(event) {
+            if Some((details.namespace.clone(), details.name.clone())) == self.state.selected {
+                self.state.details = Some(details);
             }
         }
 
-        if let BackendEvent::ResourceRead(ResourceReadEvent::DeploymentMetricsUpdated(metrics)) =
-            event
-        {
-            if Some((metrics.namespace.clone(), metrics.name.clone())) == self.0.selected {
-                self.0.metrics = Some(metrics.clone());
+        if let Some(match_metrics) = self.config.match_metrics {
+            if let Some(metrics) = match_metrics(event) {
+                if Some((metrics.namespace.clone(), metrics.name.clone())) == self.state.selected {
+                    self.state.metrics = Some(metrics);
+                }
             }
         }
     }
@@ -422,43 +500,44 @@ impl ViewComponent for DeploymentView {
         ui: &mut egui::Ui,
         _ctx: &egui::Context,
     ) -> (bool, Vec<ViewAction>) {
-        if self.0.selected.is_none() {
+        if self.state.selected.is_none() {
             return (false, Vec::new());
         }
 
         let mut actions = Vec::new();
-        let (ns, name) = self.0.selected.as_ref().unwrap().clone();
+        let (ns, name) = self.state.selected.as_ref().unwrap().clone();
 
         // Auto-start metrics polling when details panel opens
-        if !self.0.metrics_polling_started {
-            self.0.metrics_polling_started = true;
+        if !self.state.metrics_polling_started {
+            self.state.metrics_polling_started = true;
             actions.push(ViewAction::SendCommand(
                 BackendCmd::StartWorkloadMetricsPolling {
                     namespace: ns.clone(),
                     workload_name: name.clone(),
-                    workload_kind: self.0.workload_type.to_string(),
-                    interval_secs: self.0.metrics_interval_secs,
+                    workload_kind: self.config.label.to_string(),
+                    interval_secs: self.state.metrics_interval_secs,
                 },
             ));
         }
 
         ui.horizontal(|ui| {
-            ui.heading("Deployment");
+            ui.heading(self.config.label);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(
-                        crate::app::ConfirmAction::DeleteDeployment(ns.clone(), name.clone()),
-                    ));
+                    actions.push(ViewAction::OpenModal((self.config.delete_action)(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
                 if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(
-                        crate::app::ConfirmAction::RestartDeployment(ns.clone(), name.clone()),
-                    ));
+                    actions.push(ViewAction::OpenModal((self.config.restart_action)(
+                        ns.clone(),
+                        name.clone(),
+                    )));
                 }
-                if ui.button("Scale").clicked() {
-                    // Get current replica count from the summary
+                if self.config.supports_scaling && ui.button("Scale").clicked() {
                     let current = self
-                        .0
+                        .state
                         .summaries
                         .iter()
                         .find(|s| s.namespace == ns && s.name == name)
@@ -466,15 +545,15 @@ impl ViewComponent for DeploymentView {
                         .unwrap_or(0);
 
                     actions.push(ViewAction::OpenScaleModal(
-                        crate::app::WorkloadKind::Deployment,
+                        self.config.kind.clone(),
                         ns.clone(),
                         name.clone(),
                         current,
                     ));
                 }
                 if ui.button("Close").clicked() {
-                    self.0.selected = None;
-                    self.0.details = None;
+                    self.state.selected = None;
+                    self.state.details = None;
                 }
             });
         });
@@ -488,18 +567,16 @@ impl ViewComponent for DeploymentView {
         ui.add_space(8.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            if let Some(details) = &self.0.details {
-                // Find the summary for replica counts
+            if let Some(details) = &self.state.details {
                 let summary = self
-                    .0
+                    .state
                     .summaries
                     .iter()
                     .find(|s| s.namespace == ns && s.name == name);
 
-                // 📊 Replicas Info
                 ui.group(|ui| {
                     ui.vertical(|ui| {
-                        ui.label("📊 Replicas");
+                        ui.label("📊 Status");
                         ui.separator();
                         if let Some(summary) = summary {
                             ui.horizontal(|ui| {
@@ -509,19 +586,17 @@ impl ViewComponent for DeploymentView {
                                 ui.label(format!("Available:  {}", summary.available));
                             });
                         } else {
-                            ui.label("(loading replica info...)");
+                            ui.label("(loading status...)");
                         }
                     });
                 });
                 ui.add_space(8.0);
 
-                // Aggregated metrics if available
-                if let Some(metrics) = &self.0.metrics {
+                if let Some(metrics) = &self.state.metrics {
                     render_workload_metrics(ui, metrics);
                     ui.add_space(8.0);
                 }
 
-                // ℹ️ Metadata
                 ui.group(|ui| {
                     ui.vertical(|ui| {
                         ui.label("ℹ️ Metadata");
@@ -535,7 +610,6 @@ impl ViewComponent for DeploymentView {
                 });
                 ui.add_space(8.0);
 
-                // 🔍 Selector
                 if !details.pod_selector.is_empty() {
                     ui.group(|ui| {
                         ui.vertical(|ui| {
@@ -547,32 +621,14 @@ impl ViewComponent for DeploymentView {
                     ui.add_space(8.0);
                 }
 
-                // 🏷️ Labels & Annotations
                 ui.group(|ui| {
                     ui.vertical(|ui| {
-                        ui.collapsing("🏷️ Labels", |ui| {
-                            if details.labels.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.labels {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                        ui.collapsing("📝 Annotations", |ui| {
-                            if details.annotations.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.annotations {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
+                        render_kv_collapsing(ui, "🏷️ Labels", &details.labels);
+                        render_kv_collapsing(ui, "📝 Annotations", &details.annotations);
                     });
                 });
                 ui.add_space(8.0);
 
-                // 📦 Related Pods
                 if !details.pods.is_empty() {
                     ui.group(|ui| {
                         ui.vertical(|ui| {
@@ -589,1183 +645,12 @@ impl ViewComponent for DeploymentView {
                     ui.add_space(8.0);
                 }
 
-                // 📄 Raw JSON
-                ui.collapsing("📄 Raw JSON", |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(200.0)
-                        .show(ui, |ui| {
-                            ui.monospace(&details.raw_json);
-                        });
-                });
+                render_raw_json_collapsing(ui, &details.raw_json);
             } else {
-                ui.label("Loading deployment details...");
-            }
-        });
-
-        (true, actions)
-    }
-
-    fn on_mount(&mut self) -> Vec<ViewAction> {
-        vec![ViewAction::SendCommand(BackendCmd::RefreshDeployments)]
-    }
-
-    fn on_unmount(&mut self) -> Vec<ViewAction> {
-        self.0.selected = None;
-        self.0.details = None;
-        Vec::new()
-    }
-}
-
-/// DaemonSet view
-pub struct DaemonSetView(pub WorkloadViewState);
-
-impl DaemonSetView {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the namespace filter from FathomApp
-    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
-        self.0.namespace_filter = filter;
-    }
-}
-
-impl Default for DaemonSetView {
-    fn default() -> Self {
-        Self(WorkloadViewState::new("DaemonSet", false))
-    }
-}
-
-impl ViewComponent for DaemonSetView {
-    fn id(&self) -> &'static str {
-        "workloads_daemonsets"
-    }
-
-    fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
-        let mut actions = Vec::new();
-
-        // Filter by namespace (empty filter = show all)
-        let filtered: Vec<DeploymentSummary> = self
-            .0
-            .summaries
-            .iter()
-            .filter(|s| {
-                if self.0.namespace_filter.is_empty() {
-                    true
-                } else {
-                    self.0.namespace_filter.contains(&s.namespace)
-                }
-            })
-            .cloned()
-            .collect();
-
-        // Update table data
-        self.0.table.set_items(filtered);
-
-        let newly_selected = render_workload_grid(ui, "DaemonSets", &mut self.0.table);
-
-        // Only treat as newly selected if it's different from current selection
-        if newly_selected != self.0.selected {
-            if let Some((ns, name)) = newly_selected {
-                self.0.selected = Some((ns.clone(), name.clone()));
-                self.0.details = None;
-                actions.push(ViewAction::SendCommand(BackendCmd::SelectDaemonSet {
-                    namespace: ns,
-                    name,
-                }));
-            } else {
-                self.0.selected = None;
-                self.0.details = None;
-            }
-        }
-
-        actions
-    }
-
-    fn on_event(&mut self, event: &BackendEvent) {
-        if let BackendEvent::ResourceList(ResourceListEvent::DaemonSetsUpdated(daemonsets)) = event
-        {
-            // Convert WorkloadSummary to DeploymentSummary (same fields)
-            self.0.summaries = daemonsets
-                .iter()
-                .map(|w| DeploymentSummary {
-                    name: w.name.clone(),
-                    namespace: w.namespace.clone(),
-                    desired: w.desired,
-                    ready: w.ready,
-                    updated: w.updated,
-                    available: w.available,
-                })
-                .collect();
-        }
-
-        if let BackendEvent::ResourceRead(ResourceReadEvent::DaemonSetDetailsUpdated(details)) =
-            event
-        {
-            if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                // Convert WorkloadDetails to DeploymentDetails (same fields)
-                self.0.details = Some(DeploymentDetails {
-                    namespace: details.namespace.clone(),
-                    name: details.name.clone(),
-                    creation_timestamp: details.creation_timestamp.clone(),
-                    labels: details.labels.clone(),
-                    annotations: details.annotations.clone(),
-                    containers: details.containers.clone(),
-                    pod_selector: details.pod_selector.clone(),
-                    pods: details.pods.clone(),
-                    raw_json: details.raw_json.clone(),
-                });
-            }
-        }
-    }
-
-    fn render_details(
-        &mut self,
-        ui: &mut egui::Ui,
-        _ctx: &egui::Context,
-    ) -> (bool, Vec<ViewAction>) {
-        if self.0.selected.is_none() {
-            return (false, Vec::new());
-        }
-
-        let mut actions = Vec::new();
-        let (ns, name) = self.0.selected.as_ref().unwrap().clone();
-
-        // Auto-start metrics polling when details panel opens
-        if !self.0.metrics_polling_started {
-            self.0.metrics_polling_started = true;
-            actions.push(ViewAction::SendCommand(
-                BackendCmd::StartWorkloadMetricsPolling {
-                    namespace: ns.clone(),
-                    workload_name: name.clone(),
-                    workload_kind: self.0.workload_type.to_string(),
-                    interval_secs: self.0.metrics_interval_secs,
-                },
-            ));
-        }
-
-        ui.horizontal(|ui| {
-            ui.heading("DaemonSet");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteDaemonSet(
-                        ns.clone(),
-                        name.clone(),
-                    )));
-                }
-                if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartDaemonSet(
-                        ns.clone(),
-                        name.clone(),
-                    )));
-                }
-                if ui.button("Close").clicked() {
-                    self.0.selected = None;
-                    self.0.details = None;
-                }
-            });
-        });
-
-        ui.horizontal(|ui| {
-            ui.label(&ns);
-            ui.label(format!("/{}", name));
-        });
-
-        ui.separator();
-        ui.add_space(8.0);
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            if let Some(details) = &self.0.details {
-                // Find the summary for replica counts
-                let summary = self
-                    .0
-                    .summaries
-                    .iter()
-                    .find(|s| s.namespace == ns && s.name == name);
-
-                // 📊 Status
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("📊 Status");
-                        ui.separator();
-                        if let Some(summary) = summary {
-                            ui.monospace(format!("Desired: {}", summary.desired));
-                            ui.monospace(format!("Ready: {}", summary.ready));
-                            ui.monospace(format!("Updated: {}", summary.updated));
-                            ui.monospace(format!("Available: {}", summary.available));
-                        } else {
-                            ui.label("(loading status...)");
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // ℹ️ Metadata
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("ℹ️ Metadata");
-                        ui.separator();
-                        ui.monospace(format!("Created: {}", details.creation_timestamp));
-                        ui.label(format!("Containers: {}", details.containers.len()));
-                        for container in &details.containers {
-                            ui.monospace(format!("  - {}", container));
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // � Ports (if any)
-
-                // �🔍 Selector
-                if !details.pod_selector.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label("🔍 Pod Selector");
-                            ui.separator();
-                            ui.monospace(&details.pod_selector);
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 🏷️ Labels & Annotations
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.collapsing("🏷️ Labels", |ui| {
-                            if details.labels.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.labels {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                        ui.collapsing("📝 Annotations", |ui| {
-                            if details.annotations.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.annotations {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                    });
-                });
-                ui.add_space(8.0);
-
-                // 📦 Related Pods
-                if !details.pods.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.collapsing(format!("📦 Pods ({})", details.pods.len()), |ui| {
-                                for pod in &details.pods {
-                                    ui.monospace(format!(
-                                        "- {}: {} ({}/{})",
-                                        pod.name, pod.phase, pod.ready, pod.total
-                                    ));
-                                }
-                            });
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 📄 Raw JSON
-                ui.collapsing("📄 Raw JSON", |ui| {
-                    if let Ok(json_str) = serde_json::to_string_pretty(&details) {
-                        ui.code(json_str);
-                    }
-                });
-            } else {
-                ui.label("Loading DaemonSet details...");
-            }
-        });
-
-        (true, actions)
-    }
-
-    fn on_mount(&mut self) -> Vec<ViewAction> {
-        vec![ViewAction::SendCommand(BackendCmd::RefreshDaemonSets)]
-    }
-
-    fn on_unmount(&mut self) -> Vec<ViewAction> {
-        self.0.selected = None;
-        self.0.details = None;
-        Vec::new()
-    }
-}
-
-/// StatefulSet view
-pub struct StatefulSetView(pub WorkloadViewState);
-
-impl StatefulSetView {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the namespace filter from FathomApp
-    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
-        self.0.namespace_filter = filter;
-    }
-}
-
-impl Default for StatefulSetView {
-    fn default() -> Self {
-        Self(WorkloadViewState::new("StatefulSet", true))
-    }
-}
-
-impl ViewComponent for StatefulSetView {
-    fn id(&self) -> &'static str {
-        "workloads_statefulsets"
-    }
-
-    fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
-        let mut actions = Vec::new();
-
-        // Filter by namespace (empty filter = show all)
-        let filtered: Vec<DeploymentSummary> = self
-            .0
-            .summaries
-            .iter()
-            .filter(|s| {
-                if self.0.namespace_filter.is_empty() {
-                    true
-                } else {
-                    self.0.namespace_filter.contains(&s.namespace)
-                }
-            })
-            .cloned()
-            .collect();
-
-        // Update table data
-        self.0.table.set_items(filtered);
-
-        let newly_selected = render_workload_grid(ui, "StatefulSets", &mut self.0.table);
-
-        // Only treat as newly selected if it's different from current selection
-        if newly_selected != self.0.selected {
-            if let Some((ns, name)) = newly_selected {
-                self.0.selected = Some((ns.clone(), name.clone()));
-                self.0.details = None;
-                actions.push(ViewAction::SendCommand(BackendCmd::SelectStatefulSet {
-                    namespace: ns,
-                    name,
-                }));
-            } else {
-                self.0.selected = None;
-                self.0.details = None;
-            }
-        }
-
-        actions
-    }
-
-    fn on_event(&mut self, event: &BackendEvent) {
-        if let BackendEvent::ResourceList(ResourceListEvent::StatefulSetsUpdated(statefulsets)) =
-            event
-        {
-            // Convert WorkloadSummary to DeploymentSummary (same fields)
-            self.0.summaries = statefulsets
-                .iter()
-                .map(|w| DeploymentSummary {
-                    name: w.name.clone(),
-                    namespace: w.namespace.clone(),
-                    desired: w.desired,
-                    ready: w.ready,
-                    updated: w.updated,
-                    available: w.available,
-                })
-                .collect();
-        }
-
-        if let BackendEvent::ResourceRead(ResourceReadEvent::StatefulSetDetailsUpdated(details)) =
-            event
-        {
-            if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                // Convert WorkloadDetails to DeploymentDetails (same fields)
-                self.0.details = Some(DeploymentDetails {
-                    namespace: details.namespace.clone(),
-                    name: details.name.clone(),
-                    creation_timestamp: details.creation_timestamp.clone(),
-                    labels: details.labels.clone(),
-                    annotations: details.annotations.clone(),
-                    containers: details.containers.clone(),
-                    pod_selector: details.pod_selector.clone(),
-                    pods: details.pods.clone(),
-                    raw_json: details.raw_json.clone(),
-                });
-            }
-        }
-    }
-
-    fn render_details(
-        &mut self,
-        ui: &mut egui::Ui,
-        _ctx: &egui::Context,
-    ) -> (bool, Vec<ViewAction>) {
-        if self.0.selected.is_none() {
-            return (false, Vec::new());
-        }
-
-        let mut actions = Vec::new();
-        let (ns, name) = self.0.selected.as_ref().unwrap().clone();
-
-        // Auto-start metrics polling when details panel opens
-        if !self.0.metrics_polling_started {
-            self.0.metrics_polling_started = true;
-            actions.push(ViewAction::SendCommand(
-                BackendCmd::StartWorkloadMetricsPolling {
-                    namespace: ns.clone(),
-                    workload_name: name.clone(),
-                    workload_kind: self.0.workload_type.to_string(),
-                    interval_secs: self.0.metrics_interval_secs,
-                },
-            ));
-        }
-
-        ui.horizontal(|ui| {
-            ui.heading("StatefulSet");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteStatefulSet(
-                        ns.clone(),
-                        name.clone(),
-                    )));
-                }
-                if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartStatefulSet(
-                        ns.clone(),
-                        name.clone(),
-                    )));
-                }
-                if ui.button("Scale").clicked() {
-                    // Get current replica count from the summary
-                    let current = self
-                        .0
-                        .summaries
-                        .iter()
-                        .find(|s| s.namespace == ns && s.name == name)
-                        .map(|s| s.desired)
-                        .unwrap_or(0);
-
-                    actions.push(ViewAction::OpenScaleModal(
-                        WorkloadKind::StatefulSet,
-                        ns.clone(),
-                        name.clone(),
-                        current,
-                    ));
-                }
-                if ui.button("Close").clicked() {
-                    self.0.selected = None;
-                    self.0.details = None;
-                }
-            });
-        });
-
-        ui.horizontal(|ui| {
-            ui.label(&ns);
-            ui.label(format!("/{}", name));
-        });
-
-        ui.separator();
-        ui.add_space(8.0);
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            if let Some(details) = &self.0.details {
-                // Find the summary for replica counts
-                let summary = self
-                    .0
-                    .summaries
-                    .iter()
-                    .find(|s| s.namespace == ns && s.name == name);
-
-                // 📊 Status
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("📊 Status");
-                        ui.separator();
-                        if let Some(summary) = summary {
-                            ui.monospace(format!("Desired: {}", summary.desired));
-                            ui.monospace(format!("Ready: {}", summary.ready));
-                            ui.monospace(format!("Updated: {}", summary.updated));
-                            ui.monospace(format!("Available: {}", summary.available));
-                        } else {
-                            ui.label("(loading status...)");
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // ℹ️ Metadata
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("ℹ️ Metadata");
-                        ui.separator();
-                        ui.monospace(format!("Created: {}", details.creation_timestamp));
-                        ui.label(format!("Containers: {}", details.containers.len()));
-                        for container in &details.containers {
-                            ui.monospace(format!("  - {}", container));
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // � Ports (if any)
-
-                // �🔍 Selector
-                if !details.pod_selector.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label("🔍 Pod Selector");
-                            ui.separator();
-                            ui.monospace(&details.pod_selector);
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 🏷️ Labels & Annotations
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.collapsing("🏷️ Labels", |ui| {
-                            if details.labels.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.labels {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                        ui.collapsing("📝 Annotations", |ui| {
-                            if details.annotations.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.annotations {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                    });
-                });
-                ui.add_space(8.0);
-
-                // 📦 Related Pods
-                if !details.pods.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.collapsing(format!("📦 Pods ({})", details.pods.len()), |ui| {
-                                for pod in &details.pods {
-                                    ui.monospace(format!(
-                                        "- {}: {} ({}/{})",
-                                        pod.name, pod.phase, pod.ready, pod.total
-                                    ));
-                                }
-                            });
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 📄 Raw JSON
-                ui.collapsing("📄 Raw JSON", |ui| {
-                    if let Ok(json_str) = serde_json::to_string_pretty(&details) {
-                        ui.code(json_str);
-                    }
-                });
-            } else {
-                ui.label("Loading StatefulSet details...");
-            }
-        });
-
-        (true, actions)
-    }
-
-    fn on_mount(&mut self) -> Vec<ViewAction> {
-        vec![ViewAction::SendCommand(BackendCmd::RefreshStatefulSets)]
-    }
-
-    fn on_unmount(&mut self) -> Vec<ViewAction> {
-        self.0.selected = None;
-        self.0.details = None;
-        Vec::new()
-    }
-}
-
-/// ReplicaSet view
-pub struct ReplicaSetView(pub WorkloadViewState);
-
-impl ReplicaSetView {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the namespace filter from FathomApp
-    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
-        self.0.namespace_filter = filter;
-    }
-}
-
-impl Default for ReplicaSetView {
-    fn default() -> Self {
-        Self(WorkloadViewState::new("ReplicaSet", true))
-    }
-}
-
-impl ViewComponent for ReplicaSetView {
-    fn id(&self) -> &'static str {
-        "workloads_replicasets"
-    }
-
-    fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
-        let mut actions = Vec::new();
-
-        // Filter by namespace (empty filter = show all)
-        let filtered: Vec<DeploymentSummary> = self
-            .0
-            .summaries
-            .iter()
-            .filter(|s| {
-                if self.0.namespace_filter.is_empty() {
-                    true
-                } else {
-                    self.0.namespace_filter.contains(&s.namespace)
-                }
-            })
-            .cloned()
-            .collect();
-
-        // Update table data
-        self.0.table.set_items(filtered);
-
-        let newly_selected = render_workload_grid(ui, "ReplicaSets", &mut self.0.table);
-
-        // Only treat as newly selected if it's different from current selection
-        if newly_selected != self.0.selected {
-            if let Some((ns, name)) = newly_selected {
-                self.0.selected = Some((ns.clone(), name.clone()));
-                self.0.details = None;
-                actions.push(ViewAction::SendCommand(BackendCmd::SelectReplicaSet {
-                    namespace: ns,
-                    name,
-                }));
-            } else {
-                self.0.selected = None;
-                self.0.details = None;
-            }
-        }
-
-        actions
-    }
-
-    fn on_event(&mut self, event: &BackendEvent) {
-        if let BackendEvent::ResourceList(ResourceListEvent::ReplicaSetsUpdated(replicasets)) =
-            event
-        {
-            // Convert WorkloadSummary to DeploymentSummary (same fields)
-            self.0.summaries = replicasets
-                .iter()
-                .map(|w| DeploymentSummary {
-                    name: w.name.clone(),
-                    namespace: w.namespace.clone(),
-                    desired: w.desired,
-                    ready: w.ready,
-                    updated: w.updated,
-                    available: w.available,
-                })
-                .collect();
-        }
-
-        if let BackendEvent::ResourceRead(ResourceReadEvent::ReplicaSetDetailsUpdated(details)) =
-            event
-        {
-            if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                // Convert WorkloadDetails to DeploymentDetails (same fields)
-                self.0.details = Some(DeploymentDetails {
-                    namespace: details.namespace.clone(),
-                    name: details.name.clone(),
-                    creation_timestamp: details.creation_timestamp.clone(),
-                    labels: details.labels.clone(),
-                    annotations: details.annotations.clone(),
-                    containers: details.containers.clone(),
-                    pod_selector: details.pod_selector.clone(),
-                    pods: details.pods.clone(),
-                    raw_json: details.raw_json.clone(),
-                });
-            }
-        }
-    }
-
-    fn render_details(
-        &mut self,
-        ui: &mut egui::Ui,
-        _ctx: &egui::Context,
-    ) -> (bool, Vec<ViewAction>) {
-        if self.0.selected.is_none() {
-            return (false, Vec::new());
-        }
-
-        let mut actions = Vec::new();
-        let (ns, name) = self.0.selected.as_ref().unwrap().clone();
-
-        // Auto-start metrics polling when details panel opens
-        if !self.0.metrics_polling_started {
-            self.0.metrics_polling_started = true;
-            actions.push(ViewAction::SendCommand(
-                BackendCmd::StartWorkloadMetricsPolling {
-                    namespace: ns.clone(),
-                    workload_name: name.clone(),
-                    workload_kind: self.0.workload_type.to_string(),
-                    interval_secs: self.0.metrics_interval_secs,
-                },
-            ));
-        }
-
-        ui.horizontal(|ui| {
-            ui.heading("ReplicaSet");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::DeleteReplicaSet(
-                        ns.clone(),
-                        name.clone(),
-                    )));
-                }
-                if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(ConfirmAction::RestartReplicaSet(
-                        ns.clone(),
-                        name.clone(),
-                    )));
-                }
-                if ui.button("Scale").clicked() {
-                    // Get current replica count from the summary
-                    let current = self
-                        .0
-                        .summaries
-                        .iter()
-                        .find(|s| s.namespace == ns && s.name == name)
-                        .map(|s| s.desired)
-                        .unwrap_or(0);
-
-                    actions.push(ViewAction::OpenScaleModal(
-                        WorkloadKind::ReplicaSet,
-                        ns.clone(),
-                        name.clone(),
-                        current,
-                    ));
-                }
-                if ui.button("Close").clicked() {
-                    self.0.selected = None;
-                    self.0.details = None;
-                }
-            });
-        });
-
-        ui.horizontal(|ui| {
-            ui.label(&ns);
-            ui.label(format!("/{}", name));
-        });
-
-        ui.separator();
-        ui.add_space(8.0);
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            if let Some(details) = &self.0.details {
-                // Find the summary for replica counts
-                let summary = self
-                    .0
-                    .summaries
-                    .iter()
-                    .find(|s| s.namespace == ns && s.name == name);
-
-                // 📊 Status
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("📊 Status");
-                        ui.separator();
-                        if let Some(summary) = summary {
-                            ui.monospace(format!("Desired: {}", summary.desired));
-                            ui.monospace(format!("Ready: {}", summary.ready));
-                            ui.monospace(format!("Updated: {}", summary.updated));
-                            ui.monospace(format!("Available: {}", summary.available));
-                        } else {
-                            ui.label("(loading status...)");
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // ℹ️ Metadata
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("ℹ️ Metadata");
-                        ui.separator();
-                        ui.monospace(format!("Created: {}", details.creation_timestamp));
-                        ui.label(format!("Containers: {}", details.containers.len()));
-                        for container in &details.containers {
-                            ui.monospace(format!("  - {}", container));
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // 🔍 Selector
-                if !details.pod_selector.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label("🔍 Pod Selector");
-                            ui.separator();
-                            ui.monospace(&details.pod_selector);
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 🏷️ Labels & Annotations
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.collapsing("🏷️ Labels", |ui| {
-                            if details.labels.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.labels {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                        ui.collapsing("📝 Annotations", |ui| {
-                            if details.annotations.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.annotations {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                    });
-                });
-                ui.add_space(8.0);
-
-                // 📦 Related Pods
-                if !details.pods.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.collapsing(format!("📦 Pods ({})", details.pods.len()), |ui| {
-                                for pod in &details.pods {
-                                    ui.monospace(format!(
-                                        "- {}: {} ({}/{})",
-                                        pod.name, pod.phase, pod.ready, pod.total
-                                    ));
-                                }
-                            });
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 📄 Raw JSON
-                ui.collapsing("📄 Raw JSON", |ui| {
-                    if let Ok(json_str) = serde_json::to_string_pretty(&details) {
-                        ui.code(json_str);
-                    }
-                });
-            } else {
-                ui.label("Loading ReplicaSet details...");
-            }
-        });
-
-        (true, actions)
-    }
-
-    fn on_mount(&mut self) -> Vec<ViewAction> {
-        vec![ViewAction::SendCommand(BackendCmd::RefreshReplicaSets)]
-    }
-
-    fn on_unmount(&mut self) -> Vec<ViewAction> {
-        self.0.selected = None;
-        self.0.details = None;
-        Vec::new()
-    }
-}
-
-/// ReplicationController view
-pub struct ReplicationControllerView(pub WorkloadViewState);
-
-impl ReplicationControllerView {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the namespace filter from FathomApp
-    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
-        self.0.namespace_filter = filter;
-    }
-}
-
-impl Default for ReplicationControllerView {
-    fn default() -> Self {
-        Self(WorkloadViewState::new("ReplicationController", true))
-    }
-}
-
-impl ViewComponent for ReplicationControllerView {
-    fn id(&self) -> &'static str {
-        "workloads_replicationcontrollers"
-    }
-
-    fn render(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
-        let mut actions = Vec::new();
-
-        // Filter by namespace (empty filter = show all)
-        let filtered: Vec<DeploymentSummary> = self
-            .0
-            .summaries
-            .iter()
-            .filter(|s| {
-                if self.0.namespace_filter.is_empty() {
-                    true
-                } else {
-                    self.0.namespace_filter.contains(&s.namespace)
-                }
-            })
-            .cloned()
-            .collect();
-
-        // Update table data
-        self.0.table.set_items(filtered);
-
-        let newly_selected = render_workload_grid(ui, "ReplicationControllers", &mut self.0.table);
-
-        // Only treat as newly selected if it's different from current selection
-        if newly_selected != self.0.selected {
-            if let Some((ns, name)) = newly_selected {
-                self.0.selected = Some((ns.clone(), name.clone()));
-                self.0.details = None;
-                actions.push(ViewAction::SendCommand(
-                    BackendCmd::SelectReplicationController {
-                        namespace: ns,
-                        name,
-                    },
+                ui.label(format!(
+                    "Loading {} details...",
+                    self.config.label.to_lowercase()
                 ));
-            } else {
-                self.0.selected = None;
-                self.0.details = None;
-            }
-        }
-
-        actions
-    }
-
-    fn on_event(&mut self, event: &BackendEvent) {
-        if let BackendEvent::ResourceList(ResourceListEvent::ReplicationControllersUpdated(rcs)) =
-            event
-        {
-            // Convert WorkloadSummary to DeploymentSummary (same fields)
-            self.0.summaries = rcs
-                .iter()
-                .map(|w| DeploymentSummary {
-                    name: w.name.clone(),
-                    namespace: w.namespace.clone(),
-                    desired: w.desired,
-                    ready: w.ready,
-                    updated: w.updated,
-                    available: w.available,
-                })
-                .collect();
-        }
-
-        if let BackendEvent::ResourceRead(ResourceReadEvent::ReplicationControllerDetailsUpdated(
-            details,
-        )) = event
-        {
-            if Some((details.namespace.clone(), details.name.clone())) == self.0.selected {
-                // Convert WorkloadDetails to DeploymentDetails (same fields)
-                self.0.details = Some(DeploymentDetails {
-                    namespace: details.namespace.clone(),
-                    name: details.name.clone(),
-                    creation_timestamp: details.creation_timestamp.clone(),
-                    labels: details.labels.clone(),
-                    annotations: details.annotations.clone(),
-                    containers: details.containers.clone(),
-                    pod_selector: details.pod_selector.clone(),
-                    pods: details.pods.clone(),
-                    raw_json: details.raw_json.clone(),
-                });
-            }
-        }
-    }
-
-    fn render_details(
-        &mut self,
-        ui: &mut egui::Ui,
-        _ctx: &egui::Context,
-    ) -> (bool, Vec<ViewAction>) {
-        if self.0.selected.is_none() {
-            return (false, Vec::new());
-        }
-
-        let mut actions = Vec::new();
-        let (ns, name) = self.0.selected.as_ref().unwrap().clone();
-
-        // Auto-start metrics polling when details panel opens
-        if !self.0.metrics_polling_started {
-            self.0.metrics_polling_started = true;
-            actions.push(ViewAction::SendCommand(
-                BackendCmd::StartWorkloadMetricsPolling {
-                    namespace: ns.clone(),
-                    workload_name: name.clone(),
-                    workload_kind: self.0.workload_type.to_string(),
-                    interval_secs: self.0.metrics_interval_secs,
-                },
-            ));
-        }
-
-        ui.horizontal(|ui| {
-            ui.heading("ReplicationController");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Delete").clicked() {
-                    actions.push(ViewAction::OpenModal(
-                        ConfirmAction::DeleteReplicationController(ns.clone(), name.clone()),
-                    ));
-                }
-                if ui.button("Restart").clicked() {
-                    actions.push(ViewAction::OpenModal(
-                        ConfirmAction::RestartReplicationController(ns.clone(), name.clone()),
-                    ));
-                }
-                if ui.button("Scale").clicked() {
-                    // Get current replica count from the summary
-                    let current = self
-                        .0
-                        .summaries
-                        .iter()
-                        .find(|s| s.namespace == ns && s.name == name)
-                        .map(|s| s.desired)
-                        .unwrap_or(0);
-
-                    actions.push(ViewAction::OpenScaleModal(
-                        WorkloadKind::ReplicationController,
-                        ns.clone(),
-                        name.clone(),
-                        current,
-                    ));
-                }
-                if ui.button("Close").clicked() {
-                    self.0.selected = None;
-                    self.0.details = None;
-                }
-            });
-        });
-
-        ui.horizontal(|ui| {
-            ui.label(&ns);
-            ui.label(format!("/{}", name));
-        });
-
-        ui.separator();
-        ui.add_space(8.0);
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            if let Some(details) = &self.0.details {
-                // Find the summary for replica counts
-                let summary = self
-                    .0
-                    .summaries
-                    .iter()
-                    .find(|s| s.namespace == ns && s.name == name);
-
-                // 📊 Status
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("📊 Status");
-                        ui.separator();
-                        if let Some(summary) = summary {
-                            ui.monospace(format!("Desired: {}", summary.desired));
-                            ui.monospace(format!("Ready: {}", summary.ready));
-                            ui.monospace(format!("Updated: {}", summary.updated));
-                            ui.monospace(format!("Available: {}", summary.available));
-                        } else {
-                            ui.label("(loading status...)");
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // ℹ️ Metadata
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("ℹ️ Metadata");
-                        ui.separator();
-                        ui.monospace(format!("Created: {}", details.creation_timestamp));
-                        ui.label(format!("Containers: {}", details.containers.len()));
-                        for container in &details.containers {
-                            ui.monospace(format!("  - {}", container));
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-
-                // 🔍 Selector
-                if !details.pod_selector.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label("🔍 Pod Selector");
-                            ui.separator();
-                            ui.monospace(&details.pod_selector);
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 🏷️ Labels & Annotations
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.collapsing("🏷️ Labels", |ui| {
-                            if details.labels.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.labels {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                        ui.collapsing("📝 Annotations", |ui| {
-                            if details.annotations.is_empty() {
-                                ui.label("(none)");
-                            } else {
-                                for (k, v) in &details.annotations {
-                                    ui.monospace(format!("{}={}", k, v));
-                                }
-                            }
-                        });
-                    });
-                });
-                ui.add_space(8.0);
-
-                // 📦 Related Pods
-                if !details.pods.is_empty() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.collapsing(format!("📦 Pods ({})", details.pods.len()), |ui| {
-                                for pod in &details.pods {
-                                    ui.monospace(format!(
-                                        "- {}: {} ({}/{})",
-                                        pod.name, pod.phase, pod.ready, pod.total
-                                    ));
-                                }
-                            });
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-
-                // 📄 Raw JSON
-                ui.collapsing("📄 Raw JSON", |ui| {
-                    if let Ok(json_str) = serde_json::to_string_pretty(&details) {
-                        ui.code(json_str);
-                    }
-                });
-            } else {
-                ui.label("Loading ReplicationController details...");
             }
         });
 
@@ -1773,14 +658,12 @@ impl ViewComponent for ReplicationControllerView {
     }
 
     fn on_mount(&mut self) -> Vec<ViewAction> {
-        vec![ViewAction::SendCommand(
-            BackendCmd::RefreshReplicationControllers,
-        )]
+        vec![ViewAction::SendCommand(self.config.refresh_cmd.clone())]
     }
 
     fn on_unmount(&mut self) -> Vec<ViewAction> {
-        self.0.selected = None;
-        self.0.details = None;
+        self.state.selected = None;
+        self.state.details = None;
         Vec::new()
     }
 }

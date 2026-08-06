@@ -1,5 +1,6 @@
 use super::super::components::Table;
 use super::super::components::table::Column;
+use super::detail_sections::{render_kv_collapsing, render_raw_json_collapsing};
 use super::traits::{ViewAction, ViewComponent};
 use crate::protocol::{BackendCmd, BackendEvent, IngressClassDetails, IngressClassSummary};
 
@@ -67,10 +68,9 @@ fn render_classes_grid(
     );
 
     if let Some(selected_idx) = table.selected {
-        let filtered = table
-            .filtered_items(|c: &IngressClassSummary, search: &str| {
-                c.name.to_lowercase().contains(search)
-            });
+        let filtered = table.filtered_items(|c: &IngressClassSummary, search: &str| {
+            c.name.to_lowercase().contains(search)
+        });
         if let Some((_orig_idx, c)) = filtered.get(selected_idx) {
             newly_selected = Some(c.name.clone());
         }
@@ -184,31 +184,9 @@ impl ViewComponent for IngressClassesView {
                     ui.add_space(8.0);
                 }
 
-                ui.collapsing("🏷️ Labels", |ui| {
-                    if details.labels.is_empty() {
-                        ui.label("(none)");
-                    } else {
-                        for (k, v) in &details.labels {
-                            ui.monospace(format!("{}={}", k, v));
-                        }
-                    }
-                });
-                ui.collapsing("📝 Annotations", |ui| {
-                    if details.annotations.is_empty() {
-                        ui.label("(none)");
-                    } else {
-                        for (k, v) in &details.annotations {
-                            ui.monospace(format!("{}={}", k, v));
-                        }
-                    }
-                });
-                ui.collapsing("Raw JSON", |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(250.0)
-                        .show(ui, |ui| {
-                            ui.monospace(&details.raw_json);
-                        });
-                });
+                render_kv_collapsing(ui, "🏷️ Labels", &details.labels);
+                render_kv_collapsing(ui, "📝 Annotations", &details.annotations);
+                render_raw_json_collapsing(ui, &details.raw_json);
             } else {
                 ui.label("Loading ingress class details...");
             }

@@ -1062,6 +1062,7 @@ pub(super) async fn start_workload_metrics_polling(
     }
 
     let prom = prom_config.unwrap();
+    let client = state.cluster.client.clone();
     let sender_clone = sender.clone();
     let seq_clone = state.cluster.seq.clone();
     let context = state.cluster.current_context.clone();
@@ -1073,37 +1074,54 @@ pub(super) async fn start_workload_metrics_polling(
 
     // Spawn polling task
     let handle = tokio::spawn(async move {
+        use k8s_openapi::api::core::v1::Pod;
+
         let interval = Duration::from_secs(interval_secs);
+        let prom_base_url = format!("http://{}.{}.svc:{}", prom.service, prom.namespace, prom.port);
         let mut has_failed = false;
 
         loop {
-            // Query aggregated metrics from Prometheus
-            let query = format!(
-                "sum by (container) (rate(container_cpu_usage_seconds_total{{pod=~\".*\",namespace=\"{}\",job=\"kubelet\"}}[5m]))",
-                namespace
-            );
+            // List pods for the workload using a name-prefix pattern
+            let pods: Vec<Pod> = if let Some(ref kube_client) = client {
+                let pod_api: ::kube::Api<Pod> = ::kube::Api::namespaced(kube_client.clone(), &namespace);
+                // Match pods whose names start with the workload name (covers Deployment, StatefulSet, DaemonSet patterns)
+                pod_api
+                    .list(&::kube::api::ListParams::default())
+                    .await
+                    .map(|list| {
+                        list.items
+                            .into_iter()
+                            .filter(|p| {
+                                p.metadata
+                                    .name
+                                    .as_deref()
+                                    .map(|n| n.starts_with(&format!("{}-", workload_name)))
+                                    .unwrap_or(false)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
-            match prom_query_instant(&format!("http://localhost:{}", prom.port), &query).await {
-                Ok(_) => {
+            let replica_count = pods.len() as u32;
+
+            // Try real Prometheus URL first, fall back to localhost port-forward
+            let result = aggregate_from_prometheus(
+                &prom,
+                &namespace,
+                &workload_name,
+                &workload_kind,
+                &pods,
+                replica_count,
+            )
+            .await;
+
+            match result {
+                Ok(metrics) => {
                     has_failed = false;
 
-                    // Create a WorkloadMetricsAggregate (simplified version)
-                    let metrics = WorkloadMetricsAggregate {
-                        namespace: namespace.clone(),
-                        name: workload_name.clone(),
-                        workload_kind: workload_kind.clone(),
-                        replica_count: 0, // TODO: get from workload
-                        total_cpu_usage_percent: Some(35.5), // TODO: calculate from pods
-                        total_cpu_request_millicores: None,
-                        total_cpu_limit_millicores: None,
-                        total_memory_usage_bytes: Some(512_000_000),
-                        total_memory_request_bytes: None,
-                        total_memory_limit_bytes: None,
-                        containers: Vec::new(), // TODO: aggregate per-container
-                        timestamp: chrono::Utc::now().timestamp() as u64,
-                    };
-
-                    // Emit the appropriate event based on workload kind
                     let event = match workload_kind.as_str() {
                         "Deployment" => BackendEvent::ResourceRead(
                             ResourceReadEvent::DeploymentMetricsUpdated(metrics),
@@ -1116,7 +1134,7 @@ pub(super) async fn start_workload_metrics_polling(
                         ),
                         _ => {
                             tracing::warn!("Unknown workload kind: {}", workload_kind);
-                            return; // Exit polling loop for unknown type
+                            return;
                         }
                     };
 
@@ -1138,15 +1156,14 @@ pub(super) async fn start_workload_metrics_polling(
                         tracing::warn!(
                             namespace = %namespace,
                             workload = %workload_name,
-                            "Workload metrics polling failed: {}",
-                            e
+                            "Workload metrics polling failed: {}. Prom URL: {}",
+                            e, prom_base_url
                         );
                     } else {
                         tracing::debug!(
                             namespace = %namespace,
                             workload = %workload_name,
-                            "Workload metrics polling retry failed: {}",
-                            e
+                            "Workload metrics polling retry failed: {}", e
                         );
                     }
                 }

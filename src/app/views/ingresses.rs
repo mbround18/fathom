@@ -1,5 +1,6 @@
 use super::super::components::Table;
 use super::super::components::table::Column;
+use super::detail_sections::{render_kv_collapsing, render_raw_json_collapsing};
 use super::traits::{ViewAction, ViewComponent};
 use crate::app::ConfirmAction;
 use crate::protocol::{BackendCmd, BackendEvent, IngressDetails, IngressSummary};
@@ -189,7 +190,10 @@ impl ViewComponent for IngressesView {
                         ui.separator();
                         ui.monospace(format!(
                             "Class: {}",
-                            details.ingress_class.clone().unwrap_or_else(|| "-".to_string())
+                            details
+                                .ingress_class
+                                .clone()
+                                .unwrap_or_else(|| "-".to_string())
                         ));
                         if !details.tls_hosts.is_empty() {
                             ui.monospace(format!("TLS Hosts: {}", details.tls_hosts.join(", ")));
@@ -277,31 +281,9 @@ impl ViewComponent for IngressesView {
                     ui.add_space(8.0);
                 }
 
-                ui.collapsing("🏷️ Labels", |ui| {
-                    if details.labels.is_empty() {
-                        ui.label("(none)");
-                    } else {
-                        for (k, v) in &details.labels {
-                            ui.monospace(format!("{}={}", k, v));
-                        }
-                    }
-                });
-                ui.collapsing("📝 Annotations", |ui| {
-                    if details.annotations.is_empty() {
-                        ui.label("(none)");
-                    } else {
-                        for (k, v) in &details.annotations {
-                            ui.monospace(format!("{}={}", k, v));
-                        }
-                    }
-                });
-                ui.collapsing("Raw JSON", |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(250.0)
-                        .show(ui, |ui| {
-                            ui.monospace(&details.raw_json);
-                        });
-                });
+                render_kv_collapsing(ui, "🏷️ Labels", &details.labels);
+                render_kv_collapsing(ui, "📝 Annotations", &details.annotations);
+                render_raw_json_collapsing(ui, &details.raw_json);
             } else {
                 ui.label("Loading ingress details...");
             }

@@ -354,56 +354,96 @@ async fn handle_cmd(
             tracing::debug!("RefreshNodes command received");
             // Best-effort: fetch node list and emit event
             if let Some(client) = &state.cluster.client {
-                use k8s_openapi::api::core::v1::Node;
-                let api = ::kube::Api::<Node>::all(client.clone());
-                match api.list(&Default::default()).await {
-                    Ok(nodes) => {
-                        tracing::debug!("Fetched {} nodes from API", nodes.items.len());
-                        let summaries: Vec<crate::protocol::v1::NodeSummary> = nodes
-                            .items
-                            .into_iter()
-                            .map(|node| {
-                                let meta = &node.metadata;
-                                let status = &node.status;
-                                let allocatable = status
-                                    .as_ref()
-                                    .and_then(|s| s.allocatable.as_ref())
-                                    .map(|a| a.clone())
-                                    .unwrap_or_default();
-                                let cpu_str = allocatable
-                                    .get("cpu")
-                                    .and_then(|q| q.0.parse::<i64>().ok())
-                                    .unwrap_or(0);
-                                let mem_str = allocatable
-                                    .get("memory")
-                                    .and_then(|q| {
-                                        q.0.trim_end_matches("Ki")
-                                            .parse::<i64>()
-                                            .ok()
-                                            .map(|m| m * 1024)
-                                    })
-                                    .unwrap_or(0);
-
-                                crate::protocol::v1::NodeSummary {
-                                    name: meta.name.clone().unwrap_or_default(),
-                                    status: "Ready".to_string(), // TODO: parse from node conditions
-                                    role: meta
-                                        .labels
-                                        .as_ref()
-                                        .and_then(|l| l.get("node-role.kubernetes.io/master"))
-                                        .or_else(|| {
-                                            meta.labels.as_ref().and_then(|l| {
-                                                l.get("node-role.kubernetes.io/control-plane")
-                                            })
-                                        })
-                                        .map(|_| "control-plane".to_string())
-                                        .unwrap_or_else(|| "worker".to_string()),
-                                    pod_count: 0, // TODO: count pods on this node
-                                    cpu_allocatable_millicores: cpu_str * 1000,
-                                    memory_allocatable_bytes: mem_str,
+                use k8s_openapi::api::core::v1::{Node, Pod};
+                let node_api = ::kube::Api::<Node>::all(client.clone());
+                let pod_api = ::kube::Api::<Pod>::all(client.clone());
+                // Fetch nodes and pods concurrently for pod_count per node
+                let lp = ::kube::api::ListParams::default();
+                let (nodes_result, pods_result) = tokio::join!(
+                    node_api.list(&lp),
+                    pod_api.list(&lp),
+                );
+                if let Ok(nodes) = nodes_result {
+                    // Build a map of node_name -> pod count from running pods
+                    let pod_counts: std::collections::HashMap<String, u32> = pods_result
+                        .map(|pods| {
+                            let mut counts: std::collections::HashMap<String, u32> =
+                                std::collections::HashMap::new();
+                            for pod in pods.items {
+                                if let Some(node_name) = pod.spec.as_ref().and_then(|s| s.node_name.clone()) {
+                                    *counts.entry(node_name).or_default() += 1;
                                 }
-                            })
-                            .collect();
+                            }
+                            counts
+                        })
+                        .unwrap_or_default();
+
+                    tracing::debug!("Fetched {} nodes from API", nodes.items.len());
+                    let summaries: Vec<crate::protocol::v1::NodeSummary> = nodes
+                        .items
+                        .into_iter()
+                        .map(|node| {
+                            let meta = &node.metadata;
+                            let status = &node.status;
+                            let node_name = meta.name.clone().unwrap_or_default();
+                            let allocatable = status
+                                .as_ref()
+                                .and_then(|s| s.allocatable.as_ref())
+                                .map(|a| a.clone())
+                                .unwrap_or_default();
+
+                            // Parse CPU quantity: handles "4" (cores), "500m" (millicores), "1.5" (cores)
+                            let cpu_millicores = allocatable
+                                .get("cpu")
+                                .map(|q| parse_cpu_to_millicores(&q.0))
+                                .unwrap_or(0);
+
+                            // Parse memory quantity: handles Ki, Mi, Gi, M, G
+                            let mem_bytes = allocatable
+                                .get("memory")
+                                .map(|q| parse_memory_to_bytes(&q.0))
+                                .unwrap_or(0);
+
+                            // Parse node Ready status from conditions
+                            let node_status = status
+                                .as_ref()
+                                .and_then(|s| s.conditions.as_ref())
+                                .and_then(|conds| {
+                                    conds.iter().find(|c| c.type_ == "Ready")
+                                        .map(|c| if c.status == "True" { "Ready" } else { "NotReady" })
+                                })
+                                .unwrap_or("Unknown")
+                                .to_string();
+
+                            let pod_count = pod_counts.get(&node_name).copied().unwrap_or(0);
+
+                            // Parse pod capacity from allocatable.pods
+                            let pod_capacity = allocatable
+                                .get("pods")
+                                .and_then(|q| q.0.parse::<u32>().ok())
+                                .unwrap_or(110); // 110 is the Kubernetes default
+
+                            crate::protocol::v1::NodeSummary {
+                                name: node_name,
+                                status: node_status,
+                                role: meta
+                                    .labels
+                                    .as_ref()
+                                    .and_then(|l| l.get("node-role.kubernetes.io/master"))
+                                    .or_else(|| {
+                                        meta.labels.as_ref().and_then(|l| {
+                                            l.get("node-role.kubernetes.io/control-plane")
+                                        })
+                                    })
+                                    .map(|_| "control-plane".to_string())
+                                    .unwrap_or_else(|| "worker".to_string()),
+                                pod_count,
+                                pod_capacity,
+                                cpu_allocatable_millicores: cpu_millicores,
+                                memory_allocatable_bytes: mem_bytes,
+                            }
+                        })
+                        .collect();
 
                         tracing::debug!(
                             "Emitting NodesUpdated event with {} nodes",
@@ -416,15 +456,13 @@ async fn handle_cmd(
                             Correlation::None,
                             BackendEvent::ResourceList(ResourceListEvent::NodesUpdated(summaries)),
                         );
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to list nodes: {}", e);
-                        events::notify_error(
-                            state.cluster.seq.as_ref(),
-                            sender,
-                            format!("Failed to list nodes: {}", e),
-                        );
-                    }
+                } else if let Err(e) = nodes_result {
+                    tracing::warn!("Failed to list nodes: {}", e);
+                    events::notify_error(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        format!("Failed to list nodes: {}", e),
+                    );
                 }
             }
         }
@@ -1793,3 +1831,37 @@ async fn find_pod_for_service(
 // - emit_port_forward_list(state, sender)
 // - save_port_forwards_to_disk(state)
 // Port check helper centralized in backend/portforward.rs
+
+
+/// Parse a Kubernetes CPU quantity string into millicores.
+/// Handles: "4" (cores), "4000m" (millicores), "1.5" (cores as float)
+fn parse_cpu_to_millicores(q: &str) -> i64 {
+    if let Some(stripped) = q.strip_suffix('m') {
+        // Already in millicores: "500m" -> 500
+        stripped.parse::<i64>().unwrap_or(0)
+    } else if let Ok(cores) = q.parse::<f64>() {
+        // Whole or fractional cores: "4" -> 4000, "1.5" -> 1500
+        (cores * 1000.0) as i64
+    } else {
+        0
+    }
+}
+
+/// Parse a Kubernetes memory quantity string into bytes.
+/// Handles: "2Gi", "2048Mi", "1984568Ki", "2G", "2M", "2K"
+fn parse_memory_to_bytes(q: &str) -> i64 {
+    let suffixes: &[(&str, i64)] = &[
+        ("Gi", 1 << 30),
+        ("Mi", 1 << 20),
+        ("Ki", 1 << 10),
+        ("G", 1_000_000_000),
+        ("M", 1_000_000),
+        ("K", 1_000),
+    ];
+    for (suffix, multiplier) in suffixes {
+        if let Some(stripped) = q.strip_suffix(suffix) {
+            return stripped.parse::<i64>().unwrap_or(0) * multiplier;
+        }
+    }
+    q.parse::<i64>().unwrap_or(0)
+}

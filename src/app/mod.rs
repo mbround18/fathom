@@ -7,15 +7,15 @@ use eframe::egui;
 use std::collections::HashMap;
 use views::{
     BoxedView, ClusterRoleBindingsView, ClusterRolesView, ConfigMapsView, ContextView,
-    CronJobsView, DaemonSetView, DeploymentView, EndpointsView, EventsView,
-    HorizontalPodAutoscalersView, IngressClassesView, IngressesView, IntegrationsView, JobsView,
-    LeasesView, LimitRangesView, McpIntegrationView, ModalState, ModalView,
-    MutatingWebhooksView, NamespacesView, NavigationView, NetworkPoliciesView, NodesView,
-    OverviewView, PersistentVolumeClaimsView, PersistentVolumesView, PlaceholderView,
-    PodDisruptionBudgetsView, PodsView, PortForwardsView, PriorityClassesView,
-    ReplicaSetView, ReplicationControllerView, ResourceQuotasView, RoleBindingsView, RolesView,
-    RuntimeClassesView, SecretsView, ServicesView, StatefulSetView, StatusView, StorageClassesView,
-    ValidatingWebhooksView, ViewAction, ViewComponent,
+    CronJobsView, EndpointsView, EventsView, HorizontalPodAutoscalersView, IngressClassesView,
+    IngressesView, IntegrationsView, JobsView, LeasesView, LimitRangesView, McpIntegrationView,
+    ModalState, ModalView, MutatingWebhooksView, NamespacesView, NavigationView,
+    NetworkPoliciesView, NodesView, OverviewView, PersistentVolumeClaimsView,
+    PersistentVolumesView, PlaceholderView, PodDisruptionBudgetsView, PodsView, PortForwardsView,
+    PriorityClassesView, ResourceQuotasView, RoleBindingsView, RolesView, RuntimeClassesView,
+    SecretsView, ServicesView, StatusView, StorageClassesView, ValidatingWebhooksView, ViewAction,
+    ViewComponent, daemonset_view, deployment_view, replicaset_view, replicationcontroller_view,
+    statefulset_view,
 };
 
 pub mod components;
@@ -182,163 +182,16 @@ impl FathomApp {
     }
 
     /// Apply namespace filter to a view by its ID
+    ///
+    /// `set_namespace_filter` is a no-op default on `ViewComponent`, overridden
+    /// only by views that scope their resource list by namespace — so this can
+    /// dispatch through the trait directly instead of downcasting per view type.
     pub fn apply_namespace_filter_to_view(
         view: &mut dyn ViewComponent,
-        view_id: &str,
+        _view_id: &str,
         filter: &[String],
     ) {
-        // Use unsafe pointer casting to call set_namespace_filter on view types that support it
-        // This is safe because we only call the method on views that actually have it
-        if view_id == "workloads_pods" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::PodsView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter.to_vec());
-                }
-            }
-        } else if view_id == "workloads_deployments" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::DeploymentView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter.to_vec());
-                }
-            }
-        } else if view_id == "workloads_daemonsets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::DaemonSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter.to_vec());
-                }
-            }
-        } else if view_id == "workloads_statefulsets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::StatefulSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter.to_vec());
-                }
-            }
-        } else if view_id == "workloads_replicasets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicaSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter.to_vec());
-                }
-            }
-        } else if view_id == "workloads_replicationcontrollers" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicationControllerView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter.to_vec());
-                }
-            }
-        }
-    }
-
-    /// Sync the namespace filter from FathomApp to the view if it supports it (with explicit filter parameter)
-    pub fn sync_namespace_filter_to_view_with_filter(
-        &self,
-        view: &mut dyn ViewComponent,
-        filter: Vec<String>,
-    ) {
-        let view_id = view.id();
-
-        // Use unsafe pointer casting to call set_namespace_filter on view types that support it
-        // This is safe because we only call the method on views that actually have it
-        if view_id == "workloads_pods" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::PodsView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_deployments" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::DeploymentView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_daemonsets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::DaemonSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_statefulsets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::StatefulSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_replicasets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicaSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_replicationcontrollers" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicationControllerView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        }
-    }
-
-    /// Sync the namespace filter from FathomApp to the view if it supports it
-    pub fn sync_namespace_filter_to_view(&self, view: &mut dyn ViewComponent) {
-        let filter = self.selected_namespaces.clone();
-        let view_id = view.id();
-
-        // Use unsafe pointer casting to call set_namespace_filter on view types that support it
-        // This is safe because we only call the method on views that actually have it
-        if view_id == "workloads_pods" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::PodsView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_deployments" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::DeploymentView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_daemonsets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::DaemonSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_statefulsets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::StatefulSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_replicasets" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicaSetView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        } else if view_id == "workloads_replicationcontrollers" {
-            let ptr = view as *mut dyn ViewComponent as *mut views::ReplicationControllerView;
-            if !ptr.is_null() {
-                unsafe {
-                    (*ptr).set_namespace_filter(filter);
-                }
-            }
-        }
+        view.set_namespace_filter(filter.to_vec());
     }
 
     /// Get or create a view for the given section key.
@@ -357,15 +210,15 @@ impl FathomApp {
             } else if section_key == &section_keys::workloads_pods() {
                 Box::new(PodsView::new())
             } else if section_key == &section_keys::workloads_deployments() {
-                Box::new(DeploymentView::new())
+                Box::new(deployment_view())
             } else if section_key == &section_keys::workloads_daemonsets() {
-                Box::new(DaemonSetView::new())
+                Box::new(daemonset_view())
             } else if section_key == &section_keys::workloads_statefulsets() {
-                Box::new(StatefulSetView::new())
+                Box::new(statefulset_view())
             } else if section_key == &section_keys::workloads_replicasets() {
-                Box::new(ReplicaSetView::new())
+                Box::new(replicaset_view())
             } else if section_key == &section_keys::workloads_replicationcontrollers() {
-                Box::new(ReplicationControllerView::new())
+                Box::new(replicationcontroller_view())
             } else if section_key == &section_keys::workloads_jobs() {
                 Box::new(JobsView::new())
             } else if section_key == &section_keys::workloads_cronjobs() {

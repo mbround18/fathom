@@ -9,7 +9,6 @@ use kube::{
     ResourceExt,
     api::{Api, ListParams},
 };
-use std::collections::BTreeMap;
 
 use super::{events, state::BackendState};
 

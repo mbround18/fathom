@@ -1,5 +1,6 @@
 use super::super::components::Table;
 use super::super::components::table::Column;
+use super::detail_sections::render_kv_collapsing;
 use super::traits::{ViewAction, ViewComponent};
 use crate::app::ConfirmAction;
 use crate::protocol::{BackendCmd, BackendEvent, JobDetails, JobSummary};
@@ -274,24 +275,12 @@ impl ViewComponent for JobsView {
                 }
 
                 // 🏷️ Labels & Annotations
-                ui.collapsing("🏷️ Labels", |ui| {
-                    if details.labels.is_empty() {
-                        ui.label("(none)");
-                    } else {
-                        for (k, v) in &details.labels {
-                            ui.monospace(format!("{}={}", k, v));
-                        }
-                    }
-                });
-                ui.collapsing("📝 Annotations", |ui| {
-                    if details.annotations.is_empty() {
-                        ui.label("(none)");
-                    } else {
-                        for (k, v) in &details.annotations {
-                            ui.monospace(format!("{}={}", k, v));
-                        }
-                    }
-                });
+                render_kv_collapsing(ui, "🏷️ Labels", details.labels.iter().map(|(k, v)| (k, v)));
+                render_kv_collapsing(
+                    ui,
+                    "📝 Annotations",
+                    details.annotations.iter().map(|(k, v)| (k, v)),
+                );
             } else {
                 ui.label("Loading job details...");
             }

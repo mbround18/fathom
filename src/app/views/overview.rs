@@ -229,8 +229,7 @@ impl ViewComponent for OverviewView {
                     for node in nodes {
                         total_memory += node.memory_allocatable_bytes;
                         total_cpu += node.cpu_allocatable_millicores;
-                        // Estimate pod capacity: typical clusters allow ~110 pods per node
-                        total_pod_capacity += (node.pod_count * 3).max(110); // rough estimate
+                        total_pod_capacity += node.pod_capacity;
                     }
 
                     self.state.total_memory_bytes = total_memory as f64;

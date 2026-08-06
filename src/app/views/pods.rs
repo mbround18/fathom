@@ -116,12 +116,6 @@ impl PodsView {
         }
     }
 
-    /// Get the search-filtered and sorted pod list
-    /// Set the namespace filter from FathomApp
-    pub fn set_namespace_filter(&mut self, filter: Vec<String>) {
-        self.namespace_filter = filter;
-    }
-
     /// Check if pod passes namespace filter (empty filter = show all)
     fn namespace_matches_filter(&self, pod: &PodSummary) -> bool {
         if self.namespace_filter.is_empty() {
@@ -550,6 +544,10 @@ impl PodsView {
 impl ViewComponent for PodsView {
     fn id(&self) -> &'static str {
         "workloads_pods"
+    }
+
+    fn set_namespace_filter(&mut self, filter: Vec<String>) {
+        self.namespace_filter = filter;
     }
 
     fn render(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Vec<ViewAction> {

@@ -3,16 +3,14 @@ use crate::protocol::{
     ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
 use crossbeam_channel::Sender;
-use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::{api::apps::v1::Deployment, chrono::Utc};
 use kube::{
     ResourceExt,
     api::{Api, DeleteParams, ListParams, Patch, PatchParams},
 };
 use serde_json::json;
-use std::collections::BTreeMap;
 
-use super::pods;
+use super::workload_common;
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_deployments(
@@ -158,39 +156,13 @@ pub(super) async fn fetch_deployment_details(
     let api: Api<Deployment> = Api::namespaced(client, namespace);
     let deploy = api.get(name).await?;
 
-    let labels: BTreeMap<String, String> = deploy
-        .metadata
-        .labels
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
-    let annotations: BTreeMap<String, String> = deploy
-        .metadata
-        .annotations
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+    let labels = workload_common::map_opt_btreemap(deploy.metadata.labels.clone());
+    let annotations = workload_common::map_opt_btreemap(deploy.metadata.annotations.clone());
+    let creation_timestamp = workload_common::creation_timestamp(&deploy.metadata);
 
-    let creation_timestamp = deploy
-        .metadata
-        .creation_timestamp
-        .as_ref()
-        .map(|t| t.0.to_rfc3339())
-        .unwrap_or_default();
-
-    let containers = deploy
-        .spec
-        .as_ref()
-        .and_then(|s| s.template.spec.as_ref())
-        .map(|ps| {
-            ps.containers
-                .iter()
-                .map(|c| format!("{} ({})", c.name, c.image.clone().unwrap_or_default()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let containers =
+        workload_common::containers_from_pod_template(deploy.spec.as_ref().map(|s| &s.template));
+    let ports = workload_common::ports_from_pod_template(deploy.spec.as_ref().map(|s| &s.template));
 
     // Best-effort association via `.spec.selector.matchLabels`.
     // This won’t cover matchExpressions, but works for the common case.
@@ -198,24 +170,10 @@ pub(super) async fn fetch_deployment_details(
         .spec
         .as_ref()
         .and_then(|s| s.selector.match_labels.as_ref())
-        .map(|labels| {
-            let mut parts: Vec<String> =
-                labels.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
-            parts.sort();
-            parts.join(",")
-        })
+        .map(|labels| workload_common::selector_string_from_match_labels(Some(labels)))
         .unwrap_or_default();
 
-    let pods = if pod_selector.is_empty() {
-        Vec::new()
-    } else {
-        let pod_api: Api<Pod> = Api::namespaced(state.cluster.client_or_err()?, namespace);
-        let list = pod_api
-            .list(&ListParams::default().labels(&pod_selector))
-            .await?;
-        pods::pods_to_summaries(list.items, &Vec::new())
-    };
-
+    let pods = workload_common::pods_for_selector(state, namespace, &pod_selector).await?;
     let raw_json = serde_json::to_string_pretty(&deploy)?;
 
     let details = DeploymentDetails {
@@ -225,6 +183,7 @@ pub(super) async fn fetch_deployment_details(
         labels,
         annotations,
         containers,
+        ports,
         pod_selector,
         pods,
         raw_json,
