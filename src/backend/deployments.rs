@@ -22,6 +22,12 @@ pub(super) async fn refresh_deployments(
 
     let deployments = api.list(&ListParams::default()).await?;
     let summaries = deployments_to_summaries(deployments.items, &state.cluster.namespace_filter);
+
+    // Update MCP state cache so list_deployments tool has fresh data
+    if let Some(mcp) = &state.mcp.state {
+        *mcp.deployments.write().await = summaries.clone();
+    }
+
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

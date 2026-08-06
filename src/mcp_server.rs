@@ -12,6 +12,9 @@ use axum::{
     response::{IntoResponse, Json},
     routing::{get, post},
 };
+use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::{Api, LogParams, Patch, PatchParams};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
@@ -21,7 +24,7 @@ use tower_http::cors::CorsLayer;
 
 /// Shared application state accessible to MCP server
 /// Captures logs, errors, and status messages from Fathom
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct McpAppState {
     /// Recent status/info messages (max 1000)
     pub status_messages: Arc<RwLock<Vec<String>>>,
@@ -33,6 +36,10 @@ pub struct McpAppState {
     pub namespaces: Arc<RwLock<Vec<String>>>,
     /// MCP server is running
     pub is_running: Arc<RwLock<bool>>,
+    /// Live Kubernetes client (set when cluster connects, cleared on disconnect)
+    pub kube_client: Arc<RwLock<Option<kube::Client>>>,
+    /// Cached deployment summaries (updated on every RefreshDeployments)
+    pub deployments: Arc<RwLock<Vec<crate::protocol::v1::WorkloadSummary>>>,
 }
 
 impl McpAppState {
@@ -43,6 +50,8 @@ impl McpAppState {
             current_context: Arc::new(RwLock::new(None)),
             namespaces: Arc::new(RwLock::new(Vec::new())),
             is_running: Arc::new(RwLock::new(false)),
+            kube_client: Arc::new(RwLock::new(None)),
+            deployments: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -532,11 +541,112 @@ async fn handle_tool_call_impl(
                 "namespaces": namespaces.clone()
             }))
         }
-        "list_deployments" | "restart_deployment" | "get_pod_logs" => {
-            // TODO: Wire to backend via command channel
-            Err(json!({
-                "code": -32700,
-                "message": format!("Tool '{}' not yet fully implemented", tool_name)
+        "list_deployments" => {
+            let namespace_filter = arguments
+                .get("namespace")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let deployments = state.deployments.read().await;
+            let filtered: Vec<_> = deployments
+                .iter()
+                .filter(|d| {
+                    namespace_filter.is_empty() || d.namespace == namespace_filter
+                })
+                .map(|d| json!({
+                    "namespace": d.namespace,
+                    "name": d.name,
+                    "ready": d.ready,
+                    "desired": d.desired,
+                    "available": d.available,
+                    "updated": d.updated,
+                }))
+                .collect();
+
+            Ok(json!({ "deployments": filtered, "count": filtered.len() }))
+        }
+
+        "restart_deployment" => {
+            let namespace = arguments
+                .get("namespace")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| json!({"code": -32602, "message": "missing 'namespace'"}))?;
+            let name = arguments
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| json!({"code": -32602, "message": "missing 'name'"}))?;
+
+            let client_guard = state.kube_client.read().await;
+            let client = client_guard
+                .as_ref()
+                .ok_or_else(|| json!({"code": -32603, "message": "No Kubernetes client connected"}))?;
+
+            let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+            let now = chrono::Utc::now().to_rfc3339();
+            let patch = json!({
+                "spec": {
+                    "template": {
+                        "metadata": {
+                            "annotations": {
+                                "kubectl.kubernetes.io/restartedAt": now
+                            }
+                        }
+                    }
+                }
+            });
+
+            api.patch(
+                name,
+                &PatchParams::apply("fathom-mcp"),
+                &Patch::Merge(&patch),
+            )
+            .await
+            .map_err(|e| json!({"code": -32603, "message": format!("Restart failed: {}", e)}))?;
+
+            Ok(json!({ "status": "restarted", "namespace": namespace, "name": name }))
+        }
+
+        "get_pod_logs" => {
+            let namespace = arguments
+                .get("namespace")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| json!({"code": -32602, "message": "missing 'namespace'"}))?;
+            let name = arguments
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| json!({"code": -32602, "message": "missing 'name'"}))?;
+            let container = arguments.get("container").and_then(|v| v.as_str());
+            let tail_lines = arguments
+                .get("lines")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(100) as i64;
+
+            let client_guard = state.kube_client.read().await;
+            let client = client_guard
+                .as_ref()
+                .ok_or_else(|| json!({"code": -32603, "message": "No Kubernetes client connected"}))?;
+
+            let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+            let log_params = LogParams {
+                container: container.map(|s| s.to_string()),
+                tail_lines: Some(tail_lines),
+                timestamps: false,
+                ..Default::default()
+            };
+
+            let logs = api
+                .logs(name, &log_params)
+                .await
+                .map_err(|e| json!({"code": -32603, "message": format!("Failed to fetch logs: {}", e)}))?;
+
+            let lines: Vec<&str> = logs.lines().collect();
+            Ok(json!({
+                "namespace": namespace,
+                "pod": name,
+                "container": container,
+                "lines": lines,
+                "line_count": lines.len(),
             }))
         }
         _ => Err(json!({

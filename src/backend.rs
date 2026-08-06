@@ -207,7 +207,12 @@ async fn handle_cmd(
             );
 
             let client = kube::connect_client_for_current_context(state).await?;
-            state.cluster.client = Some(client);
+            state.cluster.client = Some(client.clone());
+
+            // Share client with MCP server for direct K8s tool calls
+            if let Some(mcp) = &state.mcp.state {
+                *mcp.kube_client.write().await = Some(client);
+            }
 
             // Best-effort: if we didn't have an explicit context selection, treat kubeconfig's
             // current context as the backend-authoritative active context.
@@ -309,7 +314,12 @@ async fn handle_cmd(
             );
 
             let client = kube::connect_client_for_current_context(state).await?;
-            state.cluster.client = Some(client);
+            state.cluster.client = Some(client.clone());
+
+            // Share new client with MCP server
+            if let Some(mcp) = &state.mcp.state {
+                *mcp.kube_client.write().await = Some(client);
+            }
 
             events::emit(
                 state.cluster.seq.as_ref(),
@@ -859,24 +869,17 @@ async fn handle_cmd(
             let mut failed_items = Vec::new();
 
             for (namespace, name) in items {
-                // Try to delete as pod first
                 if state.cluster.client.is_some() {
-                    pods::delete_pod(state, sender, &namespace, &name)
-                        .await
-                        .ok();
-                    success_count += 1;
+                    match pods::delete_pod(state, sender, &namespace, &name).await {
+                        Ok(_) => success_count += 1,
+                        Err(e) => {
+                            tracing::warn!(namespace = %namespace, name = %name, "Bulk delete failed: {}", e);
+                            failed_items.push(format!("{}/{}", namespace, name));
+                        }
+                    }
                 } else {
-                    failed_items.push((namespace.clone(), name.clone()));
+                    failed_items.push(format!("{}/{}", namespace, name));
                 }
-
-                // If not a pod, we'd need to try other resource types
-                // For now, log the failure
-                failed_items.push((namespace.clone(), name.clone()));
-                tracing::warn!(
-                    namespace = %namespace,
-                    name = %name,
-                    "Failed to delete item in bulk delete"
-                );
             }
 
             if success_count > 0 {
@@ -891,15 +894,7 @@ async fn handle_cmd(
                 events::notify_error(
                     state.cluster.seq.as_ref(),
                     sender,
-                    format!(
-                        "Failed to delete {} item(s): {}",
-                        failed_items.len(),
-                        failed_items
-                            .iter()
-                            .map(|(ns, name)| format!("{}/{}", ns, name))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
+                    format!("Failed to delete: {}", failed_items.join(", ")),
                 );
             }
 

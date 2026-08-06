@@ -460,6 +460,38 @@ impl ViewComponent for WorkloadView {
         let newly_selected =
             render_workload_grid(ui, self.config.grid_title, &mut self.state.table);
 
+        // Bulk delete toolbar — shown when 1+ rows are checkbox-selected
+        let selected_count = self.state.table.selected_count();
+        if selected_count > 0 {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(format!("{} selected", selected_count));
+                let btn = egui::Button::new(
+                    egui::RichText::new(format!("🗑 Delete {}", selected_count))
+                        .color(egui::Color32::from_rgb(220, 70, 70)),
+                );
+                if ui.add(btn).clicked() {
+                    let search_fn = |w: &WorkloadSummary, query: &str| {
+                        w.namespace.to_lowercase().contains(query)
+                            || w.name.to_lowercase().contains(query)
+                    };
+                    let items: Vec<(String, String)> = self
+                        .state
+                        .table
+                        .get_selected_items(search_fn)
+                        .into_iter()
+                        .map(|w| (w.namespace, w.name))
+                        .collect();
+                    if !items.is_empty() {
+                        actions.push(ViewAction::OpenModal(ConfirmAction::BulkDelete(items)));
+                    }
+                }
+                if ui.button("Clear selection").clicked() {
+                    self.state.table.deselect_all();
+                }
+            });
+        }
+
         // Only treat as newly selected if it's different from current selection
         if newly_selected != self.state.selected {
             if let Some((ns, name)) = newly_selected {

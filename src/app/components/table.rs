@@ -116,6 +116,26 @@ impl<T: Clone> Table<T> {
         self.state.selected_rows.clone()
     }
 
+    /// Return all currently selected items in their filtered display order.
+    /// Uses the same search_fn as render_table to ensure index alignment.
+    pub fn get_selected_items(&self, search_fn: fn(&T, &str) -> bool) -> Vec<T> {
+        let filtered: Vec<(usize, T)> = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                self.state.search_text.is_empty() || search_fn(item, &self.state.search_text.to_lowercase())
+            })
+            .map(|(i, item)| (i, item.clone()))
+            .collect();
+
+        self.state
+            .selected_rows
+            .iter()
+            .filter_map(|&display_idx| filtered.get(display_idx).map(|(_, item)| item.clone()))
+            .collect()
+    }
+
     /// Clear selections when filters change
     pub fn on_filter_change(&mut self) {
         self.deselect_all();

@@ -549,11 +549,88 @@ impl FathomApp {
             self.selected_namespaces.push(namespace.to_string());
         }
     }
+
+    /// Handle keyboard shortcuts for the current frame.
+    /// Skipped when a text field has focus so typing doesn't trigger actions.
+    pub(super) fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
+        // Don't fire shortcuts while the user is typing in a text field
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+
+        ctx.input(|i| {
+            // R — refresh current view
+            if i.key_pressed(egui::Key::R) {
+                if let Some(cmd) = self.refresh_cmd_for_active_section() {
+                    let _ = self.backend_tx.send(cmd);
+                    self.push_status("Refreshed.".to_string());
+                }
+            }
+
+            // Escape — close any open modal
+            if i.key_pressed(egui::Key::Escape) {
+                self.close_modal();
+            }
+        });
+    }
+
+    /// Returns the appropriate Refresh backend command for the currently active section.
+    fn refresh_cmd_for_active_section(&self) -> Option<BackendCmd> {
+        let s = &self.active_section;
+        let cmd = if s == &section_keys::nodes() {
+            BackendCmd::RefreshNodes
+        } else if s == &section_keys::workloads_pods() {
+            BackendCmd::RefreshPods
+        } else if s == &section_keys::workloads_deployments() {
+            BackendCmd::RefreshDeployments
+        } else if s == &section_keys::workloads_daemonsets() {
+            BackendCmd::RefreshDaemonSets
+        } else if s == &section_keys::workloads_statefulsets() {
+            BackendCmd::RefreshStatefulSets
+        } else if s == &section_keys::workloads_replicasets() {
+            BackendCmd::RefreshReplicaSets
+        } else if s == &section_keys::workloads_replicationcontrollers() {
+            BackendCmd::RefreshReplicationControllers
+        } else if s == &section_keys::workloads_jobs() {
+            BackendCmd::RefreshJobs
+        } else if s == &section_keys::workloads_cronjobs() {
+            BackendCmd::RefreshCronJobs
+        } else if s == &section_keys::overview() {
+            // Overview refreshes all its data sources
+            let _ = self.backend_tx.send(BackendCmd::RefreshNodes);
+            let _ = self.backend_tx.send(BackendCmd::RefreshPods);
+            BackendCmd::RefreshNamespaces
+        } else {
+            return None;
+        };
+        Some(cmd)
+    }
+
+    /// Close any open confirmation / scale / port-forward modal.
+    pub(super) fn close_modal(&mut self) {
+        if let Some(view) = self.views.get_mut(&section_keys::modal().to_string()) {
+            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
+            if let Some(modal_view) = unsafe { ptr.as_mut() } {
+                modal_view.state = views::ModalState::None;
+            }
+        }
+    }
+
+    /// Open a bulk-delete confirmation modal for a set of (namespace, name) items.
+    pub(super) fn open_bulk_delete(&mut self, items: Vec<(String, String)>) {
+        if let Some(view) = self.views.get_mut(&section_keys::modal().to_string()) {
+            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut views::ModalView;
+            if let Some(modal_view) = unsafe { ptr.as_mut() } {
+                modal_view.state = views::ModalState::BulkDelete { items };
+            }
+        }
+    }
 }
 
 impl eframe::App for FathomApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.check_mailbox();
+        self.handle_keyboard_input(ctx);
 
         self.render_top_bar(ctx);
         self.render_left_nav(ctx);
