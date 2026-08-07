@@ -27,20 +27,9 @@ impl FathomApp {
             for action in actions {
                 match action {
                     ViewAction::SendCommand(cmd) => {
-                        // When a selection command is sent, show the details panel
-                        match &cmd {
-                            BackendCmd::SelectPod { .. }
-                            | BackendCmd::SelectDeployment { .. }
-                            | BackendCmd::SelectDaemonSet { .. }
-                            | BackendCmd::SelectStatefulSet { .. }
-                            | BackendCmd::SelectReplicaSet { .. }
-                            | BackendCmd::SelectReplicationController { .. }
-                            | BackendCmd::SelectJob { .. }
-                            | BackendCmd::SelectCronJob { .. } => {
-                                self.show_details_panel = true;
-                            }
-                            _ => {}
-                        }
+                        // render_right_panel() now asks the active view's
+                        // has_details() fresh every frame, so no need to
+                        // pre-arm show_details_panel here for specific commands.
                         self.send(cmd);
                     }
                     ViewAction::NotifyStatus(msg) => {

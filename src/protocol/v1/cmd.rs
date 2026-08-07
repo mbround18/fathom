@@ -247,6 +247,7 @@ pub enum BackendCmdV1 {
         namespace: String,
         workload_name: String,
         workload_kind: String,
+        pod_selector: String,
         interval_secs: u64,
     },
     StopWorkloadMetricsPolling,
@@ -268,9 +269,11 @@ pub enum BackendCmdV1 {
         base_url: String,
         api_key: String,
     },
+    RefreshFlux,
     // MCP Server integration
     StartMcpServer,
     StopMcpServer,
+    RefreshMcpStatus,
     OpenMcpConfigDir,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
@@ -286,93 +289,185 @@ pub enum BackendCmdV1 {
     // Storage / Config / Access resources
     // storage_pv
     RefreshPersistentVolumes,
-    SelectPersistentVolume { name: String },
-    DeletePersistentVolume { name: String },
+    SelectPersistentVolume {
+        name: String,
+    },
+    DeletePersistentVolume {
+        name: String,
+    },
 
     // storage_pvc
     RefreshPersistentVolumeClaims,
-    SelectPersistentVolumeClaim { namespace: String, name: String },
-    DeletePersistentVolumeClaim { namespace: String, name: String },
+    SelectPersistentVolumeClaim {
+        namespace: String,
+        name: String,
+    },
+    DeletePersistentVolumeClaim {
+        namespace: String,
+        name: String,
+    },
 
     // storage_storageclasses
     RefreshStorageClasses,
-    SelectStorageClass { name: String },
-    DeleteStorageClass { name: String },
+    SelectStorageClass {
+        name: String,
+    },
+    DeleteStorageClass {
+        name: String,
+    },
 
     // access_roles
     RefreshRoles,
-    SelectRole { namespace: String, name: String },
-    DeleteRole { namespace: String, name: String },
+    SelectRole {
+        namespace: String,
+        name: String,
+    },
+    DeleteRole {
+        namespace: String,
+        name: String,
+    },
 
     // access_rolebindings
     RefreshRoleBindings,
-    SelectRoleBinding { namespace: String, name: String },
-    DeleteRoleBinding { namespace: String, name: String },
+    SelectRoleBinding {
+        namespace: String,
+        name: String,
+    },
+    DeleteRoleBinding {
+        namespace: String,
+        name: String,
+    },
 
     // access_clusterroles
     RefreshClusterRoles,
-    SelectClusterRole { name: String },
-    DeleteClusterRole { name: String },
+    SelectClusterRole {
+        name: String,
+    },
+    DeleteClusterRole {
+        name: String,
+    },
 
     // access_clusterrolebindings
     RefreshClusterRoleBindings,
-    SelectClusterRoleBinding { name: String },
-    DeleteClusterRoleBinding { name: String },
+    SelectClusterRoleBinding {
+        name: String,
+    },
+    DeleteClusterRoleBinding {
+        name: String,
+    },
 
     // config_configmaps
     RefreshConfigMaps,
-    SelectConfigMap { namespace: String, name: String },
-    DeleteConfigMap { namespace: String, name: String },
+    SelectConfigMap {
+        namespace: String,
+        name: String,
+    },
+    DeleteConfigMap {
+        namespace: String,
+        name: String,
+    },
 
     // config_secrets
     RefreshSecrets,
-    SelectSecret { namespace: String, name: String },
-    DeleteSecret { namespace: String, name: String },
+    SelectSecret {
+        namespace: String,
+        name: String,
+    },
+    DeleteSecret {
+        namespace: String,
+        name: String,
+    },
 
     // config_resourcequotas
     RefreshResourceQuotas,
-    SelectResourceQuota { namespace: String, name: String },
-    DeleteResourceQuota { namespace: String, name: String },
+    SelectResourceQuota {
+        namespace: String,
+        name: String,
+    },
+    DeleteResourceQuota {
+        namespace: String,
+        name: String,
+    },
 
     // config_limitranges
     RefreshLimitRanges,
-    SelectLimitRange { namespace: String, name: String },
-    DeleteLimitRange { namespace: String, name: String },
+    SelectLimitRange {
+        namespace: String,
+        name: String,
+    },
+    DeleteLimitRange {
+        namespace: String,
+        name: String,
+    },
 
     // config_horizontalpodautoscalers
     RefreshHorizontalPodAutoscalers,
-    SelectHorizontalPodAutoscaler { namespace: String, name: String },
-    DeleteHorizontalPodAutoscaler { namespace: String, name: String },
+    SelectHorizontalPodAutoscaler {
+        namespace: String,
+        name: String,
+    },
+    DeleteHorizontalPodAutoscaler {
+        namespace: String,
+        name: String,
+    },
 
     // config_poddisruptionbudgets
     RefreshPodDisruptionBudgets,
-    SelectPodDisruptionBudget { namespace: String, name: String },
-    DeletePodDisruptionBudget { namespace: String, name: String },
+    SelectPodDisruptionBudget {
+        namespace: String,
+        name: String,
+    },
+    DeletePodDisruptionBudget {
+        namespace: String,
+        name: String,
+    },
 
     // config_priorityclasses
     RefreshPriorityClasses,
-    SelectPriorityClass { name: String },
-    DeletePriorityClass { name: String },
+    SelectPriorityClass {
+        name: String,
+    },
+    DeletePriorityClass {
+        name: String,
+    },
 
     // config_runtimeclasses
     RefreshRuntimeClasses,
-    SelectRuntimeClass { name: String },
-    DeleteRuntimeClass { name: String },
+    SelectRuntimeClass {
+        name: String,
+    },
+    DeleteRuntimeClass {
+        name: String,
+    },
 
     // config_leases
     RefreshLeases,
-    SelectLease { namespace: String, name: String },
-    DeleteLease { namespace: String, name: String },
+    SelectLease {
+        namespace: String,
+        name: String,
+    },
+    DeleteLease {
+        namespace: String,
+        name: String,
+    },
 
     // config_mutatingwebhooks
     RefreshMutatingWebhookConfigurations,
-    SelectMutatingWebhookConfiguration { name: String },
-    DeleteMutatingWebhookConfiguration { name: String },
+    SelectMutatingWebhookConfiguration {
+        name: String,
+    },
+    DeleteMutatingWebhookConfiguration {
+        name: String,
+    },
 
     // config_validatingwebhooks
     RefreshValidatingWebhookConfigurations,
-    SelectValidatingWebhookConfiguration { name: String },
-    DeleteValidatingWebhookConfiguration { name: String },
+    SelectValidatingWebhookConfiguration {
+        name: String,
+    },
+    DeleteValidatingWebhookConfiguration {
+        name: String,
+    },
 }
 
 pub type BackendCmd = BackendCmdV1;

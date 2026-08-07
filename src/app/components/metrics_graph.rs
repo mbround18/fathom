@@ -54,7 +54,7 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
     if !cpu_line.is_empty() {
         ui.label("CPU (millicores):");
         let mut cpu_hover_info: Option<String> = None;
-        Plot::new(&format!("cpu_{}", container.name))
+        Plot::new(format!("cpu_{}", container.name))
             .height(100.0)
             .include_x(0.0)
             .show(ui, |plot_ui| {
@@ -62,7 +62,7 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
                 plot_ui.line(
                     Line::new("Usage", PlotPoints::new(cpu_line.clone()))
                         .color(egui::Color32::CYAN)
-                        .width(2.0),
+                        .width(2.0_f32),
                 );
 
                 // Request line (if available) - dashed green
@@ -70,7 +70,7 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
                     plot_ui.hline(
                         HLine::new("Request", req)
                             .color(egui::Color32::GREEN)
-                            .width(1.5)
+                            .width(1.5_f32)
                             .style(LineStyle::Dashed { length: 5.0 }),
                     );
                 }
@@ -80,28 +80,27 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
                     plot_ui.hline(
                         HLine::new("Limit", limit)
                             .color(egui::Color32::RED)
-                            .width(1.5),
+                            .width(1.5_f32),
                     );
                 }
 
                 // Capture hover information for display below plot
-                if let Some(cursor) = plot_ui.pointer_coordinate() {
-                    if let Some(sample_idx) = find_closest_sample(cursor.x, container.samples.len())
-                    {
-                        let sample = &container.samples[sample_idx];
-                        let time_label = format_timestamp_local(&sample.timestamp);
-                        let mut info =
-                            format!("[{}] Usage: {:.1} m", time_label, sample.cpu_millicores);
+                if let Some(cursor) = plot_ui.pointer_coordinate()
+                    && let Some(sample_idx) = find_closest_sample(cursor.x, container.samples.len())
+                {
+                    let sample = &container.samples[sample_idx];
+                    let time_label = format_timestamp_local(&sample.timestamp);
+                    let mut info =
+                        format!("[{}] Usage: {:.1} m", time_label, sample.cpu_millicores);
 
-                        if let Some(req) = container.cpu_request_millicores {
-                            info.push_str(&format!(" | Request: {:.1} m", req));
-                        }
-                        if let Some(limit) = container.cpu_limit_millicores {
-                            info.push_str(&format!(" | Limit: {:.1} m", limit));
-                        }
-
-                        cpu_hover_info = Some(info);
+                    if let Some(req) = container.cpu_request_millicores {
+                        info.push_str(&format!(" | Request: {:.1} m", req));
                     }
+                    if let Some(limit) = container.cpu_limit_millicores {
+                        info.push_str(&format!(" | Limit: {:.1} m", limit));
+                    }
+
+                    cpu_hover_info = Some(info);
                 }
             });
 
@@ -133,7 +132,7 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
     if !mem_line.is_empty() {
         ui.label("Memory (MB):");
         let mut mem_hover_info: Option<String> = None;
-        Plot::new(&format!("mem_{}", container.name))
+        Plot::new(format!("mem_{}", container.name))
             .height(100.0)
             .include_x(0.0)
             .show(ui, |plot_ui| {
@@ -141,7 +140,7 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
                 plot_ui.line(
                     Line::new("Usage", PlotPoints::new(mem_line.clone()))
                         .color(egui::Color32::LIGHT_GREEN)
-                        .width(2.0),
+                        .width(2.0_f32),
                 );
 
                 // Request line (if available) - dashed green
@@ -150,7 +149,7 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
                     plot_ui.hline(
                         HLine::new("Request", req_mb)
                             .color(egui::Color32::GREEN)
-                            .width(1.5)
+                            .width(1.5_f32)
                             .style(LineStyle::Dashed { length: 5.0 }),
                     );
                 }
@@ -161,30 +160,29 @@ pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsH
                     plot_ui.hline(
                         HLine::new("Limit", limit_mb)
                             .color(egui::Color32::RED)
-                            .width(1.5),
+                            .width(1.5_f32),
                     );
                 }
 
                 // Capture hover information for display below plot
-                if let Some(cursor) = plot_ui.pointer_coordinate() {
-                    if let Some(sample_idx) = find_closest_sample(cursor.x, container.samples.len())
-                    {
-                        let sample = &container.samples[sample_idx];
-                        let time_label = format_timestamp_local(&sample.timestamp);
-                        let usage_mb = sample.memory_bytes / 1024.0 / 1024.0;
-                        let mut info = format!("[{}] Usage: {:.1} MB", time_label, usage_mb);
+                if let Some(cursor) = plot_ui.pointer_coordinate()
+                    && let Some(sample_idx) = find_closest_sample(cursor.x, container.samples.len())
+                {
+                    let sample = &container.samples[sample_idx];
+                    let time_label = format_timestamp_local(&sample.timestamp);
+                    let usage_mb = sample.memory_bytes / 1024.0 / 1024.0;
+                    let mut info = format!("[{}] Usage: {:.1} MB", time_label, usage_mb);
 
-                        if let Some(req) = container.memory_request_bytes {
-                            let req_mb = req / 1024.0 / 1024.0;
-                            info.push_str(&format!(" | Request: {:.1} MB", req_mb));
-                        }
-                        if let Some(limit) = container.memory_limit_bytes {
-                            let limit_mb = limit / 1024.0 / 1024.0;
-                            info.push_str(&format!(" | Limit: {:.1} MB", limit_mb));
-                        }
-
-                        mem_hover_info = Some(info);
+                    if let Some(req) = container.memory_request_bytes {
+                        let req_mb = req / 1024.0 / 1024.0;
+                        info.push_str(&format!(" | Request: {:.1} MB", req_mb));
                     }
+                    if let Some(limit) = container.memory_limit_bytes {
+                        let limit_mb = limit / 1024.0 / 1024.0;
+                        info.push_str(&format!(" | Limit: {:.1} MB", limit_mb));
+                    }
+
+                    mem_hover_info = Some(info);
                 }
             });
 

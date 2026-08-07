@@ -8,6 +8,12 @@ pub struct PortForwardsView {
     table: Table<PortForward>,
 }
 
+impl Default for PortForwardsView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PortForwardsView {
     pub fn new() -> Self {
         Self {
@@ -27,12 +33,9 @@ impl ViewComponent for PortForwardsView {
     }
 
     fn on_event(&mut self, event: &BackendEvent) {
-        match event {
-            BackendEvent::ResourceList(ResourceListEvent::PortForwardsUpdated(list)) => {
-                self.forwards = list.clone();
-                self.table.set_items(list.clone());
-            }
-            _ => {}
+        if let BackendEvent::ResourceList(ResourceListEvent::PortForwardsUpdated(list)) = event {
+            self.forwards = list.clone();
+            self.table.set_items(list.clone());
         }
     }
 

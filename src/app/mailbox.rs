@@ -48,8 +48,7 @@ impl FathomApp {
                         // ContextView handles this in on_event
                     }
                     SystemEvent::ContextChanged { .. } => {
-                        // ContextView handles this in on_event
-                        // Views handle their own state cleanup via on_unmount/on_mount lifecycle
+                        self.reset_views_for_context_switch();
                     }
                     SystemEvent::NamespaceFilterChanged { .. } => {
                         // ContextView handles this in on_event
@@ -90,6 +89,12 @@ impl FathomApp {
                         self.disk_usage = items.clone();
                         self.push_status(format!("Disk usage updated: {} item(s)", items.len()));
                     }
+                    SystemEvent::MetricsStackScanned(_) => {
+                        // IntegrationsView handles this in on_event
+                    }
+                    SystemEvent::FluxOverviewUpdated(_) => {
+                        // FluxView handles this in on_event
+                    }
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {
@@ -127,5 +132,26 @@ impl FathomApp {
                 },
             }
         }
+    }
+
+    /// ContextView already processed the `ContextChanged` event that
+    /// triggered this (its own `on_event` resets `selected_namespaces`/
+    /// `select_all_namespaces`). Every other cached view holds resource data
+    /// fetched under the *previous* cluster context, and nothing else clears
+    /// it - views only refresh via their own `on_mount` or a `Refresh`
+    /// command, and neither fires just because the underlying cluster
+    /// changed. Drop every view except the one we just updated, and reset
+    /// `previous_section` so `handle_view_switch` treats the active section
+    /// as freshly mounted next frame - recreating it from `Default`
+    /// (clearing stale data) and re-triggering its `Refresh` command against
+    /// the new context.
+    fn reset_views_for_context_switch(&mut self) {
+        let context_key = section_keys::context().to_string();
+        let context_view = self.views.remove(&context_key);
+        self.views.clear();
+        if let Some(view) = context_view {
+            self.views.insert(context_key, view);
+        }
+        self.previous_section = None;
     }
 }

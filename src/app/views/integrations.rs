@@ -1,8 +1,11 @@
 use super::traits::{ViewAction, ViewComponent};
-use crate::protocol::{BackendCmd, BackendEvent, SystemEvent};
+use crate::protocol::{
+    BackendCmd, BackendEvent, MetricsStackScanResult, MetricsStackTier, SystemEvent,
+};
 use eframe::egui;
 
-/// Integration configuration views for Prometheus, Grafana, ArgoCD, and FluxCD
+/// Integration configuration views for Prometheus, Grafana, and ArgoCD.
+/// (Flux CD has its own dedicated dashboard: see `views::flux::FluxView`.)
 pub struct IntegrationsView {
     section_name: &'static str,
     // Prometheus
@@ -11,6 +14,9 @@ pub struct IntegrationsView {
     prometheus_port: String,
     prometheus_testing: bool,
     prometheus_result: Option<String>,
+    // Cluster metrics-stack scan
+    scanning: bool,
+    scan_result: Option<MetricsStackScanResult>,
     // Grafana
     grafana_url: String,
     grafana_api_key: String,
@@ -29,6 +35,8 @@ impl IntegrationsView {
             prometheus_port: "9090".to_string(),
             prometheus_testing: false,
             prometheus_result: None,
+            scanning: false,
+            scan_result: None,
             grafana_url: "http://localhost:3000".to_string(),
             grafana_api_key: String::new(),
             grafana_testing: false,
@@ -96,15 +104,99 @@ impl ViewComponent for IntegrationsView {
                 ui.separator();
                 ui.add_space(8.0);
 
-                if ui.button("Save Prometheus Configuration").clicked() {
-                    if let Ok(port) = self.prometheus_port.parse::<u16>() {
-                        actions.push(ViewAction::SendCommand(BackendCmd::ConfigurePrometheus {
-                            namespace: self.prometheus_namespace.clone(),
-                            service: self.prometheus_service.clone(),
-                            port,
-                        }));
-                        self.prometheus_result = Some("Configuration saved".to_string());
-                    }
+                if ui.button("Save Prometheus Configuration").clicked()
+                    && let Ok(port) = self.prometheus_port.parse::<u16>()
+                {
+                    actions.push(ViewAction::SendCommand(BackendCmd::ConfigurePrometheus {
+                        namespace: self.prometheus_namespace.clone(),
+                        service: self.prometheus_service.clone(),
+                        port,
+                    }));
+                    self.prometheus_result = Some("Configuration saved".to_string());
+                }
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                ui.label("Scan the cluster for a Prometheus, kube-prometheus-stack, or OpenObserve installation.");
+                ui.add_space(4.0);
+
+                if ui
+                    .add_enabled(
+                        !self.scanning,
+                        egui::Button::new("Scan Cluster for Metrics Stack"),
+                    )
+                    .clicked()
+                {
+                    self.scanning = true;
+                    self.scan_result = None;
+                    actions.push(ViewAction::SendCommand(BackendCmd::RefreshIntegrations));
+                }
+
+                if self.scanning {
+                    ui.label("Scanning...");
+                }
+
+                if let Some(result) = self.scan_result.clone() {
+                    ui.add_space(8.0);
+                    ui.group(|ui| {
+                        let (tier_label, tier_desc) = match result.tier {
+                            MetricsStackTier::Full => (
+                                "✓ Full Prometheus stack",
+                                "Prometheus + kube-state-metrics + node-exporter found.",
+                            ),
+                            MetricsStackTier::Partial => (
+                                "⚠ Partial stack",
+                                "Some monitoring components found, but not a complete Prometheus stack.",
+                            ),
+                            MetricsStackTier::OpenObserve => (
+                                "✓ OpenObserve",
+                                "OpenObserve found (Prometheus-compatible query API).",
+                            ),
+                            MetricsStackTier::None => (
+                                "✗ Nothing found",
+                                "No known metrics stack components detected in this cluster.",
+                            ),
+                        };
+                        ui.label(egui::RichText::new(tier_label).strong());
+                        ui.label(egui::RichText::new(tier_desc).weak().size(11.0));
+
+                        if !result.components.is_empty() {
+                            ui.add_space(6.0);
+                            for c in &result.components {
+                                ui.monospace(format!(
+                                    "{:<16} {}/{}:{}",
+                                    c.kind.label(),
+                                    c.namespace,
+                                    c.service,
+                                    c.port
+                                ));
+                            }
+                        }
+
+                        if let Some(endpoint) = &result.suggested_endpoint {
+                            ui.add_space(6.0);
+                            if ui
+                                .button(format!(
+                                    "Use {} ({}/{}:{}) above",
+                                    endpoint.kind.label(),
+                                    endpoint.namespace,
+                                    endpoint.service,
+                                    endpoint.port
+                                ))
+                                .clicked()
+                            {
+                                self.prometheus_namespace = endpoint.namespace.clone();
+                                self.prometheus_service = endpoint.service.clone();
+                                self.prometheus_port = endpoint.port.to_string();
+                                self.prometheus_result = Some(
+                                    "Filled in from scan — click Test Connection or Save to apply."
+                                        .to_string(),
+                                );
+                            }
+                        }
+                    });
                 }
             }
 
@@ -175,30 +267,6 @@ impl ViewComponent for IntegrationsView {
                 }
             }
 
-            "FluxCD" => {
-                ui.label("Configure Flux CD Integration");
-                ui.add_space(8.0);
-
-                ui.horizontal(|ui| {
-                    ui.label("Namespace:");
-                    ui.text_edit_singleline(&mut self.namespace);
-                });
-
-                ui.add_space(12.0);
-
-                if ui.button("Test Connection").clicked() {
-                    // TODO: Implement FluxCD connection test
-                }
-
-                ui.add_space(8.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                if ui.button("Save Flux Configuration").clicked() {
-                    // TODO: Implement FluxCD configuration save
-                }
-            }
-
             _ => {
                 ui.label("Unknown integration section");
             }
@@ -224,6 +292,10 @@ impl ViewComponent for IntegrationsView {
                 } else {
                     format!("✗ {}", message)
                 });
+            }
+            BackendEvent::System(SystemEvent::MetricsStackScanned(result)) => {
+                self.scanning = false;
+                self.scan_result = Some(result.clone());
             }
             _ => {}
         }

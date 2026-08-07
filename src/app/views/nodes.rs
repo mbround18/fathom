@@ -5,21 +5,11 @@ use egui::{RichText, ScrollArea, Ui};
 use super::traits::{ViewAction, ViewComponent};
 use crate::protocol::{BackendCmd, BackendEvent, NodeDetails, NodeSummary};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NodesState {
     pub nodes: Vec<NodeSummary>,
     pub selected_node: Option<String>,
     pub node_details: Option<NodeDetails>,
-}
-
-impl Default for NodesState {
-    fn default() -> Self {
-        Self {
-            nodes: Vec::new(),
-            selected_node: None,
-            node_details: None,
-        }
-    }
 }
 
 pub struct NodesView {
@@ -116,11 +106,14 @@ impl ViewComponent for NodesView {
         if let BackendEvent::ResourceRead(crate::protocol::ResourceReadEvent::NodeDetailsUpdated(
             details,
         )) = event
+            && Some(details.name.clone()) == self.state.selected_node
         {
-            if Some(details.name.clone()) == self.state.selected_node {
-                self.state.node_details = Some(details.clone());
-            }
+            self.state.node_details = Some(details.clone());
         }
+    }
+
+    fn has_details(&self) -> bool {
+        self.state.selected_node.is_some()
     }
 
     fn render_details(&mut self, ui: &mut Ui, _ctx: &egui::Context) -> (bool, Vec<ViewAction>) {
@@ -128,7 +121,7 @@ impl ViewComponent for NodesView {
             return (false, Vec::new());
         };
 
-        let mut actions = Vec::new();
+        let actions = Vec::new();
 
         ui.heading("Node");
         ui.separator();
@@ -199,7 +192,7 @@ impl ViewComponent for NodesView {
                                     egui::Color32::RED
                                 };
                                 ui.horizontal(|ui| {
-                                    ui.colored_label(color, format!("●"));
+                                    ui.colored_label(color, "●".to_string());
                                     ui.monospace(format!(
                                         "{}: {}",
                                         cond.condition_type, cond.status

@@ -16,9 +16,10 @@ mod daemonsets;
 mod deployments;
 mod endpoints;
 mod events;
+mod flux;
 mod ingressclasses;
 mod ingresses;
-mod integrations;
+pub mod integrations;
 mod interactions;
 mod jobs;
 mod kube;
@@ -142,7 +143,9 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
                 Ok(should_exit) if should_exit => {
                     tracing::debug!("Command signaled shutdown");
                 }
-                Err(err) => events::notify_error(state.cluster.seq.as_ref(), &sender, err.to_string()),
+                Err(err) => {
+                    events::notify_error(state.cluster.seq.as_ref(), &sender, err.to_string())
+                }
                 _ => {}
             }
             // Signal task completion
@@ -238,11 +241,10 @@ async fn handle_cmd(
             metrics::probe_metrics_api(state, sender).await?;
 
             // Auto-discover Prometheus services in the monitoring namespace
-            if let Some(client) = &state.cluster.client {
-                if let Some(ctx) = &state.cluster.current_context {
-                    let _ =
-                        crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
-                }
+            if let Some(client) = &state.cluster.client
+                && let Some(ctx) = &state.cluster.current_context
+            {
+                let _ = crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
             }
 
             // Restore saved port forwards from last session
@@ -341,11 +343,10 @@ async fn handle_cmd(
             metrics::probe_metrics_api(state, sender).await?;
 
             // Auto-discover Prometheus services in the monitoring namespace
-            if let Some(client) = &state.cluster.client {
-                if let Some(ctx) = &state.cluster.current_context {
-                    let _ =
-                        crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
-                }
+            if let Some(client) = &state.cluster.client
+                && let Some(ctx) = &state.cluster.current_context
+            {
+                let _ = crate::backend::integrations::auto_discover_prometheus(client, ctx).await;
             }
 
             sync::refresh_namespaces(state, sender).await?;
@@ -353,7 +354,11 @@ async fn handle_cmd(
             deployments::refresh_deployments(state, sender).await?;
             sync::ensure_background_sync(state, sender).await?;
 
-            events::notify_info(state.cluster.seq.as_ref(), sender, "Context switched.".to_owned());
+            events::notify_info(
+                state.cluster.seq.as_ref(),
+                sender,
+                "Context switched.".to_owned(),
+            );
         }
 
         BackendCmd::RefreshNamespaces => {
@@ -369,10 +374,8 @@ async fn handle_cmd(
                 let pod_api = ::kube::Api::<Pod>::all(client.clone());
                 // Fetch nodes and pods concurrently for pod_count per node
                 let lp = ::kube::api::ListParams::default();
-                let (nodes_result, pods_result) = tokio::join!(
-                    node_api.list(&lp),
-                    pod_api.list(&lp),
-                );
+                let (nodes_result, pods_result) =
+                    tokio::join!(node_api.list(&lp), pod_api.list(&lp),);
                 if let Ok(nodes) = nodes_result {
                     // Build a map of node_name -> pod count from running pods
                     let pod_counts: std::collections::HashMap<String, u32> = pods_result
@@ -380,7 +383,9 @@ async fn handle_cmd(
                             let mut counts: std::collections::HashMap<String, u32> =
                                 std::collections::HashMap::new();
                             for pod in pods.items {
-                                if let Some(node_name) = pod.spec.as_ref().and_then(|s| s.node_name.clone()) {
+                                if let Some(node_name) =
+                                    pod.spec.as_ref().and_then(|s| s.node_name.clone())
+                                {
                                     *counts.entry(node_name).or_default() += 1;
                                 }
                             }
@@ -399,7 +404,7 @@ async fn handle_cmd(
                             let allocatable = status
                                 .as_ref()
                                 .and_then(|s| s.allocatable.as_ref())
-                                .map(|a| a.clone())
+                                .cloned()
                                 .unwrap_or_default();
 
                             // Parse CPU quantity: handles "4" (cores), "500m" (millicores), "1.5" (cores)
@@ -419,8 +424,13 @@ async fn handle_cmd(
                                 .as_ref()
                                 .and_then(|s| s.conditions.as_ref())
                                 .and_then(|conds| {
-                                    conds.iter().find(|c| c.type_ == "Ready")
-                                        .map(|c| if c.status == "True" { "Ready" } else { "NotReady" })
+                                    conds.iter().find(|c| c.type_ == "Ready").map(|c| {
+                                        if c.status == "True" {
+                                            "Ready"
+                                        } else {
+                                            "NotReady"
+                                        }
+                                    })
                                 })
                                 .unwrap_or("Unknown")
                                 .to_string();
@@ -455,17 +465,14 @@ async fn handle_cmd(
                         })
                         .collect();
 
-                        tracing::debug!(
-                            "Emitting NodesUpdated event with {} nodes",
-                            summaries.len()
-                        );
-                        events::emit(
-                            state.cluster.seq.as_ref(),
-                            sender,
-                            Route::global(section_keys::nodes()),
-                            Correlation::None,
-                            BackendEvent::ResourceList(ResourceListEvent::NodesUpdated(summaries)),
-                        );
+                    tracing::debug!("Emitting NodesUpdated event with {} nodes", summaries.len());
+                    events::emit(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::nodes()),
+                        Correlation::None,
+                        BackendEvent::ResourceList(ResourceListEvent::NodesUpdated(summaries)),
+                    );
                 } else if let Err(e) = nodes_result {
                     tracing::warn!("Failed to list nodes: {}", e);
                     events::notify_error(
@@ -659,17 +666,16 @@ async fn handle_cmd(
             namespace,
             workload_name,
             workload_kind,
+            pod_selector,
             interval_secs,
         } => {
-            // TODO: Implement workload metrics polling
-            // This would start a background task that polls Prometheus for aggregated metrics
-            // across all pods matching the workload's selector
             metrics::start_workload_metrics_polling(
                 state,
                 sender,
                 namespace,
                 workload_name,
                 workload_kind,
+                pod_selector,
                 interval_secs,
             )
             .await?;
@@ -859,7 +865,11 @@ async fn handle_cmd(
         }
 
         BackendCmd::SimulateSlowCall => {
-            events::notify_info(state.cluster.seq.as_ref(), sender, "Simulating slow call...".into());
+            events::notify_info(
+                state.cluster.seq.as_ref(),
+                sender,
+                "Simulating slow call...".into(),
+            );
             tokio::time::sleep(Duration::from_secs(2)).await;
             events::notify_info(state.cluster.seq.as_ref(), sender, "Slow call done.".into());
         }
@@ -1159,14 +1169,93 @@ async fn handle_cmd(
                 }
             }
         }
-        BackendCmd::RefreshIntegrations => {
-            // TODO: Refresh integrations status
-            events::notify_info(
-                state.cluster.seq.as_ref(),
-                sender,
-                "Integrations refreshed".to_owned(),
-            );
-        }
+        BackendCmd::RefreshIntegrations => match &state.cluster.client {
+            Some(client) => match crate::backend::integrations::scan_metrics_stack(client).await {
+                Ok(result) => {
+                    events::emit(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_metrics()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::MetricsStackScanned(result)),
+                    );
+                }
+                Err(e) => {
+                    // IntegrationsView's "scanning" flag (and the disabled
+                    // Scan button / stuck "Scanning..." label it drives) only
+                    // ever clears on a MetricsStackScanned event - it used to
+                    // never arrive on this branch, leaving the button
+                    // permanently disabled until the user switched cluster
+                    // context. Emit an empty result alongside the error so
+                    // the UI unblocks, in addition to the error notification.
+                    events::notify_error(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        format!("Failed to scan cluster for metrics stack: {}", e),
+                    );
+                    events::emit(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_metrics()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::MetricsStackScanned(
+                            crate::protocol::MetricsStackScanResult {
+                                tier: crate::protocol::MetricsStackTier::None,
+                                components: Vec::new(),
+                                suggested_endpoint: None,
+                            },
+                        )),
+                    );
+                }
+            },
+            None => {
+                events::notify_error(
+                    state.cluster.seq.as_ref(),
+                    sender,
+                    "Not connected to a cluster.".to_owned(),
+                );
+                events::emit(
+                    state.cluster.seq.as_ref(),
+                    sender,
+                    Route::global(section_keys::integrations_metrics()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::MetricsStackScanned(
+                        crate::protocol::MetricsStackScanResult {
+                            tier: crate::protocol::MetricsStackTier::None,
+                            components: Vec::new(),
+                            suggested_endpoint: None,
+                        },
+                    )),
+                );
+            }
+        },
+        BackendCmd::RefreshFlux => match &state.cluster.client {
+            Some(client) => match crate::backend::flux::scan_flux(client).await {
+                Ok(overview) => {
+                    events::emit(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_flux()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::FluxOverviewUpdated(overview)),
+                    );
+                }
+                Err(e) => {
+                    events::notify_error(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        format!("Failed to scan cluster for Flux resources: {}", e),
+                    );
+                }
+            },
+            None => {
+                events::notify_error(
+                    state.cluster.seq.as_ref(),
+                    sender,
+                    "Not connected to a cluster.".to_owned(),
+                );
+            }
+        },
         BackendCmd::OpenMcpConfigDir => match crate::mcp_server::mcp_dir() {
             Ok(path) => {
                 if let Err(e) = std::fs::create_dir_all(&path) {
@@ -1211,12 +1300,19 @@ async fn handle_cmd(
             }
         },
         BackendCmd::StartMcpServer => {
-            // If already running, ignore
+            // If already running, correct the UI rather than silently no-op'ing -
+            // if it thought the server was stopped (e.g. after a missed status
+            // update), a click here should still leave it showing "Running".
             if state.mcp.http_task.is_some() {
-                events::notify_info(
+                events::emit(
                     state.cluster.seq.as_ref(),
                     sender,
-                    "MCP server already running".to_owned(),
+                    Route::global(section_keys::integrations_mcp()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::McpServerStatus {
+                        running: true,
+                        message: "MCP server already running".to_owned(),
+                    }),
                 );
                 return Ok(());
             }
@@ -1232,38 +1328,78 @@ async fn handle_cmd(
             };
 
             // Initialize config files (best-effort)
-            let init_state = (*mcp_state).clone();
             tokio::spawn(async move {
-                let _ = crate::mcp_server::initialize_mcp_server(init_state).await;
+                let _ = crate::mcp_server::initialize_mcp_server().await;
             });
 
-            // Start HTTP server task
+            // Bind first, *then* announce - a failed bind (e.g. port already
+            // in use by something else) must not leave the UI stuck claiming
+            // the server is running when nothing is actually listening.
             let port = state.mcp.port;
-            let handle = tokio::spawn({
-                let s = mcp_state.clone();
-                async move {
-                    let _ = crate::mcp_server::run_http_mcp_server(s, port).await;
-                }
-            });
-            state.mcp.http_task = Some(handle);
+            match crate::mcp_server::bind_mcp_listener(port).await {
+                Ok(listener) => {
+                    let handle = tokio::spawn({
+                        let s = mcp_state.clone();
+                        async move {
+                            let _ = crate::mcp_server::serve_mcp_http(s, listener).await;
+                        }
+                    });
+                    state.mcp.http_task = Some(handle);
 
+                    events::emit(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_mcp()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::McpServerStatus {
+                            running: true,
+                            message: format!(
+                                "MCP HTTP server starting on http://127.0.0.1:{}",
+                                port
+                            ),
+                        }),
+                    );
+                    events::notify_info(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        format!(
+                            "MCP HTTP server starting on http://127.0.0.1:{} (1 fathom ≈ 1.8288m)",
+                            port
+                        ),
+                    );
+                }
+                Err(e) => {
+                    events::emit(
+                        state.cluster.seq.as_ref(),
+                        sender,
+                        Route::global(section_keys::integrations_mcp()),
+                        Correlation::None,
+                        BackendEvent::System(SystemEvent::McpServerStatus {
+                            running: false,
+                            message: format!("Failed to start MCP server on port {}: {}", port, e),
+                        }),
+                    );
+                }
+            }
+        }
+        BackendCmd::RefreshMcpStatus => {
+            let running = match &state.mcp.state {
+                Some(mcp_state) => mcp_state.is_running_status().await,
+                None => false,
+            };
             events::emit(
                 state.cluster.seq.as_ref(),
                 sender,
                 Route::global(section_keys::integrations_mcp()),
                 Correlation::None,
                 BackendEvent::System(SystemEvent::McpServerStatus {
-                    running: true,
-                    message: format!("MCP HTTP server starting on http://127.0.0.1:{}", port),
+                    running,
+                    message: if running {
+                        "MCP server is running".to_owned()
+                    } else {
+                        "MCP server is stopped".to_owned()
+                    },
                 }),
-            );
-            events::notify_info(
-                state.cluster.seq.as_ref(),
-                sender,
-                format!(
-                    "MCP HTTP server starting on http://127.0.0.1:{} (1 fathom ≈ 1.8288m)",
-                    port
-                ),
             );
         }
         BackendCmd::StopMcpServer => {
@@ -1281,7 +1417,11 @@ async fn handle_cmd(
                     message: "MCP server stopped".to_owned(),
                 }),
             );
-            events::notify_info(state.cluster.seq.as_ref(), sender, "MCP server stopped".to_owned());
+            events::notify_info(
+                state.cluster.seq.as_ref(),
+                sender,
+                "MCP server stopped".to_owned(),
+            );
         }
 
         // Storage / Config / Access resources
@@ -1303,11 +1443,15 @@ async fn handle_cmd(
         }
 
         BackendCmd::SelectPersistentVolumeClaim { namespace, name } => {
-            persistentvolumeclaims::fetch_persistentvolumeclaim_details(state, sender, &namespace, &name).await?;
+            persistentvolumeclaims::fetch_persistentvolumeclaim_details(
+                state, sender, &namespace, &name,
+            )
+            .await?;
         }
 
         BackendCmd::DeletePersistentVolumeClaim { namespace, name } => {
-            persistentvolumeclaims::delete_persistentvolumeclaim(state, sender, &namespace, &name).await?;
+            persistentvolumeclaims::delete_persistentvolumeclaim(state, sender, &namespace, &name)
+                .await?;
             persistentvolumeclaims::refresh_persistentvolumeclaims(state, sender).await?;
         }
 
@@ -1433,11 +1577,17 @@ async fn handle_cmd(
         }
 
         BackendCmd::SelectHorizontalPodAutoscaler { namespace, name } => {
-            horizontalpodautoscalers::fetch_horizontalpodautoscaler_details(state, sender, &namespace, &name).await?;
+            horizontalpodautoscalers::fetch_horizontalpodautoscaler_details(
+                state, sender, &namespace, &name,
+            )
+            .await?;
         }
 
         BackendCmd::DeleteHorizontalPodAutoscaler { namespace, name } => {
-            horizontalpodautoscalers::delete_horizontalpodautoscaler(state, sender, &namespace, &name).await?;
+            horizontalpodautoscalers::delete_horizontalpodautoscaler(
+                state, sender, &namespace, &name,
+            )
+            .await?;
             horizontalpodautoscalers::refresh_horizontalpodautoscalers(state, sender).await?;
         }
 
@@ -1446,11 +1596,15 @@ async fn handle_cmd(
         }
 
         BackendCmd::SelectPodDisruptionBudget { namespace, name } => {
-            poddisruptionbudgets::fetch_poddisruptionbudget_details(state, sender, &namespace, &name).await?;
+            poddisruptionbudgets::fetch_poddisruptionbudget_details(
+                state, sender, &namespace, &name,
+            )
+            .await?;
         }
 
         BackendCmd::DeletePodDisruptionBudget { namespace, name } => {
-            poddisruptionbudgets::delete_poddisruptionbudget(state, sender, &namespace, &name).await?;
+            poddisruptionbudgets::delete_poddisruptionbudget(state, sender, &namespace, &name)
+                .await?;
             poddisruptionbudgets::refresh_poddisruptionbudgets(state, sender).await?;
         }
 
@@ -1826,7 +1980,6 @@ async fn find_pod_for_service(
 // - emit_port_forward_list(state, sender)
 // - save_port_forwards_to_disk(state)
 // Port check helper centralized in backend/portforward.rs
-
 
 /// Parse a Kubernetes CPU quantity string into millicores.
 /// Handles: "4" (cores), "4000m" (millicores), "1.5" (cores as float)

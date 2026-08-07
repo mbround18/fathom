@@ -140,6 +140,64 @@ pub struct WorkloadMetricsAggregate {
     pub timestamp: u64,
 }
 
+/// Kind of monitoring component found while scanning the cluster for a metrics stack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MetricsComponentKind {
+    Prometheus,
+    Grafana,
+    Alertmanager,
+    KubeStateMetrics,
+    NodeExporter,
+    OpenObserve,
+    MetricsServer,
+}
+
+impl MetricsComponentKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Prometheus => "Prometheus",
+            Self::Grafana => "Grafana",
+            Self::Alertmanager => "Alertmanager",
+            Self::KubeStateMetrics => "kube-state-metrics",
+            Self::NodeExporter => "node-exporter",
+            Self::OpenObserve => "OpenObserve",
+            Self::MetricsServer => "metrics-server",
+        }
+    }
+}
+
+/// A single monitoring component service discovered in the cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectedMetricsComponent {
+    pub kind: MetricsComponentKind,
+    pub namespace: String,
+    pub service: String,
+    pub port: u16,
+}
+
+/// Overall completeness of the metrics stack found in the cluster.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MetricsStackTier {
+    /// Prometheus + kube-state-metrics + node-exporter all present.
+    Full,
+    /// Some, but not all, of a Prometheus-family stack is present.
+    Partial,
+    /// OpenObserve found (Prometheus-compatible query API, replaces the whole stack).
+    OpenObserve,
+    /// Nothing recognizable found.
+    None,
+}
+
+/// Result of scanning the cluster for known metrics stack components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsStackScanResult {
+    pub tier: MetricsStackTier,
+    pub components: Vec<DetectedMetricsComponent>,
+    /// Best query-endpoint candidate to prefill into Prometheus-compatible config
+    /// (Prometheus itself, or an OpenObserve endpoint speaking the same API).
+    pub suggested_endpoint: Option<DetectedMetricsComponent>,
+}
+
 /// Standard PromQL queries for common metrics
 pub mod queries {
     /// CPU usage as percentage (Prometheus: container_cpu_usage_seconds_total rate)

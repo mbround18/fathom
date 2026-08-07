@@ -38,12 +38,6 @@ fn render_limitranges_grid(
     ui.heading(title);
     ui.separator();
 
-    ui.horizontal(|ui| {
-        ui.label("🔍 Search:");
-        ui.text_edit_singleline(&mut table.state.search_text);
-    });
-    ui.add_space(8.0);
-
     let columns = vec![
         Column {
             header: "Namespace".to_string(),
@@ -128,7 +122,9 @@ impl ViewComponent for LimitRangesView {
 
         let newly_selected = render_limitranges_grid(ui, "Limit Ranges", &mut self.table);
 
-        if let Some((ns, name)) = newly_selected {
+        if let Some((ns, name)) = newly_selected
+            && self.selected.as_ref() != Some(&(ns.clone(), name.clone()))
+        {
             self.selected = Some((ns.clone(), name.clone()));
             self.details = None;
             actions.push(ViewAction::SendCommand(BackendCmd::SelectLimitRange {
@@ -156,6 +152,9 @@ impl ViewComponent for LimitRangesView {
         }
     }
 
+    fn has_details(&self) -> bool {
+        self.selected.is_some()
+    }
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,

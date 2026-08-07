@@ -124,7 +124,8 @@ impl<T: Clone> Table<T> {
             .iter()
             .enumerate()
             .filter(|(_, item)| {
-                self.state.search_text.is_empty() || search_fn(item, &self.state.search_text.to_lowercase())
+                self.state.search_text.is_empty()
+                    || search_fn(item, &self.state.search_text.to_lowercase())
             })
             .map(|(i, item)| (i, item.clone()))
             .collect();
@@ -141,7 +142,11 @@ impl<T: Clone> Table<T> {
         self.deselect_all();
     }
 
-    /// Get the displayed items (sorted and filtered)
+    /// Get the displayed items: filtered by search text, in whatever order
+    /// `self.items` currently holds. Sorting reorders `self.items` itself
+    /// (see `apply_sort`) rather than being applied transiently here, so
+    /// this - and everything built on it, including `get_selected_items` -
+    /// always agrees with what `render_table` actually shows the user.
     pub fn filtered_items(&self, search_fn: fn(&T, &str) -> bool) -> Vec<(usize, T)> {
         let items: Vec<(usize, T)> = self
             .items
@@ -160,36 +165,30 @@ impl<T: Clone> Table<T> {
         items
     }
 
-    /// Sort items by column
-    pub fn sort_items<F>(
-        &mut self,
-        column_idx: usize,
-        mut items: Vec<(usize, T)>,
-        sort_value_fn: F,
-    ) -> Vec<(usize, T)>
-    where
-        F: Fn(&T) -> String,
-    {
-        // Toggle sort if clicking same column
-        if self.state.sort_column == Some(column_idx) {
-            self.state.sort_dir = self.state.sort_dir.toggle();
-        } else {
-            self.state.sort_column = Some(column_idx);
-            self.state.sort_dir = SortDir::Asc;
-        }
-
-        items.sort_by(|a, b| {
-            let a_val = sort_value_fn(&a.1);
-            let b_val = sort_value_fn(&b.1);
-
-            let cmp = compare_mixed(&a_val, &b_val);
-            match self.state.sort_dir {
+    /// Reorder `self.items` in place to match the persisted
+    /// `sort_column`/`sort_dir`. No-op if no sort column is set. Sorting the
+    /// canonical backing store (rather than a transient display-only copy)
+    /// is what keeps `filtered_items`, `get_selected_items`, and
+    /// `render_table`'s row order in agreement - previously, sort order was
+    /// only ever computed for the exact frame a header was clicked and
+    /// discarded immediately after, and `get_selected_items` never applied
+    /// it at all, so bulk actions after any sort resolved to the wrong items.
+    fn apply_sort(&mut self, columns: &[Column<T>]) {
+        let Some(col_idx) = self.state.sort_column else {
+            return;
+        };
+        let Some(column) = columns.get(col_idx) else {
+            return;
+        };
+        let sort_value_fn = column.sort_value;
+        let dir = self.state.sort_dir;
+        self.items.sort_by(|a, b| {
+            let cmp = compare_mixed(&sort_value_fn(a), &sort_value_fn(b));
+            match dir {
                 SortDir::Asc => cmp,
                 SortDir::Desc => cmp.reverse(),
             }
         });
-
-        items
     }
 
     /// Render the table using egui Grid with multi-select checkboxes
@@ -262,9 +261,12 @@ impl<T: Clone> Table<T> {
         });
         ui.add_space(6.0);
 
-        // Get filtered items
-        let items = self.filtered_items(search_fn);
-        let filtered_count = items.len();
+        // Apply whatever sort was already in effect from the previous frame
+        // (or set via the Sort combobox above) before computing what to
+        // show - this is what makes sort "sticky" instead of a one-frame
+        // flash on the exact click.
+        self.apply_sort(columns);
+        let filtered_count = self.filtered_items(search_fn).len();
 
         // Table grid layout
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -305,17 +307,22 @@ impl<T: Clone> Table<T> {
                 }
                 ui.end_row();
 
-                // Handle sort after headers
-                let sorted_items = if let Some(col_idx) = clicked_column {
-                    let sort_value_fn = columns[col_idx].sort_value;
-                    let sorted = items;
-                    self.sort_items(col_idx, sorted, sort_value_fn)
-                } else {
-                    items
-                };
+                // Toggle sort if clicking the already-sorted column, else
+                // switch to sorting by the newly clicked one ascending.
+                if let Some(col_idx) = clicked_column {
+                    if self.state.sort_column == Some(col_idx) {
+                        self.state.sort_dir = self.state.sort_dir.toggle();
+                    } else {
+                        self.state.sort_column = Some(col_idx);
+                        self.state.sort_dir = SortDir::Asc;
+                    }
+                    self.apply_sort(columns);
+                }
+
+                let items = self.filtered_items(search_fn);
 
                 // Table rows
-                for (display_idx, (original_idx, item)) in sorted_items.iter().enumerate() {
+                for (display_idx, (original_idx, item)) in items.iter().enumerate() {
                     let is_selected = self.is_row_selected(display_idx);
 
                     // Checkbox for row selection
@@ -351,4 +358,161 @@ fn compare_mixed(a: &str, b: &str) -> Ordering {
 
     // Fall back to string comparison
     a.cmp(b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Item {
+        name: String,
+    }
+
+    fn item(name: &str) -> Item {
+        Item {
+            name: name.to_owned(),
+        }
+    }
+
+    fn no_filter(_item: &Item, _search: &str) -> bool {
+        true
+    }
+
+    fn columns() -> Vec<Column<Item>> {
+        vec![Column {
+            header: "Name".to_owned(),
+            width: 100.0,
+            sort_value: |i: &Item| i.name.clone(),
+            render: |i: &Item| i.name.clone(),
+        }]
+    }
+
+    /// Regression test for a bug found via this component's GUI tests:
+    /// `render_table` used to only compute a sorted display order on the
+    /// exact frame a column header was clicked (a transient local variable,
+    /// gated on `clicked_column` being `Some` that one frame) - every other
+    /// frame it fell back to natural order, since nothing ever consulted the
+    /// *persisted* `sort_column`/`sort_dir`. Since `FathomApp::update` calls
+    /// `ctx.request_repaint()` unconditionally every frame, that one sorted
+    /// frame was imperceptible: clicking a column header (or picking one
+    /// from the Sort combobox) appeared to do nothing.
+    ///
+    /// Fixed by `apply_sort`, which reorders `self.items` itself based on
+    /// persisted state, called at the top of every `render_table` frame -
+    /// so `filtered_items` (and everything built on it) now agrees with
+    /// whatever was last sorted.
+    #[test]
+    fn filtered_items_respects_persisted_sort_state() {
+        let mut table = Table::new(vec![item("charlie"), item("alpha"), item("bravo")]);
+        table.state.sort_column = Some(0);
+        table.state.sort_dir = SortDir::Asc;
+        table.apply_sort(&columns());
+
+        let names: Vec<String> = table
+            .filtered_items(no_filter)
+            .into_iter()
+            .map(|(_, i)| i.name)
+            .collect();
+
+        assert_eq!(
+            names,
+            vec!["alpha", "bravo", "charlie"],
+            "filtered_items should reflect the persisted sort_column/sort_dir"
+        );
+    }
+
+    /// Regression test for a bug found via this component's GUI tests:
+    /// `render_table` stored row checkboxes' indices (`toggle_selection`)
+    /// against the *sorted* display order the user actually saw and clicked
+    /// against, but `get_selected_items` independently rebuilt its own
+    /// filtered list straight from `self.items` in natural (unsorted) order
+    /// and read `selected_rows` against *that* - so after any sort, bulk
+    /// actions ("Delete N selected") resolved to whatever items happened to
+    /// sit at those positions in unsorted order, not the ones the user
+    /// actually checked. Fixed by sorting `self.items` itself (`apply_sort`)
+    /// so every consumer shares one canonical order.
+    #[test]
+    fn get_selected_items_matches_the_sorted_order_the_user_saw() {
+        let mut table = Table::new(vec![item("charlie"), item("alpha"), item("bravo")]);
+
+        table.state.sort_column = Some(0);
+        table.state.sort_dir = SortDir::Asc;
+        table.apply_sort(&columns());
+
+        let sorted_names: Vec<String> = table
+            .filtered_items(no_filter)
+            .into_iter()
+            .map(|(_, i)| i.name)
+            .collect();
+        assert_eq!(
+            sorted_names,
+            vec!["alpha", "bravo", "charlie"],
+            "sanity check: apply_sort should sort ascending by name"
+        );
+
+        // User sees the sorted list and checks the first row, "alpha".
+        table.toggle_selection(0);
+
+        let selected: Vec<String> = table
+            .get_selected_items(no_filter)
+            .into_iter()
+            .map(|i| i.name)
+            .collect();
+
+        assert_eq!(
+            selected,
+            vec!["alpha".to_owned()],
+            "expected the item the user actually saw/checked at display position 0 \
+             (\"alpha\", after sorting)"
+        );
+    }
+
+    /// Toggling sort direction twice on the same column (ascending, then
+    /// descending) should reverse the order, not just toggle back and forth
+    /// between "sorted" and "unsorted".
+    #[test]
+    fn sort_direction_toggle_reverses_order() {
+        let mut table = Table::new(vec![item("bravo"), item("alpha"), item("charlie")]);
+        let cols = columns();
+
+        table.state.sort_column = Some(0);
+        table.state.sort_dir = SortDir::Asc;
+        table.apply_sort(&cols);
+        let asc: Vec<String> = table
+            .filtered_items(no_filter)
+            .into_iter()
+            .map(|(_, i)| i.name)
+            .collect();
+        assert_eq!(asc, vec!["alpha", "bravo", "charlie"]);
+
+        table.state.sort_dir = SortDir::Desc;
+        table.apply_sort(&cols);
+        let desc: Vec<String> = table
+            .filtered_items(no_filter)
+            .into_iter()
+            .map(|(_, i)| i.name)
+            .collect();
+        assert_eq!(desc, vec!["charlie", "bravo", "alpha"]);
+    }
+
+    /// Filtering should still narrow the (now-sorted) canonical order rather
+    /// than reintroducing natural order.
+    #[test]
+    fn filtered_items_stays_sorted_after_filtering() {
+        let mut table = Table::new(vec![item("charlie"), item("alpha"), item("bravo")]);
+        table.state.sort_column = Some(0);
+        table.state.sort_dir = SortDir::Asc;
+        table.apply_sort(&columns());
+        table.state.search_text = "a".to_owned();
+
+        let search_fn = |i: &Item, s: &str| i.name.to_lowercase().contains(s);
+        let names: Vec<String> = table
+            .filtered_items(search_fn)
+            .into_iter()
+            .map(|(_, i)| i.name)
+            .collect();
+
+        assert_eq!(names, vec!["alpha", "bravo", "charlie"]);
+    }
 }

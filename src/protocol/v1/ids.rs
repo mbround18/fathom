@@ -18,15 +18,10 @@ impl fmt::Display for StreamId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Correlation {
+    #[default]
     None,
     Request(RequestId),
     Stream(StreamId),
-}
-
-impl Default for Correlation {
-    fn default() -> Self {
-        Self::None
-    }
 }

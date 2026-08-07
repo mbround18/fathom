@@ -42,12 +42,6 @@ fn render_classes_grid(
     ui.heading(title);
     ui.separator();
 
-    ui.horizontal(|ui| {
-        ui.label("🔍 Search:");
-        ui.text_edit_singleline(&mut table.state.search_text);
-    });
-    ui.add_space(8.0);
-
     let columns = vec![
         Column {
             header: "Name".to_string(),
@@ -108,7 +102,9 @@ impl ViewComponent for PriorityClassesView {
 
         let newly_selected = render_classes_grid(ui, "Priority Classes", &mut self.table);
 
-        if let Some(name) = newly_selected {
+        if let Some(name) = newly_selected
+            && self.selected.as_ref() != Some(&name)
+        {
             self.selected = Some(name.clone());
             self.details = None;
             actions.push(ViewAction::SendCommand(BackendCmd::SelectPriorityClass {
@@ -135,6 +131,9 @@ impl ViewComponent for PriorityClassesView {
         }
     }
 
+    fn has_details(&self) -> bool {
+        self.selected.is_some()
+    }
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,

@@ -140,7 +140,7 @@ fn network_policy_to_details(policy: NetworkPolicy) -> NetworkPolicyDetails {
 
     let policy_types = spec
         .and_then(|s| s.policy_types.as_ref())
-        .map(|types| types.clone())
+        .cloned()
         .unwrap_or_default();
 
     let ingress_rules = spec
@@ -155,7 +155,7 @@ fn network_policy_to_details(policy: NetworkPolicy) -> NetworkPolicyDetails {
                         .and_then(|ports| {
                             let protos: Vec<String> = ports
                                 .iter()
-                                .filter_map(|p| p.protocol.as_ref().map(|proto| proto.clone()))
+                                .filter_map(|p| p.protocol.clone())
                                 .collect();
                             if protos.is_empty() {
                                 None
@@ -178,7 +178,7 @@ fn network_policy_to_details(policy: NetworkPolicy) -> NetworkPolicyDetails {
                                 })
                                 .collect::<Vec<_>>()
                         })
-                        .unwrap_or_else(|| vec![]);
+                        .unwrap_or_else(std::vec::Vec::new);
 
                     let from_selectors = rule
                         .from
@@ -244,7 +244,7 @@ fn network_policy_to_details(policy: NetworkPolicy) -> NetworkPolicyDetails {
                         .and_then(|ports| {
                             let protos: Vec<String> = ports
                                 .iter()
-                                .filter_map(|p| p.protocol.as_ref().map(|proto| proto.clone()))
+                                .filter_map(|p| p.protocol.clone())
                                 .collect();
                             if protos.is_empty() {
                                 None
@@ -267,7 +267,7 @@ fn network_policy_to_details(policy: NetworkPolicy) -> NetworkPolicyDetails {
                                 })
                                 .collect::<Vec<_>>()
                         })
-                        .unwrap_or_else(|| vec![]);
+                        .unwrap_or_else(std::vec::Vec::new);
 
                     let to_selectors = rule
                         .to

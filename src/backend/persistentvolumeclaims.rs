@@ -1,12 +1,12 @@
 use crate::protocol::{
-    section_keys, BackendEvent, BackendEventEnvelope, Correlation, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, ResourceListEvent, ResourceReadEvent, Route,
+    BackendEvent, BackendEventEnvelope, Correlation, PersistentVolumeClaimDetails,
+    PersistentVolumeClaimSummary, ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
 use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::{
-    api::{Api, DeleteParams, ListParams},
     ResourceExt,
+    api::{Api, DeleteParams, ListParams},
 };
 
 use super::interactions;

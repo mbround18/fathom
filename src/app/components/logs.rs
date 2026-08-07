@@ -28,6 +28,11 @@ impl LogStreamId {
 #[derive(Debug, Clone)]
 pub struct LogStreamState {
     pub stream_id: LogStreamId,
+    /// Backend-assigned numeric id (`protocol::StreamId`) of the stream
+    /// currently populating `logs`, once known. Not the same thing as
+    /// `stream_id` above (which identifies *what* is being tailed - a pod,
+    /// a deployment - not *which* backend streaming task).
+    backend_stream_id: Option<u64>,
     pub logs: Vec<String>,
     pub container: Option<String>,
     pub is_running: bool,
@@ -42,6 +47,7 @@ impl LogStreamState {
     pub fn new(stream_id: LogStreamId) -> Self {
         Self {
             stream_id,
+            backend_stream_id: None,
             logs: Vec::new(),
             container: None,
             is_running: false,
@@ -51,6 +57,30 @@ impl LogStreamState {
             filter_case_sensitive: false,
             filter_include: true,
         }
+    }
+
+    /// Whether an incoming event tagged with backend stream id `incoming` is
+    /// for the stream that should currently be populating `logs`, and if so,
+    /// records it as the current one.
+    ///
+    /// Backend log-tailing tasks are cancelled via `JoinHandle::abort()`,
+    /// which cancels the task at its next await point but does not retract
+    /// events it already queued for delivery - so switching pods (or
+    /// restarting a stream) can leave a handful of `PodLogsChunk` events from
+    /// the *old* stream still in flight after a *new* `LogStreamState` has
+    /// already been created for the new selection, and they'd otherwise get
+    /// silently appended into the wrong pod's log view. Since backend stream
+    /// ids are assigned monotonically within a session, rejecting anything
+    /// older than the highest id seen so far discards those stragglers
+    /// without needing the backend to announce a new stream id in advance.
+    pub fn accepts_chunk(&mut self, incoming: u64) -> bool {
+        if let Some(current) = self.backend_stream_id
+            && incoming < current
+        {
+            return false;
+        }
+        self.backend_stream_id = Some(incoming);
+        true
     }
 
     pub fn clear_logs(&mut self) {
@@ -232,6 +262,7 @@ impl LogViewer {
         state: &mut LogStreamState,
     ) -> egui::containers::scroll_area::ScrollAreaOutput<()> {
         let inner = egui::ScrollArea::vertical()
+            .id_salt("log_viewer_scroll")
             .auto_shrink([false; 2])
             .stick_to_bottom(state.autoscroll)
             .show(ui, |ui| {
@@ -279,5 +310,63 @@ impl LogViewer {
         Self::render_logs(ui, state);
 
         (should_start, should_stop, should_clear, container_changed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pod_stream() -> LogStreamState {
+        LogStreamState::new(LogStreamId::Pod {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+        })
+    }
+
+    /// Regression test for a bug found by inspection: `PodsView::on_event`
+    /// used to append every `PodLogsChunk` to whatever `pod_logs_stream` was
+    /// current, ignoring the event's own `stream_id` entirely. Backend
+    /// log-tailing tasks are stopped via `JoinHandle::abort()`, which cancels
+    /// the task at its next await point but doesn't retract chunks it had
+    /// already queued for delivery - so switching pods mid-stream could
+    /// leave a handful of the *previous* pod's log lines still in flight,
+    /// arriving after a fresh `LogStreamState` was created for the new
+    /// selection, and get silently appended into the wrong pod's log view.
+    #[test]
+    fn accepts_chunk_rejects_stragglers_from_a_superseded_stream() {
+        let mut stream = pod_stream();
+
+        // First chunk for this viewing session establishes the current
+        // stream id (5, e.g. from switching to this pod and clicking Start).
+        assert!(stream.accepts_chunk(5));
+        assert!(
+            stream.accepts_chunk(5),
+            "more chunks from the same stream keep being accepted"
+        );
+
+        // A late-arriving chunk from an older, already-superseded stream
+        // (e.g. the previous pod's, aborted but not fully drained) must be
+        // rejected, not appended.
+        assert!(
+            !stream.accepts_chunk(3),
+            "a chunk from an older stream id must be rejected"
+        );
+
+        // A genuinely newer stream (e.g. the user clicked Start again)
+        // should still be accepted and become the new current stream.
+        assert!(stream.accepts_chunk(7));
+        assert!(
+            !stream.accepts_chunk(5),
+            "once stream 7 is current, straggler chunks from stream 5 must be rejected too"
+        );
+    }
+
+    /// The very first chunk a freshly-created `LogStreamState` ever sees
+    /// establishes its stream id - there's nothing to compare against yet.
+    #[test]
+    fn accepts_chunk_always_accepts_the_first_one() {
+        let mut stream = pod_stream();
+        assert!(stream.accepts_chunk(42));
     }
 }

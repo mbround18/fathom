@@ -14,6 +14,12 @@ pub struct McpIntegrationView {
     preferences_changed: bool,
 }
 
+impl Default for McpIntegrationView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl McpIntegrationView {
     pub fn new() -> Self {
         Self {
@@ -176,15 +182,13 @@ impl ViewComponent for McpIntegrationView {
     }
 
     fn on_event(&mut self, event: &BackendEvent) {
-        match event {
-            BackendEvent::System(crate::protocol::SystemEvent::McpServerStatus {
-                running,
-                message,
-            }) => {
-                self.mcp_running = *running;
-                self.status_message = Some(message.clone());
-            }
-            _ => {}
+        if let BackendEvent::System(crate::protocol::SystemEvent::McpServerStatus {
+            running,
+            message,
+        }) = event
+        {
+            self.mcp_running = *running;
+            self.status_message = Some(message.clone());
         }
     }
 
@@ -193,7 +197,13 @@ impl ViewComponent for McpIntegrationView {
         if let Ok(auto_start) = crate::backend::persistence::load_mcp_auto_start() {
             self.auto_start = auto_start;
         }
-        Vec::new()
+
+        // `mcp_running` otherwise only ever changes in response to a
+        // McpServerStatus event from Start/Stop - it starts false and stays
+        // false (even if the server is actually running, e.g. via
+        // --mcp-http or the auto-start preference this view itself toggles)
+        // until something asks the backend what's actually true.
+        vec![ViewAction::SendCommand(BackendCmd::RefreshMcpStatus)]
     }
 
     fn on_unmount(&mut self) -> Vec<ViewAction> {

@@ -95,18 +95,18 @@ fn main() -> eframe::Result<()> {
 fn load_icon() -> egui::IconData {
     let icon_path = std::path::Path::new("assets/icon.png");
 
-    if icon_path.exists() {
-        if let Ok(img) = image::open(icon_path) {
-            let rgba = img.to_rgba8();
-            let (width, height) = rgba.dimensions();
-            let pixels = rgba.into_raw();
+    if icon_path.exists()
+        && let Ok(img) = image::open(icon_path)
+    {
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let pixels = rgba.into_raw();
 
-            return egui::IconData {
-                rgba: pixels,
-                width,
-                height,
-            };
-        }
+        return egui::IconData {
+            rgba: pixels,
+            width,
+            height,
+        };
     }
 
     // Fallback: create a simple colored square as icon

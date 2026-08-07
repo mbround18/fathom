@@ -209,10 +209,10 @@ fn render_workload_grid(
     table.render_table(ui, &columns, search_fn, None);
 
     // Extract selected from table and convert back to (namespace, name)
-    if let Some(selected_idx) = table.selected {
-        if let Some(item) = table.items.get(selected_idx) {
-            return Some((item.namespace.clone(), item.name.clone()));
-        }
+    if let Some(selected_idx) = table.selected
+        && let Some(item) = table.items.get(selected_idx)
+    {
+        return Some((item.namespace.clone(), item.name.clone()));
     }
 
     None
@@ -512,21 +512,23 @@ impl ViewComponent for WorkloadView {
             self.state.summaries = summaries;
         }
 
-        if let Some(details) = (self.config.match_details)(event) {
-            if Some((details.namespace.clone(), details.name.clone())) == self.state.selected {
-                self.state.details = Some(details);
-            }
+        if let Some(details) = (self.config.match_details)(event)
+            && Some((details.namespace.clone(), details.name.clone())) == self.state.selected
+        {
+            self.state.details = Some(details);
         }
 
-        if let Some(match_metrics) = self.config.match_metrics {
-            if let Some(metrics) = match_metrics(event) {
-                if Some((metrics.namespace.clone(), metrics.name.clone())) == self.state.selected {
-                    self.state.metrics = Some(metrics);
-                }
-            }
+        if let Some(match_metrics) = self.config.match_metrics
+            && let Some(metrics) = match_metrics(event)
+            && Some((metrics.namespace.clone(), metrics.name.clone())) == self.state.selected
+        {
+            self.state.metrics = Some(metrics);
         }
     }
 
+    fn has_details(&self) -> bool {
+        self.state.selected.is_some()
+    }
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,
@@ -539,14 +541,18 @@ impl ViewComponent for WorkloadView {
         let mut actions = Vec::new();
         let (ns, name) = self.state.selected.as_ref().unwrap().clone();
 
-        // Auto-start metrics polling when details panel opens
-        if !self.state.metrics_polling_started {
+        // Auto-start metrics polling once details (and the real pod label
+        // selector) have loaded, rather than guessing pod ownership by name.
+        if !self.state.metrics_polling_started
+            && let Some(details) = &self.state.details
+        {
             self.state.metrics_polling_started = true;
             actions.push(ViewAction::SendCommand(
                 BackendCmd::StartWorkloadMetricsPolling {
                     namespace: ns.clone(),
                     workload_name: name.clone(),
                     workload_kind: self.config.label.to_string(),
+                    pod_selector: details.pod_selector.clone(),
                     interval_secs: self.state.metrics_interval_secs,
                 },
             ));
@@ -577,7 +583,7 @@ impl ViewComponent for WorkloadView {
                         .unwrap_or(0);
 
                     actions.push(ViewAction::OpenScaleModal(
-                        self.config.kind.clone(),
+                        self.config.kind,
                         ns.clone(),
                         name.clone(),
                         current,
@@ -592,7 +598,7 @@ impl ViewComponent for WorkloadView {
 
         ui.horizontal(|ui| {
             ui.label(&ns);
-            ui.label(format!("/{}", &name));
+            ui.label(format!("/{}", name));
         });
 
         ui.separator();

@@ -60,12 +60,7 @@ fn ingresses_to_summaries(ingresses: Vec<Ingress>, filter: &Vec<String>) -> Vec<
             .as_ref()
             .and_then(|status| status.load_balancer.as_ref())
             .and_then(|lb| lb.ingress.as_ref())
-            .map(|ingress| {
-                ingress
-                    .iter()
-                    .filter_map(|ing| ing.ip.as_ref().map(|i| i.clone()))
-                    .collect()
-            })
+            .map(|ingress| ingress.iter().filter_map(|ing| ing.ip.clone()).collect())
             .unwrap_or_default();
 
         out.push(IngressSummary {

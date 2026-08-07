@@ -134,7 +134,7 @@ pub(super) async fn fetch_cronjob_details(
 
     let concurrency_policy = spec
         .and_then(|s| s.concurrency_policy.as_ref())
-        .map(|p| p.clone())
+        .cloned()
         .unwrap_or_else(|| "Allow".to_string());
 
     let starting_deadline_seconds = spec.and_then(|s| s.starting_deadline_seconds);

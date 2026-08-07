@@ -108,22 +108,14 @@ fn resourcequota_to_details(rq: ResourceQuota) -> ResourceQuotaDetails {
         .spec
         .as_ref()
         .and_then(|s| s.hard.as_ref())
-        .map(|h| {
-            h.iter()
-                .map(|(k, v)| (k.clone(), v.0.clone()))
-                .collect()
-        })
+        .map(|h| h.iter().map(|(k, v)| (k.clone(), v.0.clone())).collect())
         .unwrap_or_default();
 
     let used: BTreeMap<String, String> = rq
         .status
         .as_ref()
         .and_then(|s| s.used.as_ref())
-        .map(|u| {
-            u.iter()
-                .map(|(k, v)| (k.clone(), v.0.clone()))
-                .collect()
-        })
+        .map(|u| u.iter().map(|(k, v)| (k.clone(), v.0.clone())).collect())
         .unwrap_or_default();
 
     let raw_json = serde_json::to_string_pretty(&rq).unwrap_or_default();

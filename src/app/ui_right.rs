@@ -6,11 +6,11 @@ impl FathomApp {
     /// Delegates to the active view's render_details() method.
     /// The panel is only shown if the active view has content to display.
     pub(super) fn render_right_panel(&mut self, ctx: &egui::Context) {
-        // Show panel on first render, or if we determined there was content last frame
-        // This allows the view to determine if content exists
-        let should_attempt_render = self.show_details_panel || ctx.input(|i| i.time == 0.0);
-
-        if !should_attempt_render {
+        // Ask the view itself whether it has a selection, before committing to
+        // reserving 400px of screen space for the panel this frame.
+        let key = self.active_section.clone();
+        if !self.get_or_create_view(&key).has_details() {
+            self.show_details_panel = false;
             return;
         }
 

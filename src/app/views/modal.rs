@@ -237,29 +237,31 @@ impl ModalView {
                 remote_port,
                 container,
             } => {
+                let mut namespace_mut = namespace.clone();
+                let mut pod_mut = pod.clone();
                 let mut local_port_mut = local_port.clone();
                 let mut remote_port_mut = remote_port.clone();
                 let mut container_mut = container.clone();
                 let mut cancel = false;
                 let mut create = false;
 
-                let keep = ModalState::CreatePortForward {
-                    namespace: namespace.clone(),
-                    pod: pod.clone(),
-                    local_port: local_port_mut.clone(),
-                    remote_port: remote_port_mut.clone(),
-                    container: container_mut.clone(),
-                };
-
                 egui::Window::new("Create Port Forward")
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                     .show(ctx, |ui| {
+                        // Passing &mut namespace_mut/&mut pod_mut here (not a
+                        // `.clone()`) is load-bearing: this used to pass a
+                        // mutable reference to a throwaway clone of
+                        // `namespace`/`pod`, so `ui.text_edit_singleline`
+                        // inside `render_autocomplete_field` edited a value
+                        // that was discarded at the end of the call - the
+                        // Namespace and Pod fields could not actually be
+                        // typed into.
                         render_autocomplete_field(
                             ui,
                             "Namespace",
-                            &mut namespace.clone(),
+                            &mut namespace_mut,
                             &self.namespaces,
                             "pf_ns_field",
                         );
@@ -269,7 +271,7 @@ impl ModalView {
                         render_autocomplete_field(
                             ui,
                             "Pod",
-                            &mut pod.clone(),
+                            &mut pod_mut,
                             &pod_options,
                             "pf_pod_field",
                         );
@@ -310,8 +312,8 @@ impl ModalView {
                         remote_port_mut.parse::<u16>(),
                     ) {
                         create_portforward = Some((
-                            namespace,
-                            pod,
+                            namespace_mut,
+                            pod_mut,
                             local,
                             remote,
                             if container_mut.is_empty() {
@@ -322,7 +324,13 @@ impl ModalView {
                         ));
                     }
                 } else {
-                    next_modal = Some(keep);
+                    next_modal = Some(ModalState::CreatePortForward {
+                        namespace: namespace_mut,
+                        pod: pod_mut,
+                        local_port: local_port_mut,
+                        remote_port: remote_port_mut,
+                        container: container_mut,
+                    });
                 }
             }
 
@@ -339,15 +347,6 @@ impl ModalView {
                 let mut container_mut = container.clone();
                 let mut cancel = false;
                 let mut save = false;
-
-                let keep = ModalState::EditPortForward {
-                    tunnel_id: tunnel_id.clone(),
-                    namespace: namespace.clone(),
-                    pod: pod.clone(),
-                    local_port: local_port_mut.clone(),
-                    remote_port: remote_port_mut.clone(),
-                    container: container_mut.clone(),
-                };
 
                 egui::Window::new("Edit Port Forward")
                     .collapsible(false)
@@ -415,7 +414,14 @@ impl ModalView {
                         }));
                     }
                 } else {
-                    next_modal = Some(keep);
+                    next_modal = Some(ModalState::EditPortForward {
+                        tunnel_id: tunnel_id.clone(),
+                        namespace: namespace.clone(),
+                        pod: pod.clone(),
+                        local_port: local_port_mut,
+                        remote_port: remote_port_mut,
+                        container: container_mut,
+                    });
                 }
             }
         }
@@ -487,16 +493,19 @@ impl ModalView {
                     }));
                 }
                 ConfirmAction::DeletePersistentVolume(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePersistentVolume { name }));
+                    actions.push(ViewAction::SendCommand(
+                        BackendCmd::DeletePersistentVolume { name },
+                    ));
                 }
                 ConfirmAction::DeletePersistentVolumeClaim(namespace, name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePersistentVolumeClaim {
-                        namespace,
-                        name,
-                    }));
+                    actions.push(ViewAction::SendCommand(
+                        BackendCmd::DeletePersistentVolumeClaim { namespace, name },
+                    ));
                 }
                 ConfirmAction::DeleteStorageClass(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteStorageClass { name }));
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteStorageClass {
+                        name,
+                    }));
                 }
                 ConfirmAction::DeleteRole(namespace, name) => {
                     actions.push(ViewAction::SendCommand(BackendCmd::DeleteRole {
@@ -511,10 +520,14 @@ impl ModalView {
                     }));
                 }
                 ConfirmAction::DeleteClusterRole(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteClusterRole { name }));
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteClusterRole {
+                        name,
+                    }));
                 }
                 ConfirmAction::DeleteClusterRoleBinding(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteClusterRoleBinding { name }));
+                    actions.push(ViewAction::SendCommand(
+                        BackendCmd::DeleteClusterRoleBinding { name },
+                    ));
                 }
                 ConfirmAction::DeleteConfigMap(namespace, name) => {
                     actions.push(ViewAction::SendCommand(BackendCmd::DeleteConfigMap {
@@ -541,22 +554,24 @@ impl ModalView {
                     }));
                 }
                 ConfirmAction::DeleteHorizontalPodAutoscaler(namespace, name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteHorizontalPodAutoscaler {
-                        namespace,
-                        name,
-                    }));
+                    actions.push(ViewAction::SendCommand(
+                        BackendCmd::DeleteHorizontalPodAutoscaler { namespace, name },
+                    ));
                 }
                 ConfirmAction::DeletePodDisruptionBudget(namespace, name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePodDisruptionBudget {
-                        namespace,
+                    actions.push(ViewAction::SendCommand(
+                        BackendCmd::DeletePodDisruptionBudget { namespace, name },
+                    ));
+                }
+                ConfirmAction::DeletePriorityClass(name) => {
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePriorityClass {
                         name,
                     }));
                 }
-                ConfirmAction::DeletePriorityClass(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeletePriorityClass { name }));
-                }
                 ConfirmAction::DeleteRuntimeClass(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteRuntimeClass { name }));
+                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteRuntimeClass {
+                        name,
+                    }));
                 }
                 ConfirmAction::DeleteLease(namespace, name) => {
                     actions.push(ViewAction::SendCommand(BackendCmd::DeleteLease {
@@ -565,10 +580,14 @@ impl ModalView {
                     }));
                 }
                 ConfirmAction::DeleteMutatingWebhookConfiguration(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteMutatingWebhookConfiguration { name }));
+                    actions.push(ViewAction::SendCommand(
+                        BackendCmd::DeleteMutatingWebhookConfiguration { name },
+                    ));
                 }
                 ConfirmAction::DeleteValidatingWebhookConfiguration(name) => {
-                    actions.push(ViewAction::SendCommand(BackendCmd::DeleteValidatingWebhookConfiguration { name }));
+                    actions.push(ViewAction::SendCommand(
+                        BackendCmd::DeleteValidatingWebhookConfiguration { name },
+                    ));
                 }
                 ConfirmAction::DeleteCronJob(namespace, name) => {
                     actions.push(ViewAction::SendCommand(BackendCmd::DeleteCronJob {
@@ -721,11 +740,9 @@ impl ViewComponent for ModalView {
     }
 
     fn on_event(&mut self, event: &BackendEvent) {
-        match event {
-            BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)) => {
-                self.namespaces = namespaces.clone();
-            }
-            _ => {}
+        if let BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)) = event
+        {
+            self.namespaces = namespaces.clone();
         }
     }
 

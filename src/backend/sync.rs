@@ -1,13 +1,16 @@
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent, Route, section_keys,
+    BackendEvent, BackendEventEnvelope, Correlation, NamespaceSummary, ResourceListEvent, Route,
+    section_keys,
 };
 use crossbeam_channel::Sender;
 use futures_util::StreamExt;
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::{
     api::{Api, ListParams},
     runtime::watcher,
 };
+use std::collections::HashMap;
 use std::time::Duration;
 
 use super::state::BackendState;
@@ -20,7 +23,8 @@ pub(super) async fn ensure_background_sync(
     let client = state.cluster.client_or_err()?;
 
     // If tasks already exist, keep them running.
-    if state.watch_tasks.pod_watch_task.is_some() && state.watch_tasks.namespace_sync_task.is_some() {
+    if state.watch_tasks.pod_watch_task.is_some() && state.watch_tasks.namespace_sync_task.is_some()
+    {
         return Ok(());
     }
 
@@ -146,22 +150,81 @@ pub(super) async fn refresh_namespaces(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<Namespace> = Api::all(client);
+    let ns_api: Api<Namespace> = Api::all(client.clone());
+    let pod_api: Api<Pod> = Api::all(client.clone());
+    let deployment_api: Api<Deployment> = Api::all(client);
 
-    let ns_list = api.list(&ListParams::default()).await?;
-    let mut namespaces: Vec<String> = ns_list
+    let lp = ListParams::default();
+    let (ns_result, pods_result, deployments_result) = tokio::join!(
+        ns_api.list(&lp),
+        pod_api.list(&lp),
+        deployment_api.list(&lp)
+    );
+    let ns_list = ns_result?;
+
+    let mut pod_counts: HashMap<String, u32> = HashMap::new();
+    if let Ok(pods) = pods_result {
+        for pod in pods.items {
+            if let Some(ns) = pod.metadata.namespace {
+                *pod_counts.entry(ns).or_default() += 1;
+            }
+        }
+    }
+
+    let mut deployment_counts: HashMap<String, u32> = HashMap::new();
+    if let Ok(deployments) = deployments_result {
+        for deployment in deployments.items {
+            if let Some(ns) = deployment.metadata.namespace {
+                *deployment_counts.entry(ns).or_default() += 1;
+            }
+        }
+    }
+
+    let mut summaries: Vec<NamespaceSummary> = ns_list
         .items
         .into_iter()
-        .filter_map(|n| n.metadata.name)
+        .filter_map(|ns| {
+            let name = ns.metadata.name?;
+            let status = ns
+                .status
+                .and_then(|s| s.phase)
+                .unwrap_or_else(|| "Unknown".to_owned());
+            let creation_timestamp = ns
+                .metadata
+                .creation_timestamp
+                .map(|t| t.0.to_rfc3339())
+                .unwrap_or_default();
+            Some(NamespaceSummary {
+                pod_count: pod_counts.get(&name).copied().unwrap_or(0),
+                deployment_count: deployment_counts.get(&name).copied().unwrap_or(0),
+                name,
+                status,
+                creation_timestamp,
+            })
+        })
         .collect();
+    summaries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut namespaces: Vec<String> = summaries.iter().map(|s| s.name.clone()).collect();
     namespaces.sort();
 
+    let route = Route::cluster(
+        section_keys::system(),
+        state.cluster.current_context.clone(),
+    );
     events::emit(
         state.cluster.seq.as_ref(),
         sender,
-        Route::cluster(section_keys::system(), state.cluster.current_context.clone()),
+        route.clone(),
         Correlation::None,
         BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
+    );
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        route,
+        Correlation::None,
+        BackendEvent::ResourceList(ResourceListEvent::NamespaceSummariesUpdated(summaries)),
     );
     Ok(())
 }

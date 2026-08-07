@@ -1,4 +1,3 @@
-use fathom::backend::integrations::PrometheusConfig;
 use fathom::backend::integrations::prometheus_base_url_from_parts;
 
 #[test]

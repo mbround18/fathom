@@ -5,20 +5,36 @@ use crate::protocol::{
     PodSummary, PrometheusMetrics, ResourceListEvent, ResourceReadEvent, StreamEvent, SystemEvent,
 };
 
-// Human-friendly bytes formatting (binary units)
-fn human_readable_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
-    let mut val = bytes as f64;
-    let mut idx = 0usize;
-    while val >= 1024.0 && idx < UNITS.len() - 1 {
-        val /= 1024.0;
-        idx += 1;
+fn normalize_for_search(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect()
+}
+
+fn is_subsequence(needle: &str, haystack: &str) -> bool {
+    if needle.is_empty() {
+        return true;
     }
-    if idx == 0 {
-        format!("{} {}", bytes, UNITS[idx])
-    } else {
-        format!("{:.1} {}", val, UNITS[idx])
+    let mut it = haystack.chars();
+    for n in needle.chars() {
+        loop {
+            match it.next() {
+                Some(h) if h == n => break,
+                Some(_) => continue,
+                None => return false,
+            }
+        }
     }
+    true
+}
+
+/// Substring match with a subsequence fallback for a fuzzy "elastic" feel.
+fn elastic_match(haystack: &str, term: &str) -> bool {
+    if term.is_empty() {
+        return true;
+    }
+    haystack.contains(term) || is_subsequence(term, haystack)
 }
 
 /// Pod-specific state and rendering for the Pods view
@@ -153,13 +169,20 @@ impl PodsView {
     }
 
     fn search_matches(&self, pod: &PodSummary) -> bool {
-        if self.pod_search.is_empty() {
+        let q = self.pod_search.trim();
+        if q.is_empty() {
             return true;
         }
 
-        let search_lower = self.pod_search.to_lowercase();
-        pod.name.to_lowercase().contains(&search_lower)
-            || pod.namespace.to_lowercase().contains(&search_lower)
+        let haystack_raw = format!(
+            "{} {} {} {} {} {}/{}",
+            pod.namespace, pod.name, pod.phase, pod.node, pod.restarts, pod.ready, pod.total,
+        );
+        let haystack = normalize_for_search(&haystack_raw);
+
+        normalize_for_search(q)
+            .split_whitespace()
+            .all(|term| elastic_match(&haystack, term))
     }
 
     pub fn sort_indicator(&self, key: PodsSortKey) -> &'static str {
@@ -414,6 +437,23 @@ impl PodsView {
                     ui.add_space(8.0);
                 }
 
+                // Storage (PersistentVolumeClaims)
+                if !details.persistent_volume_claims.is_empty() {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("💾 Storage").strong());
+                        ui.separator();
+
+                        for line in crate::app::utilities::format_pvc_storage_lines(
+                            &details.namespace,
+                            &details.persistent_volume_claims,
+                            &self.disk_usage,
+                        ) {
+                            ui.monospace(line);
+                        }
+                    });
+                    ui.add_space(8.0);
+                }
+
                 // Labels
                 if !details.labels.is_empty() {
                     ui.collapsing(
@@ -438,7 +478,7 @@ impl PodsView {
                         .strong(),
                         |ui| {
                             for (k, v) in &details.annotations {
-                                ui.monospace(format!("{}", k));
+                                ui.monospace(k.to_string());
                                 ui.monospace(format!("  {}", v));
                                 ui.add_space(2.0);
                             }
@@ -450,6 +490,7 @@ impl PodsView {
                 // Raw JSON
                 ui.collapsing("📄 Raw JSON", |ui| {
                     egui::ScrollArea::vertical()
+                        .id_salt("pod_raw_json_scroll")
                         .max_height(200.0)
                         .show(ui, |ui| {
                             ui.monospace(&details.raw_json);
@@ -465,14 +506,14 @@ impl PodsView {
     /// Render Logs tab content
     fn render_pod_logs_tab(&mut self, ui: &mut egui::Ui, actions: &mut Vec<ViewAction>) {
         // Initialize log stream if pod is selected and stream doesn't exist
-        if let Some((ns, name)) = &self.selected_pod {
-            if self.pod_logs_stream.is_none() {
-                let stream_id = LogStreamId::Pod {
-                    namespace: ns.clone(),
-                    name: name.clone(),
-                };
-                self.pod_logs_stream = Some(LogStreamState::new(stream_id));
-            }
+        if let Some((ns, name)) = &self.selected_pod
+            && self.pod_logs_stream.is_none()
+        {
+            let stream_id = LogStreamId::Pod {
+                namespace: ns.clone(),
+                name: name.clone(),
+            };
+            self.pod_logs_stream = Some(LogStreamState::new(stream_id));
         }
 
         if let Some(stream) = &mut self.pod_logs_stream {
@@ -502,15 +543,13 @@ impl PodsView {
                 LogViewer::render_full(ui, stream, &containers);
 
             // Handle start action
-            if should_start {
-                if let Some((ns, name)) = &self.selected_pod {
-                    actions.push(ViewAction::SendCommand(BackendCmd::StartPodLogs {
-                        namespace: ns.clone(),
-                        name: name.clone(),
-                        container: stream.container.clone(),
-                    }));
-                    stream.is_running = true;
-                }
+            if should_start && let Some((ns, name)) = &self.selected_pod {
+                actions.push(ViewAction::SendCommand(BackendCmd::StartPodLogs {
+                    namespace: ns.clone(),
+                    name: name.clone(),
+                    container: stream.container.clone(),
+                }));
+                stream.is_running = true;
             }
 
             // Handle stop action
@@ -616,120 +655,127 @@ impl ViewComponent for PodsView {
         ui.add_space(6.0);
 
         // Pod list grid
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let pods = self.filtered_pods();
+        egui::ScrollArea::vertical()
+            .id_salt("pods_list_scroll")
+            .show(ui, |ui| {
+                let pods = self.filtered_pods();
 
-            egui::Grid::new("pods_grid")
-                .striped(true)
-                .min_col_width(120.0)
-                .show(ui, |ui| {
-                    // Column headers with sort indicators
-                    if ui
-                        .button(format!(
-                            "Namespace{}",
-                            self.sort_indicator(PodsSortKey::Namespace)
-                        ))
-                        .clicked()
-                    {
-                        self.toggle_sort(PodsSortKey::Namespace);
-                    }
-                    if ui
-                        .button(format!("Name{}", self.sort_indicator(PodsSortKey::Name)))
-                        .clicked()
-                    {
-                        self.toggle_sort(PodsSortKey::Name);
-                    }
-                    if ui
-                        .button(format!("Phase{}", self.sort_indicator(PodsSortKey::Phase)))
-                        .clicked()
-                    {
-                        self.toggle_sort(PodsSortKey::Phase);
-                    }
-                    if ui
-                        .button(format!("Ready{}", self.sort_indicator(PodsSortKey::Ready)))
-                        .clicked()
-                    {
-                        self.toggle_sort(PodsSortKey::Ready);
-                    }
-                    if ui
-                        .button(format!(
-                            "Restarts{}",
-                            self.sort_indicator(PodsSortKey::Restarts)
-                        ))
-                        .clicked()
-                    {
-                        self.toggle_sort(PodsSortKey::Restarts);
-                    }
-                    if ui
-                        .button(format!("Node{}", self.sort_indicator(PodsSortKey::Node)))
-                        .clicked()
-                    {
-                        self.toggle_sort(PodsSortKey::Node);
-                    }
-                    ui.end_row();
-
-                    // Pod rows
-                    let mut newly_selected: Option<(String, String)> = None;
-                    for pod in &pods {
-                        let is_selected = self
-                            .selected_pod
-                            .as_ref()
-                            .is_some_and(|(ns, name)| ns == &pod.namespace && name == &pod.name);
-
-                        let ns_clicked = ui.selectable_label(is_selected, &pod.namespace).clicked();
-                        let name_clicked = ui.selectable_label(is_selected, &pod.name).clicked();
-                        let row_clicked = ns_clicked || name_clicked;
-                        ui.label(&pod.phase);
-                        ui.label(format!("{}/{}", pod.ready, pod.total));
-                        ui.label(pod.restarts.to_string());
-                        ui.label(&pod.node);
+                egui::Grid::new("pods_grid")
+                    .striped(true)
+                    .min_col_width(120.0)
+                    .show(ui, |ui| {
+                        // Column headers with sort indicators
+                        if ui
+                            .button(format!(
+                                "Namespace{}",
+                                self.sort_indicator(PodsSortKey::Namespace)
+                            ))
+                            .clicked()
+                        {
+                            self.toggle_sort(PodsSortKey::Namespace);
+                        }
+                        if ui
+                            .button(format!("Name{}", self.sort_indicator(PodsSortKey::Name)))
+                            .clicked()
+                        {
+                            self.toggle_sort(PodsSortKey::Name);
+                        }
+                        if ui
+                            .button(format!("Phase{}", self.sort_indicator(PodsSortKey::Phase)))
+                            .clicked()
+                        {
+                            self.toggle_sort(PodsSortKey::Phase);
+                        }
+                        if ui
+                            .button(format!("Ready{}", self.sort_indicator(PodsSortKey::Ready)))
+                            .clicked()
+                        {
+                            self.toggle_sort(PodsSortKey::Ready);
+                        }
+                        if ui
+                            .button(format!(
+                                "Restarts{}",
+                                self.sort_indicator(PodsSortKey::Restarts)
+                            ))
+                            .clicked()
+                        {
+                            self.toggle_sort(PodsSortKey::Restarts);
+                        }
+                        if ui
+                            .button(format!("Node{}", self.sort_indicator(PodsSortKey::Node)))
+                            .clicked()
+                        {
+                            self.toggle_sort(PodsSortKey::Node);
+                        }
                         ui.end_row();
 
-                        if row_clicked {
-                            newly_selected = Some((pod.namespace.clone(), pod.name.clone()));
-                        }
-                    }
+                        // Pod rows
+                        let mut newly_selected: Option<(String, String)> = None;
+                        for pod in &pods {
+                            let is_selected =
+                                self.selected_pod.as_ref().is_some_and(|(ns, name)| {
+                                    ns == &pod.namespace && name == &pod.name
+                                });
 
-                    // Handle selection change
-                    if let Some((ns, name)) = newly_selected {
-                        // Stop logs for previous pod if switching pods
-                        if let Some((prev_ns, prev_name)) = &self.selected_pod {
-                            if (prev_ns, prev_name) != (&ns, &name) {
-                                actions.push(ViewAction::SendCommand(BackendCmd::StopPodLogs));
+                            let ns_clicked =
+                                ui.selectable_label(is_selected, &pod.namespace).clicked();
+                            let name_clicked =
+                                ui.selectable_label(is_selected, &pod.name).clicked();
+                            let row_clicked = ns_clicked || name_clicked;
+                            ui.label(&pod.phase);
+                            ui.label(format!("{}/{}", pod.ready, pod.total));
+                            ui.label(pod.restarts.to_string());
+                            ui.label(&pod.node);
+                            ui.end_row();
+
+                            if row_clicked {
+                                newly_selected = Some((pod.namespace.clone(), pod.name.clone()));
                             }
                         }
 
-                        self.selected_pod = Some((ns.clone(), name.clone()));
-                        self.pod_details = None;
-                        self.pod_metrics = None;
-                        self.pod_metrics_history = None;
-                        self.pod_prometheus_metrics = None;
-                        self.pod_metrics_pending = false;
-                        self.pod_metrics_polling_started = false;
-                        self.pod_metrics_polling_notified = false;
-                        self.pod_metrics_interval_prev = self.pod_metrics_interval_secs;
-                        self.pod_logs_stream = None;
+                        // Handle selection change
+                        if let Some((ns, name)) = newly_selected {
+                            // Stop logs for previous pod if switching pods
+                            if let Some((prev_ns, prev_name)) = &self.selected_pod
+                                && (prev_ns, prev_name) != (&ns, &name)
+                            {
+                                actions.push(ViewAction::SendCommand(BackendCmd::StopPodLogs));
+                            }
 
-                        actions.push(ViewAction::SendCommand(BackendCmd::SelectPod {
-                            namespace: ns.clone(),
-                            name: name.clone(),
-                        }));
+                            self.selected_pod = Some((ns.clone(), name.clone()));
+                            self.pod_details = None;
+                            self.pod_metrics = None;
+                            self.pod_metrics_history = None;
+                            self.pod_prometheus_metrics = None;
+                            self.pod_metrics_pending = false;
+                            self.pod_metrics_polling_started = false;
+                            self.pod_metrics_polling_notified = false;
+                            self.pod_metrics_interval_prev = self.pod_metrics_interval_secs;
+                            self.pod_logs_stream = None;
 
-                        // Fetch metrics immediately for details panel
-                        self.pod_metrics_pending = true;
-                        actions.push(ViewAction::SendCommand(BackendCmd::FetchPodMetrics {
-                            namespace: ns,
-                            name,
-                        }));
+                            actions.push(ViewAction::SendCommand(BackendCmd::SelectPod {
+                                namespace: ns.clone(),
+                                name: name.clone(),
+                            }));
 
-                        ctx.request_repaint();
-                    }
-                });
-        });
+                            // Fetch metrics immediately for details panel
+                            self.pod_metrics_pending = true;
+                            actions.push(ViewAction::SendCommand(BackendCmd::FetchPodMetrics {
+                                namespace: ns,
+                                name,
+                            }));
+
+                            ctx.request_repaint();
+                        }
+                    });
+            });
 
         actions
     }
 
+    fn has_details(&self) -> bool {
+        self.selected_pod.is_some()
+    }
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,
@@ -783,26 +829,24 @@ impl ViewComponent for PodsView {
                 ui.label("Metrics refresh (sec):");
                 let mut interval_str = self.pod_metrics_interval_secs.to_string();
                 ui.text_edit_singleline(&mut interval_str);
-                if let Ok(parsed) = interval_str.parse::<u64>() {
-                    if parsed > 0 && parsed <= 300 {
-                        // Allow 1-300 seconds
-                        // Only restart if the interval actually changed
-                        if parsed != self.pod_metrics_interval_secs
-                            && self.pod_metrics_polling_started
-                        {
-                            self.pod_metrics_interval_secs = parsed;
-                            self.pod_metrics_interval_prev = parsed;
-                            actions.push(ViewAction::SendCommand(BackendCmd::StopMetricsPolling));
-                            actions.push(ViewAction::SendCommand(
-                                BackendCmd::StartMetricsPolling {
-                                    namespace: ns.clone(),
-                                    name: name.clone(),
-                                    interval_secs: self.pod_metrics_interval_secs,
-                                },
-                            ));
-                        } else {
-                            self.pod_metrics_interval_secs = parsed;
-                        }
+                if let Ok(parsed) = interval_str.parse::<u64>()
+                    && parsed > 0
+                    && parsed <= 300
+                {
+                    // Allow 1-300 seconds
+                    // Only restart if the interval actually changed
+                    if parsed != self.pod_metrics_interval_secs && self.pod_metrics_polling_started
+                    {
+                        self.pod_metrics_interval_secs = parsed;
+                        self.pod_metrics_interval_prev = parsed;
+                        actions.push(ViewAction::SendCommand(BackendCmd::StopMetricsPolling));
+                        actions.push(ViewAction::SendCommand(BackendCmd::StartMetricsPolling {
+                            namespace: ns.clone(),
+                            name: name.clone(),
+                            interval_secs: self.pod_metrics_interval_secs,
+                        }));
+                    } else {
+                        self.pod_metrics_interval_secs = parsed;
                     }
                 }
             });
@@ -822,11 +866,13 @@ impl ViewComponent for PodsView {
 
         ui.add_space(8.0);
 
-        egui::ScrollArea::vertical().show(ui, |ui| match self.pod_tab {
-            PodTab::Details => self.render_pod_details_tab(ui, &mut actions),
-            PodTab::Logs => self.render_pod_logs_tab(ui, &mut actions),
-            PodTab::Exec => self.render_pod_exec_tab(ui),
-        });
+        egui::ScrollArea::vertical()
+            .id_salt("pod_details_tab_scroll")
+            .show(ui, |ui| match self.pod_tab {
+                PodTab::Details => self.render_pod_details_tab(ui, &mut actions),
+                PodTab::Logs => self.render_pod_logs_tab(ui, &mut actions),
+                PodTab::Exec => self.render_pod_exec_tab(ui),
+            });
 
         ctx.request_repaint();
 
@@ -839,92 +885,98 @@ impl ViewComponent for PodsView {
             self.pods = pods.clone();
         }
         // Handle pod details updates
-        if let BackendEvent::ResourceRead(ResourceReadEvent::PodDetailsUpdated(details)) = event {
-            if Some((details.namespace.clone(), details.name.clone())) == self.selected_pod {
-                self.pod_details = Some(details.clone());
+        if let BackendEvent::ResourceRead(ResourceReadEvent::PodDetailsUpdated(details)) = event
+            && Some((details.namespace.clone(), details.name.clone())) == self.selected_pod
+        {
+            self.pod_details = Some(details.clone());
+        }
+
+        // Handle pod logs streaming. Backend log-tailing tasks are cancelled
+        // via abort(), which doesn't retract chunks already queued for
+        // delivery - accepts_chunk() drops stragglers from a stream that's
+        // since been superseded (e.g. by switching pods) instead of letting
+        // them get appended into a different pod's log view.
+        if let BackendEvent::Stream(StreamEvent::PodLogsChunk { stream_id, lines }) = event
+            && let Some(stream) = &mut self.pod_logs_stream
+            && stream.accepts_chunk(stream_id.0)
+        {
+            stream.add_lines(lines.clone());
+            // Keep ring buffer bounded
+            const MAX_LOGS: usize = 1000;
+            if stream.logs.len() > MAX_LOGS {
+                stream.logs.drain(0..stream.logs.len() - MAX_LOGS);
             }
         }
 
-        // Handle pod logs streaming
-        if let BackendEvent::Stream(StreamEvent::PodLogsChunk { lines, .. }) = event {
-            if let Some(stream) = &mut self.pod_logs_stream {
-                stream.add_lines(lines.clone());
-                // Keep ring buffer bounded
-                const MAX_LOGS: usize = 1000;
-                if stream.logs.len() > MAX_LOGS {
-                    stream.logs.drain(0..stream.logs.len() - MAX_LOGS);
-                }
-            }
-        }
-
-        // Mark stream stopped when backend closes it
-        if let BackendEvent::Stream(StreamEvent::StreamClosed { .. }) = event {
-            if let Some(stream) = &mut self.pod_logs_stream {
-                stream.is_running = false;
-            }
+        // Mark stream stopped when backend closes it - same staleness guard,
+        // so a superseded stream's (rare, but possible) close event can't
+        // mark the current one as stopped.
+        if let BackendEvent::Stream(StreamEvent::StreamClosed { stream_id, .. }) = event
+            && let Some(stream) = &mut self.pod_logs_stream
+            && stream.accepts_chunk(stream_id.0)
+        {
+            stream.is_running = false;
         }
 
         // Handle metrics updates - merge with existing data to accumulate history
         if let BackendEvent::ResourceRead(ResourceReadEvent::PodMetricsHistoryUpdated(metrics)) =
             event
+            && Some((metrics.namespace.clone(), metrics.name.clone())) == self.selected_pod
         {
-            if Some((metrics.namespace.clone(), metrics.name.clone())) == self.selected_pod {
-                if let Some(ref mut existing) = self.pod_metrics_history {
-                    // Merge containers: update each container's samples while preserving old ones
-                    for new_container in &metrics.containers {
-                        if let Some(existing_container) = existing
-                            .containers
-                            .iter_mut()
-                            .find(|c| c.name == new_container.name)
-                        {
-                            // Merge samples: keep existing + add new ones
-                            // (assumes backend returns recent data)
-                            let mut merged_samples = existing_container.samples.clone();
-                            for new_sample in &new_container.samples {
-                                // Avoid duplicates by timestamp
-                                if !merged_samples
-                                    .iter()
-                                    .any(|s| s.timestamp == new_sample.timestamp)
-                                {
-                                    merged_samples.push(new_sample.clone());
-                                }
+            if let Some(ref mut existing) = self.pod_metrics_history {
+                // Merge containers: update each container's samples while preserving old ones
+                for new_container in &metrics.containers {
+                    if let Some(existing_container) = existing
+                        .containers
+                        .iter_mut()
+                        .find(|c| c.name == new_container.name)
+                    {
+                        // Merge samples: keep existing + add new ones
+                        // (assumes backend returns recent data)
+                        let mut merged_samples = existing_container.samples.clone();
+                        for new_sample in &new_container.samples {
+                            // Avoid duplicates by timestamp
+                            if !merged_samples
+                                .iter()
+                                .any(|s| s.timestamp == new_sample.timestamp)
+                            {
+                                merged_samples.push(new_sample.clone());
                             }
-                            // Keep bounded history (max 100 samples)
-                            if merged_samples.len() > 100 {
-                                merged_samples = merged_samples
-                                    .into_iter()
-                                    .rev()
-                                    .take(100)
-                                    .collect::<Vec<_>>();
-                                merged_samples.reverse();
-                            }
-                            existing_container.samples = merged_samples;
-                        } else {
-                            // New container, add it
-                            existing.containers.push(new_container.clone());
                         }
+                        // Keep bounded history (max 100 samples)
+                        if merged_samples.len() > 100 {
+                            merged_samples = merged_samples
+                                .into_iter()
+                                .rev()
+                                .take(100)
+                                .collect::<Vec<_>>();
+                            merged_samples.reverse();
+                        }
+                        existing_container.samples = merged_samples;
+                    } else {
+                        // New container, add it
+                        existing.containers.push(new_container.clone());
                     }
-                } else {
-                    // First update, just store the metrics
-                    self.pod_metrics_history = Some(metrics.clone());
                 }
+            } else {
+                // First update, just store the metrics
+                self.pod_metrics_history = Some(metrics.clone());
             }
         }
 
         // Handle Prometheus metrics updates
         if let BackendEvent::ResourceRead(ResourceReadEvent::PrometheusMetricsUpdated(metrics)) =
             event
+            && Some((metrics.namespace.clone(), metrics.name.clone())) == self.selected_pod
         {
-            if Some((metrics.namespace.clone(), metrics.name.clone())) == self.selected_pod {
-                self.pod_prometheus_metrics = Some(metrics.clone());
-            }
+            self.pod_prometheus_metrics = Some(metrics.clone());
         }
 
         // Handle disk usage system events
-        if let BackendEvent::System(ev) = event {
-            if let SystemEvent::DiskUsageUpdated(items) = ev {
-                self.disk_usage = items.clone();
-            }
+        if let BackendEvent::System(ev) = event
+            && let SystemEvent::DiskUsageUpdated(items) = ev
+        {
+            self.disk_usage = items.clone();
         }
     }
 

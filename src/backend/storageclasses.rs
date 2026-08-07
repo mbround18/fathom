@@ -1,12 +1,12 @@
 use crate::protocol::{
-    section_keys, BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent,
-    ResourceReadEvent, Route, StorageClassDetails, StorageClassSummary,
+    BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent, ResourceReadEvent, Route,
+    StorageClassDetails, StorageClassSummary, section_keys,
 };
 use crossbeam_channel::Sender;
 use k8s_openapi::api::storage::v1::StorageClass;
 use kube::{
-    api::{Api, DeleteParams, ListParams},
     ResourceExt,
+    api::{Api, DeleteParams, ListParams},
 };
 
 use super::interactions;

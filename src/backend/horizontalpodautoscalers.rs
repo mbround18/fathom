@@ -20,7 +20,8 @@ pub(super) async fn refresh_horizontalpodautoscalers(
     let api: Api<HorizontalPodAutoscaler> = Api::all(client);
 
     let hpas = api.list(&ListParams::default()).await?;
-    let summaries = horizontalpodautoscalers_to_summaries(hpas.items, &state.cluster.namespace_filter);
+    let summaries =
+        horizontalpodautoscalers_to_summaries(hpas.items, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

@@ -10,6 +10,12 @@ pub struct StatusView {
     pub auto_scroll: bool,
 }
 
+impl Default for StatusView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StatusView {
     pub fn new() -> Self {
         Self {

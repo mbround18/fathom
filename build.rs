@@ -1,5 +1,3 @@
-use std::path::Path;
-
 fn main() {
     // Only compile resources on Windows
     #[cfg(windows)]

@@ -4,19 +4,10 @@ use egui::{RichText, ScrollArea, Ui};
 use super::traits::{ViewAction, ViewComponent};
 use crate::protocol::{BackendCmd, BackendEvent, NamespaceSummary};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NamespacesState {
     pub namespaces: Vec<NamespaceSummary>,
     pub selected_namespace: Option<String>,
-}
-
-impl Default for NamespacesState {
-    fn default() -> Self {
-        Self {
-            namespaces: Vec::new(),
-            selected_namespace: None,
-        }
-    }
 }
 
 pub struct NamespacesView {

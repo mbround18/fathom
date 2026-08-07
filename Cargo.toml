@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "pipeline"]
+resolver = "3"
+
 [package]
 name = "fathom"
 version = "0.1.0"
@@ -60,6 +64,12 @@ open = "5.3"
 [build-dependencies]
 embed-resource = "3.0.6"
 image = "0.25.9"
+
+[dev-dependencies]
+# Headless GUI test harness (AccessKit-based; no window/GPU required)
+egui_kittest = { version = "0.33.3", features = ["eframe"] }
+accesskit = "0.21"
+tempfile = "3"
 
 [lints.clippy]
 # Enforce manageable code sizes - warn if functions exceed 100 lines

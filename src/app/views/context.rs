@@ -11,6 +11,12 @@ pub struct ContextView {
     pub select_all_namespaces: bool,
 }
 
+impl Default for ContextView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ContextView {
     pub fn new() -> Self {
         Self {

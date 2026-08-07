@@ -1,16 +1,16 @@
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, NotificationLevel, PodSummary, ScopeKind,
-    SectionKey, SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, NotificationLevel, ScopeKind, SectionKey,
+    SystemEvent, section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use std::collections::HashMap;
 use views::{
     BoxedView, ClusterRoleBindingsView, ClusterRolesView, ConfigMapsView, ContextView,
-    CronJobsView, EndpointsView, EventsView, HorizontalPodAutoscalersView, IngressClassesView,
-    IngressesView, IntegrationsView, JobsView, LeasesView, LimitRangesView, McpIntegrationView,
-    ModalState, ModalView, MutatingWebhooksView, NamespacesView, NavigationView,
-    NetworkPoliciesView, NodesView, OverviewView, PersistentVolumeClaimsView,
+    CronJobsView, EndpointsView, EventsView, FluxView, HorizontalPodAutoscalersView,
+    IngressClassesView, IngressesView, IntegrationsView, JobsView, LeasesView, LimitRangesView,
+    McpIntegrationView, ModalState, ModalView, MutatingWebhooksView, NamespacesView,
+    NavigationView, NetworkPoliciesView, NodesView, OverviewView, PersistentVolumeClaimsView,
     PersistentVolumesView, PlaceholderView, PodDisruptionBudgetsView, PodsView, PortForwardsView,
     PriorityClassesView, ResourceQuotasView, RoleBindingsView, RolesView, RuntimeClassesView,
     SecretsView, ServicesView, StatusView, StorageClassesView, ValidatingWebhooksView, ViewAction,
@@ -19,15 +19,15 @@ use views::{
 };
 
 pub mod components;
+pub mod icons;
 mod mailbox;
-mod search;
-pub mod shell;
 mod ui_center;
 mod ui_left;
 mod ui_modal;
 mod ui_right;
 mod ui_status;
 mod ui_top;
+pub mod utilities;
 pub mod views;
 
 pub struct FathomApp {
@@ -230,7 +230,7 @@ impl FathomApp {
             } else if section_key == &section_keys::integrations_argo() {
                 Box::new(IntegrationsView::new("ArgoCD"))
             } else if section_key == &section_keys::integrations_flux() {
-                Box::new(IntegrationsView::new("FluxCD"))
+                Box::new(FluxView::new())
             } else if section_key == &section_keys::integrations_mcp() {
                 Box::new(McpIntegrationView::new())
             } else if section_key == &section_keys::overview() {
@@ -311,10 +311,10 @@ impl FathomApp {
             self.show_details_panel = false;
 
             // On unmount: call on_unmount on previous view
-            if let Some(prev_key) = prev {
-                if let Some(view) = self.views.get_mut(&prev_key.to_string()) {
-                    let _ = view.on_unmount();
-                }
+            if let Some(prev_key) = prev
+                && let Some(view) = self.views.get_mut(&prev_key.to_string())
+            {
+                let _ = view.on_unmount();
             }
 
             // On mount: call on_mount on new view and process returned actions
@@ -361,10 +361,7 @@ impl FathomApp {
         }
         self.views
             .get_mut(&status_key)
-            .and_then(|v| {
-                let ptr = v.as_mut() as *mut dyn ViewComponent as *mut StatusView;
-                Some(ptr)
-            })
+            .map(|v| v.as_mut() as *mut dyn ViewComponent as *mut StatusView)
             .map(|p| unsafe { &mut *p })
     }
 
@@ -560,11 +557,11 @@ impl FathomApp {
 
         ctx.input(|i| {
             // R — refresh current view
-            if i.key_pressed(egui::Key::R) {
-                if let Some(cmd) = self.refresh_cmd_for_active_section() {
-                    let _ = self.backend_tx.send(cmd);
-                    self.push_status("Refreshed.".to_string());
-                }
+            if i.key_pressed(egui::Key::R)
+                && let Some(cmd) = self.refresh_cmd_for_active_section()
+            {
+                let _ = self.backend_tx.send(cmd);
+                self.push_status("Refreshed.".to_string());
             }
 
             // Escape — close any open modal

@@ -2,7 +2,7 @@ use super::{
     ClusterRoleBindingDetails, ClusterRoleBindingSummary, ClusterRoleDetails, ClusterRoleSummary,
     ConfigMapDetails, ConfigMapSummary, Correlation, CronJobDetails, CronJobSummary,
     DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary, EndpointDetails,
-    EndpointSummary, EventsSummary, HorizontalPodAutoscalerDetails,
+    EndpointSummary, EventsSummary, FluxOverview, HorizontalPodAutoscalerDetails,
     HorizontalPodAutoscalerSummary, IngressClassDetails, IngressClassSummary, IngressDetails,
     IngressSummary, JobDetails, JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails,
     LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
@@ -80,6 +80,8 @@ pub enum SystemEvent {
         message: String,
     },
 
+    MetricsStackScanned(crate::protocol::MetricsStackScanResult),
+
     McpServerStatus {
         running: bool,
         message: String,
@@ -92,6 +94,9 @@ pub enum SystemEvent {
 
     /// Disk usage metrics discovered via CRDs or Prometheus
     DiskUsageUpdated(Vec<DiskUsage>),
+
+    /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
+    FluxOverviewUpdated(FluxOverview),
 }
 
 #[derive(Debug, Clone)]

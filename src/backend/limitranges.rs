@@ -50,11 +50,7 @@ fn limitranges_to_summaries(
 
         let name = lr.name_any();
 
-        let limits_count = lr
-            .spec
-            .as_ref()
-            .map(|s| s.limits.len())
-            .unwrap_or(0);
+        let limits_count = lr.spec.as_ref().map(|s| s.limits.len()).unwrap_or(0);
 
         out.push(LimitRangeSummary {
             name,

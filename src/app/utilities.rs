@@ -33,7 +33,7 @@ pub fn format_pvc_storage_lines(
         .iter()
         .map(|(name, used, provisioned)| {
             let used_str = used
-                .map(|u| format_bytes(u))
+                .map(format_bytes)
                 .unwrap_or_else(|| "(unknown)".to_string());
             let prov_str = format_bytes(*provisioned);
             format!("{} - {} / {}", name, used_str, prov_str)

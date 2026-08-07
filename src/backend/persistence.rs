@@ -11,16 +11,10 @@ use std::path::{Path, PathBuf};
 
 /// Auto-start configuration for various Fathom services.
 /// Allows extensible gating of features that should start automatically on app initialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AutoStartConfig {
     /// Whether to auto-start the MCP (Model Context Protocol) server
     pub mcp_http: bool,
-}
-
-impl Default for AutoStartConfig {
-    fn default() -> Self {
-        Self { mcp_http: false }
-    }
 }
 
 impl AutoStartConfig {

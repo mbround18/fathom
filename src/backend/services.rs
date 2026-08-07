@@ -63,7 +63,7 @@ fn services_to_summaries(services: Vec<Service>, filter: &Vec<String>) -> Vec<Se
             .spec
             .as_ref()
             .and_then(|s| s.external_ips.as_ref())
-            .map(|v| v.clone())
+            .cloned()
             .unwrap_or_default();
 
         let port_count = svc
@@ -134,18 +134,18 @@ fn service_to_details(svc: Service) -> ServiceDetails {
         .to_string();
     let cluster_ips = spec
         .and_then(|s| s.cluster_ips.as_ref())
-        .map(|v| v.clone())
+        .cloned()
         .unwrap_or_default();
     let external_ips = spec
         .and_then(|s| s.external_ips.as_ref())
-        .map(|v| v.clone())
+        .cloned()
         .unwrap_or_default();
     let external_name = spec
         .and_then(|s| s.external_name.as_deref())
         .map(|s| s.to_string());
     let selector = spec
         .and_then(|s| s.selector.as_ref())
-        .map(|m| m.clone())
+        .cloned()
         .unwrap_or_default();
 
     let ports = spec
@@ -187,7 +187,7 @@ fn service_to_details(svc: Service) -> ServiceDetails {
         .map(|ingress| {
             ingress
                 .iter()
-                .filter_map(|ing| ing.hostname.as_ref().map(|h| h.clone()))
+                .filter_map(|ing| ing.hostname.clone())
                 .collect()
         })
         .unwrap_or_default();

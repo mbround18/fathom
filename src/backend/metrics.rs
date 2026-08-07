@@ -278,7 +278,8 @@ pub(super) async fn start_metrics_polling(
 
     // Try Prometheus first if configured for this context
     let prom_config = state
-        .cluster.current_context
+        .cluster
+        .current_context
         .as_ref()
         .and_then(|ctx| IntegrationConfig::load(ctx).ok())
         .and_then(|cfg| cfg.prometheus)
@@ -418,7 +419,7 @@ pub(super) async fn start_metrics_polling(
 
                             let history = history_map
                                 .entry(container_metrics.name.clone())
-                                .or_insert_with(Vec::new);
+                                .or_default();
                             history.push(sample);
 
                             // Keep ring buffer bounded
@@ -537,6 +538,36 @@ async fn prom_query_range(
     Ok(parsed.data.result)
 }
 
+/// Pair CPU and memory samples by their (RFC3339) timestamp rather than by
+/// array position. `prom_query_range` returns one sample per `step` interval
+/// only where the underlying metric actually has data - if either series has
+/// a gap (a container that just started, a missed scrape, differing
+/// retention) its array is shorter than the other's from that point on, and
+/// zipping by index silently pairs a CPU sample from one moment with a
+/// memory sample from a different one under a single shared timestamp for
+/// the rest of the series. Pairing by timestamp instead drops points where
+/// either metric is missing, rather than mislabeling them.
+fn zip_samples_by_timestamp(
+    cpu_samples: &[(String, f64)],
+    mem_samples: &[(String, f64)],
+) -> Vec<MetricsSample> {
+    let mem_by_ts: std::collections::HashMap<&str, f64> = mem_samples
+        .iter()
+        .map(|(ts, v)| (ts.as_str(), *v))
+        .collect();
+
+    cpu_samples
+        .iter()
+        .filter_map(|(ts, cpu)| {
+            mem_by_ts.get(ts.as_str()).map(|mem| MetricsSample {
+                timestamp: ts.clone(),
+                cpu_millicores: *cpu,
+                memory_bytes: *mem,
+            })
+        })
+        .collect()
+}
+
 async fn fetch_prom_pod_history(
     prom: &crate::backend::integrations::PrometheusConfig,
     namespace: &str,
@@ -627,18 +658,7 @@ async fn fetch_prom_pod_history(
     let mut containers = Vec::new();
     for (cname, cpu_samples) in cpu_map.iter() {
         if let Some(mem_samples) = mem_map.get(cname) {
-            let len = cpu_samples.len().min(mem_samples.len());
-            let mut samples = Vec::new();
-            for i in 0..len {
-                let ts = cpu_samples[i].0.clone();
-                let cpu = cpu_samples[i].1;
-                let mem = mem_samples[i].1;
-                samples.push(MetricsSample {
-                    timestamp: ts,
-                    cpu_millicores: cpu,
-                    memory_bytes: mem,
-                });
-            }
+            let samples = zip_samples_by_timestamp(cpu_samples, mem_samples);
 
             let spec = resource_specs.iter().find(|s| &s.container == cname);
             containers.push(ContainerMetricsHistory {
@@ -715,57 +735,16 @@ async fn fetch_metrics_snapshot(
         containers,
     })
 }
-/// Aggregates pod metrics across all pods matching a workload selector.
-/// Used for deployments, statefulsets, daemonsets, and replicasets.
-pub(super) async fn aggregate_workload_metrics(
-    state: &BackendState,
+/// A workload metrics aggregate with only replica_count populated, used when
+/// no metrics provider (Prometheus/OpenObserve) is configured or reachable.
+/// Still gives the UI a live replica count instead of nothing at all.
+fn metrics_unavailable_aggregate(
     namespace: &str,
     workload_name: &str,
     workload_kind: &str,
-    pod_selector: &str,
-) -> anyhow::Result<WorkloadMetricsAggregate> {
-    use k8s_openapi::api::core::v1::Pod;
-
-    let client = state.cluster.client_or_err()?;
-    let pod_api: Api<Pod> = Api::namespaced(client.clone(), namespace);
-
-    // List all pods matching the selector
-    let pods = if pod_selector.is_empty() {
-        Vec::new()
-    } else {
-        let list = pod_api
-            .list(&ListParams::default().labels(pod_selector))
-            .await?;
-        list.items
-    };
-
-    let replica_count = pods.len() as u32;
-
-    // Collect metrics from Prometheus if available
-    if let Some(_prom_client) = &state.metrics.prometheus_client {
-        let prom_config = state
-            .cluster
-            .current_context
-            .as_ref()
-            .and_then(|ctx| IntegrationConfig::load(ctx).ok())
-            .and_then(|cfg| cfg.prometheus)
-            .filter(|p| p.enabled);
-
-        if let Some(prom) = prom_config {
-            return aggregate_from_prometheus(
-                &prom,
-                namespace,
-                workload_name,
-                workload_kind,
-                &pods,
-                replica_count,
-            )
-            .await;
-        }
-    }
-
-    // Fallback: metrics not available
-    Ok(WorkloadMetricsAggregate {
+    replica_count: u32,
+) -> WorkloadMetricsAggregate {
+    WorkloadMetricsAggregate {
         namespace: namespace.to_owned(),
         name: workload_name.to_owned(),
         workload_kind: workload_kind.to_owned(),
@@ -778,7 +757,30 @@ pub(super) async fn aggregate_workload_metrics(
         total_cpu_limit_millicores: None,
         containers: Vec::new(),
         timestamp: Utc::now().timestamp_millis() as u64,
-    })
+    }
+}
+
+/// Total CPU usage across a workload's replicas as a percentage of the
+/// workload's total CPU *limit* - matching how `total_memory_usage_bytes`
+/// is turned into a percent a few lines below this function's call site in
+/// `workloads.rs` (`(mem_bytes / limit_bytes) * 100.0`), and how the
+/// red/yellow/green thresholds in that same view are meant to be read: a
+/// "danger zone" only makes sense relative to an allocated budget.
+///
+/// Previously this divided by a hardcoded 10.0 (i.e. always treated 1000m as
+/// 100%, regardless of how many replicas or containers were being summed)
+/// and capped the result at 100%. For any workload actually using more than
+/// one core's worth of CPU total - a handful of busy replicas is enough -
+/// that silently pinned the displayed value at "100%" even if the workload
+/// was nowhere near its real limit, or well past it.
+///
+/// Returns `None` when there's no limit to be relative to (mirrors memory's
+/// behavior: no limit means no percent, not a fabricated one).
+fn workload_cpu_percent(total_millicores: f64, total_limit_millicores: u64) -> Option<f64> {
+    if total_limit_millicores == 0 {
+        return None;
+    }
+    Some(total_millicores / total_limit_millicores as f64 * 100.0)
 }
 
 async fn aggregate_from_prometheus(
@@ -807,12 +809,7 @@ async fn aggregate_from_prometheus(
         std::collections::HashMap::new();
 
     for pod in pods {
-        let pod_name = pod
-            .metadata
-            .name
-            .as_ref()
-            .map(|n| n.as_str())
-            .unwrap_or("unknown");
+        let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
 
         // Get CPU usage from Prometheus
         let cpu_query = format!(
@@ -844,27 +841,27 @@ async fn aggregate_from_prometheus(
 
                     if let Some(resources) = &container.resources {
                         if let Some(requests) = &resources.requests {
-                            if let Some(cpu_qty) = requests.get("cpu") {
-                                if let Some(millis) = parse_cpu_to_millis(&cpu_qty.0) {
-                                    cpu_req = millis;
-                                }
+                            if let Some(cpu_qty) = requests.get("cpu")
+                                && let Some(millis) = parse_cpu_to_millis(&cpu_qty.0)
+                            {
+                                cpu_req = millis;
                             }
-                            if let Some(mem_qty) = requests.get("memory") {
-                                if let Some(bytes) = parse_memory_to_bytes(&mem_qty.0) {
-                                    mem_req = bytes as u64;
-                                }
+                            if let Some(mem_qty) = requests.get("memory")
+                                && let Some(bytes) = parse_memory_to_bytes(&mem_qty.0)
+                            {
+                                mem_req = bytes as u64;
                             }
                         }
                         if let Some(limits) = &resources.limits {
-                            if let Some(cpu_qty) = limits.get("cpu") {
-                                if let Some(millis) = parse_cpu_to_millis(&cpu_qty.0) {
-                                    cpu_lim = millis;
-                                }
+                            if let Some(cpu_qty) = limits.get("cpu")
+                                && let Some(millis) = parse_cpu_to_millis(&cpu_qty.0)
+                            {
+                                cpu_lim = millis;
                             }
-                            if let Some(mem_qty) = limits.get("memory") {
-                                if let Some(bytes) = parse_memory_to_bytes(&mem_qty.0) {
-                                    mem_lim = bytes as u64;
-                                }
+                            if let Some(mem_qty) = limits.get("memory")
+                                && let Some(bytes) = parse_memory_to_bytes(&mem_qty.0)
+                            {
+                                mem_lim = bytes as u64;
                             }
                         }
                     }
@@ -920,8 +917,7 @@ async fn aggregate_from_prometheus(
         }
     }
 
-    // Convert CPU millicores to percent (assuming 1000m = 100% on a single core)
-    let total_cpu_percent = (total_cpu_millicores / 10.0).min(100.0); // Cap at 100%
+    let total_cpu_percent = workload_cpu_percent(total_cpu_millicores, total_cpu_limit_millicores);
 
     let containers: Vec<ContainerMetricsAggregate> = container_map.into_values().collect();
 
@@ -930,11 +926,7 @@ async fn aggregate_from_prometheus(
         name: workload_name.to_owned(),
         workload_kind: workload_kind.to_owned(),
         replica_count,
-        total_cpu_usage_percent: if total_cpu_percent > 0.0 {
-            Some(total_cpu_percent)
-        } else {
-            None
-        },
+        total_cpu_usage_percent: total_cpu_percent,
         total_memory_usage_bytes: if total_memory_bytes > 0.0 {
             Some(total_memory_bytes as u64)
         } else {
@@ -1039,29 +1031,12 @@ pub(super) async fn start_workload_metrics_polling(
     namespace: String,
     workload_name: String,
     workload_kind: String,
+    pod_selector: String,
     interval_secs: u64,
 ) -> anyhow::Result<()> {
     // Stop existing polling task if any
     stop_workload_metrics_polling(state);
 
-    // Get Prometheus config
-    let prom_config = state
-        .cluster.current_context
-        .as_ref()
-        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
-        .and_then(|cfg| cfg.prometheus)
-        .filter(|p| p.enabled);
-
-    if prom_config.is_none() {
-        tracing::warn!(
-            namespace = %namespace,
-            workload = %workload_name,
-            "Prometheus not configured for workload metrics polling"
-        );
-        return Ok(());
-    }
-
-    let prom = prom_config.unwrap();
     let client = state.cluster.client.clone();
     let sender_clone = sender.clone();
     let seq_clone = state.cluster.seq.clone();
@@ -1077,18 +1052,26 @@ pub(super) async fn start_workload_metrics_polling(
         use k8s_openapi::api::core::v1::Pod;
 
         let interval = Duration::from_secs(interval_secs);
-        let prom_base_url = format!("http://{}.{}.svc:{}", prom.service, prom.namespace, prom.port);
         let mut has_failed = false;
 
         loop {
-            // List pods for the workload using a name-prefix pattern
+            // Prefer the workload's real label selector (`.spec.selector.matchLabels`,
+            // resolved by the details fetch for Deployment/StatefulSet/DaemonSet) over
+            // guessing by name prefix — the prefix guess breaks for custom naming and
+            // can also match unrelated pods that happen to share it.
             let pods: Vec<Pod> = if let Some(ref kube_client) = client {
-                let pod_api: ::kube::Api<Pod> = ::kube::Api::namespaced(kube_client.clone(), &namespace);
-                // Match pods whose names start with the workload name (covers Deployment, StatefulSet, DaemonSet patterns)
-                pod_api
-                    .list(&::kube::api::ListParams::default())
-                    .await
-                    .map(|list| {
+                let pod_api: ::kube::Api<Pod> =
+                    ::kube::Api::namespaced(kube_client.clone(), &namespace);
+                let list_params = if pod_selector.is_empty() {
+                    ::kube::api::ListParams::default()
+                } else {
+                    ::kube::api::ListParams::default().labels(&pod_selector)
+                };
+                let list = pod_api.list(&list_params).await;
+
+                if pod_selector.is_empty() {
+                    // No selector available: fall back to the name-prefix heuristic.
+                    list.map(|list| {
                         list.items
                             .into_iter()
                             .filter(|p| {
@@ -1101,22 +1084,44 @@ pub(super) async fn start_workload_metrics_polling(
                             .collect()
                     })
                     .unwrap_or_default()
+                } else {
+                    list.map(|list| list.items).unwrap_or_default()
+                }
             } else {
                 Vec::new()
             };
 
             let replica_count = pods.len() as u32;
 
-            // Try real Prometheus URL first, fall back to localhost port-forward
-            let result = aggregate_from_prometheus(
-                &prom,
-                &namespace,
-                &workload_name,
-                &workload_kind,
-                &pods,
-                replica_count,
-            )
-            .await;
+            // Re-check config every tick so enabling Prometheus later (or it
+            // going away) is picked up without restarting the poll.
+            let prom_config = context
+                .as_deref()
+                .and_then(|ctx| IntegrationConfig::load(ctx).ok())
+                .and_then(|cfg| cfg.prometheus)
+                .filter(|p| p.enabled);
+
+            let result = match &prom_config {
+                Some(prom) => {
+                    aggregate_from_prometheus(
+                        prom,
+                        &namespace,
+                        &workload_name,
+                        &workload_kind,
+                        &pods,
+                        replica_count,
+                    )
+                    .await
+                }
+                // No metrics provider configured: still report replica_count so
+                // the UI isn't blank while metrics remain unavailable.
+                None => Ok(metrics_unavailable_aggregate(
+                    &namespace,
+                    &workload_name,
+                    &workload_kind,
+                    replica_count,
+                )),
+            };
 
             match result {
                 Ok(metrics) => {
@@ -1153,10 +1158,16 @@ pub(super) async fn start_workload_metrics_polling(
                 Err(e) => {
                     if !has_failed {
                         has_failed = true;
+                        let prom_base_url = prom_config.as_ref().map(|prom| {
+                            format!(
+                                "http://{}.{}.svc:{}",
+                                prom.service, prom.namespace, prom.port
+                            )
+                        });
                         tracing::warn!(
                             namespace = %namespace,
                             workload = %workload_name,
-                            "Workload metrics polling failed: {}. Prom URL: {}",
+                            "Workload metrics polling failed: {}. Prom URL: {:?}",
                             e, prom_base_url
                         );
                     } else {
@@ -1290,5 +1301,83 @@ pub(super) fn load_pod_metrics_history(
         }))
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for a bug found by inspection: `fetch_prom_pod_history`
+    /// used to zip CPU and memory sample arrays purely by index position,
+    /// assuming both series had identical timestamps at every index. When
+    /// one series has a gap the other doesn't (e.g. a container that just
+    /// started reporting memory but not CPU yet, or a missed scrape), the
+    /// arrays diverge and every sample after the gap gets silently paired
+    /// with a value from a *different point in time*, all reported under
+    /// one shared (wrong) timestamp.
+    #[test]
+    fn zip_samples_by_timestamp_drops_misaligned_points_instead_of_mispairing_them() {
+        let cpu = vec![
+            ("t1".to_owned(), 100.0),
+            ("t2".to_owned(), 200.0),
+            // gap at t3: no CPU sample (e.g. a missed scrape)
+            ("t4".to_owned(), 400.0),
+        ];
+        let mem = vec![
+            ("t1".to_owned(), 1000.0),
+            ("t2".to_owned(), 2000.0),
+            ("t3".to_owned(), 3000.0),
+            ("t4".to_owned(), 4000.0),
+        ];
+
+        let samples = zip_samples_by_timestamp(&cpu, &mem);
+
+        // The old positional-zip logic would pair cpu[2]=(t4,400) with
+        // mem[2]=(t3,3000) - a CPU reading from t4 mislabeled as t3's memory
+        // reading. Pairing by timestamp should instead just skip t3 (no CPU
+        // data for it) and t4 should keep its own memory value (4000), not
+        // whatever sat at the same array index in the old, shorter zip.
+        let by_ts: std::collections::HashMap<&str, (f64, f64)> = samples
+            .iter()
+            .map(|s| (s.timestamp.as_str(), (s.cpu_millicores, s.memory_bytes)))
+            .collect();
+
+        assert_eq!(
+            samples.len(),
+            3,
+            "t3 has no CPU sample and should be dropped, not mispaired"
+        );
+        assert_eq!(by_ts.get("t1"), Some(&(100.0, 1000.0)));
+        assert_eq!(by_ts.get("t2"), Some(&(200.0, 2000.0)));
+        assert!(!by_ts.contains_key("t3"));
+        assert_eq!(
+            by_ts.get("t4"),
+            Some(&(400.0, 4000.0)),
+            "t4's CPU sample must be paired with t4's own memory sample (4000), \
+             not mem[2] (3000, which is actually t3's)"
+        );
+    }
+
+    /// Regression test for a bug found by inspection: the workload CPU
+    /// percent used to be `(total_millicores / 10.0).min(100.0)` - a fixed
+    /// "1000m = 100%" single-core baseline that ignored the workload's own
+    /// `total_cpu_limit_millicores` (computed right there in the same
+    /// function) and silently capped at 100%, hiding real overage.
+    #[test]
+    fn workload_cpu_percent_is_relative_to_the_limit_not_a_fixed_single_core_cap() {
+        // 3 replicas each using ~1700m against a 5000m total limit - well
+        // under the limit (~102%... let's use a case that's unambiguous).
+        // Total usage 5100m against a 10000m limit (5 replicas x 2000m limit
+        // each) should read as 51%, not a capped 100%.
+        assert_eq!(workload_cpu_percent(5100.0, 10_000), Some(51.0));
+
+        // A workload genuinely over its limit should show that, not be
+        // clamped down to hide it.
+        assert_eq!(workload_cpu_percent(12_000.0, 10_000), Some(120.0));
+
+        // No limit configured - no baseline to be relative to, so no
+        // fabricated percent (mirrors how memory_usage_percent behaves).
+        assert_eq!(workload_cpu_percent(5000.0, 0), None);
     }
 }

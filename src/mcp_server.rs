@@ -167,7 +167,7 @@ pub fn mcp_vscode_config_path() -> Result<PathBuf> {
 }
 
 /// Initialize MCP server socket and configuration files
-pub async fn initialize_mcp_server(state: McpAppState) -> Result<()> {
+pub async fn initialize_mcp_server() -> Result<()> {
     let dir = mcp_dir()?;
 
     // Create parent directory if needed
@@ -192,8 +192,6 @@ pub async fn initialize_mcp_server(state: McpAppState) -> Result<()> {
     let vscode_config = create_vscode_config()?;
     let vscode_path = mcp_vscode_config_path()?;
     tokio::fs::write(&vscode_path, serde_json::to_string_pretty(&vscode_config)?).await?;
-
-    state.set_running(true).await;
 
     tracing::info!("MCP server initialized at {:?}", dir);
     tracing::info!("Generated config files:");
@@ -551,17 +549,17 @@ async fn handle_tool_call_impl(
             let deployments = state.deployments.read().await;
             let filtered: Vec<_> = deployments
                 .iter()
-                .filter(|d| {
-                    namespace_filter.is_empty() || d.namespace == namespace_filter
+                .filter(|d| namespace_filter.is_empty() || d.namespace == namespace_filter)
+                .map(|d| {
+                    json!({
+                        "namespace": d.namespace,
+                        "name": d.name,
+                        "ready": d.ready,
+                        "desired": d.desired,
+                        "available": d.available,
+                        "updated": d.updated,
+                    })
                 })
-                .map(|d| json!({
-                    "namespace": d.namespace,
-                    "name": d.name,
-                    "ready": d.ready,
-                    "desired": d.desired,
-                    "available": d.available,
-                    "updated": d.updated,
-                }))
                 .collect();
 
             Ok(json!({ "deployments": filtered, "count": filtered.len() }))
@@ -578,9 +576,9 @@ async fn handle_tool_call_impl(
                 .ok_or_else(|| json!({"code": -32602, "message": "missing 'name'"}))?;
 
             let client_guard = state.kube_client.read().await;
-            let client = client_guard
-                .as_ref()
-                .ok_or_else(|| json!({"code": -32603, "message": "No Kubernetes client connected"}))?;
+            let client = client_guard.as_ref().ok_or_else(
+                || json!({"code": -32603, "message": "No Kubernetes client connected"}),
+            )?;
 
             let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
             let now = chrono::Utc::now().to_rfc3339();
@@ -620,12 +618,12 @@ async fn handle_tool_call_impl(
             let tail_lines = arguments
                 .get("lines")
                 .and_then(|v| v.as_i64())
-                .unwrap_or(100) as i64;
+                .unwrap_or(100);
 
             let client_guard = state.kube_client.read().await;
-            let client = client_guard
-                .as_ref()
-                .ok_or_else(|| json!({"code": -32603, "message": "No Kubernetes client connected"}))?;
+            let client = client_guard.as_ref().ok_or_else(
+                || json!({"code": -32603, "message": "No Kubernetes client connected"}),
+            )?;
 
             let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
             let log_params = LogParams {
@@ -635,10 +633,9 @@ async fn handle_tool_call_impl(
                 ..Default::default()
             };
 
-            let logs = api
-                .logs(name, &log_params)
-                .await
-                .map_err(|e| json!({"code": -32603, "message": format!("Failed to fetch logs: {}", e)}))?;
+            let logs = api.logs(name, &log_params).await.map_err(
+                |e| json!({"code": -32603, "message": format!("Failed to fetch logs: {}", e)}),
+            )?;
 
             let lines: Vec<&str> = logs.lines().collect();
             Ok(json!({
@@ -716,7 +713,28 @@ async fn handle_list_tools() -> impl IntoResponse {
     Json(ToolListResponse { tools })
 }
 
-pub async fn run_http_mcp_server(state: Arc<McpAppState>, port: u16) -> Result<()> {
+/// Bind the MCP HTTP server's listening socket. Split out from `serve_mcp_http`
+/// so a caller can detect a bind failure (e.g. the port is already in use)
+/// *before* announcing the server as running - `run_http_mcp_server` used to
+/// mark `McpAppState.is_running` (and the GUI's optimistic `McpServerStatus`
+/// event) as `true` before attempting to bind, so a failed bind left both
+/// stuck claiming the server was running when nothing was actually listening.
+pub async fn bind_mcp_listener(port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    let addr = format!("127.0.0.1:{}", port);
+    tokio::net::TcpListener::bind(&addr).await
+}
+
+/// Serve the MCP HTTP API on an already-bound listener. Only marks
+/// `state.is_running` `true` once there's an actual listener to back it.
+pub async fn serve_mcp_http(
+    state: Arc<McpAppState>,
+    listener: tokio::net::TcpListener,
+) -> Result<()> {
+    let addr = listener
+        .local_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_default();
+
     state.set_running(true).await;
 
     let app = Router::new()
@@ -727,9 +745,6 @@ pub async fn run_http_mcp_server(state: Arc<McpAppState>, port: u16) -> Result<(
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
-    let addr = format!("127.0.0.1:{}", port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-
     tracing::info!("MCP HTTP server listening on http://{}", addr);
     tracing::info!("Available endpoints:");
     tracing::info!("  POST /mcp              - MCP JSON-RPC protocol handler");
@@ -737,10 +752,22 @@ pub async fn run_http_mcp_server(state: Arc<McpAppState>, port: u16) -> Result<(
     tracing::info!("  GET  /mcp/state        - Current app state");
     tracing::info!("  GET  /mcp/tools        - List available tools");
 
-    axum::serve(listener, app).await?;
+    let result = axum::serve(listener, app).await;
 
     state.set_running(false).await;
+    result?;
     Ok(())
+}
+
+/// Bind then serve - convenience wrapper matching the old combined behavior,
+/// kept for the headless `--only-mcp` startup path where nothing is watching
+/// `McpServerStatus` events anyway so there's no "stuck stale status" to
+/// avoid; interactive start (`BackendCmd::StartMcpServer`) uses
+/// `bind_mcp_listener`/`serve_mcp_http` separately instead, so it can react to
+/// a bind failure.
+pub async fn run_http_mcp_server(state: Arc<McpAppState>, port: u16) -> Result<()> {
+    let listener = bind_mcp_listener(port).await?;
+    serve_mcp_http(state, listener).await
 }
 
 #[cfg(test)]
@@ -809,5 +836,48 @@ mod tests {
         assert_eq!(status.len(), 10);
         assert_eq!(status[0], "msg 90");
         assert_eq!(status[9], "msg 99");
+    }
+
+    /// Regression test for a bug found by inspection: `run_http_mcp_server`
+    /// used to call `state.set_running(true)` *before* attempting to bind the
+    /// port, so a bind failure (e.g. the port already in use) left
+    /// `McpAppState.is_running` - and the `McpServerStatus{running: true}`
+    /// event the caller sent right after spawning - permanently claiming the
+    /// server was running when nothing was actually listening. Split into
+    /// `bind_mcp_listener` (fallible, fast) and `serve_mcp_http` (marks
+    /// running only once there's a real listener) so callers can react to a
+    /// bind failure before ever announcing success.
+    #[tokio::test]
+    async fn bind_mcp_listener_reports_port_conflicts_instead_of_lying_about_success() {
+        // Port 0 asks the OS for any free port.
+        let first = bind_mcp_listener(0)
+            .await
+            .expect("first bind should succeed");
+        let port = first
+            .local_addr()
+            .expect("bound listener has a local addr")
+            .port();
+
+        let second = bind_mcp_listener(port).await;
+        assert!(
+            second.is_err(),
+            "binding an already-bound port must fail, not silently succeed"
+        );
+    }
+
+    #[tokio::test]
+    async fn state_is_not_marked_running_until_serve_mcp_http_actually_runs() {
+        let state = McpAppState::new();
+        assert!(!state.is_running_status().await);
+
+        // Binding alone - without calling serve_mcp_http - must not mark the
+        // server as running. This is exactly the window where the old code
+        // (set_running(true) before the bind) could leave is_running stuck
+        // true after a subsequent bind failure elsewhere.
+        let _listener = bind_mcp_listener(0).await.expect("bind should succeed");
+        assert!(
+            !state.is_running_status().await,
+            "is_running must stay false until serve_mcp_http actually starts serving"
+        );
     }
 }

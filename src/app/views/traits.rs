@@ -36,6 +36,18 @@ pub trait ViewComponent: Send {
     /// Vector of actions emitted by user interactions this frame
     fn render(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Vec<ViewAction>;
 
+    /// Cheap peek at whether this view currently has a selection to show in
+    /// the details panel, without doing any rendering.
+    ///
+    /// `render_right_panel` calls this every frame to decide whether it's
+    /// worth reserving screen space for the details panel at all - so it must
+    /// stay cheap (just check a selection field) and must not have side
+    /// effects. Override alongside `render_details` for any view that has one;
+    /// the default `false` matches views with no details panel.
+    fn has_details(&self) -> bool {
+        false
+    }
+
     /// Render the details panel (right side) for this view
     ///
     /// Called by FathomApp's render_right_panel() to display details for selected resource.

@@ -25,7 +25,7 @@ pub async fn dispatch_cmd(
             );
             super::state::cleanup_all_tasks(state);
             tracing::info!("All background tasks cleaned up, exiting backend");
-            return Ok(true); // Signal to exit loop
+            Ok(true) // Signal to exit loop
         }
         BackendCmd::StartPortForward {
             namespace,

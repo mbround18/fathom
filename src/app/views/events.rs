@@ -4,21 +4,11 @@ use egui::{RichText, ScrollArea, Ui};
 use super::traits::{ViewAction, ViewComponent};
 use crate::protocol::{BackendCmd, BackendEvent, KubernetesEvent};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EventsState {
     pub events: Vec<KubernetesEvent>,
     pub filter_namespace: Option<String>,
     pub filter_type: Option<String>,
-}
-
-impl Default for EventsState {
-    fn default() -> Self {
-        Self {
-            events: Vec::new(),
-            filter_namespace: None,
-            filter_type: None,
-        }
-    }
 }
 
 pub struct EventsView {
@@ -79,15 +69,15 @@ impl ViewComponent for EventsView {
             .events
             .iter()
             .filter(|e| {
-                if let Some(ns) = &self.state.filter_namespace {
-                    if !e.namespace.contains(ns) {
-                        return false;
-                    }
+                if let Some(ns) = &self.state.filter_namespace
+                    && !e.namespace.contains(ns)
+                {
+                    return false;
                 }
-                if let Some(typ) = &self.state.filter_type {
-                    if !e.event_type.contains(typ) {
-                        return false;
-                    }
+                if let Some(typ) = &self.state.filter_type
+                    && !e.event_type.contains(typ)
+                {
+                    return false;
                 }
                 true
             })

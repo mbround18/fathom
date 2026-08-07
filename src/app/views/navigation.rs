@@ -12,6 +12,12 @@ pub struct NavigationView {
     expanded_groups: HashSet<String>,
 }
 
+impl Default for NavigationView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NavigationView {
     pub fn new() -> Self {
         let expanded_groups = Self::load_expanded_groups();

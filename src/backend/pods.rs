@@ -264,26 +264,26 @@ async fn resolve_pod_owner(
     });
 
     // Best-effort resolve ReplicaSet -> Deployment.
-    if r.kind == "ReplicaSet" {
-        if let Ok(client) = state.cluster.client_or_err() {
-            let rs_api: Api<ReplicaSet> = Api::namespaced(client, namespace);
-            if let Ok(rs) = rs_api.get(&r.name).await {
-                let rs_refs = rs.metadata.owner_references.unwrap_or_default();
-                let rs_controller = rs_refs
-                    .iter()
-                    .find(|rr| rr.controller.unwrap_or(false))
-                    .or_else(|| rs_refs.first());
-                if let Some(rr) = rs_controller {
-                    if rr.kind == "Deployment" {
-                        return (
-                            owner,
-                            Some(PodOwner {
-                                kind: rr.kind.clone(),
-                                name: rr.name.clone(),
-                            }),
-                        );
-                    }
-                }
+    if r.kind == "ReplicaSet"
+        && let Ok(client) = state.cluster.client_or_err()
+    {
+        let rs_api: Api<ReplicaSet> = Api::namespaced(client, namespace);
+        if let Ok(rs) = rs_api.get(&r.name).await {
+            let rs_refs = rs.metadata.owner_references.unwrap_or_default();
+            let rs_controller = rs_refs
+                .iter()
+                .find(|rr| rr.controller.unwrap_or(false))
+                .or_else(|| rs_refs.first());
+            if let Some(rr) = rs_controller
+                && rr.kind == "Deployment"
+            {
+                return (
+                    owner,
+                    Some(PodOwner {
+                        kind: rr.kind.clone(),
+                        name: rr.name.clone(),
+                    }),
+                );
             }
         }
     }

@@ -262,22 +262,13 @@ impl ViewComponent for OverviewView {
     }
 }
 
-fn summary_card(ui: &mut Ui, title: &str, value: String) {
-    ui.vertical(|ui| {
-        ui.label(RichText::new(title).small());
-        ui.label(RichText::new(value).strong().size(18.0));
-    });
-}
-
 fn summary_card_button(ui: &mut Ui, title: &str, value: String) -> bool {
-    let clicked = ui
-        .button(
-            RichText::new(format!("{}\n{}", title, value))
-                .size(14.0)
-                .strong(),
-        )
-        .clicked();
-    clicked
+    ui.button(
+        RichText::new(format!("{}\n{}", title, value))
+            .size(14.0)
+            .strong(),
+    )
+    .clicked()
 }
 
 /// Render a capacity bar showing usage vs. total with percentage
@@ -321,60 +312,4 @@ fn render_capacity_bar(ui: &mut Ui, label: &str, value_text: String, percentage:
         // Percentage text
         ui.label(RichText::new(format!("{:.0}%", percentage)).small());
     });
-}
-
-/// Parse memory capacity from Kubernetes format (e.g., "123456Ki", "1Gi", "123456789")
-fn parse_memory_capacity(capacity_str: &str) -> Result<f64, String> {
-    let trimmed = capacity_str.trim();
-
-    if trimmed.is_empty() {
-        return Ok(0.0);
-    }
-
-    // Try to parse with suffix
-    if let Some(stripped) = trimmed.strip_suffix("Ki") {
-        if let Ok(val) = stripped.parse::<f64>() {
-            return Ok(val * 1024.0); // Ki to bytes
-        }
-    } else if let Some(stripped) = trimmed.strip_suffix("Mi") {
-        if let Ok(val) = stripped.parse::<f64>() {
-            return Ok(val * 1_048_576.0); // Mi to bytes
-        }
-    } else if let Some(stripped) = trimmed.strip_suffix("Gi") {
-        if let Ok(val) = stripped.parse::<f64>() {
-            return Ok(val * 1_073_741_824.0); // Gi to bytes
-        }
-    } else if let Some(stripped) = trimmed.strip_suffix("Ti") {
-        if let Ok(val) = stripped.parse::<f64>() {
-            return Ok(val * 1_099_511_627_776.0); // Ti to bytes
-        }
-    } else if let Ok(val) = trimmed.parse::<f64>() {
-        // No suffix - assume bytes
-        return Ok(val);
-    }
-
-    Err(format!("Could not parse memory capacity: {}", capacity_str))
-}
-
-/// Parse CPU capacity from Kubernetes format (e.g., "2", "2000m", "0.5")
-fn parse_cpu_capacity(capacity_str: &str) -> Result<u64, String> {
-    let trimmed = capacity_str.trim();
-
-    if trimmed.is_empty() {
-        return Ok(0);
-    }
-
-    if let Some(stripped) = trimmed.strip_suffix('m') {
-        // Millicores
-        if let Ok(val) = stripped.parse::<u64>() {
-            return Ok(val);
-        }
-    }
-
-    if let Ok(val) = trimmed.parse::<f64>() {
-        // Cores - convert to millicores
-        return Ok((val * 1000.0) as u64);
-    }
-
-    Err(format!("Could not parse CPU capacity: {}", capacity_str))
 }
