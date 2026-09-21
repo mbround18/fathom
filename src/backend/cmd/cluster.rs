@@ -246,13 +246,15 @@ async fn refresh_nodes(state: &BackendState, sender: &Sender<BackendEventEnvelop
     let Some(client) = &state.cluster.client else {
         return;
     };
+    // Capture the context at request start so a late result keeps its origin (FR-016).
+    let context = state.cluster.current_context.clone();
     match fetch_node_summaries(client).await {
         Ok(summaries) => {
             tracing::debug!("Emitting NodesUpdated event with {} nodes", summaries.len());
             events::emit(
                 state.cluster.seq.as_ref(),
                 sender,
-                Route::global(section_keys::nodes()),
+                nodes_route(context),
                 Correlation::None,
                 BackendEvent::ResourceList(ResourceListEvent::NodesUpdated(summaries)),
             );
@@ -303,6 +305,7 @@ async fn select_node(
     let Some(client) = &state.cluster.client else {
         return Ok(());
     };
+    let context = state.cluster.current_context.clone();
     use k8s_openapi::api::core::v1::Node;
     let api = ::kube::Api::<Node>::all(client.clone());
     match api.get(name).await {
@@ -311,7 +314,7 @@ async fn select_node(
             events::emit(
                 state.cluster.seq.as_ref(),
                 sender,
-                Route::global(section_keys::nodes()),
+                nodes_route(context),
                 Correlation::None,
                 BackendEvent::ResourceRead(crate::protocol::ResourceReadEvent::NodeDetailsUpdated(
                     details,
@@ -335,6 +338,8 @@ async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelo
     let Some(client) = &state.cluster.client else {
         return;
     };
+    // Capture the context at request start so a late result keeps its origin (FR-016).
+    let context = state.cluster.current_context.clone();
     use k8s_openapi::api::core::v1::Event;
     let api = ::kube::Api::<Event>::all(client.clone());
     match api.list(&Default::default()).await {
@@ -346,19 +351,7 @@ async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelo
                 .map(kubernetes_event_summary)
                 .collect();
 
-            let total_count = summaries.len() as u32;
-            events::emit(
-                state.cluster.seq.as_ref(),
-                sender,
-                Route::global(section_keys::events()),
-                Correlation::None,
-                BackendEvent::ResourceList(ResourceListEvent::EventsUpdated(
-                    crate::protocol::v1::EventsSummary {
-                        events: summaries,
-                        total_count,
-                    },
-                )),
-            );
+            emit_events_list(state.cluster.seq.as_ref(), sender, context, summaries);
         }
         Err(e) => {
             tracing::warn!("Failed to list events: {}", e);
@@ -369,6 +362,38 @@ async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelo
             );
         }
     }
+}
+
+/// Route for cluster-wide node data fetched from `context`.
+fn nodes_route(context: Option<String>) -> Route {
+    Route::cluster(section_keys::nodes(), context)
+}
+
+/// Route for the cluster-wide Kubernetes events list fetched from `context`.
+fn events_route(context: Option<String>) -> Route {
+    Route::cluster(section_keys::events(), context)
+}
+
+/// Emit `EventsUpdated` tagged with the context the events were listed from.
+fn emit_events_list(
+    seq: &std::sync::atomic::AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<String>,
+    summaries: Vec<crate::protocol::v1::KubernetesEvent>,
+) {
+    let total_count = summaries.len() as u32;
+    events::emit(
+        seq,
+        sender,
+        events_route(context),
+        Correlation::None,
+        BackendEvent::ResourceList(ResourceListEvent::EventsUpdated(
+            crate::protocol::v1::EventsSummary {
+                events: summaries,
+                total_count,
+            },
+        )),
+    );
 }
 
 fn kubernetes_event_summary(
@@ -399,5 +424,36 @@ fn kubernetes_event_summary(
             .as_ref()
             .and_then(|s| s.component.clone())
             .unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::ScopeKind;
+    use std::sync::atomic::AtomicU64;
+
+    #[test]
+    fn events_list_carries_originating_context() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let seq = AtomicU64::new(0);
+        emit_events_list(&seq, &tx, Some("kind-a".to_owned()), Vec::new());
+
+        let env = rx.try_recv().expect("an EventsUpdated envelope");
+        assert_eq!(env.route.context.as_deref(), Some("kind-a"));
+        assert_eq!(env.route.scope, ScopeKind::Cluster);
+        assert_eq!(env.route.section, section_keys::events());
+        assert!(matches!(
+            env.event,
+            BackendEvent::ResourceList(ResourceListEvent::EventsUpdated(_))
+        ));
+    }
+
+    #[test]
+    fn nodes_route_carries_originating_context() {
+        let route = nodes_route(Some("kind-b".to_owned()));
+        assert_eq!(route.context.as_deref(), Some("kind-b"));
+        assert_eq!(route.scope, ScopeKind::Cluster);
+        assert_eq!(route.section, section_keys::nodes());
     }
 }

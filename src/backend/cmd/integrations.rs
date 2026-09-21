@@ -209,20 +209,23 @@ async fn test_grafana_connection(
 }
 
 async fn refresh_integrations(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    // Capture the context at request start so a late scan keeps its origin (FR-016).
+    let context = state.cluster.current_context.clone();
     let Some(client) = &state.cluster.client else {
         events::notify_error(
             state.cluster.seq.as_ref(),
             sender,
             "Not connected to a cluster.".to_owned(),
         );
-        emit_empty_metrics_scan(state, sender);
+        emit_empty_metrics_scan(state, sender, context);
         return;
     };
     match integrations::scan_metrics_stack(client).await {
-        Ok(result) => emit_system(
+        Ok(result) => emit_cluster_system(
             state,
             sender,
             section_keys::integrations_metrics(),
+            context,
             SystemEvent::MetricsStackScanned(result),
         ),
         Err(e) => {
@@ -238,16 +241,21 @@ async fn refresh_integrations(state: &BackendState, sender: &Sender<BackendEvent
                 sender,
                 format!("Failed to scan cluster for metrics stack: {}", e),
             );
-            emit_empty_metrics_scan(state, sender);
+            emit_empty_metrics_scan(state, sender, context);
         }
     }
 }
 
-fn emit_empty_metrics_scan(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
-    emit_system(
+fn emit_empty_metrics_scan(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    emit_cluster_system(
         state,
         sender,
         section_keys::integrations_metrics(),
+        context,
         SystemEvent::MetricsStackScanned(crate::protocol::MetricsStackScanResult {
             tier: crate::protocol::MetricsStackTier::None,
             components: Vec::new(),
@@ -257,6 +265,7 @@ fn emit_empty_metrics_scan(state: &BackendState, sender: &Sender<BackendEventEnv
 }
 
 async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
     let Some(client) = &state.cluster.client else {
         events::notify_error(
             state.cluster.seq.as_ref(),
@@ -266,10 +275,11 @@ async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope
         return;
     };
     match flux::scan_flux(client).await {
-        Ok(overview) => emit_system(
+        Ok(overview) => emit_cluster_system(
             state,
             sender,
             section_keys::integrations_flux(),
+            context,
             SystemEvent::FluxOverviewUpdated(overview),
         ),
         Err(e) => events::notify_error(
@@ -398,6 +408,24 @@ fn emit_system(
         state.cluster.seq.as_ref(),
         sender,
         Route::global(section),
+        Correlation::None,
+        BackendEvent::System(event),
+    );
+}
+
+/// Emit a System event carrying cluster data (scan results) tagged with the context it
+/// was fetched from, so a late result after a context switch is identifiable as stale.
+fn emit_cluster_system(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    section: SectionKey,
+    context: Option<String>,
+    event: SystemEvent,
+) {
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::cluster(section, context),
         Correlation::None,
         BackendEvent::System(event),
     );

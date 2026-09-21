@@ -227,8 +227,10 @@ pub(super) async fn fetch_disk_usage(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let context = state.cluster.current_context.as_deref();
-    let provider = detect_disk_provider(client, context).await;
+    // Capture the context at request start so a late result keeps its origin (FR-016).
+    let context = state.cluster.current_context.clone();
+    let provider = detect_disk_provider(client, context.as_deref()).await;
+    let route = Route::cluster(section_keys::integrations_metrics(), context);
 
     match provider {
         DiskUsageProvider::Longhorn => {
@@ -238,7 +240,7 @@ pub(super) async fn fetch_disk_usage(
             events::emit(
                 state.cluster.seq.as_ref(),
                 sender,
-                Route::global(section_keys::integrations_metrics()),
+                route,
                 Correlation::None,
                 BackendEvent::System(SystemEvent::DiskUsageUpdated(vols)),
             );
@@ -290,7 +292,7 @@ pub(super) async fn fetch_disk_usage(
                 events::emit(
                     state.cluster.seq.as_ref(),
                     sender,
-                    Route::global(section_keys::integrations_metrics()),
+                    route,
                     Correlation::None,
                     BackendEvent::System(SystemEvent::DiskUsageUpdated(disk_items)),
                 );

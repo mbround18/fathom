@@ -145,13 +145,7 @@ async fn sync_namespaces_periodically(
                     .filter_map(|n| n.metadata.name)
                     .collect();
                 namespaces.sort();
-                events::emit(
-                    seq.as_ref(),
-                    &sender,
-                    Route::cluster(section_keys::system(), context.clone()),
-                    Correlation::None,
-                    BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
-                );
+                emit_namespace_names(seq.as_ref(), &sender, context.clone(), namespaces);
             }
             Err(e) => {
                 events::notify_error(
@@ -169,6 +163,8 @@ pub(super) async fn refresh_namespaces(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
+    // Capture the context at request start so a late result keeps its origin (FR-016).
+    let context = state.cluster.current_context.clone();
     let ns_api: Api<Namespace> = Api::all(client.clone());
     let pod_api: Api<Pod> = Api::all(client.clone());
     let deployment_api: Api<Deployment> = Api::all(client);
@@ -227,23 +223,68 @@ pub(super) async fn refresh_namespaces(
     let mut namespaces: Vec<String> = summaries.iter().map(|s| s.name.clone()).collect();
     namespaces.sort();
 
-    let route = Route::cluster(
-        section_keys::system(),
-        state.cluster.current_context.clone(),
-    );
+    let seq = state.cluster.seq.as_ref();
+    emit_namespace_names(seq, sender, context.clone(), namespaces);
     events::emit(
-        state.cluster.seq.as_ref(),
+        seq,
         sender,
-        route.clone(),
-        Correlation::None,
-        BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
-    );
-    events::emit(
-        state.cluster.seq.as_ref(),
-        sender,
-        route,
+        namespaces_route(context),
         Correlation::None,
         BackendEvent::ResourceList(ResourceListEvent::NamespaceSummariesUpdated(summaries)),
     );
     Ok(())
+}
+
+/// Route for cluster-wide namespace data fetched from `context`.
+fn namespaces_route(context: Option<String>) -> Route {
+    Route::cluster(section_keys::system(), context)
+}
+
+/// Emit `NamespacesUpdated` tagged with the context the namespaces were listed from.
+fn emit_namespace_names(
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<String>,
+    namespaces: Vec<String>,
+) {
+    events::emit(
+        seq,
+        sender,
+        namespaces_route(context),
+        Correlation::None,
+        BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::ScopeKind;
+
+    #[test]
+    fn namespaces_list_carries_originating_context() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let seq = AtomicU64::new(0);
+        emit_namespace_names(
+            &seq,
+            &tx,
+            Some("kind-a".to_owned()),
+            vec!["default".to_owned()],
+        );
+
+        let env = rx.try_recv().expect("a NamespacesUpdated envelope");
+        assert_eq!(env.route.context.as_deref(), Some("kind-a"));
+        assert_eq!(env.route.scope, ScopeKind::Cluster);
+        assert!(matches!(
+            env.event,
+            BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(ref ns)) if ns == &["default"]
+        ));
+    }
+
+    #[test]
+    fn namespaces_route_carries_originating_context() {
+        let route = namespaces_route(Some("kind-b".to_owned()));
+        assert_eq!(route.context.as_deref(), Some("kind-b"));
+        assert_eq!(route.scope, ScopeKind::Cluster);
+    }
 }
