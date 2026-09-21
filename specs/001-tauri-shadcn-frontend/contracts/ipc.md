@@ -44,7 +44,7 @@ All types are generated into `ui/src/protocol/generated/` by ts-rs. Nobody edits
 - Envelopes are delivered in backend `seq` order. Batches never reorder them.
 - The UI drops an envelope when:
   - its `route` context doesn't match the active context, or
-  - its `correlation.request_id` is older than the latest request for the same `(route, kind)` (FR-016).
+  - its `Request` correlation id is older than the latest request for the same `(route, kind)` (FR-016).
 
 ## New commands (added to BackendCmdV1 by this feature)
 

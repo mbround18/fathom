@@ -11,7 +11,7 @@ The backend's Kubernetes data model does not change. This document covers the en
 | `BackendCmd` | `src/protocol/v1/cmd.rs` | 137 variants plus 3 new ones (`LoadUiConfig`, `SaveUiConfig`, `SetMcpAutoStart`). Fire-and-forget. |
 | `BackendEventEnvelope` | `src/protocol/v1/event.rs` | `{ version, seq, route, correlation, event }` |
 | `Route` | `src/protocol/v1/route.rs` | `{ context?, section: SectionKey, scope: ScopeKind, namespace? }`. It keys list data in the store. |
-| `Correlation` | `src/protocol/v1/ids.rs` | `{ request_id?, stream_id? }`. Used for staleness checks and stream routing. |
+| `Correlation` | `src/protocol/v1/ids.rs` | An adjacently tagged enum: `{type:"None"} \| {type:"Request",data:number} \| {type:"Stream",data:number}`. Used for staleness checks and stream routing. |
 | `EventBatch` | `ui/src-tauri/src/bridge.rs` (new) | `{ envelopes, dropped }` |
 
 Validation lives in Rust, and the frontend trusts the generated types. The only runtime check is on `version === 1`: a mismatched batch is dropped and a fatal banner is shown.
@@ -95,7 +95,7 @@ interface StreamState {
 **The reducer** is `ingest(batch)`. It is one `set()` call per batch, and it applies these rules in order:
 
 1. Drop an envelope if `route.context !== session.activeContext`, except for System events.
-2. Drop a `ResourceList` envelope if `correlation.request_id < lists[key].latestRequest` (FR-016).
+2. Drop a `ResourceList` envelope if its correlation is `{type:"Request", data: id}` with `id < lists[key].latestRequest` (FR-016).
 3. For list replacement, reuse the existing row objects when `(uid, resourceVersion)` is unchanged, so memoized rows don't re-render.
 4. For stream events, append to the ring buffer. When it's over capacity, drop the oldest lines and increment `truncated`.
 5. For action results, resolve `pending[request_id]` → toast (sonner), and clear the selection on success.

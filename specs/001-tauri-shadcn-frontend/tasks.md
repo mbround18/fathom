@@ -62,7 +62,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - Create `ui/vitest.config.ts` with the jsdom env and setup file `ui/tests/unit/setup.ts`.
   - Create `ui/playwright.config.ts` with:
     - `webServer: pnpm dev:fake`.
-    - Projects `phone` (390×844, hasTouch), `laptop` (1280×800), `wide` (2560×1440), and `ultra` (5120×1440), each for `chromium` and `webkit`.
+    - Projects `phone` (390×844, hasTouch), `tablet` (820×1180), `laptop` (1280×800), `desktop` (1600×900), `wide` (1920×1080), `ultra` (2560×1440), and `ultra-plus` (5120×1440), each for `chromium` and `webkit` (see contracts/layout.md for the test hooks).
 - [X] T009 [P] Configure ESLint (typescript-eslint, react-hooks, jsx-a11y) and Prettier in `ui/eslint.config.js` and `ui/.prettierrc`. Add `ui/node_modules`, `ui/dist`, `ui/src-tauri/target`, `ui/test-results`, and `ui/playwright-report` to `.gitignore`.
 - [X] T010 [P] Generate app icons with `pnpm -C ui tauri icon ../assets/icon.png` into `ui/src-tauri/icons/`, and reference them in `ui/src-tauri/tauri.conf.json` under `bundle.icon`.
 
@@ -160,7 +160,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
     - `detailKey = "${context}|${kind}|${ns}|${name}"`
 - [ ] T034 Write reducer tests first, in `ui/tests/unit/ingest.test.ts`. They cover these cases:
   - envelopes for a non-active context are dropped, except System ones;
-  - a `request_id` older than `latestRequest` is dropped;
+  - a `Request` correlation id older than `latestRequest` is dropped (`Correlation` is the tagged enum `None | Request(id) | Stream(id)`);
   - unchanged rows (`uid` + `resourceVersion`) keep object identity;
   - one batch produces exactly one store notification;
   - `version !== 1` sets the fatal state;
@@ -209,7 +209,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 - [X] T047 Implement `AppShell` in `ui/src/layout/AppShell.tsx`:
   - A top bar with the context and namespace pickers, a body, a status bar, and `<Toaster />`.
   - It chooses among `PhoneStack` (`ui/src/layout/PhoneStack.tsx`), `TabletTabs` (`ui/src/layout/TabletTabs.tsx`), and `SlotGrid` (`ui/src/layout/SlotGrid.tsx`, using react-resizable-panels) by width class.
-  - Add the `data-slot` and `data-pane-kind` test hooks.
+  - Add the test hooks `data-slot="pane"`, `data-slot-index`, `data-pane-kind`, and `data-pane-id`.
 - [X] T048 Implement `PaneHost` in `ui/src/layout/PaneHost.tsx`:
   - It renders the pane by `kind` (nav, list, inspector, tool) and keys its state off `store.panes[id]`, so moving between stack, tab, and slot never remounts the state (FR-013). An open dialog and in-progress input survive a width-class change (edge case).
   - It restores `scrollTop` on mount.
@@ -227,7 +227,18 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - Add `cargo clippy -p fathom-desktop -- -D warnings` and `cargo check --no-default-features --lib` to the `test` command.
   - Remove the `x86_64-pc-windows-gnu` target from `pipeline/src/targets.rs`.
 
-**Checkpoint**: In `pnpm -C ui dev:fake` the shell renders in the neon-noir theme at every width class, and in `tauri dev` the status bar shows `ready` from a real backend. The unit tests and the contrast test pass, and CI is green.
+### Integration hardening (found during implementation)
+
+- [ ] T127 Do the first compile of `fathom-desktop`:
+  - Run `cargo test -p fathom-desktop` (the pump/bridge tests from T024) and `cargo clippy -p fathom-desktop -- -D warnings`, and fix any compile errors in `ui/src-tauri/src/{lib,bridge,main}.rs`.
+  - Then run `pnpm -C ui tauri dev` against a real kubeconfig, and confirm that the window opens, the status bar reaches `ready`, and closing the window shuts the backend down within 500 ms.
+  - Confirm that a CI-style build with the placeholder `ui/dist/index.html` compiles.
+- [ ] T128 Clear the pre-existing clippy baseline, so that `cargo clippy --all-targets -- -D warnings` passes (constitution Principle III). About 72 errors predate this feature, including `&Vec` params, `too_many_lines`, `cognitive_complexity`, and dead code.
+  - Fix them mechanically without changing behavior, splitting long functions (for example `dispatch_cmd` in `src/backend/cmd.rs` and `src/app/mailbox.rs`) into helpers.
+  - Egui-only code under `src/app/` that T125 will delete may instead get a scoped `#[allow]` with a `// removed by T125` comment.
+  - `cargo test -p fathom` must stay green.
+
+**Checkpoint**: In `pnpm -C ui dev:fake` the shell renders in the neon-noir theme at every width class, and in `tauri dev` the status bar shows `ready` from a real backend. T127 has run, the unit tests and the contrast test pass, and CI is green.
 
 ---
 
@@ -317,7 +328,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - `scrollWidth <= innerWidth`.
 - [ ] T078 [P] [US2] Write the E2E test `ui/tests/e2e/us2-laptop.spec.ts` (laptop project). The list and inspector are side by side, and the nav is a collapsible rail (scenario 2).
 - [ ] T079 [P] [US2] Write the E2E test `ui/tests/e2e/us2-ultra.spec.ts` (ultra project at 5120×1440):
-  - At least 5 `[data-slot]` elements are visible on load: nav, 2 lists, inspector, and the metrics/overview column, plus the dock (SC-002, scenario 3).
+  - At least 5 `[data-slot="pane"][data-slot-index]` elements are visible on load: nav, 2 lists, inspector, and the metrics/overview column, plus the dock (SC-002, scenario 3).
   - More columns show than at wide.
 - [ ] T080 [P] [US2] Write the E2E test `ui/tests/e2e/us2-reflow.spec.ts`. Set the search text, selection, and scroll at wide, then resize with `page.setViewportSize` to phone and back; all three are preserved (scenario 5). Also resize while a dialog is open with half-typed input; the dialog stays open and the input is kept.
 - [ ] T081 [P] [US2] Write the E2E test `ui/tests/e2e/us2-layout-persist.spec.ts`:
@@ -534,6 +545,7 @@ Phase 1 Setup ──▶ Phase 2 Foundational ──▶ US1 (P1) ──▶ US2 (P
 all stories ──▶ Phase 9 (T124 parity ──▶ T125 delete egui ──▶ T126 validation)
 ```
 
+- **T127** (first desktop compile) needs the webkit2gtk-4.1 dev libs and gates the Phase 2 checkpoint. **T128** (the clippy baseline) gates a green CI, but it blocks no story work.
 - **US1** is the MVP and builds the shared `ResourceTable`, `Inspector`, and descriptor registry.
 - **US2** reworks the layout around the US1 components. Its column budget (T082) touches `ResourceTable.tsx`, so it runs after T062.
 - **US3, US4, US5, and US6** can proceed in parallel once US1 T060–T067 are done. US4's dock placement (T101) needs US2's T085.
@@ -581,9 +593,9 @@ Dev A: US3 (T089–T095)   Dev B: US4 (T096–T107)   Dev C: US6 (T113–T118)
 4. **P3**: US5 and US6.
 5. **Cutover**: T119–T126. Switch the release to Tauri, sign off parity, then delete egui in one reviewable PR (T125).
 
-**Totals**: 126 tasks.
+**Totals**: 128 tasks. T127 and T128 were added to Phase 2 after implementation began, and are numbered out of order so the existing IDs stay stable.
 - Setup: 10
-- Foundational: 43
+- Foundational: 45
 - US1: 22
 - US2: 13
 - US3: 7

@@ -42,10 +42,14 @@ The class is computed from the **app viewport's logical width**, in CSS px after
 
 ## Test hooks
 
-- `data-width-class` on `<html>`, and `data-slot` / `data-pane-kind` on pane hosts, are used by Playwright.
+- Playwright uses `data-width-class` on `<html>`, plus these attributes on pane hosts: `data-slot="pane"`, `data-slot-index` (slotted panes only; dock panes have none), `data-pane-kind`, and `data-pane-id`. Use `data-slot="pane"` because shadcn already uses bare `data-slot` on its own components. Count slots with `[data-slot="pane"][data-slot-index]`.
 - Playwright projects:
   - `phone` 390×844
   - `laptop` 1280×800
-  - `wide` 2560×1440
-  - `ultra` 5120×1440
+  - `tablet` 820×1180
+  - `desktop` 1600×900
+  - `wide` 1920×1080
+  - `ultra` 2560×1440
+  - `ultra-plus` 5120×1440 (the ≥ 3840 sub-step)
+  - Note: 2560 px falls in the ultra class by the breakpoints above, so it is not used as the `wide` project.
 - Every project asserts `document.scrollingElement.scrollWidth <= innerWidth`.
