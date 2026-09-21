@@ -1,4 +1,4 @@
-import type { ThemePrefs } from '@/protocol/placeholders'
+import type { ThemePrefs } from '@/protocol/types'
 
 /**
  * Reflect theme prefs onto <html> (contracts/theme.md): `.dark` for neon-noir (absent = light

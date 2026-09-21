@@ -1,4 +1,4 @@
-import type { SectionKey, ToolKind } from '@/protocol/placeholders'
+import type { SectionKey, ToolKind } from '@/protocol/types'
 import type { PaneState } from '@/store'
 
 export const TOOL_LABEL: Record<ToolKind, string> = {

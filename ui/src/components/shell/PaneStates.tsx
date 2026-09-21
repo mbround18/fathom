@@ -115,7 +115,9 @@ export function Disconnected({ detail }: { detail?: ReactNode }) {
       icon={PlugsIcon}
       tone="warn"
       title="Disconnected"
-      detail={detail ?? 'Lost the backend connection. Reconnecting; data shown may be stale.'}
+      detail={
+        detail ?? 'The backend stopped. Restart Fathom to reconnect; data shown may be stale.'
+      }
     />
   )
 }

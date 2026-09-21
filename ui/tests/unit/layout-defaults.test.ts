@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { defaultProfile, resolveProfile } from '@/layout/defaults'
 import { visibleSlots, WIDTH_CLASSES } from '@/layout/width-class'
-import type { LayoutProfile } from '@/protocol/placeholders'
+import type { LayoutProfile } from '@/protocol/types'
 import { useStore } from '@/store'
 
 const sum = (p: LayoutProfile) => p.slots.reduce((t, s) => t + s.sizePct, 0)

@@ -1,0 +1,158 @@
+/**
+ * In-page scripted backend for `pnpm dev:fake` and Playwright (contracts/ipc.md). It records
+ * every command, replays a named scenario's replies from `ui/tests/fixtures/`, and exposes
+ * `window.__fathomFake` so E2E tests can inject batches and assert the emitted commands.
+ *
+ * Only loaded when `VITE_TRANSPORT=fake` (see transport.ts), so none of this ships in the app.
+ */
+import { FIXTURES, type FixtureName } from '../../tests/fixtures'
+import {
+  isScenarioName,
+  SCENARIOS,
+  type FakeBackendState,
+  type Reply,
+  type Scenario,
+  type ScenarioName,
+} from '../../tests/fixtures/scenarios'
+import type { Transport } from './transport'
+import type { BackendCmd, EventBatch, SubscriptionInfo } from './types'
+
+/** The Playwright-facing handle (`window.__fathomFake`). */
+export interface FathomFake {
+  /** Deliver a batch (or a named fixture from ui/tests/fixtures) to the UI. */
+  emit(batch: EventBatch | FixtureName): void
+  /** Every command the UI sent, oldest first (a copy). */
+  sent(): BackendCmd[]
+  clearSent(): void
+  /** Switch scenario: resets backend state and emits the scenario's on-subscribe batches. */
+  load(name: ScenarioName): void
+  /** The active scenario's name. */
+  scenario(): ScenarioName
+  scenarios(): ScenarioName[]
+  /** While true, `send` rejects with `BridgeError::BackendGone` (the backend stopped). */
+  setBackendGone(gone: boolean): void
+  /** Delay before auto-replies are delivered, in ms (default 0). */
+  setLatency(ms: number): void
+}
+
+declare global {
+  interface Window {
+    __fathomFake?: FathomFake
+  }
+}
+
+export interface FakeTransportOptions {
+  scenario?: ScenarioName
+  latencyMs?: number
+}
+
+export class FakeTransport implements Transport {
+  #scenarioName: ScenarioName
+  #scenario: Scenario
+  #state: FakeBackendState
+  #sent: BackendCmd[] = []
+  #onBatch: ((batch: EventBatch) => void) | undefined
+  #gone = false
+  #latencyMs: number
+
+  constructor(options: FakeTransportOptions = {}) {
+    this.#scenarioName = options.scenario ?? 'default'
+    this.#scenario = SCENARIOS[this.#scenarioName]
+    this.#state = structuredClone(this.#scenario.initialState)
+    this.#latencyMs = options.latencyMs ?? 0
+  }
+
+  send(cmd: BackendCmd): Promise<void> {
+    this.#sent.push(cmd)
+    if (this.#gone) return Promise.reject(new BackendGoneError())
+    const reply = this.#scenario.replies[cmd.type] as Reply | undefined
+    if (reply) {
+      const batches = reply(cmd, this.#state)
+      this.#deliverLater(batches)
+    }
+    return Promise.resolve()
+  }
+
+  subscribe(onBatch: (batch: EventBatch) => void): Promise<SubscriptionInfo> {
+    if (this.#gone) return Promise.reject(new BackendGoneError())
+    this.#onBatch = onBatch
+    this.#deliverLater(this.#scenario.onSubscribe)
+    return Promise.resolve({ protocolVersion: 1, backendStarted: true })
+  }
+
+  /** Deliver immediately (tests); batches sent before `subscribe` are lost, like the pump's. */
+  emit(batch: EventBatch): void {
+    this.#onBatch?.(batch)
+  }
+
+  sent(): BackendCmd[] {
+    return [...this.#sent]
+  }
+
+  clearSent(): void {
+    this.#sent = []
+  }
+
+  load(name: ScenarioName): void {
+    this.#scenarioName = name
+    this.#scenario = SCENARIOS[name]
+    this.#state = structuredClone(this.#scenario.initialState)
+    this.#deliverLater(this.#scenario.onSubscribe)
+  }
+
+  get scenarioName(): ScenarioName {
+    return this.#scenarioName
+  }
+
+  setBackendGone(gone: boolean): void {
+    this.#gone = gone
+  }
+
+  setLatency(ms: number): void {
+    this.#latencyMs = ms
+  }
+
+  #deliverLater(batches: readonly EventBatch[]): void {
+    if (batches.length === 0) return
+    // Async like the real bridge: replies never arrive inside the `send` call.
+    setTimeout(() => {
+      for (const batch of batches) this.#onBatch?.(batch)
+    }, this.#latencyMs)
+  }
+}
+
+/** Shape of the rejection Tauri's `invoke` produces for `BridgeError::BackendGone`. */
+export class BackendGoneError extends Error {
+  readonly type = 'BackendGone'
+  constructor() {
+    super('BackendGone')
+    this.name = 'BackendGoneError'
+  }
+}
+
+/** `?scenario=<name>` in the page URL, if it names a known scenario. */
+export function scenarioFromUrl(
+  search: string = globalThis.location.search,
+): ScenarioName | undefined {
+  const name = new URLSearchParams(search).get('scenario')
+  if (name === null) return undefined
+  if (isScenarioName(name)) return name
+  console.warn(`[fake] unknown scenario "${name}"; using "default"`)
+  return undefined
+}
+
+/** Create the app's fake transport and expose it as `window.__fathomFake`. */
+export function installFakeTransport(): FakeTransport {
+  const fake = new FakeTransport({ scenario: scenarioFromUrl() })
+  window.__fathomFake = {
+    emit: (batch) => fake.emit(typeof batch === 'string' ? FIXTURES[batch] : batch),
+    sent: () => fake.sent(),
+    clearSent: () => fake.clearSent(),
+    load: (name) => fake.load(name),
+    scenario: () => fake.scenarioName,
+    scenarios: () => Object.keys(SCENARIOS) as ScenarioName[],
+    setBackendGone: (gone) => fake.setBackendGone(gone),
+    setLatency: (ms) => fake.setLatency(ms),
+  }
+  return fake
+}

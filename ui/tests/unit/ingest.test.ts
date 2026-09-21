@@ -1,0 +1,281 @@
+/**
+ * Reducer tests (T034, data-model.md §3 rules 1–5). Each case starts from a fresh store.
+ */
+import { toast } from 'sonner'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import type { EventBatch, PodSummary } from '@/protocol/types'
+import { initialData, listKey, useStore } from '@/store'
+import { ingest } from '@/store/ingest'
+
+import {
+  clusterEvents,
+  contextChanged,
+  DETAIL_POD,
+  droppedWarning,
+  noKubeconfig,
+  PODS_500,
+  pods,
+  podDetailKindA,
+  podsError,
+  PODS_FORBIDDEN,
+  requestNewer,
+  requestOlder,
+  staleKindA,
+  STALE_POD_NAME,
+  twoContexts,
+  uiConfigDefault,
+  uiConfigSaved,
+  SAVED_UI,
+} from '../fixtures'
+import { batch, nsRoute, stream, system } from '../fixtures/builders'
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+
+const PODS_A = listKey('kind-a', 'workloads/pods', 'Namespaced', null)
+const PODS_B = listKey('kind-b', 'workloads/pods', 'Namespaced', null)
+
+function podRows(key = PODS_A): readonly PodSummary[] {
+  return (useStore.getState().lists[key]?.rows ?? []) as readonly PodSummary[]
+}
+
+beforeEach(() => {
+  useStore.setState(initialData())
+})
+
+describe('session', () => {
+  it('ContextsUpdated/ContextChanged set the context list and the active context', () => {
+    ingest(twoContexts)
+    const { session } = useStore.getState()
+    expect(session.contexts).toEqual(['kind-a', 'kind-b'])
+    expect(session.contextsLoaded).toBe(true)
+    expect(session.activeContext).toBe('kind-a')
+  })
+
+  it('no kubeconfig: empty contexts, no active context, error shown verbatim', () => {
+    ingest(noKubeconfig)
+    const { session, conn } = useStore.getState()
+    expect(session.contexts).toEqual([])
+    expect(session.contextsLoaded).toBe(true)
+    expect(session.activeContext).toBeUndefined()
+    expect(conn.lastNotice?.level).toBe('error')
+    expect(conn.lastNotice?.message).toMatch(/^failed to infer config/)
+  })
+
+  it('UiConfigLoaded with ui=null keeps defaults; a saved config replaces them', () => {
+    const defaults = useStore.getState().ui
+    ingest(uiConfigDefault)
+    expect(useStore.getState().ui).toBe(defaults)
+    expect(useStore.getState().prefs).toEqual({
+      loaded: true,
+      expandedGroups: ['Workloads'],
+      mcpAutoStart: false,
+    })
+    ingest(uiConfigSaved)
+    expect(useStore.getState().ui).toEqual(SAVED_UI)
+    expect(useStore.getState().prefs.mcpAutoStart).toBe(true)
+  })
+
+  it('an error notification is surfaced verbatim', () => {
+    ingest(podsError)
+    expect(useStore.getState().conn.lastNotice).toMatchObject({
+      level: 'error',
+      message: PODS_FORBIDDEN,
+    })
+  })
+})
+
+describe('rule 1: context staleness', () => {
+  it('drops non-System envelopes for a context that is not active', () => {
+    ingest(twoContexts)
+    ingest(pods('kind-b'))
+    expect(useStore.getState().lists[PODS_B]).toBeUndefined()
+  })
+
+  it('drops a late kind-a list after switching to kind-b', () => {
+    ingest(twoContexts)
+    useStore.getState().selectContext('kind-b')
+    ingest(staleKindA)
+    ingest(contextChanged('kind-b'))
+    ingest(pods('kind-b'))
+    expect(useStore.getState().session.activeContext).toBe('kind-b')
+    expect(podRows(PODS_A).some((p) => p.name === STALE_POD_NAME)).toBe(false)
+    expect(podRows(PODS_B).length).toBeGreaterThan(0)
+  })
+
+  it('keeps System envelopes regardless of context', () => {
+    ingest(twoContexts)
+    ingest(batch([system(9, { type: 'Notification', data: { level: 'Warn', message: 'hi' } })]))
+    expect(useStore.getState().conn.lastNotice?.level).toBe('warn')
+  })
+
+  it('keeps context-less (global) lists such as cluster events', () => {
+    ingest(twoContexts)
+    ingest(clusterEvents())
+    const events = useStore.getState().lists[listKey(null, 'events', 'Global', null)]
+    expect(events?.rows).toHaveLength(3)
+    expect(events?.total).toBe(3)
+  })
+})
+
+describe('rule 2: superseded requests (FR-016)', () => {
+  it('drops a list reply whose request id is older than the latest applied', () => {
+    ingest(twoContexts)
+    ingest(requestNewer)
+    ingest(requestOlder)
+    const list = useStore.getState().lists[PODS_A]
+    expect(list?.latestRequest).toBe(8)
+    expect(list?.rows).toHaveLength(2)
+  })
+
+  it('applies an equal or newer request id', () => {
+    ingest(twoContexts)
+    ingest(requestOlder)
+    ingest(requestNewer)
+    expect(useStore.getState().lists[PODS_A]?.rows).toHaveLength(2)
+  })
+})
+
+describe('rule 3: row identity', () => {
+  it('reuses unchanged row objects across refreshes', () => {
+    ingest(twoContexts)
+    ingest(pods('kind-a'))
+    const before = podRows()
+    const changed = PODS_500.map((p, i) =>
+      i === 3 ? { ...p, restarts: p.restarts + 1 } : { ...p },
+    )
+    ingest(pods('kind-a', changed))
+    const after = podRows()
+    expect(after).toHaveLength(before.length)
+    expect(after[0]).toBe(before[0])
+    expect(after[3]).not.toBe(before[3])
+    expect(after[3]?.restarts).toBe((before[3]?.restarts ?? 0) + 1)
+  })
+
+  it('keeps the rows array itself when nothing changed', () => {
+    ingest(twoContexts)
+    ingest(pods('kind-a'))
+    const before = podRows()
+    ingest(
+      pods(
+        'kind-a',
+        PODS_500.map((p) => ({ ...p })),
+      ),
+    )
+    expect(podRows()).toBe(before)
+  })
+})
+
+describe('rule 4: streams', () => {
+  it('appends log chunks into a bounded ring buffer', () => {
+    ingest(twoContexts)
+    const route = nsRoute('kind-a', 'workloads/pods', 'default')
+    const lines = Array.from({ length: 6000 }, (_, i) => `l${i}`)
+    ingest(batch([stream(1, route, { type: 'PodLogsChunk', data: { stream_id: 4, lines } })]))
+    const first = useStore.getState().streams[4]
+    ingest(batch([stream(2, route, { type: 'PodLogsChunk', data: { stream_id: 4, lines } })]))
+    const s = useStore.getState().streams[4]
+    expect(s).not.toBe(first)
+    expect(s?.lines.length).toBe(10_000)
+    expect(s?.lines.truncated).toBe(2_000)
+    ingest(
+      batch([stream(3, route, { type: 'StreamClosed', data: { stream_id: 4, reason: 'EOF' } })]),
+    )
+    expect(useStore.getState().streams[4]).toMatchObject({ status: 'closed', reason: 'EOF' })
+  })
+})
+
+describe('rule 5: pending actions', () => {
+  it('resolves pending[request_id] with a toast and clears the selection on success', () => {
+    useStore.setState({
+      pending: { 12: { label: 'Delete 2 pods', paneId: 'list-1', sentAt: 0 } },
+      selection: { 'list-1': ['default/a', 'default/b'] },
+    })
+    ingest(
+      batch([
+        {
+          ...system(5, {
+            type: 'Notification',
+            data: { level: 'Info', message: 'Deleted 2 pods' },
+          }),
+          correlation: { type: 'Request', data: 12 },
+        },
+      ]),
+    )
+    const s = useStore.getState()
+    expect(s.pending).toEqual({})
+    expect(s.selection).toEqual({})
+    expect(toast.success).toHaveBeenCalledWith('Delete 2 pods', { description: 'Deleted 2 pods' })
+  })
+
+  it('keeps the selection and shows an error toast on failure', () => {
+    useStore.setState({
+      pending: { 3: { label: 'Delete pod', paneId: 'list-1', sentAt: 0 } },
+      selection: { 'list-1': ['default/a'] },
+    })
+    ingest(
+      batch([
+        {
+          ...system(5, { type: 'Notification', data: { level: 'Error', message: 'forbidden' } }),
+          correlation: { type: 'Request', data: 3 },
+        },
+      ]),
+    )
+    expect(useStore.getState().selection).toEqual({ 'list-1': ['default/a'] })
+    expect(toast.error).toHaveBeenCalledWith('Delete pod', { description: 'forbidden' })
+  })
+})
+
+describe('reads', () => {
+  it('stores pod details under the detail key, including raw_json', () => {
+    ingest(twoContexts)
+    ingest(podDetailKindA)
+    const key = `kind-a|Pod|${DETAIL_POD.namespace}|${DETAIL_POD.name}`
+    const detail = useStore.getState().details[key]
+    expect(detail?.kind).toBe('Pod')
+    expect(detail?.data.name).toBe(DETAIL_POD.name)
+  })
+})
+
+describe('batch semantics', () => {
+  it('one batch produces exactly one store notification', () => {
+    ingest(twoContexts)
+    const listener = vi.fn()
+    const unsubscribe = useStore.subscribe(listener)
+    const big: EventBatch = batch([
+      ...contextChanged('kind-a').envelopes,
+      ...pods('kind-a').envelopes,
+      ...clusterEvents().envelopes,
+    ])
+    ingest(big)
+    unsubscribe()
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('version !== 1 sets the fatal state and ignores the batch', () => {
+    ingest(twoContexts)
+    const bad = pods('kind-a')
+    const env = bad.envelopes[0]
+    if (!env) throw new Error('fixture has no envelope')
+    ingest({ ...bad, envelopes: [{ ...env, version: 2 }] })
+    const s = useStore.getState()
+    expect(s.conn.status).toBe('backend-gone')
+    expect(s.conn.fatal).toMatch(/protocol version 2/)
+    expect(s.lists[PODS_A]).toBeUndefined()
+  })
+
+  it('dropped > 0 accumulates into conn.dropped', () => {
+    ingest(droppedWarning)
+    ingest(droppedWarning)
+    expect(useStore.getState().conn.dropped).toBe(6)
+  })
+
+  it('untouched slices keep their identity', () => {
+    const before = useStore.getState()
+    ingest(twoContexts)
+    const after = useStore.getState()
+    expect(after.session).not.toBe(before.session)
+    expect(after.lists).toBe(before.lists)
+    expect(after.panes).toBe(before.panes)
+  })
+})

@@ -1,6 +1,6 @@
 import { PlugsIcon, PulseIcon, StackIcon, TerminalIcon, type Icon } from '@phosphor-icons/react'
 
-import type { ToolKind } from '@/protocol/placeholders'
+import type { ToolKind } from '@/protocol/types'
 import { useStore, type PaneKind } from '@/store'
 
 export interface StackTab {

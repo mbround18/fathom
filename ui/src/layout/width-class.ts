@@ -2,7 +2,7 @@
  * Width classes, slot counts, and density (contracts/layout.md, research R5, FR-006/FR-012).
  * Pure functions only; the React hook lives in ./use-width-class.ts.
  */
-import type { WidthClass } from '@/protocol/placeholders'
+import type { WidthClass } from '@/protocol/types'
 
 export type { WidthClass }
 

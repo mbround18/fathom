@@ -93,13 +93,14 @@ function PaneSearch({ pane }: { pane: PaneState }) {
 }
 
 function PaneBody({ pane }: { pane: PaneState }) {
-  const disconnected = useStore((s) => s.conn.status === 'disconnected')
+  const disconnected = useStore((s) => s.conn.status === 'backend-gone')
+  const fatal = useStore((s) => s.conn.fatal)
 
   switch (pane.kind) {
     case 'nav':
       return <NavList />
     case 'list':
-      if (disconnected) return <Disconnected />
+      if (disconnected) return <Disconnected detail={fatal} />
       return pane.route ? (
         <Loading label={`Loading ${pane.route.section}`} />
       ) : (

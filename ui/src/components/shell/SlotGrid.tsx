@@ -3,7 +3,7 @@ import type { Layout } from 'react-resizable-panels'
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { LayoutProfile } from '@/protocol/placeholders'
+import type { LayoutProfile } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { TOOL_LABEL } from './labels'
@@ -97,7 +97,11 @@ function Dock() {
   if (!first) return null
 
   return (
-    <Tabs defaultValue={first} className="flex h-full min-h-0 flex-col gap-0" data-testid="dock-tabs">
+    <Tabs
+      defaultValue={first}
+      className="flex h-full min-h-0 flex-col gap-0"
+      data-testid="dock-tabs"
+    >
       <TabsList
         variant="line"
         className="h-8 w-full shrink-0 justify-start border-b border-border bg-card px-1"

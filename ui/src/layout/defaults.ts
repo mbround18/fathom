@@ -2,7 +2,7 @@
  * Default layout profile per width class, and validation of saved profiles
  * (contracts/layout.md § Slot profiles, FR-006/FR-007).
  */
-import type { DockConfig, LayoutProfile, SlotConfig, ToolKind } from '@/protocol/placeholders'
+import type { DockConfig, LayoutProfile, SlotConfig, ToolKind } from '@/protocol/types'
 
 import { hasDock, visibleSlots, type WidthClass } from './width-class'
 

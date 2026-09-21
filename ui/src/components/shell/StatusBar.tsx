@@ -4,10 +4,9 @@ import { cn } from '@/lib/utils'
 import { useStore, type ConnectionStatus } from '@/store'
 
 const STATUS: Record<ConnectionStatus, { label: string; dot: string }> = {
-  connecting: { label: 'Connecting', dot: 'bg-status-warn animate-pulse' },
-  connected: { label: 'Connected', dot: 'bg-status-ok' },
-  reconnecting: { label: 'Reconnecting', dot: 'bg-status-warn animate-pulse' },
-  disconnected: { label: 'Disconnected', dot: 'bg-status-err' },
+  starting: { label: 'starting', dot: 'bg-status-warn animate-pulse' },
+  ready: { label: 'ready', dot: 'bg-status-ok' },
+  'backend-gone': { label: 'backend gone', dot: 'bg-status-err' },
 }
 
 /** Bottom status line: connection, active context, last notice, dropped-event warning (T049). */

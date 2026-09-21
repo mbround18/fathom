@@ -1,23 +1,37 @@
 /**
  * App state (data-model.md §3). One Zustand store; components subscribe with narrow selectors.
  *
- * Only the shell's slice is implemented here. Transports, event ingest, and resource caches
- * (T028–T037) extend this store later.
+ * Backend data arrives only through `ingest(batch)` (./ingest.ts), which applies one `set()`
+ * per batch. Actions that need the backend call `send`, which `useBackend` wires to the
+ * transport; until then it is a no-op.
  */
 import { create } from 'zustand'
 
 import { resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
+import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type {
-  ContextInfo,
+  BackendCmd,
+  DiskUsage,
+  FluxOverview,
+  KubernetesEvent,
   LayoutProfile,
+  MetricsStackScanResult,
+  ResourceListEvent,
+  ResourceReadEvent,
   Route,
   SectionKey,
   SlotConfig,
   ThemePrefs,
   ToolKind,
+  TunnelStatus,
   UiConfig,
-} from '@/protocol/placeholders'
+} from '@/protocol/types'
+
+import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
+import type { RingBuffer } from './ring-buffer'
+
+export { detailKey, listKey, listKeyOf, type DetailKey, type ListKey } from './keys'
 
 // ------------------------------------------------------------------ UI-owned types
 
@@ -35,8 +49,8 @@ export interface PaneState {
   scrollTop: number
 }
 
-// TODO(protocol): replace with generated types (ConnectionState from contracts/ipc.md)
-export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+/** data-model.md §4: starting → ready → backend-gone (fatal; retry = app restart). */
+export type ConnectionStatus = 'starting' | 'ready' | 'backend-gone'
 
 export interface Notice {
   level: 'info' | 'warn' | 'error'
@@ -46,17 +60,91 @@ export interface Notice {
 
 export interface ConnState {
   status: ConnectionStatus
-  /** Events dropped by the bridge because the UI fell behind (backpressure). */
+  /** Envelopes the bridge discarded because the UI fell behind (backpressure), cumulative. */
   dropped: number
+  /** Why the connection is unusable (backend gone, protocol mismatch). Shown verbatim. */
+  fatal?: string
   lastNotice?: Notice
 }
 
 export interface SessionState {
-  contexts: ContextInfo[]
+  /** Kubeconfig context names. Empty with `contextsLoaded` means no kubeconfig. */
+  contexts: string[]
+  contextsLoaded: boolean
   activeContext?: string
   namespaces: string[]
   /** `null` means all namespaces. */
   activeNamespace: string | null
+  /** The backend's namespace filter as last reported (`[]` = all). */
+  namespaceFilter: string[]
+}
+
+type RowOf<T> = T extends readonly (infer R)[] ? R : T extends { events: (infer E)[] } ? E : never
+/** Any row a `ResourceList` event can carry. */
+export type ListRow = RowOf<ResourceListEvent['data']>
+
+export interface ListState {
+  /** Which `ResourceListEvent` variant filled this list. */
+  eventType?: ResourceListEvent['type']
+  rows: readonly ListRow[]
+  /** For events: the backend's total before truncation. */
+  total?: number
+  latestRequest?: number
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  error?: string
+  updatedAt: number
+}
+
+export interface DetailState {
+  /** Object kind derived from the event (`PodDetailsUpdated` → `Pod`, `PodMetricsUpdated` → `PodMetrics`). */
+  kind: string
+  eventType: ResourceReadEvent['type']
+  data: ResourceReadEvent['data']
+  latestRequest?: number
+  updatedAt: number
+}
+
+export interface LogStreamState {
+  kind: 'logs'
+  lines: RingBuffer<string>
+  /** Bumped on every append; the buffer itself is mutated in place. */
+  rev: number
+  follow: boolean
+  status: 'open' | 'closed' | 'error'
+  reason?: string
+}
+
+export interface TunnelState {
+  kind: 'portforward'
+  status: TunnelStatus
+  localEndpoint: string | null
+}
+
+export interface PendingAction {
+  /** Shown in the result toast, e.g. "Delete 3 pods". */
+  label: string
+  /** Pane whose selection is cleared when the action succeeds. */
+  paneId?: PaneId
+  sentAt: number
+}
+
+export interface MetricsState {
+  diskUsage: DiskUsage[]
+  stackScan?: MetricsStackScanResult
+}
+
+export interface IntegrationsState {
+  mcp?: { running: boolean; message: string }
+  prometheusTest?: { success: boolean; message: string }
+  grafanaTest?: { success: boolean; message: string }
+  portAvailability: Record<number, boolean>
+}
+
+export interface PrefsState {
+  /** True once `UiConfigLoaded` has arrived. */
+  loaded: boolean
+  expandedGroups: string[]
+  mcpAutoStart: boolean
 }
 
 export interface LayoutState {
@@ -76,12 +164,32 @@ export interface LayoutState {
   navOpen: boolean
 }
 
-export interface StoreState {
+/** The data part of the store (everything `ingest` may replace). */
+export interface StoreData {
   conn: ConnState
   session: SessionState
+  lists: Record<ListKey, ListState>
+  details: Record<DetailKey, DetailState>
+  /** Log streams by `StreamId`. */
+  streams: Record<number, LogStreamState>
+  /** Port-forward tunnels by tunnel id. */
+  tunnels: Record<string, TunnelState>
+  metrics: MetricsState
+  flux: { overview?: FluxOverview }
+  integrations: IntegrationsState
   layout: LayoutState
   panes: Record<PaneId, PaneState>
+  /** Multi-select for bulk actions, by pane. */
+  selection: Record<PaneId, string[]>
+  /** Actions awaiting a result, by request id. */
+  pending: Record<number, PendingAction>
   ui: UiConfig
+  prefs: PrefsState
+}
+
+export interface StoreState extends StoreData {
+  /** Fire-and-forget command sink; `useBackend` installs the transport-backed one. */
+  send: (cmd: BackendCmd) => void
 
   setWidthClass: (cls: WidthClass, ultraPlus?: boolean) => void
   /** Persist a resized/rearranged profile for the current class. */
@@ -97,8 +205,37 @@ export interface StoreState {
   setNavOpen: (open: boolean) => void
   setConnection: (patch: Partial<ConnState>) => void
   notify: (level: Notice['level'], message: string) => void
+  /** Switch kubeconfig context: sends `SetContext`; results for other contexts are then dropped. */
   selectContext: (name: string) => void
+  /** Sends `SetNamespaceFilter` (`null` = all namespaces). */
   selectNamespace: (ns: string | null) => void
+  /** Sends the section's `Refresh*` command and marks its list loading. */
+  refreshSection: (section: SectionKey) => void
+  /** Sends `Select<Kind>` to read one object's details (and its `raw_json`/YAML). */
+  inspect: (kind: string, namespace: string, name: string) => void
+  /** Sends `RefreshEvents` (cluster events; the inspector filters by involved object). */
+  refreshEvents: () => void
+}
+
+/** Lists the backend refreshes after a context or namespace change (src/backend.rs). */
+const CONTEXT_LISTS: readonly SectionKey[] = [SECTION.pods, SECTION.deployments]
+
+function markLoading(
+  lists: Record<ListKey, ListState>,
+  context: string | undefined,
+  sections: readonly SectionKey[],
+): Record<ListKey, ListState> {
+  if (context === undefined) return lists
+  const next = { ...lists }
+  for (const section of sections) {
+    // The backend reports namespaced lists with namespace `null` and filters server-side.
+    const key = listKey(context, section, 'Namespaced', null)
+    const prev = next[key]
+    next[key] = prev
+      ? { ...prev, status: 'loading', error: undefined }
+      : { rows: [], status: 'loading', updatedAt: 0 }
+  }
+  return next
 }
 
 // ------------------------------------------------------------------ pane assignment
@@ -132,7 +269,9 @@ export function assignPanes(
     used.add(id)
     return id
   }
-  const slotPanes = profile.slots.map((s) => claim(s.kind, s.kind === 'tool' ? s.tool : undefined))
+  const slotPanes = profile.slots.map((s) =>
+    claim(s.kind, s.kind === 'tool' ? (s.tool ?? undefined) : undefined),
+  )
   const dockPanes = (profile.dock?.tabs ?? []).map((tool) => claim('tool', tool, `dock-${tool}`))
   return { slotPanes, dockPanes, panes }
 }
@@ -146,14 +285,28 @@ export const DEFAULT_THEME: ThemePrefs = {
   glitch: false,
 }
 
-const DEFAULT_UI: UiConfig = { schema: 1, theme: DEFAULT_THEME, density: {}, layouts: {} }
+export const DEFAULT_UI: UiConfig = { schema: 1, theme: DEFAULT_THEME, density: {}, layouts: {} }
 
-function initialState(): Pick<StoreState, 'conn' | 'session' | 'layout' | 'panes' | 'ui'> {
+/** A fresh copy of the store's data (also used by tests to reset between cases). */
+export function initialData(): StoreData {
   const profile = resolveProfile('phone')
   const { slotPanes, dockPanes, panes } = assignPanes(profile, {})
   return {
-    conn: { status: 'connecting', dropped: 0 },
-    session: { contexts: [], namespaces: [], activeNamespace: null },
+    conn: { status: 'starting', dropped: 0 },
+    session: {
+      contexts: [],
+      contextsLoaded: false,
+      namespaces: [],
+      activeNamespace: null,
+      namespaceFilter: [],
+    },
+    lists: {},
+    details: {},
+    streams: {},
+    tunnels: {},
+    metrics: { diskUsage: [] },
+    flux: {},
+    integrations: { portAvailability: {} },
     layout: {
       widthClass: 'phone',
       ultraPlus: false,
@@ -164,12 +317,17 @@ function initialState(): Pick<StoreState, 'conn' | 'session' | 'layout' | 'panes
       navOpen: false,
     },
     panes,
+    selection: {},
+    pending: {},
     ui: DEFAULT_UI,
+    prefs: { loaded: false, expandedGroups: [], mcpAutoStart: false },
   }
 }
 
-export const useStore = create<StoreState>()((set) => ({
-  ...initialState(),
+export const useStore = create<StoreState>()((set, get) => ({
+  ...initialData(),
+
+  send: () => undefined,
 
   setWidthClass: (cls, ultraPlus = false) =>
     set((s) => {
@@ -231,7 +389,7 @@ export const useStore = create<StoreState>()((set) => ({
       }
     }),
 
-  navigate: (section) =>
+  navigate: (section) => {
     set((s) => {
       const listId =
         s.layout.slotPanes.find((id) => s.panes[id]?.kind === 'list') ??
@@ -255,7 +413,9 @@ export const useStore = create<StoreState>()((set) => ({
               : s.layout.stack,
         },
       }
-    }),
+    })
+    get().refreshSection(section)
+  },
 
   popPane: () =>
     set((s) =>
@@ -271,7 +431,71 @@ export const useStore = create<StoreState>()((set) => ({
   notify: (level, message) =>
     set((s) => ({ conn: { ...s.conn, lastNotice: { level, message, at: Date.now() } } })),
 
-  selectContext: (name) => set((s) => ({ session: { ...s.session, activeContext: name } })),
+  selectContext: (name) => {
+    const s = get()
+    if (s.session.activeContext === name) return
+    set({
+      session: {
+        ...s.session,
+        activeContext: name,
+        activeNamespace: null,
+        namespaceFilter: [],
+        namespaces: [],
+      },
+      lists: markLoading(s.lists, name, CONTEXT_LISTS),
+    })
+    s.send({ type: 'SetContext', data: { context: name } })
+  },
 
-  selectNamespace: (ns) => set((s) => ({ session: { ...s.session, activeNamespace: ns } })),
+  selectNamespace: (ns) => {
+    const s = get()
+    set({
+      session: { ...s.session, activeNamespace: ns },
+      lists: markLoading(s.lists, s.session.activeContext, CONTEXT_LISTS),
+    })
+    s.send(namespaceFilterCmd(ns))
+  },
+
+  refreshSection: (section) => {
+    const cmd = refreshCmd(section)
+    if (!cmd) return
+    const s = get()
+    set({ lists: markLoading(s.lists, s.session.activeContext, [section]) })
+    s.send(cmd)
+  },
+
+  inspect: (kind, namespace, name) => {
+    const cmd = selectCmd(kind, namespace, name)
+    if (cmd) get().send(cmd)
+  },
+
+  refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 }))
+
+/** Detail cache lookup for the active context. */
+export function selectDetail(
+  s: StoreData,
+  kind: string,
+  namespace: string | null,
+  name: string,
+): DetailState | undefined {
+  return s.details[detailKey(s.session.activeContext, kind, namespace, name)]
+}
+
+/** Cluster events whose involved object is `kind`/`namespace`/`name` (inspector Events tab). */
+export function eventsFor(
+  s: StoreData,
+  kind: string,
+  namespace: string,
+  name: string,
+): KubernetesEvent[] {
+  const list = s.lists[listKey(null, SECTION.events, 'Global', null)]
+  return (list?.rows ?? []).filter(
+    (e): e is KubernetesEvent =>
+      typeof e === 'object' &&
+      'involved_object_kind' in e &&
+      e.involved_object_kind === kind &&
+      e.involved_object_name === name &&
+      e.namespace === namespace,
+  )
+}
