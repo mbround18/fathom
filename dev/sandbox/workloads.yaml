@@ -1,0 +1,336 @@
+# Healthy, probed, serviced: the "normal" workload.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: web }
+  template:
+    metadata:
+      labels: { app: web }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:stable-alpine
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - name: GREETING
+              valueFrom: { configMapKeyRef: { name: web-config, key: greeting } }
+          readinessProbe: { httpGet: { path: /, port: http }, periodSeconds: 10 }
+          resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { cpu: 100m, memory: 64Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector: { app: web }
+  ports: [{ name: http, port: 80, targetPort: http }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: web }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: web }
+  minReplicas: 2
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 80 } }
+---
+# Log follow / pause / truncation practice: ~5 lines per second, stderr every 10th.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatty-logger
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: chatty-logger }
+  template:
+    metadata:
+      labels: { app: chatty-logger }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'i=0; while true; do i=$((i+1)); echo "$(date -Iseconds) level=info seq=$i msg=\\"tick\\""; if [ $((i % 10)) -eq 0 ]; then echo "$(date -Iseconds) level=warn seq=$i msg=\\"every tenth line\\"" >&2; fi; sleep 0.2; done']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# Scale target for the live e2e suite; the suite scales it and restores 1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scale-me
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: scale-me }
+  template:
+    metadata:
+      labels: { app: scale-me }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'sleep infinity']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# Rollout-restart target for the live e2e suite.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restart-me
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: restart-me }
+  template:
+    metadata:
+      labels: { app: restart-me }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'echo started at $(date -Iseconds); sleep infinity']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# Error state: exits 1 every few seconds -> CrashLoopBackOff.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: crashloop }
+  template:
+    metadata:
+      labels: { app: crashloop }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'echo "fatal: config missing" >&2; sleep 5; exit 1']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# Pending state: no node carries this label.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unschedulable
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: unschedulable }
+  template:
+    metadata:
+      labels: { app: unschedulable }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      nodeSelector: { fathom.dev/no-such-node: "true" }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'sleep infinity']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# ImagePullBackOff state (the registry name cannot resolve).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-image
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: bad-image }
+  template:
+    metadata:
+      labels: { app: bad-image }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: registry.fathom.invalid/does-not-exist:0.0.0
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# One replica, no volumes (the quota forbids PVCs; Longhorn stays untouched).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kv
+spec:
+  serviceName: kv
+  replicas: 1
+  selector:
+    matchLabels: { app: kv }
+  template:
+    metadata:
+      labels: { app: kv }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'echo kv-$HOSTNAME ready; sleep infinity']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kv
+spec:
+  clusterIP: None
+  selector: { app: kv }
+  ports: [{ name: kv, port: 6379 }]
+---
+# One tiny pod per node.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-agent
+spec:
+  selector:
+    matchLabels: { app: node-agent }
+  template:
+    metadata:
+      labels: { app: node-agent }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'while true; do echo heartbeat $(date -Iseconds); sleep 60; done']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-once
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: main
+          image: busybox:1.37
+          command: ["sh", "-c", 'echo migrating; sleep 3; echo done']
+          resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-report
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: main
+              image: busybox:1.37
+              command: ["sh", "-c", 'echo report generated at $(date -Iseconds)']
+              resources: { requests: { cpu: 5m, memory: 8Mi }, limits: { cpu: 20m, memory: 16Mi } }
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: [ALL] }

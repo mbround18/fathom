@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fathom-dev
+  labels:
+    # scripts/sandbox.sh and the live e2e harness refuse to act on a
+    # namespace without this label.
+    fathom.dev/sandbox: "true"
+    app.kubernetes.io/managed-by: fathom-sandbox
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

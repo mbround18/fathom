@@ -1,0 +1,15 @@
+# fathom-dev: a disposable, fenced-in namespace for practicing with Fathom and
+# for the live (real-cluster) e2e suite. Apply with `scripts/sandbox.sh up`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: fathom-dev
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: fathom-sandbox
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - guardrails.yaml
+  - config.yaml
+  - rbac.yaml
+  - workloads.yaml
