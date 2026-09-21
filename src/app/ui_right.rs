@@ -5,6 +5,7 @@ impl FathomApp {
     ///
     /// Delegates to the active view's render_details() method.
     /// The panel is only shown if the active view has content to display.
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     pub(super) fn render_right_panel(&mut self, ctx: &egui::Context) {
         // Ask the view itself whether it has a selection, before committing to
         // reserving 400px of screen space for the panel this frame.

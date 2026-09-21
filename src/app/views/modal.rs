@@ -67,6 +67,7 @@ impl Default for ModalView {
 
 impl ModalView {
     /// Render modal window using egui::Window (called from ui_modal.rs)
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     pub fn render_modal_window(&mut self, ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
         let mut next_modal: Option<ModalState> = None;

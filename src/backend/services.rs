@@ -35,7 +35,7 @@ pub(super) async fn refresh_services(
     Ok(())
 }
 
-fn services_to_summaries(services: Vec<Service>, filter: &Vec<String>) -> Vec<ServiceSummary> {
+fn services_to_summaries(services: Vec<Service>, filter: &[String]) -> Vec<ServiceSummary> {
     let mut out: Vec<ServiceSummary> = Vec::new();
 
     for svc in services {

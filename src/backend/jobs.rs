@@ -35,7 +35,7 @@ pub(super) async fn refresh_jobs(
     Ok(())
 }
 
-fn jobs_to_summaries(jobs: Vec<Job>, filter: &Vec<String>) -> Vec<JobSummary> {
+fn jobs_to_summaries(jobs: Vec<Job>, filter: &[String]) -> Vec<JobSummary> {
     let mut out: Vec<JobSummary> = Vec::new();
 
     for job in jobs {
@@ -138,21 +138,7 @@ pub(super) async fn fetch_job_details(
         .and_then(|s| s.completion_time.as_ref())
         .map(|ts| ts.0.to_rfc3339());
 
-    let duration = match (
-        status.and_then(|s| s.start_time.as_ref()),
-        status.and_then(|s| s.completion_time.as_ref()),
-    ) {
-        (Some(start), Some(end)) => {
-            let dur = end.0.signed_duration_since(start.0);
-            format_duration(dur.num_seconds())
-        }
-        (Some(start), None) => {
-            let now = Utc::now();
-            let dur = now.signed_duration_since(start.0);
-            format_duration(dur.num_seconds())
-        }
-        _ => "-".to_string(),
-    };
+    let duration = job_duration(status);
 
     let selector = job
         .spec
@@ -168,43 +154,10 @@ pub(super) async fn fetch_job_details(
         })
         .unwrap_or_else(|| "-".to_string());
 
-    let labels = job
-        .metadata
-        .labels
-        .as_ref()
-        .map(|m| {
-            let mut pairs: Vec<_> = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            pairs.sort_by(|a, b| a.0.cmp(&b.0));
-            pairs
-        })
-        .unwrap_or_default();
+    let labels = sorted_pairs(job.metadata.labels.as_ref());
+    let annotations = sorted_pairs(job.metadata.annotations.as_ref());
 
-    let annotations = job
-        .metadata
-        .annotations
-        .as_ref()
-        .map(|m| {
-            let mut pairs: Vec<_> = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            pairs.sort_by(|a, b| a.0.cmp(&b.0));
-            pairs
-        })
-        .unwrap_or_default();
-
-    let conditions = status
-        .and_then(|s| s.conditions.as_ref())
-        .map(|conds| {
-            conds
-                .iter()
-                .map(|c| JobCondition {
-                    condition_type: c.type_.clone(),
-                    status: c.status.clone(),
-                    reason: c.reason.clone(),
-                    message: c.message.clone(),
-                    last_transition: c.last_transition_time.as_ref().map(|ts| ts.0.to_rfc3339()),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let conditions = job_conditions(status);
 
     let details = JobDetails {
         namespace: namespace.to_string(),
@@ -264,4 +217,51 @@ pub(super) async fn delete_job(
         format!("Deleted job {}/{}", namespace, name),
     );
     Ok(())
+}
+
+/// Elapsed time from start to completion (or now, if still running); `-` if never started.
+fn job_duration(status: Option<&k8s_openapi::api::batch::v1::JobStatus>) -> String {
+    match (
+        status.and_then(|s| s.start_time.as_ref()),
+        status.and_then(|s| s.completion_time.as_ref()),
+    ) {
+        (Some(start), Some(end)) => {
+            let dur = end.0.signed_duration_since(start.0);
+            format_duration(dur.num_seconds())
+        }
+        (Some(start), None) => {
+            let now = Utc::now();
+            let dur = now.signed_duration_since(start.0);
+            format_duration(dur.num_seconds())
+        }
+        _ => "-".to_string(),
+    }
+}
+
+/// Key/value pairs sorted by key.
+fn sorted_pairs(map: Option<&std::collections::BTreeMap<String, String>>) -> Vec<(String, String)> {
+    map.map(|m| {
+        let mut pairs: Vec<_> = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs
+    })
+    .unwrap_or_default()
+}
+
+fn job_conditions(status: Option<&k8s_openapi::api::batch::v1::JobStatus>) -> Vec<JobCondition> {
+    status
+        .and_then(|s| s.conditions.as_ref())
+        .map(|conds| {
+            conds
+                .iter()
+                .map(|c| JobCondition {
+                    condition_type: c.type_.clone(),
+                    status: c.status.clone(),
+                    reason: c.reason.clone(),
+                    message: c.message.clone(),
+                    last_transition: c.last_transition_time.as_ref().map(|ts| ts.0.to_rfc3339()),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }

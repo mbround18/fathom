@@ -89,7 +89,7 @@ pub(super) async fn pods_for_selector(
     let list = pod_api
         .list(&ListParams::default().labels(selector))
         .await?;
-    Ok(pods::pods_to_summaries(list.items, &Vec::new()))
+    Ok(pods::pods_to_summaries(list.items, &[]))
 }
 
 pub(super) async fn delete_pods_for_selector(

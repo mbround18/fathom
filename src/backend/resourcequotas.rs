@@ -38,7 +38,7 @@ pub(super) async fn refresh_resourcequotas(
 
 fn resourcequotas_to_summaries(
     quotas: Vec<ResourceQuota>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<ResourceQuotaSummary> {
     let mut out: Vec<ResourceQuotaSummary> = Vec::new();
 

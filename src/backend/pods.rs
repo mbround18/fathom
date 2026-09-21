@@ -68,7 +68,7 @@ pub(super) async fn delete_pod(
     Ok(())
 }
 
-pub(super) fn pods_to_summaries(pods: Vec<Pod>, filter: &Vec<String>) -> Vec<PodSummary> {
+pub(super) fn pods_to_summaries(pods: Vec<Pod>, filter: &[String]) -> Vec<PodSummary> {
     // Deduplicate by ns/name (watchers can be noisy; list shouldn't duplicate but keep it safe).
     let mut map: HashMap<(String, String), PodSummary> = HashMap::new();
 

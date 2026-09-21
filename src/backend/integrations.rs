@@ -320,6 +320,62 @@ pub(super) async fn ensure_metrics_port_forward(
         .clone()
         .ok_or_else(|| anyhow::anyhow!("No Kubernetes client"))?;
 
+    for (namespace, service, port) in prometheus_candidates(state) {
+        // Check if a pod matching the service exists
+        match find_pod_for_service(&client, &namespace, &service).await {
+            Ok(Some(pod_name)) => {
+                let target = ForwardTarget {
+                    namespace: &namespace,
+                    pod_name: &pod_name,
+                    port,
+                    verb: "Auto-started",
+                };
+                if start_prometheus_forward(state, sender, &client, target).await {
+                    return Ok(());
+                }
+            }
+            Ok(None) => {
+                tracing::debug!("No pod found for service {}/{}", namespace, service);
+            }
+            Err(e) => {
+                tracing::debug!("Error finding pod for {}/{}: {}", namespace, service, e);
+            }
+        }
+    }
+
+    // Fallback: Check if port 9090 is available locally and try to find any Prometheus instance
+    if portforward::is_local_port_available(9090) {
+        // Try to find any Prometheus pod in common namespaces
+        for namespace in &["monitoring", "prometheus", "kube-monitoring", "default"] {
+            if let Ok(Some(pod_name)) = find_any_prometheus_pod(&client, namespace).await {
+                let target = ForwardTarget {
+                    namespace,
+                    pod_name: &pod_name,
+                    port: 9090,
+                    verb: "Auto-discovered",
+                };
+                if start_prometheus_forward(state, sender, &client, target).await {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // Attempt to fetch disk usage after auto-discovery/port-forward attempts.
+    let _ = fetch_disk_usage(&client, state, sender).await;
+
+    events::notify_info(
+        state.cluster.seq.as_ref(),
+        sender,
+        "Prometheus auto port-forward not started (no matching service/pod found). Configure a port forward under Network > Port Forwards or adjust Prometheus settings under Integrations.".to_owned(),
+    );
+
+    Ok(())
+}
+
+/// `(namespace, service, port)` candidates: the user-configured Prometheus for the
+/// current context first (if enabled), then common default locations.
+fn prometheus_candidates(state: &BackendState) -> Vec<(String, String, u16)> {
     // Load user-configured Prometheus first (per context), then fall back to common defaults
     let context = state
         .cluster
@@ -341,125 +397,81 @@ pub(super) async fn ensure_metrics_port_forward(
         ("prometheus".to_owned(), "prometheus".to_owned(), 9090),
         ("kube-monitoring".to_owned(), "prometheus".to_owned(), 9090),
     ]);
+    prometheus_configs
+}
 
-    for (namespace, service, port) in prometheus_configs {
-        // Check if a pod matching the service exists
-        match find_pod_for_service(&client, &namespace, &service).await {
-            Ok(Some(pod_name)) => {
-                // Check if a port forward for this pod already exists
-                let existing = state.port_forward_manager.list().iter().any(|pf| {
-                    pf.namespace == namespace && pf.pod == pod_name && pf.local_port == port
-                });
+/// A Prometheus pod to forward `localhost:port -> namespace/pod_name:port` to.
+struct ForwardTarget<'a> {
+    namespace: &'a str,
+    pod_name: &'a str,
+    port: u16,
+    /// Prefix for the success notification ("Auto-started" / "Auto-discovered").
+    verb: &'a str,
+}
 
-                if existing {
-                    tracing::debug!(
-                        "Port forward for {}/{} on port {} already exists, skipping",
-                        namespace,
-                        pod_name,
-                        port
-                    );
-                    return Ok(());
-                }
+/// Start a Prometheus port forward unless one already exists.
+///
+/// Returns `true` when discovery is done (a forward already existed or was started),
+/// `false` when starting failed and the next candidate should be tried.
+async fn start_prometheus_forward(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    client: &Client,
+    target: ForwardTarget<'_>,
+) -> bool {
+    let ForwardTarget {
+        namespace,
+        pod_name,
+        port,
+        verb,
+    } = target;
 
-                match state
-                    .port_forward_manager
-                    .start(&client, &namespace, &pod_name, port, port, None)
-                    .await
-                {
-                    Ok(_) => {
-                        events::notify_info(
-                            state.cluster.seq.as_ref(),
-                            sender,
-                            format!(
-                                "Auto-started Prometheus port forward: localhost:{} -> {}/{}:{}",
-                                port, namespace, pod_name, port
-                            ),
-                        );
-                        // Emit updated list and save to disk
-                        portforward::emit_port_forward_list(state, sender);
-                        portforward::save_port_forwards_to_disk(state);
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        tracing::debug!(
-                            "Failed to start port forward for {}/{}: {}",
-                            namespace,
-                            pod_name,
-                            e
-                        );
-                    }
-                }
-            }
-            Ok(None) => {
-                tracing::debug!("No pod found for service {}/{}", namespace, service);
-            }
-            Err(e) => {
-                tracing::debug!("Error finding pod for {}/{}: {}", namespace, service, e);
-            }
-        }
+    // Check if a port forward for this pod already exists
+    let existing = state
+        .port_forward_manager
+        .list()
+        .iter()
+        .any(|pf| pf.namespace == namespace && pf.pod == pod_name && pf.local_port == port);
+
+    if existing {
+        tracing::debug!(
+            "Port forward for {}/{} on port {} already exists, skipping",
+            namespace,
+            pod_name,
+            port
+        );
+        return true;
     }
 
-    // Fallback: Check if port 9090 is available locally and try to find any Prometheus instance
-    if portforward::is_local_port_available(9090) {
-        // Try to find any Prometheus pod in common namespaces
-        for namespace in &["monitoring", "prometheus", "kube-monitoring", "default"] {
-            if let Ok(Some(pod_name)) = find_any_prometheus_pod(&client, namespace).await {
-                // Check if a port forward for this pod already exists
-                let existing = state.port_forward_manager.list().iter().any(|pf| {
-                    pf.namespace == *namespace && pf.pod == pod_name && pf.local_port == 9090
-                });
-
-                if existing {
-                    tracing::debug!(
-                        "Port forward for {}/{} on port 9090 already exists, skipping",
-                        namespace,
-                        pod_name
-                    );
-                    return Ok(());
-                }
-
-                match state
-                    .port_forward_manager
-                    .start(&client, namespace, &pod_name, 9090, 9090, None)
-                    .await
-                {
-                    Ok(_) => {
-                        events::notify_info(
-                            state.cluster.seq.as_ref(),
-                            sender,
-                            format!(
-                                "Auto-discovered Prometheus port forward: localhost:9090 -> {}/{}:9090",
-                                namespace, pod_name
-                            ),
-                        );
-                        // Emit updated list and save to disk
-                        portforward::emit_port_forward_list(state, sender);
-                        portforward::save_port_forwards_to_disk(state);
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        tracing::debug!(
-                            "Failed to start port forward for {}/{}: {}",
-                            namespace,
-                            pod_name,
-                            e
-                        );
-                    }
-                }
-            }
+    match state
+        .port_forward_manager
+        .start(client, namespace, pod_name, port, port, None)
+        .await
+    {
+        Ok(_) => {
+            events::notify_info(
+                state.cluster.seq.as_ref(),
+                sender,
+                format!(
+                    "{} Prometheus port forward: localhost:{} -> {}/{}:{}",
+                    verb, port, namespace, pod_name, port
+                ),
+            );
+            // Emit updated list and save to disk
+            portforward::emit_port_forward_list(state, sender);
+            portforward::save_port_forwards_to_disk(state);
+            true
+        }
+        Err(e) => {
+            tracing::debug!(
+                "Failed to start port forward for {}/{}: {}",
+                namespace,
+                pod_name,
+                e
+            );
+            false
         }
     }
-
-    // Attempt to fetch disk usage after auto-discovery/port-forward attempts.
-    let _ = fetch_disk_usage(&client, state, sender).await;
-
-    events::notify_info(
-        state.cluster.seq.as_ref(),
-        sender,
-        "Prometheus auto port-forward not started (no matching service/pod found). Configure a port forward under Network > Port Forwards or adjust Prometheus settings under Integrations.".to_owned(),
-    );
-
-    Ok(())
 }
 
 pub(super) async fn find_pod_for_service(

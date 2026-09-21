@@ -17,7 +17,7 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, LogParams, Patch, PatchParams};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
@@ -193,22 +193,41 @@ pub async fn initialize_mcp_server() -> Result<()> {
     let vscode_path = mcp_vscode_config_path()?;
     tokio::fs::write(&vscode_path, serde_json::to_string_pretty(&vscode_config)?).await?;
 
+    log_mcp_initialized(&dir, &generic_path, &vscode_path);
+
+    Ok(())
+}
+
+/// Tool summary lines logged after MCP initialization.
+const MCP_TOOL_SUMMARY_LINES: &[&str] = &[
+    "  - get_status: Get recent status messages",
+    "  - get_logs: Get error and status logs",
+    "  - get_app_state: Get current app state (context, namespaces)",
+    "  - list_namespaces: List cluster namespaces",
+    "  - list_deployments: List deployments",
+    "  - restart_deployment: Restart a deployment (requires confirmation)",
+    "  - get_pod_logs: Fetch pod logs",
+    "  - health_check: Verify Fathom is running",
+];
+
+fn log_mcp_initialized(dir: &Path, generic_path: &Path, vscode_path: &Path) {
     tracing::info!("MCP server initialized at {:?}", dir);
+    log_generated_config_files(generic_path, vscode_path);
+    log_mcp_endpoint_and_tools();
+}
+
+fn log_generated_config_files(generic_path: &Path, vscode_path: &Path) {
     tracing::info!("Generated config files:");
     tracing::info!("  - generic.json: {:?}", generic_path);
     tracing::info!("  - vscode.json: {:?}", vscode_path);
+}
+
+fn log_mcp_endpoint_and_tools() {
     tracing::info!("HTTP MCP server available at: http://127.0.0.1:18288/mcp");
     tracing::info!("Available MCP tools:");
-    tracing::info!("  - get_status: Get recent status messages");
-    tracing::info!("  - get_logs: Get error and status logs");
-    tracing::info!("  - get_app_state: Get current app state (context, namespaces)");
-    tracing::info!("  - list_namespaces: List cluster namespaces");
-    tracing::info!("  - list_deployments: List deployments");
-    tracing::info!("  - restart_deployment: Restart a deployment (requires confirmation)");
-    tracing::info!("  - get_pod_logs: Fetch pod logs");
-    tracing::info!("  - health_check: Verify Fathom is running");
-
-    Ok(())
+    for line in MCP_TOOL_SUMMARY_LINES {
+        tracing::info!("{}", line);
+    }
 }
 
 /// Create generic MCP configuration
@@ -394,13 +413,6 @@ struct McpResponse {
     error: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize)]
-struct ToolCallRequest {
-    tool: String,
-    #[serde(default)]
-    arguments: serde_json::Value,
-}
-
 #[derive(Serialize)]
 struct ToolListResponse {
     tools: Vec<ToolDefinition>,
@@ -422,40 +434,7 @@ async fn handle_mcp_call(
 
     let result = match req.method.as_str() {
         "tools/list" => {
-            let tools = vec![
-                ToolDefinition {
-                    name: "get_status".to_string(),
-                    description: "Get recent application status messages from Fathom".to_string(),
-                },
-                ToolDefinition {
-                    name: "get_logs".to_string(),
-                    description: "Get recent logs from Fathom (status and errors)".to_string(),
-                },
-                ToolDefinition {
-                    name: "get_app_state".to_string(),
-                    description: "Get current application state (context, namespaces)".to_string(),
-                },
-                ToolDefinition {
-                    name: "health_check".to_string(),
-                    description: "Check if Fathom is running and responsive".to_string(),
-                },
-                ToolDefinition {
-                    name: "list_namespaces".to_string(),
-                    description: "List namespaces in the current cluster".to_string(),
-                },
-                ToolDefinition {
-                    name: "list_deployments".to_string(),
-                    description: "List deployments (optionally scoped to a namespace)".to_string(),
-                },
-                ToolDefinition {
-                    name: "restart_deployment".to_string(),
-                    description: "Restart a deployment with optional confirmation".to_string(),
-                },
-                ToolDefinition {
-                    name: "get_pod_logs".to_string(),
-                    description: "Fetch recent pod logs (optionally pick container)".to_string(),
-                },
-            ];
+            let tools = tool_definitions();
             Ok(json!({ "tools": tools }))
         }
         "tools/call" => {
@@ -539,118 +518,134 @@ async fn handle_tool_call_impl(
                 "namespaces": namespaces.clone()
             }))
         }
-        "list_deployments" => {
-            let namespace_filter = arguments
-                .get("namespace")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let deployments = state.deployments.read().await;
-            let filtered: Vec<_> = deployments
-                .iter()
-                .filter(|d| namespace_filter.is_empty() || d.namespace == namespace_filter)
-                .map(|d| {
-                    json!({
-                        "namespace": d.namespace,
-                        "name": d.name,
-                        "ready": d.ready,
-                        "desired": d.desired,
-                        "available": d.available,
-                        "updated": d.updated,
-                    })
-                })
-                .collect();
-
-            Ok(json!({ "deployments": filtered, "count": filtered.len() }))
-        }
-
-        "restart_deployment" => {
-            let namespace = arguments
-                .get("namespace")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| json!({"code": -32602, "message": "missing 'namespace'"}))?;
-            let name = arguments
-                .get("name")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| json!({"code": -32602, "message": "missing 'name'"}))?;
-
-            let client_guard = state.kube_client.read().await;
-            let client = client_guard.as_ref().ok_or_else(
-                || json!({"code": -32603, "message": "No Kubernetes client connected"}),
-            )?;
-
-            let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
-            let now = chrono::Utc::now().to_rfc3339();
-            let patch = json!({
-                "spec": {
-                    "template": {
-                        "metadata": {
-                            "annotations": {
-                                "kubectl.kubernetes.io/restartedAt": now
-                            }
-                        }
-                    }
-                }
-            });
-
-            api.patch(
-                name,
-                &PatchParams::apply("fathom-mcp"),
-                &Patch::Merge(&patch),
-            )
-            .await
-            .map_err(|e| json!({"code": -32603, "message": format!("Restart failed: {}", e)}))?;
-
-            Ok(json!({ "status": "restarted", "namespace": namespace, "name": name }))
-        }
-
-        "get_pod_logs" => {
-            let namespace = arguments
-                .get("namespace")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| json!({"code": -32602, "message": "missing 'namespace'"}))?;
-            let name = arguments
-                .get("name")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| json!({"code": -32602, "message": "missing 'name'"}))?;
-            let container = arguments.get("container").and_then(|v| v.as_str());
-            let tail_lines = arguments
-                .get("lines")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(100);
-
-            let client_guard = state.kube_client.read().await;
-            let client = client_guard.as_ref().ok_or_else(
-                || json!({"code": -32603, "message": "No Kubernetes client connected"}),
-            )?;
-
-            let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
-            let log_params = LogParams {
-                container: container.map(|s| s.to_string()),
-                tail_lines: Some(tail_lines),
-                timestamps: false,
-                ..Default::default()
-            };
-
-            let logs = api.logs(name, &log_params).await.map_err(
-                |e| json!({"code": -32603, "message": format!("Failed to fetch logs: {}", e)}),
-            )?;
-
-            let lines: Vec<&str> = logs.lines().collect();
-            Ok(json!({
-                "namespace": namespace,
-                "pod": name,
-                "container": container,
-                "lines": lines,
-                "line_count": lines.len(),
-            }))
-        }
+        "list_deployments" => Ok(list_deployments_tool(&state, &arguments).await),
+        "restart_deployment" => restart_deployment_tool(&state, &arguments).await,
+        "get_pod_logs" => get_pod_logs_tool(&state, &arguments).await,
         _ => Err(json!({
             "code": -32601,
             "message": format!("Unknown tool: {}", tool_name)
         })),
     }
+}
+
+/// JSON-RPC error value for a missing required tool argument.
+fn required_str_arg<'a>(
+    arguments: &'a serde_json::Value,
+    key: &str,
+) -> Result<&'a str, serde_json::Value> {
+    arguments
+        .get(key)
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| json!({"code": -32602, "message": format!("missing '{}'", key)}))
+}
+
+fn no_client_error() -> serde_json::Value {
+    json!({"code": -32603, "message": "No Kubernetes client connected"})
+}
+
+/// Tool `list_deployments`: cached deployments, optionally filtered by namespace.
+async fn list_deployments_tool(
+    state: &McpAppState,
+    arguments: &serde_json::Value,
+) -> serde_json::Value {
+    let namespace_filter = arguments
+        .get("namespace")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let deployments = state.deployments.read().await;
+    let filtered: Vec<_> = deployments
+        .iter()
+        .filter(|d| namespace_filter.is_empty() || d.namespace == namespace_filter)
+        .map(|d| {
+            json!({
+                "namespace": d.namespace,
+                "name": d.name,
+                "ready": d.ready,
+                "desired": d.desired,
+                "available": d.available,
+                "updated": d.updated,
+            })
+        })
+        .collect();
+
+    json!({ "deployments": filtered, "count": filtered.len() })
+}
+
+/// Tool `restart_deployment`: patch the pod template's `restartedAt` annotation.
+async fn restart_deployment_tool(
+    state: &McpAppState,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, serde_json::Value> {
+    let namespace = required_str_arg(arguments, "namespace")?;
+    let name = required_str_arg(arguments, "name")?;
+
+    let client_guard = state.kube_client.read().await;
+    let client = client_guard.as_ref().ok_or_else(no_client_error)?;
+
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let now = chrono::Utc::now().to_rfc3339();
+    let patch = json!({
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "kubectl.kubernetes.io/restartedAt": now
+                    }
+                }
+            }
+        }
+    });
+
+    api.patch(
+        name,
+        &PatchParams::apply("fathom-mcp"),
+        &Patch::Merge(&patch),
+    )
+    .await
+    .map_err(|e| json!({"code": -32603, "message": format!("Restart failed: {}", e)}))?;
+
+    Ok(json!({ "status": "restarted", "namespace": namespace, "name": name }))
+}
+
+/// Tool `get_pod_logs`: the last `lines` (default 100) log lines of a pod/container.
+async fn get_pod_logs_tool(
+    state: &McpAppState,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, serde_json::Value> {
+    let namespace = required_str_arg(arguments, "namespace")?;
+    let name = required_str_arg(arguments, "name")?;
+    let container = arguments.get("container").and_then(|v| v.as_str());
+    let tail_lines = arguments
+        .get("lines")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(100);
+
+    let client_guard = state.kube_client.read().await;
+    let client = client_guard.as_ref().ok_or_else(no_client_error)?;
+
+    let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let log_params = LogParams {
+        container: container.map(|s| s.to_string()),
+        tail_lines: Some(tail_lines),
+        timestamps: false,
+        ..Default::default()
+    };
+
+    let logs = api
+        .logs(name, &log_params)
+        .await
+        .map_err(|e| json!({"code": -32603, "message": format!("Failed to fetch logs: {}", e)}))?;
+
+    let lines: Vec<&str> = logs.lines().collect();
+    Ok(json!({
+        "namespace": namespace,
+        "pod": name,
+        "container": container,
+        "lines": lines,
+        "line_count": lines.len(),
+    }))
 }
 
 /// HTTP handler: GET /mcp/health (for direct health checks)
@@ -673,9 +668,9 @@ async fn handle_get_state(AxumState(state): AxumState<Arc<McpAppState>>) -> impl
     }))
 }
 
-/// HTTP handler: GET /mcp/tools (for direct tool listing)
-async fn handle_list_tools() -> impl IntoResponse {
-    let tools = vec![
+/// Tools advertised by `tools/list` and `GET /mcp/tools`.
+fn tool_definitions() -> Vec<ToolDefinition> {
+    vec![
         ToolDefinition {
             name: "get_status".to_string(),
             description: "Get recent application status messages from Fathom".to_string(),
@@ -708,7 +703,12 @@ async fn handle_list_tools() -> impl IntoResponse {
             name: "get_pod_logs".to_string(),
             description: "Fetch recent pod logs (optionally pick container)".to_string(),
         },
-    ];
+    ]
+}
+
+/// HTTP handler: GET /mcp/tools (for direct tool listing)
+async fn handle_list_tools() -> impl IntoResponse {
+    let tools = tool_definitions();
 
     Json(ToolListResponse { tools })
 }
@@ -745,18 +745,29 @@ pub async fn serve_mcp_http(
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
-    tracing::info!("MCP HTTP server listening on http://{}", addr);
-    tracing::info!("Available endpoints:");
-    tracing::info!("  POST /mcp              - MCP JSON-RPC protocol handler");
-    tracing::info!("  GET  /mcp/health       - Health check");
-    tracing::info!("  GET  /mcp/state        - Current app state");
-    tracing::info!("  GET  /mcp/tools        - List available tools");
+    log_mcp_http_listening(&addr);
 
     let result = axum::serve(listener, app).await;
 
     state.set_running(false).await;
     result?;
     Ok(())
+}
+
+/// Endpoint summary lines logged when the MCP HTTP server starts.
+const MCP_ENDPOINT_LINES: &[&str] = &[
+    "  POST /mcp              - MCP JSON-RPC protocol handler",
+    "  GET  /mcp/health       - Health check",
+    "  GET  /mcp/state        - Current app state",
+    "  GET  /mcp/tools        - List available tools",
+];
+
+fn log_mcp_http_listening(addr: &str) {
+    tracing::info!("MCP HTTP server listening on http://{}", addr);
+    tracing::info!("Available endpoints:");
+    for line in MCP_ENDPOINT_LINES {
+        tracing::info!("{}", line);
+    }
 }
 
 /// Bind then serve - convenience wrapper matching the old combined behavior,

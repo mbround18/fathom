@@ -167,6 +167,7 @@ impl ViewComponent for JobsView {
     fn has_details(&self) -> bool {
         self.selected.is_some()
     }
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,

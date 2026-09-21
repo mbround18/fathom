@@ -37,7 +37,7 @@ pub(super) async fn refresh_role_bindings(
 
 fn role_bindings_to_summaries(
     bindings: Vec<RoleBinding>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<RoleBindingSummary> {
     let mut out: Vec<RoleBindingSummary> = Vec::new();
 

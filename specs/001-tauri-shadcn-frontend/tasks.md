@@ -233,7 +233,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - Run `cargo test -p fathom-desktop` (the pump/bridge tests from T024) and `cargo clippy -p fathom-desktop -- -D warnings`, and fix any compile errors in `ui/src-tauri/src/{lib,bridge,main}.rs`.
   - Then run `pnpm -C ui tauri dev` against a real kubeconfig, and confirm that the window opens, the status bar reaches `ready`, and closing the window shuts the backend down within 500 ms.
   - Confirm that a CI-style build with the placeholder `ui/dist/index.html` compiles.
-- [ ] T128 Clear the pre-existing clippy baseline, so that `cargo clippy --all-targets -- -D warnings` passes (constitution Principle III). About 72 errors predate this feature, including `&Vec` params, `too_many_lines`, `cognitive_complexity`, and dead code.
+- [X] T128 Clear the pre-existing clippy baseline, so that `cargo clippy --all-targets -- -D warnings` passes (constitution Principle III). About 72 errors predate this feature, including `&Vec` params, `too_many_lines`, `cognitive_complexity`, and dead code.
   - Fix them mechanically without changing behavior, splitting long functions (for example `dispatch_cmd` in `src/backend/cmd.rs` and `src/app/mailbox.rs`) into helpers.
   - Egui-only code under `src/app/` that T125 will delete may instead get a scoped `#[allow]` with a `// removed by T125` comment.
   - `cargo test -p fathom` must stay green.

@@ -208,6 +208,7 @@ impl PodsView {
     }
 
     /// Render Details tab content
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     fn render_pod_details_tab(&mut self, ui: &mut egui::Ui, actions: &mut Vec<ViewAction>) {
         match &self.pod_details {
             Some(details) => {
@@ -589,6 +590,7 @@ impl ViewComponent for PodsView {
         self.namespace_filter = filter;
     }
 
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     fn render(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 

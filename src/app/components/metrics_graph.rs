@@ -29,6 +29,7 @@ fn format_timestamp_local(iso_timestamp: &str) -> String {
 /// Renders a single container's metrics graphs (CPU and Memory).
 /// Shows usage trends with request/limit reference lines and warnings for missing specs.
 /// Hover over the graph to see current usage, requests, and limits at that moment in time.
+#[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
 pub fn render_container_metrics(ui: &mut egui::Ui, container: &ContainerMetricsHistory) {
     if container.samples.is_empty() {
         ui.label("(no samples yet)");

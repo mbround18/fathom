@@ -44,7 +44,7 @@ pub(super) async fn refresh_deployments(
 
 fn deployments_to_summaries(
     deployments: Vec<Deployment>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<DeploymentSummary> {
     let mut out: Vec<DeploymentSummary> = Vec::new();
 

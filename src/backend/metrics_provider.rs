@@ -13,6 +13,7 @@ pub trait MetricsProviderTrait {
     async fn query_instant(&self, query: &str, time: Option<u64>) -> Result<InstantQueryResponse>;
 
     /// Query a PromQL expression over a time range
+    #[allow(dead_code)] // planned API: range queries for metrics history graphs
     async fn query_range(
         &self,
         query: &str,
@@ -22,12 +23,14 @@ pub trait MetricsProviderTrait {
     ) -> Result<serde_json::Value>;
 
     /// Get available metrics metadata
+    #[allow(dead_code)] // planned API: metric discovery for the metrics integration
     async fn get_metadata(
         &self,
         metric_name: Option<&str>,
     ) -> Result<BTreeMap<String, Vec<MetricMetadata>>>;
 }
 
+#[allow(dead_code)] // planned API: returned by `MetricsProviderTrait::get_metadata`
 #[derive(Debug, Clone)]
 pub struct MetricMetadata {
     pub metric_type: String,
@@ -50,6 +53,7 @@ impl PrometheusClient {
     }
 
     /// Parse a PromQL query string and execute it
+    #[allow(dead_code)] // planned API: raw PromQL passthrough for ad-hoc queries
     pub async fn execute_query(&self, query: &str) -> Result<serde_json::Value> {
         let encoded_query = urlencoding::encode(query);
         let url = format!("{}/api/v1/query?query={}", self.url, encoded_query);
@@ -180,7 +184,7 @@ impl MetricsProviderTrait for PrometheusClient {
             for (metric_name, metas) in data.iter() {
                 let meta_list = if let Some(arr) = metas.as_array() {
                     arr.iter()
-                        .filter_map(|m| {
+                        .map(|m| {
                             let metric_type = m
                                 .get("type")
                                 .and_then(|v| v.as_str())
@@ -196,11 +200,11 @@ impl MetricsProviderTrait for PrometheusClient {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string();
-                            Some(MetricMetadata {
+                            MetricMetadata {
                                 metric_type,
                                 help,
                                 unit,
-                            })
+                            }
                         })
                         .collect()
                 } else {

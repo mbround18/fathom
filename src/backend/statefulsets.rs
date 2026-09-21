@@ -39,7 +39,7 @@ pub(super) async fn refresh_statefulsets(
 
 fn statefulsets_to_summaries(
     statefulsets: Vec<StatefulSet>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<StatefulSetSummary> {
     let mut out: Vec<StatefulSetSummary> = Vec::new();
 

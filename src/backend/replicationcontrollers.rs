@@ -39,7 +39,7 @@ pub(super) async fn refresh_replicationcontrollers(
 
 fn replicationcontrollers_to_summaries(
     rcs: Vec<ReplicationController>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<ReplicationControllerSummary> {
     let mut out: Vec<ReplicationControllerSummary> = Vec::new();
 

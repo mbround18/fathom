@@ -1,6 +1,6 @@
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, NotificationLevel, ScopeKind, SectionKey,
-    SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, NotificationLevel, SectionKey, SystemEvent,
+    section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
@@ -9,8 +9,8 @@ use views::{
     BoxedView, ClusterRoleBindingsView, ClusterRolesView, ConfigMapsView, ContextView,
     CronJobsView, EndpointsView, EventsView, FluxView, HorizontalPodAutoscalersView,
     IngressClassesView, IngressesView, IntegrationsView, JobsView, LeasesView, LimitRangesView,
-    McpIntegrationView, ModalState, ModalView, MutatingWebhooksView, NamespacesView,
-    NavigationView, NetworkPoliciesView, NodesView, OverviewView, PersistentVolumeClaimsView,
+    McpIntegrationView, ModalView, MutatingWebhooksView, NamespacesView, NavigationView,
+    NetworkPoliciesView, NodesView, OverviewView, PersistentVolumeClaimsView,
     PersistentVolumesView, PlaceholderView, PodDisruptionBudgetsView, PodsView, PortForwardsView,
     PriorityClassesView, ResourceQuotasView, RoleBindingsView, RolesView, RuntimeClassesView,
     SecretsView, ServicesView, StatusView, StorageClassesView, ValidatingWebhooksView, ViewAction,
@@ -59,13 +59,8 @@ pub struct FathomApp {
     port_forwards: Vec<crate::sections::network::PortForward>,
 
     // Integrations connection state
-    prometheus_namespace: String,
-    prometheus_service: String,
-    prometheus_port: String,
     prometheus_connected: bool,
     prometheus_testing: bool,
-    grafana_url: String,
-    grafana_api_key: String,
     grafana_connected: bool,
     grafana_testing: bool,
 
@@ -157,13 +152,8 @@ impl FathomApp {
             nodes_state: views::NodesState::default(),
             namespaces_state: views::NamespacesState::default(),
             port_forwards: Vec::new(),
-            prometheus_namespace: "monitoring".to_string(),
-            prometheus_service: "prometheus".to_string(),
-            prometheus_port: "9090".to_string(),
             prometheus_connected: false,
             prometheus_testing: false,
-            grafana_url: String::new(),
-            grafana_api_key: String::new(),
             disk_usage: Vec::new(),
             grafana_connected: false,
             grafana_testing: false,
@@ -195,6 +185,7 @@ impl FathomApp {
     }
 
     /// Get or create a view for the given section key.
+    #[allow(clippy::cognitive_complexity)] // removed by T125 (egui cutover)
     pub fn get_or_create_view(&mut self, section_key: &SectionKey) -> &mut dyn ViewComponent {
         let key_str = section_key.to_string();
         if !self.views.contains_key(&key_str) {
@@ -365,161 +356,9 @@ impl FathomApp {
             .map(|p| unsafe { &mut *p })
     }
 
-    fn effective_namespace_filter(&self) -> Vec<String> {
-        // This is used by other parts of the app that need to know the current filter
-        // Get it from the context view
-        if let Some(view) = self.views.get(&section_keys::context().to_string()) {
-            let ptr = view.as_ref() as *const dyn ViewComponent as *const ContextView;
-            if let Some(context_view) = unsafe { ptr.as_ref() } {
-                return context_view.effective_namespace_filter();
-            }
-        }
-        Vec::new() // Default to all namespaces
-    }
-
-    fn toggle_namespace_filter_from_link(&mut self, namespace: &str) {
-        if let Some(view) = self.views.get_mut(&section_keys::context().to_string()) {
-            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut ContextView;
-            if let Some(context_view) = unsafe { ptr.as_mut() } {
-                if context_view.select_all_namespaces {
-                    context_view.select_all_namespaces = false;
-                    context_view.selected_namespaces.clear();
-                    context_view
-                        .selected_namespaces
-                        .insert(namespace.to_owned());
-                } else if context_view.selected_namespaces.contains(namespace) {
-                    // If this was the last selected namespace, revert to All.
-                    if context_view.selected_namespaces.len() == 1 {
-                        context_view.select_all_namespaces = true;
-                        context_view.selected_namespaces.clear();
-                    } else {
-                        context_view.selected_namespaces.remove(namespace);
-                    }
-                } else {
-                    context_view
-                        .selected_namespaces
-                        .insert(namespace.to_owned());
-                }
-                self.send(BackendCmd::SetNamespaceFilter {
-                    namespaces: context_view.effective_namespace_filter(),
-                });
-            }
-        }
-    }
-
-    fn get_namespaces(&self) -> Vec<String> {
-        if let Some(view) = self.views.get(&section_keys::context().to_string()) {
-            let ptr = view.as_ref() as *const dyn ViewComponent as *const ContextView;
-            if let Some(context_view) = unsafe { ptr.as_ref() } {
-                return context_view.namespaces.clone();
-            }
-        }
-        Vec::new()
-    }
-
     fn send(&mut self, cmd: BackendCmd) {
         if let Err(e) = self.backend_tx.send(cmd) {
             self.push_status(format!("ERROR sending command: {}", e));
-        }
-    }
-
-    fn active_scope_kind(&self) -> ScopeKind {
-        if self.active_section == section_keys::workloads_pods() {
-            return ScopeKind::Namespaced;
-        }
-        if self.active_section == section_keys::workloads_deployments() {
-            return ScopeKind::Namespaced;
-        }
-        if self.active_section == section_keys::workloads_daemonsets() {
-            return ScopeKind::Namespaced;
-        }
-        if self.active_section == section_keys::workloads_statefulsets() {
-            return ScopeKind::Namespaced;
-        }
-        if self.active_section == section_keys::workloads_replicasets() {
-            return ScopeKind::Namespaced;
-        }
-        if self.active_section == section_keys::workloads_replicationcontrollers() {
-            return ScopeKind::Namespaced;
-        }
-        ScopeKind::Cluster
-    }
-
-    fn open_confirm(
-        &mut self,
-        title: impl Into<String>,
-        body: impl Into<String>,
-        confirm_text: impl Into<String>,
-        action: ConfirmAction,
-    ) {
-        if let Some(view) = self.views.get_mut(&section_keys::modal().to_string()) {
-            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut ModalView;
-            if let Some(modal_view) = unsafe { ptr.as_mut() } {
-                modal_view.state = ModalState::Confirm {
-                    title: title.into(),
-                    body: body.into(),
-                    confirm_text: confirm_text.into(),
-                    action,
-                };
-            }
-        }
-    }
-
-    fn open_scale_workload(
-        &mut self,
-        kind: WorkloadKind,
-        namespace: String,
-        name: String,
-        current_ready: i32,
-        desired: i32,
-    ) {
-        if let Some(view) = self.views.get_mut(&section_keys::modal().to_string()) {
-            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut ModalView;
-            if let Some(modal_view) = unsafe { ptr.as_mut() } {
-                modal_view.state = ModalState::ScaleWorkload {
-                    kind,
-                    namespace,
-                    name,
-                    current: current_ready,
-                    desired,
-                };
-            }
-        }
-    }
-
-    fn open_create_port_forward(&mut self) {
-        if let Some(view) = self.views.get_mut(&section_keys::modal().to_string()) {
-            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut ModalView;
-            if let Some(modal_view) = unsafe { ptr.as_mut() } {
-                modal_view.state = ModalState::CreatePortForward {
-                    namespace: String::new(),
-                    pod: String::new(),
-                    local_port: String::new(),
-                    remote_port: String::new(),
-                    container: String::new(),
-                };
-            }
-        }
-    }
-
-    fn open_create_port_forward_prefill(
-        &mut self,
-        namespace: String,
-        pod: String,
-        remote_port: Option<u16>,
-        container: Option<String>,
-    ) {
-        if let Some(view) = self.views.get_mut(&section_keys::modal().to_string()) {
-            let ptr = view.as_mut() as *mut dyn ViewComponent as *mut ModalView;
-            if let Some(modal_view) = unsafe { ptr.as_mut() } {
-                modal_view.state = ModalState::CreatePortForward {
-                    namespace,
-                    pod,
-                    local_port: String::new(),
-                    remote_port: remote_port.map(|p| p.to_string()).unwrap_or_default(),
-                    container: container.unwrap_or_default(),
-                };
-            }
         }
     }
 

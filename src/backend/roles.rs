@@ -35,7 +35,7 @@ pub(super) async fn refresh_roles(
     Ok(())
 }
 
-fn roles_to_summaries(roles: Vec<Role>, filter: &Vec<String>) -> Vec<RoleSummary> {
+fn roles_to_summaries(roles: Vec<Role>, filter: &[String]) -> Vec<RoleSummary> {
     let mut out: Vec<RoleSummary> = Vec::new();
 
     for role in roles {

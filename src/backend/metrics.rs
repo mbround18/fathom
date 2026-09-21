@@ -277,82 +277,19 @@ pub(super) async fn start_metrics_polling(
     stop_metrics_polling(state);
 
     // Try Prometheus first if configured for this context
-    let prom_config = state
-        .cluster
-        .current_context
-        .as_ref()
-        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
-        .and_then(|cfg| cfg.prometheus)
-        .filter(|p| p.enabled);
+    let prom_config = enabled_prometheus(state.cluster.current_context.as_deref());
 
     if let Some(prom) = prom_config {
-        // Clone for use outside the spawned task (logging) and inside the task (query params)
-        let namespace_for_prom = namespace.clone();
-        let name_for_prom = name.clone();
-        let namespace_for_prom_task = namespace_for_prom.clone();
-        let name_for_prom_task = name_for_prom.clone();
-
-        let sender_clone = sender.clone();
-        let seq_clone = state.cluster.seq.clone();
-        let context = state.cluster.current_context.clone();
-        let handle = tokio::spawn(async move {
-            let interval = Duration::from_secs(interval_secs);
-            let mut has_failed = false;
-
-            loop {
-                let end = Utc::now();
-                let start = end - chrono::Duration::seconds((interval_secs * 20) as i64);
-                let step = format!("{}s", interval_secs);
-
-                let result = fetch_prom_pod_history(
-                    &prom,
-                    &namespace_for_prom_task,
-                    &name_for_prom_task,
-                    &step,
-                    start,
-                    end,
-                    &resource_specs,
-                )
-                .await;
-
-                match result {
-                    Ok(history) => {
-                        has_failed = false;
-
-                        // Save metrics to ~/.fathom/metrics.json for historical tracking
-                        if let Err(e) = save_metrics_to_file(&history) {
-                            tracing::debug!("Failed to save metrics history: {}", e);
-                        }
-
-                        events::emit(
-                            seq_clone.as_ref(),
-                            &sender_clone,
-                            Route::namespaced(
-                                section_keys::workloads_pods(),
-                                context.clone(),
-                                Some(namespace_for_prom_task.clone()),
-                            ),
-                            Correlation::None,
-                            BackendEvent::ResourceRead(
-                                ResourceReadEvent::PodMetricsHistoryUpdated(history),
-                            ),
-                        );
-                    }
-                    Err(e) => {
-                        if !has_failed {
-                            has_failed = true;
-                            tracing::warn!("Prometheus metrics polling failed: {}", e);
-                        } else {
-                            tracing::debug!("Prometheus metrics polling retry failed: {}", e);
-                        }
-                    }
-                }
-
-                tokio::time::sleep(interval).await;
-            }
-        });
-
-        state.metrics.poll_task = Some(handle);
+        let target = PodPollTarget {
+            namespace: namespace.clone(),
+            name: name.clone(),
+            resource_specs,
+            interval_secs,
+        };
+        let emitter = PollEmitter::from_state(state, sender);
+        state.metrics.poll_task = Some(tokio::spawn(poll_prometheus_pod_metrics(
+            prom, target, emitter,
+        )));
         // Only notify once per polling session to avoid spam
         if !state.metrics.polling_notified.unwrap_or(false) {
             events::notify_info(
@@ -360,7 +297,7 @@ pub(super) async fn start_metrics_polling(
                 sender,
                 format!(
                     "Watching POD {}/{} for metrics via Prometheus",
-                    namespace_for_prom, name_for_prom
+                    namespace, name
                 ),
             );
             state.metrics.polling_notified = Some(true);
@@ -383,109 +320,225 @@ pub(super) async fn start_metrics_polling(
     );
 
     let client = state.cluster.client_or_err()?;
-    let sender_clone = sender.clone();
-    let seq_clone = state.cluster.seq.clone();
-    let context = state.cluster.current_context.clone();
+    let target = PodPollTarget {
+        namespace,
+        name,
+        resource_specs,
+        interval_secs,
+    };
+    let emitter = PollEmitter::from_state(state, sender);
+    state.metrics.poll_task = Some(tokio::spawn(poll_metrics_api_pod_metrics(
+        client, target, emitter,
+    )));
+    Ok(())
+}
 
-    let handle = tokio::spawn(async move {
-        let interval = Duration::from_secs(interval_secs);
-        let mut history_map: std::collections::HashMap<String, Vec<MetricsSample>> =
-            std::collections::HashMap::new();
-        const MAX_SAMPLES: usize = 100;
-        let mut has_failed = false;
+/// The Prometheus integration for `context`, if configured and enabled.
+fn enabled_prometheus(
+    context: Option<&str>,
+) -> Option<crate::backend::integrations::PrometheusConfig> {
+    context
+        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
+        .and_then(|cfg| cfg.prometheus)
+        .filter(|p| p.enabled)
+}
 
-        loop {
-            tokio::time::sleep(interval).await;
+/// Owned handles a background metrics task needs to emit events.
+struct PollEmitter {
+    seq: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+}
 
-            // Fetch current metrics
-            let result = fetch_metrics_snapshot(&client, &namespace, &name).await;
+impl PollEmitter {
+    fn from_state(state: &BackendState, sender: &Sender<BackendEventEnvelope>) -> Self {
+        Self {
+            seq: state.cluster.seq.clone(),
+            sender: sender.clone(),
+            context: state.cluster.current_context.clone(),
+        }
+    }
 
-            match result {
-                Ok(metrics) => {
-                    has_failed = false;
-                    let timestamp = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    /// Emit a `PodMetricsHistoryUpdated` event routed to the pods section.
+    fn emit_pod_history(&self, namespace: &str, history: PodMetricsHistory) {
+        events::emit(
+            self.seq.as_ref(),
+            &self.sender,
+            Route::namespaced(
+                section_keys::workloads_pods(),
+                self.context.clone(),
+                Some(namespace.to_owned()),
+            ),
+            Correlation::None,
+            BackendEvent::ResourceRead(ResourceReadEvent::PodMetricsHistoryUpdated(history)),
+        );
+    }
+}
 
-                    // Update history for each container
-                    for container_metrics in &metrics.containers {
-                        let cpu_millicores = parse_cpu_quantity(&container_metrics.cpu);
-                        let memory_bytes = parse_memory_quantity(&container_metrics.memory);
+/// The pod whose metrics a polling task watches.
+struct PodPollTarget {
+    namespace: String,
+    name: String,
+    resource_specs: Vec<ContainerResourceSpec>,
+    interval_secs: u64,
+}
 
-                        if let (Some(cpu), Some(mem)) = (cpu_millicores, memory_bytes) {
-                            let sample = MetricsSample {
-                                timestamp: timestamp.clone(),
-                                cpu_millicores: cpu,
-                                memory_bytes: mem,
-                            };
+/// Background task: every interval, fetch the pod's recent history (20 intervals)
+/// from Prometheus, persist it, and emit it.
+async fn poll_prometheus_pod_metrics(
+    prom: crate::backend::integrations::PrometheusConfig,
+    target: PodPollTarget,
+    emitter: PollEmitter,
+) {
+    let interval_secs = target.interval_secs;
+    let interval = Duration::from_secs(interval_secs);
+    let mut has_failed = false;
 
-                            let history = history_map
-                                .entry(container_metrics.name.clone())
-                                .or_default();
-                            history.push(sample);
+    loop {
+        let end = Utc::now();
+        let start = end - chrono::Duration::seconds((interval_secs * 20) as i64);
+        let step = format!("{}s", interval_secs);
 
-                            // Keep ring buffer bounded
-                            if history.len() > MAX_SAMPLES {
-                                history.remove(0);
-                            }
-                        }
-                    }
+        let result = fetch_prom_pod_history(
+            &prom,
+            &target.namespace,
+            &target.name,
+            &step,
+            start,
+            end,
+            &target.resource_specs,
+        )
+        .await;
 
-                    // Build ContainerMetricsHistory with resource specs
-                    let containers: Vec<ContainerMetricsHistory> = history_map
-                        .iter()
-                        .map(|(container_name, samples)| {
-                            let spec = resource_specs
-                                .iter()
-                                .find(|s| &s.container == container_name);
+        match result {
+            Ok(history) => {
+                has_failed = false;
+                save_metrics_history(&history);
+                emitter.emit_pod_history(&target.namespace, history);
+            }
+            Err(e) => log_prometheus_poll_failure(&mut has_failed, &e),
+        }
 
-                            ContainerMetricsHistory {
-                                name: container_name.clone(),
-                                samples: samples.clone(),
-                                cpu_request_millicores: spec.and_then(|s| s.cpu_request_millicores),
-                                cpu_limit_millicores: spec.and_then(|s| s.cpu_limit_millicores),
-                                memory_request_bytes: spec.and_then(|s| s.memory_request_bytes),
-                                memory_limit_bytes: spec.and_then(|s| s.memory_limit_bytes),
-                            }
-                        })
-                        .collect();
+        tokio::time::sleep(interval).await;
+    }
+}
 
-                    let history = PodMetricsHistory {
-                        namespace: namespace.clone(),
-                        name: name.clone(),
-                        containers,
-                    };
+/// Save metrics to ~/.fathom/metrics.json for historical tracking (best effort).
+fn save_metrics_history(history: &PodMetricsHistory) {
+    if let Err(e) = save_metrics_to_file(history) {
+        tracing::debug!("Failed to save metrics history: {}", e);
+    }
+}
 
-                    // Emit update event
-                    events::emit(
-                        seq_clone.as_ref(),
-                        &sender_clone,
-                        Route::namespaced(
-                            section_keys::workloads_pods(),
-                            context.clone(),
-                            Some(namespace.clone()),
-                        ),
-                        Correlation::None,
-                        BackendEvent::ResourceRead(ResourceReadEvent::PodMetricsHistoryUpdated(
-                            history,
-                        )),
-                    );
+/// Warn on the first consecutive Prometheus polling failure; debug-log retries.
+fn log_prometheus_poll_failure(has_failed: &mut bool, e: &anyhow::Error) {
+    if !*has_failed {
+        *has_failed = true;
+        tracing::warn!("Prometheus metrics polling failed: {}", e);
+    } else {
+        tracing::debug!("Prometheus metrics polling retry failed: {}", e);
+    }
+}
+
+/// Background task: every interval, sample the metrics API for the pod, keep a
+/// bounded per-container history, and emit it.
+async fn poll_metrics_api_pod_metrics(client: Client, target: PodPollTarget, emitter: PollEmitter) {
+    let interval = Duration::from_secs(target.interval_secs);
+    let mut history_map: std::collections::HashMap<String, Vec<MetricsSample>> =
+        std::collections::HashMap::new();
+    let mut has_failed = false;
+
+    loop {
+        tokio::time::sleep(interval).await;
+
+        // Fetch current metrics
+        let result = fetch_metrics_snapshot(&client, &target.namespace, &target.name).await;
+
+        match result {
+            Ok(metrics) => {
+                has_failed = false;
+                record_metrics_samples(&mut history_map, &metrics);
+
+                let history = PodMetricsHistory {
+                    namespace: target.namespace.clone(),
+                    name: target.name.clone(),
+                    containers: container_histories(&history_map, &target.resource_specs),
+                };
+
+                // Emit update event
+                emitter.emit_pod_history(&target.namespace, history);
+            }
+            Err(e) => {
+                // Only log the first failure to avoid spam
+                if !has_failed {
+                    has_failed = true;
+                    tracing::debug!("Metrics polling encountered error: {}", e);
                 }
-                Err(e) => {
-                    // Only log the first failure to avoid spam
-                    if !has_failed {
-                        has_failed = true;
-                        tracing::debug!("Metrics polling encountered error: {}", e);
-                    }
-                    // Subsequent failures logged at trace level (effectively silent)
-                    else {
-                        tracing::trace!("Metrics polling retry failed: {}", e);
-                    }
+                // Subsequent failures logged at trace level (effectively silent)
+                else {
+                    tracing::trace!("Metrics polling retry failed: {}", e);
                 }
             }
         }
-    });
+    }
+}
 
-    state.metrics.poll_task = Some(handle);
-    Ok(())
+/// Append one sample per container (when both CPU and memory parse) to its
+/// history, keeping each history bounded to the most recent samples.
+fn record_metrics_samples(
+    history_map: &mut std::collections::HashMap<String, Vec<MetricsSample>>,
+    metrics: &PodMetricsSummary,
+) {
+    const MAX_SAMPLES: usize = 100;
+    let timestamp = k8s_openapi::chrono::Utc::now().to_rfc3339();
+
+    // Update history for each container
+    for container_metrics in &metrics.containers {
+        let cpu_millicores = parse_cpu_quantity(&container_metrics.cpu);
+        let memory_bytes = parse_memory_quantity(&container_metrics.memory);
+
+        if let (Some(cpu), Some(mem)) = (cpu_millicores, memory_bytes) {
+            let sample = MetricsSample {
+                timestamp: timestamp.clone(),
+                cpu_millicores: cpu,
+                memory_bytes: mem,
+            };
+
+            let history = history_map
+                .entry(container_metrics.name.clone())
+                .or_default();
+            history.push(sample);
+
+            // Keep ring buffer bounded
+            if history.len() > MAX_SAMPLES {
+                history.remove(0);
+            }
+        }
+    }
+}
+
+/// Build `ContainerMetricsHistory` entries, attaching each container's resource specs.
+fn container_histories(
+    history_map: &std::collections::HashMap<String, Vec<MetricsSample>>,
+    resource_specs: &[ContainerResourceSpec],
+) -> Vec<ContainerMetricsHistory> {
+    history_map
+        .iter()
+        .map(|(container_name, samples)| {
+            let spec = resource_specs
+                .iter()
+                .find(|s| &s.container == container_name);
+
+            ContainerMetricsHistory {
+                name: container_name.clone(),
+                samples: samples.clone(),
+                cpu_request_millicores: spec.and_then(|s| s.cpu_request_millicores),
+                cpu_limit_millicores: spec.and_then(|s| s.cpu_limit_millicores),
+                memory_request_bytes: spec.and_then(|s| s.memory_request_bytes),
+                memory_limit_bytes: spec.and_then(|s| s.memory_limit_bytes),
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
@@ -834,37 +887,12 @@ async fn aggregate_from_prometheus(
                         .ok();
 
                     // Aggregate requests/limits from pod spec
-                    let mut cpu_req = 0u64;
-                    let mut cpu_lim = 0u64;
-                    let mut mem_req = 0u64;
-                    let mut mem_lim = 0u64;
-
-                    if let Some(resources) = &container.resources {
-                        if let Some(requests) = &resources.requests {
-                            if let Some(cpu_qty) = requests.get("cpu")
-                                && let Some(millis) = parse_cpu_to_millis(&cpu_qty.0)
-                            {
-                                cpu_req = millis;
-                            }
-                            if let Some(mem_qty) = requests.get("memory")
-                                && let Some(bytes) = parse_memory_to_bytes(&mem_qty.0)
-                            {
-                                mem_req = bytes as u64;
-                            }
-                        }
-                        if let Some(limits) = &resources.limits {
-                            if let Some(cpu_qty) = limits.get("cpu")
-                                && let Some(millis) = parse_cpu_to_millis(&cpu_qty.0)
-                            {
-                                cpu_lim = millis;
-                            }
-                            if let Some(mem_qty) = limits.get("memory")
-                                && let Some(bytes) = parse_memory_to_bytes(&mem_qty.0)
-                            {
-                                mem_lim = bytes as u64;
-                            }
-                        }
-                    }
+                    let ContainerResourceTotals {
+                        cpu_req,
+                        cpu_lim,
+                        mem_req,
+                        mem_lim,
+                    } = container_resource_totals(container);
 
                     total_cpu_request_millicores =
                         total_cpu_request_millicores.saturating_add(cpu_req);
@@ -877,10 +905,10 @@ async fn aggregate_from_prometheus(
                             name: cname.clone(),
                             cpu_usage_percent: cpu_pct,
                             memory_usage_bytes: None,
-                            memory_limit_bytes: if mem_lim > 0 { Some(mem_lim) } else { None },
-                            memory_request_bytes: if mem_req > 0 { Some(mem_req) } else { None },
-                            cpu_request_millicores: if cpu_req > 0 { Some(cpu_req) } else { None },
-                            cpu_limit_millicores: if cpu_lim > 0 { Some(cpu_lim) } else { None },
+                            memory_limit_bytes: nonzero(mem_lim),
+                            memory_request_bytes: nonzero(mem_req),
+                            cpu_request_millicores: nonzero(cpu_req),
+                            cpu_limit_millicores: nonzero(cpu_lim),
                         }
                     });
                 }
@@ -897,23 +925,7 @@ async fn aggregate_from_prometheus(
             total_memory_bytes += mem_val;
 
             // Get per-container memory
-            if let Some(spec) = &pod.spec {
-                for container in &spec.containers {
-                    let cname = container.name.clone();
-                    let container_mem_query = format!(
-                        "container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container=\"{}\"}}",
-                        namespace, pod_name, cname
-                    );
-
-                    if let Ok(mem_bytes) = prom_query_instant(&base_url, &container_mem_query).await
-                    {
-                        container_map.entry(cname.clone()).and_modify(|c| {
-                            c.memory_usage_bytes =
-                                Some(c.memory_usage_bytes.unwrap_or(0) + mem_bytes as u64);
-                        });
-                    }
-                }
-            }
+            add_container_memory(&base_url, namespace, pod_name, pod, &mut container_map).await;
         }
     }
 
@@ -932,29 +944,93 @@ async fn aggregate_from_prometheus(
         } else {
             None
         },
-        total_memory_limit_bytes: if total_memory_limit_bytes > 0 {
-            Some(total_memory_limit_bytes)
-        } else {
-            None
-        },
-        total_memory_request_bytes: if total_memory_request_bytes > 0 {
-            Some(total_memory_request_bytes)
-        } else {
-            None
-        },
-        total_cpu_request_millicores: if total_cpu_request_millicores > 0 {
-            Some(total_cpu_request_millicores)
-        } else {
-            None
-        },
-        total_cpu_limit_millicores: if total_cpu_limit_millicores > 0 {
-            Some(total_cpu_limit_millicores)
-        } else {
-            None
-        },
+        total_memory_limit_bytes: nonzero(total_memory_limit_bytes),
+        total_memory_request_bytes: nonzero(total_memory_request_bytes),
+        total_cpu_request_millicores: nonzero(total_cpu_request_millicores),
+        total_cpu_limit_millicores: nonzero(total_cpu_limit_millicores),
         containers,
         timestamp: Utc::now().timestamp_millis() as u64,
     })
+}
+
+/// Add each container's working-set memory (from Prometheus) to its existing
+/// aggregate entry; containers without an entry or without data are skipped.
+async fn add_container_memory(
+    base_url: &str,
+    namespace: &str,
+    pod_name: &str,
+    pod: &k8s_openapi::api::core::v1::Pod,
+    container_map: &mut std::collections::HashMap<String, ContainerMetricsAggregate>,
+) {
+    let Some(spec) = &pod.spec else {
+        return;
+    };
+    for container in &spec.containers {
+        let cname = container.name.clone();
+        let container_mem_query = format!(
+            "container_memory_working_set_bytes{{namespace=\"{}\",pod=\"{}\",container=\"{}\"}}",
+            namespace, pod_name, cname
+        );
+
+        if let Ok(mem_bytes) = prom_query_instant(base_url, &container_mem_query).await {
+            container_map.entry(cname.clone()).and_modify(|c| {
+                c.memory_usage_bytes = Some(c.memory_usage_bytes.unwrap_or(0) + mem_bytes as u64);
+            });
+        }
+    }
+}
+
+/// `Some(v)` when `v > 0`, else `None` (zero means "not set" for requests/limits).
+fn nonzero(v: u64) -> Option<u64> {
+    if v > 0 { Some(v) } else { None }
+}
+
+/// A container's CPU (millicores) and memory (bytes) requests/limits; 0 when unset
+/// or unparseable.
+struct ContainerResourceTotals {
+    cpu_req: u64,
+    cpu_lim: u64,
+    mem_req: u64,
+    mem_lim: u64,
+}
+
+fn container_resource_totals(
+    container: &k8s_openapi::api::core::v1::Container,
+) -> ContainerResourceTotals {
+    let mut totals = ContainerResourceTotals {
+        cpu_req: 0,
+        cpu_lim: 0,
+        mem_req: 0,
+        mem_lim: 0,
+    };
+    let Some(resources) = &container.resources else {
+        return totals;
+    };
+    if let Some(requests) = &resources.requests {
+        if let Some(cpu_qty) = requests.get("cpu")
+            && let Some(millis) = parse_cpu_to_millis(&cpu_qty.0)
+        {
+            totals.cpu_req = millis;
+        }
+        if let Some(mem_qty) = requests.get("memory")
+            && let Some(bytes) = parse_memory_to_bytes(&mem_qty.0)
+        {
+            totals.mem_req = bytes as u64;
+        }
+    }
+    if let Some(limits) = &resources.limits {
+        if let Some(cpu_qty) = limits.get("cpu")
+            && let Some(millis) = parse_cpu_to_millis(&cpu_qty.0)
+        {
+            totals.cpu_lim = millis;
+        }
+        if let Some(mem_qty) = limits.get("memory")
+            && let Some(bytes) = parse_memory_to_bytes(&mem_qty.0)
+        {
+            totals.mem_lim = bytes as u64;
+        }
+    }
+    totals
 }
 
 /// Helper: parse CPU strings like "100m", "1", "2500m" to millicores
@@ -1059,47 +1135,15 @@ pub(super) async fn start_workload_metrics_polling(
             // resolved by the details fetch for Deployment/StatefulSet/DaemonSet) over
             // guessing by name prefix — the prefix guess breaks for custom naming and
             // can also match unrelated pods that happen to share it.
-            let pods: Vec<Pod> = if let Some(ref kube_client) = client {
-                let pod_api: ::kube::Api<Pod> =
-                    ::kube::Api::namespaced(kube_client.clone(), &namespace);
-                let list_params = if pod_selector.is_empty() {
-                    ::kube::api::ListParams::default()
-                } else {
-                    ::kube::api::ListParams::default().labels(&pod_selector)
-                };
-                let list = pod_api.list(&list_params).await;
-
-                if pod_selector.is_empty() {
-                    // No selector available: fall back to the name-prefix heuristic.
-                    list.map(|list| {
-                        list.items
-                            .into_iter()
-                            .filter(|p| {
-                                p.metadata
-                                    .name
-                                    .as_deref()
-                                    .map(|n| n.starts_with(&format!("{}-", workload_name)))
-                                    .unwrap_or(false)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default()
-                } else {
-                    list.map(|list| list.items).unwrap_or_default()
-                }
-            } else {
-                Vec::new()
-            };
+            let pods: Vec<Pod> =
+                list_workload_pods(client.as_ref(), &namespace, &workload_name, &pod_selector)
+                    .await;
 
             let replica_count = pods.len() as u32;
 
             // Re-check config every tick so enabling Prometheus later (or it
             // going away) is picked up without restarting the poll.
-            let prom_config = context
-                .as_deref()
-                .and_then(|ctx| IntegrationConfig::load(ctx).ok())
-                .and_then(|cfg| cfg.prometheus)
-                .filter(|p| p.enabled);
+            let prom_config = enabled_prometheus(context.as_deref());
 
             let result = match &prom_config {
                 Some(prom) => {
@@ -1127,20 +1171,8 @@ pub(super) async fn start_workload_metrics_polling(
                 Ok(metrics) => {
                     has_failed = false;
 
-                    let event = match workload_kind.as_str() {
-                        "Deployment" => BackendEvent::ResourceRead(
-                            ResourceReadEvent::DeploymentMetricsUpdated(metrics),
-                        ),
-                        "StatefulSet" => BackendEvent::ResourceRead(
-                            ResourceReadEvent::StatefulSetMetricsUpdated(metrics),
-                        ),
-                        "DaemonSet" => BackendEvent::ResourceRead(
-                            ResourceReadEvent::DaemonSetMetricsUpdated(metrics),
-                        ),
-                        _ => {
-                            tracing::warn!("Unknown workload kind: {}", workload_kind);
-                            return;
-                        }
+                    let Some(event) = workload_metrics_event(&workload_kind, metrics) else {
+                        return;
                     };
 
                     events::emit(
@@ -1196,6 +1228,69 @@ pub(super) async fn start_workload_metrics_polling(
     Ok(())
 }
 
+/// Pods belonging to a workload.
+///
+/// Prefer the workload's real label selector (`.spec.selector.matchLabels`,
+/// resolved by the details fetch for Deployment/StatefulSet/DaemonSet) over
+/// guessing by name prefix — the prefix guess breaks for custom naming and
+/// can also match unrelated pods that happen to share it.
+async fn list_workload_pods(
+    client: Option<&Client>,
+    namespace: &str,
+    workload_name: &str,
+    pod_selector: &str,
+) -> Vec<k8s_openapi::api::core::v1::Pod> {
+    use k8s_openapi::api::core::v1::Pod;
+
+    let Some(kube_client) = client else {
+        return Vec::new();
+    };
+    let pod_api: ::kube::Api<Pod> = ::kube::Api::namespaced(kube_client.clone(), namespace);
+    let list_params = if pod_selector.is_empty() {
+        ::kube::api::ListParams::default()
+    } else {
+        ::kube::api::ListParams::default().labels(pod_selector)
+    };
+    let list = pod_api.list(&list_params).await;
+
+    if pod_selector.is_empty() {
+        // No selector available: fall back to the name-prefix heuristic.
+        list.map(|list| {
+            list.items
+                .into_iter()
+                .filter(|p| {
+                    p.metadata
+                        .name
+                        .as_deref()
+                        .map(|n| n.starts_with(&format!("{}-", workload_name)))
+                        .unwrap_or(false)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    } else {
+        list.map(|list| list.items).unwrap_or_default()
+    }
+}
+
+/// Wrap workload metrics in the event for its kind; `None` (with a warning) for
+/// unknown kinds.
+fn workload_metrics_event(
+    workload_kind: &str,
+    metrics: WorkloadMetricsAggregate,
+) -> Option<BackendEvent> {
+    let event = match workload_kind {
+        "Deployment" => ResourceReadEvent::DeploymentMetricsUpdated(metrics),
+        "StatefulSet" => ResourceReadEvent::StatefulSetMetricsUpdated(metrics),
+        "DaemonSet" => ResourceReadEvent::DaemonSetMetricsUpdated(metrics),
+        _ => {
+            tracing::warn!("Unknown workload kind: {}", workload_kind);
+            return None;
+        }
+    };
+    Some(BackendEvent::ResourceRead(event))
+}
+
 /// Stop polling metrics for a workload
 pub(super) fn stop_workload_metrics_polling(state: &mut BackendState) {
     if let Some(handle) = state.metrics.workload_poll_task.take() {
@@ -1245,6 +1340,7 @@ fn save_metrics_to_file(history: &PodMetricsHistory) -> anyhow::Result<()> {
 }
 
 /// Load historical metrics for a pod from the persistence file
+#[allow(dead_code)] // planned API: counterpart to the history save path, for restoring graphs
 pub(super) fn load_pod_metrics_history(
     namespace: &str,
     name: &str,

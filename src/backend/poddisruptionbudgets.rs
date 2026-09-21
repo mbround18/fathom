@@ -45,7 +45,7 @@ pub(super) async fn refresh_poddisruptionbudgets(
 
 fn poddisruptionbudgets_to_summaries(
     pdbs: Vec<PodDisruptionBudget>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<PodDisruptionBudgetSummary> {
     let mut out: Vec<PodDisruptionBudgetSummary> = Vec::new();
 

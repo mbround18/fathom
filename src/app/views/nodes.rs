@@ -116,6 +116,7 @@ impl ViewComponent for NodesView {
         self.state.selected_node.is_some()
     }
 
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     fn render_details(&mut self, ui: &mut Ui, _ctx: &egui::Context) -> (bool, Vec<ViewAction>) {
         let Some(node_name) = &self.state.selected_node.clone() else {
             return (false, Vec::new());

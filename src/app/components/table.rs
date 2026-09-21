@@ -192,6 +192,7 @@ impl<T: Clone> Table<T> {
     }
 
     /// Render the table using egui Grid with multi-select checkboxes
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     pub fn render_table(
         &mut self,
         ui: &mut egui::Ui,

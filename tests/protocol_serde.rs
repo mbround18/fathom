@@ -1160,6 +1160,7 @@ fn sample_rule_selector() -> RuleSelector {
 }
 
 /// Every `BackendCmd` variant. The match in `all_cmds_is_exhaustive` fails to compile when a variant is added.
+#[allow(clippy::too_many_lines)] // one literal per protocol variant; splitting would hide gaps
 fn all_cmds() -> Vec<BackendCmd> {
     vec![
         BackendCmd::Initialize,
@@ -1566,6 +1567,7 @@ fn all_cmds() -> Vec<BackendCmd> {
 }
 
 #[allow(dead_code)]
+#[allow(clippy::too_many_lines)] // a single exhaustive match is the point; it cannot be split
 fn all_cmds_is_exhaustive(v: &BackendCmd) {
     match v {
         BackendCmd::Initialize => {}

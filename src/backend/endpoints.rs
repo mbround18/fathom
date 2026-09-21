@@ -35,7 +35,7 @@ pub(super) async fn refresh_endpoints(
     Ok(())
 }
 
-fn endpoints_to_summaries(endpoints: Vec<Endpoints>, filter: &Vec<String>) -> Vec<EndpointSummary> {
+fn endpoints_to_summaries(endpoints: Vec<Endpoints>, filter: &[String]) -> Vec<EndpointSummary> {
     let mut out: Vec<EndpointSummary> = Vec::new();
 
     for ep in endpoints {

@@ -37,10 +37,7 @@ pub(super) async fn refresh_daemonsets(
     Ok(())
 }
 
-fn daemonsets_to_summaries(
-    daemonsets: Vec<DaemonSet>,
-    filter: &Vec<String>,
-) -> Vec<DaemonSetSummary> {
+fn daemonsets_to_summaries(daemonsets: Vec<DaemonSet>, filter: &[String]) -> Vec<DaemonSetSummary> {
     let mut out: Vec<DaemonSetSummary> = Vec::new();
 
     for ds in daemonsets {

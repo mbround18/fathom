@@ -2,6 +2,7 @@ use super::*;
 use crate::protocol::{ResourceListEvent, StreamEvent};
 
 impl FathomApp {
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     pub(super) fn check_mailbox(&mut self) {
         // First, handle view switching and lifecycle
         self.handle_view_switch();
@@ -117,12 +118,14 @@ impl FathomApp {
                     // Resource details updates now handled by views via on_event()
                 }
 
-                BackendEvent::Stream(ev) => match ev {
-                    StreamEvent::PortForwardTunnel {
+                BackendEvent::Stream(ev) => {
+                    // Other stream events handled by views via on_event()
+                    if let StreamEvent::PortForwardTunnel {
                         tunnel_id: _,
                         status,
                         local_endpoint: _,
-                    } => {
+                    } = ev
+                    {
                         // Broadcast to all views so PortForwardsView can update status indicators
                         // regardless of which view is currently active
                         for view in self.views.values_mut() {
@@ -130,9 +133,7 @@ impl FathomApp {
                         }
                         self.push_status(format!("Port forward status: {:?}", status));
                     }
-                    // Other stream events handled by views via on_event()
-                    _ => {}
-                },
+                }
             }
         }
     }

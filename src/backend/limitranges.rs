@@ -38,7 +38,7 @@ pub(super) async fn refresh_limitranges(
 
 fn limitranges_to_summaries(
     limitranges: Vec<LimitRange>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<LimitRangeSummary> {
     let mut out: Vec<LimitRangeSummary> = Vec::new();
 

@@ -39,7 +39,7 @@ pub(super) async fn refresh_replicasets(
 
 fn replicasets_to_summaries(
     replicasets: Vec<ReplicaSet>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<ReplicaSetSummary> {
     let mut out: Vec<ReplicaSetSummary> = Vec::new();
 

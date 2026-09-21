@@ -61,6 +61,7 @@ impl ViewComponent for OverviewView {
         "overview"
     }
 
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     fn render(&mut self, ui: &mut Ui, _ctx: &egui::Context) -> Vec<ViewAction> {
         let mut actions = Vec::new();
 

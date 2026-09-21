@@ -35,7 +35,7 @@ pub(super) async fn refresh_cronjobs(
     Ok(())
 }
 
-fn cronjobs_to_summaries(cronjobs: Vec<CronJob>, filter: &Vec<String>) -> Vec<CronJobSummary> {
+fn cronjobs_to_summaries(cronjobs: Vec<CronJob>, filter: &[String]) -> Vec<CronJobSummary> {
     let mut out: Vec<CronJobSummary> = Vec::new();
 
     for cj in cronjobs {

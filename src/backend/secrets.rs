@@ -35,7 +35,7 @@ pub(super) async fn refresh_secrets(
     Ok(())
 }
 
-fn secrets_to_summaries(secrets: Vec<Secret>, filter: &Vec<String>) -> Vec<SecretSummary> {
+fn secrets_to_summaries(secrets: Vec<Secret>, filter: &[String]) -> Vec<SecretSummary> {
     let mut out: Vec<SecretSummary> = Vec::new();
 
     for secret in secrets {

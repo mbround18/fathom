@@ -36,7 +36,7 @@ pub(super) async fn refresh_ingresses(
     Ok(())
 }
 
-fn ingresses_to_summaries(ingresses: Vec<Ingress>, filter: &Vec<String>) -> Vec<IngressSummary> {
+fn ingresses_to_summaries(ingresses: Vec<Ingress>, filter: &[String]) -> Vec<IngressSummary> {
     let mut out: Vec<IngressSummary> = Vec::new();
 
     for ing in ingresses {
@@ -117,101 +117,14 @@ fn ingress_to_details(ing: Ingress) -> IngressDetails {
 
     let rules = spec
         .and_then(|s| s.rules.as_ref())
-        .map(|rule_list| {
-            rule_list
-                .iter()
-                .map(|rule| {
-                    let paths = rule
-                        .http
-                        .as_ref()
-                        .map(|http| {
-                            http.paths
-                                .iter()
-                                .map(|path| {
-                                    let backend = IngressBackend {
-                                        service_name: path
-                                            .backend
-                                            .service
-                                            .as_ref()
-                                            .map(|s| s.name.clone()),
-                                        service_port: path
-                                            .backend
-                                            .service
-                                            .as_ref()
-                                            .and_then(|s| s.port.as_ref())
-                                            .and_then(|p| p.number.map(|n| n as u16)),
-                                        resource_kind: path
-                                            .backend
-                                            .resource
-                                            .as_ref()
-                                            .map(|r| r.kind.clone()),
-                                        resource_name: path
-                                            .backend
-                                            .resource
-                                            .as_ref()
-                                            .map(|r| r.name.clone()),
-                                    };
-
-                                    IngressPath {
-                                        path: path.path.clone(),
-                                        path_type: path.path_type.clone(),
-                                        backend,
-                                    }
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    IngressRule {
-                        host: rule.host.clone(),
-                        paths,
-                    }
-                })
-                .collect()
-        })
+        .map(|rule_list| rule_list.iter().map(ingress_rule).collect())
         .unwrap_or_default();
 
     let default_backend = spec
         .and_then(|s| s.default_backend.as_ref())
-        .map(|backend| IngressBackend {
-            service_name: backend.service.as_ref().map(|s| s.name.clone()),
-            service_port: backend
-                .service
-                .as_ref()
-                .and_then(|s| s.port.as_ref())
-                .and_then(|p| p.number.map(|n| n as u16)),
-            resource_kind: backend.resource.as_ref().map(|r| r.kind.clone()),
-            resource_name: backend.resource.as_ref().map(|r| r.name.clone()),
-        });
+        .map(ingress_backend);
 
-    let load_balancer_ingress = ing
-        .status
-        .as_ref()
-        .and_then(|status| status.load_balancer.as_ref())
-        .and_then(|lb| lb.ingress.as_ref())
-        .map(|ingress| {
-            ingress
-                .iter()
-                .map(|ing| IngressLoadBalancerIngress {
-                    hostname: ing.hostname.clone(),
-                    ip: ing.ip.clone(),
-                    ports: ing
-                        .ports
-                        .as_ref()
-                        .map(|ports| {
-                            ports
-                                .iter()
-                                .map(|p| IngressLoadBalancerPort {
-                                    port: p.port as u16,
-                                    protocol: Some(p.protocol.clone()),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let load_balancer_ingress = load_balancer_ingress(&ing);
 
     let tls_hosts = spec
         .and_then(|s| s.tls.as_ref())
@@ -264,4 +177,69 @@ pub(super) async fn delete_ingress(
 
     refresh_ingresses(state, sender).await?;
     Ok(())
+}
+
+fn ingress_rule(rule: &k8s_openapi::api::networking::v1::IngressRule) -> IngressRule {
+    let paths = rule
+        .http
+        .as_ref()
+        .map(|http| {
+            http.paths
+                .iter()
+                .map(|path| IngressPath {
+                    path: path.path.clone(),
+                    path_type: path.path_type.clone(),
+                    backend: ingress_backend(&path.backend),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    IngressRule {
+        host: rule.host.clone(),
+        paths,
+    }
+}
+
+fn ingress_backend(backend: &k8s_openapi::api::networking::v1::IngressBackend) -> IngressBackend {
+    IngressBackend {
+        service_name: backend.service.as_ref().map(|s| s.name.clone()),
+        service_port: backend
+            .service
+            .as_ref()
+            .and_then(|s| s.port.as_ref())
+            .and_then(|p| p.number.map(|n| n as u16)),
+        resource_kind: backend.resource.as_ref().map(|r| r.kind.clone()),
+        resource_name: backend.resource.as_ref().map(|r| r.name.clone()),
+    }
+}
+
+fn load_balancer_ingress(ing: &Ingress) -> Vec<IngressLoadBalancerIngress> {
+    ing.status
+        .as_ref()
+        .and_then(|status| status.load_balancer.as_ref())
+        .and_then(|lb| lb.ingress.as_ref())
+        .map(|ingress| {
+            ingress
+                .iter()
+                .map(|ing| IngressLoadBalancerIngress {
+                    hostname: ing.hostname.clone(),
+                    ip: ing.ip.clone(),
+                    ports: ing
+                        .ports
+                        .as_ref()
+                        .map(|ports| {
+                            ports
+                                .iter()
+                                .map(|p| IngressLoadBalancerPort {
+                                    port: p.port as u16,
+                                    protocol: Some(p.protocol.clone()),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }

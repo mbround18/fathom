@@ -3,7 +3,8 @@ use crate::protocol::{
     PolicyRule, ResourceListEvent, ResourceReadEvent, Route, RuleSelector, section_keys,
 };
 use crossbeam_channel::Sender;
-use k8s_openapi::api::networking::v1::NetworkPolicy;
+use k8s_openapi::api::networking::v1::{NetworkPolicy, NetworkPolicyPeer, NetworkPolicyPort};
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::{
     ResourceExt,
     api::{Api, DeleteParams, ListParams},
@@ -37,7 +38,7 @@ pub(super) async fn refresh_network_policies(
 
 fn network_policies_to_summaries(
     policies: Vec<NetworkPolicy>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<NetworkPolicySummary> {
     let mut out: Vec<NetworkPolicySummary> = Vec::new();
 
@@ -148,85 +149,11 @@ fn network_policy_to_details(policy: NetworkPolicy) -> NetworkPolicyDetails {
         .map(|rules| {
             rules
                 .iter()
-                .map(|rule| {
-                    let protocols = rule
-                        .ports
-                        .as_ref()
-                        .and_then(|ports| {
-                            let protos: Vec<String> = ports
-                                .iter()
-                                .filter_map(|p| p.protocol.clone())
-                                .collect();
-                            if protos.is_empty() {
-                                None
-                            } else {
-                                Some(protos)
-                            }
-                        })
-                        .unwrap_or_else(|| vec!["TCP".to_string()]);
-
-                    let ports = rule
-                        .ports
-                        .as_ref()
-                        .map(|port_list| {
-                            port_list
-                                .iter()
-                                .filter_map(|p| p.port.as_ref())
-                                .filter_map(|port_obj| match port_obj {
-                                    k8s_openapi::apimachinery::pkg::util::intstr::IntOrString::Int(n) => Some(*n as u16),
-                                    k8s_openapi::apimachinery::pkg::util::intstr::IntOrString::String(_) => None,
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_else(std::vec::Vec::new);
-
-                    let from_selectors = rule
-                        .from
-                        .as_ref()
-                        .map(|froms| {
-                            froms
-                                .iter()
-                                .map(|from| {
-                                    if let Some(pod_sel) = from.pod_selector.as_ref() {
-                                        RuleSelector {
-                                            selector_type: "PodSelector".to_string(),
-                                            labels: pod_sel.match_labels.as_ref().cloned(),
-                                            ip_block: None,
-                                            except: vec![],
-                                        }
-                                    } else if let Some(ns_sel) = from.namespace_selector.as_ref() {
-                                        RuleSelector {
-                                            selector_type: "NamespaceSelector".to_string(),
-                                            labels: ns_sel.match_labels.as_ref().cloned(),
-                                            ip_block: None,
-                                            except: vec![],
-                                        }
-                                    } else if let Some(ip_block) = from.ip_block.as_ref() {
-                                        RuleSelector {
-                                            selector_type: "IPBlock".to_string(),
-                                            labels: None,
-                                            ip_block: Some(ip_block.cidr.clone()),
-                                            except: ip_block.except.as_ref().unwrap_or(&vec![]).clone(),
-                                        }
-                                    } else {
-                                        RuleSelector {
-                                            selector_type: "Unknown".to_string(),
-                                            labels: None,
-                                            ip_block: None,
-                                            except: vec![],
-                                        }
-                                    }
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    PolicyRule {
-                        protocols,
-                        ports,
-                        from_selectors,
-                        to_selectors: vec![],
-                    }
+                .map(|rule| PolicyRule {
+                    protocols: rule_protocols(rule.ports.as_deref()),
+                    ports: rule_ports(rule.ports.as_deref()),
+                    from_selectors: peer_selectors(rule.from.as_deref()),
+                    to_selectors: vec![],
                 })
                 .collect()
         })
@@ -237,85 +164,11 @@ fn network_policy_to_details(policy: NetworkPolicy) -> NetworkPolicyDetails {
         .map(|rules| {
             rules
                 .iter()
-                .map(|rule| {
-                    let protocols = rule
-                        .ports
-                        .as_ref()
-                        .and_then(|ports| {
-                            let protos: Vec<String> = ports
-                                .iter()
-                                .filter_map(|p| p.protocol.clone())
-                                .collect();
-                            if protos.is_empty() {
-                                None
-                            } else {
-                                Some(protos)
-                            }
-                        })
-                        .unwrap_or_else(|| vec!["TCP".to_string()]);
-
-                    let ports = rule
-                        .ports
-                        .as_ref()
-                        .map(|port_list| {
-                            port_list
-                                .iter()
-                                .filter_map(|p| p.port.as_ref())
-                                .filter_map(|port_obj| match port_obj {
-                                    k8s_openapi::apimachinery::pkg::util::intstr::IntOrString::Int(n) => Some(*n as u16),
-                                    k8s_openapi::apimachinery::pkg::util::intstr::IntOrString::String(_) => None,
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_else(std::vec::Vec::new);
-
-                    let to_selectors = rule
-                        .to
-                        .as_ref()
-                        .map(|tos| {
-                            tos
-                                .iter()
-                                .map(|to| {
-                                    if let Some(pod_sel) = to.pod_selector.as_ref() {
-                                        RuleSelector {
-                                            selector_type: "PodSelector".to_string(),
-                                            labels: pod_sel.match_labels.as_ref().cloned(),
-                                            ip_block: None,
-                                            except: vec![],
-                                        }
-                                    } else if let Some(ns_sel) = to.namespace_selector.as_ref() {
-                                        RuleSelector {
-                                            selector_type: "NamespaceSelector".to_string(),
-                                            labels: ns_sel.match_labels.as_ref().cloned(),
-                                            ip_block: None,
-                                            except: vec![],
-                                        }
-                                    } else if let Some(ip_block) = to.ip_block.as_ref() {
-                                        RuleSelector {
-                                            selector_type: "IPBlock".to_string(),
-                                            labels: None,
-                                            ip_block: Some(ip_block.cidr.clone()),
-                                            except: ip_block.except.as_ref().unwrap_or(&vec![]).clone(),
-                                        }
-                                    } else {
-                                        RuleSelector {
-                                            selector_type: "Unknown".to_string(),
-                                            labels: None,
-                                            ip_block: None,
-                                            except: vec![],
-                                        }
-                                    }
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    PolicyRule {
-                        protocols,
-                        ports,
-                        from_selectors: vec![],
-                        to_selectors,
-                    }
+                .map(|rule| PolicyRule {
+                    protocols: rule_protocols(rule.ports.as_deref()),
+                    ports: rule_ports(rule.ports.as_deref()),
+                    from_selectors: vec![],
+                    to_selectors: peer_selectors(rule.to.as_deref()),
                 })
                 .collect()
         })
@@ -361,4 +214,73 @@ pub(super) async fn delete_network_policy(
 
     refresh_network_policies(state, sender).await?;
     Ok(())
+}
+
+/// Protocols named by a rule's ports; defaults to `["TCP"]` when none are given.
+fn rule_protocols(ports: Option<&[NetworkPolicyPort]>) -> Vec<String> {
+    ports
+        .and_then(|ports| {
+            let protos: Vec<String> = ports.iter().filter_map(|p| p.protocol.clone()).collect();
+            if protos.is_empty() {
+                None
+            } else {
+                Some(protos)
+            }
+        })
+        .unwrap_or_else(|| vec!["TCP".to_string()])
+}
+
+/// Numeric ports of a rule; named (string) ports are skipped.
+fn rule_ports(ports: Option<&[NetworkPolicyPort]>) -> Vec<u16> {
+    ports
+        .map(|port_list| {
+            port_list
+                .iter()
+                .filter_map(|p| p.port.as_ref())
+                .filter_map(|port_obj| match port_obj {
+                    IntOrString::Int(n) => Some(*n as u16),
+                    IntOrString::String(_) => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+/// Selectors for a rule's `from` (ingress) or `to` (egress) peers.
+fn peer_selectors(peers: Option<&[NetworkPolicyPeer]>) -> Vec<RuleSelector> {
+    peers
+        .map(|peers| peers.iter().map(peer_selector).collect())
+        .unwrap_or_default()
+}
+
+fn peer_selector(peer: &NetworkPolicyPeer) -> RuleSelector {
+    if let Some(pod_sel) = peer.pod_selector.as_ref() {
+        RuleSelector {
+            selector_type: "PodSelector".to_string(),
+            labels: pod_sel.match_labels.as_ref().cloned(),
+            ip_block: None,
+            except: vec![],
+        }
+    } else if let Some(ns_sel) = peer.namespace_selector.as_ref() {
+        RuleSelector {
+            selector_type: "NamespaceSelector".to_string(),
+            labels: ns_sel.match_labels.as_ref().cloned(),
+            ip_block: None,
+            except: vec![],
+        }
+    } else if let Some(ip_block) = peer.ip_block.as_ref() {
+        RuleSelector {
+            selector_type: "IPBlock".to_string(),
+            labels: None,
+            ip_block: Some(ip_block.cidr.clone()),
+            except: ip_block.except.as_ref().unwrap_or(&vec![]).clone(),
+        }
+    } else {
+        RuleSelector {
+            selector_type: "Unknown".to_string(),
+            labels: None,
+            ip_block: None,
+            except: vec![],
+        }
+    }
 }

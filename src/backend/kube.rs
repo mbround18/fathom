@@ -14,46 +14,57 @@ use super::{events, state::BackendState};
 /// Load kubeconfig respecting KUBECONFIG env var and ~/.kube/config default
 fn load_kubeconfig() -> anyhow::Result<Kubeconfig> {
     // Try KUBECONFIG environment variable first
-    if let Ok(kubeconfig_path) = std::env::var("KUBECONFIG") {
-        // On Windows, paths are separated by `;`, on Unix by `:`
-        let separator = if cfg!(windows) { ";" } else { ":" };
-
-        for path_str in kubeconfig_path.split(separator) {
-            let path = PathBuf::from(path_str.trim());
-            if path.exists() {
-                tracing::debug!("Trying kubeconfig from KUBECONFIG env: {}", path.display());
-                if let Ok(config) = Kubeconfig::read_from(&path) {
-                    tracing::info!(
-                        "Successfully loaded kubeconfig from KUBECONFIG: {}",
-                        path.display()
-                    );
-                    return Ok(config);
-                }
-            }
-        }
+    if let Some(config) = load_kubeconfig_from_env() {
+        return Ok(config);
     }
 
     // Fall back to ~/.kube/config
-    if let Some(home_dir) = dirs::home_dir() {
-        let default_config_path = home_dir.join(".kube").join("config");
-        if default_config_path.exists() {
-            tracing::debug!(
-                "Trying kubeconfig at default path: {}",
-                default_config_path.display()
-            );
-            if let Ok(config) = Kubeconfig::read_from(&default_config_path) {
-                tracing::info!(
-                    "Successfully loaded kubeconfig from default path: {}",
-                    default_config_path.display()
-                );
-                return Ok(config);
-            }
-        }
+    if let Some(config) = load_kubeconfig_from_home() {
+        return Ok(config);
     }
 
     // Last resort: let kube-rs try its default logic
     tracing::debug!("Falling back to Kubeconfig::read() default behavior");
     Kubeconfig::read().map_err(|e| anyhow::anyhow!("Failed to load kubeconfig: {}", e))
+}
+
+/// First readable kubeconfig listed in the KUBECONFIG env var, if any.
+fn load_kubeconfig_from_env() -> Option<Kubeconfig> {
+    let kubeconfig_path = std::env::var("KUBECONFIG").ok()?;
+    // On Windows, paths are separated by `;`, on Unix by `:`
+    let separator = if cfg!(windows) { ";" } else { ":" };
+
+    kubeconfig_path.split(separator).find_map(|path_str| {
+        let path = PathBuf::from(path_str.trim());
+        if !path.exists() {
+            return None;
+        }
+        tracing::debug!("Trying kubeconfig from KUBECONFIG env: {}", path.display());
+        let config = Kubeconfig::read_from(&path).ok()?;
+        tracing::info!(
+            "Successfully loaded kubeconfig from KUBECONFIG: {}",
+            path.display()
+        );
+        Some(config)
+    })
+}
+
+/// Kubeconfig at the default `~/.kube/config` path, if present and readable.
+fn load_kubeconfig_from_home() -> Option<Kubeconfig> {
+    let default_config_path = dirs::home_dir()?.join(".kube").join("config");
+    if !default_config_path.exists() {
+        return None;
+    }
+    tracing::debug!(
+        "Trying kubeconfig at default path: {}",
+        default_config_path.display()
+    );
+    let config = Kubeconfig::read_from(&default_config_path).ok()?;
+    tracing::info!(
+        "Successfully loaded kubeconfig from default path: {}",
+        default_config_path.display()
+    );
+    Some(config)
 }
 
 pub(super) fn load_and_send_contexts(
@@ -64,29 +75,28 @@ pub(super) fn load_and_send_contexts(
     tracing::info!("Loading kubeconfig contexts...");
 
     // Best-effort: if kubeconfig isn't present (e.g. in-cluster), just report no contexts.
-    let kubeconfig = match load_kubeconfig() {
-        Ok(kc) => {
-            tracing::info!(
-                "Kubeconfig loaded successfully, found {} contexts",
-                kc.contexts.len()
-            );
-            kc
-        }
+    let (contexts, current) = match load_kubeconfig() {
+        Ok(kc) => contexts_from_kubeconfig(&kc, selected_context),
         Err(e) => {
             tracing::warn!("Failed to load kubeconfig: {}, reporting empty contexts", e);
-            events::emit(
-                seq,
-                sender,
-                Route::global(section_keys::system()),
-                Correlation::None,
-                BackendEvent::System(SystemEvent::ContextsUpdated {
-                    contexts: Vec::new(),
-                    current: selected_context,
-                }),
-            );
-            return Ok(());
+            (Vec::new(), selected_context)
         }
     };
+
+    emit_contexts(seq, sender, contexts, current);
+    Ok(())
+}
+
+/// Sorted context names plus the effective current context (explicit selection wins
+/// over kubeconfig's `current-context`).
+fn contexts_from_kubeconfig(
+    kubeconfig: &Kubeconfig,
+    selected_context: Option<String>,
+) -> (Vec<String>, Option<String>) {
+    tracing::info!(
+        "Kubeconfig loaded successfully, found {} contexts",
+        kubeconfig.contexts.len()
+    );
 
     let mut contexts: Vec<String> = kubeconfig.contexts.iter().map(|c| c.name.clone()).collect();
     contexts.sort();
@@ -94,7 +104,15 @@ pub(super) fn load_and_send_contexts(
 
     let current = selected_context.or_else(|| kubeconfig.current_context.clone());
     tracing::info!("Current context: {:?}", current);
+    (contexts, current)
+}
 
+fn emit_contexts(
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    contexts: Vec<String>,
+    current: Option<String>,
+) {
     events::emit(
         seq,
         sender,
@@ -102,7 +120,6 @@ pub(super) fn load_and_send_contexts(
         Correlation::None,
         BackendEvent::System(SystemEvent::ContextsUpdated { contexts, current }),
     );
-    Ok(())
 }
 
 pub(super) async fn connect_client_for_current_context(

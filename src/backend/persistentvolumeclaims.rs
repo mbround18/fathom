@@ -38,7 +38,7 @@ pub(super) async fn refresh_persistentvolumeclaims(
 
 fn persistentvolumeclaims_to_summaries(
     claims: Vec<PersistentVolumeClaim>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<PersistentVolumeClaimSummary> {
     let mut out: Vec<PersistentVolumeClaimSummary> = Vec::new();
 

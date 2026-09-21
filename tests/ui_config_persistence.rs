@@ -177,8 +177,10 @@ fn unparseable_config_is_never_clobbered() {
 #[test]
 fn invalid_ui_is_refused_on_save() {
     let home = TempHome::new();
-    let mut ui = UiConfig::default();
-    ui.schema = 7;
+    let ui = UiConfig {
+        schema: 7,
+        ..UiConfig::default()
+    };
     assert!(save_ui_config(&ui, &[]).is_err());
     assert!(!home.config_path().exists());
 }

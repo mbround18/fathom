@@ -40,7 +40,7 @@ pub(super) async fn refresh_horizontalpodautoscalers(
 
 fn horizontalpodautoscalers_to_summaries(
     hpas: Vec<HorizontalPodAutoscaler>,
-    filter: &Vec<String>,
+    filter: &[String],
 ) -> Vec<HorizontalPodAutoscalerSummary> {
     let mut out: Vec<HorizontalPodAutoscalerSummary> = Vec::new();
 

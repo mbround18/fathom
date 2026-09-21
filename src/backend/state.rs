@@ -144,14 +144,19 @@ pub(super) fn abort_task(task: &mut Option<tokio::task::JoinHandle<()>>) {
 }
 
 pub(super) fn cleanup_all_tasks(state: &mut BackendState) {
+    abort_background_tasks(state);
+
+    tracing::debug!("Cleaning up port forward manager");
+    state.port_forward_manager.cleanup_all();
+    tracing::info!("All background tasks aborted and cleaned up");
+}
+
+/// Abort log streaming, watch and metrics-polling tasks.
+fn abort_background_tasks(state: &mut BackendState) {
     tracing::debug!("Aborting log task");
     state.log_stream.stop();
     tracing::debug!("Aborting watch tasks");
     state.watch_tasks.abort_all();
     tracing::debug!("Aborting metrics poll tasks");
     state.metrics.abort_tasks();
-
-    tracing::debug!("Cleaning up port forward manager");
-    state.port_forward_manager.cleanup_all();
-    tracing::info!("All background tasks aborted and cleaned up");
 }

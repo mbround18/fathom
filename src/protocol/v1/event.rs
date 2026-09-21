@@ -238,6 +238,9 @@ pub enum PortForwardStatus {
     Closed,
 }
 
+// Wire-protocol enum: boxing `ResourceRead` would ripple through ~78 construct/match
+// sites and nested patterns; each event is moved once per emission, so size is moot.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data")]
 pub enum BackendEventV1 {

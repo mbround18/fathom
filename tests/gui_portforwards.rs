@@ -47,8 +47,8 @@ fn pod_details() -> PodDetails {
 
 /// Regression test for a bug found by inspection: the "Create Port Forward"
 /// modal (`src/app/views/modal.rs`) called
-/// `render_autocomplete_field(ui, "Namespace", &mut namespace.clone(), ...)`
-/// - passing a mutable reference to a *throwaway clone* of `namespace`, not
+/// `render_autocomplete_field(ui, "Namespace", &mut namespace.clone(), ...)` -
+/// passing a mutable reference to a *throwaway clone* of `namespace`, not
 /// to `namespace` itself. `ui.text_edit_singleline` inside that helper
 /// dutifully edited the clone every frame, which was then dropped at the end
 /// of the call - so the Namespace and Pod fields were rendered, looked

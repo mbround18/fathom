@@ -35,7 +35,7 @@ pub(super) async fn refresh_leases(
     Ok(())
 }
 
-fn leases_to_summaries(leases: Vec<Lease>, filter: &Vec<String>) -> Vec<LeaseSummary> {
+fn leases_to_summaries(leases: Vec<Lease>, filter: &[String]) -> Vec<LeaseSummary> {
     let mut out: Vec<LeaseSummary> = Vec::new();
 
     for lease in leases {

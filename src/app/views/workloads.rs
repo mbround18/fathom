@@ -8,6 +8,7 @@ use crate::protocol::{
 };
 
 /// Render aggregated metrics for a workload with per-container breakdown
+#[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
 fn render_workload_metrics(ui: &mut egui::Ui, metrics: &WorkloadMetricsAggregate) {
     ui.group(|ui| {
         ui.vertical(|ui| {
@@ -529,6 +530,7 @@ impl ViewComponent for WorkloadView {
     fn has_details(&self) -> bool {
         self.state.selected.is_some()
     }
+    #[allow(clippy::too_many_lines)] // removed by T125 (egui cutover)
     fn render_details(
         &mut self,
         ui: &mut egui::Ui,

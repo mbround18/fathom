@@ -36,10 +36,7 @@ pub(super) async fn refresh_configmaps(
     Ok(())
 }
 
-fn configmaps_to_summaries(
-    configmaps: Vec<ConfigMap>,
-    filter: &Vec<String>,
-) -> Vec<ConfigMapSummary> {
+fn configmaps_to_summaries(configmaps: Vec<ConfigMap>, filter: &[String]) -> Vec<ConfigMapSummary> {
     let mut out: Vec<ConfigMapSummary> = Vec::new();
 
     for cm in configmaps {

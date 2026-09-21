@@ -33,256 +33,321 @@ pub struct SectionDef {
 }
 
 pub fn all_sections() -> Vec<SectionDef> {
+    [
+        overview_sections(),
+        workload_sections(),
+        config_sections(),
+        network_sections(),
+        storage_sections(),
+        cluster_sections(),
+        access_control_sections(),
+        custom_resource_sections(),
+        integration_sections(),
+    ]
+    .concat()
+}
+
+fn section(key: SectionKey, label: &'static str, group: NavGroup, scope: ScopeKind) -> SectionDef {
+    SectionDef {
+        key,
+        label,
+        group,
+        scope,
+    }
+}
+
+fn overview_sections() -> Vec<SectionDef> {
+    let group = NavGroup::Overview;
     vec![
-        SectionDef {
-            key: section_keys::overview(),
-            label: "Overview",
-            group: NavGroup::Overview,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::nodes(),
-            label: "Nodes",
-            group: NavGroup::Overview,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::workloads_pods(),
-            label: "Pods",
-            group: NavGroup::Workloads,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::workloads_deployments(),
-            label: "Deployments",
-            group: NavGroup::Workloads,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::workloads_statefulsets(),
-            label: "StatefulSets",
-            group: NavGroup::Workloads,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::workloads_daemonsets(),
-            label: "DaemonSets",
-            group: NavGroup::Workloads,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::workloads_jobs(),
-            label: "Jobs",
-            group: NavGroup::Workloads,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::workloads_cronjobs(),
-            label: "CronJobs",
-            group: NavGroup::Workloads,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_configmaps(),
-            label: "ConfigMaps",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_secrets(),
-            label: "Secrets",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_resourcequotas(),
-            label: "Resource Quotas",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_limitranges(),
-            label: "Limit Ranges",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_horizontalpodautoscalers(),
-            label: "Horizontal Pod Autoscalers",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_verticalpodautoscalers(),
-            label: "Vertical Pod Autoscalers",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_poddisruptionbudgets(),
-            label: "Pod Disruption Budgets",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_priorityclasses(),
-            label: "Priority Classes",
-            group: NavGroup::Config,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::config_runtimeclasses(),
-            label: "Runtime Classes",
-            group: NavGroup::Config,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::config_leases(),
-            label: "Leases",
-            group: NavGroup::Config,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::config_mutatingwebhooks(),
-            label: "Mutating Webhook Configurations",
-            group: NavGroup::Config,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::config_validatingwebhooks(),
-            label: "Validating Webhook Configurations",
-            group: NavGroup::Config,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::network_services(),
-            label: "Services",
-            group: NavGroup::Network,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::network_endpoints(),
-            label: "Endpoints",
-            group: NavGroup::Network,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::network_ingress(),
-            label: "Ingress",
-            group: NavGroup::Network,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::network_ingressclasses(),
-            label: "IngressClasses",
-            group: NavGroup::Network,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::network_policies(),
-            label: "NetworkPolicies",
-            group: NavGroup::Network,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::network_portforwards(),
-            label: "Port Forwards",
-            group: NavGroup::Network,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::storage_pv(),
-            label: "PersistentVolumes",
-            group: NavGroup::Storage,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::storage_pvc(),
-            label: "PersistentVolumeClaims",
-            group: NavGroup::Storage,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::storage_storageclasses(),
-            label: "StorageClasses",
-            group: NavGroup::Storage,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::namespaces(),
-            label: "Namespaces",
-            group: NavGroup::Overview,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::events(),
-            label: "Events",
-            group: NavGroup::Overview,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::access_roles(),
-            label: "Roles",
-            group: NavGroup::AccessControl,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::access_rolebindings(),
-            label: "RoleBindings",
-            group: NavGroup::AccessControl,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::access_clusterroles(),
-            label: "ClusterRoles",
-            group: NavGroup::AccessControl,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::access_clusterrolebindings(),
-            label: "ClusterRoleBindings",
-            group: NavGroup::AccessControl,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::custom_resources(),
-            label: "Custom Resources",
-            group: NavGroup::CustomResources,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::integrations_argo(),
-            label: "Argo",
-            group: NavGroup::Integrations,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::integrations_metrics(),
-            label: "Metrics",
-            group: NavGroup::Integrations,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::integrations_grafana(),
-            label: "Grafana",
-            group: NavGroup::Integrations,
-            scope: ScopeKind::Cluster,
-        },
-        SectionDef {
-            key: section_keys::integrations_flux(),
-            label: "Flux",
-            group: NavGroup::Integrations,
-            scope: ScopeKind::Namespaced,
-        },
-        SectionDef {
-            key: section_keys::integrations_mcp(),
-            label: "MCP Server",
-            group: NavGroup::Integrations,
-            scope: ScopeKind::Cluster,
-        },
+        section(
+            section_keys::overview(),
+            "Overview",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(section_keys::nodes(), "Nodes", group, ScopeKind::Cluster),
     ]
 }
 
+fn workload_sections() -> Vec<SectionDef> {
+    let group = NavGroup::Workloads;
+    vec![
+        section(
+            section_keys::workloads_pods(),
+            "Pods",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::workloads_deployments(),
+            "Deployments",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::workloads_statefulsets(),
+            "StatefulSets",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::workloads_daemonsets(),
+            "DaemonSets",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::workloads_jobs(),
+            "Jobs",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::workloads_cronjobs(),
+            "CronJobs",
+            group,
+            ScopeKind::Namespaced,
+        ),
+    ]
+}
+
+fn config_sections() -> Vec<SectionDef> {
+    let group = NavGroup::Config;
+    vec![
+        section(
+            section_keys::config_configmaps(),
+            "ConfigMaps",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_secrets(),
+            "Secrets",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_resourcequotas(),
+            "Resource Quotas",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_limitranges(),
+            "Limit Ranges",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_horizontalpodautoscalers(),
+            "Horizontal Pod Autoscalers",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_verticalpodautoscalers(),
+            "Vertical Pod Autoscalers",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_poddisruptionbudgets(),
+            "Pod Disruption Budgets",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_priorityclasses(),
+            "Priority Classes",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::config_runtimeclasses(),
+            "Runtime Classes",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::config_leases(),
+            "Leases",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::config_mutatingwebhooks(),
+            "Mutating Webhook Configurations",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::config_validatingwebhooks(),
+            "Validating Webhook Configurations",
+            group,
+            ScopeKind::Cluster,
+        ),
+    ]
+}
+
+fn network_sections() -> Vec<SectionDef> {
+    let group = NavGroup::Network;
+    vec![
+        section(
+            section_keys::network_services(),
+            "Services",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::network_endpoints(),
+            "Endpoints",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::network_ingress(),
+            "Ingress",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::network_ingressclasses(),
+            "IngressClasses",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::network_policies(),
+            "NetworkPolicies",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::network_portforwards(),
+            "Port Forwards",
+            group,
+            ScopeKind::Cluster,
+        ),
+    ]
+}
+
+fn storage_sections() -> Vec<SectionDef> {
+    let group = NavGroup::Storage;
+    vec![
+        section(
+            section_keys::storage_pv(),
+            "PersistentVolumes",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::storage_pvc(),
+            "PersistentVolumeClaims",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::storage_storageclasses(),
+            "StorageClasses",
+            group,
+            ScopeKind::Cluster,
+        ),
+    ]
+}
+
+fn cluster_sections() -> Vec<SectionDef> {
+    let group = NavGroup::Overview;
+    vec![
+        section(
+            section_keys::namespaces(),
+            "Namespaces",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::events(),
+            "Events",
+            group,
+            ScopeKind::Namespaced,
+        ),
+    ]
+}
+
+fn access_control_sections() -> Vec<SectionDef> {
+    let group = NavGroup::AccessControl;
+    vec![
+        section(
+            section_keys::access_roles(),
+            "Roles",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::access_rolebindings(),
+            "RoleBindings",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::access_clusterroles(),
+            "ClusterRoles",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::access_clusterrolebindings(),
+            "ClusterRoleBindings",
+            group,
+            ScopeKind::Cluster,
+        ),
+    ]
+}
+
+fn custom_resource_sections() -> Vec<SectionDef> {
+    let group = NavGroup::CustomResources;
+    vec![section(
+        section_keys::custom_resources(),
+        "Custom Resources",
+        group,
+        ScopeKind::Cluster,
+    )]
+}
+
+fn integration_sections() -> Vec<SectionDef> {
+    let group = NavGroup::Integrations;
+    vec![
+        section(
+            section_keys::integrations_argo(),
+            "Argo",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::integrations_metrics(),
+            "Metrics",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::integrations_grafana(),
+            "Grafana",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::integrations_flux(),
+            "Flux",
+            group,
+            ScopeKind::Namespaced,
+        ),
+        section(
+            section_keys::integrations_mcp(),
+            "MCP Server",
+            group,
+            ScopeKind::Cluster,
+        ),
+    ]
+}
 pub fn find_section<'a>(sections: &'a [SectionDef], key: &SectionKey) -> Option<&'a SectionDef> {
     sections.iter().find(|s| &s.key == key)
 }
