@@ -9,6 +9,7 @@ use kube::{
     api::{Api, DeleteParams, ListParams, Patch, PatchParams},
 };
 use serde_json::json;
+use std::sync::atomic::AtomicU64;
 
 use super::workload_common;
 use super::{events, state::BackendState};
@@ -40,6 +41,37 @@ pub(super) async fn refresh_deployments(
         BackendEvent::ResourceList(ResourceListEvent::DeploymentsUpdated(summaries)),
     );
     Ok(())
+}
+
+/// List all deployments and emit them (filtered by `filter`) as `DeploymentsUpdated`, tagged
+/// with the context they were listed from. Used by the background deployment watcher.
+pub(super) async fn emit_deployments_snapshot(
+    client: &kube::Client,
+    filter: &[String],
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    context: &Option<String>,
+) {
+    let api: Api<Deployment> = Api::all(client.clone());
+    match api.list(&ListParams::default()).await {
+        Ok(list) => {
+            let summaries = deployments_to_summaries(list.items, filter);
+            events::emit(
+                seq,
+                sender,
+                Route::namespaced(section_keys::workloads_deployments(), context.clone(), None),
+                Correlation::None,
+                BackendEvent::ResourceList(ResourceListEvent::DeploymentsUpdated(summaries)),
+            );
+        }
+        Err(e) => {
+            events::notify_error(
+                seq,
+                sender,
+                format!("Background deployment refresh failed: {}", e),
+            );
+        }
+    }
 }
 
 fn deployments_to_summaries(

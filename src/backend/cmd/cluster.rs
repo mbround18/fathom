@@ -4,7 +4,7 @@
 use crossbeam_channel::Sender;
 use std::time::Duration;
 
-use crate::backend::state::{self, BackendState};
+use crate::backend::state::BackendState;
 use crate::backend::{deployments, events, integrations, kube, metrics, nodes, pods, sync};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent, Route,
@@ -119,8 +119,7 @@ async fn set_context(
 ) -> anyhow::Result<()> {
     // Stop background activity and reconnect with the new context.
     state.log_stream.stop();
-    state::abort_task(&mut state.watch_tasks.pod_watch_task);
-    state::abort_task(&mut state.watch_tasks.namespace_sync_task);
+    state.watch_tasks.abort_all();
 
     state.cluster.current_context = Some(context.clone());
     state.metrics.reset_probe();

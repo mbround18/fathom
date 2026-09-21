@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use super::state::BackendState;
-use super::{events, pods};
+use super::{deployments, events, pods};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -25,7 +25,9 @@ pub(super) async fn ensure_background_sync(
     let client = state.cluster.client_or_err()?;
 
     // If tasks already exist, keep them running.
-    if state.watch_tasks.pod_watch_task.is_some() && state.watch_tasks.namespace_sync_task.is_some()
+    if state.watch_tasks.pod_watch_task.is_some()
+        && state.watch_tasks.deployment_watch_task.is_some()
+        && state.watch_tasks.namespace_sync_task.is_some()
     {
         return Ok(());
     }
@@ -35,6 +37,15 @@ pub(super) async fn ensure_background_sync(
 
     // Pod watcher: watch for pod changes with exponential backoff retry
     state.watch_tasks.pod_watch_task = Some(tokio::spawn(watch_pods(
+        client.clone(),
+        state.cluster.namespace_filter_shared.clone(),
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+
+    // Deployment watcher: the Deployments list converges after scale/restart without a refresh.
+    state.watch_tasks.deployment_watch_task = Some(tokio::spawn(watch_deployments(
         client.clone(),
         state.cluster.namespace_filter_shared.clone(),
         state.cluster.seq.clone(),
@@ -62,32 +73,82 @@ async fn watch_pods(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
+    let (c, s, tx) = (client.clone(), seq.clone(), sender.clone());
+    watch_and_emit::<Pod, _, _>(client, "Pod", seq, sender, move || {
+        let (c, f, s, tx, ctx) = (
+            c.clone(),
+            filter_shared.clone(),
+            s.clone(),
+            tx.clone(),
+            context.clone(),
+        );
+        async move { emit_pods_snapshot(&c, &f, &s, &tx, &ctx).await }
+    })
+    .await;
+}
+
+/// Background task: watch deployments cluster-wide and re-emit the filtered list on every
+/// change (replica counts after a scale, rollouts after a restart), with the same backoff.
+async fn watch_deployments(
+    client: kube::Client,
+    filter_shared: Arc<RwLock<Vec<String>>>,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let (c, s, tx) = (client.clone(), seq.clone(), sender.clone());
+    watch_and_emit::<Deployment, _, _>(client, "Deployment", seq, sender, move || {
+        let filter = filter_shared.read().map(|f| f.clone()).unwrap_or_default();
+        let (c, s, tx, ctx) = (c.clone(), s.clone(), tx.clone(), context.clone());
+        async move { deployments::emit_deployments_snapshot(&c, &filter, &s, &tx, &ctx).await }
+    })
+    .await;
+}
+
+/// Watch every `K` (`kind`, e.g. "Pod") in the cluster and call `on_change` after each watch event, reconnecting
+/// with exponential backoff (1s doubling to 30s) when the watch fails.
+async fn watch_and_emit<K, F, Fut>(
+    client: kube::Client,
+    kind: &str,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    mut on_change: F,
+) where
+    K: kube::Resource<DynamicType = ()>
+        + Clone
+        + serde::de::DeserializeOwned
+        + std::fmt::Debug
+        + Send
+        + 'static,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()> + Send,
+{
     events::notify_info(
         seq.as_ref(),
         &sender,
-        "Background sync: watching pods...".to_owned(),
+        format!("Background sync: watching {}s...", kind.to_lowercase()),
     );
 
     let mut retry_delay = Duration::from_secs(1);
     loop {
-        let api: Api<Pod> = Api::all(client.clone());
+        let api: Api<K> = Api::all(client.clone());
         let w = watcher(api, watcher::Config::default());
         futures_util::pin_mut!(w);
 
         while let Some(ev) = w.next().await {
             match ev {
                 Ok(_event) => {
-                    // Reset retry delay on successful event
                     retry_delay = Duration::from_secs(1);
-
-                    // On any event, refresh pods list
-                    emit_pods_snapshot(&client, &filter_shared, &seq, &sender, &context).await;
+                    on_change().await;
                 }
                 Err(e) => {
                     events::notify_error(
                         seq.as_ref(),
                         &sender,
-                        format!("Pod watcher error (retrying in {:?}): {}", retry_delay, e),
+                        format!(
+                            "{kind} watcher error (retrying in {:?}): {}",
+                            retry_delay, e
+                        ),
                     );
                     break;
                 }

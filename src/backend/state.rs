@@ -50,12 +50,14 @@ impl LogStreamState {
 /// Long-running background watcher tasks.
 pub(super) struct WatchTasks {
     pub(super) pod_watch_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) deployment_watch_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) namespace_sync_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
     pub(super) fn abort_all(&mut self) {
         abort_task(&mut self.pod_watch_task);
+        abort_task(&mut self.deployment_watch_task);
         abort_task(&mut self.namespace_sync_task);
     }
 }
@@ -118,6 +120,7 @@ impl BackendState {
             },
             watch_tasks: WatchTasks {
                 pod_watch_task: None,
+                deployment_watch_task: None,
                 namespace_sync_task: None,
             },
             metrics: MetricsState {
