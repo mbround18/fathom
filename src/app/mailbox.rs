@@ -95,6 +95,9 @@ impl FathomApp {
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }
+                    SystemEvent::UiConfigLoaded { .. } => {
+                        // Only the Tauri UI requests this; the egui UI reads config.json directly.
+                    }
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {

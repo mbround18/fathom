@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::{fmt, hash::Hash};
+use ts_rs::TS;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct SectionKey(pub String);
 
 impl SectionKey {
@@ -15,14 +17,15 @@ impl fmt::Display for SectionKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Fieldless enum: serialized as a plain string (`"Global" | "Cluster" | "Namespaced"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub enum ScopeKind {
     Global,
     Cluster,
     Namespaced,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct Route {
     pub section: SectionKey,
     pub scope: ScopeKind,

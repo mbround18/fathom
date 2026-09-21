@@ -1,6 +1,9 @@
-/// Protocol types for Kubernetes CronJobs (batch/v1)
+//! Protocol types for Kubernetes CronJobs (batch/v1)
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CronJobSummary {
     pub namespace: String,
     pub name: String,
@@ -11,7 +14,7 @@ pub struct CronJobSummary {
     pub age: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CronJobDetails {
     pub namespace: String,
     pub name: String,

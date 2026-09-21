@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RoleBindingSummary {
     pub name: String,
     pub namespace: String,
@@ -9,14 +10,14 @@ pub struct RoleBindingSummary {
     pub subjects_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct SubjectSummary {
     pub kind: String,
     pub name: String,
     pub namespace: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RoleBindingDetails {
     pub name: String,
     pub namespace: String,

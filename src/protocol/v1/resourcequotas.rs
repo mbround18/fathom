@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ResourceQuotaSummary {
     pub name: String,
     pub namespace: String,
     pub hard_limits_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ResourceQuotaDetails {
     pub namespace: String,
     pub name: String,

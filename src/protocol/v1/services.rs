@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ServiceSummary {
     pub name: String,
     pub namespace: String,
@@ -11,7 +12,7 @@ pub struct ServiceSummary {
     pub port_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ServicePort {
     pub name: Option<String>,
     pub port: u16,
@@ -20,7 +21,7 @@ pub struct ServicePort {
     pub node_port: Option<u16>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ServiceDetails {
     pub namespace: String,
     pub name: String,

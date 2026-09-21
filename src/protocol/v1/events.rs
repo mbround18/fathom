@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct KubernetesEvent {
     pub namespace: String,
     pub name: String,
@@ -15,7 +16,7 @@ pub struct KubernetesEvent {
     pub source: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct EventsSummary {
     pub events: Vec<KubernetesEvent>,
     pub total_count: u32,

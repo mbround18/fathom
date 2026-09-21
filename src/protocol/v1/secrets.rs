@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct SecretSummary {
     pub name: String,
     pub namespace: String,
@@ -11,7 +12,7 @@ pub struct SecretSummary {
 
 /// SECURITY: This struct must never contain decoded/raw secret values.
 /// Only key names and the secret type are exposed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct SecretDetails {
     pub namespace: String,
     pub name: String,

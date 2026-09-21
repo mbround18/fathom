@@ -1,7 +1,7 @@
 use crossbeam_channel::Sender;
 
 use super::state::BackendState;
-use super::{events, portforward};
+use super::{events, persistence, portforward};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
 };
@@ -152,9 +152,58 @@ pub async fn dispatch_cmd(
             );
             Ok(false)
         }
+        cmd @ (BackendCmd::LoadUiConfig
+        | BackendCmd::SaveUiConfig { .. }
+        | BackendCmd::SetMcpAutoStart { .. }) => {
+            handle_ui_config_cmd(cmd, state, sender);
+            Ok(false)
+        }
         other => {
             super::handle_cmd(other, state, sender).await?;
             Ok(false)
         }
+    }
+}
+
+/// UI preference commands: `config.json` reads/writes on behalf of UI clients.
+fn handle_ui_config_cmd(
+    cmd: BackendCmd,
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    let seq = state.cluster.seq.as_ref();
+    match cmd {
+        BackendCmd::LoadUiConfig => {
+            let loaded = persistence::load_ui_config();
+            events::emit(
+                seq,
+                sender,
+                Route::global(section_keys::system()),
+                Correlation::None,
+                BackendEvent::System(SystemEvent::UiConfigLoaded {
+                    ui: loaded.ui,
+                    expanded_groups: loaded.expanded_groups,
+                    mcp_auto_start: loaded.mcp_auto_start,
+                }),
+            );
+        }
+        BackendCmd::SaveUiConfig {
+            ui,
+            expanded_groups,
+        } => {
+            if let Err(e) = persistence::save_ui_config(&ui, &expanded_groups) {
+                events::notify_error(seq, sender, format!("Failed to save UI settings: {}", e));
+            }
+        }
+        BackendCmd::SetMcpAutoStart { enabled } => {
+            if let Err(e) = persistence::save_mcp_auto_start(enabled) {
+                events::notify_error(
+                    seq,
+                    sender,
+                    format!("Failed to save MCP auto-start preference: {}", e),
+                );
+            }
+        }
+        other => unreachable!("not a UI config command: {other:?}"),
     }
 }

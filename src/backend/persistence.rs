@@ -2,6 +2,7 @@
 //!
 //! Manages loading/saving configuration to ~/.fathom/ directory.
 
+use crate::protocol::UiConfig;
 use crate::sections::network::PortForward;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -198,6 +199,128 @@ pub fn save_mcp_auto_start(enabled: bool) -> Result<()> {
     config.mcp_http = enabled;
     config.save()?;
     tracing::info!("Saved MCP auto-start preference: {}", enabled);
+    Ok(())
+}
+
+/// Navigation groups expanded when `navigation.expanded_groups` is absent.
+pub const DEFAULT_EXPANDED_GROUPS: [&str; 2] = ["Overview", "Workloads"];
+
+/// Everything `SystemEvent::UiConfigLoaded` reports, read from `config.json`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedUiConfig {
+    /// `config.json → ui`, or `None` when absent or invalid.
+    pub ui: Option<UiConfig>,
+    /// `config.json → navigation.expanded_groups`.
+    pub expanded_groups: Vec<String>,
+    /// `config.json → auto_start.mcp_http`.
+    pub mcp_auto_start: bool,
+}
+
+impl Default for LoadedUiConfig {
+    fn default() -> Self {
+        Self {
+            ui: None,
+            expanded_groups: DEFAULT_EXPANDED_GROUPS.map(str::to_owned).to_vec(),
+            mcp_auto_start: false,
+        }
+    }
+}
+
+/// Load the UI preferences from `config.json`.
+///
+/// An unreadable `config.json` yields defaults and is left untouched on disk.
+/// An invalid `ui` blob (bad shape or `schema != 1`) is moved to `ui_invalid`
+/// (replacing any older one) and `ui: None` is returned; every other key is preserved.
+pub fn load_ui_config() -> LoadedUiConfig {
+    let mut config = match load_config() {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::warn!("Failed to read config.json; using UI defaults: {}", e);
+            return LoadedUiConfig::default();
+        }
+    };
+
+    let mut loaded = LoadedUiConfig {
+        mcp_auto_start: config
+            .get("auto_start")
+            .and_then(|a| a.get("mcp_http"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        ..LoadedUiConfig::default()
+    };
+    if let Some(groups) = expanded_groups_from(&config) {
+        loaded.expanded_groups = groups;
+    }
+    loaded.ui = take_valid_ui(&mut config);
+    loaded
+}
+
+/// `config.json → navigation.expanded_groups`, if present.
+fn expanded_groups_from(config: &serde_json::Value) -> Option<Vec<String>> {
+    let groups = config
+        .get("navigation")?
+        .get("expanded_groups")?
+        .as_array()?;
+    Some(
+        groups
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect(),
+    )
+}
+
+/// Parse `config → ui`. If it is invalid, move it to `ui_invalid` and persist that.
+fn take_valid_ui(config: &mut serde_json::Value) -> Option<UiConfig> {
+    let raw = config.get("ui")?.clone();
+    match UiConfig::from_value(raw.clone()) {
+        Ok(ui) => Some(ui),
+        Err(e) => {
+            tracing::warn!("Invalid ui config; moving it to ui_invalid: {}", e);
+            if let Some(obj) = config.as_object_mut() {
+                obj.remove("ui");
+                obj.insert("ui_invalid".to_owned(), raw);
+                if let Err(e) = save_config(config) {
+                    tracing::warn!("Failed to move invalid ui config aside: {}", e);
+                }
+            }
+            None
+        }
+    }
+}
+
+/// Persist `ui` and `navigation.expanded_groups` to `config.json`, leaving every other
+/// key untouched. Refuses to write (and returns an error) if `ui` is invalid or the
+/// existing `config.json` can't be parsed, so the user's file is never clobbered.
+pub fn save_ui_config(ui: &UiConfig, expanded_groups: &[String]) -> Result<()> {
+    ui.validate()
+        .map_err(|e| anyhow!("Refusing to save invalid ui config: {}", e))?;
+
+    let mut config = load_config()?;
+    let obj = config
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("config.json is not a JSON object"))?;
+
+    obj.insert(
+        "ui".to_owned(),
+        serde_json::to_value(ui).map_err(|e| anyhow!("Failed to serialize ui config: {}", e))?,
+    );
+
+    let nav = obj
+        .entry("navigation")
+        .or_insert_with(|| serde_json::json!({}));
+    if nav.is_null() {
+        *nav = serde_json::json!({});
+    }
+    let nav = nav
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("config.json navigation is not a JSON object"))?;
+    nav.insert(
+        "expanded_groups".to_owned(),
+        serde_json::to_value(expanded_groups)?,
+    );
+
+    save_config(&config)?;
+    tracing::debug!("Saved ui config");
     Ok(())
 }
 

@@ -1,9 +1,10 @@
 /// Protocol types for metrics queries and responses
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 /// A metrics provider configuration (for discovering and connecting to monitoring systems)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct MetricsProvider {
     pub name: String,
     pub provider_type: MetricsProviderType,
@@ -13,7 +14,7 @@ pub struct MetricsProvider {
     pub port: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum MetricsProviderType {
     Prometheus,
@@ -21,49 +22,49 @@ pub enum MetricsProviderType {
 }
 
 /// An instant metric value (single point in time)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct MetricValue {
     pub timestamp: u64,
     pub value: String, // Prometheus returns as string to preserve precision
 }
 
 /// A single metric sample with labels
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct MetricSample {
     pub metric: BTreeMap<String, String>,
     pub value: MetricValue,
 }
 
 /// Range metric data (time series over a period)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RangeMetricSample {
     pub metric: BTreeMap<String, String>,
     pub values: Vec<MetricValue>,
 }
 
 /// Response from an instant query
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct InstantQueryResponse {
     pub result_type: String,
     pub result: Vec<MetricSample>,
 }
 
 /// Response from a range query
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RangeQueryResponse {
     pub result_type: String,
     pub result: Vec<RangeMetricSample>,
 }
 
 /// CPU metrics for a resource (pod, node, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CpuMetrics {
     pub usage_percent: Option<f64>,
     pub cores: Option<f64>,
 }
 
 /// Memory metrics for a resource
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct MemoryMetrics {
     pub usage_bytes: Option<u64>,
     pub usage_percent: Option<f64>,
@@ -71,7 +72,7 @@ pub struct MemoryMetrics {
 }
 
 /// Network I/O metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct NetworkMetrics {
     pub bytes_in: Option<u64>,
     pub bytes_out: Option<u64>,
@@ -80,7 +81,7 @@ pub struct NetworkMetrics {
 }
 
 /// Complete metrics summary for a pod (from Prometheus)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PrometheusMetrics {
     pub namespace: String,
     pub name: String,
@@ -91,7 +92,7 @@ pub struct PrometheusMetrics {
 }
 
 /// Complete metrics summary for a node
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct NodeMetricsSummary {
     pub name: String,
     pub cpu: CpuMetrics,
@@ -101,7 +102,7 @@ pub struct NodeMetricsSummary {
 }
 
 /// Disk I/O metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct DiskMetrics {
     pub read_bytes: Option<u64>,
     pub write_bytes: Option<u64>,
@@ -110,7 +111,7 @@ pub struct DiskMetrics {
 }
 
 /// Container-level aggregated metrics (for workload aggregation)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ContainerMetricsAggregate {
     pub name: String,
     pub cpu_usage_percent: Option<f64>,
@@ -122,7 +123,7 @@ pub struct ContainerMetricsAggregate {
 }
 
 /// Aggregated metrics across all containers in a workload (deployment, statefulset, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkloadMetricsAggregate {
     pub namespace: String,
     pub name: String,
@@ -141,7 +142,7 @@ pub struct WorkloadMetricsAggregate {
 }
 
 /// Kind of monitoring component found while scanning the cluster for a metrics stack.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum MetricsComponentKind {
     Prometheus,
     Grafana,
@@ -167,7 +168,7 @@ impl MetricsComponentKind {
 }
 
 /// A single monitoring component service discovered in the cluster.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct DetectedMetricsComponent {
     pub kind: MetricsComponentKind,
     pub namespace: String,
@@ -176,7 +177,7 @@ pub struct DetectedMetricsComponent {
 }
 
 /// Overall completeness of the metrics stack found in the cluster.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum MetricsStackTier {
     /// Prometheus + kube-state-metrics + node-exporter all present.
     Full,
@@ -189,7 +190,7 @@ pub enum MetricsStackTier {
 }
 
 /// Result of scanning the cluster for known metrics stack components.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct MetricsStackScanResult {
     pub tier: MetricsStackTier,
     pub components: Vec<DetectedMetricsComponent>,

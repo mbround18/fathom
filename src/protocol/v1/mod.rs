@@ -1,3 +1,4 @@
+mod bridge_types;
 mod clusterrolebindings;
 mod clusterroles;
 mod cmd;
@@ -37,9 +38,11 @@ mod secrets;
 mod services;
 mod statefulsets;
 mod storageclasses;
+mod ui_config;
 mod validatingwebhooks;
 mod workloads;
 
+pub use bridge_types::*;
 pub use clusterrolebindings::*;
 pub use clusterroles::*;
 pub use cmd::*;
@@ -79,5 +82,6 @@ pub use secrets::*;
 pub use services::*;
 pub use statefulsets::*;
 pub use storageclasses::*;
+pub use ui_config::*;
 pub use validatingwebhooks::*;
 pub use workloads::*;

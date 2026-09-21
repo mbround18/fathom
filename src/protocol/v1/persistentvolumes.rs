@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PersistentVolumeSummary {
     pub name: String,
     pub capacity: String,
@@ -12,7 +13,7 @@ pub struct PersistentVolumeSummary {
     pub claim_ref: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PersistentVolumeDetails {
     pub name: String,
     pub creation_timestamp: String,

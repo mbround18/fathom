@@ -1,22 +1,16 @@
-use app::FathomApp;
 use clap::Parser;
 use crossbeam_channel::unbounded;
+use fathom::app::FathomApp;
+use fathom::backend;
+use fathom::config::Args;
+use fathom::protocol::{BackendCmd, BackendEventEnvelope};
+use fathom::startup::{init_tracing, install_crypto_provider};
 use std::thread;
-use tracing_subscriber::EnvFilter;
-
-mod app;
-mod backend;
-mod config;
-mod mcp_server;
-mod protocol;
-pub mod sections;
-use crate::config::Args;
-use protocol::{BackendCmd, BackendEventEnvelope};
 
 /// Fathom - Kubernetes Dashboard with MCP integration
 fn main() -> eframe::Result<()> {
     // Initialize rustls crypto provider (required for rustls 0.23+)
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    install_crypto_provider();
 
     init_tracing();
 
@@ -130,21 +124,4 @@ fn load_icon() -> egui::IconData {
         width: size as u32,
         height: size as u32,
     }
-}
-
-fn init_tracing() {
-    // Prefer `FATHOM_LOG` but fall back to the conventional `RUST_LOG`.
-    // Example: `FATHOM_LOG=fathom=debug,kube=info`
-    let filter = std::env::var("FATHOM_LOG")
-        .ok()
-        .or_else(|| std::env::var("RUST_LOG").ok())
-        .unwrap_or_else(|| "info".to_owned());
-
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::new(filter))
-        .with_target(true)
-        .with_thread_ids(false)
-        .with_thread_names(false)
-        .compact()
-        .try_init();
 }

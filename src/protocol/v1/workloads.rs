@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 use super::PodSummary;
 
@@ -7,7 +8,7 @@ use super::PodSummary;
 ///
 /// The numeric fields are intentionally normalized to match the Deployments UI columns.
 /// For kinds that don't have a perfect 1:1 mapping, values are best-effort.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkloadSummary {
     pub name: String,
     pub namespace: String,
@@ -19,7 +20,7 @@ pub struct WorkloadSummary {
 }
 
 /// Generic workload details used by multiple workload kinds.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkloadDetails {
     pub namespace: String,
     pub name: String,

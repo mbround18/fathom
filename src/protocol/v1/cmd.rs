@@ -1,6 +1,14 @@
-use super::SectionKey;
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone)]
+use super::{SectionKey, UiConfig};
+
+/// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
+///
+/// Serialized adjacently tagged: `{ "type": "RefreshPods" }`,
+/// `{ "type": "SetContext", "data": { "context": "kind-a" } }`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data")]
 pub enum BackendCmdV1 {
     // Global / shell-owned
     Initialize,
@@ -467,6 +475,16 @@ pub enum BackendCmdV1 {
     },
     DeleteValidatingWebhookConfiguration {
         name: String,
+    },
+
+    // UI preferences (~/.fathom/config.json); answered with `SystemEvent::UiConfigLoaded`.
+    LoadUiConfig,
+    SaveUiConfig {
+        ui: UiConfig,
+        expanded_groups: Vec<String>,
+    },
+    SetMcpAutoStart {
+        enabled: bool,
     },
 }
 

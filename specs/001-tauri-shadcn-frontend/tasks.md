@@ -38,16 +38,16 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 **Purpose**: Scaffold the frontend package and the Tauri crate, and make the old UI optional.
 
-- [ ] T001 Add a cargo feature `egui-ui` (in `default`) to root `Cargo.toml`, and make `eframe`, `egui`, and `egui_plot` (and any other egui-only normal deps) `optional = true` and enabled by `egui-ui`. Leave `egui_kittest` as a plain dev-dependency, because cargo does not allow optional dev-deps; the `required-features` on the GUI tests gates it. Add `required-features = ["egui-ui"]` to the `fathom` `[[bin]]` and to the `[[test]]` entries for `tests/gui_*.rs`. Verify with `cargo check --no-default-features --lib` and `cargo test` (the default still builds egui).
-- [ ] T002 Gate `pub mod app;` behind `#[cfg(feature = "egui-ui")]` in `src/lib.rs`, and fix any non-app module that imports from `crate::app`. `cargo check --no-default-features --lib` must pass with zero egui symbols.
+- [X] T001 Add a cargo feature `egui-ui` (in `default`) to root `Cargo.toml`, and make `eframe`, `egui`, and `egui_plot` (and any other egui-only normal deps) `optional = true` and enabled by `egui-ui`. Leave `egui_kittest` as a plain dev-dependency, because cargo does not allow optional dev-deps; the `required-features` on the GUI tests gates it. Add `required-features = ["egui-ui"]` to the `fathom` `[[bin]]` and to the `[[test]]` entries for `tests/gui_*.rs`. Verify with `cargo check --no-default-features --lib` and `cargo test` (the default still builds egui).
+- [X] T002 Gate `pub mod app;` behind `#[cfg(feature = "egui-ui")]` in `src/lib.rs`, and fix any non-app module that imports from `crate::app`. `cargo check --no-default-features --lib` must pass with zero egui symbols.
 - [X] T003 Scaffold the frontend in `ui/`:
   - Run `pnpm create vite ui --template react-ts`. Set `"packageManager": "pnpm@9"` and the scripts `dev`, `dev:fake` (`VITE_TRANSPORT=fake vite`), `build`, `typecheck` (`tsc -b --noEmit`), `lint`, `test` (`vitest run`), `e2e` (`playwright test`), and `tauri` in `ui/package.json`.
   - Enable TS `strict`, `noUncheckedIndexedAccess`, and the path alias `@/* → src/*` in `ui/tsconfig.json`.
-- [ ] T004 Add Tauri v2 to `ui/`:
+- [X] T004 Add Tauri v2 to `ui/`:
   - `pnpm -C ui add -D @tauri-apps/cli@^2` and `pnpm -C ui add @tauri-apps/api@^2`.
   - Run `pnpm -C ui tauri init`, with the app name `Fathom`, identifier `dev.fathom.app`, dev URL `http://localhost:5173`, and frontend dist `../dist`. That creates `ui/src-tauri/`.
   - Set `devUrl`, `frontendDist`, `beforeDevCommand: "pnpm dev"`, `beforeBuildCommand: "pnpm build"`, window `minWidth: 360`, and title `Fathom` in `ui/src-tauri/tauri.conf.json`.
-- [ ] T005 Make `ui/src-tauri` a workspace crate:
+- [X] T005 Make `ui/src-tauri` a workspace crate:
   - In `ui/src-tauri/Cargo.toml`, name it `fathom-desktop`, set `edition = "2024"`, `[lib] name = "fathom_desktop"`, and `crate-type = ["staticlib", "cdylib", "rlib"]`.
   - Add the deps `fathom = { path = "../..", default-features = false }`, `tauri = "2"`, `serde`, `serde_json`, `crossbeam-channel`, `tracing`, and `ctrlc`.
   - Add `"ui/src-tauri"` to `[workspace] members` in root `Cargo.toml`.
@@ -64,7 +64,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
     - `webServer: pnpm dev:fake`.
     - Projects `phone` (390×844, hasTouch), `laptop` (1280×800), `wide` (2560×1440), and `ultra` (5120×1440), each for `chromium` and `webkit`.
 - [X] T009 [P] Configure ESLint (typescript-eslint, react-hooks, jsx-a11y) and Prettier in `ui/eslint.config.js` and `ui/.prettierrc`. Add `ui/node_modules`, `ui/dist`, `ui/src-tauri/target`, `ui/test-results`, and `ui/playwright-report` to `.gitignore`.
-- [ ] T010 [P] Generate app icons with `pnpm -C ui tauri icon ../assets/icon.png` into `ui/src-tauri/icons/`, and reference them in `ui/src-tauri/tauri.conf.json` under `bundle.icon`.
+- [X] T010 [P] Generate app icons with `pnpm -C ui tauri icon ../assets/icon.png` into `ui/src-tauri/icons/`, and reference them in `ui/src-tauri/tauri.conf.json` under `bundle.icon`.
 
 **Checkpoint**: Both of these work: `pnpm -C ui tauri dev` opens a blank window, and `cargo run` still opens the egui UI.
 
@@ -78,62 +78,62 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Protocol serialization (FR-026, contracts/ipc.md)
 
-- [ ] T011 Add `ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }` as a dependency in root `Cargo.toml`. It is non-optional, because the lib must export the types without egui.
-- [ ] T012 Derive `Serialize, Deserialize, TS` with `#[ts(export, export_to = "../ui/src/protocol/generated/")]` on the ID and route types:
+- [X] T011 Add `ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }` as a dependency in root `Cargo.toml`. It is non-optional, because the lib must export the types without egui.
+- [X] T012 Derive `Serialize, Deserialize, TS` with `#[ts(export, export_to = "../ui/src/protocol/generated/")]` on the ID and route types:
   - `RequestId`, `StreamId`, and `Correlation` in `src/protocol/v1/ids.rs`.
   - `SectionKey`, `ScopeKind`, and `Route` in `src/protocol/v1/route.rs`.
   - Export `u64` IDs as `number` using `#[ts(type = "number")]`.
-- [ ] T013 Derive `Serialize, Deserialize, TS` on `BackendCmdV1` and every payload type it references in `src/protocol/v1/cmd.rs`.
+- [X] T013 Derive `Serialize, Deserialize, TS` on `BackendCmdV1` and every payload type it references in `src/protocol/v1/cmd.rs`.
   - Use `#[serde(tag = "type", content = "data")]`.
   - Follow every referenced type into the per-kind modules `src/protocol/v1/*.rs` (including `cronjobs.rs` and `jobs.rs`, which currently lack serde) and add the derives there too.
-- [ ] T014 Derive `Serialize, Deserialize, TS` on `BackendEventEnvelopeV1`, `BackendEventV1`, `SystemEvent`, `ResourceListEvent`, `ResourceReadEvent`, and `StreamEvent` in `src/protocol/v1/event.rs`.
+- [X] T014 Derive `Serialize, Deserialize, TS` on `BackendEventEnvelopeV1`, `BackendEventV1`, `SystemEvent`, `ResourceListEvent`, `ResourceReadEvent`, and `StreamEvent` in `src/protocol/v1/event.rs`.
   - Every enum is adjacently tagged: `#[serde(tag = "type", content = "data")]`.
   - Follow every referenced type into `src/protocol/v1/*.rs` and `src/sections/`.
-- [ ] T015 Add `UiConfig`, `ThemePrefs`, `LayoutProfile`, `SlotConfig`, `DockConfig`, and `WidthClass` exactly as specified in data-model.md §2, with `schema: 1`, in a new file `src/protocol/v1/ui_config.rs`. Keep these constraints verbatim:
+- [X] T015 Add `UiConfig`, `ThemePrefs`, `LayoutProfile`, `SlotConfig`, `DockConfig`, and `WidthClass` exactly as specified in data-model.md §2, with `schema: 1`, in a new file `src/protocol/v1/ui_config.rs`. Keep these constraints verbatim:
   - `mode: "dark" | "light"` (default `"dark"`)
   - `accent: "cyan" | "magenta"` (default `"cyan"`)
   - `effects: "on" | "off"` (default `"on"`)
   - `glitch` defaults to `false`
-- [ ] T016 Add the command variants to `BackendCmdV1` in `src/protocol/v1/cmd.rs`:
+- [X] T016 Add the command variants to `BackendCmdV1` in `src/protocol/v1/cmd.rs`:
   - `LoadUiConfig`
   - `SaveUiConfig { ui: UiConfig, expanded_groups: Vec<String> }`
   - `SetMcpAutoStart { enabled: bool }`
-- [ ] T017 Add `SystemEvent::UiConfigLoaded { ui: Option<UiConfig>, expanded_groups: Vec<String>, mcp_auto_start: bool }` in `src/protocol/v1/event.rs`.
-- [ ] T018 Handle the new commands in `src/backend/cmd.rs`, using `src/backend/persistence.rs`:
+- [X] T017 Add `SystemEvent::UiConfigLoaded { ui: Option<UiConfig>, expanded_groups: Vec<String>, mcp_auto_start: bool }` in `src/protocol/v1/event.rs`.
+- [X] T018 Handle the new commands in `src/backend/cmd.rs`, using `src/backend/persistence.rs`:
   - **Read** `config.json → ui`, `navigation.expanded_groups` (default `["Overview", "Workloads"]`), and `auto_start.mcp_http`.
   - **Write** `ui` and `navigation.expanded_groups` without touching other keys. `SetMcpAutoStart` calls `save_mcp_auto_start`.
   - **Validate** the `ui` blob. If it is invalid, or `schema != 1`, move it to `ui_invalid` and return `ui: None`.
-- [ ] T019 [P] Add serde round-trip tests in a new file `tests/protocol_serde.rs` (a test, not gated on `egui-ui`):
+- [X] T019 [P] Add serde round-trip tests in a new file `tests/protocol_serde.rs` (a test, not gated on `egui-ui`):
   - Construct each `BackendCmdV1` variant and each event variant with sample data.
   - Assert that `serde_json::to_value` → `from_value` → `to_value` is stable.
   - Snapshot the JSON of `RefreshPods`, `Shutdown`, and one `ResourceList` event, to pin the adjacently tagged shape (`{"type": …, "data": …}`).
-- [ ] T020 [P] Add a unit test for the new persistence path in `tests/ui_config_persistence.rs`:
+- [X] T020 [P] Add a unit test for the new persistence path in `tests/ui_config_persistence.rs`:
   - Point `HOME` at a temp dir. `SaveUiConfig` followed by `LoadUiConfig` preserves `ui`, keeps unrelated keys (`auto_start`, other top-level keys) byte-identical, and a corrupt `ui` blob ends up in `ui_invalid`.
-- [ ] T021 Add a `cargo test` target `export_bindings` in `tests/export_bindings.rs`. It calls `TS::export_all` for the root types (`BackendCmdV1`, `BackendEventEnvelopeV1`, `UiConfig`) into `ui/src/protocol/generated/`. Then generate the files and commit them, along with `ui/src/protocol/generated/index.ts`, which re-exports everything.
+- [X] T021 Add a `cargo test` target `export_bindings` in `tests/export_bindings.rs`. It calls `TS::export_all` for the root types (`BackendCmdV1`, `BackendEventEnvelopeV1`, `UiConfig`) into `ui/src/protocol/generated/`. Then generate the files and commit them, along with `ui/src/protocol/generated/index.ts`, which re-exports everything.
 
 ### Bridge (research R1, contracts/ipc.md)
 
-- [ ] T022 Implement the bridge in a new file `ui/src-tauri/src/bridge.rs`:
+- [X] T022 Implement the bridge in a new file `ui/src-tauri/src/bridge.rs`:
   - `BridgeState { cmd_tx: Sender<BackendCmd>, subscriber: Mutex<Option<Channel<EventBatch>>>, buffer: Mutex<VecDeque<BackendEventEnvelope>> }`.
   - `EventBatch { envelopes, dropped: u32 }`, with `Serialize` + `TS` exported to `ui/src/protocol/generated/`.
   - `#[tauri::command] send_cmd(cmd)`, which returns `Err(BridgeError::BackendGone)` if the send fails.
   - `#[tauri::command] subscribe_events(on_batch: Channel<EventBatch>) -> SubscriptionInfo { protocolVersion: 1, backendStarted }`. A new subscription replaces the old one and flushes the buffer first.
-- [ ] T023 Implement the pump thread in `ui/src-tauri/src/bridge.rs`:
+- [X] T023 Implement the pump thread in `ui/src-tauri/src/bridge.rs`:
   - Block on `gui_rx.recv()`, then drain with `try_recv` until 256 envelopes or 16 ms, and send one batch.
   - With no subscriber, buffer up to 10,000. On overflow, evict the oldest `ResourceList` first, then `Stream`, never `System`. Count the evictions in `dropped`.
   - If `Channel::send` returns an error, detach the subscriber and resume buffering.
-- [ ] T024 [P] Add unit tests in `ui/src-tauri/src/bridge.rs` (`#[cfg(test)]`) for the batch limits (256 / 16 ms), the eviction order, `dropped` accounting, and resubscribe flushing the buffer. Factor the pump so it is testable, with an injectable sink trait.
-- [ ] T025 Implement `run()` in `ui/src-tauri/src/lib.rs`, with `#[cfg_attr(mobile, tauri::mobile_entry_point)]`:
+- [X] T024 [P] Add unit tests in `ui/src-tauri/src/bridge.rs` (`#[cfg(test)]`) for the batch limits (256 / 16 ms), the eviction order, `dropped` accounting, and resubscribe flushing the buffer. Factor the pump so it is testable, with an injectable sink trait.
+- [X] T025 Implement `run()` in `ui/src-tauri/src/lib.rs`, with `#[cfg_attr(mobile, tauri::mobile_entry_point)]`:
   - Create the crossbeam channels.
   - Spawn the backend thread running `fathom::backend::init`, mirroring `src/main.rs`.
   - `.manage(BridgeState)` and `invoke_handler(generate_handler![send_cmd, subscribe_events])`.
   - Start the pump.
   - On `WindowEvent::CloseRequested` and on ctrlc, send `BackendCmd::Shutdown`, wait up to 500 ms, and exit.
-- [ ] T026 Implement `ui/src-tauri/src/main.rs`:
+- [X] T026 Implement `ui/src-tauri/src/main.rs`:
   - Parse `--only-mcp` exactly as `src/main.rs` does, and run the headless MCP path **before** building Tauri.
   - Otherwise call `fathom_desktop::run()`.
   - Keep `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`.
-- [ ] T027 Restrict the webview to `core:default` plus the two app commands (`allow-send-cmd`, `allow-subscribe-events`) in `ui/src-tauri/capabilities/default.json`. Declare those commands in `ui/src-tauri/build.rs` with `tauri_build::try_build(Attributes::new().app_manifest(AppManifest::new().commands(&["send_cmd", "subscribe_events"])))`.
+- [X] T027 Restrict the webview to `core:default` plus the two app commands (`allow-send-cmd`, `allow-subscribe-events`) in `ui/src-tauri/capabilities/default.json`. Declare those commands in `ui/src-tauri/build.rs` with `tauri_build::try_build(Attributes::new().app_manifest(AppManifest::new().commands(&["send_cmd", "subscribe_events"])))`.
 
 ### Transports (contracts/ipc.md)
 

@@ -1,6 +1,9 @@
-/// Protocol types for Kubernetes Jobs (batch/v1)
+//! Protocol types for Kubernetes Jobs (batch/v1)
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct JobSummary {
     pub namespace: String,
     pub name: String,
@@ -12,7 +15,7 @@ pub struct JobSummary {
     pub age: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct JobDetails {
     pub namespace: String,
     pub name: String,
@@ -30,7 +33,7 @@ pub struct JobDetails {
     pub conditions: Vec<JobCondition>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct JobCondition {
     pub condition_type: String,
     pub status: String,

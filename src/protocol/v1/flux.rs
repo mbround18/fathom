@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Reconciliation health derived from a Flux resource's `Ready` condition,
 /// `spec.suspend`, and whether `status.observedGeneration` has caught up to
 /// `metadata.generation`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum FluxReadyState {
     Ready,
     Failed,
@@ -25,7 +26,7 @@ impl FluxReadyState {
 }
 
 /// One Flux GitOps Toolkit resource (a source, a Kustomization, or a HelmRelease).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct FluxResourceSummary {
     /// CRD kind, e.g. "GitRepository", "OCIRepository", "HelmRepository",
     /// "Bucket", "Kustomization", "HelmRelease".
@@ -48,7 +49,7 @@ pub struct FluxResourceSummary {
 
 /// Aggregated Flux state for the dashboard: whether the toolkit is installed
 /// at all, plus every source, Kustomization, and HelmRelease found.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 pub struct FluxOverview {
     pub installed: bool,
     pub sources: Vec<FluxResourceSummary>,

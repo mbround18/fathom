@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PodDisruptionBudgetSummary {
     pub namespace: String,
     pub name: String,
@@ -11,7 +12,7 @@ pub struct PodDisruptionBudgetSummary {
     pub desired_healthy: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PodDisruptionBudgetDetails {
     pub namespace: String,
     pub name: String,

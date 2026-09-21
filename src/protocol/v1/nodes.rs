@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct NodeSummary {
     pub name: String,
     pub status: String, // Ready, NotReady, Unknown
@@ -12,7 +13,7 @@ pub struct NodeSummary {
     pub memory_allocatable_bytes: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct NodeDetails {
     pub name: String,
     pub status: String,
@@ -35,7 +36,7 @@ pub struct NodeDetails {
     pub raw_json: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct NodeCondition {
     pub condition_type: String, // Ready, MemoryPressure, DiskPressure, etc.
     pub status: String,         // True, False, Unknown

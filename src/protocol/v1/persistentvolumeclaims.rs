@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PersistentVolumeClaimSummary {
     pub namespace: String,
     pub name: String,
@@ -12,7 +13,7 @@ pub struct PersistentVolumeClaimSummary {
     pub storage_class: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PersistentVolumeClaimDetails {
     pub namespace: String,
     pub name: String,

@@ -15,13 +15,16 @@ use super::{
     ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
     RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, ServiceDetails,
     ServiceSummary, StatefulSetDetails, StatefulSetSummary, StorageClassDetails,
-    StorageClassSummary, StreamId, ValidatingWebhookConfigurationDetails,
+    StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
     ValidatingWebhookConfigurationSummary, WorkloadMetricsAggregate,
 };
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct BackendEventEnvelopeV1 {
     pub version: u32,
+    #[ts(type = "number")]
     pub seq: u64,
     pub route: Route,
     pub correlation: Correlation,
@@ -42,14 +45,16 @@ impl BackendEventEnvelopeV1 {
 
 pub type BackendEventEnvelope = BackendEventEnvelopeV1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Fieldless enum: serialized as a plain string (`"Info" | "Warn" | "Error"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum NotificationLevel {
     Info,
     Warn,
     Error,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data")]
 pub enum SystemEvent {
     BackendStarted,
     Notification {
@@ -97,9 +102,17 @@ pub enum SystemEvent {
 
     /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
     FluxOverviewUpdated(FluxOverview),
+
+    /// Reply to `BackendCmd::LoadUiConfig`.
+    /// `ui` is `None` when absent or invalid (the invalid blob is kept under `ui_invalid`).
+    UiConfigLoaded {
+        ui: Option<UiConfig>,
+        expanded_groups: Vec<String>,
+        mcp_auto_start: bool,
+    },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct DiskUsage {
     pub namespace: String,
     pub name: String,
@@ -108,7 +121,8 @@ pub struct DiskUsage {
     pub state: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data")]
 pub enum ResourceListEvent {
     NamespacesUpdated(Vec<String>),
     NodesUpdated(Vec<NodeSummary>),
@@ -148,7 +162,8 @@ pub enum ResourceListEvent {
     ValidatingWebhookConfigurationsUpdated(Vec<ValidatingWebhookConfigurationSummary>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data")]
 pub enum ResourceReadEvent {
     NodeDetailsUpdated(NodeDetails),
     NamespaceDetailsUpdated(NamespaceDetails),
@@ -191,7 +206,8 @@ pub enum ResourceReadEvent {
     ValidatingWebhookConfigurationDetailsUpdated(ValidatingWebhookConfigurationDetails),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data")]
 pub enum StreamEvent {
     PodLogsChunk {
         stream_id: StreamId,
@@ -208,7 +224,13 @@ pub enum StreamEvent {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Tunnel status carried by `StreamEvent::PortForwardTunnel`.
+///
+/// Fieldless enum: serialized as a plain string. Exported to TypeScript as
+/// `TunnelStatus` because `sections::network::PortForwardStatus` (persisted in
+/// `ports.json`) already owns the `PortForwardStatus` name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(rename = "TunnelStatus")]
 pub enum PortForwardStatus {
     Connecting,
     Active,
@@ -216,7 +238,8 @@ pub enum PortForwardStatus {
     Closed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data")]
 pub enum BackendEventV1 {
     System(SystemEvent),
     ResourceList(ResourceListEvent),

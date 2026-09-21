@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "pipeline"]
+members = [".", "pipeline", "ui/src-tauri"]
 resolver = "3"
 
 [package]
@@ -7,12 +7,25 @@ name = "fathom"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["egui-ui"]
+# Legacy egui/eframe desktop UI. Kept buildable until the Tauri UI reaches parity (FR-025).
+egui-ui = ["dep:egui", "dep:egui_plot", "dep:eframe", "dep:image", "dep:rfd", "dep:arboard", "dep:open"]
+
+[[bin]]
+name = "fathom"
+path = "src/main.rs"
+required-features = ["egui-ui"]
+
 [dependencies]
-# UI
-egui = "0.33.3"
-egui_plot = "0.34.0"
-eframe = "0.33.3"
-image = { version = "0.25.9", default-features = false, features = ["png"] }
+# UI (legacy egui; optional, see `egui-ui` feature)
+egui = { version = "0.33.3", optional = true }
+egui_plot = { version = "0.34.0", optional = true }
+eframe = { version = "0.33.3", optional = true }
+image = { version = "0.25.9", default-features = false, features = ["png"], optional = true }
+
+# Rust -> TypeScript protocol bindings (ui/src/protocol/generated/)
+ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
 
 # Async Runtime & Communication
 tokio = { version = "1.49.0", features = ["full"] }
@@ -57,9 +70,9 @@ tower-http = { version = "0.6", features = ["cors"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 
 # Native file dialogs for saving logs
-rfd = "0.17"
-arboard = "3.6"
-open = "5.3"
+rfd = { version = "0.17", optional = true }
+arboard = { version = "3.6", optional = true }
+open = { version = "5.3", optional = true }
 
 [build-dependencies]
 embed-resource = "3.0.6"
@@ -70,6 +83,47 @@ image = "0.25.9"
 egui_kittest = { version = "0.33.3", features = ["eframe"] }
 accesskit = "0.21"
 tempfile = "3"
+
+# Tests that exercise the legacy egui UI (src/app) only build with `egui-ui`.
+[[test]]
+name = "gui_context_switching"
+path = "tests/gui_context_switching.rs"
+required-features = ["egui-ui"]
+
+[[test]]
+name = "gui_harness"
+path = "tests/gui_harness.rs"
+required-features = ["egui-ui"]
+
+[[test]]
+name = "gui_integrations"
+path = "tests/gui_integrations.rs"
+required-features = ["egui-ui"]
+
+[[test]]
+name = "gui_pods"
+path = "tests/gui_pods.rs"
+required-features = ["egui-ui"]
+
+[[test]]
+name = "gui_portforwards"
+path = "tests/gui_portforwards.rs"
+required-features = ["egui-ui"]
+
+[[test]]
+name = "gui_search_filter"
+path = "tests/gui_search_filter.rs"
+required-features = ["egui-ui"]
+
+[[test]]
+name = "icons"
+path = "tests/icons.rs"
+required-features = ["egui-ui"]
+
+[[test]]
+name = "pvc_disk_usage"
+path = "tests/pvc_disk_usage.rs"
+required-features = ["egui-ui"]
 
 [lints.clippy]
 # Enforce manageable code sizes - warn if functions exceed 100 lines
