@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 dist-e2e
+dist-live
 *.local
 
 # Editor directories and files

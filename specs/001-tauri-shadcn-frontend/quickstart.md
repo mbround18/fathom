@@ -68,3 +68,19 @@ pnpm -C ui tauri icon ../assets/icon.png
 | V11 | US6 | Toggle MCP auto-start, restart | The same flag as the egui build (`config.json → auto_start.mcp_http`). The MCP server answers on :18288. |
 | V12 | SC-009 | Run the new build against an existing `~/.fathom/` from the egui build | Ports, metrics, integrations, and nav groups all load. No prompt appears. |
 | V13 | SC-005 | Leave the app idle on Pods for 5 min | < 2% of one core, and the bridge thread is blocked in `recv`. |
+
+## Live e2e (real backend, real cluster, `fathom-dev` only)
+
+An opt-in Playwright suite (`ui/tests/live/`, config `ui/playwright.live.config.ts`) runs the real UI against the real Rust backend through `tools/devbridge`. It is never part of `pnpm e2e`. Every write is confined to the `fathom-dev` sandbox namespace, both by the bridge's write guard and by the fenced `kubectl()` helper the specs use.
+
+```bash
+FATHOM_SANDBOX_CONTEXT=<ctx> scripts/sandbox.sh up       # once: namespace + workloads (dev/sandbox/)
+FATHOM_LIVE_CONTEXT=<ctx> pnpm -C ui e2e:live            # builds + starts the devbridge, serves dist-live on :4174
+FATHOM_SANDBOX_CONTEXT=<ctx> scripts/sandbox.sh reset    # back to the committed baseline if a run was interrupted
+FATHOM_SANDBOX_CONTEXT=<ctx> scripts/sandbox.sh down     # remove the sandbox
+```
+
+- `FATHOM_LIVE_CONTEXT` is required and never defaulted. The global setup refuses to start unless `fathom-dev` in that context carries the `fathom.dev/sandbox=true` label.
+- The bridge gets a random token for each run, and the specs get it through the `app` fixture. Nothing is written to disk.
+- `browse.spec.ts` is read-only. `actions.spec.ts` scales, restarts and deletes sandbox workloads and throwaway pods labelled `fathom.dev/e2e=true`, and `restoreBaseline()` runs after each spec.
+- To run one layout only, add `-- --project=chromium-wide` (or `chromium-phone`).
