@@ -17,6 +17,9 @@ import { StatusBar } from './StatusBar'
 import { TabletTabs } from './TabletTabs'
 import { TopBar } from './TopBar'
 
+/** Top bar height (`h-11`) plus a small gap. */
+const TOAST_TOP = 52
+
 /**
  * Top bar, a body chosen by width class, status bar (contracts/layout.md). Test hooks:
  * `data-width-class` here, and `data-slot="pane"` / `data-pane-kind` on every pane host.
@@ -55,7 +58,12 @@ export function AppShell() {
         </Sheet>
       )}
       <ActionDialogHost />
-      <Toaster position={narrow ? 'top-center' : 'bottom-right'} />
+      {/* Narrow: toasts drop below the 44px top bar; error toasts stay until dismissed and must
+          never cover the context/namespace pickers. */}
+      <Toaster
+        position={narrow ? 'top-center' : 'bottom-right'}
+        {...(narrow && { offset: { top: TOAST_TOP }, mobileOffset: { top: TOAST_TOP } })}
+      />
     </div>
   )
 }
