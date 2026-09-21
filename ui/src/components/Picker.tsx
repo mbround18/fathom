@@ -45,11 +45,19 @@ const TRIGGER =
   'h-[var(--touch-target)] w-auto min-w-0 gap-1.5 border-border/80 bg-background/40 font-mono hover:border-accent-neon/60 data-[state=open]:border-accent-neon'
 const ITEM = 'min-h-[var(--touch-target)] font-mono'
 
+interface ControlledProps extends PickerProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
 export function Picker(props: PickerProps) {
+  // Open state lives here so a picker that grows past the threshold while open (the namespace
+  // list arriving after the operator clicked) stays open as the searchable variant.
+  const [open, setOpen] = useState(false)
   return props.options.length > SEARCH_THRESHOLD ? (
-    <SearchPicker {...props} />
+    <SearchPicker {...props} open={open} onOpenChange={setOpen} />
   ) : (
-    <SelectPicker {...props} />
+    <SelectPicker {...props} open={open} onOpenChange={setOpen} />
   )
 }
 
@@ -70,9 +78,17 @@ function SelectPicker({
   disabled,
   onChange,
   className,
-}: PickerProps) {
+  open,
+  onOpenChange,
+}: ControlledProps) {
   return (
-    <Select value={value ?? ''} onValueChange={onChange} disabled={disabled}>
+    <Select
+      value={value ?? ''}
+      onValueChange={onChange}
+      disabled={disabled}
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <SelectTrigger aria-label={label} className={cn(TRIGGER, className)}>
         <Prefix>{prefix}</Prefix>
         <SelectValue placeholder={placeholder} />
@@ -97,8 +113,9 @@ function SearchPicker({
   disabled,
   onChange,
   className,
-}: PickerProps) {
-  const [open, setOpen] = useState(false)
+  open,
+  onOpenChange: setOpen,
+}: ControlledProps) {
   const contentId = useId()
   const current = options.find((o) => o.value === value)
   return (
