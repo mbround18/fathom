@@ -12,9 +12,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Quick multi-target debug build (linux-x86_64, linux-arm64, windows-x86_64)
+    /// Quick multi-target debug build (linux-x86_64, linux-arm64)
     Build,
-    /// Format check, clippy, and the test suite
+    /// Format check, UI checks + e2e, clippy, the test suite, and bindings drift
     Test,
     /// Release build + packaged archives for every target, exported to dist/
     Release,

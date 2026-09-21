@@ -218,11 +218,11 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### CI (research R7/R9)
 
-- [ ] T051 Add a `ui` job to `.github/workflows/ci.yml`:
+- [X] T051 Add a `ui` job to `.github/workflows/ci.yml`:
   - Set up pnpm and Node with caching, then run `pnpm -C ui install --frozen-lockfile`, lint, typecheck, test, and `pnpm -C ui exec playwright install --with-deps chromium webkit`, then e2e.
   - Upload `ui/playwright-report` when the job fails.
-- [ ] T052 Add a bindings drift step to `.github/workflows/ci.yml` and `pipeline/src/pipeline.rs`: `cargo test --test export_bindings`, then `git diff --exit-code ui/src/protocol/generated`.
-- [ ] T053 In `pipeline/src/pipeline.rs`:
+- [X] T052 Add a bindings drift step to `.github/workflows/ci.yml` and `pipeline/src/pipeline.rs`: `cargo test --test export_bindings`, then `git diff --exit-code ui/src/protocol/generated`.
+- [X] T053 In `pipeline/src/pipeline.rs`:
   - Add the webkit2gtk-4.1 build packages (`libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`), Node, and pnpm to the Rust image.
   - Add `cargo clippy -p fathom-desktop -- -D warnings` and `cargo check --no-default-features --lib` to the `test` command.
   - Remove the `x86_64-pc-windows-gnu` target from `pipeline/src/targets.rs`.

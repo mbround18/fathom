@@ -24,11 +24,6 @@ pub const LINUX_ARM64: Target = Target {
     archive_ext: "tar.gz",
 };
 
-pub const WINDOWS_X86_64: Target = Target {
-    triple: "x86_64-pc-windows-gnu",
-    label: "windows-x86_64",
-    binary_name: "fathom.exe",
-    archive_ext: "zip",
-};
-
-pub const ALL: &[Target] = &[LINUX_X86_64, LINUX_ARM64, WINDOWS_X86_64];
+// No Windows target: Tauri's MSI/NSIS bundles need a Windows host, so Windows
+// builds live in .github/workflows/release.yml (x86_64-pc-windows-msvc), not here.
+pub const ALL: &[Target] = &[LINUX_X86_64, LINUX_ARM64];

@@ -3,6 +3,8 @@ use dagger_sdk::{Container, ContainerWithExecOpts, HostDirectoryOpts, Query, Ret
 use crate::targets::{ALL, LINUX_X86_64, Target};
 
 const RUST_IMAGE: &str = "rust:1.97.1-bookworm";
+/// Node LTS, copied into the Rust image for the `ui/` checks (research R9).
+const NODE_IMAGE: &str = "node:24-bookworm";
 const DIST_DIR: &str = "dist";
 
 /// Native (non-cross) build dependencies for egui/eframe's GTK/X11 backend.
@@ -15,6 +17,17 @@ const LINUX_NATIVE_PACKAGES: &[&str] = &[
     "libssl-dev",
     "pkg-config",
 ];
+
+/// Tauri v2 (webkit2gtk-4.1) build dependencies for the `fathom-desktop` crate.
+const TAURI_LINUX_PACKAGES: &[&str] = &[
+    "libwebkit2gtk-4.1-dev",
+    "libxdo-dev",
+    "libayatana-appindicator3-dev",
+    "librsvg2-dev",
+];
+
+/// Committed ts-rs output that `tests/export_bindings.rs` regenerates.
+const GENERATED_BINDINGS: &str = "ui/src/protocol/generated";
 
 /// arm64 counterparts installed alongside the native amd64 toolchain via
 /// Debian multiarch, so pkg-config can resolve headers/libs for the cross target.
@@ -33,7 +46,17 @@ fn source(client: &Query) -> dagger_sdk::Directory {
     client.host().directory_opts(
         ".",
         HostDirectoryOpts {
-            exclude: Some(vec!["target", "dist", "graphify-out", ".git"]),
+            exclude: Some(vec![
+                "target",
+                "dist",
+                "graphify-out",
+                ".git",
+                "ui/node_modules",
+                "ui/dist",
+                "ui/test-results",
+                "ui/playwright-report",
+                "ui/src-tauri/target",
+            ]),
             gitignore: None,
             include: None,
             no_cache: None,
@@ -105,10 +128,9 @@ async fn exec_checked(
 
 /// A cargo_container() plus whatever's needed to build for `target`.
 ///
-/// Cross builds run inside a Linux (amd64) container, so `build.rs`'s
-/// `#[cfg(windows)]` icon-embedding step only fires for native Linux builds -
-/// the Windows archive ships without the embedded .ico, same as any other
-/// Linux-hosted cross build would.
+/// Only the `fathom` package is built here (the workspace root's default
+/// member); the Tauri desktop bundles need native hosts and are built by
+/// .github/workflows/release.yml.
 fn toolchain(client: &Query, target: &Target) -> Container {
     let container = cargo_container(client);
 
@@ -128,19 +150,73 @@ fn toolchain(client: &Query, target: &Target) -> Container {
                 )
         }
 
-        "x86_64-pc-windows-gnu" => {
-            // cmake + nasm are required by aws-lc-sys (pulled in transitively via rustls).
-            let container = apt_install(container, &["gcc-mingw-w64-x86-64", "cmake", "nasm"]);
-            container
-                .with_exec(vec!["rustup", "target", "add", "x86_64-pc-windows-gnu"])
-                .with_env_variable(
-                    "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER",
-                    "x86_64-w64-mingw32-gcc",
-                )
-        }
-
         other => unreachable!("no toolchain wired up for target {other}"),
     }
+}
+
+/// Reads the pnpm version pinned by `packageManager` in `ui/package.json`
+/// (e.g. `"pnpm@12.4.2"`), so the pipeline and CI use the same pnpm.
+fn pnpm_version() -> eyre::Result<String> {
+    let manifest = std::fs::read_to_string("ui/package.json")?;
+    let spec = manifest
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.trim().split_once(':')?;
+            (key.trim().trim_matches('"') == "packageManager").then(|| {
+                value
+                    .trim()
+                    .trim_end_matches(',')
+                    .trim_matches('"')
+                    .to_string()
+            })
+        })
+        .ok_or_else(|| eyre::eyre!("ui/package.json has no packageManager field"))?;
+    let version = spec
+        .strip_prefix("pnpm@")
+        .ok_or_else(|| eyre::eyre!("packageManager is `{spec}`, expected pnpm@<version>"))?;
+    // Drop a corepack integrity suffix (`pnpm@x.y.z+sha512...`) if present.
+    Ok(version.split('+').next().unwrap_or(version).to_string())
+}
+
+/// The native x86_64 toolchain plus everything `test` needs on top of it:
+/// the Tauri (webkit2gtk-4.1) dev packages, Node LTS, and the pinned pnpm.
+///
+/// Node is copied out of the official image rather than apt-installed, since
+/// bookworm's packaged Node is far behind LTS. The pnpm store and Playwright
+/// browsers live in cache volumes so reruns skip the downloads.
+fn test_toolchain(client: &Query) -> eyre::Result<Container> {
+    let pnpm = format!("pnpm@{}", pnpm_version()?);
+    let node = client.container().from(NODE_IMAGE);
+
+    let container = apt_install(toolchain(client, &LINUX_X86_64), TAURI_LINUX_PACKAGES)
+        .with_file("/usr/local/bin/node", node.file("/usr/local/bin/node"))
+        .with_directory(
+            "/usr/local/lib/node_modules",
+            node.directory("/usr/local/lib/node_modules"),
+        )
+        .with_exec(vec![
+            "ln",
+            "-sf",
+            "/usr/local/lib/node_modules/npm/bin/npm-cli.js",
+            "/usr/local/bin/npm",
+        ])
+        .with_exec(vec!["npm", "install", "--global", pnpm.as_str()])
+        .with_env_variable("CI", "true")
+        .with_env_variable("npm_config_store_dir", "/pnpm-store")
+        .with_mounted_cache("/pnpm-store", client.cache_volume("fathom-pnpm-store"))
+        .with_env_variable("PLAYWRIGHT_BROWSERS_PATH", "/ms-playwright")
+        .with_mounted_cache("/ms-playwright", client.cache_volume("fathom-playwright"));
+
+    Ok(container)
+}
+
+/// `pnpm -C ui <args...>` as an exec argument list.
+fn pnpm_ui(args: &[&str]) -> Vec<String> {
+    ["pnpm", "-C", "ui"]
+        .iter()
+        .chain(args)
+        .map(|arg| arg.to_string())
+        .collect()
 }
 
 fn cargo_out_dir(target: &Target, release: bool) -> String {
@@ -240,37 +316,95 @@ pub async fn build(client: &Query) -> eyre::Result<()> {
     Ok(())
 }
 
-/// `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test --all`,
-/// mirroring the checks in .github/workflows/ci.yml.
+/// The Principle III gates, mirroring the `check`, `test`, and `ui` jobs in
+/// .github/workflows/ci.yml:
+///
+/// 1. `cargo fmt --check`
+/// 2. `ui/`: frozen install, lint, typecheck, unit tests, build, then the
+///    Playwright e2e suite in Chromium and WebKit
+/// 3. `cargo clippy -D warnings` for `fathom` and `fathom-desktop` (the latter
+///    embeds `ui/dist`, so it runs after the UI build)
+/// 4. `cargo check --no-default-features --lib` (the egui-free backend library)
+/// 5. `cargo test --all`
+/// 6. Bindings drift: regenerate `ui/src/protocol/generated` and fail if it
+///    differs from the committed copy. `.git` isn't mounted, so this diffs
+///    against a snapshot taken before regeneration instead of `git diff`.
 pub async fn test(client: &Query) -> eyre::Result<()> {
-    let container = toolchain(client, &LINUX_X86_64);
-    let container = exec_checked(
-        &container,
-        "fmt",
-        vec!["cargo".into(), "fmt".into(), "--check".into()],
-    )
-    .await?;
-    let container = exec_checked(
-        &container,
-        "clippy",
-        vec![
-            "cargo".into(),
-            "clippy".into(),
-            "--all-targets".into(),
-            "--".into(),
-            "-D".into(),
-            "warnings".into(),
-        ],
-    )
-    .await?;
-    exec_checked(
-        &container,
-        "test",
-        vec!["cargo".into(), "test".into(), "--all".into()],
-    )
-    .await?;
+    let mut container = test_toolchain(client)?;
 
-    println!("test: fmt, clippy, and test suite passed");
+    let steps: Vec<(&str, Vec<String>)> = vec![
+        ("fmt", vec!["cargo".into(), "fmt".into(), "--check".into()]),
+        ("ui-install", pnpm_ui(&["install", "--frozen-lockfile"])),
+        ("ui-lint", pnpm_ui(&["lint"])),
+        ("ui-typecheck", pnpm_ui(&["typecheck"])),
+        ("ui-test", pnpm_ui(&["test"])),
+        ("ui-build", pnpm_ui(&["build"])),
+        (
+            "ui-playwright-install",
+            pnpm_ui(&[
+                "exec",
+                "playwright",
+                "install",
+                "--with-deps",
+                "chromium",
+                "webkit",
+            ]),
+        ),
+        ("ui-e2e", pnpm_ui(&["e2e"])),
+        (
+            "clippy",
+            vec![
+                "cargo".into(),
+                "clippy".into(),
+                "--all-targets".into(),
+                "--".into(),
+                "-D".into(),
+                "warnings".into(),
+            ],
+        ),
+        (
+            "clippy-desktop",
+            vec![
+                "cargo".into(),
+                "clippy".into(),
+                "-p".into(),
+                "fathom-desktop".into(),
+                "--".into(),
+                "-D".into(),
+                "warnings".into(),
+            ],
+        ),
+        (
+            "check-no-default-features",
+            vec![
+                "cargo".into(),
+                "check".into(),
+                "--no-default-features".into(),
+                "--lib".into(),
+            ],
+        ),
+        ("test", vec!["cargo".into(), "test".into(), "--all".into()]),
+        (
+            "bindings-drift",
+            vec![
+                "sh".into(),
+                "-c".into(),
+                format!(
+                    "rm -rf /tmp/bindings-committed \
+                     && cp -r {GENERATED_BINDINGS} /tmp/bindings-committed \
+                     && cargo test -p fathom --test export_bindings \
+                     && diff -ru /tmp/bindings-committed {GENERATED_BINDINGS} \
+                     || {{ echo 'Generated bindings drifted: run `cargo test -p fathom --test export_bindings` and commit {GENERATED_BINDINGS}'; exit 1; }}"
+                ),
+            ],
+        ),
+    ];
+
+    for (label, args) in steps {
+        container = exec_checked(&container, label, args).await?;
+    }
+
+    println!("test: fmt, ui checks + e2e, clippy, tests, and bindings drift passed");
     Ok(())
 }
 
