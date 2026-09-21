@@ -4,8 +4,8 @@
 import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { EventBatch, PodSummary } from '@/protocol/types'
-import { initialData, listKey, useStore } from '@/store'
+import type { DiskUsage, EventBatch, PodSummary } from '@/protocol/types'
+import { eventsFor, initialData, listKey, useStore } from '@/store'
 import { ingest } from '@/store/ingest'
 
 import {
@@ -28,9 +28,17 @@ import {
   uiConfigSaved,
   SAVED_UI,
 } from '../fixtures'
-import { batch, nsRoute, stream, system } from '../fixtures/builders'
+import { batch, clusterRoute, envelope, nsRoute, stream, system } from '../fixtures/builders'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+
+const DISK: DiskUsage = {
+  namespace: 'default',
+  name: 'data-0',
+  provisioned_bytes: 1024,
+  used_bytes: 512,
+  state: 'Bound',
+}
 
 const PODS_A = listKey('kind-a', 'workloads/pods', 'Namespaced', null)
 const PODS_B = listKey('kind-b', 'workloads/pods', 'Namespaced', null)
@@ -109,12 +117,44 @@ describe('rule 1: context staleness', () => {
     expect(useStore.getState().conn.lastNotice?.level).toBe('warn')
   })
 
-  it('keeps context-less (global) lists such as cluster events', () => {
+  it('keys cluster events by their originating context', () => {
     ingest(twoContexts)
     ingest(clusterEvents())
-    const events = useStore.getState().lists[listKey(null, 'events', 'Global', null)]
+    const events = useStore.getState().lists[listKey('kind-a', 'events', 'Cluster', null)]
     expect(events?.rows).toHaveLength(3)
     expect(events?.total).toBe(3)
+  })
+
+  it('drops a System event bound to a context that is no longer active', () => {
+    ingest(twoContexts)
+    ingest(contextChanged('kind-b'))
+    const stale: EventBatch = batch([
+      envelope(70, clusterRoute('kind-a'), {
+        type: 'System',
+        data: { type: 'DiskUsageUpdated', data: [DISK] },
+      }),
+    ])
+    ingest(stale)
+    expect(useStore.getState().metrics.diskUsage).toEqual([])
+
+    ingest(
+      batch([
+        envelope(71, clusterRoute('kind-b'), {
+          type: 'System',
+          data: { type: 'DiskUsageUpdated', data: [DISK] },
+        }),
+      ]),
+    )
+    expect(useStore.getState().metrics.diskUsage).toEqual([DISK])
+  })
+
+  it('never renders cluster events from the previous context after a switch (FR-016)', () => {
+    ingest(twoContexts)
+    ingest(contextChanged('kind-b'))
+    ingest(clusterEvents(undefined, 80, 'kind-a'))
+    const s = useStore.getState()
+    expect(s.lists[listKey('kind-a', 'events', 'Cluster', null)]).toBeUndefined()
+    expect(eventsFor(s, 'Pod', DETAIL_POD.namespace, DETAIL_POD.name)).toEqual([])
   })
 })
 

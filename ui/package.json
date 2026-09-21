@@ -8,6 +8,7 @@
     "dev:fake": "vite --mode fake",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "e2e:serve": "vite build --mode fake --outDir dist-e2e && vite preview --outDir dist-e2e --port 4173 --strictPort",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",

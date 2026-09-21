@@ -6,6 +6,7 @@ import type {
   KubernetesEvent,
   PodDetails,
   PodSummary,
+  WorkloadDetails,
   WorkloadSummary,
 } from '../../src/protocol/types'
 
@@ -182,4 +183,59 @@ export function podEvents(pod: Pick<PodSummary, 'namespace' | 'name' | 'node'>):
       source: 'kubelet',
     },
   ]
+}
+
+/** A full `WorkloadDetails` read for deployment `d`, with its pods from `pods`. */
+export function deploymentDetails(
+  d: WorkloadSummary,
+  pods: readonly PodSummary[],
+): WorkloadDetails {
+  const labels = { app: d.name }
+  const manifest = {
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: {
+      name: d.name,
+      namespace: d.namespace,
+      labels,
+      creationTimestamp: '2026-09-18T11:02:00Z',
+      annotations: { 'deployment.kubernetes.io/revision': '3' },
+    },
+    spec: {
+      replicas: d.desired,
+      selector: { matchLabels: labels },
+      template: {
+        metadata: { labels },
+        spec: {
+          containers: [
+            {
+              name: d.name,
+              image: `registry.example.com/${d.name}:1.4.2`,
+              ports: [{ name: 'http', containerPort: 8080, protocol: 'TCP' }],
+            },
+          ],
+        },
+      },
+    },
+    status: {
+      replicas: d.desired,
+      readyReplicas: d.ready,
+      updatedReplicas: d.updated,
+      availableReplicas: d.available,
+    },
+  }
+  return {
+    namespace: d.namespace,
+    name: d.name,
+    creation_timestamp: '2026-09-18T11:02:00Z',
+    labels,
+    annotations: { 'deployment.kubernetes.io/revision': '3' },
+    containers: [d.name],
+    ports: [{ container: d.name, name: 'http', port: 8080, protocol: 'TCP' }],
+    pod_selector: `app=${d.name}`,
+    pods: pods
+      .filter((p) => p.namespace === d.namespace && p.name.startsWith(`${d.name}-`))
+      .slice(0, d.desired),
+    raw_json: JSON.stringify(manifest, null, 2),
+  }
 }

@@ -13,14 +13,16 @@ const PHONE_TABS = [RESOURCES_TAB, LOGS_TAB, FORWARDS_TAB] as const
 export function PhoneStack() {
   const stack = useStore((s) => s.layout.stack)
   const popPane = useStore((s) => s.popPane)
+  const closeInspector = useStore((s) => s.closeInspector)
   const top = stack.at(-1)
+  const topIsInspector = useStore((s) => (top ? s.panes[top]?.kind === 'inspector' : false))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {stack.length > 1 && (
         <Button
           variant="ghost"
-          onClick={popPane}
+          onClick={topIsInspector ? closeInspector : popPane}
           className="h-[var(--touch-target)] shrink-0 justify-start border-b border-border px-3"
         >
           <ArrowLeftIcon data-icon="inline-start" /> Back

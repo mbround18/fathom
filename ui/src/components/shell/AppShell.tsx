@@ -5,11 +5,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { NavTree } from '@/components/NavTree'
 import { Toaster } from '@/components/ui/sonner'
 import { useWidthClass } from '@/layout/use-width-class'
 import { useStore } from '@/store'
 
-import { NavList } from './NavList'
 import { PhoneStack } from './PhoneStack'
 import { SlotGrid } from './SlotGrid'
 import { StatusBar } from './StatusBar'
@@ -49,7 +49,7 @@ export function AppShell() {
               <SheetTitle className="font-display tracking-wider uppercase">Navigator</SheetTitle>
               <SheetDescription className="sr-only">Choose a resource section</SheetDescription>
             </SheetHeader>
-            <NavList />
+            <NavTree />
           </SheetContent>
         </Sheet>
       )}

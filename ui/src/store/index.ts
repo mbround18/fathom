@@ -28,6 +28,9 @@ import type {
   UiConfig,
 } from '@/protocol/types'
 
+import { descriptorFor } from '@/resources'
+import type { ObjectRef } from '@/resources/types'
+
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
 import type { RingBuffer } from './ring-buffer'
 
@@ -45,8 +48,18 @@ export interface PaneState {
   tool?: ToolKind
   route?: Route
   search: string
+  /** List: the row key open in the inspector (inverse video). */
   selection?: string
   scrollTop: number
+  /** List: column sort; `undefined` keeps the backend's order. */
+  sort?: { id: string; desc: boolean }
+  /** List: the keyboard cursor's row key. */
+  focusedRow?: string
+  /** List: column ids the budget currently shows (the inspector lists the hidden ones, FR-009). */
+  visibleColumns?: string[]
+  /** Inspector: the object it shows, and the list pane it was opened from. */
+  target?: ObjectRef
+  source?: PaneId
 }
 
 /** data-model.md §4: starting → ready → backend-gone (fatal; retry = app restart). */
@@ -162,6 +175,8 @@ export interface LayoutState {
   stack: PaneId[]
   /** Navigator drawer (phone/tablet, where nav has no slot). */
   navOpen: boolean
+  /** The list pane the operator last worked in; the navigator retargets it. */
+  focusedList?: PaneId
 }
 
 /** The data part of the store (everything `ingest` may replace). */
@@ -215,12 +230,29 @@ export interface StoreState extends StoreData {
   inspect: (kind: string, namespace: string, name: string) => void
   /** Sends `RefreshEvents` (cluster events; the inspector filters by involved object). */
   refreshEvents: () => void
+  /** Remember which list pane the navigator should retarget. */
+  focusList: (id: PaneId) => void
+  /**
+   * Show `ref` in the nearest inspector (pushing one on phone), mark it selected in the `from`
+   * list pane, and send the descriptor's read commands.
+   */
+  openInspector: (ref: ObjectRef, from?: PaneId) => void
+  /** Esc: pop the inspector on phone, clear it elsewhere. */
+  closeInspector: () => void
+  /** Toggle one row in a pane's multi-select (bulk actions). */
+  toggleRowSelected: (paneId: PaneId, rowKey: string) => void
+  /** Expand/collapse navigator groups; persisted with a debounced `SaveUiConfig`. */
+  setExpandedGroups: (groups: string[]) => void
 }
 
-/** Lists the backend refreshes after a context or namespace change (src/backend.rs). */
-const CONTEXT_LISTS: readonly SectionKey[] = [SECTION.pods, SECTION.deployments]
+/** Debounce for persisting navigator state (typing-speed toggles coalesce into one write). */
+export const SAVE_DEBOUNCE_MS = 500
+let saveTimer: ReturnType<typeof setTimeout> | undefined
 
-function markLoading(
+/** Lists the backend refreshes after a context or namespace change (src/backend.rs). */
+export const CONTEXT_LISTS: readonly SectionKey[] = [SECTION.pods, SECTION.deployments]
+
+export function markLoading(
   lists: Record<ListKey, ListState>,
   context: string | undefined,
   sections: readonly SectionKey[],
@@ -240,8 +272,25 @@ function markLoading(
 
 // ------------------------------------------------------------------ pane assignment
 
+/** What a fresh list pane shows: pods in the first, deployments in the second (MVP kinds). */
+const DEFAULT_LIST_SECTIONS: readonly SectionKey[] = [SECTION.pods, SECTION.deployments]
+
+function defaultRoute(id: PaneId): Route | undefined {
+  const n = Number(/^list-(\d+)$/.exec(id)?.[1] ?? NaN)
+  const section = DEFAULT_LIST_SECTIONS[n - 1]
+  return section ? { section, scope: 'Namespaced', context: null, namespace: null } : undefined
+}
+
 function newPane(id: PaneId, kind: PaneKind, tool?: ToolKind): PaneState {
-  return { id, kind, ...(tool ? { tool } : {}), search: '', scrollTop: 0 }
+  const route = kind === 'list' ? defaultRoute(id) : undefined
+  return {
+    id,
+    kind,
+    ...(tool ? { tool } : {}),
+    ...(route ? { route } : {}),
+    search: '',
+    scrollTop: 0,
+  }
 }
 
 function nextId(panes: Record<PaneId, PaneState>, prefix: string): PaneId {
@@ -391,7 +440,13 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   navigate: (section) => {
     set((s) => {
+      const focused = s.layout.focusedList
       const listId =
+        (focused !== undefined &&
+        s.panes[focused]?.kind === 'list' &&
+        (s.layout.slotPanes.includes(focused) || s.layout.stack.includes(focused))
+          ? focused
+          : undefined) ??
         s.layout.slotPanes.find((id) => s.panes[id]?.kind === 'list') ??
         Object.values(s.panes).find((p) => p.kind === 'list')?.id
       const pane = listId ? s.panes[listId] : undefined
@@ -403,10 +458,21 @@ export const useStore = create<StoreState>()((set, get) => ({
         namespace: s.session.activeNamespace,
       }
       return {
-        panes: { ...s.panes, [pane.id]: { ...pane, route, selection: undefined, scrollTop: 0 } },
+        panes: {
+          ...s.panes,
+          [pane.id]: {
+            ...pane,
+            route,
+            selection: undefined,
+            focusedRow: undefined,
+            sort: undefined,
+            scrollTop: 0,
+          },
+        },
         layout: {
           ...s.layout,
           navOpen: false,
+          focusedList: pane.id,
           stack:
             s.layout.widthClass === 'phone' || s.layout.widthClass === 'tablet'
               ? [pane.id]
@@ -457,9 +523,16 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   refreshSection: (section) => {
-    const cmd = refreshCmd(section)
-    if (!cmd) return
     const s = get()
+    const d = descriptorFor(section)
+    const route: Route = {
+      section,
+      scope: 'Namespaced',
+      context: s.session.activeContext ?? null,
+      namespace: s.session.activeNamespace,
+    }
+    const cmd = d ? d.refresh(route) : refreshCmd(section)
+    if (!cmd) return
     set({ lists: markLoading(s.lists, s.session.activeContext, [section]) })
     s.send(cmd)
   },
@@ -470,6 +543,87 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
+
+  focusList: (id) =>
+    set((s) => (s.layout.focusedList === id ? s : { layout: { ...s.layout, focusedList: id } })),
+
+  openInspector: (ref, from) => {
+    set((s) => {
+      const panes = { ...s.panes }
+      const rowKey = ref.namespace ? `${ref.namespace}/${ref.name}` : ref.name
+      const source = from ? panes[from] : undefined
+      if (source) panes[source.id] = { ...source, selection: rowKey, focusedRow: rowKey }
+      const layout = { ...s.layout, ...(from ? { focusedList: from } : {}) }
+
+      const slotted = s.layout.slotPanes.find((id) => panes[id]?.kind === 'inspector')
+      const slottedPane = slotted ? panes[slotted] : undefined
+      if (slottedPane && s.layout.widthClass !== 'phone') {
+        panes[slottedPane.id] = { ...slottedPane, target: ref, source: from, scrollTop: 0 }
+        return { panes, layout }
+      }
+      // Phone: drill in. Reuse the inspector already on the stack, else a free one.
+      const onStack = s.layout.stack.find((id) => panes[id]?.kind === 'inspector')
+      const id =
+        onStack ??
+        Object.values(panes).find(
+          (p) => p.kind === 'inspector' && !s.layout.slotPanes.includes(p.id),
+        )?.id ??
+        nextId(panes, 'inspector')
+      panes[id] = {
+        ...(panes[id] ?? newPane(id, 'inspector')),
+        target: ref,
+        source: from,
+        scrollTop: 0,
+      }
+      const base = onStack
+        ? s.layout.stack.slice(0, s.layout.stack.indexOf(onStack))
+        : s.layout.stack
+      return { panes, layout: { ...layout, stack: [...base, id] } }
+    })
+    const d = descriptorFor(ref.section)
+    for (const cmd of d?.read?.(ref) ?? []) get().send(cmd)
+  },
+
+  toggleRowSelected: (paneId, rowKey) =>
+    set((s) => {
+      const current = s.selection[paneId] ?? []
+      const next = current.includes(rowKey)
+        ? current.filter((k) => k !== rowKey)
+        : [...current, rowKey]
+      return { selection: { ...s.selection, [paneId]: next } }
+    }),
+
+  setExpandedGroups: (groups) => {
+    set((s) => ({ prefs: { ...s.prefs, expandedGroups: groups } }))
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      const s = get()
+      s.send({ type: 'SaveUiConfig', data: { ui: s.ui, expanded_groups: s.prefs.expandedGroups } })
+    }, SAVE_DEBOUNCE_MS)
+  },
+
+  closeInspector: () =>
+    set((s) => {
+      const panes = { ...s.panes }
+      const clearSource = (id: PaneId | undefined) => {
+        const src = id ? panes[id] : undefined
+        if (src) panes[src.id] = { ...src, selection: undefined }
+      }
+      const top = s.layout.stack.at(-1)
+      const topPane = top ? panes[top] : undefined
+      if (s.layout.widthClass === 'phone' && topPane?.kind === 'inspector') {
+        clearSource(topPane.source)
+        const stack = s.layout.stack.length > 1 ? s.layout.stack.slice(0, -1) : s.layout.stack
+        return { panes, layout: { ...s.layout, stack } }
+      }
+      for (const id of s.layout.slotPanes) {
+        const p = panes[id]
+        if (p?.kind !== 'inspector' || !p.target) continue
+        clearSource(p.source)
+        panes[id] = { ...p, target: undefined, source: undefined }
+      }
+      return { panes }
+    }),
 }))
 
 /** Detail cache lookup for the active context. */
@@ -489,7 +643,7 @@ export function eventsFor(
   namespace: string,
   name: string,
 ): KubernetesEvent[] {
-  const list = s.lists[listKey(null, SECTION.events, 'Global', null)]
+  const list = s.lists[listKey(s.session.activeContext, SECTION.events, 'Cluster', null)]
   return (list?.rows ?? []).filter(
     (e): e is KubernetesEvent =>
       typeof e === 'object' &&

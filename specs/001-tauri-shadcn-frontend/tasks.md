@@ -253,16 +253,16 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Tests for User Story 1 ⚠️ (write first, must fail)
 
-- [ ] T054 [P] [US1] Write the E2E test `ui/tests/e2e/us1-context-switch.spec.ts`. Selecting context `kind-b` sends the expected refresh commands, and late `kind-a` envelopes emitted afterwards never render, per FR-016 and acceptance scenario 1. It also covers these edge cases: with no kubeconfig or an unreachable cluster, the `NoKubeconfig` or `ErrorState` pane shows instead of a blank screen; while loading, `Loading` shows; after a subscription failure, `Disconnected` shows (FR-017). It ports `tests/gui_context_switching.rs`.
-- [ ] T055 [P] [US1] Write the E2E test `ui/tests/e2e/us1-pods-list.spec.ts`:
+- [X] T054 [P] [US1] Write the E2E test `ui/tests/e2e/us1-context-switch.spec.ts`. Selecting context `kind-b` sends the expected refresh commands, and late `kind-a` envelopes emitted afterwards never render, per FR-016 and acceptance scenario 1. It also covers these edge cases: with no kubeconfig or an unreachable cluster, the `NoKubeconfig` or `ErrorState` pane shows instead of a blank screen; while loading, `Loading` shows; after a subscription failure, `Disconnected` shows (FR-017). It ports `tests/gui_context_switching.rs`.
+- [X] T055 [P] [US1] Write the E2E test `ui/tests/e2e/us1-pods-list.spec.ts`:
   - 500 pods render.
   - Typing `web-` filters case-insensitively by name prefix and namespace, and clearing restores all rows.
   - Emitting an updated batch adds and removes a row without losing the search text or selection (scenarios 2–3).
   - It ports `tests/gui_pods.rs` and `tests/gui_search_filter.rs`.
-- [ ] T056 [P] [US1] Write the E2E test `ui/tests/e2e/us1-inspector.spec.ts`. Selecting a pod sends the read commands, and the inspector shows the sections Metadata, Status/Conditions, Spec, Labels/Annotations, YAML, and Events (scenario 4). When a later list batch drops the selected object, the inspector shows `NoLongerExists` (edge case).
-- [ ] T057 [P] [US1] Write the E2E test `ui/tests/e2e/us1-namespace-filter.spec.ts`. The global namespace filter carries from Pods into Deployments and ConfigMaps (scenario 5).
-- [ ] T058 [P] [US1] Write the unit test `ui/tests/unit/search-sort.test.ts` for `matchesQuery` and the sort comparators (name, age, status, numeric columns).
-- [ ] T059 [P] [US1] Write the unit test `ui/tests/unit/descriptors.test.ts`, covering every descriptor in `ui/src/resources/index.ts`:
+- [X] T056 [P] [US1] Write the E2E test `ui/tests/e2e/us1-inspector.spec.ts`. Selecting a pod sends the read commands, and the inspector shows the sections Metadata, Status/Conditions, Spec, Labels/Annotations, YAML, and Events (scenario 4). When a later list batch drops the selected object, the inspector shows `NoLongerExists` (edge case).
+- [X] T057 [P] [US1] Write the E2E test `ui/tests/e2e/us1-namespace-filter.spec.ts`. The global namespace filter carries from Pods into Deployments and ConfigMaps (scenario 5).
+- [X] T058 [P] [US1] Write the unit test `ui/tests/unit/search-sort.test.ts` for `matchesQuery` and the sort comparators (name, age, status, numeric columns).
+- [X] T059 [P] [US1] Write the unit test `ui/tests/unit/descriptors.test.ts`, covering every descriptor in `ui/src/resources/index.ts`:
   - it has priority-1 `name` and `status` columns;
   - the sum of its priority-1 `minWidth` is ≤ 358;
   - its `rowKey` is unique on its fixture;
@@ -270,29 +270,29 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Implementation for User Story 1
 
-- [ ] T060 [US1] Define `ResourceDescriptor<R>`, `ColumnDef` (`priority: 1 | 2 | 3 | 4 | 5`, `minWidth`), `DetailSection`, and `ActionDescriptor` exactly as in data-model.md §5, in `ui/src/resources/types.ts`. Add the registry keyed by `SectionKey` in `ui/src/resources/index.ts`.
-- [ ] T061 [US1] Implement `matchesQuery(row, q)` (case-insensitive name prefix or namespace) and the typed sort helpers in `ui/src/resources/search.ts`.
-- [ ] T062 [US1] Implement `ResourceTable` in `ui/src/components/ResourceTable.tsx`:
+- [X] T060 [US1] Define `ResourceDescriptor<R>`, `ColumnDef` (`priority: 1 | 2 | 3 | 4 | 5`, `minWidth`), `DetailSection`, and `ActionDescriptor` exactly as in data-model.md §5, in `ui/src/resources/types.ts`. Add the registry keyed by `SectionKey` in `ui/src/resources/index.ts`.
+- [X] T061 [US1] Implement `matchesQuery(row, q)` (case-insensitive name prefix or namespace) and the typed sort helpers in `ui/src/resources/search.ts`.
+- [X] T062 [US1] Implement `ResourceTable` in `ui/src/components/ResourceTable.tsx`:
   - TanStack Table + `useVirtualizer` (row height from a density CSS variable).
   - Header sort, a search input bound to `PaneState.search`, and multi-select checkboxes bound to `store.selection`.
   - Truncated cells use `title` and a long-press tooltip.
   - No horizontal scroll; the body uses `overflow-y: auto; overflow-x: hidden`.
   - Selecting a row calls `openInspector(ref)`.
-- [ ] T063 [US1] Implement `Inspector` in `ui/src/components/Inspector.tsx` and `ui/src/components/DetailSections.tsx`:
+- [X] T063 [US1] Implement `Inspector` in `ui/src/components/Inspector.tsx` and `ui/src/components/DetailSections.tsx`:
   - Tabs for Details, YAML (a monospace `<pre>` that may scroll horizontally, per FR-010), and Events.
   - Sections rendered from `descriptor.detailSections`, which mirror `src/app/views/detail_sections.rs`.
   - It shows the columns hidden by the current column budget (FR-009).
-- [ ] T064 [US1] Implement `ContextPicker` and `NamespacePicker` (shadcn Select, a searchable Command when there are more than 10 options) in `ui/src/components/ContextPicker.tsx` and `ui/src/components/NamespacePicker.tsx`. On change, they update `session`, reset the lists, and send the context/namespace commands from `src/protocol/v1/cmd.rs`.
-- [ ] T065 [US1] Implement the `NavTree` in `ui/src/components/NavTree.tsx`:
+- [X] T064 [US1] Implement `ContextPicker` and `NamespacePicker` (shadcn Select, a searchable Command when there are more than 10 options) in `ui/src/components/ContextPicker.tsx` and `ui/src/components/NamespacePicker.tsx`. On change, they update `session`, reset the lists, and send the context/namespace commands from `src/protocol/v1/cmd.rs`.
+- [X] T065 [US1] Implement the `NavTree` in `ui/src/components/NavTree.tsx`:
   - Groups and sections mirror `src/sections/` and `src/app/ui_left.rs`.
   - Expanded groups come from `UiConfigLoaded.expanded_groups` and persist via debounced `SaveUiConfig`.
   - Selecting a section sets the route of the focused list pane and sends `descriptor.refresh(route)`.
-- [ ] T066 [US1] Implement the pods descriptor in `ui/src/resources/pods.ts`:
+- [X] T066 [US1] Implement the pods descriptor in `ui/src/resources/pods.ts`:
   - Columns: name p1, status p1, ready p2, restarts p2, namespace p2, age p3, node p4, IP p5.
   - The pod detail sections.
   - `selectListEvent` for the pods `ResourceListEvent` arm.
   - Port the formatting from `src/app/views/pods.rs`.
-- [ ] T067 [US1] Implement the deployments descriptor in `ui/src/resources/deployments.ts` and `ui/src/resources/workloads.ts`: columns for name, ready, up-to-date, available, and age, with the detail sections from `src/app/views/workloads.rs`.
+- [X] T067 [US1] Implement the deployments descriptor in `ui/src/resources/deployments.ts` and `ui/src/resources/workloads.ts`: columns for name, ready, up-to-date, available, and age, with the detail sections from `src/app/views/workloads.rs`.
 
 **Checkpoint (MVP)**: The Pods and Deployments flows pass T054–T057 at the phone and wide projects.
 

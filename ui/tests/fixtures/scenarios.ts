@@ -9,6 +9,7 @@ import {
   clusterEvents,
   contextChanged,
   contexts,
+  deploymentDetail,
   deployments,
   emptyContexts,
   namespaces,
@@ -23,7 +24,7 @@ import {
   uiConfigDefault,
 } from './batches'
 import { batch, system } from './builders'
-import { genPods, type FixtureContext } from './gen-pods'
+import { genDeployments, genPods, type FixtureContext } from './gen-pods'
 
 /** Mutable backend-side state the fake keeps between commands. */
 export interface FakeBackendState {
@@ -110,9 +111,17 @@ function cluster(podRows: () => PodSummary[] = () => PODS_500): Replies {
       const pod = rows.find((p) => p.namespace === cmd.data.namespace && p.name === cmd.data.name)
       return pod ? [podDetail(s.context, pod)] : []
     },
+    SelectDeployment: (cmd, s) => {
+      if (!s.context) return []
+      const d = genDeployments(s.context).find(
+        (x) => x.namespace === cmd.data.namespace && x.name === cmd.data.name,
+      )
+      const rows = s.context === 'kind-a' ? podRows() : PODS_KIND_B
+      return d ? [deploymentDetail(s.context, d, rows)] : []
+    },
     RefreshEvents: (_cmd, s) => {
       const first = s.context === 'kind-b' ? PODS_KIND_B[0] : podRows()[0]
-      return first ? [clusterEvents(first)] : []
+      return first && s.context ? [clusterEvents(first, 55, s.context)] : []
     },
   }
 }

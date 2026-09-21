@@ -70,7 +70,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:4173',
     trace: 'retain-on-failure',
   },
   projects: ENGINES.flatMap(({ engine, device }) =>
@@ -86,9 +86,11 @@ export default defineConfig({
     })),
   ),
   webServer: {
-    command: 'pnpm dev:fake',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+    // A built fake-mode bundle, not the dev server: unbundled Vite modules under
+    // fully parallel workers made page boot time out intermittently.
+    command: 'pnpm e2e:serve',
+    url: 'http://localhost:4173',
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 })

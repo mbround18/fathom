@@ -5,7 +5,7 @@ import { resolveProfile } from '@/layout/defaults'
 import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
-import { assignPanes, type Notice } from '../index'
+import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
   Info: 'info',
@@ -24,6 +24,8 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       conn.lastNotice = { level, message: event.data.message, at: Date.now() }
       if (env.correlation.type === 'Request') {
         resolvePending(d, env.correlation.data, level !== 'error', event.data.message)
+      } else if (level === 'error') {
+        failLoadingLists(d, event.data.message)
       }
       return
     }
@@ -47,6 +49,7 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       session.namespaces = []
       session.activeNamespace = null
       session.namespaceFilter = []
+      d.put('lists', markLoading(d.read('lists'), current, CONTEXT_LISTS))
       return
     }
 
@@ -107,6 +110,33 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
   }
+}
+
+/**
+ * Protocol v1 reports a failed refresh only as an uncorrelated error `Notification` (the
+ * backend's `notify_error`). Attribute it to the active context's lists that are still loading,
+ * so their panes show the error verbatim instead of spinning forever.
+ * TODO(protocol): route list failures by `Correlation::Request` or `Route` instead.
+ */
+function failLoadingLists(d: Draft, message: string): void {
+  const ctx = d.read('session').activeContext
+  if (ctx === undefined) return
+  const prefix = `${ctx}|`
+  const lists = d.read('lists')
+  const failing = Object.keys(lists).filter(
+    (k) => k.startsWith(prefix) && lists[k]?.status === 'loading',
+  )
+  // Lists the first `Initialize` never delivered have no entry yet (the pane shows Loading).
+  const missing = CONTEXT_LISTS.map((sec) => listKey(ctx, sec, 'Namespaced', null)).filter(
+    (k) => !(k in lists),
+  )
+  if (failing.length === 0 && missing.length === 0) return
+  const edit = d.edit('lists')
+  for (const k of failing) {
+    const prev = lists[k]
+    if (prev) edit[k] = { ...prev, status: 'error', error: message }
+  }
+  for (const k of missing) edit[k] = { rows: [], status: 'error', error: message, updatedAt: 0 }
 }
 
 /** Data-model rule 5: an action result resolves its pending entry with a toast. */

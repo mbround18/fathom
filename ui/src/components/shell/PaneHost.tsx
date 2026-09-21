@@ -1,13 +1,23 @@
 import { MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 
+import { Inspector } from '@/components/Inspector'
+import { NavTree } from '@/components/NavTree'
+import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
+import { descriptorFor } from '@/resources'
 import { cn } from '@/lib/utils'
-import { useStore, type PaneId, type PaneState } from '@/store'
+import { listKey, useStore, type PaneId, type PaneState } from '@/store'
 
 import { paneTitle, TOOL_LABEL } from './labels'
-import { NavList } from './NavList'
-import { Disconnected, Empty, Loading, MetricsUnavailable } from './PaneStates'
+import {
+  Disconnected,
+  Empty,
+  ErrorState,
+  Loading,
+  MetricsUnavailable,
+  NoKubeconfig,
+} from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -23,6 +33,7 @@ interface PaneHostProps {
 export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
   const pane = useStore((s) => s.panes[paneId])
   const updatePane = useStore((s) => s.updatePane)
+  const focusList = useStore((s) => s.focusList)
   const scrollRef = useRef<HTMLDivElement>(null)
   const frame = useRef(0)
 
@@ -44,6 +55,9 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
 
   if (!pane) return null
   const title = paneTitle(pane)
+  // Lists and the inspector scroll inside (virtualized body, tab panels); the rest scroll here.
+  const selfScrolling = pane.kind === 'list' || pane.kind === 'inspector'
+  const onFocusWithin = pane.kind === 'list' ? () => focusList(pane.id) : undefined
 
   return (
     <section
@@ -52,6 +66,9 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       data-slot-index={slotIndex}
       data-pane-kind={pane.kind}
       data-pane-id={pane.id}
+      data-section={pane.route?.section}
+      onPointerDownCapture={onFocusWithin}
+      onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
     >
       <header className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card px-2">
@@ -60,14 +77,27 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
             {String(slotIndex + 1).padStart(2, '0')}
           </span>
         )}
-        <h2 className="min-w-0 truncate font-display text-xs font-semibold tracking-wider uppercase">
+        <h2
+          className={cn(
+            'min-w-0 truncate text-xs font-semibold',
+            pane.kind === 'inspector' && pane.target
+              ? 'font-mono text-accent-neon'
+              : 'font-display tracking-wider uppercase',
+          )}
+        >
           {title}
         </h2>
       </header>
       {pane.kind === 'list' && <PaneSearch pane={pane} />}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto">
-        <PaneBody pane={pane} />
-      </div>
+      {selfScrolling ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <PaneBody pane={pane} />
+        </div>
+      ) : (
+        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto">
+          <PaneBody pane={pane} />
+        </div>
+      )}
     </section>
   )
 }
@@ -93,21 +123,13 @@ function PaneSearch({ pane }: { pane: PaneState }) {
 }
 
 function PaneBody({ pane }: { pane: PaneState }) {
-  const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const fatal = useStore((s) => s.conn.fatal)
-
   switch (pane.kind) {
     case 'nav':
-      return <NavList />
+      return <NavTree />
     case 'list':
-      if (disconnected) return <Disconnected detail={fatal} />
-      return pane.route ? (
-        <Loading label={`Loading ${pane.route.section}`} />
-      ) : (
-        <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
-      )
+      return <ListBody pane={pane} />
     case 'inspector':
-      return <Empty title="Nothing selected" detail="Select a resource to inspect it." />
+      return <Inspector pane={pane} />
     case 'tool':
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       return (
@@ -117,4 +139,69 @@ function PaneBody({ pane }: { pane: PaneState }) {
         />
       )
   }
+}
+
+/** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
+function ListBody({ pane }: { pane: PaneState }) {
+  const disconnected = useStore((s) => s.conn.status === 'backend-gone')
+  const fatal = useStore((s) => s.conn.fatal)
+  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
+  const notice = useStore((s) => s.conn.lastNotice?.message)
+  const ctx = useStore((s) => s.session.activeContext)
+  const section = pane.route?.section
+  const list = useStore((s) =>
+    section === undefined ? undefined : s.lists[listKey(ctx, section, 'Namespaced', null)],
+  )
+  const refreshSection = useStore((s) => s.refreshSection)
+  const descriptor = descriptorFor(section)
+
+  if (disconnected) return <Disconnected detail={fatal} />
+  if (noKubeconfig) return <NoKubeconfig detail={notice} />
+  if (section === undefined) {
+    return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
+  }
+  if (!descriptor) {
+    return (
+      <Empty
+        title="Not ported yet"
+        detail="This section still lives in the egui app; it arrives in a later milestone."
+      />
+    )
+  }
+  const hasRows = (list?.rows.length ?? 0) > 0
+  if (!list || (list.status === 'loading' && !hasRows) || (list.status === 'idle' && !hasRows)) {
+    return <Loading label={`Loading ${descriptor.label}`} />
+  }
+  if (list.status === 'error' && !hasRows) {
+    return (
+      <ErrorState
+        title={`Cannot list ${descriptor.label.toLowerCase()}`}
+        detail={list.error}
+        onRetry={() => refreshSection(section)}
+      />
+    )
+  }
+  return (
+    <>
+      {list.status === 'loading' && (
+        <div
+          role="status"
+          aria-label="Refreshing"
+          className="h-0.5 shrink-0 animate-pulse bg-accent-neon/70"
+        />
+      )}
+      {list.status === 'error' && (
+        <p
+          role="alert"
+          className="shrink-0 border-b border-status-err/50 px-2 py-1 text-xs text-status-err"
+        >
+          <span aria-hidden="true">✖ </span>
+          {list.error}
+        </p>
+      )}
+      <div className="min-h-0 flex-1">
+        <ResourceTable pane={pane} descriptor={descriptor} rows={list.rows} />
+      </div>
+    </>
+  )
 }

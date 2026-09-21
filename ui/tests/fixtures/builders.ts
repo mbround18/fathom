@@ -23,12 +23,15 @@ export const SECTIONS = {
 
 export const NO_CORRELATION: Correlation = { type: 'None' }
 
-/** `Route::global(section)`: System events, cluster events. */
+/** `Route::global(section)`: context-less System events (notifications, contexts, UI config). */
 export function globalRoute(section: string = SECTIONS.system): Route {
   return { section, scope: 'Global', context: null, namespace: null }
 }
 
-/** `Route::cluster(section, context)`: e.g. NamespacesUpdated. */
+/**
+ * `Route::cluster(section, context)`: namespaces, nodes, cluster events, and context-bound System
+ * results (Flux overview, metrics-stack scan, disk usage).
+ */
 export function clusterRoute(context: string, section: string = SECTIONS.system): Route {
   return { section, scope: 'Cluster', context, namespace: null }
 }

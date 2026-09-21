@@ -4,12 +4,13 @@
  * Routes and correlations mirror what `src/backend` emits today: System events on
  * `Route::global("system")`, namespaces on `Route::cluster("system", ctx)`, pod/deployment lists
  * on `Route::namespaced(section, ctx, None)`, reads on the object's namespace, and cluster
- * events on `Route::global("events")`. Protocol v1 backends send `Correlation::None`; the
+ * events on `Route::cluster("events", ctx)`. Protocol v1 backends send `Correlation::None`; the
  * `Request` fixtures below exercise the staleness rule for when they don't.
  */
-import type { EventBatch, PodSummary, UiConfig } from '../../src/protocol/types'
-import { batch, clusterRoute, globalRoute, list, nsRoute, read, SECTIONS, system } from './builders'
+import type { EventBatch, PodSummary, UiConfig, WorkloadSummary } from '../../src/protocol/types'
+import { batch, clusterRoute, list, nsRoute, read, SECTIONS, system } from './builders'
 import {
+  deploymentDetails,
   genDeployments,
   genPods,
   NAMESPACES,
@@ -191,11 +192,30 @@ export function podDetail(context: FixtureContext, pod: PodSummary, seq = 50): E
 
 export const podDetailKindA: EventBatch = podDetail('kind-a', DETAIL_POD)
 
-/** `RefreshEvents` reply: cluster events (global route, no context) about DETAIL_POD. */
-export function clusterEvents(pod: PodSummary = DETAIL_POD, seq = 55): EventBatch {
+/** `SelectDeployment` reply (raw_json feeds the YAML view). */
+export function deploymentDetail(
+  context: FixtureContext,
+  d: WorkloadSummary,
+  rows: readonly PodSummary[] = context === 'kind-a' ? PODS_500 : PODS_KIND_B,
+  seq = 52,
+): EventBatch {
+  return batch([
+    read(seq, nsRoute(context, SECTIONS.deployments, d.namespace), {
+      type: 'DeploymentDetailsUpdated',
+      data: deploymentDetails(d, rows),
+    }),
+  ])
+}
+
+/** `RefreshEvents` reply: cluster events (`Route::cluster("events", ctx)`) about `pod`. */
+export function clusterEvents(
+  pod: PodSummary = DETAIL_POD,
+  seq = 55,
+  context: string = 'kind-a',
+): EventBatch {
   const events = podEvents(pod)
   return batch([
-    list(seq, globalRoute(SECTIONS.events), {
+    list(seq, clusterRoute(context, SECTIONS.events), {
       type: 'EventsUpdated',
       data: { events, total_count: events.length },
     }),
