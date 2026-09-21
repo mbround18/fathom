@@ -8,7 +8,9 @@
  *    the latest request already applied to the same list/detail key (FR-016).
  * 3. List replacement reuses unchanged row objects (handlers/list.ts).
  * 4. Stream chunks append to a bounded ring buffer (handlers/stream.ts).
- * 5. Action results resolve `pending[request_id]` with a toast (handlers/system.ts).
+ * 5. `CommandFinished` resolves the action awaiting `pending[request_id]` (store/actions.ts),
+ *    which toasts the outcome and refreshes on success. It is never dropped by rule 1: an
+ *    action's result matters even after a context switch.
  *
  * A batch with any envelope whose `version` is not 1 is a protocol mismatch: the whole batch
  * is ignored and the connection enters the fatal `backend-gone` state.
@@ -21,7 +23,7 @@ import { Draft } from './draft'
 import { handleList } from './handlers/list'
 import { handleRead, readKeyOf } from './handlers/read'
 import { handleStream } from './handlers/stream'
-import { handleSystem } from './handlers/system'
+import { handleCommandFinished, handleSystem } from './handlers/system'
 import { useStore, type StoreData, type StoreState } from './index'
 import { listKeyOf } from './keys'
 
@@ -58,6 +60,10 @@ export function reduceBatch(state: StoreData, batch: EventBatch): Draft {
 
 function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
   const event = env.event
+  if (event.type === 'CommandFinished') {
+    handleCommandFinished(d, env, event.data)
+    return
+  }
   // Rule 1: results for another context are stale (the operator switched away).
   if (env.route.context !== null && env.route.context !== d.read('session').activeContext) return
 

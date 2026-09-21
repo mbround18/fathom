@@ -64,13 +64,37 @@ export interface DetailSection<R, D = unknown> {
   render(ctx: DetailContext<R, D>): DetailBlock | null
 }
 
-/** Actions (delete, scale, restart, logs, port-forward, …) arrive in US3. */
+/** What an action's dialog collected (the scale dialog's replica count). */
+export interface ActionInput {
+  replicas?: number
+}
+
+/** One command an action sends, and the rows it covers (for per-object error reporting). */
+export interface ActionStep<R> {
+  cmd: BackendCmd
+  rows: R[]
+}
+
+/**
+ * A mutating action (US3). Every one goes through a dialog that names each object
+ * (constitution I): `confirm` → `ConfirmDialog`, `scale` → `ScaleDialog`.
+ */
 export interface ActionDescriptor<R> {
-  id: string
+  id: 'delete' | 'scale' | 'restart'
+  /** Menu and button label, e.g. `Delete`. */
   label: string
+  /** Past tense for the result toast, e.g. `Deleted`. */
+  done: string
+  /** Present participle for the in-flight toast, e.g. `Deleting`. */
+  doing: string
+  prompt: 'confirm' | 'scale'
   destructive?: boolean
+  /** Allowed on more than one row at once. */
   bulk?: boolean
-  command(rows: R[], ctx: { requestId: number }): BackendCmd | undefined
+  /** Scale: the current replica count shown as `current → new`. */
+  current?(row: R): number
+  /** The commands to send for `rows` (one per row, or one `BulkDelete`). */
+  plan(rows: R[], input: ActionInput): ActionStep<R>[]
 }
 
 export interface ResourceDescriptor<R, D = unknown> {

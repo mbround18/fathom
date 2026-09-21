@@ -1,6 +1,7 @@
 import { MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 
+import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
 import { Inspector } from '@/components/Inspector'
 import { NavTree } from '@/components/NavTree'
 import { ResourceTable } from '@/components/ResourceTable'
@@ -71,7 +72,7 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
     >
-      <header className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card px-2">
+      <header className="flex h-[max(2rem,var(--touch-target))] shrink-0 items-center gap-2 border-b border-border bg-card px-2">
         {slotIndex !== undefined && (
           <span aria-hidden="true" className="text-[0.65rem] text-accent-neon">
             {String(slotIndex + 1).padStart(2, '0')}
@@ -87,6 +88,14 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
         >
           {title}
         </h2>
+        <span className="ml-auto" />
+        {pane.kind === 'list' && <ListActions pane={pane} />}
+        {pane.kind === 'inspector' && pane.target && (
+          <InspectorActions
+            target={pane.target}
+            {...(pane.source !== undefined ? { source: pane.source } : {})}
+          />
+        )}
       </header>
       {pane.kind === 'list' && <PaneSearch pane={pane} />}
       {selfScrolling ? (
@@ -199,6 +208,7 @@ function ListBody({ pane }: { pane: PaneState }) {
           {list.error}
         </p>
       )}
+      <SelectionBar pane={pane} descriptor={descriptor} rows={list.rows} />
       <div className="min-h-0 flex-1">
         <ResourceTable pane={pane} descriptor={descriptor} rows={list.rows} />
       </div>

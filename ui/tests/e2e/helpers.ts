@@ -86,3 +86,45 @@ export async function expectNoHorizontalScroll(page: Page): Promise<void> {
   }))
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
 }
+
+// ---- US3 actions
+
+/** The `RequestId` the fake will assign to the next command. */
+export async function nextRequestId(page: Page): Promise<number> {
+  return page.evaluate(() => window.__fathomFake?.nextRequestId() ?? -1)
+}
+
+/** Deliver `CommandFinished` for `requestId`, as the backend does when the command completes. */
+export async function finish(
+  page: Page,
+  requestId: number,
+  ok: boolean,
+  error?: string,
+): Promise<void> {
+  await page.evaluate(([id, o, e]) => window.__fathomFake?.finish(id, o, e), [
+    requestId,
+    ok,
+    error,
+  ] as const)
+}
+
+/** Tick a row's checkbox (multi-select). */
+export async function check(page: Page, key: string, section: string = PODS): Promise<void> {
+  const box = row(page, key, section).getByRole('checkbox', { name: `Select ${key}` })
+  await box.click()
+  await expect(box).toHaveAttribute('aria-checked', 'true')
+}
+
+/** Make `section`'s list visible (wide/ultra show deployments beside pods already). */
+export async function showList(page: Page, section: string, label: string): Promise<void> {
+  if (!(await table(page, section).isVisible())) await navigateTo(page, label)
+  await expect(table(page, section)).toBeVisible()
+}
+
+/** The result toast of the latest action with outcome `type` (sonner's `data-type`). */
+export function actionToast(page: Page, type: 'success' | 'error' | 'loading'): Locator {
+  return page.locator(`[data-testid="action-toast"][data-type="${type}"]`)
+}
+
+export const confirmDialog = (page: Page): Locator => page.getByTestId('confirm-dialog')
+export const scaleDialog = (page: Page): Locator => page.getByTestId('scale-dialog')

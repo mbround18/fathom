@@ -9,4 +9,10 @@ export const deployments = workloadDescriptor({
   readEvent: 'DeploymentDetailsUpdated',
   refresh: { type: 'RefreshDeployments' },
   select: (namespace, name) => ({ type: 'SelectDeployment', data: { namespace, name } }),
+  scale: (namespace, name, replicas) => ({
+    type: 'ScaleDeployment',
+    data: { namespace, name, replicas },
+  }),
+  restart: (namespace, name) => ({ type: 'RestartDeployment', data: { namespace, name } }),
+  delete: (namespace, name) => ({ type: 'DeleteDeployment', data: { namespace, name } }),
 })

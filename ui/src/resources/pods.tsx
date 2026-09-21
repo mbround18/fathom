@@ -8,6 +8,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { selectCmd } from '@/protocol/commands'
 import type { PodDetails, PodSummary } from '@/protocol/types'
 
+import { deleteAction } from './actions'
 import { formatAge, formatMi, formatMillicores } from './format'
 import { compareNumber, compareStatus, compareText } from './search'
 import type { DetailSection, ResourceDescriptor } from './types'
@@ -190,7 +191,15 @@ export const pods: ResourceDescriptor<PodSummary, PodDetails> = {
     return [...(cmd ? [cmd] : []), { type: 'RefreshEvents' }]
   },
   detailSections: podSections,
-  actions: [],
+  actions: [
+    deleteAction<PodSummary>(
+      (namespace, name) => ({ type: 'DeletePod', data: { namespace, name } }),
+      (rows) => ({
+        type: 'BulkDelete',
+        data: { items: rows.map((r): [string, string] => [r.namespace, r.name]) },
+      }),
+    ),
+  ],
   selectListEvent: (e) => (e.type === 'PodsUpdated' ? e.data : undefined),
   selectDetail: (d) => (d.eventType === 'PodDetailsUpdated' ? (d.data as PodDetails) : undefined),
   rawJson: (d) => d.raw_json,

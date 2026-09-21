@@ -141,6 +141,18 @@ export interface PendingAction {
   sentAt: number
 }
 
+/** An action awaiting the operator's confirmation (the dialog host renders it). */
+export interface ActionPrompt {
+  section: SectionKey
+  actionId: string
+  /** Snapshot of the rows at the time the action was chosen; the dialog names each one. */
+  rows: readonly ListRow[]
+  /** List pane whose selection the action came from (cleared on success; focus returns here). */
+  paneId?: PaneId
+  /** Where focus goes when the dialog closes, if it is still in the document. */
+  returnFocus?: HTMLElement | null
+}
+
 export interface MetricsState {
   diskUsage: DiskUsage[]
   stackScan?: MetricsStackScanResult
@@ -198,6 +210,8 @@ export interface StoreData {
   selection: Record<PaneId, string[]>
   /** Actions awaiting a result, by request id. */
   pending: Record<number, PendingAction>
+  /** The action dialog on screen, if any. */
+  actionPrompt?: ActionPrompt
   ui: UiConfig
   prefs: PrefsState
 }
@@ -205,6 +219,11 @@ export interface StoreData {
 export interface StoreState extends StoreData {
   /** Fire-and-forget command sink; `useBackend` installs the transport-backed one. */
   send: (cmd: BackendCmd) => void
+  /**
+   * Send a command and resolve to its `RequestId` (the key of its `CommandFinished`). Rejects
+   * if the backend is gone. `useBackend` installs the transport-backed one.
+   */
+  request: (cmd: BackendCmd) => Promise<number>
 
   setWidthClass: (cls: WidthClass, ultraPlus?: boolean) => void
   /** Persist a resized/rearranged profile for the current class. */
@@ -241,6 +260,12 @@ export interface StoreState extends StoreData {
   closeInspector: () => void
   /** Toggle one row in a pane's multi-select (bulk actions). */
   toggleRowSelected: (paneId: PaneId, rowKey: string) => void
+  /** Replace a pane's multi-select (`[]` clears it). */
+  setSelection: (paneId: PaneId, rowKeys: string[]) => void
+  /** Show the confirm/scale dialog for an action (US3). Nothing is sent until it is confirmed. */
+  openAction: (prompt: ActionPrompt) => void
+  /** Dismiss the action dialog (Esc, Cancel, or after confirming). */
+  closeAction: () => void
   /** Expand/collapse navigator groups; persisted with a debounced `SaveUiConfig`. */
   setExpandedGroups: (groups: string[]) => void
 }
@@ -368,6 +393,7 @@ export function initialData(): StoreData {
     panes,
     selection: {},
     pending: {},
+    actionPrompt: undefined,
     ui: DEFAULT_UI,
     prefs: { loaded: false, expandedGroups: [], mcpAutoStart: false },
   }
@@ -377,6 +403,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   ...initialData(),
 
   send: () => undefined,
+  request: () => Promise.reject(new Error('Not connected to the Fathom backend yet.')),
 
   setWidthClass: (cls, ultraPlus = false) =>
     set((s) => {
@@ -592,6 +619,13 @@ export const useStore = create<StoreState>()((set, get) => ({
         : [...current, rowKey]
       return { selection: { ...s.selection, [paneId]: next } }
     }),
+
+  setSelection: (paneId, rowKeys) =>
+    set((s) => ({ selection: { ...s.selection, [paneId]: rowKeys } })),
+
+  openAction: (prompt) => set({ actionPrompt: prompt }),
+
+  closeAction: () => set({ actionPrompt: undefined }),
 
   setExpandedGroups: (groups) => {
     set((s) => ({ prefs: { ...s.prefs, expandedGroups: groups } }))

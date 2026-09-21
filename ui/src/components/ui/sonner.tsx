@@ -27,7 +27,12 @@ function Toaster(props: ToasterProps) {
           '--border-radius': 'var(--radius)',
         } as CSSProperties
       }
-      toastOptions={{ classNames: { toast: 'cn-toast notch font-mono' } }}
+      toastOptions={{
+        classNames: {
+          toast: 'cn-toast notch font-mono',
+          description: 'whitespace-pre-line break-words',
+        },
+      }}
       {...props}
     />
   )

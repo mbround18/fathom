@@ -369,27 +369,27 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T089 [P] [US3] Write the E2E test `ui/tests/e2e/us3-scale.spec.ts`. Scale a deployment to 3; the dialog shows current → new, and confirming sends `ScaleDeployment` exactly once (scenario 1).
-- [ ] T090 [P] [US3] Write the E2E test `ui/tests/e2e/us3-bulk-delete.spec.ts`:
+- [X] T089 [P] [US3] Write the E2E test `ui/tests/e2e/us3-scale.spec.ts`. Scale a deployment to 3; the dialog shows current → new, and confirming sends `ScaleDeployment` exactly once (scenario 1).
+- [X] T090 [P] [US3] Write the E2E test `ui/tests/e2e/us3-bulk-delete.spec.ts`:
   - Select 3 pods, then Delete. The dialog lists every `namespace/name`, and Cancel sends nothing.
   - Confirming sends `BulkDelete`.
   - With more than 5 items, the user must type the count to confirm (scenario 2).
-- [ ] T091 [P] [US3] Write the E2E test `ui/tests/e2e/us3-failure.spec.ts`. The fake emits an error result; an error toast shows the backend message, and the rows are unchanged (scenario 3).
+- [X] T091 [P] [US3] Write the E2E test `ui/tests/e2e/us3-failure.spec.ts`. The fake emits an error result; an error toast shows the backend message, and the rows are unchanged (scenario 3).
 
 ### Implementation for User Story 3
 
-- [ ] T092 [US3] Implement `ConfirmDialog` in `ui/src/components/ConfirmDialog.tsx`, using shadcn AlertDialog:
+- [X] T092 [US3] Implement `ConfirmDialog` in `ui/src/components/ConfirmDialog.tsx`, using shadcn AlertDialog:
   - Props: `title`, `items: {namespace, name}[]`, `detail?: ReactNode`, `requireTypedCount` (true when there are more than 5 items), and `destructive`.
   - Esc and Cancel never send.
-- [ ] T093 [US3] Implement `runAction(descriptor, action, refs)` in `ui/src/store/actions.ts`:
+- [X] T093 [US3] Implement `runAction(descriptor, action, refs)` in `ui/src/store/actions.ts`:
   - It registers `pending[request_id]`, sends the command, and resolves on the matching result event with a sonner toast (✓ or ✗ plus the backend message).
   - On success it clears the selection and refreshes the list. No optimistic removal.
-- [ ] T094 [US3] Add `actions` to the descriptors in `ui/src/resources/*.ts`, using the delete/scale/restart commands in `src/protocol/v1/cmd.rs`:
+- [X] T094 [US3] Add `actions` to the descriptors in `ui/src/resources/*.ts`, using the delete/scale/restart commands in `src/protocol/v1/cmd.rs`:
   - `Delete*` for every kind that has one.
   - `Scale*` for deployments, statefulsets, replicasets, and replicationcontrollers.
   - `Restart*` for deployments, daemonsets, statefulsets, replicasets, and replicationcontrollers.
   - `BulkDelete` when more than one row is selected.
-- [ ] T095 [US3] Implement `ScaleDialog` (a numeric input ≥ 0 showing current → new) in `ui/src/components/ScaleDialog.tsx`, and the row and pane-header action menus (DropdownMenu, plus a long-press context menu on touch) in `ui/src/components/ActionMenu.tsx`.
+- [X] T095 [US3] Implement `ScaleDialog` (a numeric input ≥ 0 showing current → new) in `ui/src/components/ScaleDialog.tsx`, and the row and pane-header action menus (DropdownMenu, plus a long-press context menu on touch) in `ui/src/components/ActionMenu.tsx`.
 
 **Checkpoint**: US3 works on its own, on top of US1.
 

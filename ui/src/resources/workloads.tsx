@@ -16,9 +16,10 @@ import type {
   WorkloadSummary,
 } from '@/protocol/types'
 
+import { deleteAction, restartAction, scaleAction } from './actions'
 import { formatAge } from './format'
 import { compareNumber, compareStatus, compareText } from './search'
-import type { DetailSection, ResourceDescriptor } from './types'
+import type { ActionDescriptor, DetailSection, ResourceDescriptor } from './types'
 
 /** `Available` when every desired replica is ready, else `Progressing` (with the counts). */
 export function workloadStatus(w: WorkloadSummary): string {
@@ -135,6 +136,18 @@ export interface WorkloadKind {
   readEvent: ReadType
   refresh: BackendCmd
   select: (namespace: string, name: string) => BackendCmd
+  /** US3 actions this kind supports in protocol v1 (cmd.rs); omitted = not offered. */
+  delete?: (namespace: string, name: string) => BackendCmd
+  scale?: (namespace: string, name: string, replicas: number) => BackendCmd
+  restart?: (namespace: string, name: string) => BackendCmd
+}
+
+function workloadActions(k: WorkloadKind): ActionDescriptor<WorkloadSummary>[] {
+  const out: ActionDescriptor<WorkloadSummary>[] = []
+  if (k.scale) out.push(scaleAction<WorkloadSummary>(k.scale, (w) => w.desired))
+  if (k.restart) out.push(restartAction<WorkloadSummary>(k.restart))
+  if (k.delete) out.push(deleteAction<WorkloadSummary>(k.delete))
+  return out
 }
 
 export function workloadDescriptor(
@@ -221,7 +234,7 @@ export function workloadDescriptor(
     refresh: () => k.refresh,
     read: (ref) => [k.select(ref.namespace ?? '', ref.name), { type: 'RefreshEvents' }],
     detailSections: sections(),
-    actions: [],
+    actions: workloadActions(k),
     selectListEvent: (e) => (e.type === k.listEvent ? (e.data as WorkloadSummary[]) : undefined),
     selectDetail: (d) => (d.eventType === k.readEvent ? (d.data as WorkloadDetails) : undefined),
     rawJson: (d) => d.raw_json,

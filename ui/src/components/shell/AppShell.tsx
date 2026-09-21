@@ -5,6 +5,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { ActionDialogHost } from '@/components/ActionDialogHost'
 import { NavTree } from '@/components/NavTree'
 import { Toaster } from '@/components/ui/sonner'
 import { useWidthClass } from '@/layout/use-width-class'
@@ -53,6 +54,7 @@ export function AppShell() {
           </SheetContent>
         </Sheet>
       )}
+      <ActionDialogHost />
       <Toaster position={narrow ? 'top-center' : 'bottom-right'} />
     </div>
   )

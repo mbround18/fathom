@@ -5,7 +5,9 @@ import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DiskUsage, EventBatch, PodSummary } from '@/protocol/types'
+import { pods as podDescriptor } from '@/resources/pods'
 import { eventsFor, initialData, listKey, useStore } from '@/store'
+import { resetActions, runAction } from '@/store/actions'
 import { ingest } from '@/store/ingest'
 
 import {
@@ -30,7 +32,7 @@ import {
 } from '../fixtures'
 import { batch, clusterRoute, envelope, nsRoute, stream, system } from '../fixtures/builders'
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn() } }))
 
 const DISK: DiskUsage = {
   namespace: 'default',
@@ -49,6 +51,8 @@ function podRows(key = PODS_A): readonly PodSummary[] {
 
 beforeEach(() => {
   useStore.setState(initialData())
+  resetActions()
+  vi.clearAllMocks()
 })
 
 describe('session', () => {
@@ -225,30 +229,33 @@ describe('rule 4: streams', () => {
   })
 })
 
+function commandFinishedEnv(seq: number, requestId: number, ok: boolean, error: string | null) {
+  return envelope(
+    seq,
+    clusterRoute('kind-b'),
+    { type: 'CommandFinished', data: { ok, error } },
+    {
+      type: 'Request',
+      data: requestId,
+    },
+  )
+}
+
 describe('rule 5: pending actions', () => {
-  it('resolves pending[request_id] with a toast and clears the selection on success', () => {
-    useStore.setState({
-      pending: { 12: { label: 'Delete 2 pods', paneId: 'list-1', sentAt: 0 } },
-      selection: { 'list-1': ['default/a', 'default/b'] },
-    })
-    ingest(
-      batch([
-        {
-          ...system(5, {
-            type: 'Notification',
-            data: { level: 'Info', message: 'Deleted 2 pods' },
-          }),
-          correlation: { type: 'Request', data: 12 },
-        },
-      ]),
-    )
-    const s = useStore.getState()
-    expect(s.pending).toEqual({})
-    expect(s.selection).toEqual({})
-    expect(toast.success).toHaveBeenCalledWith('Delete 2 pods', { description: 'Deleted 2 pods' })
+  it('CommandFinished resolves the action awaiting that request id, whatever its context', async () => {
+    useStore.setState({ request: () => Promise.resolve(12) })
+    const [action] = podDescriptor.actions
+    const rows = PODS_500.slice(0, 2)
+    if (!action) throw new Error('pods have a delete action')
+    const run = runAction(podDescriptor, action, rows, { paneId: 'list-1' })
+    await vi.waitFor(() => expect(useStore.getState().pending[12]).toBeDefined())
+    ingest(batch([commandFinishedEnv(5, 12, true, null)]))
+    const outcome = await run
+    expect(outcome.ok).toHaveLength(2)
+    expect(useStore.getState().pending).toEqual({})
   })
 
-  it('keeps the selection and shows an error toast on failure', () => {
+  it("a pending action's error notification is only a notice: pending, selection untouched", () => {
     useStore.setState({
       pending: { 3: { label: 'Delete pod', paneId: 'list-1', sentAt: 0 } },
       selection: { 'list-1': ['default/a'] },
@@ -261,8 +268,28 @@ describe('rule 5: pending actions', () => {
         },
       ]),
     )
-    expect(useStore.getState().selection).toEqual({ 'list-1': ['default/a'] })
-    expect(toast.error).toHaveBeenCalledWith('Delete pod', { description: 'forbidden' })
+    const s = useStore.getState()
+    expect(s.selection).toEqual({ 'list-1': ['default/a'] })
+    expect(s.pending[3]).toBeDefined()
+    expect(s.conn.lastNotice?.message).toBe('forbidden')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('an error correlated with a refresh (not an action) still fails the loading lists', () => {
+    ingest(twoContexts)
+    useStore.getState().refreshSection('workloads/pods')
+    ingest(
+      batch([
+        {
+          ...system(6, { type: 'Notification', data: { level: 'Error', message: PODS_FORBIDDEN } }),
+          correlation: { type: 'Request', data: 41 },
+        },
+      ]),
+    )
+    expect(useStore.getState().lists[PODS_A]).toMatchObject({
+      status: 'error',
+      error: PODS_FORBIDDEN,
+    })
   })
 })
 

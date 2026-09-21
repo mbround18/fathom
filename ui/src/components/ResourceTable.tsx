@@ -7,7 +7,10 @@
  * - Search (`PaneState.search`), sort (`PaneState.sort`), the open row (`PaneState.selection`),
  *   and the keyboard cursor (`PaneState.focusedRow`) all live in the store, so re-layout keeps them.
  * - Keyboard: ↑/↓/Home/End/PageUp/PageDown move the cursor, Enter opens the inspector,
- *   Space toggles the row's checkbox.
+ *   Space toggles the row's checkbox, Delete asks to delete the checked rows (else the cursor
+ *   row), and Shift+F10 / the ContextMenu key open the cursor row's action menu.
+ * - Actions (US3): right-click, the row's ⋯ button, or a long press on touch opens the row's
+ *   action menu; a long press on a row without actions peeks the pressed cell's full text.
  */
 import {
   createColumnHelper,
@@ -18,6 +21,7 @@ import {
   type SortingState,
   type Updater,
 } from '@tanstack/react-table'
+import { DotsThreeVerticalIcon } from '@phosphor-icons/react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   memo,
@@ -29,10 +33,13 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react'
 
+import { RowActionMenu, type RowMenuState } from '@/components/ActionMenu'
+import { promptAction } from '@/components/action-utils'
 import { computeVisibleColumns } from '@/layout/column-budget'
 import { cn } from '@/lib/utils'
 import type { AnyDescriptor, ColumnDef } from '@/resources'
@@ -55,6 +62,12 @@ interface Item {
 const helper = createColumnHelper<typeof features, Item>()
 
 const NO_SELECTION: readonly string[] = []
+
+/** A long press opened a menu: swallow the click the release would otherwise produce. */
+let suppressClickUntil = 0
+
+/** Opens the row menu at viewport point (x, y); `peek` is the long-pressed cell's text. */
+type OpenRowMenu = (rowKey: string, x: number, y: number, peek?: string) => void
 
 function cssPx(el: Element, name: string, fallback: number): number {
   const v = parseFloat(getComputedStyle(el).getPropertyValue(name))
@@ -187,6 +200,41 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
   }, [pane.id, updatePane])
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
 
+  // ---- actions (US3)
+  const checkedSet = useMemo(() => new Set(checked), [checked])
+  const gridRef = useRef<HTMLDivElement>(null)
+  const [menu, setMenu] = useState<RowMenuState | undefined>(undefined)
+  const hasActions = descriptor.actions.length > 0
+  const openMenu = useCallback<OpenRowMenu>((rowKey, x, y, peek) => {
+    setMenu({ rowKey, x, y, ...(peek !== undefined ? { peek } : {}) })
+  }, [])
+  const menuRow = useMemo(
+    () => (menu ? rows.find((r) => descriptor.rowKey(r) === menu.rowKey) : undefined),
+    [descriptor, menu, rows],
+  )
+  const deleteAction = descriptor.actions.find((a) => a.id === 'delete')
+  const promptDelete = () => {
+    if (!deleteAction) return false
+    const targets =
+      checked.length > 0
+        ? rows.filter((r) => checkedSet.has(descriptor.rowKey(r)))
+        : rows.filter((r) => descriptor.rowKey(r) === pane.focusedRow)
+    if (targets.length === 0 || (targets.length > 1 && !deleteAction.bulk)) return false
+    promptAction(descriptor, deleteAction, targets, {
+      paneId: pane.id,
+      returnFocus: gridRef.current,
+    })
+    return true
+  }
+  const menuAtCursor = () => {
+    const key = pane.focusedRow
+    if (!hasActions || key === undefined) return false
+    const el = gridRef.current?.querySelector(`[data-row-key="${CSS.escape(key)}"]`)
+    const r = el?.getBoundingClientRect()
+    openMenu(key, r ? r.left + 32 : 32, r ? r.bottom : 32)
+    return true
+  }
+
   // ---- keyboard
   const focusedIndex = pane.focusedRow ? keys.indexOf(pane.focusedRow) : -1
   const moveTo = useCallback(
@@ -211,7 +259,12 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
     Math.floor((bodyRef.current?.clientHeight ?? rowHeight * 10) / rowHeight) - 1,
   )
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return
+    if (e.target !== e.currentTarget) {
+      // A clicked row or checkbox holds focus: still honour the action keys there.
+      const inRow = e.target instanceof HTMLElement && e.target.closest('[role="row"]') !== null
+      const actionKey = e.key === 'Delete' || e.key === 'ContextMenu' || e.key === 'F10'
+      if (!inRow || !actionKey) return
+    }
     switch (e.key) {
       case 'ArrowDown':
         moveTo(focusedIndex + 1)
@@ -237,6 +290,15 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
       case ' ':
         if (pane.focusedRow) toggleRowSelected(pane.id, pane.focusedRow)
         break
+      case 'Delete':
+        if (!promptDelete()) return
+        break
+      case 'ContextMenu':
+        if (!menuAtCursor()) return
+        break
+      case 'F10':
+        if (!e.shiftKey || !menuAtCursor()) return
+        break
       default:
         return
     }
@@ -251,7 +313,6 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
       ].join(' '),
     [visibleCols],
   )
-  const checkedSet = useMemo(() => new Set(checked), [checked])
   const cursorId = pane.focusedRow ? `${pane.id}-row-${String(focusedIndex)}` : undefined
 
   return (
@@ -263,6 +324,7 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
       className="flex h-full min-h-0 flex-col"
     >
       <div
+        ref={gridRef}
         role="grid"
         aria-label={descriptor.label}
         aria-rowcount={modelRows.length + 1}
@@ -370,6 +432,7 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
                     checked={checkedSet.has(row.id)}
                     onOpen={open}
                     onToggle={toggleRowSelected}
+                    onMenu={hasActions ? openMenu : undefined}
                   />
                 )
               })}
@@ -377,6 +440,16 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
           )}
         </div>
       </div>
+      {menu && menuRow !== undefined && (
+        <RowActionMenu
+          descriptor={descriptor}
+          row={menuRow}
+          menu={menu}
+          paneId={pane.id}
+          returnFocus={gridRef.current}
+          onClose={() => setMenu(undefined)}
+        />
+      )}
     </div>
   )
 }
@@ -406,6 +479,8 @@ interface GridRowProps {
   checked: boolean
   onOpen: (key: string) => void
   onToggle: (paneId: string, key: string) => void
+  /** Present when the kind has actions. */
+  onMenu?: OpenRowMenu | undefined
 }
 
 const GridRow = memo(function GridRow({
@@ -422,7 +497,15 @@ const GridRow = memo(function GridRow({
   checked,
   onOpen,
   onToggle,
+  onMenu,
 }: GridRowProps) {
+  const label = rowKey
+  const onContextMenu = onMenu
+    ? (e: MouseEvent) => {
+        e.preventDefault()
+        onMenu(rowKey, e.clientX, e.clientY)
+      }
+    : undefined
   return (
     <div
       id={id}
@@ -433,7 +516,11 @@ const GridRow = memo(function GridRow({
       data-focused={cursor ? 'true' : undefined}
       data-checked={checked ? 'true' : undefined}
       tabIndex={-1}
-      onClick={() => onOpen(rowKey)}
+      onClick={() => {
+        if (Date.now() < suppressClickUntil) return
+        onOpen(rowKey)
+      }}
+      onContextMenu={onContextMenu}
       onKeyDown={(e) => {
         if (e.key === 'Enter') onOpen(rowKey)
       }}
@@ -462,8 +549,35 @@ const GridRow = memo(function GridRow({
         />
       </div>
       {columns.map((c) => (
-        <Cell key={c.id} col={c} row={row} />
+        <Cell
+          key={c.id}
+          col={c}
+          row={row}
+          onLongPress={onMenu ? (x, y, text) => onMenu(rowKey, x, y, text) : undefined}
+        />
       ))}
+      {onMenu && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={`Actions for ${label}`}
+          aria-haspopup="menu"
+          data-testid="row-actions"
+          onClick={(e) => {
+            e.stopPropagation()
+            const r = e.currentTarget.getBoundingClientRect()
+            onMenu(rowKey, r.left, r.bottom)
+          }}
+          className={cn(
+            'absolute top-0 right-0 hidden h-full w-[max(1.5rem,var(--touch-target))] items-center justify-center bg-gradient-to-l from-background via-background/90 to-transparent text-muted-foreground outline-none hover:text-accent-neon [@media(pointer:fine)]:flex',
+            'opacity-0 group-hover/row:opacity-100 group-data-[focused=true]/row:opacity-100',
+            open &&
+              'from-primary via-primary/90 text-primary-foreground hover:text-primary-foreground',
+          )}
+        >
+          <DotsThreeVerticalIcon aria-hidden="true" weight="bold" className="size-4" />
+        </button>
+      )}
     </div>
   )
 })
@@ -507,8 +621,19 @@ function RowCheckbox({
 
 const LONG_PRESS_MS = 500
 
-/** One cell: truncates with a `title`, and a long press (touch) peeks the full text. */
-function Cell({ col, row }: { col: ColumnDef<Row>; row: Row }) {
+/**
+ * One cell: truncates with a `title`. A long press (touch) opens the row's action menu, which
+ * shows the full cell text, or, for kinds without actions, peeks the full text in place.
+ */
+function Cell({
+  col,
+  row,
+  onLongPress,
+}: {
+  col: ColumnDef<Row>
+  row: Row
+  onLongPress?: ((x: number, y: number, text: string) => void) | undefined
+}) {
   const text = col.text(row)
   const [peek, setPeek] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -516,7 +641,12 @@ function Cell({ col, row }: { col: ColumnDef<Row>; row: Row }) {
   const onPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== 'touch') return
     clear()
-    timer.current = setTimeout(() => setPeek(true), LONG_PRESS_MS)
+    const { clientX: x, clientY: y } = e
+    timer.current = setTimeout(() => {
+      suppressClickUntil = Date.now() + 800
+      if (onLongPress) onLongPress(x, y, text)
+      else setPeek(true)
+    }, LONG_PRESS_MS)
   }
   useEffect(() => clear, [])
   useEffect(() => {

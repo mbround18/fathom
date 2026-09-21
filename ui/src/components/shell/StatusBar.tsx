@@ -1,4 +1,4 @@
-import { WarningIcon } from '@phosphor-icons/react'
+import { SpinnerIcon, WarningIcon } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
 import { useStore, type ConnectionStatus } from '@/store'
@@ -15,6 +15,8 @@ export function StatusBar() {
   const dropped = useStore((s) => s.conn.dropped)
   const notice = useStore((s) => s.conn.lastNotice)
   const context = useStore((s) => s.session.activeContext)
+  const pendingIds = useStore((s) => Object.keys(s.pending).join(','))
+  const pendingCount = pendingIds === '' ? 0 : pendingIds.split(',').length
   const { label, dot } = STATUS[status]
 
   return (
@@ -45,9 +47,22 @@ export function StatusBar() {
           {notice.message}
         </span>
       )}
+      {pendingCount > 0 && (
+        <span
+          className="ml-auto flex shrink-0 items-center gap-1 text-accent-neon"
+          data-testid="pending-actions"
+          data-request-ids={pendingIds}
+        >
+          <SpinnerIcon aria-hidden="true" className="size-3.5 animate-spin" />
+          {pendingCount} pending
+        </span>
+      )}
       {dropped > 0 && (
         <span
-          className="ml-auto flex shrink-0 items-center gap-1 text-status-warn"
+          className={cn(
+            'flex shrink-0 items-center gap-1 text-status-warn',
+            pendingCount === 0 && 'ml-auto',
+          )}
           data-testid="dropped-warning"
         >
           <WarningIcon aria-hidden="true" className="size-3.5" />

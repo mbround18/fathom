@@ -1,9 +1,8 @@
 /** `BackendEvent::System` arm: session, notifications, integrations, persisted UI config. */
-import { toast } from 'sonner'
-
 import { resolveProfile } from '@/layout/defaults'
 import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
 
+import { commandFinished, type CommandResult } from '../actions'
 import type { Draft } from '../draft'
 import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
 
@@ -11,6 +10,24 @@ const LEVEL: Record<NotificationLevel, Notice['level']> = {
   Info: 'info',
   Warn: 'warn',
   Error: 'error',
+}
+
+/**
+ * `BackendEvent::CommandFinished`, emitted once per command with its `Request` correlation
+ * (data-model rule 5): hands the result to the action awaiting it (store/actions.ts) after the
+ * batch commits, so its toast and refresh see this batch's lists.
+ */
+export function handleCommandFinished(
+  d: Draft,
+  env: BackendEventEnvelope,
+  result: CommandResult,
+): void {
+  if (env.correlation.type !== 'Request') return
+  const id = env.correlation.data
+  const { ok, error } = result
+  d.effects.push(() => {
+    commandFinished(id, { ok, error })
+  })
 }
 
 export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemEvent): void {
@@ -22,9 +39,11 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       const level = LEVEL[event.data.level]
       const conn = d.edit('conn')
       conn.lastNotice = { level, message: event.data.message, at: Date.now() }
-      if (env.correlation.type === 'Request') {
-        resolvePending(d, env.correlation.data, level !== 'error', event.data.message)
-      } else if (level === 'error') {
+      // A pending action's own error is reported by its `CommandFinished` toast; any other
+      // error (e.g. a refresh's, now also `Request`-correlated) fails the loading lists.
+      const fromAction =
+        env.correlation.type === 'Request' && d.read('pending')[env.correlation.data] !== undefined
+      if (level === 'error' && !fromAction) {
         failLoadingLists(d, event.data.message)
       }
       return
@@ -137,22 +156,4 @@ function failLoadingLists(d: Draft, message: string): void {
     if (prev) edit[k] = { ...prev, status: 'error', error: message }
   }
   for (const k of missing) edit[k] = { rows: [], status: 'error', error: message, updatedAt: 0 }
-}
-
-/** Data-model rule 5: an action result resolves its pending entry with a toast. */
-function resolvePending(d: Draft, requestId: number, ok: boolean, message: string): void {
-  const action = d.read('pending')[requestId]
-  if (!action) return
-  d.put('pending', without(d.read('pending'), String(requestId)))
-  if (ok && action.paneId !== undefined) {
-    d.put('selection', without(d.read('selection'), action.paneId))
-  }
-  d.effects.push(() => {
-    if (ok) toast.success(action.label, { description: message })
-    else toast.error(action.label, { description: message })
-  })
-}
-
-function without<V>(record: Record<string, V>, key: string): Record<string, V> {
-  return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
 }

@@ -8,6 +8,7 @@
  * app-lifetime: StrictMode's double mount and later remounts reuse the first one.
  */
 import { useEffect } from 'react'
+import { toast } from 'sonner'
 import type { StoreApi } from 'zustand'
 
 import { useStore, type StoreState } from '@/store'
@@ -19,6 +20,7 @@ import type { BackendCmd } from './types'
 
 /** Text for a rejected `send_cmd`/`subscribe_events`, kept verbatim where possible. */
 export function describeBridgeError(err: unknown): string {
+  if (isForbidden(err)) return `Refused by the dev bridge write guard (Forbidden): ${err.data}`
   if (typeof err === 'object' && err !== null && 'type' in err && typeof err.type === 'string') {
     return err.type === 'BackendGone'
       ? 'The Fathom backend has stopped (BackendGone). Restart the app to reconnect.'
@@ -26,6 +28,21 @@ export function describeBridgeError(err: unknown): string {
   }
   if (err instanceof Error) return err.message
   return String(err)
+}
+
+/**
+ * The dev bridge's write guard refused one command (`BridgeError::Forbidden`). Unlike every
+ * other rejection this is not fatal: the backend is still there.
+ */
+function isForbidden(err: unknown): err is { type: 'Forbidden'; data: string } {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'type' in err &&
+    err.type === 'Forbidden' &&
+    'data' in err &&
+    typeof err.data === 'string'
+  )
 }
 
 /**
@@ -43,10 +60,27 @@ export async function connectBackend(
   }
   const send = (cmd: BackendCmd): void => {
     if (store.getState().conn.status === 'backend-gone') return
-    transport.send(cmd).catch(fail)
+    transport.send(cmd).catch((err: unknown) => {
+      if (isForbidden(err)) toast.error(describeBridgeError(err))
+      else fail(err)
+    })
   }
 
-  store.setState({ send, conn: { ...store.getState().conn, status: 'starting' } })
+  const request = async (cmd: BackendCmd): Promise<number> => {
+    if (store.getState().conn.status === 'backend-gone') {
+      throw new Error(store.getState().conn.fatal ?? 'The Fathom backend has stopped.')
+    }
+    try {
+      // Resolves to the command's `RequestId`; its result arrives as `CommandFinished`.
+      return await transport.send(cmd)
+    } catch (err) {
+      if (!isForbidden(err)) fail(err)
+      throw new Error(describeBridgeError(err), { cause: err })
+    }
+  }
+
+  store.setState({ send, request, conn: { ...store.getState().conn, status: 'starting' } })
+  transport.onGone?.(fail)
   try {
     await transport.subscribe((batch) => {
       ingest(batch, store)
