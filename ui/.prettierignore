@@ -1,0 +1,8 @@
+dist
+node_modules
+src-tauri
+playwright-report
+test-results
+pnpm-lock.yaml
+src/protocol/generated
+src/components/ui

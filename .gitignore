@@ -42,3 +42,10 @@ Cargo.lock
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,visualstudiocode
+
+### Frontend (ui/) ###
+ui/node_modules
+ui/dist
+ui/src-tauri/target
+ui/test-results
+ui/playwright-report

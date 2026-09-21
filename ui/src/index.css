@@ -1,0 +1,31 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import './theme/tokens.css';
+@import './theme/effects.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+
+  html {
+    @apply font-mono;
+    font-size: var(--font-size-base);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: var(--font-size-base);
+  }
+}

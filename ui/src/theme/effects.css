@@ -1,0 +1,149 @@
+/*
+ * Decorative effects (contracts/theme.md § Effects). Chrome, transitions, and empty/error states
+ * only: never table rows, log lines, or YAML.
+ *
+ * Kill switches:
+ *   html[data-effects="off"]            everything off (glow, scanlines, grain, glitch)
+ *   prefers-reduced-motion: reduce      every animation/transition off; static grain may remain
+ *   light variant (:root:not(.dark))    glow + scanlines off via tokens, grain reduced
+ *   glitch animates only with html[data-glitch="on"]
+ */
+
+/* ---------------------------------------------------------------- neon chrome (glow + scanlines) */
+.neon-chrome {
+  position: relative;
+  isolation: isolate;
+}
+
+.neon-chrome::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    oklch(100% 0 0 / var(--scanline-opacity)) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.glow-text {
+  text-shadow: var(--glow);
+}
+
+.glow-box {
+  box-shadow: var(--glow);
+}
+
+/* ---------------------------------------------------------------- grain / wear (static, never animates) */
+.grain {
+  position: relative;
+  isolation: isolate;
+}
+
+.grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.6 -.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Light paper: ink specks instead of light specks. */
+:root:not(.dark) .grain::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 .1 0 0 0 1.6 -.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------------------------------------------------------------- corner notch (dialogs, popovers) */
+.notch {
+  --notch: 10px;
+  background-image:
+    linear-gradient(var(--accent-neon), var(--accent-neon)),
+    linear-gradient(var(--accent-neon), var(--accent-neon)),
+    linear-gradient(var(--accent-neon), var(--accent-neon)),
+    linear-gradient(var(--accent-neon), var(--accent-neon));
+  background-repeat: no-repeat;
+  background-size:
+    var(--notch) 2px,
+    2px var(--notch),
+    var(--notch) 2px,
+    2px var(--notch);
+  background-position:
+    top left,
+    top left,
+    bottom right,
+    bottom right;
+}
+
+/* ---------------------------------------------------------------- glitch (opt-in, RGB split + slice) */
+@keyframes fathom-glitch {
+  0%,
+  100% {
+    text-shadow: none;
+    clip-path: none;
+    transform: none;
+  }
+  20% {
+    text-shadow:
+      -2px 0 var(--accent-2),
+      2px 0 var(--accent-neon);
+    clip-path: inset(8% 0 58% 0);
+    transform: translateX(-2px);
+  }
+  40% {
+    text-shadow:
+      2px 0 var(--accent-2),
+      -2px 0 var(--accent-neon);
+    clip-path: inset(62% 0 6% 0);
+    transform: translateX(2px);
+  }
+  60% {
+    text-shadow:
+      -1px 0 var(--accent-2),
+      1px 0 var(--accent-neon);
+    clip-path: inset(34% 0 38% 0);
+    transform: translateX(-1px);
+  }
+  80% {
+    text-shadow:
+      1px 0 var(--accent-2),
+      -1px 0 var(--accent-neon);
+    clip-path: none;
+    transform: none;
+  }
+}
+
+html[data-glitch='on'] .glitch:hover,
+html[data-glitch='on'] .glitch[data-glitching='true'] {
+  animation: fathom-glitch 200ms steps(4, end) 1;
+}
+
+/* ---------------------------------------------------------------- kill switches */
+html[data-effects='off'] {
+  --glow: none;
+  --scanline-opacity: 0;
+  --grain-opacity: 0;
+}
+
+html[data-effects='off'] .neon-chrome::after,
+html[data-effects='off'] .grain::before {
+  display: none;
+}
+
+html[data-effects='off'] .glitch,
+html[data-effects='off'] .glitch:hover {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

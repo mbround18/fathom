@@ -40,7 +40,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 - [ ] T001 Add a cargo feature `egui-ui` (in `default`) to root `Cargo.toml`, and make `eframe`, `egui`, and `egui_plot` (and any other egui-only normal deps) `optional = true` and enabled by `egui-ui`. Leave `egui_kittest` as a plain dev-dependency, because cargo does not allow optional dev-deps; the `required-features` on the GUI tests gates it. Add `required-features = ["egui-ui"]` to the `fathom` `[[bin]]` and to the `[[test]]` entries for `tests/gui_*.rs`. Verify with `cargo check --no-default-features --lib` and `cargo test` (the default still builds egui).
 - [ ] T002 Gate `pub mod app;` behind `#[cfg(feature = "egui-ui")]` in `src/lib.rs`, and fix any non-app module that imports from `crate::app`. `cargo check --no-default-features --lib` must pass with zero egui symbols.
-- [ ] T003 Scaffold the frontend in `ui/`:
+- [X] T003 Scaffold the frontend in `ui/`:
   - Run `pnpm create vite ui --template react-ts`. Set `"packageManager": "pnpm@9"` and the scripts `dev`, `dev:fake` (`VITE_TRANSPORT=fake vite`), `build`, `typecheck` (`tsc -b --noEmit`), `lint`, `test` (`vitest run`), `e2e` (`playwright test`), and `tauri` in `ui/package.json`.
   - Enable TS `strict`, `noUncheckedIndexedAccess`, and the path alias `@/* → src/*` in `ui/tsconfig.json`.
 - [ ] T004 Add Tauri v2 to `ui/`:
@@ -51,19 +51,19 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - In `ui/src-tauri/Cargo.toml`, name it `fathom-desktop`, set `edition = "2024"`, `[lib] name = "fathom_desktop"`, and `crate-type = ["staticlib", "cdylib", "rlib"]`.
   - Add the deps `fathom = { path = "../..", default-features = false }`, `tauri = "2"`, `serde`, `serde_json`, `crossbeam-channel`, `tracing`, and `ctrlc`.
   - Add `"ui/src-tauri"` to `[workspace] members` in root `Cargo.toml`.
-- [ ] T006 [P] Install and configure Tailwind v4 and shadcn:
+- [X] T006 [P] Install and configure Tailwind v4 and shadcn:
   - `pnpm -C ui add tailwindcss @tailwindcss/vite`, and register the plugin in `ui/vite.config.ts`.
   - Run `pnpm -C ui dlx shadcn@latest init`. Choose Radix, CSS variables, and base color neutral; the tokens are replaced in T020. That creates `ui/components.json` and `ui/src/lib/utils.ts`.
-- [ ] T007 [P] Add the runtime deps to `ui/package.json`:
+- [X] T007 [P] Add the runtime deps to `ui/package.json`:
   - `zustand`, `@tanstack/react-table`, `@tanstack/react-virtual`, `react-resizable-panels`, `cmdk`, `recharts`, `sonner`, `@fontsource/jetbrains-mono`, `@fontsource/chakra-petch`, `@fontsource/yuji-boku` (fallback `@fontsource/noto-serif-jp` if unavailable).
   - Add the shadcn components into `ui/src/components/ui/` with `pnpm -C ui dlx shadcn@latest add button input dialog alert-dialog dropdown-menu select tabs tooltip scroll-area resizable command sheet badge separator skeleton sonner checkbox switch table`.
-- [ ] T008 [P] Configure testing:
+- [X] T008 [P] Configure testing:
   - `pnpm -C ui add -D vitest @testing-library/react @testing-library/user-event @testing-library/jest-dom jsdom @playwright/test`.
   - Create `ui/vitest.config.ts` with the jsdom env and setup file `ui/tests/unit/setup.ts`.
   - Create `ui/playwright.config.ts` with:
     - `webServer: pnpm dev:fake`.
     - Projects `phone` (390×844, hasTouch), `laptop` (1280×800), `wide` (2560×1440), and `ultra` (5120×1440), each for `chromium` and `webkit`.
-- [ ] T009 [P] Configure ESLint (typescript-eslint, react-hooks, jsx-a11y) and Prettier in `ui/eslint.config.js` and `ui/.prettierrc`. Add `ui/node_modules`, `ui/dist`, `ui/src-tauri/target`, `ui/test-results`, and `ui/playwright-report` to `.gitignore`.
+- [X] T009 [P] Configure ESLint (typescript-eslint, react-hooks, jsx-a11y) and Prettier in `ui/eslint.config.js` and `ui/.prettierrc`. Add `ui/node_modules`, `ui/dist`, `ui/src-tauri/target`, `ui/test-results`, and `ui/playwright-report` to `.gitignore`.
 - [ ] T010 [P] Generate app icons with `pnpm -C ui tauri icon ../assets/icon.png` into `ui/src-tauri/icons/`, and reference them in `ui/src-tauri/tauri.conf.json` under `bundle.icon`.
 
 **Checkpoint**: Both of these work: `pnpm -C ui tauri dev` opens a blank window, and `cargo run` still opens the egui UI.
@@ -171,26 +171,26 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Theme (contracts/theme.md, FR-018/019/021)
 
-- [ ] T038 Write `ui/src/theme/tokens.css` in OKLCH, following contracts/theme.md:
+- [X] T038 Write `ui/src/theme/tokens.css` in OKLCH, following contracts/theme.md:
   - `.dark` (the default, neon-noir) with `html[data-accent="cyan"|"magenta"]` variants, and `:root` for the light "blueprint" variant.
   - All the shadcn variables plus `--accent-neon`, `--accent-2`, `--glow`, `--scanline-opacity`, `--grain-opacity`, `--status-ok/warn/err`, and `--chart-1..5`, with `--radius: 0`.
   - An `@theme inline` mapping for Tailwind v4, exposing `accent-neon`, `accent-2`, and the status colors as utilities.
-- [ ] T039 [P] Write `ui/src/theme/effects.css`:
+- [X] T039 [P] Write `ui/src/theme/effects.css`:
   - `.neon-chrome`: glow and scanline overlay (`::after`, `pointer-events: none`).
   - `.grain`: a static inline-SVG `feTurbulence` background at `--grain-opacity`.
   - `.glitch`: RGB-split `text-shadow` and a `clip-path` slice keyframe, active only when `html[data-glitch="on"]`.
   - Everything is disabled under `html[data-effects="off"]`. Animations are disabled under `@media (prefers-reduced-motion: reduce)`. The light variant drops glow and scanlines.
   - Also add the circuit-trace SVG art component in `ui/src/theme/CircuitTrace.tsx`.
-- [ ] T040 [P] Load the fonts in `ui/src/theme/fonts.ts`:
+- [X] T040 [P] Load the fonts in `ui/src/theme/fonts.ts`:
   - `@fontsource/jetbrains-mono` 400/600, `@fontsource/chakra-petch` 600/700, and `@fontsource/yuji-boku` 400, bundled locally with no CDN.
   - Set `--font-mono` and `--font-sans` to JetBrains Mono, `--font-display` to Chakra Petch, and `--font-brand` to Yuji Boku.
   - Add the `BrandMark` component (尋 in `--font-brand` plus `FATHOM` in `--font-display`, with glow, and glitch on hover) in `ui/src/theme/BrandMark.tsx`.
-- [ ] T041 Write the contrast test first, in `ui/tests/unit/contrast.test.ts`:
+- [X] T041 Write the contrast test first, in `ui/tests/unit/contrast.test.ts`:
   - Parse `tokens.css` for the three variants (dark-cyan, dark-magenta, light).
   - Assert WCAG ratios: at least 4.5:1 for foreground, muted, accent-neon, accent-2, and status colors on `--background` and `--card`, and for `--primary-foreground` on `--primary`; at least 3:1 for `--border`, `--chart-1..5`, and display text ≥ 18px.
   - Adjust token lightness (never hue) until it passes (SC-008).
-- [ ] T042 Implement `applyTheme(ui.theme)` in `ui/src/theme/apply.ts`. It toggles `.dark` and sets `data-accent`, `data-effects`, and `data-glitch` on `<html>`. Call it from `ui/src/main.tsx`, subscribed to `store.ui.theme`.
-- [ ] T043 [P] Re-skin the generated shadcn primitives in `ui/src/components/ui/*.tsx` to follow contracts/theme.md rules 4 and 5:
+- [X] T042 Implement `applyTheme(ui.theme)` in `ui/src/theme/apply.ts`. It toggles `.dark` and sets `data-accent`, `data-effects`, and `data-glitch` on `<html>`. Call it from `ui/src/main.tsx`, subscribed to `store.ui.theme`.
+- [X] T043 [P] Re-skin the generated shadcn primitives in `ui/src/components/ui/*.tsx` to follow contracts/theme.md rules 4 and 5:
   - Remove rounded classes.
   - Selection uses `bg-primary text-primary-foreground` (inverse video).
   - Focus uses a 1px `ring` outline.
@@ -199,22 +199,22 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Layout shell (contracts/layout.md)
 
-- [ ] T044 Write the width-class tests first, in `ui/tests/unit/width-class.test.ts`:
+- [X] T044 Write the width-class tests first, in `ui/tests/unit/width-class.test.ts`:
   - Boundaries 639→phone, 640→tablet, 1023/1024, 1439/1440, 1919/1920, 2559/2560.
   - `visibleSlots` is monotonic across the classes and the ≥3840 sub-step (FR-006).
-- [ ] T045 Implement `widthClassOf(px)`, `visibleSlots(class, px)`, and the `useWidthClass()` hook in `ui/src/layout/width-class.ts`:
+- [X] T045 Implement `widthClassOf(px)`, `visibleSlots(class, px)`, and the `useWidthClass()` hook in `ui/src/layout/width-class.ts`:
   - `useWidthClass()` uses `matchMedia` listeners, not a resize polling loop.
   - It sets `data-width-class` on `<html>`, writes to `store.layout.widthClass`, and applies the density CSS variables (row height 44/28/24px, base font 15/13px).
-- [ ] T046 Implement the default `LayoutProfile` per class from the contracts/layout.md table in `ui/src/layout/defaults.ts`, and a `resolveProfile(class, saved?)` that truncates saved slots beyond `visibleSlots`.
-- [ ] T047 Implement `AppShell` in `ui/src/layout/AppShell.tsx`:
+- [X] T046 Implement the default `LayoutProfile` per class from the contracts/layout.md table in `ui/src/layout/defaults.ts`, and a `resolveProfile(class, saved?)` that truncates saved slots beyond `visibleSlots`.
+- [X] T047 Implement `AppShell` in `ui/src/layout/AppShell.tsx`:
   - A top bar with the context and namespace pickers, a body, a status bar, and `<Toaster />`.
   - It chooses among `PhoneStack` (`ui/src/layout/PhoneStack.tsx`), `TabletTabs` (`ui/src/layout/TabletTabs.tsx`), and `SlotGrid` (`ui/src/layout/SlotGrid.tsx`, using react-resizable-panels) by width class.
   - Add the `data-slot` and `data-pane-kind` test hooks.
-- [ ] T048 Implement `PaneHost` in `ui/src/layout/PaneHost.tsx`:
+- [X] T048 Implement `PaneHost` in `ui/src/layout/PaneHost.tsx`:
   - It renders the pane by `kind` (nav, list, inspector, tool) and keys its state off `store.panes[id]`, so moving between stack, tab, and slot never remounts the state (FR-013). An open dialog and in-progress input survive a width-class change (edge case).
   - It restores `scrollTop` on mount.
-- [ ] T049 [P] Implement `StatusBar` in `ui/src/components/StatusBar.tsx`: connection state, active context, the last backend notification, and a warning glyph when `conn.dropped > 0`. Apply the `.neon-chrome` class. The top bar in `ui/src/layout/AppShell.tsx` shows `BrandMark`.
-- [ ] T050 [P] Implement the shared `PaneState` UI components in `ui/src/components/PaneStates.tsx`: `Loading` (skeleton rows), `Empty`, `ErrorState` (message + retry), `Disconnected`, `NoLongerExists`, `NoKubeconfig` (first-run guidance), and `MetricsUnavailable` (FR-017). Empty and error states include the `CircuitTrace` art.
+- [X] T049 [P] Implement `StatusBar` in `ui/src/components/StatusBar.tsx`: connection state, active context, the last backend notification, and a warning glyph when `conn.dropped > 0`. Apply the `.neon-chrome` class. The top bar in `ui/src/layout/AppShell.tsx` shows `BrandMark`.
+- [X] T050 [P] Implement the shared `PaneState` UI components in `ui/src/components/PaneStates.tsx`: `Loading` (skeleton rows), `Empty`, `ErrorState` (message + retry), `Disconnected`, `NoLongerExists`, `NoKubeconfig` (first-run guidance), and `MetricsUnavailable` (FR-017). Empty and error states include the `CircuitTrace` art.
 
 ### CI (research R7/R9)
 
