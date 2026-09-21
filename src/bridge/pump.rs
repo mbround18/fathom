@@ -1,9 +1,9 @@
-//! Event pump: backend `gui_rx` → coalesced batches → the webview (contracts/ipc.md
+//! Event pump: backend `gui_rx` → coalesced batches → the UI (contracts/ipc.md
 //! "Pump behavior").
 //!
-//! Deliberately free of Tauri types so it can be unit-tested without a webview: the
-//! Tauri `Channel` is plugged in through [`BatchSink`], and eviction priority through
-//! [`Evictable`].
+//! Deliberately free of Tauri types so it can be unit-tested without a webview and shared
+//! by every shell (Tauri, `fathom-devbridge`): the sink is plugged in through [`BatchSink`],
+//! and eviction priority through [`Evictable`].
 
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use std::collections::VecDeque;

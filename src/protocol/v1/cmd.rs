@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{SectionKey, UiConfig};
+use super::{RequestId, SectionKey, UiConfig};
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
 ///
@@ -489,3 +489,28 @@ pub enum BackendCmdV1 {
 }
 
 pub type BackendCmd = BackendCmdV1;
+
+/// A command as it travels from a shell to the backend thread: the command plus the
+/// bridge-assigned [`RequestId`]. Every envelope the backend emits while handling it
+/// (including the terminal `BackendEventV1::CommandFinished`) carries
+/// `Correlation::Request(id)`; with `id: None` they carry `Correlation::None`.
+///
+/// Not part of the wire protocol: the bridge returns the id from `send_cmd`.
+#[derive(Debug, Clone)]
+pub struct CmdRequest {
+    pub id: Option<RequestId>,
+    pub cmd: BackendCmd,
+}
+
+impl CmdRequest {
+    pub fn new(id: RequestId, cmd: BackendCmd) -> Self {
+        Self { id: Some(id), cmd }
+    }
+}
+
+/// Uncorrelated (the legacy egui app, the MCP-only shell).
+impl From<BackendCmd> for CmdRequest {
+    fn from(cmd: BackendCmd) -> Self {
+        Self { id: None, cmd }
+    }
+}

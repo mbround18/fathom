@@ -15,6 +15,11 @@ impl FathomApp {
 
         // Now process events
         for envelope in events {
+            // Request-completion signals are for the React bridge; the egui app sends no
+            // request ids and reports failures through the Error notifications instead.
+            if matches!(envelope.event, BackendEvent::CommandFinished { .. }) {
+                continue;
+            }
             let event = &envelope.event;
 
             // Route event to context view (always needs updates) - ensure it exists first
@@ -134,6 +139,8 @@ impl FathomApp {
                         self.push_status(format!("Port forward status: {:?}", status));
                     }
                 }
+
+                BackendEvent::CommandFinished { .. } => {} // skipped above
             }
         }
     }

@@ -33,6 +33,13 @@ export interface FathomFake {
   setBackendGone(gone: boolean): void
   /** Delay before auto-replies are delivered, in ms (default 0). */
   setLatency(ms: number): void
+  /** The `RequestId` the next `send` resolves to (ids increment from 1). */
+  nextRequestId(): number
+  /**
+   * Deliver the `CommandFinished` for `requestId` (correlated with it, system route), as
+   * the real backend does once the command's handler completes.
+   */
+  finish(requestId: number, ok: boolean, error?: string): void
 }
 
 declare global {
@@ -54,6 +61,8 @@ export class FakeTransport implements Transport {
   #onBatch: ((batch: EventBatch) => void) | undefined
   #gone = false
   #latencyMs: number
+  #nextRequestId = 1
+  #finishSeq = 1_000_000
 
   constructor(options: FakeTransportOptions = {}) {
     this.#scenarioName = options.scenario ?? 'default'
@@ -62,15 +71,36 @@ export class FakeTransport implements Transport {
     this.#latencyMs = options.latencyMs ?? 0
   }
 
-  send(cmd: BackendCmd): Promise<void> {
+  send(cmd: BackendCmd): Promise<number> {
     this.#sent.push(cmd)
     if (this.#gone) return Promise.reject(new BackendGoneError())
+    const id = this.#nextRequestId++
     const reply = this.#scenario.replies[cmd.type] as Reply | undefined
     if (reply) {
       const batches = reply(cmd, this.#state)
       this.#deliverLater(batches)
     }
-    return Promise.resolve()
+    return Promise.resolve(id)
+  }
+
+  get nextRequestId(): number {
+    return this.#nextRequestId
+  }
+
+  /** Emit `CommandFinished` for `requestId` immediately. */
+  finish(requestId: number, ok: boolean, error?: string): void {
+    this.emit({
+      envelopes: [
+        {
+          version: 1,
+          seq: this.#finishSeq++,
+          route: { section: 'system', scope: 'Global', context: null, namespace: null },
+          correlation: { type: 'Request', data: requestId },
+          event: { type: 'CommandFinished', data: { ok, error: error ?? null } },
+        },
+      ],
+      dropped: 0,
+    })
   }
 
   subscribe(onBatch: (batch: EventBatch) => void): Promise<SubscriptionInfo> {
@@ -153,6 +183,8 @@ export function installFakeTransport(): FakeTransport {
     scenarios: () => Object.keys(SCENARIOS) as ScenarioName[],
     setBackendGone: (gone) => fake.setBackendGone(gone),
     setLatency: (ms) => fake.setLatency(ms),
+    nextRequestId: () => fake.nextRequestId,
+    finish: (requestId, ok, error) => fake.finish(requestId, ok, error),
   }
   return fake
 }

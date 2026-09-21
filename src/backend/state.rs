@@ -89,6 +89,8 @@ pub(super) struct McpState {
     pub(super) http_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) state: Option<std::sync::Arc<crate::mcp_server::McpAppState>>,
     pub(super) port: u16,
+    /// Set from `Args::disable_mcp`: `StartMcpServer` is refused.
+    pub(super) disabled: bool,
 }
 
 pub(super) struct BackendState {
@@ -132,6 +134,7 @@ impl BackendState {
                 http_task: None,
                 state: None,
                 port: 18288,
+                disabled: false,
             },
         }
     }

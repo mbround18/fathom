@@ -1,5 +1,6 @@
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, CmdRequest, Correlation, MutationTarget, Route,
+    ScopeKind, SystemEvent, section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
 use std::sync::Arc;
@@ -58,7 +59,14 @@ mod validatingwebhooks;
 
 use state::BackendState;
 
-pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>, args: Args) {
+/// Run the backend on the current thread until `receiver` closes.
+///
+/// `C` is either a bare [`BackendCmd`] (uncorrelated: the egui app) or a [`CmdRequest`]
+/// carrying the bridge-assigned request id.
+pub fn init<C>(receiver: Receiver<C>, sender: Sender<BackendEventEnvelope>, args: Args)
+where
+    C: Into<CmdRequest>,
+{
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
 
     let mut state = BackendState::new();
@@ -72,6 +80,7 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
     let mcp_state = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
     state.mcp.state = Some(mcp_state.clone());
     state.mcp.port = args.mcp_port;
+    state.mcp.disabled = args.disable_mcp;
 
     // Load auto-start configuration
     let auto_start_config = persistence::AutoStartConfig::load().unwrap_or_default();
@@ -106,8 +115,13 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
     let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Receive commands until the channel closes
-    while let Ok(cmd) = receiver.recv() {
-        tracing::debug!("Received command: {:?}", std::mem::discriminant(&cmd));
+    while let Ok(request) = receiver.recv() {
+        let request: CmdRequest = request.into();
+        tracing::debug!(
+            "Received command {:?}: {:?}",
+            request.id,
+            std::mem::discriminant(&request.cmd)
+        );
 
         let state = state.clone();
         let sender = sender.clone();
@@ -115,7 +129,7 @@ pub fn init(receiver: Receiver<BackendCmd>, sender: Sender<BackendEventEnvelope>
 
         // Spawn command handler as a background task
         rt.spawn(async move {
-            run_cmd(cmd, &state, &sender).await;
+            run_cmd(request, &state, &sender).await;
             // Signal task completion
             let _ = task_tx.send(());
         });
@@ -165,7 +179,7 @@ fn spawn_initial_mcp_server(
     mcp_state: &Arc<crate::mcp_server::McpAppState>,
     auto_start_mcp_http: bool,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    if !(args.mcp_http || args.only_mcp || auto_start_mcp_http) {
+    if args.disable_mcp || !(args.mcp_http || args.only_mcp || auto_start_mcp_http) {
         return None;
     }
     tracing::info!(
@@ -181,20 +195,63 @@ fn spawn_initial_mcp_server(
     }))
 }
 
-/// Dispatch one command under the state lock, reporting errors as notifications.
+/// Dispatch one command under the state lock, then emit its `CommandFinished`.
+///
+/// Runs inside [`events::in_cmd_scope`], so every envelope emitted while handling the
+/// command defaults to its request correlation, and every error notification (from the
+/// handler itself, or from a returned `Err`, reported here) marks it failed.
 async fn run_cmd(
-    cmd: BackendCmd,
+    request: CmdRequest,
     state: &tokio::sync::Mutex<BackendState>,
     sender: &Sender<BackendEventEnvelope>,
 ) {
-    let mut state = state.lock().await;
-    let result = cmd::dispatch_cmd(cmd, &mut state, sender).await;
-    match result {
-        Ok(should_exit) if should_exit => {
-            tracing::debug!("Command signaled shutdown");
+    let CmdRequest { id, cmd } = request;
+    events::in_cmd_scope(id, async move {
+        let route = finished_route(&cmd);
+        let mut state = state.lock().await;
+        match cmd::dispatch_cmd(cmd, &mut state, sender).await {
+            Ok(true) => tracing::debug!("Command signaled shutdown"),
+            Ok(false) => {}
+            // `{:#}` keeps the whole anyhow chain (e.g. the Kubernetes API message).
+            Err(err) => {
+                events::notify_error(state.cluster.seq.as_ref(), sender, format!("{err:#}"))
+            }
         }
-        Err(err) => events::notify_error(state.cluster.seq.as_ref(), sender, err.to_string()),
-        _ => {}
+        let errors = events::take_cmd_errors();
+        let (ok, error) = if errors.is_empty() {
+            (true, None)
+        } else {
+            (false, Some(errors.join("\n")))
+        };
+        events::emit(
+            state.cluster.seq.as_ref(),
+            sender,
+            route,
+            Correlation::None, // → the command's Request correlation
+            BackendEvent::CommandFinished { ok, error },
+        );
+    })
+    .await;
+}
+
+/// Route of a command's `CommandFinished`: its section, namespaced to the target
+/// namespace for single-namespace writes. `context` is left `None` on purpose so a UI
+/// never discards the terminal event as stale after a context switch.
+fn finished_route(cmd: &BackendCmd) -> Route {
+    let Some(section) = cmd.section() else {
+        return Route::global(section_keys::system());
+    };
+    match cmd.mutation_target() {
+        MutationTarget::Namespaced { mut namespaces } if namespaces.len() == 1 => {
+            Route::namespaced(section, None, namespaces.pop())
+        }
+        MutationTarget::ClusterScoped => Route::cluster(section, None),
+        _ => Route {
+            section,
+            scope: ScopeKind::Namespaced,
+            context: None,
+            namespace: None,
+        },
     }
 }
 

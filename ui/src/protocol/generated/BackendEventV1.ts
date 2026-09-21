@@ -4,4 +4,4 @@ import type { ResourceReadEvent } from "./ResourceReadEvent";
 import type { StreamEvent } from "./StreamEvent";
 import type { SystemEvent } from "./SystemEvent";
 
-export type BackendEventV1 = { "type": "System", "data": SystemEvent } | { "type": "ResourceList", "data": ResourceListEvent } | { "type": "ResourceRead", "data": ResourceReadEvent } | { "type": "Stream", "data": StreamEvent };
+export type BackendEventV1 = { "type": "System", "data": SystemEvent } | { "type": "ResourceList", "data": ResourceListEvent } | { "type": "ResourceRead", "data": ResourceReadEvent } | { "type": "Stream", "data": StreamEvent } | { "type": "CommandFinished", "data": { ok: boolean, error: string | null, } };

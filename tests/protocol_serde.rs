@@ -2011,6 +2011,14 @@ fn all_events() -> Vec<BackendEvent> {
             .map(BackendEvent::ResourceRead),
     );
     events.extend(all_stream_events().into_iter().map(BackendEvent::Stream));
+    events.push(BackendEvent::CommandFinished {
+        ok: true,
+        error: None,
+    });
+    events.push(BackendEvent::CommandFinished {
+        ok: false,
+        error: Some("Failed to delete 2 item(s):\na/x: boom\nb/y: boom".to_owned()),
+    });
     events
 }
 
@@ -2069,7 +2077,10 @@ fn every_event_round_trips_in_an_envelope() {
         let value = assert_round_trip(&envelope);
         assert_eq!(value["version"], json!(1));
         assert_adjacently_tagged(&value["event"]);
-        assert_adjacently_tagged(&value["event"]["data"]);
+        // Category events nest a second tagged enum; `CommandFinished` carries a plain struct.
+        if value["event"]["type"] != "CommandFinished" {
+            assert_adjacently_tagged(&value["event"]["data"]);
+        }
         assert_adjacently_tagged(&value["correlation"]);
     }
 }
@@ -2256,6 +2267,91 @@ fn event_batch_and_bridge_types() {
     assert_eq!(
         assert_round_trip(&BridgeError::BackendGone),
         json!({ "type": "BackendGone" })
+    );
+    assert_eq!(
+        assert_round_trip(&BridgeError::Forbidden("outside fathom-dev".to_owned())),
+        json!({ "type": "Forbidden", "data": "outside fathom-dev" })
+    );
+}
+
+#[test]
+fn snapshot_command_finished() {
+    let ok = BackendEventEnvelope::new(
+        7,
+        Route::global(section_keys::system()),
+        Correlation::Request(RequestId(3)),
+        BackendEvent::CommandFinished {
+            ok: true,
+            error: None,
+        },
+    );
+    let value = assert_round_trip(&ok);
+    assert_eq!(
+        value["event"],
+        json!({ "type": "CommandFinished", "data": { "ok": true, "error": null } })
+    );
+    assert_eq!(
+        value["correlation"],
+        json!({ "type": "Request", "data": 3 })
+    );
+
+    let failed = BackendEvent::CommandFinished {
+        ok: false,
+        error: Some("Not connected yet.".to_owned()),
+    };
+    assert_eq!(
+        assert_round_trip(&failed),
+        json!({
+            "type": "CommandFinished",
+            "data": { "ok": false, "error": "Not connected yet." }
+        })
+    );
+}
+
+#[test]
+fn dev_bridge_messages() {
+    let send = DevBridgeClientMsg::Send {
+        cmd: BackendCmd::RefreshPods,
+    };
+    assert_eq!(
+        assert_round_trip(&send),
+        json!({ "op": "send", "cmd": { "type": "RefreshPods" } })
+    );
+    assert_eq!(
+        assert_round_trip(&DevBridgeClientMsg::Subscribe),
+        json!({ "op": "subscribe" })
+    );
+
+    assert_eq!(
+        assert_round_trip(&DevBridgeServerMsg::Sent {
+            request_id: RequestId(12)
+        }),
+        json!({ "op": "sent", "request_id": 12 })
+    );
+    assert_eq!(
+        assert_round_trip(&DevBridgeServerMsg::Error {
+            error: BridgeError::Forbidden("cluster-scoped".to_owned())
+        }),
+        json!({ "op": "error", "error": { "type": "Forbidden", "data": "cluster-scoped" } })
+    );
+    assert_eq!(
+        assert_round_trip(&DevBridgeServerMsg::Subscribed {
+            info: SubscriptionInfo {
+                protocol_version: BRIDGE_PROTOCOL_VERSION,
+                backend_started: false,
+            }
+        }),
+        json!({ "op": "subscribed", "info": { "protocolVersion": 1, "backendStarted": false } })
+    );
+    let batch = assert_round_trip(&DevBridgeServerMsg::Batch {
+        batch: EventBatch {
+            envelopes: vec![],
+            dropped: 2,
+        },
+    });
+    assert_eq!(
+        batch,
+        json!({ "op": "batch", "batch": { "envelopes": [], "dropped": 2 } })
     );
 }
 

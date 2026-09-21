@@ -112,25 +112,24 @@ async fn start_metrics_polling(
     .await
 }
 
+/// Delete every `(namespace, name)` pod, then refresh. Failures do not stop the loop;
+/// they are reported together in one error notification (one `ns/name: <error>` per
+/// line, error text verbatim), which also marks the command's `CommandFinished` failed.
 async fn bulk_delete_pods(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
     items: Vec<(String, String)>,
 ) -> anyhow::Result<()> {
     let mut success_count = 0;
-    let mut failed_items = Vec::new();
+    let mut failures = Vec::new();
 
     for (namespace, name) in items {
-        if state.cluster.client.is_some() {
-            match pods::delete_pod(state, sender, &namespace, &name).await {
-                Ok(_) => success_count += 1,
-                Err(e) => {
-                    tracing::warn!(namespace = %namespace, name = %name, "Bulk delete failed: {}", e);
-                    failed_items.push(format!("{}/{}", namespace, name));
-                }
+        match pods::delete_pod(state, sender, &namespace, &name).await {
+            Ok(()) => success_count += 1,
+            Err(e) => {
+                tracing::warn!(namespace = %namespace, name = %name, "Bulk delete failed: {:#}", e);
+                failures.push(format!("{namespace}/{name}: {e:#}"));
             }
-        } else {
-            failed_items.push(format!("{}/{}", namespace, name));
         }
     }
 
@@ -142,11 +141,15 @@ async fn bulk_delete_pods(
         );
     }
 
-    if !failed_items.is_empty() {
+    if !failures.is_empty() {
         events::notify_error(
             state.cluster.seq.as_ref(),
             sender,
-            format!("Failed to delete: {}", failed_items.join(", ")),
+            format!(
+                "Failed to delete {} item(s):\n{}",
+                failures.len(),
+                failures.join("\n")
+            ),
         );
     }
 

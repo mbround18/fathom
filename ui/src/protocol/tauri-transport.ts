@@ -5,8 +5,8 @@ import type { Transport } from './transport'
 import type { BackendCmd, EventBatch, SubscriptionInfo } from './types'
 
 export class TauriTransport implements Transport {
-  async send(cmd: BackendCmd): Promise<void> {
-    await invoke('send_cmd', { cmd })
+  send(cmd: BackendCmd): Promise<number> {
+    return invoke<number>('send_cmd', { cmd })
   }
 
   async subscribe(onBatch: (batch: EventBatch) => void): Promise<SubscriptionInfo> {

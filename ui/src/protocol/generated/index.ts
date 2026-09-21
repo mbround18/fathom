@@ -21,6 +21,8 @@ export type * from "./CronJobSummary";
 export type * from "./Density";
 export type * from "./DensityPrefs";
 export type * from "./DetectedMetricsComponent";
+export type * from "./DevBridgeClientMsg";
+export type * from "./DevBridgeServerMsg";
 export type * from "./DiskUsage";
 export type * from "./DockConfig";
 export type * from "./EndpointAddress";

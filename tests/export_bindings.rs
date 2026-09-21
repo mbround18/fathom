@@ -7,7 +7,8 @@
 //! and every such field (seq, ids, byte counts, timestamps) stays below 2^53 in practice.
 
 use fathom::protocol::{
-    BackendCmdV1, BackendEventEnvelopeV1, BridgeError, EventBatch, SubscriptionInfo, UiConfig,
+    BackendCmdV1, BackendEventEnvelopeV1, BridgeError, DevBridgeClientMsg, DevBridgeServerMsg,
+    EventBatch, RequestId, SubscriptionInfo, UiConfig,
 };
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -42,6 +43,9 @@ fn export_typescript_bindings() {
     EventBatch::export_all(&cfg).unwrap();
     SubscriptionInfo::export_all(&cfg).unwrap();
     BridgeError::export_all(&cfg).unwrap();
+    RequestId::export_all(&cfg).unwrap();
+    DevBridgeClientMsg::export_all(&cfg).unwrap();
+    DevBridgeServerMsg::export_all(&cfg).unwrap();
 
     let mut names: Vec<String> = std::fs::read_dir(&out_dir)
         .unwrap()

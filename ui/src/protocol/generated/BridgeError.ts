@@ -3,4 +3,4 @@
 /**
  * Error returned by the bridge commands. Serialized as `{ "type": "BackendGone" }` (adjacently tagged).
  */
-export type BridgeError = { "type": "BackendGone" } | { "type": "ChannelClosed" };
+export type BridgeError = { "type": "BackendGone" } | { "type": "ChannelClosed" } | { "type": "Forbidden", "data": string };

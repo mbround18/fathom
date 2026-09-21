@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::BackendEventEnvelope;
+use super::{BackendCmd, BackendEventEnvelope, RequestId};
 
 /// The protocol version the bridge speaks (`BackendEventEnvelope::version`).
 pub const BRIDGE_PROTOCOL_VERSION: u32 = 1;
@@ -40,6 +40,9 @@ pub enum BridgeError {
     /// (the webview went away mid-subscribe). The backlog stays buffered for the next
     /// subscriber.
     ChannelClosed,
+    /// A guarded bridge (`fathom-devbridge`) refused to forward the command; the payload
+    /// says why. The command never reached the backend.
+    Forbidden(String),
 }
 
 impl std::fmt::Display for BridgeError {
@@ -47,8 +50,31 @@ impl std::fmt::Display for BridgeError {
         match self {
             BridgeError::BackendGone => f.write_str("backend has stopped"),
             BridgeError::ChannelClosed => f.write_str("event channel closed during subscribe"),
+            BridgeError::Forbidden(reason) => write!(f, "forbidden: {reason}"),
         }
     }
 }
 
 impl std::error::Error for BridgeError {}
+
+/// Client → server frame of the dev WebSocket bridge (`tools/devbridge`), mirroring the
+/// Tauri commands: `{"op":"send","cmd":<BackendCmd>}` and `{"op":"subscribe"}`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "op", rename_all = "lowercase")]
+pub enum DevBridgeClientMsg {
+    /// Like `send_cmd`: replied to with `sent` (the assigned id) or `error`.
+    Send { cmd: BackendCmd },
+    /// Like `subscribe_events`: replied to with `subscribed` (or `error`), then `batch` frames.
+    Subscribe,
+}
+
+/// Server → client frame of the dev WebSocket bridge. Replies to `send`/`subscribe` arrive
+/// in request order; `batch` frames interleave freely.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "op", rename_all = "lowercase")]
+pub enum DevBridgeServerMsg {
+    Sent { request_id: RequestId },
+    Error { error: BridgeError },
+    Subscribed { info: SubscriptionInfo },
+    Batch { batch: EventBatch },
+}

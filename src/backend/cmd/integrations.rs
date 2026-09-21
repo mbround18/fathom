@@ -323,6 +323,14 @@ async fn open_mcp_config_dir(state: &BackendState, sender: &Sender<BackendEventE
 }
 
 async fn start_mcp_server(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
+    if state.mcp.disabled {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "The MCP server is disabled in this process.".to_owned(),
+        );
+        return;
+    }
     // If already running, correct the UI rather than silently no-op'ing -
     // if it thought the server was stopped (e.g. after a missed status
     // update), a click here should still leave it showing "Running".

@@ -6,8 +6,12 @@
 import type { BackendCmd, EventBatch, SubscriptionInfo } from './types'
 
 export interface Transport {
-  /** Fire-and-forget. Rejects only if the backend is gone (`BridgeError`). */
-  send(cmd: BackendCmd): Promise<void>
+  /**
+   * Resolves to the command's `RequestId` (monotonic from 1). Every event the command
+   * produces carries `correlation: { type: 'Request', data: id }`, ending with exactly one
+   * `CommandFinished`. Rejects only with a `BridgeError` (backend gone).
+   */
+  send(cmd: BackendCmd): Promise<number>
   /** Attach the single event subscriber, replacing any previous one. */
   subscribe(onBatch: (batch: EventBatch) => void): Promise<SubscriptionInfo>
 }

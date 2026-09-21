@@ -248,6 +248,21 @@ pub enum BackendEventV1 {
     ResourceList(ResourceListEvent),
     ResourceRead(ResourceReadEvent),
     Stream(StreamEvent),
+    /// Terminal event of one command: emitted exactly once, after its handler returns,
+    /// with the command's `Correlation::Request` (or `None` for uncorrelated commands).
+    ///
+    /// `ok` is false when the handler failed or reported an error while running (for
+    /// `BulkDelete`: when any item failed). `error` is then the verbatim backend /
+    /// Kubernetes error text (several failures are joined with newlines); it is `None`
+    /// when `ok` is true.
+    ///
+    /// Its route is the command's section (namespaced to the target namespace for
+    /// single-namespace writes) with `context: None`, so a UI never drops it as stale;
+    /// commands without a section use the global `system` route.
+    CommandFinished {
+        ok: bool,
+        error: Option<String>,
+    },
 }
 
 pub type BackendEvent = BackendEventV1;

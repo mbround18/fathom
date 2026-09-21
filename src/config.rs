@@ -15,4 +15,10 @@ pub struct Args {
     /// Run only MCP server (headless, no UI)
     #[arg(long, env = "FATHOM_ONLY_MCP")]
     pub only_mcp: bool,
+
+    /// Never start the MCP server in this process (ignores `--mcp-http`, the persisted
+    /// auto-start preference, and `StartMcpServer`). Not a CLI flag: set by shells that
+    /// must not expose an unguarded MCP endpoint (`fathom-devbridge`).
+    #[arg(skip)]
+    pub disable_mcp: bool,
 }
