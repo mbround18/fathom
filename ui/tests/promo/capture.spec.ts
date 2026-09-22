@@ -209,7 +209,12 @@ test.describe('wide', () => {
     const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' })
     await expect(breadcrumb).toBeVisible()
     await expect(breadcrumb).toContainText(HELM_RELEASE)
-    await expect(inspector(page).getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
+    const fluxInsp = inspector(page)
+    await expect(fluxInsp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
+    // The Flux resource's own details (Ready state, message, revision) stream in after the
+    // click-through; wait for the real reconciliation message before photographing, not the
+    // loading skeleton.
+    await expect(fluxInsp.getByText(/succeeded/)).toBeVisible()
     await shoot(page, 'wide-helm-origin-link', pairs)
   })
 })

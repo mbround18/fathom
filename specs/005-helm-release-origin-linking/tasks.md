@@ -120,7 +120,7 @@ can be implemented and tested independently after the Foundational phase.
 
 - [X] T039 [P] Verify FR-014 degraded-release path end-to-end: corrupted-payload fixture still appears in list and inspector with explicit "unavailable" indicators, no crash
 - [X] T040 [P] Verify zero-owned-resources edge case shows an explicit "no resources found" state, not an error (spec.md Edge Cases)
-- [ ] T041 (DEFERRED — no live cluster available in this environment; all other verification done via unit/E2E tests against scripted fixtures) Run `quickstart.md` validation end-to-end (all three user-story scenarios, live-cluster spot check)
+- [X] T041 Run `quickstart.md` validation end-to-end (all three user-story scenarios, live-cluster spot check) — exercised against a real live cluster (Flux-managed `podinfo` HelmRelease in the `fathom-dev` sandbox) via the promo capture suite: release list, inspector (values/revisions), and origin-link click-through to the owning Flux `HelmRelease` all verified with real, loaded cluster data (see `ui/promo-out/shots/wide-helm-*.png`)
 - [X] T042 [P] `cargo clippy --all-targets -- -D warnings` clean
 - [X] T043 [P] `pnpm -C ui typecheck` and `pnpm -C ui lint` clean
 - [X] T044 Update `docs/MVP.md` §5a/§5b status markers to reflect the shipped Helm view and origin-linking
