@@ -49,3 +49,6 @@ ui/dist
 ui/src-tauri/target
 ui/test-results
 ui/playwright-report
+
+# Local Claude Code config and skills (not part of the repo)
+.claude/
