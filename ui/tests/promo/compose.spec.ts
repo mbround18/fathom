@@ -1,0 +1,386 @@
+/**
+ * Promo compose: turns the shots captured by capture.spec.ts into a branded HTML brochure and a
+ * PDF, using Playwright's own Chromium (already a devDependency — no new tool to keep working).
+ * Runs after capture.spec.ts (Playwright orders spec files alphabetically within testDir).
+ *
+ * Facts (pod/workload counts) are read live from the cluster, same as the screenshots, so the
+ * brochure never drifts from what was actually photographed. Output: promo-out/facts.json,
+ * promo-out/brochure.html, promo-out/fathom-promo.pdf.
+ */
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+
+import { BRAND_GLYPH, FONT_FACE_CSS, PALETTE } from './brand'
+import {
+  expect,
+  kubectlJson,
+  LIVE_NAMESPACE,
+  liveContext,
+  OUT_DIR,
+  redactions,
+  SHOTS_DIR,
+  test,
+  type KubePod,
+} from './helpers'
+
+interface WorkloadCounts {
+  kind: string
+  ready: number
+  total: number
+}
+
+interface Facts {
+  generatedAt: string
+  namespace: string
+  podCount: number
+  podsRunning: number
+  nodeCount: number
+  workloads: WorkloadCounts[]
+}
+
+function countWorkloads(kind: string, plural: string): WorkloadCounts {
+  const list = kubectlJson<{
+    items: { status?: { replicas?: number; readyReplicas?: number } }[]
+  }>(['get', plural])
+  const total = list.items.length
+  const ready = list.items.filter(
+    (i) => (i.status?.readyReplicas ?? 0) >= (i.status?.replicas ?? 1),
+  ).length
+  return { kind, ready, total }
+}
+
+function gatherFacts(): Facts {
+  const pods = kubectlJson<{ items: KubePod[] }>(['get', 'pods']).items
+  const running = pods.filter((p) => p.status?.phase === 'Running').length
+  const nodeCount = new Set(pods.map((p) => p.spec?.nodeName).filter(Boolean)).size
+  return {
+    generatedAt: new Date().toISOString(),
+    namespace: LIVE_NAMESPACE,
+    podCount: pods.length,
+    podsRunning: running,
+    nodeCount,
+    workloads: [
+      countWorkloads('Deployments', 'deployments'),
+      countWorkloads('StatefulSets', 'statefulsets'),
+      countWorkloads('DaemonSets', 'daemonsets'),
+    ],
+  }
+}
+
+interface Shot {
+  name: string
+  title: string
+  caption: string
+  dataUrl: string
+}
+
+const SHOT_META: Record<string, { title: string; caption: string; scale: number }> = {
+  'wide-inspector': {
+    title: 'Inspect at a glance',
+    caption: 'Details, YAML, and events for any resource — one click away, on a 1920px desktop.',
+    scale: 2,
+  },
+  'wide-scale': {
+    title: 'Scale with confidence',
+    caption: 'Every action previews its effect before it ships — no surprise replica counts.',
+    scale: 2,
+  },
+  'wide-confirm': {
+    title: 'Bulk actions, guarded',
+    caption: 'Multi-select deletes list every target by name before anything is sent.',
+    scale: 2,
+  },
+  ultra: {
+    title: 'Built for the biggest screens',
+    caption: 'Six independent slots on an ultra-wide monitor — nothing crowds the data.',
+    scale: 1,
+  },
+  tablet: {
+    title: 'Tablet-ready',
+    caption: 'The full picture, comfortably tapped.',
+    scale: 2,
+  },
+  'phone-list': {
+    title: 'Fits in your pocket',
+    caption: '44px touch targets and a searchable list, down to a 390px phone.',
+    scale: 3,
+  },
+  'phone-inspector': {
+    title: 'Full detail, small screen',
+    caption: 'The same inspector as desktop, stacked for one-thumb reading.',
+    scale: 3,
+  },
+  'phone-nav': {
+    title: 'Every resource, one tap away',
+    caption: 'A drawer navigator keeps the whole cluster reachable on mobile.',
+    scale: 3,
+  },
+}
+
+/** Narrative order: wide feature shots first, then ultra, then down to phone. Matches the
+ * insertion order of SHOT_META, not filename order. */
+function loadShots(): Shot[] {
+  const present = new Set(readdirSync(SHOTS_DIR).filter((f) => f.endsWith('.png')))
+  const shots = Object.entries(SHOT_META)
+    .filter(([name]) => present.has(`${name}.png`))
+    .map(([name, meta]) => {
+      const bytes = readFileSync(`${SHOTS_DIR}${name}.png`)
+      return {
+        name,
+        title: meta.title,
+        caption: meta.caption,
+        dataUrl: `data:image/png;base64,${bytes.toString('base64')}`,
+      } satisfies Shot
+    })
+  const missing = [...present].filter((f) => !(f.replace(/\.png$/, '') in SHOT_META))
+  if (missing.length > 0) {
+    throw new Error(`promo/compose: no SHOT_META entry for shot(s): ${missing.join(', ')}`)
+  }
+  return shots
+}
+
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c)
+}
+
+function statTile(label: string, value: string): string {
+  return `<div class="stat"><div class="stat-value">${escapeHtml(value)}</div><div class="stat-label">${escapeHtml(label)}</div></div>`
+}
+
+function buildHtml(facts: Facts, shots: Shot[]): string {
+  const nodeNote =
+    redactions().length > 0
+      ? '<p class="footnote">Node identifiers shown as node-1, node-2, … (redacted).</p>'
+      : ''
+  const stats = [
+    statTile('Pods watched live', String(facts.podCount)),
+    statTile('Running', `${String(facts.podsRunning)}/${String(facts.podCount)}`),
+    statTile('Cluster nodes', String(facts.nodeCount)),
+    ...facts.workloads.map((w) => statTile(w.kind, `${String(w.ready)}/${String(w.total)} ready`)),
+  ].join('\n')
+
+  const shotSections = shots
+    .map(
+      (s, i) => `
+    <section class="shot ${i === 0 ? 'shot-hero' : ''}">
+      <div class="shot-text">
+        <h2>${escapeHtml(s.title)}</h2>
+        <p>${escapeHtml(s.caption)}</p>
+      </div>
+      <div class="shot-frame"><img src="${s.dataUrl}" alt="${escapeHtml(s.title)}" /></div>
+    </section>`,
+    )
+    .join('\n')
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fathom</title>
+<style>
+${FONT_FACE_CSS}
+:root {
+  --bg: ${PALETTE.background};
+  --card: ${PALETTE.card};
+  --fg: ${PALETTE.foreground};
+  --muted: ${PALETTE.mutedForeground};
+  --neon: ${PALETTE.accentNeon};
+  --magenta: ${PALETTE.accent2};
+  --ok: ${PALETTE.statusOk};
+  --border: ${PALETTE.border};
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 14px;
+}
+.page {
+  width: 1120px;
+  min-height: 800px;
+  padding: 64px 72px;
+  page-break-after: always;
+  position: relative;
+}
+.page:last-child { page-break-after: auto; }
+.cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  min-height: 900px;
+  background:
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--neon) 14%, transparent), transparent 55%),
+    radial-gradient(circle at 75% 75%, color-mix(in srgb, var(--magenta) 10%, transparent), transparent 55%),
+    var(--bg);
+}
+.brand-glyph {
+  font-family: 'Fathom Brand', serif;
+  font-size: 120px;
+  line-height: 1;
+  color: var(--neon);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--neon) 70%, transparent);
+}
+.wordmark {
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 700;
+  font-size: 56px;
+  letter-spacing: 0.3em;
+  margin: 24px 0 8px;
+}
+.tagline {
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 600;
+  font-size: 20px;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 48px;
+}
+.meta { color: var(--muted); font-size: 13px; }
+h1, h2 {
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+h1 { font-size: 30px; color: var(--neon); margin: 0 0 8px; }
+h2 { font-size: 24px; margin: 0 0 12px; }
+p { color: var(--muted); line-height: 1.5; margin: 0; }
+.section-label {
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--neon);
+  margin-bottom: 24px;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 32px;
+}
+.stat {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 2px;
+  padding: 20px;
+}
+.stat-value {
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  color: var(--ok);
+}
+.stat-label {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+.shot {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  height: 672px;
+  justify-content: flex-start;
+}
+.shot-text { max-width: 780px; flex: none; }
+.shot-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--card);
+  box-shadow: 0 0 32px color-mix(in srgb, var(--neon) 18%, transparent);
+}
+.shot-frame img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+.footnote {
+  position: absolute;
+  bottom: 32px;
+  left: 72px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.footer-brand {
+  position: absolute;
+  bottom: 32px;
+  right: 72px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+</style>
+</head>
+<body>
+
+<div class="page cover">
+  <div class="brand-glyph">${BRAND_GLYPH}</div>
+  <div class="wordmark">FATHOM</div>
+  <div class="tagline">Browse, inspect, and act on your Kubernetes cluster</div>
+  <div class="meta">Captured live from the fathom-dev sandbox &middot; ${escapeHtml(new Date(facts.generatedAt).toUTCString())}</div>
+</div>
+
+<div class="page">
+  <div class="section-label">Live from the cluster</div>
+  <h1>What Fathom is watching right now</h1>
+  <p>Every number below was read from a real Kubernetes namespace at generation time &mdash; not staged data.</p>
+  <div class="stats">${stats}</div>
+  ${nodeNote}
+  <div class="footer-brand">尋 FATHOM</div>
+</div>
+
+${shotSections
+  .split('</section>')
+  .filter((s) => s.trim())
+  .map((s) => `<div class="page">${s}</section></div>`)
+  .join('\n')}
+
+</body>
+</html>
+`
+}
+
+test.describe('compose', () => {
+  test('build facts.json, brochure.html, and fathom-promo.pdf', async ({ page }) => {
+    const facts = gatherFacts()
+    const shots = loadShots()
+    expect(shots.length, 'no shots found; run capture.spec.ts first').toBeGreaterThan(0)
+
+    mkdirSync(OUT_DIR, { recursive: true })
+    writeFileSync(`${OUT_DIR}facts.json`, JSON.stringify(facts, null, 2))
+
+    const html = buildHtml(facts, shots)
+    writeFileSync(`${OUT_DIR}brochure.html`, html)
+
+    await page.setContent(html, { waitUntil: 'networkidle' })
+    await page.evaluate(() => document.fonts.ready)
+    await page.pdf({
+      path: `${OUT_DIR}fathom-promo.pdf`,
+      width: '1120px',
+      height: '900px',
+      printBackground: true,
+      margin: { top: '0', bottom: '0', left: '0', right: '0' },
+    })
+
+    console.log(
+      `[promo] context '${liveContext()}': wrote ${OUT_DIR}fathom-promo.pdf ` +
+        `(${String(shots.length)} shots, ${String(facts.podCount)} pods)`,
+    )
+  })
+})

@@ -24,3 +24,6 @@ dist-live
 *.njsproj
 *.sln
 *.sw?
+
+# Promo output (pnpm promo)
+promo-out

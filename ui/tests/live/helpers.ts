@@ -220,8 +220,10 @@ export interface KubePod {
     deletionTimestamp?: string
     ownerReferences?: { kind: string; name: string }[]
   }
+  spec?: { nodeName?: string }
   status?: {
     phase?: string
+    podIP?: string
     containerStatuses?: {
       name: string
       ready: boolean
