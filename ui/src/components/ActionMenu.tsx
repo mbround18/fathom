@@ -321,10 +321,11 @@ export function ListActions({ pane }: { pane: PaneState }) {
   const section = pane.route?.section
   const descriptor = descriptorFor(section)
   const ctx = useStore((s) => s.session.activeContext)
+  const scope = descriptor?.namespaced === false ? 'Cluster' : 'Namespaced'
   const rows = useStore((s) =>
     section === undefined
       ? NO_ROWS
-      : (s.lists[listKey(ctx, section, 'Namespaced', null)]?.rows ?? NO_ROWS),
+      : (s.lists[listKey(ctx, section, scope, null)]?.rows ?? NO_ROWS),
   )
   const checked = useCheckedRows(pane.id, descriptor, rows)
   const target = useMemo(() => {
@@ -342,7 +343,8 @@ export function ListActions({ pane }: { pane: PaneState }) {
 export function InspectorActions({ target, source }: { target: ObjectRef; source?: PaneId }) {
   const descriptor = descriptorFor(target.section)
   const ctx = useStore((s) => s.session.activeContext)
-  const list = useStore((s) => s.lists[listKey(ctx, target.section, 'Namespaced', null)])
+  const listScope = descriptor?.namespaced === false ? 'Cluster' : 'Namespaced'
+  const list = useStore((s) => s.lists[listKey(ctx, target.section, listScope, null)])
   const rowKey = target.namespace ? `${target.namespace}/${target.name}` : target.name
   const rows = useMemo(() => {
     const row = descriptor

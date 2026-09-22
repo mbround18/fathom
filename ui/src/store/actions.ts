@@ -58,6 +58,14 @@ export function resetActions(): void {
   early.clear()
 }
 
+/**
+ * Await one request's `CommandFinished` outside the bulk `runAction` flow (the YAML apply
+ * flow, `store/editSession.ts`, awaits a single `ApplyResourceYaml` this way).
+ */
+export function waitForCommandResult(requestId: number): Promise<CommandResult | 'timeout'> {
+  return waitFor(requestId)
+}
+
 type StepResult =
   { status: 'ok' } | { status: 'failed'; error: string } | { status: 'timeout'; requestId: number }
 

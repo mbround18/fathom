@@ -4,12 +4,13 @@
 import type { SectionKey } from '@/protocol/types'
 
 import { deployments } from './deployments'
+import { nodes } from './nodes'
 import { pods } from './pods'
 import type { AnyDescriptor } from './types'
 
 export type * from './types'
 
-export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [pods, deployments]
+export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [pods, deployments, nodes]
 
 const BY_SECTION = new Map<SectionKey, AnyDescriptor>(ALL_DESCRIPTORS.map((d) => [d.section, d]))
 

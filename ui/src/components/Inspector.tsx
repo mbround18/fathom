@@ -2,11 +2,11 @@
  * Inspector pane (T063): Details, YAML, and Events for the object in `pane.target`.
  * The pane header (PaneHost) carries the object name as its heading.
  */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SECTION } from '@/protocol/commands'
-import type { KubernetesEvent } from '@/protocol/types'
+import type { KubernetesEvent, PodSummary } from '@/protocol/types'
 import { descriptorFor, type ObjectRef } from '@/resources'
 import { formatAge } from '@/resources/format'
 import { jsonToYaml } from '@/resources/yaml'
@@ -14,7 +14,14 @@ import { detailKey, listKey, useStore, type ListRow, type PaneState } from '@/st
 import { cn } from '@/lib/utils'
 
 import { DetailSections } from './DetailSections'
+import { NodeActionsPanel } from './panels/NodeActionsPanel'
+import { PodLogsTab } from './panels/PodLogsTab'
+import { PodTerminalTab } from './panels/PodTerminalTab'
+import { YamlEditTab } from './panels/YamlEditTab'
 import { Empty, Loading, NoLongerExists } from './shell/PaneStates'
+
+const DISCARD_EDIT_PROMPT =
+  'You have unsaved YAML changes that have not been applied. Leave anyway and discard them?'
 
 const NO_ROWS: readonly ListRow[] = []
 
@@ -33,7 +40,8 @@ function refKey(r: ObjectRef): string {
 function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef }) {
   const descriptor = descriptorFor(target.section)
   const ctx = useStore((s) => s.session.activeContext)
-  const list = useStore((s) => s.lists[listKey(ctx, target.section, 'Namespaced', null)])
+  const listScope = descriptor?.namespaced === false ? 'Cluster' : 'Namespaced'
+  const list = useStore((s) => s.lists[listKey(ctx, target.section, listScope, null)])
   const detailState = useStore(
     (s) => s.details[detailKey(ctx, target.kind, target.namespace, target.name)],
   )
@@ -56,12 +64,30 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
     [descriptor, hidden],
   )
 
+  // T026: block navigating away from the YAML tab while an unsaved (dirty, not yet applied)
+  // edit session is open, mirroring the constitution's "explicit confirmation" stance for
+  // discarding in-progress work rather than silently losing it on tab switch. Declared before
+  // the early returns below so hook order stays stable regardless of `descriptor`/`row`.
+  const editKey = detailKey(ctx, target.kind, target.namespace, target.name)
+  const editSession = useStore((s) => s.editSessions[editKey])
+  const [tab, setTab] = useState('details')
+  const handleTabChange = (next: string) => {
+    if (tab === 'yaml' && next !== 'yaml' && editSession?.dirty && editSession.status !== 'applying') {
+      if (!window.confirm(DISCARD_EDIT_PROMPT)) return
+    }
+    setTab(next)
+  }
+
   if (!descriptor)
     return <Empty title="Not ported yet" detail={`${target.kind} has no inspector yet.`} />
   if (list?.status === 'ready' && !row) return <NoLongerExists name={target.name} />
 
   const detail = detailState ? descriptor.selectDetail(detailState) : undefined
   const raw = detail !== undefined && descriptor.rawJson ? descriptor.rawJson(detail) : undefined
+  const editable = descriptor.rawJson !== undefined
+
+  // Terminal tab (FR-007): only for Pod resources currently in a "Running" phase.
+  const isRunningPod = target.kind === 'Pod' && (row as PodSummary | undefined)?.phase === 'Running'
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -74,7 +100,7 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
           </>
         )}
       </p>
-      <Tabs defaultValue="details" className="min-h-0 flex-1 gap-0">
+      <Tabs value={tab} onValueChange={handleTabChange} className="min-h-0 flex-1 gap-0">
         <TabsList
           variant="line"
           className="h-[var(--touch-target)] w-full shrink-0 justify-start border-b border-border px-2"
@@ -97,6 +123,31 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
           >
             Events
           </TabsTrigger>
+          {target.kind === 'Pod' && (
+            <TabsTrigger
+              value="logs"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Logs
+            </TabsTrigger>
+          )}
+          {isRunningPod && (
+            <TabsTrigger
+              value="terminal"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Terminal
+            </TabsTrigger>
+          )}
+          {target.kind === 'Node' && (
+            <TabsTrigger
+              value="node-actions"
+              data-testid="node-actions-tab"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Actions
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="details" className="min-h-0 overflow-y-auto text-sm">
           <DetailSections
@@ -107,7 +158,9 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
           />
         </TabsContent>
         <TabsContent value="yaml" className="min-h-0 overflow-auto">
-          {raw === undefined ? (
+          {editable ? (
+            <YamlEditTab target={target} raw={raw} />
+          ) : raw === undefined ? (
             <Loading rows={10} label="Loading YAML" />
           ) : (
             <pre className="min-w-0 p-3 font-mono text-xs leading-relaxed whitespace-pre text-foreground/90">
@@ -118,6 +171,21 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
         <TabsContent value="events" className="min-h-0 overflow-y-auto">
           <EventsFor target={target} />
         </TabsContent>
+        {target.kind === 'Pod' && (
+          <TabsContent value="logs" className="flex min-h-0 flex-1 flex-col">
+            <PodLogsTab target={target} />
+          </TabsContent>
+        )}
+        {isRunningPod && (
+          <TabsContent value="terminal" className="flex min-h-0 flex-1 flex-col">
+            <PodTerminalTab target={target} />
+          </TabsContent>
+        )}
+        {target.kind === 'Node' && (
+          <TabsContent value="node-actions" className="min-h-0 flex-1 overflow-y-auto">
+            <NodeActionsPanel nodeName={target.name} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

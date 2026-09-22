@@ -12,6 +12,7 @@ import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type {
   BackendCmd,
+  CrdCatalogEntry,
   DiskUsage,
   FluxOverview,
   HubbleTrafficSummary,
@@ -32,8 +33,21 @@ import type {
 import { descriptorFor } from '@/resources'
 import type { ObjectRef } from '@/resources/types'
 
+import {
+  buildApplyCommand,
+  discard as discardSession,
+  editYaml,
+  markApplying,
+  markFailed,
+  openSession,
+  reviewDiff as reviewSessionDiff,
+  type ResourceEditSession,
+} from './editSession'
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
 import type { RingBuffer } from './ring-buffer'
+import { waitForCommandResult } from './actions'
+
+export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
 
 export { detailKey, listKey, listKeyOf, type DetailKey, type ListKey } from './keys'
 
@@ -128,6 +142,22 @@ export interface LogStreamState {
   reason?: string
 }
 
+export interface ExecStreamState {
+  kind: 'exec'
+  status: 'attaching' | 'active' | 'ended' | 'error'
+  reason?: string
+  /** Chosen container, for display. */
+  container?: string
+  /**
+   * Decoded output chunks, bounded like `LogStreamState.lines` (constitution Principle V) —
+   * xterm.js owns the *rendered* scrollback (research.md R5), this is only a short-lived
+   * handoff queue `PodTerminalTab` drains and writes to the terminal as chunks arrive.
+   */
+  chunks: RingBuffer<string>
+  /** Bumped on every appended chunk; the buffer itself is mutated in place. */
+  rev: number
+}
+
 export interface TunnelState {
   kind: 'portforward'
   status: TunnelStatus
@@ -159,11 +189,59 @@ export interface MetricsState {
   stackScan?: MetricsStackScanResult
 }
 
+/** Live progress for an in-flight (or just-finished) `DrainNode` (data-model.md "DrainProgress"). */
+export interface DrainProgress {
+  totalPods: number
+  evicted: string[]
+  blockedOn: { pod: string; reason: string }[]
+  ignoredDaemonSetPods: string[]
+  /** Frontend-only: set optimistically when the operator cancels, before the backend confirms. */
+  cancelled: boolean
+}
+
+/**
+ * One node action in flight, keyed by node name (data-model.md "Node Action"). Ephemeral,
+ * frontend-held UI state — not persisted, not sent to the backend beyond the commands
+ * `NodeActionsPanel` sends when the operator confirms.
+ */
+export interface NodeAction {
+  nodeName: string
+  kind: 'cordon' | 'uncordon' | 'drain' | 'taint-add' | 'taint-remove'
+  status: 'confirming' | 'in-progress' | 'complete' | 'cancelled' | 'failed'
+  error?: string
+  taint?: { key: string; value?: string; effect: string }
+  drain?: DrainProgress
+  /** The `DrainNode`/`CancelDrainNode` command's request id, stringified (drain only). */
+  requestId?: string
+}
+
 export interface IntegrationsState {
   mcp?: { running: boolean; message: string }
   prometheusTest?: { success: boolean; message: string }
   grafanaTest?: { success: boolean; message: string }
   portAvailability: Record<number, boolean>
+}
+
+/**
+ * One CRD kind's last-fetched instance list (US3, data-model.md "Custom Resource Instance").
+ * `items` are raw JSON strings, one per instance — the same `raw_json`-as-`String` convention
+ * every built-in kind's details carry, parsed on demand for display.
+ */
+export interface CrdInstancesState {
+  /** 'unavailable': a fresh `CrdCatalogUpdated` no longer lists this kind (deleted CRD, C1). */
+  status: 'ready' | 'unavailable'
+  namespace: string | null
+  items: readonly string[]
+  updatedAt: number
+}
+
+export interface CrdState {
+  catalog: readonly CrdCatalogEntry[]
+  /** True once the first `CrdCatalogUpdated` has arrived (distinguishes "empty" from "loading"). */
+  catalogLoaded: boolean
+  selected?: { group: string; kind: string; version: string }
+  /** Keyed `${group}/${kind}`. */
+  instances: Record<string, CrdInstancesState>
 }
 
 export interface PrefsState {
@@ -198,16 +276,24 @@ export interface StoreData {
   session: SessionState
   lists: Record<ListKey, ListState>
   details: Record<DetailKey, DetailState>
-  /** Log streams by `StreamId`. */
-  streams: Record<number, LogStreamState>
+  /** Log and exec streams by `StreamId`. */
+  streams: Record<number, LogStreamState | ExecStreamState>
   /** Port-forward tunnels by tunnel id. */
   tunnels: Record<string, TunnelState>
   metrics: MetricsState
   flux: { overview?: FluxOverview }
   hubble: { summary?: HubbleTrafficSummary }
+  crds: CrdState
   integrations: IntegrationsState
+  /** Node actions (US2), by node name. */
+  nodeActions: Record<string, NodeAction>
   layout: LayoutState
   panes: Record<PaneId, PaneState>
+  /**
+   * In-progress YAML edits (US1, data-model.md "Resource Edit Session"), keyed like `details`.
+   * Ephemeral: only entries for objects an Inspector's YAML tab is (or was) open on.
+   */
+  editSessions: Record<DetailKey, ResourceEditSession>
   /** Multi-select for bulk actions, by pane. */
   selection: Record<PaneId, string[]>
   /** Actions awaiting a result, by request id. */
@@ -255,6 +341,12 @@ export interface StoreState extends StoreData {
   refreshFlux: () => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
+  /**
+   * US3: select one CRD kind (`SelectCrdKind`) and immediately fetch its instances
+   * (`RefreshCrdInstances`); records the selection so a later `CrdCatalogUpdated` that drops
+   * this kind can mark it unavailable (C1).
+   */
+  selectCrdKind: (entry: CrdCatalogEntry) => void
   /** Remember which list pane the navigator should retarget. */
   focusList: (id: PaneId) => void
   /**
@@ -264,6 +356,25 @@ export interface StoreState extends StoreData {
   openInspector: (ref: ObjectRef, from?: PaneId) => void
   /** Esc: pop the inspector on phone, clear it elsewhere. */
   closeInspector: () => void
+  /**
+   * US1 (YAML edit + apply): open (or reset) the edit session for `ref`, seeded from `raw`
+   * (the same `raw_json` the read-only YAML tab renders).
+   */
+  openEditSession: (ref: ObjectRef, raw: string) => void
+  /** Update the operator's edit buffer for the session at `key` (`detailKey(...)`). */
+  updateEditedYaml: (key: DetailKey, yaml: string) => void
+  /** Open the diff view and mark the current `liveYaml` as reviewed. */
+  reviewEditDiff: (key: DetailKey) => void
+  /** Discard the edit buffer back to the current `liveYaml` (T026: navigate-away, or Discard). */
+  discardEditSession: (key: DetailKey) => void
+  /** Drop the session entirely (the Inspector's YAML tab is no longer showing this object). */
+  closeEditSession: (key: DetailKey) => void
+  /**
+   * Send `ApplyResourceYaml` for the session at `key` and await its `CommandFinished`. Success
+   * is reflected via the `ResourceApplied` stream event (handlers/stream.ts); this only needs
+   * to classify a failure into `'conflict'` | `'deleted'` | `'error'` (data-model.md).
+   */
+  applyEditSession: (key: DetailKey) => Promise<void>
   /** Toggle one row in a pane's multi-select (bulk actions). */
   toggleRowSelected: (paneId: PaneId, rowKey: string) => void
   /** Replace a pane's multi-select (`[]` clears it). */
@@ -274,6 +385,8 @@ export interface StoreState extends StoreData {
   closeAction: () => void
   /** Expand/collapse navigator groups; persisted with a debounced `SaveUiConfig`. */
   setExpandedGroups: (groups: string[]) => void
+  /** Set (or clear, with `undefined`) the in-flight/last node action for `nodeName` (US2). */
+  setNodeAction: (nodeName: string, action: NodeAction | undefined) => void
 }
 
 /** Debounce for persisting navigator state (typing-speed toggles coalesce into one write). */
@@ -291,8 +404,10 @@ export function markLoading(
   if (context === undefined) return lists
   const next = { ...lists }
   for (const section of sections) {
-    // The backend reports namespaced lists with namespace `null` and filters server-side.
-    const key = listKey(context, section, 'Namespaced', null)
+    // The backend reports namespaced lists with namespace `null` and filters server-side;
+    // cluster-scoped kinds (e.g. nodes) key under `Cluster` instead.
+    const scope = descriptorFor(section)?.namespaced === false ? 'Cluster' : 'Namespaced'
+    const key = listKey(context, section, scope, null)
     const prev = next[key]
     next[key] = prev
       ? { ...prev, status: 'loading', error: undefined }
@@ -387,7 +502,9 @@ export function initialData(): StoreData {
     metrics: { diskUsage: [] },
     flux: {},
     hubble: {},
+    crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
+    nodeActions: {},
     layout: {
       widthClass: 'phone',
       ultraPlus: false,
@@ -398,6 +515,7 @@ export function initialData(): StoreData {
       navOpen: false,
     },
     panes,
+    editSessions: {},
     selection: {},
     pending: {},
     actionPrompt: undefined,
@@ -561,7 +679,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     const d = descriptorFor(section)
     const route: Route = {
       section,
-      scope: 'Namespaced',
+      scope: d?.namespaced === false ? 'Cluster' : 'Namespaced',
       context: s.session.activeContext ?? null,
       namespace: s.session.activeNamespace,
     }
@@ -581,6 +699,22 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
+
+  selectCrdKind: (entry) => {
+    const version = entry.versions[0] ?? ''
+    set((s) => ({
+      crds: { ...s.crds, selected: { group: entry.group, kind: entry.kind, version } },
+    }))
+    const s = get()
+    s.send({
+      type: 'SelectCrdKind',
+      data: { group: entry.group, kind: entry.kind, version },
+    })
+    s.send({
+      type: 'RefreshCrdInstances',
+      data: { group: entry.group, kind: entry.kind, version, namespace: null },
+    })
+  },
 
   focusList: (id) =>
     set((s) => (s.layout.focusedList === id ? s : { layout: { ...s.layout, focusedList: id } })),
@@ -620,6 +754,90 @@ export const useStore = create<StoreState>()((set, get) => ({
     })
     const d = descriptorFor(ref.section)
     for (const cmd of d?.read?.(ref) ?? []) get().send(cmd)
+  },
+
+  openEditSession: (ref, raw) =>
+    set((s) => {
+      const key = detailKey(s.session.activeContext, ref.kind, ref.namespace, ref.name)
+      return { editSessions: { ...s.editSessions, [key]: openSession(ref, raw) } }
+    }),
+
+  updateEditedYaml: (key, yaml) =>
+    set((s) => {
+      const session = s.editSessions[key]
+      if (!session) return s
+      return { editSessions: { ...s.editSessions, [key]: editYaml(session, yaml) } }
+    }),
+
+  reviewEditDiff: (key) =>
+    set((s) => {
+      const session = s.editSessions[key]
+      if (!session) return s
+      return { editSessions: { ...s.editSessions, [key]: reviewSessionDiff(session) } }
+    }),
+
+  discardEditSession: (key) =>
+    set((s) => {
+      const session = s.editSessions[key]
+      if (!session) return s
+      return { editSessions: { ...s.editSessions, [key]: discardSession(session) } }
+    }),
+
+  closeEditSession: (key) =>
+    set((s) => {
+      if (!(key in s.editSessions)) return s
+      const editSessions = { ...s.editSessions }
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- keyed by detail key
+      delete editSessions[key]
+      return { editSessions }
+    }),
+
+  applyEditSession: async (key) => {
+    const session = get().editSessions[key]
+    if (!session) return
+    const cmd = buildApplyCommand(session)
+    let requestId: number
+    try {
+      requestId = await get().request(cmd)
+    } catch (err) {
+      set((s) => {
+        const current = s.editSessions[key]
+        if (!current) return s
+        const message = err instanceof Error ? err.message : String(err)
+        return { editSessions: { ...s.editSessions, [key]: markFailed(current, message) } }
+      })
+      return
+    }
+    set((s) => {
+      const current = s.editSessions[key]
+      if (!current) return s
+      return { editSessions: { ...s.editSessions, [key]: markApplying(current, requestId) } }
+    })
+    const result = await waitForCommandResult(requestId)
+    if (result === 'timeout') {
+      set((s) => {
+        const current = s.editSessions[key]
+        if (!current || current.status !== 'applying') return s
+        return {
+          editSessions: {
+            ...s.editSessions,
+            [key]: markFailed(current, 'No response from the backend.'),
+          },
+        }
+      })
+      return
+    }
+    if (result.ok) return // the `ResourceApplied` stream event already marked it applied.
+    set((s) => {
+      const current = s.editSessions[key]
+      if (!current) return s
+      return {
+        editSessions: {
+          ...s.editSessions,
+          [key]: markFailed(current, result.error ?? 'The backend reported a failure with no message.'),
+        },
+      }
+    })
   },
 
   toggleRowSelected: (paneId, rowKey) =>
@@ -668,6 +886,18 @@ export const useStore = create<StoreState>()((set, get) => ({
         panes[id] = { ...p, target: undefined, source: undefined }
       }
       return { panes }
+    }),
+
+  setNodeAction: (nodeName, action) =>
+    set((s) => {
+      const nodeActions = { ...s.nodeActions }
+      if (action) {
+        nodeActions[nodeName] = action
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- keyed by node name
+        delete nodeActions[nodeName]
+      }
+      return { nodeActions }
     }),
 }))
 

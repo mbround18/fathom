@@ -2,6 +2,7 @@
 import type { BackendEventEnvelope, ResourceReadEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
+import { applyLiveUpdate } from '../editSession'
 import { detailKey } from '../keys'
 
 /** `PodDetailsUpdated` → `Pod`; `PodMetricsHistoryUpdated` → `PodMetricsHistory`. */
@@ -25,5 +26,14 @@ export function handleRead(d: Draft, env: BackendEventEnvelope, event: ResourceR
     data: event.data,
     ...(latest !== undefined ? { latestRequest: latest } : {}),
     updatedAt: Date.now(),
+  }
+
+  // T024 (live diff): a watch-driven re-read of the object an edit session is open on
+  // re-renders `liveYaml` and flags the diff as stale if the operator already reviewed it.
+  const session = d.read('editSessions')[key]
+  const raw = 'raw_json' in event.data ? event.data.raw_json : undefined
+  if (session && typeof raw === 'string') {
+    const next = applyLiveUpdate(session, raw)
+    if (next !== session) d.edit('editSessions')[key] = next
   }
 }

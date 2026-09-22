@@ -110,6 +110,49 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       d.put('hubble', { summary: event.data })
       return
 
+    case 'CrdCatalogUpdated': {
+      const crds = d.edit('crds')
+      crds.catalog = event.data.entries
+      crds.catalogLoaded = true
+      // C1: a fresh catalog that no longer lists the currently-selected kind — mark its last
+      // instance list 'unavailable' rather than leaving it stale/silently-empty.
+      const sel = crds.selected
+      if (sel) {
+        const stillPresent = event.data.entries.some(
+          (e) => e.group === sel.group && e.kind === sel.kind,
+        )
+        if (!stillPresent) {
+          const key = `${sel.group}/${sel.kind}`
+          const prev = crds.instances[key]
+          crds.instances = {
+            ...crds.instances,
+            [key]: {
+              status: 'unavailable',
+              namespace: prev?.namespace ?? null,
+              items: [],
+              updatedAt: Date.now(),
+            },
+          }
+        }
+      }
+      return
+    }
+
+    case 'CrdInstancesUpdated': {
+      const crds = d.edit('crds')
+      const key = `${event.data.group}/${event.data.kind}`
+      crds.instances = {
+        ...crds.instances,
+        [key]: {
+          status: 'ready',
+          namespace: event.data.namespace,
+          items: event.data.instances,
+          updatedAt: Date.now(),
+        },
+      }
+      return
+    }
+
     case 'UiConfigLoaded': {
       d.put('prefs', {
         loaded: true,

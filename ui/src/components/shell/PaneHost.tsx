@@ -5,9 +5,11 @@ import { InspectorActions, ListActions, SelectionBar } from '@/components/Action
 import { Inspector } from '@/components/Inspector'
 import { FluxPanel } from '@/components/panels/FluxPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
+import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
+import { SECTION } from '@/protocol/commands'
 import { descriptorFor } from '@/resources'
 import { cn } from '@/lib/utils'
 import { listKey, useStore, type PaneId, type PaneState } from '@/store'
@@ -162,16 +164,22 @@ function ListBody({ pane }: { pane: PaneState }) {
   const notice = useStore((s) => s.conn.lastNotice?.message)
   const ctx = useStore((s) => s.session.activeContext)
   const section = pane.route?.section
+  const descriptor = descriptorFor(section)
+  const scope = descriptor?.namespaced === false ? 'Cluster' : 'Namespaced'
   const list = useStore((s) =>
-    section === undefined ? undefined : s.lists[listKey(ctx, section, 'Namespaced', null)],
+    section === undefined ? undefined : s.lists[listKey(ctx, section, scope, null)],
   )
   const refreshSection = useStore((s) => s.refreshSection)
-  const descriptor = descriptorFor(section)
 
   if (disconnected) return <Disconnected detail={fatal} />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
   if (section === undefined) {
     return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
+  }
+  // US3: generic CRD browsing has its own catalog/instance/detail layout instead of the
+  // built-in-kind descriptor registry (which is a closed, compile-time set of kinds).
+  if (section === SECTION.customResources) {
+    return <CustomResourcesSection />
   }
   if (!descriptor) {
     return (

@@ -27,3 +27,4 @@ dist-live
 
 # Promo output (pnpm promo)
 promo-out
+.throwaway/
