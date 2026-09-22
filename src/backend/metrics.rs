@@ -1273,6 +1273,43 @@ async fn list_workload_pods(
     }
 }
 
+/// One-shot workload metrics aggregate for a fixed set of pods, without starting a
+/// background poll loop. Used by `SelectApplication` (research.md R4: applications compute
+/// metrics on-demand, not via a new poll loop) with the exact same Prometheus-or-unavailable
+/// fallback the workload poll loop above uses each tick.
+pub(super) async fn aggregate_workload_metrics_once(
+    context: Option<&str>,
+    namespace: &str,
+    workload_name: &str,
+    workload_kind: &str,
+    pods: &[k8s_openapi::api::core::v1::Pod],
+) -> WorkloadMetricsAggregate {
+    let replica_count = pods.len() as u32;
+    let prom_config = enabled_prometheus(context);
+    let result = match &prom_config {
+        Some(prom) => {
+            aggregate_from_prometheus(
+                prom,
+                namespace,
+                workload_name,
+                workload_kind,
+                pods,
+                replica_count,
+            )
+            .await
+        }
+        None => Ok(metrics_unavailable_aggregate(
+            namespace,
+            workload_name,
+            workload_kind,
+            replica_count,
+        )),
+    };
+    result.unwrap_or_else(|_| {
+        metrics_unavailable_aggregate(namespace, workload_name, workload_kind, replica_count)
+    })
+}
+
 /// Wrap workload metrics in the event for its kind; `None` (with a warning) for
 /// unknown kinds.
 fn workload_metrics_event(

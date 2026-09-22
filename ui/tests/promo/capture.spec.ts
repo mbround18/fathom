@@ -7,9 +7,16 @@
 import type { Page } from '@playwright/test'
 
 import { check } from '../e2e/helpers'
-import { DEPLOYMENTS, inspector, key, row, showList, table } from '../live/helpers'
+import { DEPLOYMENTS, inspector, key, navigateTo, row, showList, table } from '../live/helpers'
 
 import { expect, LIVE_NAMESPACE, listPods, redactions, shoot, test } from './helpers'
+
+/** The sandbox's single synthesized Application: `dev/sandbox/kustomization.yaml` stamps
+ * `app.kubernetes.io/part-of: fathom-sandbox` onto every resource in the namespace, which the
+ * backend's label-heuristic attribution tier (`src/backend/applications.rs`) turns into one
+ * Application — instance/name `fathom-sandbox`, owning every sandbox workload. */
+const APPLICATIONS = 'applications'
+const APP_INSTANCE = 'fathom-sandbox'
 
 /** A live pod of `app=<app>` (the first by name, so reruns pick the same one). */
 function podOf(app: string): string {
@@ -109,6 +116,51 @@ test.describe('wide', () => {
       })
       .toBeGreaterThan(0)
     await shoot(page, 'wide-logs', pairs)
+  })
+
+  test('applications list', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Applications', 'Overview')
+    await expect
+      .poll(async () => Number(await table(page, APPLICATIONS).getAttribute('data-row-count')), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThanOrEqual(1)
+    await shoot(page, 'wide-applications-list', pairs)
+  })
+
+  test('applications inspector', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Applications', 'Overview')
+    await row(page, key(APP_INSTANCE), APPLICATIONS).click()
+    const insp = inspector(page)
+    await expect(insp.getByRole('heading', { name: APP_INSTANCE })).toBeVisible()
+    // Related resources stream in after the initial select; wait for at least one link (the
+    // sandbox's `web` Deployment, owned via the label heuristic) before photographing.
+    await expect
+      .poll(async () => insp.getByRole('button').filter({ hasText: 'owns' }).count())
+      .toBeGreaterThan(0)
+    await shoot(page, 'wide-applications-inspector', pairs)
+  })
+
+  test('applications drilldown', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Applications', 'Overview')
+    await row(page, key(APP_INSTANCE), APPLICATIONS).click()
+    const insp = inspector(page)
+    await expect(insp.getByRole('heading', { name: APP_INSTANCE })).toBeVisible()
+    const podLink = insp.getByRole('button').filter({ hasText: 'owns' }).filter({ hasText: 'Pod' }).first()
+    await expect(podLink).toBeVisible()
+    const podName = (await podLink.locator('span').first().innerText()).split('/').pop()
+    await podLink.click()
+    const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' })
+    await expect(breadcrumb).toBeVisible()
+    await expect(breadcrumb).toContainText(APP_INSTANCE)
+    if (podName) await expect(inspector(page).getByRole('heading', { name: podName })).toBeVisible()
+    await shoot(page, 'wide-applications-drilldown', pairs)
   })
 })
 

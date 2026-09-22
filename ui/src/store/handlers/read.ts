@@ -13,7 +13,12 @@ export function readKind(type: ResourceReadEvent['type']): string {
 export function readKeyOf(env: BackendEventEnvelope, event: ResourceReadEvent): string {
   const data = event.data
   const ns = 'namespace' in data ? data.namespace : null
-  return detailKey(env.route.context, readKind(event.type), ns, data.name)
+  // Applications: `ApplicationDetails.name` is a display name that can differ from `instance`
+  // (falls back to a k8s label, see `src/backend/applications.rs`), but the inspector's cache
+  // lookup always uses the stable identifier (`ObjectRef.name` = `instance` for Applications,
+  // per `applications.tsx`'s `ref()`). Prefer `instance` when present so the two agree.
+  const name = 'instance' in data ? data.instance : data.name
+  return detailKey(env.route.context, readKind(event.type), ns, name)
 }
 
 export function handleRead(d: Draft, env: BackendEventEnvelope, event: ResourceReadEvent): void {

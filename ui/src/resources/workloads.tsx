@@ -16,10 +16,12 @@ import type {
   WorkloadSummary,
 } from '@/protocol/types'
 
+import { useStore } from '@/store'
+
 import { deleteAction, restartAction, scaleAction } from './actions'
 import { formatAge } from './format'
 import { compareNumber, compareStatus, compareText } from './search'
-import type { ActionDescriptor, DetailSection, ResourceDescriptor } from './types'
+import type { ActionDescriptor, DetailSection, ObjectRef, ResourceDescriptor } from './types'
 
 /** `Available` when every desired replica is ready, else `Progressing` (with the counts). */
 export function workloadStatus(w: WorkloadSummary): string {
@@ -28,6 +30,29 @@ export function workloadStatus(w: WorkloadSummary): string {
 }
 
 const ratio = (w: WorkloadSummary) => `${String(w.ready)}/${String(w.desired)}`
+
+/** US3: a workload's owned pod, clickable into the inspector (drills, pushing the back-stack). */
+function PodLink({ p }: { p: WorkloadDetails['pods'][number] }) {
+  const openInspector = useStore((s) => s.openInspector)
+  const ref: ObjectRef = {
+    section: 'workloads/pods',
+    kind: 'Pod',
+    namespace: p.namespace,
+    name: p.name,
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        openInspector(ref, undefined, true)
+      }}
+      className="flex min-w-0 items-center gap-2 text-left hover:text-accent-neon"
+    >
+      <span className="truncate font-mono">{p.name}</span>
+      <StatusBadge status={p.phase} label={`${p.phase} ${String(p.ready)}/${String(p.total)}`} />
+    </button>
+  )
+}
 
 function sections(): DetailSection<WorkloadSummary, WorkloadDetails>[] {
   return [
@@ -100,15 +125,7 @@ function sections(): DetailSection<WorkloadSummary, WorkloadDetails>[] {
         detail
           ? {
               type: 'list',
-              items: detail.pods.map((p) => (
-                <span key={p.name} className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-mono">{p.name}</span>
-                  <StatusBadge
-                    status={p.phase}
-                    label={`${p.phase} ${String(p.ready)}/${String(p.total)}`}
-                  />
-                </span>
-              )),
+              items: detail.pods.map((p) => <PodLink key={p.name} p={p} />),
             }
           : null,
     },

@@ -232,6 +232,26 @@ pub(super) async fn scan_flux(client: &Client) -> anyhow::Result<FluxOverview> {
     })
 }
 
+/// Raw Kustomization and HelmRelease dynamic objects (kind, spec, status.inventory included),
+/// for the Applications feature's Flux attribution (research.md R2/R3) — reuses this module's
+/// existing CRD-discovery/listing rather than a second discovery pass.
+pub(super) async fn list_kustomizations_and_helmreleases(
+    client: &Client,
+) -> anyhow::Result<(Vec<DynamicObject>, Vec<DynamicObject>)> {
+    let crd_api: Api<CustomResourceDefinition> = Api::all(client.clone());
+    let crds = crd_api.list(&ListParams::default()).await?.items;
+
+    let kustomizations = match find_served(&crds, KUSTOMIZATION_CRD) {
+        Some(discovered) => list_instances(client, &discovered).await,
+        None => Vec::new(),
+    };
+    let helmreleases = match find_served(&crds, HELMRELEASE_CRD) {
+        Some(discovered) => list_instances(client, &discovered).await,
+        None => Vec::new(),
+    };
+    Ok((kustomizations, helmreleases))
+}
+
 #[cfg(test)]
 mod live_cluster_tests {
     use super::*;

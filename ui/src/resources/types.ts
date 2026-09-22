@@ -8,7 +8,13 @@
  */
 import type { ReactNode } from 'react'
 
-import type { BackendCmd, ResourceListEvent, Route, SectionKey } from '@/protocol/types'
+import type {
+  BackendCmd,
+  RelatedResourceRef,
+  ResourceListEvent,
+  Route,
+  SectionKey,
+} from '@/protocol/types'
 import type { DetailState, ListRow } from '@/store'
 
 /** Stable row identity within a list: `namespace/name` (or `name` when cluster-scoped). */
@@ -55,6 +61,11 @@ export interface DetailContext<R, D> {
   row?: R
   /** The backend's read reply, once it has arrived. */
   detail?: D
+  /**
+   * `RefreshRelatedResources`'s reply for this object (US3), when the descriptor's `read()`
+   * requested one. `undefined` until it arrives (or if this kind never requests one).
+   */
+  related?: RelatedResourceRef[]
 }
 
 export interface DetailSection<R, D = unknown> {

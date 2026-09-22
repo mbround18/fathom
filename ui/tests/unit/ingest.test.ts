@@ -5,8 +5,13 @@ import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DiskUsage, EventBatch, PodSummary } from '@/protocol/types'
-import { pods as podDescriptor } from '@/resources/pods'
+// `@/store` must be imported before any descriptor module that (transitively, via
+// `resources/related.tsx`) imports `@/store` itself — otherwise the reentrant cycle leaves
+// that descriptor's module mid-evaluation and `ALL_DESCRIPTORS` picks up `undefined` for it.
+// The app's own entry point (`main.tsx`) naturally imports `@/store` first; this just matches
+// that order.
 import { eventsFor, initialData, listKey, type LogStreamState, useStore } from '@/store'
+import { pods as podDescriptor } from '@/resources/pods'
 import { resetActions, runAction } from '@/store/actions'
 import { ingest } from '@/store/ingest'
 

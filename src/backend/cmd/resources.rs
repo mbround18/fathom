@@ -5,11 +5,11 @@ use crossbeam_channel::Sender;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    clusterrolebindings, clusterroles, configmaps, crds, endpoints, horizontalpodautoscalers,
-    ingressclasses, ingresses, leases, limitranges, mutatingwebhooks, networkpolicies,
-    persistentvolumeclaims, persistentvolumes, poddisruptionbudgets, priorityclasses,
-    resourcequotas, rolebindings, roles, runtimeclasses, secrets, services, storageclasses,
-    validatingwebhooks,
+    applications, clusterrolebindings, clusterroles, configmaps, crds, endpoints,
+    horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges, mutatingwebhooks,
+    networkpolicies, persistentvolumeclaims, persistentvolumes, poddisruptionbudgets,
+    priorityclasses, related, resourcequotas, rolebindings, roles, runtimeclasses, secrets,
+    services, storageclasses, validatingwebhooks,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -37,7 +37,61 @@ pub(super) async fn handle(
     let Some(cmd) = handle_access_cmd(cmd, state, sender).await? else {
         return Ok(None);
     };
-    handle_crd_cmd(cmd, state, sender).await
+    let Some(cmd) = handle_crd_cmd(cmd, state, sender).await? else {
+        return Ok(None);
+    };
+    handle_applications_cmd(cmd, state, sender).await
+}
+
+/// Applications view (US1/US2) and the generic related-resources resolver (US3) — both
+/// strictly read-only, synthesized from already-collected data (spec 004).
+async fn handle_applications_cmd(
+    cmd: BackendCmd,
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) -> anyhow::Result<Option<BackendCmd>> {
+    match cmd {
+        BackendCmd::RefreshApplications => {
+            applications::refresh_applications(state, sender).await?
+        }
+        BackendCmd::SelectApplication {
+            namespace,
+            instance,
+        } => {
+            applications::select_application(state, sender, &namespace, &instance).await?;
+        }
+        BackendCmd::RefreshRelatedResources {
+            section,
+            kind,
+            namespace,
+            name,
+        } => {
+            let related = related::related_resources(state, &kind, namespace.as_deref(), &name)
+                .await
+                .unwrap_or_default();
+            crate::backend::events::emit(
+                state.cluster.seq.as_ref(),
+                sender,
+                crate::protocol::Route::namespaced(
+                    section.clone(),
+                    state.cluster.current_context.clone(),
+                    namespace.clone(),
+                ),
+                crate::protocol::Correlation::None,
+                crate::protocol::BackendEvent::ResourceRead(
+                    crate::protocol::ResourceReadEvent::RelatedResourcesUpdated {
+                        section,
+                        kind,
+                        namespace,
+                        name,
+                        related,
+                    },
+                ),
+            );
+        }
+        other => return Ok(Some(other)),
+    }
+    Ok(None)
 }
 
 /// Generic, read-only Custom Resource Definition browsing (US3): discovers every installed

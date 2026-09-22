@@ -139,7 +139,10 @@ impl BackendCmdV1 {
             | C::RefreshCrds
             | C::SelectCrdKind { .. }
             | C::RefreshCrdInstances { .. }
-            | C::SelectCrdInstance { .. } => MutationTarget::ReadOnly,
+            | C::SelectCrdInstance { .. }
+            | C::RefreshApplications
+            | C::SelectApplication { .. }
+            | C::RefreshRelatedResources { .. } => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -391,6 +394,8 @@ impl BackendCmdV1 {
             | C::SelectCrdKind { .. }
             | C::RefreshCrdInstances { .. }
             | C::SelectCrdInstance { .. } => section_keys::custom_resources(),
+            C::RefreshApplications | C::SelectApplication { .. } => section_keys::applications(),
+            C::RefreshRelatedResources { section, .. } => section.clone(),
         };
         Some(key)
     }

@@ -838,6 +838,44 @@ fn sample_crd_instance_details() -> CrdInstanceDetails {
     }
 }
 
+fn sample_application_summary() -> ApplicationSummary {
+    ApplicationSummary {
+        instance: "s".to_owned(),
+        name: "s".to_owned(),
+        namespace: "s".to_owned(),
+        managed_by: ApplicationManagedBy::Helm,
+        version: Some("1.2.3".to_owned()),
+        creation_timestamp: "s".to_owned(),
+        ready_count: 2,
+        total_count: 3,
+    }
+}
+
+fn sample_related_resource_ref() -> RelatedResourceRef {
+    RelatedResourceRef {
+        section: section_keys::workloads_pods(),
+        kind: "Pod".to_owned(),
+        namespace: Some("s".to_owned()),
+        name: "s".to_owned(),
+        relation: "owns".to_owned(),
+        status_hint: Some("Running".to_owned()),
+    }
+}
+
+fn sample_application_details() -> ApplicationDetails {
+    ApplicationDetails {
+        instance: "s".to_owned(),
+        name: "s".to_owned(),
+        namespace: "s".to_owned(),
+        managed_by: ApplicationManagedBy::Flux,
+        version: Some("1.2.3".to_owned()),
+        creation_timestamp: "s".to_owned(),
+        labels: BTreeMap::from([("k".to_owned(), "v".to_owned())]),
+        urls: vec!["http://s".to_owned()],
+        related: vec![sample_related_resource_ref()],
+    }
+}
+
 fn sample_validating_webhook_configuration_details() -> ValidatingWebhookConfigurationDetails {
     ValidatingWebhookConfigurationDetails {
         name: "s".to_owned(),
@@ -1654,6 +1692,17 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: Some("s".to_owned()),
             name: "s".to_owned(),
         },
+        BackendCmd::RefreshApplications,
+        BackendCmd::SelectApplication {
+            namespace: "s".to_owned(),
+            instance: "s".to_owned(),
+        },
+        BackendCmd::RefreshRelatedResources {
+            section: section_keys::applications(),
+            kind: "s".to_owned(),
+            namespace: Some("s".to_owned()),
+            name: "s".to_owned(),
+        },
     ]
 }
 
@@ -1816,6 +1865,9 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SelectCrdKind { .. } => {}
         BackendCmd::RefreshCrdInstances { .. } => {}
         BackendCmd::SelectCrdInstance { .. } => {}
+        BackendCmd::RefreshApplications => {}
+        BackendCmd::SelectApplication { .. } => {}
+        BackendCmd::RefreshRelatedResources { .. } => {}
     }
 }
 
@@ -1957,6 +2009,7 @@ fn all_resource_list_events() -> Vec<ResourceListEvent> {
         ResourceListEvent::ValidatingWebhookConfigurationsUpdated(vec![
             sample_validating_webhook_configuration_summary(),
         ]),
+        ResourceListEvent::ApplicationsUpdated(vec![sample_application_summary()]),
     ]
 }
 
@@ -1999,6 +2052,7 @@ fn all_resource_list_events_is_exhaustive(v: &ResourceListEvent) {
         ResourceListEvent::LeasesUpdated(..) => {}
         ResourceListEvent::MutatingWebhookConfigurationsUpdated(..) => {}
         ResourceListEvent::ValidatingWebhookConfigurationsUpdated(..) => {}
+        ResourceListEvent::ApplicationsUpdated(..) => {}
     }
 }
 
@@ -2053,6 +2107,15 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
             sample_validating_webhook_configuration_details(),
         ),
         ResourceReadEvent::CrdInstanceDetailsUpdated(sample_crd_instance_details()),
+        ResourceReadEvent::ApplicationDetailsUpdated(sample_application_details()),
+        ResourceReadEvent::ApplicationMetricsUpdated(sample_workload_metrics_aggregate()),
+        ResourceReadEvent::RelatedResourcesUpdated {
+            section: section_keys::applications(),
+            kind: "Application".to_owned(),
+            namespace: Some("s".to_owned()),
+            name: "s".to_owned(),
+            related: vec![sample_related_resource_ref()],
+        },
     ]
 }
 
@@ -2099,6 +2162,9 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::MutatingWebhookConfigurationDetailsUpdated(..) => {}
         ResourceReadEvent::ValidatingWebhookConfigurationDetailsUpdated(..) => {}
         ResourceReadEvent::CrdInstanceDetailsUpdated(..) => {}
+        ResourceReadEvent::ApplicationDetailsUpdated(..) => {}
+        ResourceReadEvent::ApplicationMetricsUpdated(..) => {}
+        ResourceReadEvent::RelatedResourcesUpdated { .. } => {}
     }
 }
 

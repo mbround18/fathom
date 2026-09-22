@@ -73,7 +73,11 @@ export async function navigateTo(page: Page, label: string, group = 'Workloads')
     await page.getByRole('button', { name: 'Open navigator' }).click()
   }
   await expect(nav).toBeVisible()
-  const toggle = nav.getByRole('button', { name: group, exact: true })
+  // Scoped to `[aria-expanded]` (only the group toggle has it) since a group's own section can
+  // share its exact label (e.g. the "Overview" group contains an "Overview" section), which
+  // would otherwise make `getByRole('button', { name: group, exact: true })` ambiguous once the
+  // group is already expanded and both buttons are in the DOM.
+  const toggle = nav.locator('button[aria-expanded]', { hasText: group })
   if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
   await nav.getByRole('button', { name: label, exact: true }).click()
 }

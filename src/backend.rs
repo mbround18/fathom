@@ -9,6 +9,7 @@ use tokio::runtime::Runtime;
 
 use crate::config::Args;
 
+mod applications;
 mod apply;
 mod cmd;
 mod crds;
@@ -34,6 +35,7 @@ mod nodes;
 pub mod persistence;
 mod pods;
 mod portforward;
+mod related;
 mod replicasets;
 mod replicationcontrollers;
 mod services;

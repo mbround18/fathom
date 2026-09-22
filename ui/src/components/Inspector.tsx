@@ -6,11 +6,11 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SECTION } from '@/protocol/commands'
-import type { KubernetesEvent, PodSummary } from '@/protocol/types'
+import type { KubernetesEvent, PodSummary, RelatedResourceRef } from '@/protocol/types'
 import { descriptorFor, type ObjectRef } from '@/resources'
 import { formatAge } from '@/resources/format'
 import { jsonToYaml } from '@/resources/yaml'
-import { detailKey, listKey, useStore, type ListRow, type PaneState } from '@/store'
+import { detailKey, listKey, useStore, type ListRow, type PaneId, type PaneState } from '@/store'
 import { cn } from '@/lib/utils'
 
 import { DetailSections } from './DetailSections'
@@ -45,6 +45,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   const detailState = useStore(
     (s) => s.details[detailKey(ctx, target.kind, target.namespace, target.name)],
   )
+  // US3: `RefreshRelatedResources`'s reply, keyed like every other `ResourceReadEvent` (its
+  // derived kind is `RelatedResources`, from `readKind()` stripping the trailing "Updated").
+  const relatedState = useStore(
+    (s) => s.details[detailKey(ctx, 'RelatedResources', target.namespace, target.name)],
+  )
+  const related =
+    relatedState?.eventType === 'RelatedResourcesUpdated'
+      ? (relatedState.data as { related: RelatedResourceRef[] }).related
+      : undefined
   const hidden = useStore((s) => {
     const src = pane.source ? s.panes[pane.source] : undefined
     return src?.visibleColumns
@@ -100,6 +109,9 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
           </>
         )}
       </p>
+      {pane.history && pane.history.length > 0 && (
+        <Breadcrumb paneId={pane.id} history={pane.history} target={target} />
+      )}
       <Tabs value={tab} onValueChange={handleTabChange} className="min-h-0 flex-1 gap-0">
         <TabsList
           variant="line"
@@ -155,6 +167,7 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
             row={row}
             detail={detail}
             hiddenColumns={hiddenColumns}
+            related={related}
           />
         </TabsContent>
         <TabsContent value="yaml" className="min-h-0 overflow-auto">
@@ -188,6 +201,59 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
         )}
       </Tabs>
     </div>
+  )
+}
+
+/** US3: drill-down back-stack (`pane.history`), each prior segment clickable to jump back to it,
+ * plus a "Back" control for the single most recent step. */
+function Breadcrumb({
+  paneId,
+  history,
+  target,
+}: {
+  paneId: PaneId
+  history: ObjectRef[]
+  target: ObjectRef
+}) {
+  const goBack = useStore((s) => s.goBack)
+  const updatePane = useStore((s) => s.updatePane)
+  const segments = [...history, target]
+  return (
+    <nav
+      aria-label="Breadcrumb"
+      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-1 font-mono text-xs text-muted-foreground"
+    >
+      <button
+        type="button"
+        onClick={() => {
+          goBack(paneId)
+        }}
+        className="mr-1 shrink-0 text-accent-neon hover:underline"
+      >
+        ← Back
+      </button>
+      {segments.map((seg, i) => {
+        const isLast = i === segments.length - 1
+        return (
+          <span key={`${seg.section}-${seg.namespace ?? ''}-${seg.name}-${String(i)}`} className="flex items-center gap-1">
+            {i > 0 && <span aria-hidden="true">/</span>}
+            {isLast ? (
+              <span className="text-foreground">{seg.name}</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  updatePane(paneId, { target: seg, history: segments.slice(0, i) })
+                }}
+                className="hover:text-accent-neon hover:underline"
+              >
+                {seg.name}
+              </button>
+            )}
+          </span>
+        )
+      })}
+    </nav>
   )
 }
 

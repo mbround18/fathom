@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import type { RelatedResourceRef } from '@/protocol/types'
 import type { AnyDescriptor, DetailBlock } from '@/resources'
 import type { ListRow } from '@/store'
 
@@ -15,9 +16,17 @@ interface DetailSectionsProps {
   detail?: unknown
   /** Column ids the source list is hiding for lack of width (FR-009): shown here instead. */
   hiddenColumns?: readonly string[]
+  /** US3: `RefreshRelatedResources`'s reply for the current target, if it requested one. */
+  related?: RelatedResourceRef[]
 }
 
-export function DetailSections({ descriptor, row, detail, hiddenColumns }: DetailSectionsProps) {
+export function DetailSections({
+  descriptor,
+  row,
+  detail,
+  hiddenColumns,
+  related,
+}: DetailSectionsProps) {
   const extra =
     row && hiddenColumns && hiddenColumns.length > 0
       ? descriptor.columns.filter((c) => hiddenColumns.includes(c.id))
@@ -26,7 +35,7 @@ export function DetailSections({ descriptor, row, detail, hiddenColumns }: Detai
     <div className="flex flex-col gap-5 p-3">
       {descriptor.detailSections.map((s) => (
         <Section key={s.id} title={s.title}>
-          <Block block={s.render({ row, detail })} />
+          <Block block={s.render({ row, detail, related })} />
         </Section>
       ))}
       {extra.length > 0 && row && (

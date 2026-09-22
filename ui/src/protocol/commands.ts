@@ -14,6 +14,7 @@ export const SECTION = {
   deployments: 'workloads/deployments',
   customResources: 'custom-resources',
   nodes: 'nodes',
+  applications: 'applications',
 } as const satisfies Record<string, SectionKey>
 
 /** Commands sent once the event subscription is up (mirrors egui's startup in src/app/mod.rs). */
@@ -33,6 +34,7 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   // CustomResourcesSection (they need a group/kind/version the section chooses).
   [SECTION.customResources]: { type: 'RefreshCrds' },
   [SECTION.nodes]: { type: 'RefreshNodes' },
+  [SECTION.applications]: { type: 'RefreshApplications' },
 }
 
 /** The refresh command for a list section, if the UI knows one yet. */

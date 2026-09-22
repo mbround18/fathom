@@ -1,22 +1,23 @@
 use super::{
-    ClusterRoleBindingDetails, ClusterRoleBindingSummary, ClusterRoleDetails, ClusterRoleSummary,
-    ConfigMapDetails, ConfigMapSummary, Correlation, CronJobDetails, CronJobSummary,
-    DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary, EndpointDetails,
-    EndpointSummary, EventsSummary, FluxOverview, HorizontalPodAutoscalerDetails,
-    HorizontalPodAutoscalerSummary, HubbleTrafficSummary, IngressClassDetails, IngressClassSummary,
-    IngressDetails, IngressSummary, JobDetails, JobSummary, LeaseDetails, LeaseSummary,
-    LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
-    MutatingWebhookConfigurationSummary, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
-    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
-    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, ReplicaSetSummary,
-    ReplicationControllerDetails, ReplicationControllerSummary, ResourceQuotaDetails,
-    ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
-    RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, ServiceDetails,
-    ServiceSummary, StatefulSetDetails, StatefulSetSummary, StorageClassDetails,
-    StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
-    ValidatingWebhookConfigurationSummary, WorkloadMetricsAggregate,
+    ApplicationDetails, ApplicationSummary, ClusterRoleBindingDetails, ClusterRoleBindingSummary,
+    ClusterRoleDetails, ClusterRoleSummary, ConfigMapDetails, ConfigMapSummary, Correlation,
+    CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails,
+    DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary, FluxOverview,
+    HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
+    IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
+    JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
+    MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary, NamespaceDetails,
+    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
+    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
+    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
+    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
+    PrometheusMetrics, RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
+    ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
+    RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
+    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
+    StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
+    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
+    WorkloadMetricsAggregate,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -213,6 +214,7 @@ pub enum ResourceListEvent {
     LeasesUpdated(Vec<LeaseSummary>),
     MutatingWebhookConfigurationsUpdated(Vec<MutatingWebhookConfigurationSummary>),
     ValidatingWebhookConfigurationsUpdated(Vec<ValidatingWebhookConfigurationSummary>),
+    ApplicationsUpdated(Vec<ApplicationSummary>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -258,6 +260,15 @@ pub enum ResourceReadEvent {
     MutatingWebhookConfigurationDetailsUpdated(MutatingWebhookConfigurationDetails),
     ValidatingWebhookConfigurationDetailsUpdated(ValidatingWebhookConfigurationDetails),
     CrdInstanceDetailsUpdated(CrdInstanceDetails),
+    ApplicationDetailsUpdated(ApplicationDetails),
+    ApplicationMetricsUpdated(WorkloadMetricsAggregate),
+    RelatedResourcesUpdated {
+        section: SectionKey,
+        kind: String,
+        namespace: Option<String>,
+        name: String,
+        related: Vec<RelatedResourceRef>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

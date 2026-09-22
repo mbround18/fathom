@@ -241,6 +241,10 @@ pub mod section_keys {
         SectionKey::new("custom-resources")
     }
 
+    pub fn applications() -> SectionKey {
+        SectionKey::new("applications")
+    }
+
     pub fn integrations_argo() -> SectionKey {
         SectionKey::new("integrations/argo")
     }

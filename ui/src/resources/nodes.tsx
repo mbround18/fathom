@@ -8,6 +8,7 @@ import { selectCmd } from '@/protocol/commands'
 import type { NodeDetails, NodeSummary } from '@/protocol/types'
 
 import { formatMi, formatMillicores } from './format'
+import { relatedResourcesBlock } from './related'
 import { compareNumber, compareStatus, compareText } from './search'
 import type { DetailSection, ResourceDescriptor } from './types'
 
@@ -107,6 +108,11 @@ const nodeSections: DetailSection<NodeSummary, NodeDetails>[] = [
     title: 'Annotations',
     render: ({ detail }) => (detail ? { type: 'map', entries: detail.annotations } : null),
   },
+  {
+    id: 'related',
+    title: 'Related',
+    render: ({ related }) => relatedResourcesBlock(related),
+  },
 ]
 
 export const nodes: ResourceDescriptor<NodeSummary, NodeDetails> = {
@@ -180,7 +186,14 @@ export const nodes: ResourceDescriptor<NodeSummary, NodeDetails> = {
   refresh: () => ({ type: 'RefreshNodes' }),
   read: (ref) => {
     const cmd = selectCmd('Node', '', ref.name)
-    return [...(cmd ? [cmd] : []), { type: 'RefreshEvents' }]
+    return [
+      ...(cmd ? [cmd] : []),
+      { type: 'RefreshEvents' },
+      {
+        type: 'RefreshRelatedResources',
+        data: { section: SECTION, kind: 'Node', namespace: null, name: ref.name },
+      },
+    ]
   },
   detailSections: nodeSections,
   actions: [],

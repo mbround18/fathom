@@ -553,6 +553,21 @@ pub enum BackendCmdV1 {
         namespace: Option<String>,
         name: String,
     },
+
+    // Applications (synthesized, read-only)
+    RefreshApplications,
+    SelectApplication {
+        namespace: String,
+        instance: String,
+    },
+
+    // Generic related-resources resolver (read-only, any kind)
+    RefreshRelatedResources {
+        section: SectionKey,
+        kind: String,
+        namespace: Option<String>,
+        name: String,
+    },
 }
 
 /// Direction of a `TaintNode` mutation.
@@ -715,6 +730,31 @@ mod tests {
             version: "v1".to_owned(),
             namespace: Some("flux-system".to_owned()),
             name: "podinfo".to_owned(),
+        });
+    }
+
+    #[test]
+    fn application_commands_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshApplications);
+        roundtrip(BackendCmdV1::SelectApplication {
+            namespace: "default".to_owned(),
+            instance: "redis".to_owned(),
+        });
+    }
+
+    #[test]
+    fn refresh_related_resources_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshRelatedResources {
+            section: crate::protocol::section_keys::nodes(),
+            kind: "Node".to_owned(),
+            namespace: None,
+            name: "node-1".to_owned(),
+        });
+        roundtrip(BackendCmdV1::RefreshRelatedResources {
+            section: crate::protocol::section_keys::workloads_pods(),
+            kind: "Pod".to_owned(),
+            namespace: Some("default".to_owned()),
+            name: "web-0".to_owned(),
         });
     }
 }

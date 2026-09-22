@@ -142,6 +142,24 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
       'The Logs tab live-streams real container output straight from the cluster, with auto-scroll and a jump-to-latest control.',
     scale: 2,
   },
+  'wide-applications-list': {
+    title: 'Applications, not just objects',
+    caption:
+      'Helm releases and Flux Kustomizations are grouped into one row each — Instance, Application, Namespace, Managed By, Version, Age, and Status, rolled up from every workload they own.',
+    scale: 2,
+  },
+  'wide-applications-inspector': {
+    title: 'One app, every resource it owns',
+    caption:
+      'The inspector rolls up an application’s metadata, aggregate CPU/memory, and every Deployment, StatefulSet, and Pod it owns — each one a click away.',
+    scale: 2,
+  },
+  'wide-applications-drilldown': {
+    title: 'Follow the relationship, keep your place',
+    caption:
+      'Click "owns" on a related Pod and the inspector drills straight in — a breadcrumb tracks the path back to the application, so context is never lost.',
+    scale: 2,
+  },
   'terminal-shot': {
     title: 'A real shell, inside the app',
     caption:

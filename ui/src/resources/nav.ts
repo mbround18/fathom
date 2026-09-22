@@ -27,6 +27,7 @@ const g = (label: string, kanji: string, sections: [SectionKey, string][]): NavG
 export const NAV_GROUPS: readonly NavGroup[] = [
   g('Overview', '概', [
     ['overview', 'Overview'],
+    ['applications', 'Applications'],
     ['nodes', 'Nodes'],
     ['namespaces', 'Namespaces'],
     ['events', 'Events'],

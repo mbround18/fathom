@@ -75,6 +75,12 @@ export interface PaneState {
   /** Inspector: the object it shows, and the list pane it was opened from. */
   target?: ObjectRef
   source?: PaneId
+  /**
+   * Inspector: prior `target`s drilled through via related-resource links to reach the current
+   * one, oldest first (data-model.md §"Frontend: drill-down / back-stack state", research.md
+   * R6). Empty when opened directly from a list row. Session-transient, never persisted.
+   */
+  history?: ObjectRef[]
 }
 
 /** data-model.md §4: starting → ready → backend-gone (fatal; retry = app restart). */
@@ -351,9 +357,16 @@ export interface StoreState extends StoreData {
   focusList: (id: PaneId) => void
   /**
    * Show `ref` in the nearest inspector (pushing one on phone), mark it selected in the `from`
-   * list pane, and send the descriptor's read commands.
+   * list pane, and send the descriptor's read commands. `push` (US3, research.md R6): true when
+   * following a related-resource link from within an inspector (the current `target` is pushed
+   * onto `history`); false/omitted when selecting fresh from a list row (`history` is cleared).
    */
-  openInspector: (ref: ObjectRef, from?: PaneId) => void
+  openInspector: (ref: ObjectRef, from?: PaneId, push?: boolean) => void
+  /**
+   * US3: pop the last entry off `paneId`'s `history` and restore it as `target`, without
+   * re-issuing a fetch (the detail cache already holds it). No-op when `history` is empty.
+   */
+  goBack: (paneId: PaneId) => void
   /** Esc: pop the inspector on phone, clear it elsewhere. */
   closeInspector: () => void
   /**
@@ -719,7 +732,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   focusList: (id) =>
     set((s) => (s.layout.focusedList === id ? s : { layout: { ...s.layout, focusedList: id } })),
 
-  openInspector: (ref, from) => {
+  openInspector: (ref, from, push) => {
+    const nextHistory = (pane: PaneState | undefined): ObjectRef[] =>
+      push && pane?.target ? [...(pane.history ?? []), pane.target] : []
     set((s) => {
       const panes = { ...s.panes }
       const rowKey = ref.namespace ? `${ref.namespace}/${ref.name}` : ref.name
@@ -730,7 +745,13 @@ export const useStore = create<StoreState>()((set, get) => ({
       const slotted = s.layout.slotPanes.find((id) => panes[id]?.kind === 'inspector')
       const slottedPane = slotted ? panes[slotted] : undefined
       if (slottedPane && s.layout.widthClass !== 'phone') {
-        panes[slottedPane.id] = { ...slottedPane, target: ref, source: from, scrollTop: 0 }
+        panes[slottedPane.id] = {
+          ...slottedPane,
+          target: ref,
+          source: from,
+          scrollTop: 0,
+          history: nextHistory(slottedPane),
+        }
         return { panes, layout }
       }
       // Phone: drill in. Reuse the inspector already on the stack, else a free one.
@@ -741,11 +762,13 @@ export const useStore = create<StoreState>()((set, get) => ({
           (p) => p.kind === 'inspector' && !s.layout.slotPanes.includes(p.id),
         )?.id ??
         nextId(panes, 'inspector')
+      const prior = panes[id]
       panes[id] = {
-        ...(panes[id] ?? newPane(id, 'inspector')),
+        ...(prior ?? newPane(id, 'inspector')),
         target: ref,
         source: from,
         scrollTop: 0,
+        history: nextHistory(prior),
       }
       const base = onStack
         ? s.layout.stack.slice(0, s.layout.stack.indexOf(onStack))
@@ -754,7 +777,32 @@ export const useStore = create<StoreState>()((set, get) => ({
     })
     const d = descriptorFor(ref.section)
     for (const cmd of d?.read?.(ref) ?? []) get().send(cmd)
+    // US3 "not found" state (T050): the existing `list.status === 'ready' && !row` check in
+    // Inspector.tsx only fires once the target's own section list has loaded. A related-resource
+    // link can drill into a section whose list was never opened (e.g. Pod -> Node when the
+    // Nodes list pane was never visited), so make sure it is: refreshSection is a no-op cost
+    // relative to correctness here, and lists already tolerate redundant refreshes.
+    if (push) get().refreshSection(ref.section)
   },
+
+  goBack: (paneId) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      const history = pane?.history
+      if (!pane || !history || history.length === 0) return s
+      const prevTarget = history[history.length - 1]
+      return {
+        panes: {
+          ...s.panes,
+          [paneId]: {
+            ...pane,
+            target: prevTarget,
+            history: history.slice(0, -1),
+            scrollTop: 0,
+          },
+        },
+      }
+    }),
 
   openEditSession: (ref, raw) =>
     set((s) => {

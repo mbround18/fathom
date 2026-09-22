@@ -1,3 +1,4 @@
+mod applications;
 mod bridge_types;
 mod clusterrolebindings;
 mod clusterroles;
@@ -44,6 +45,7 @@ mod ui_config;
 mod validatingwebhooks;
 mod workloads;
 
+pub use applications::*;
 pub use bridge_types::*;
 pub use clusterrolebindings::*;
 pub use clusterroles::*;

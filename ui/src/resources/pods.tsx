@@ -10,6 +10,7 @@ import type { PodDetails, PodSummary } from '@/protocol/types'
 
 import { deleteAction } from './actions'
 import { formatAge, formatMi, formatMillicores } from './format'
+import { relatedResourcesBlock } from './related'
 import { compareNumber, compareStatus, compareText } from './search'
 import type { DetailSection, ResourceDescriptor } from './types'
 
@@ -115,6 +116,11 @@ const podSections: DetailSection<PodSummary, PodDetails>[] = [
     title: 'Annotations',
     render: ({ detail }) => (detail ? { type: 'map', entries: detail.annotations } : null),
   },
+  {
+    id: 'related',
+    title: 'Related',
+    render: ({ related }) => relatedResourcesBlock(related),
+  },
 ]
 
 export const pods: ResourceDescriptor<PodSummary, PodDetails> = {
@@ -188,7 +194,14 @@ export const pods: ResourceDescriptor<PodSummary, PodDetails> = {
   refresh: () => ({ type: 'RefreshPods' }),
   read: (ref) => {
     const cmd = selectCmd('Pod', ref.namespace ?? '', ref.name)
-    return [...(cmd ? [cmd] : []), { type: 'RefreshEvents' }]
+    return [
+      ...(cmd ? [cmd] : []),
+      { type: 'RefreshEvents' },
+      {
+        type: 'RefreshRelatedResources',
+        data: { section: SECTION, kind: 'Pod', namespace: ref.namespace, name: ref.name },
+      },
+    ]
   },
   detailSections: podSections,
   actions: [
