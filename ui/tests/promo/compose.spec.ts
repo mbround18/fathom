@@ -175,21 +175,38 @@ interface ComparisonRow {
 }
 
 // Modest, accurate claims only: no fabricated competitor features.
-// - Lens/OpenLens, Headlamp: Electron-based, not native desktop apps.
-// - None of the compared tools ship a built-in GitOps (Flux) reconciliation view.
+// - Lens (Mirantis): Electron-based, not a native desktop app; free tier exists but Team/Enterprise
+//   tiers are paid subscriptions ($9.99/user/mo and up) — mirantis.com/blog/lens-plans-pricing-update.
+// - OpenLens: the community-maintained free fork of pre-acquisition Lens; same Electron base.
+// - Headlamp: CNCF Sandbox project, Electron-based, fully free/OSS, built around a plugin system —
+//   a community Flux CD plugin exists (oneuptime.com/blog/2026-03-06-use-headlamp-flux-cd), so its
+//   GitOps view is "partial" (opt-in plugin), not built in by default. No Cilium/Hubble plugin exists.
 // - None of the compared tools ship a built-in eBPF/Cilium/Hubble flow view.
 // - K9s has no GUI at all (terminal-only), so several axes are simply not applicable.
-const COMPARISON_COLUMNS = ['Lens / OpenLens', 'Headlamp', 'K9s', 'Rancher Dashboard', 'K8s Dashboard']
+const COMPARISON_COLUMNS = ['Lens', 'OpenLens', 'Headlamp', 'K9s', 'Rancher Dashboard', 'K8s Dashboard']
 const COMPARISON_ROWS: ComparisonRow[] = [
-  { axis: 'Native desktop app', fathom: 'yes', cells: ['no', 'no', 'yes', 'no', 'no'] },
-  { axis: 'GitOps (Flux) view built in', fathom: 'yes', cells: ['no', 'no', 'no', 'no', 'no'] },
+  { axis: 'Native desktop app', fathom: 'yes', cells: ['no', 'no', 'no', 'yes', 'no', 'no'] },
+  {
+    axis: 'GitOps (Flux) view built in',
+    fathom: 'yes',
+    cells: ['no', 'no', 'partial', 'no', 'no', 'no'],
+  },
   {
     axis: 'eBPF / Cilium traffic view built in',
     fathom: 'yes',
-    cells: ['no', 'no', 'no', 'no', 'no'],
+    cells: ['no', 'no', 'no', 'no', 'no', 'no'],
   },
-  { axis: 'Guarded bulk actions', fathom: 'yes', cells: ['partial', 'partial', 'no', 'partial', 'no'] },
-  { axis: 'Free / OSS', fathom: 'yes', cells: ['partial', 'yes', 'yes', 'yes', 'yes'] },
+  {
+    axis: 'Extension / plugin ecosystem',
+    fathom: 'no',
+    cells: ['yes', 'yes', 'yes', 'no', 'partial', 'no'],
+  },
+  {
+    axis: 'Guarded bulk actions',
+    fathom: 'yes',
+    cells: ['partial', 'partial', 'partial', 'no', 'partial', 'no'],
+  },
+  { axis: 'Free / OSS, no paid tier', fathom: 'yes', cells: ['no', 'yes', 'yes', 'yes', 'yes', 'yes'] },
 ]
 
 const CELL_GLYPH: Record<Cell, string> = { yes: '✓', no: '—', partial: '~' }
@@ -271,7 +288,7 @@ function buildHtml(facts: Facts, shots: Shot[]): string {
   <h1>One native app, not five browser tabs</h1>
   <p>Feature comparison against the other tools teams reach for when kubectl isn't enough.</p>
   ${comparisonTable()}
-  <p class="comparison-note">✓ built in &middot; ~ partial or bolt-on &middot; &mdash; not offered. Lens/OpenLens and Headlamp are Electron-based, not native desktop apps; K9s is terminal-only (no GUI). None of the tools above ship a built-in GitOps reconciliation view or a built-in eBPF/Cilium flow view.</p>`
+  <p class="comparison-note">✓ built in &middot; ~ partial or bolt-on &middot; &mdash; not offered. Lens, OpenLens, and Headlamp are Electron-based, not native desktop apps; K9s is terminal-only (no GUI). Lens is free for individuals but its Team ($9.99/user/mo) and Enterprise tiers are paid; OpenLens is the free community fork. Headlamp's Flux view comes from an optional community plugin, not the default build &mdash; and like the rest, it has no Cilium/Hubble plugin. No tool above ships a built-in eBPF/Cilium flow view.</p>`
 
   const totalPages = 3 + shotBodies.length
   const pages = [
