@@ -203,7 +203,7 @@ test.describe('wide', () => {
     await row(page, key(HELM_RELEASE), HELM).click()
     const insp = inspector(page)
     await expect(insp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
-    const originLink = insp.getByRole('button', { name: `fathom-dev/${HELM_RELEASE}` })
+    const originLink = insp.getByRole('button', { name: `fathom-dev/${HELM_RELEASE}`, exact: true })
     await expect(originLink).toBeVisible()
     await originLink.click()
     const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' })
