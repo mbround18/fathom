@@ -43,6 +43,7 @@ import {
   reviewDiff as reviewSessionDiff,
   type ResourceEditSession,
 } from './editSession'
+import type { HelmMutationSession } from './helmMutation'
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
 import type { RingBuffer } from './ring-buffer'
 import { waitForCommandResult } from './actions'
@@ -293,6 +294,12 @@ export interface StoreData {
   integrations: IntegrationsState
   /** Node actions (US2), by node name. */
   nodeActions: Record<string, NodeAction>
+  /**
+   * Helm upgrade/rollback/uninstall preview + apply state (006-helm-mutate), keyed by
+   * `${namespace}/${release}` — one session per release, mirroring `nodeActions`'s per-node
+   * shape. `helmMutation.ts` holds the pure transition helpers.
+   */
+  helmMutations: Record<string, HelmMutationSession>
   layout: LayoutState
   panes: Record<PaneId, PaneState>
   /**
@@ -400,6 +407,8 @@ export interface StoreState extends StoreData {
   setExpandedGroups: (groups: string[]) => void
   /** Set (or clear, with `undefined`) the in-flight/last node action for `nodeName` (US2). */
   setNodeAction: (nodeName: string, action: NodeAction | undefined) => void
+  /** Set (or clear, with `undefined`) a release's Helm mutation session (006-helm-mutate). */
+  setHelmMutation: (key: string, session: HelmMutationSession | undefined) => void
 }
 
 /** Debounce for persisting navigator state (typing-speed toggles coalesce into one write). */
@@ -518,6 +527,7 @@ export function initialData(): StoreData {
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
     nodeActions: {},
+    helmMutations: {},
     layout: {
       widthClass: 'phone',
       ultraPlus: false,
@@ -946,6 +956,18 @@ export const useStore = create<StoreState>()((set, get) => ({
         delete nodeActions[nodeName]
       }
       return { nodeActions }
+    }),
+
+  setHelmMutation: (key, session) =>
+    set((s) => {
+      const helmMutations = { ...s.helmMutations }
+      if (session) {
+        helmMutations[key] = session
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- keyed by release
+        delete helmMutations[key]
+      }
+      return { helmMutations }
     }),
 }))
 

@@ -55,6 +55,9 @@ ring = "0.17.14"
 base64 = "0.22.1"
 flate2 = "1"
 dirs = "6.0.0"
+# Materializing a release's stored chart to disk for `helm upgrade --dry-run`/`helm upgrade`
+# shellouts (006-helm-mutate, research.md R4) — was a dev-only dependency, now needed at runtime.
+tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
     "std",
@@ -95,7 +98,6 @@ protobuf-src = "2.1.1"
 # Headless GUI test harness (AccessKit-based; no window/GPU required)
 egui_kittest = { version = "0.33.3", features = ["eframe"] }
 accesskit = "0.21"
-tempfile = "3"
 
 # Tests that exercise the legacy egui UI (src/app) only build with `egui-ui`.
 [[test]]

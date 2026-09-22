@@ -4,6 +4,7 @@ import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/pro
 
 import { commandFinished, type CommandResult } from '../actions'
 import type { Draft } from '../draft'
+import { applied, applyFailed, previewFailed, previewReady } from '../helmMutation'
 import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
@@ -172,6 +173,32 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       const { slotPanes, dockPanes, panes } = assignPanes(profile, d.read('panes'))
       d.put('panes', panes)
       d.put('layout', { ...layout, profile, slotPanes, dockPanes })
+      return
+    }
+
+    // 006-helm-mutate: preview/apply results for the release the Inspector's Upgrade tab (or
+    // rollback/uninstall counterparts) is open on. Keyed like `nodeActions` — by the target's
+    // own identity, not `Correlation::Request` — since a session outlives any one command.
+    case 'HelmMutationPreviewReady': {
+      const helmMutations = d.edit('helmMutations')
+      const key = `${event.data.namespace}/${event.data.release}`
+      helmMutations[key] = previewReady(event.data)
+      return
+    }
+    case 'HelmMutationApplied': {
+      const helmMutations = d.edit('helmMutations')
+      const key = `${event.data.namespace}/${event.data.release}`
+      helmMutations[key] = applied()
+      return
+    }
+    case 'HelmMutationFailed': {
+      const helmMutations = d.edit('helmMutations')
+      const key = `${event.data.namespace}/${event.data.release}`
+      const prev = helmMutations[key]
+      helmMutations[key] =
+        event.data.stage === 'apply' && prev
+          ? applyFailed(prev, event.data.message)
+          : previewFailed(event.data.message)
       return
     }
   }
