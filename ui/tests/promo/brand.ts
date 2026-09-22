@@ -28,6 +28,23 @@ export const PALETTE = {
   border: 'rgba(196, 198, 255, 0.28)',
 } as const
 
+/**
+ * `:root` "blueprint" tokens (src/theme/tokens.css) — the real light theme Fathom ships,
+ * navy ink on pale paper. Used for content pages so dark neon-noir screenshots pop.
+ */
+export const PALETTE_LIGHT = {
+  background: '#eef1fb',
+  card: '#ffffff',
+  foreground: '#0b1030',
+  mutedForeground: '#4a5580',
+  accentNeon: '#006a80', // teal ink (default accent)
+  accent2: '#a0107f', // magenta ink
+  statusOk: '#007a55',
+  statusWarn: '#8a5a00',
+  statusErr: '#b00030',
+  border: '#0b1030',
+} as const
+
 export const FONTS = {
   brandGlyph: fontDataUrl('@fontsource/yuji-boku/files/yuji-boku-84-400-normal.woff2'),
   displayBold: fontDataUrl('@fontsource/chakra-petch/files/chakra-petch-latin-700-normal.woff2'),

@@ -200,6 +200,25 @@ fn sample_flux_overview() -> FluxOverview {
     }
 }
 
+fn sample_hubble_traffic_summary() -> HubbleTrafficSummary {
+    HubbleTrafficSummary {
+        installed: true,
+        generated_at: "s".to_owned(),
+        total_flows: 7,
+        forwarded: 5,
+        dropped: 2,
+        top_pairs: vec![HubbleFlowPair {
+            source_namespace: "s".to_owned(),
+            dest_namespace: "s".to_owned(),
+            count: 7,
+        }],
+        top_drop_reasons: vec![HubbleDropReason {
+            reason: "POLICY_DENIED".to_owned(),
+            count: 2,
+        }],
+    }
+}
+
 fn sample_horizontal_pod_autoscaler_details() -> HorizontalPodAutoscalerDetails {
     HorizontalPodAutoscalerDetails {
         namespace: "s".to_owned(),
@@ -1400,6 +1419,7 @@ fn all_cmds() -> Vec<BackendCmd> {
             api_key: "s".to_owned(),
         },
         BackendCmd::RefreshFlux,
+        BackendCmd::RefreshHubble,
         BackendCmd::StartMcpServer,
         BackendCmd::StopMcpServer,
         BackendCmd::RefreshMcpStatus,
@@ -1646,6 +1666,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::ConfigureGrafana { .. } => {}
         BackendCmd::TestGrafanaConnection { .. } => {}
         BackendCmd::RefreshFlux => {}
+        BackendCmd::RefreshHubble => {}
         BackendCmd::StartMcpServer => {}
         BackendCmd::StopMcpServer => {}
         BackendCmd::RefreshMcpStatus => {}
@@ -1750,6 +1771,7 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
+        SystemEvent::HubbleTrafficUpdated(sample_hubble_traffic_summary()),
         SystemEvent::UiConfigLoaded {
             ui: Some(sample_ui_config()),
             expanded_groups: vec!["s".to_owned()],
@@ -1773,6 +1795,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
+        SystemEvent::HubbleTrafficUpdated(..) => {}
         SystemEvent::UiConfigLoaded { .. } => {}
     }
 }

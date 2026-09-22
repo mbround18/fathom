@@ -6,6 +6,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   overview: 'Overview',
   metrics: 'Metrics',
   flux: 'Flux',
+  hubble: 'Hubble',
   logs: 'Logs',
   events: 'Events',
   portforwards: 'Forwards',

@@ -78,6 +78,20 @@ test.describe('wide', () => {
     await shoot(page, 'wide-confirm', pairs)
     await dialog.getByTestId('confirm-cancel').click()
   })
+
+  test('flux panel', async ({ app, page, toolPane }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await toolPane.open(page, 'flux')
+    await shoot(page, 'wide-flux', pairs)
+  })
+
+  test('hubble panel', async ({ app, page, toolPane }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await toolPane.open(page, 'hubble')
+    await shoot(page, 'wide-hubble', pairs)
+  })
 })
 
 test.describe('ultra', () => {

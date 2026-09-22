@@ -1,6 +1,6 @@
 use crate::protocol::{
     BackendEvent, BackendEventEnvelope, Correlation, NamespaceSummary, ResourceListEvent, Route,
-    section_keys,
+    SystemEvent, section_keys,
 };
 use crossbeam_channel::Sender;
 use futures_util::StreamExt;
@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use super::state::BackendState;
-use super::{deployments, events, pods};
+use super::{deployments, events, flux, hubble, pods};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -62,6 +62,112 @@ pub(super) async fn ensure_background_sync(
     )));
 
     Ok(())
+}
+
+/// Best-effort: if a `hubble-relay` Service is present, start (or keep running) a
+/// background poll of `Observer.GetFlows` every 20s, emitting `HubbleTrafficUpdated`.
+/// Does nothing if Hubble isn't installed or a poll task is already running.
+pub(super) async fn ensure_hubble_poll(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
+    if state.watch_tasks.hubble_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+    let Some(cfg) = hubble::detect_hubble(&client).await else {
+        return;
+    };
+
+    state.watch_tasks.hubble_poll_task = Some(tokio::spawn(poll_hubble_traffic(
+        client,
+        cfg,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Best-effort: start (or keep running) a background scan of Flux GitOps Toolkit
+/// resources every 20s, emitting `FluxOverviewUpdated`. Does nothing if a poll task
+/// is already running; `scan_flux` itself reports `installed: false` when Flux's
+/// CRDs are absent, so there is no separate detection gate here.
+pub(super) async fn ensure_flux_poll(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
+    if state.watch_tasks.flux_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.flux_poll_task = Some(tokio::spawn(poll_flux_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan Flux resources every 20s and emit the aggregated overview.
+async fn poll_flux_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match flux::scan_flux(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_flux(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::FluxOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Flux scan failed: {}", e),
+                );
+            }
+        }
+    }
+}
+
+/// Background task: sample Hubble traffic every 20s and emit the aggregated summary.
+async fn poll_hubble_traffic(
+    client: kube::Client,
+    cfg: hubble::HubbleConfig,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match hubble::fetch_traffic_summary(&client, &cfg).await {
+            Ok(summary) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_hubble(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::HubbleTrafficUpdated(summary)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Hubble traffic poll failed: {}", e),
+                );
+            }
+        }
+    }
 }
 
 /// Background task: watch pods cluster-wide and re-emit the filtered pod list on

@@ -47,6 +47,7 @@ const TOOL_KINDS: ReadonlySet<string> = new Set<ToolKind>([
   'overview',
   'metrics',
   'flux',
+  'hubble',
   'logs',
   'events',
   'portforwards',

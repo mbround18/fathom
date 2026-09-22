@@ -91,6 +91,7 @@ impl BackendCmdV1 {
             | C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
+            | C::RefreshHubble
             | C::RefreshMcpStatus
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
@@ -292,6 +293,7 @@ impl BackendCmdV1 {
                 section_keys::integrations_grafana()
             }
             C::RefreshFlux => section_keys::integrations_flux(),
+            C::RefreshHubble => section_keys::integrations_hubble(),
             C::StartMcpServer | C::StopMcpServer | C::RefreshMcpStatus | C::OpenMcpConfigDir => {
                 section_keys::integrations_mcp()
             }

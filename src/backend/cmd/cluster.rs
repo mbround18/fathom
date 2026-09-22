@@ -212,7 +212,10 @@ async fn refresh_core_resources(
     sync::refresh_namespaces(state, sender).await?;
     pods::refresh_pods(state, sender).await?;
     deployments::refresh_deployments(state, sender).await?;
-    sync::ensure_background_sync(state, sender).await
+    sync::ensure_background_sync(state, sender).await?;
+    sync::ensure_flux_poll(state, sender).await;
+    sync::ensure_hubble_poll(state, sender).await;
+    Ok(())
 }
 
 async fn set_namespace_filter(

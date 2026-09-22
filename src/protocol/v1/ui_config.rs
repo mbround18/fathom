@@ -195,6 +195,7 @@ pub enum ToolKind {
     Overview,
     Metrics,
     Flux,
+    Hubble,
     Logs,
     Events,
     Portforwards,

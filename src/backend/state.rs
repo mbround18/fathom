@@ -52,6 +52,8 @@ pub(super) struct WatchTasks {
     pub(super) pod_watch_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) deployment_watch_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) namespace_sync_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) hubble_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) flux_poll_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
@@ -59,6 +61,8 @@ impl WatchTasks {
         abort_task(&mut self.pod_watch_task);
         abort_task(&mut self.deployment_watch_task);
         abort_task(&mut self.namespace_sync_task);
+        abort_task(&mut self.hubble_poll_task);
+        abort_task(&mut self.flux_poll_task);
     }
 }
 
@@ -122,6 +126,8 @@ impl BackendState {
                 pod_watch_task: None,
                 deployment_watch_task: None,
                 namespace_sync_task: None,
+                hubble_poll_task: None,
+                flux_poll_task: None,
             },
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,

@@ -3,6 +3,8 @@ import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
 import { Inspector } from '@/components/Inspector'
+import { FluxPanel } from '@/components/panels/FluxPanel'
+import { HubblePanel } from '@/components/panels/HubblePanel'
 import { NavTree } from '@/components/NavTree'
 import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
@@ -141,6 +143,8 @@ function PaneBody({ pane }: { pane: PaneState }) {
       return <Inspector pane={pane} />
     case 'tool':
       if (pane.tool === 'metrics') return <MetricsUnavailable />
+      if (pane.tool === 'flux') return <FluxPanel />
+      if (pane.tool === 'hubble') return <HubblePanel />
       return (
         <Empty
           title={pane.tool ? TOOL_LABEL[pane.tool] : 'Tool'}

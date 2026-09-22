@@ -1,4 +1,23 @@
 fn main() {
+    // Vendored Hubble/Cilium proto subset (proto/hubble/) -> generated gRPC client.
+    // protobuf-src builds libprotobuf from source, so no system `protoc` is required
+    // on any Tier-1 target (Ubuntu 26 / Windows 11 / macOS 26).
+    unsafe {
+        std::env::set_var("PROTOC", protobuf_src::protoc());
+    }
+    tonic_prost_build::configure()
+        .build_server(false)
+        .compile_protos(
+            &[
+                "proto/hubble/observer/observer.proto",
+                "proto/hubble/flow/flow.proto",
+                "proto/hubble/relay/relay.proto",
+            ],
+            &["proto/hubble"],
+        )
+        .expect("failed to compile vendored Hubble proto files");
+    println!("cargo:rerun-if-changed=proto/hubble/");
+
     // Only compile resources on Windows
     #[cfg(windows)]
     {

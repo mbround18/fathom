@@ -74,9 +74,18 @@ rfd = { version = "0.17", optional = true }
 arboard = { version = "3.6", optional = true }
 open = { version = "5.3", optional = true }
 
+# Hubble/Cilium gRPC client (Observer.GetFlows)
+tonic = "0.14.6"
+tonic-prost = "0.14.6"
+prost = "0.14.4"
+prost-types = "0.14.4"
+hyper-util = "0.1.19"
+
 [build-dependencies]
 embed-resource = "3.0.6"
 image = "0.25.9"
+tonic-prost-build = "0.14.6"
+protobuf-src = "2.1.1"
 
 [dev-dependencies]
 # Headless GUI test harness (AccessKit-based; no window/GPU required)

@@ -4,7 +4,7 @@ use crossbeam_channel::Sender;
 
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
 use crate::backend::state::{self, BackendState};
-use crate::backend::{events, flux, integrations, metrics_provider};
+use crate::backend::{events, flux, hubble, integrations, metrics_provider};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SectionKey, SystemEvent,
     section_keys,
@@ -43,6 +43,7 @@ pub(super) async fn handle(
         }
         BackendCmd::RefreshIntegrations => refresh_integrations(state, sender).await,
         BackendCmd::RefreshFlux => refresh_flux(state, sender).await,
+        BackendCmd::RefreshHubble => refresh_hubble(state, sender).await,
         other => return handle_mcp_cmd(other, state, sender).await,
     }
     Ok(None)
@@ -286,6 +287,42 @@ async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for Flux resources: {}", e),
+        ),
+    }
+}
+
+async fn refresh_hubble(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    let Some(cfg) = hubble::detect_hubble(client).await else {
+        emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_hubble(),
+            context,
+            SystemEvent::HubbleTrafficUpdated(crate::protocol::HubbleTrafficSummary::default()),
+        );
+        return;
+    };
+    match hubble::fetch_traffic_summary(client, &cfg).await {
+        Ok(summary) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_hubble(),
+            context,
+            SystemEvent::HubbleTrafficUpdated(summary),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to fetch Hubble traffic summary: {}", e),
         ),
     }
 }

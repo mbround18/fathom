@@ -16,6 +16,7 @@ mod deployments;
 mod endpoints;
 mod events;
 mod flux;
+mod hubble;
 mod ingressclasses;
 mod ingresses;
 pub mod integrations;

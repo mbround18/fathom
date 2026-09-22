@@ -3,6 +3,7 @@ use super::{
     ConfigMapDetails, ConfigMapSummary, Correlation, CronJobDetails, CronJobSummary,
     DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary, EndpointDetails,
     EndpointSummary, EventsSummary, FluxOverview, HorizontalPodAutoscalerDetails,
+    HubbleTrafficSummary,
     HorizontalPodAutoscalerSummary, IngressClassDetails, IngressClassSummary, IngressDetails,
     IngressSummary, JobDetails, JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails,
     LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
@@ -102,6 +103,9 @@ pub enum SystemEvent {
 
     /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
     FluxOverviewUpdated(FluxOverview),
+
+    /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
+    HubbleTrafficUpdated(HubbleTrafficSummary),
 
     /// Reply to `BackendCmd::LoadUiConfig`.
     /// `ui` is `None` when absent or invalid (the invalid blob is kept under `ui_invalid`).

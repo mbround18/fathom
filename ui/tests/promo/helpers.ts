@@ -10,7 +10,13 @@ import { fileURLToPath } from 'node:url'
 
 import type { Page, WebSocketRoute } from '@playwright/test'
 
-import type { DevBridgeClientMsg } from '../../src/protocol/types'
+import { TOOL_LABEL } from '../../src/components/shell/labels'
+import type {
+  BackendEventEnvelope,
+  DevBridgeClientMsg,
+  DevBridgeServerMsg,
+  ToolKind,
+} from '../../src/protocol/types'
 import { expect, listPods, test as live } from '../live/helpers'
 
 export { expect, kubectlJson, LIVE_NAMESPACE, listPods } from '../live/helpers'
@@ -23,9 +29,21 @@ export const SHOTS_DIR = `${OUT_DIR}shots/`
 const WRITE_CMD =
   /^(Delete|BulkDelete|Scale|Restart|Rollback|Cordon|Uncordon|Drain|Evict|Apply|Create|Patch|Update|Edit|Suspend|Resume|Trigger)/
 
-/** Route the bridge socket, dropping writes. Install before `app.open()`. */
-async function readOnlyBridge(page: Page, blocked: string[]): Promise<void> {
+/** Opens a tool pane by injecting a client-only `UiConfigLoaded` frame; sends no command. */
+export interface ToolPaneInjector {
+  /** Swap the wide layout's second list slot for a `tool` slot and wait for it to render. */
+  open(page: Page, tool: ToolKind): Promise<void>
+}
+
+/** Route the bridge socket, dropping writes; capture the client-side `ws` for injection. */
+async function readOnlyBridge(
+  page: Page,
+  blocked: string[],
+): Promise<{ injector: ToolPaneInjector }> {
+  let clientWs: WebSocketRoute | undefined
+  let seq = 1_000_000 // clear of real backend sequence numbers
   await page.routeWebSocket(/^ws:\/\/127\.0\.0\.1:\d+\//, (ws: WebSocketRoute) => {
+    clientWs = ws
     const server = ws.connectToServer()
     ws.onMessage((raw) => {
       const msg = JSON.parse(String(raw)) as DevBridgeClientMsg
@@ -39,19 +57,79 @@ async function readOnlyBridge(page: Page, blocked: string[]): Promise<void> {
       ws.send(raw)
     })
   })
+  return {
+    injector: {
+      async open(pg, tool) {
+        if (!clientWs) throw new Error('bridge socket not connected yet')
+        const envelope: BackendEventEnvelope = {
+          version: 1,
+          seq: seq++,
+          route: { section: '', scope: 'Global', context: null, namespace: null },
+          correlation: { type: 'None' },
+          event: {
+            type: 'System',
+            data: {
+              type: 'UiConfigLoaded',
+              data: {
+                ui: {
+                  schema: 1,
+                  theme: { mode: 'dark', accent: 'cyan', effects: 'on', glitch: false },
+                  density: {},
+                  layouts: {
+                    wide: {
+                      slots: [
+                        { kind: 'nav', sizePct: 12 },
+                        { kind: 'list', sizePct: 30 },
+                        { kind: 'tool', sizePct: 30, tool },
+                        { kind: 'inspector', sizePct: 28 },
+                      ],
+                    },
+                  },
+                },
+                expanded_groups: [],
+                mcp_auto_start: false,
+              },
+            },
+          },
+        }
+        const msg: DevBridgeServerMsg = {
+          op: 'batch',
+          batch: { envelopes: [envelope], dropped: 0 },
+        }
+        clientWs.send(JSON.stringify(msg))
+        await expect(pg.getByRole('region', { name: TOOL_LABEL[tool] })).toBeVisible()
+        // The region renders immediately in a "waiting for data" state; wait for the panel's
+        // own h3 (only rendered once real overview/summary data has arrived) before shooting.
+        await expect(
+          pg.getByRole('heading', { name: TOOL_LABEL[tool], level: 3 }),
+        ).toBeVisible({ timeout: 15_000 })
+      },
+    },
+  }
 }
 
 /** `app` (the live fixture) behind a read-only bridge; fails the scene if a write was tried. */
-export const test = live.extend<{ blockedWrites: string[] }>({
+export const test = live.extend<{ blockedWrites: string[]; toolPane: ToolPaneInjector }>({
   blockedWrites: [
     async ({ page }, provide) => {
       const blocked: string[] = []
-      await readOnlyBridge(page, blocked)
+      const { injector } = await readOnlyBridge(page, blocked)
+      // Stash the injector for the `toolPane` fixture, which shares the same route.
+      ;(page as Page & { __toolPaneInjector?: ToolPaneInjector }).__toolPaneInjector = injector
       await provide(blocked)
       expect(blocked, 'promo capture must never send a write command').toEqual([])
     },
     { auto: true },
   ],
+  // `blockedWrites` is a dependency only: destructuring it orders this fixture after the
+  // bridge route it installs.
+  toolPane: async ({ page, blockedWrites }, provide) => {
+    if (blockedWrites.length > 0) throw new Error('unreachable')
+    const injector = (page as Page & { __toolPaneInjector?: ToolPaneInjector })
+      .__toolPaneInjector
+    if (!injector) throw new Error('toolPane fixture requires blockedWrites to run first')
+    await provide(injector)
+  },
 })
 
 /**

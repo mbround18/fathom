@@ -98,6 +98,9 @@ impl FathomApp {
                     SystemEvent::MetricsStackScanned(_) => {
                         // IntegrationsView handles this in on_event
                     }
+                    SystemEvent::HubbleTrafficUpdated(_) => {
+                        // HubblePanel (React bridge) handles this in on_event; no egui view yet.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }

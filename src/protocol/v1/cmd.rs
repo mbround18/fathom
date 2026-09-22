@@ -278,6 +278,7 @@ pub enum BackendCmdV1 {
         api_key: String,
     },
     RefreshFlux,
+    RefreshHubble,
     // MCP Server integration
     StartMcpServer,
     StopMcpServer,

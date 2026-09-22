@@ -14,6 +14,7 @@ import type {
   BackendCmd,
   DiskUsage,
   FluxOverview,
+  HubbleTrafficSummary,
   KubernetesEvent,
   LayoutProfile,
   MetricsStackScanResult,
@@ -203,6 +204,7 @@ export interface StoreData {
   tunnels: Record<string, TunnelState>
   metrics: MetricsState
   flux: { overview?: FluxOverview }
+  hubble: { summary?: HubbleTrafficSummary }
   integrations: IntegrationsState
   layout: LayoutState
   panes: Record<PaneId, PaneState>
@@ -249,6 +251,10 @@ export interface StoreState extends StoreData {
   inspect: (kind: string, namespace: string, name: string) => void
   /** Sends `RefreshEvents` (cluster events; the inspector filters by involved object). */
   refreshEvents: () => void
+  /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
+  refreshFlux: () => void
+  /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
+  refreshHubble: () => void
   /** Remember which list pane the navigator should retarget. */
   focusList: (id: PaneId) => void
   /**
@@ -380,6 +386,7 @@ export function initialData(): StoreData {
     tunnels: {},
     metrics: { diskUsage: [] },
     flux: {},
+    hubble: {},
     integrations: { portAvailability: {} },
     layout: {
       widthClass: 'phone',
@@ -570,6 +577,10 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
+
+  refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+
+  refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 
   focusList: (id) =>
     set((s) => (s.layout.focusedList === id ? s : { layout: { ...s.layout, focusedList: id } })),
