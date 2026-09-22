@@ -12,6 +12,8 @@ export const SECTION = {
   namespaces: 'namespaces',
   pods: 'workloads/pods',
   deployments: 'workloads/deployments',
+  customResources: 'custom-resources',
+  nodes: 'nodes',
 } as const satisfies Record<string, SectionKey>
 
 /** Commands sent once the event subscription is up (mirrors egui's startup in src/app/mod.rs). */
@@ -27,6 +29,10 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.deployments]: { type: 'RefreshDeployments' },
   [SECTION.events]: { type: 'RefreshEvents' },
   [SECTION.namespaces]: { type: 'RefreshNamespaces' },
+  // US3: the CRD catalog itself; instance lists/reads are sent directly by
+  // CustomResourcesSection (they need a group/kind/version the section chooses).
+  [SECTION.customResources]: { type: 'RefreshCrds' },
+  [SECTION.nodes]: { type: 'RefreshNodes' },
 }
 
 /** The refresh command for a list section, if the UI knows one yet. */
@@ -45,6 +51,8 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectPod', data: { namespace, name } }
     case 'Deployment':
       return { type: 'SelectDeployment', data: { namespace, name } }
+    case 'Node':
+      return { type: 'SelectNode', data: { name } }
     default:
       return undefined
   }

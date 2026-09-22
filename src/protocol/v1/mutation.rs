@@ -57,6 +57,10 @@ impl BackendCmdV1 {
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
+            | C::StartPodExec { .. }
+            | C::SendPodExecInput { .. }
+            | C::ResizePodExec { .. }
+            | C::StopPodExec
             | C::RefreshDeployments
             | C::SelectDeployment { .. }
             | C::RefreshDaemonSets
@@ -131,7 +135,11 @@ impl BackendCmdV1 {
             | C::SelectMutatingWebhookConfiguration { .. }
             | C::RefreshValidatingWebhookConfigurations
             | C::SelectValidatingWebhookConfiguration { .. }
-            | C::LoadUiConfig => MutationTarget::ReadOnly,
+            | C::LoadUiConfig
+            | C::RefreshCrds
+            | C::SelectCrdKind { .. }
+            | C::RefreshCrdInstances { .. }
+            | C::SelectCrdInstance { .. } => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -200,7 +208,18 @@ impl BackendCmdV1 {
             | C::DeletePriorityClass { .. }
             | C::DeleteRuntimeClass { .. }
             | C::DeleteMutatingWebhookConfiguration { .. }
-            | C::DeleteValidatingWebhookConfiguration { .. } => MutationTarget::ClusterScoped,
+            | C::DeleteValidatingWebhookConfiguration { .. }
+            | C::CordonNode { .. }
+            | C::UncordonNode { .. }
+            | C::DrainNode { .. }
+            | C::CancelDrainNode { .. }
+            | C::TaintNode { .. } => MutationTarget::ClusterScoped,
+
+            // Full-object apply: scope follows the target object's own scope.
+            C::ApplyResourceYaml { namespace, .. } => match namespace {
+                Some(ns) => MutationTarget::namespaced(ns),
+                None => MutationTarget::ClusterScoped,
+            },
         }
     }
 
@@ -218,9 +237,16 @@ impl BackendCmdV1 {
             | C::SetActiveSection { .. }
             | C::LoadUiConfig
             | C::SaveUiConfig { .. }
-            | C::SetMcpAutoStart { .. } => return None,
+            | C::SetMcpAutoStart { .. }
+            | C::ApplyResourceYaml { .. } => return None,
             C::RefreshNamespaces => section_keys::namespaces(),
-            C::RefreshNodes | C::SelectNode { .. } => section_keys::nodes(),
+            C::RefreshNodes
+            | C::SelectNode { .. }
+            | C::CordonNode { .. }
+            | C::UncordonNode { .. }
+            | C::DrainNode { .. }
+            | C::CancelDrainNode { .. }
+            | C::TaintNode { .. } => section_keys::nodes(),
             C::RefreshEvents => section_keys::events(),
             C::RefreshPods
             | C::SelectPod { .. }
@@ -228,6 +254,10 @@ impl BackendCmdV1 {
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
+            | C::StartPodExec { .. }
+            | C::SendPodExecInput { .. }
+            | C::ResizePodExec { .. }
+            | C::StopPodExec
             | C::StartMetricsPolling { .. }
             | C::StopMetricsPolling
             | C::BulkDelete { .. } => section_keys::workloads_pods(),
@@ -357,6 +387,10 @@ impl BackendCmdV1 {
             | C::DeleteValidatingWebhookConfiguration { .. } => {
                 section_keys::config_validatingwebhooks()
             }
+            C::RefreshCrds
+            | C::SelectCrdKind { .. }
+            | C::RefreshCrdInstances { .. }
+            | C::SelectCrdInstance { .. } => section_keys::custom_resources(),
         };
         Some(key)
     }

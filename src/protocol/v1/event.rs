@@ -3,15 +3,14 @@ use super::{
     ConfigMapDetails, ConfigMapSummary, Correlation, CronJobDetails, CronJobSummary,
     DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary, EndpointDetails,
     EndpointSummary, EventsSummary, FluxOverview, HorizontalPodAutoscalerDetails,
-    HubbleTrafficSummary,
-    HorizontalPodAutoscalerSummary, IngressClassDetails, IngressClassSummary, IngressDetails,
-    IngressSummary, JobDetails, JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails,
-    LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
-    NamespaceDetails, NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails,
-    NodeSummary, PersistentVolumeClaimDetails, PersistentVolumeClaimSummary,
-    PersistentVolumeDetails, PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails,
-    PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary, PodSummary,
-    PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, ReplicaSetSummary,
+    HorizontalPodAutoscalerSummary, HubbleTrafficSummary, IngressClassDetails, IngressClassSummary,
+    IngressDetails, IngressSummary, JobDetails, JobSummary, LeaseDetails, LeaseSummary,
+    LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
+    MutatingWebhookConfigurationSummary, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
+    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
+    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
+    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
+    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, ReplicaSetSummary,
     ReplicationControllerDetails, ReplicationControllerSummary, ResourceQuotaDetails,
     ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
     RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, ServiceDetails,
@@ -114,6 +113,56 @@ pub enum SystemEvent {
         expanded_groups: Vec<String>,
         mcp_auto_start: bool,
     },
+
+    /// Full CRD catalog, refreshed via `RefreshCrds` or on context switch.
+    CrdCatalogUpdated {
+        entries: Vec<CrdCatalogEntry>,
+    },
+
+    /// Instances of one CRD kind, refreshed via `RefreshCrdInstances`. Each entry is the
+    /// object's raw JSON (same `raw_json`-as-`String` convention every built-in kind's
+    /// details type already uses), so it flows through the existing Inspector unchanged.
+    CrdInstancesUpdated {
+        group: String,
+        kind: String,
+        version: String,
+        namespace: Option<String>,
+        instances: Vec<String>,
+    },
+}
+
+/// One installed CustomResourceDefinition, discovered via `kube::discovery`. See
+/// data-model.md "Custom Resource Definition Catalog Entry".
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct CrdCatalogEntry {
+    pub group: String,
+    pub kind: String,
+    pub plural: String,
+    pub versions: Vec<String>,
+    pub scope: CrdScope,
+    pub permission_denied: bool,
+}
+
+/// One custom resource instance's details, generic across every discovered CRD kind (no
+/// per-kind struct, unlike built-in kinds' `<Kind>Details`) — the same `raw_json`-as-`String`
+/// convention every built-in kind's details type already uses, so it flows through the existing
+/// Details/YAML/Events Inspector unchanged. See data-model.md "Custom Resource Instance".
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct CrdInstanceDetails {
+    pub group: String,
+    pub kind: String,
+    pub version: String,
+    pub namespace: Option<String>,
+    pub name: String,
+    pub resource_version: String,
+    pub raw_json: String,
+}
+
+/// Fieldless enum: serialized as a plain string (`"Namespaced" | "Cluster"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum CrdScope {
+    Namespaced,
+    Cluster,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -208,6 +257,7 @@ pub enum ResourceReadEvent {
     LeaseDetailsUpdated(LeaseDetails),
     MutatingWebhookConfigurationDetailsUpdated(MutatingWebhookConfigurationDetails),
     ValidatingWebhookConfigurationDetailsUpdated(ValidatingWebhookConfigurationDetails),
+    CrdInstanceDetailsUpdated(CrdInstanceDetails),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -217,6 +267,16 @@ pub enum StreamEvent {
         stream_id: StreamId,
         lines: Vec<String>,
     },
+    /// Emitted once a `StartPodExec` attach succeeds, letting the frontend flip from
+    /// "attaching" to "active" (FR-009/FR-013).
+    PodExecReady {
+        stream_id: StreamId,
+    },
+    /// Base64-encoded exec session output (see research.md R4).
+    PodExecOutputChunk {
+        stream_id: StreamId,
+        data: String,
+    },
     PortForwardTunnel {
         tunnel_id: String,
         status: PortForwardStatus,
@@ -225,6 +285,25 @@ pub enum StreamEvent {
     StreamClosed {
         stream_id: StreamId,
         reason: String,
+    },
+    /// Emitted once an `ApplyResourceYaml` succeeds (before `CommandFinished`).
+    ResourceApplied {
+        request_id: String,
+        resource_version: String,
+    },
+    /// Incremental progress for an in-flight `DrainNode`, keyed by `request_id`.
+    DrainProgress {
+        request_id: String,
+        total_pods: u32,
+        evicted: Vec<String>,
+        blocked_on: Vec<(String, String)>,
+        ignored_daemonset_pods: Vec<String>,
+    },
+    /// Terminal event for a node action (cordon/uncordon/drain/taint), keyed by `request_id`.
+    NodeActionFinished {
+        request_id: String,
+        ok: bool,
+        error: Option<String>,
     },
 }
 
@@ -270,3 +349,96 @@ pub enum BackendEventV1 {
 }
 
 pub type BackendEvent = BackendEventV1;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roundtrip(event: StreamEvent) {
+        let json = serde_json::to_string(&event).unwrap();
+        let back: StreamEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(format!("{back:?}"), format!("{event:?}"));
+    }
+
+    #[test]
+    fn pod_exec_ready_roundtrip() {
+        roundtrip(StreamEvent::PodExecReady {
+            stream_id: StreamId(1),
+        });
+    }
+
+    #[test]
+    fn pod_exec_output_chunk_roundtrip() {
+        roundtrip(StreamEvent::PodExecOutputChunk {
+            stream_id: StreamId(1),
+            data: "aGVsbG8=".to_owned(),
+        });
+    }
+
+    #[test]
+    fn resource_applied_roundtrip() {
+        roundtrip(StreamEvent::ResourceApplied {
+            request_id: "req-1".to_owned(),
+            resource_version: "12345".to_owned(),
+        });
+    }
+
+    #[test]
+    fn drain_progress_roundtrip() {
+        roundtrip(StreamEvent::DrainProgress {
+            request_id: "req-1".to_owned(),
+            total_pods: 3,
+            evicted: vec!["pod-a".to_owned()],
+            blocked_on: vec![(
+                "pod-b".to_owned(),
+                "Cannot evict pod as it would violate the pod's disruption budget.".to_owned(),
+            )],
+            ignored_daemonset_pods: vec!["pod-c".to_owned()],
+        });
+    }
+
+    #[test]
+    fn node_action_finished_roundtrip() {
+        roundtrip(StreamEvent::NodeActionFinished {
+            request_id: "req-1".to_owned(),
+            ok: true,
+            error: None,
+        });
+        roundtrip(StreamEvent::NodeActionFinished {
+            request_id: "req-1".to_owned(),
+            ok: false,
+            error: Some("node not found".to_owned()),
+        });
+    }
+
+    fn system_roundtrip(event: SystemEvent) {
+        let json = serde_json::to_string(&event).unwrap();
+        let back: SystemEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(format!("{back:?}"), format!("{event:?}"));
+    }
+
+    #[test]
+    fn crd_catalog_updated_roundtrip() {
+        system_roundtrip(SystemEvent::CrdCatalogUpdated {
+            entries: vec![CrdCatalogEntry {
+                group: "source.toolkit.fluxcd.io".to_owned(),
+                kind: "GitRepository".to_owned(),
+                plural: "gitrepositories".to_owned(),
+                versions: vec!["v1".to_owned()],
+                scope: CrdScope::Namespaced,
+                permission_denied: false,
+            }],
+        });
+    }
+
+    #[test]
+    fn crd_instances_updated_roundtrip() {
+        system_roundtrip(SystemEvent::CrdInstancesUpdated {
+            group: "source.toolkit.fluxcd.io".to_owned(),
+            kind: "GitRepository".to_owned(),
+            version: "v1".to_owned(),
+            namespace: Some("flux-system".to_owned()),
+            instances: vec![serde_json::json!({"metadata": {"name": "podinfo"}}).to_string()],
+        });
+    }
+}

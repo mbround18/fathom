@@ -826,6 +826,18 @@ fn sample_storage_class_summary() -> StorageClassSummary {
     }
 }
 
+fn sample_crd_instance_details() -> CrdInstanceDetails {
+    CrdInstanceDetails {
+        group: "s".to_owned(),
+        kind: "s".to_owned(),
+        version: "s".to_owned(),
+        namespace: Some("s".to_owned()),
+        name: "s".to_owned(),
+        resource_version: "s".to_owned(),
+        raw_json: "s".to_owned(),
+    }
+}
+
 fn sample_validating_webhook_configuration_details() -> ValidatingWebhookConfigurationDetails {
     ValidatingWebhookConfigurationDetails {
         name: "s".to_owned(),
@@ -1196,6 +1208,28 @@ fn all_cmds() -> Vec<BackendCmd> {
         BackendCmd::SelectNode {
             name: "s".to_owned(),
         },
+        BackendCmd::CordonNode {
+            name: "s".to_owned(),
+        },
+        BackendCmd::UncordonNode {
+            name: "s".to_owned(),
+        },
+        BackendCmd::DrainNode {
+            name: "s".to_owned(),
+            ignore_daemonsets: true,
+            force_delete_empty_dir: false,
+        },
+        BackendCmd::CancelDrainNode {
+            name: "s".to_owned(),
+            request_id: "s".to_owned(),
+        },
+        BackendCmd::TaintNode {
+            name: "s".to_owned(),
+            op: fathom::protocol::TaintOp::Add,
+            key: "s".to_owned(),
+            value: Some("s".to_owned()),
+            effect: "NoSchedule".to_owned(),
+        },
         BackendCmd::RefreshEvents,
         BackendCmd::RefreshPods,
         BackendCmd::SelectPod {
@@ -1216,6 +1250,16 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::StartPodExec {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+            container: Some("s".to_owned()),
+        },
+        BackendCmd::SendPodExecInput {
+            data: "s".to_owned(),
+        },
+        BackendCmd::ResizePodExec { cols: 80, rows: 24 },
+        BackendCmd::StopPodExec,
         BackendCmd::RefreshDeployments,
         BackendCmd::SelectDeployment {
             namespace: "s".to_owned(),
@@ -1583,6 +1627,33 @@ fn all_cmds() -> Vec<BackendCmd> {
             expanded_groups: vec!["s".to_owned()],
         },
         BackendCmd::SetMcpAutoStart { enabled: true },
+        BackendCmd::ApplyResourceYaml {
+            api_version: "apps/v1".to_owned(),
+            kind: "Deployment".to_owned(),
+            namespace: Some("s".to_owned()),
+            name: "s".to_owned(),
+            yaml: "spec: {}\n".to_owned(),
+            expected_resource_version: "1".to_owned(),
+        },
+        BackendCmd::RefreshCrds,
+        BackendCmd::SelectCrdKind {
+            group: "s".to_owned(),
+            kind: "s".to_owned(),
+            version: "s".to_owned(),
+        },
+        BackendCmd::RefreshCrdInstances {
+            group: "s".to_owned(),
+            kind: "s".to_owned(),
+            version: "s".to_owned(),
+            namespace: Some("s".to_owned()),
+        },
+        BackendCmd::SelectCrdInstance {
+            group: "s".to_owned(),
+            kind: "s".to_owned(),
+            version: "s".to_owned(),
+            namespace: Some("s".to_owned()),
+            name: "s".to_owned(),
+        },
     ]
 }
 
@@ -1598,6 +1669,11 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SetNamespaceFilter { .. } => {}
         BackendCmd::RefreshNodes => {}
         BackendCmd::SelectNode { .. } => {}
+        BackendCmd::CordonNode { .. } => {}
+        BackendCmd::UncordonNode { .. } => {}
+        BackendCmd::DrainNode { .. } => {}
+        BackendCmd::CancelDrainNode { .. } => {}
+        BackendCmd::TaintNode { .. } => {}
         BackendCmd::RefreshEvents => {}
         BackendCmd::RefreshPods => {}
         BackendCmd::SelectPod { .. } => {}
@@ -1605,6 +1681,10 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::StartPodLogs { .. } => {}
         BackendCmd::StopPodLogs => {}
         BackendCmd::FetchPodMetrics { .. } => {}
+        BackendCmd::StartPodExec { .. } => {}
+        BackendCmd::SendPodExecInput { .. } => {}
+        BackendCmd::ResizePodExec { .. } => {}
+        BackendCmd::StopPodExec => {}
         BackendCmd::RefreshDeployments => {}
         BackendCmd::SelectDeployment { .. } => {}
         BackendCmd::ScaleDeployment { .. } => {}
@@ -1731,6 +1811,11 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::LoadUiConfig => {}
         BackendCmd::SaveUiConfig { .. } => {}
         BackendCmd::SetMcpAutoStart { .. } => {}
+        BackendCmd::ApplyResourceYaml { .. } => {}
+        BackendCmd::RefreshCrds => {}
+        BackendCmd::SelectCrdKind { .. } => {}
+        BackendCmd::RefreshCrdInstances { .. } => {}
+        BackendCmd::SelectCrdInstance { .. } => {}
     }
 }
 
@@ -1777,7 +1862,28 @@ fn all_system_events() -> Vec<SystemEvent> {
             expanded_groups: vec!["s".to_owned()],
             mcp_auto_start: true,
         },
+        SystemEvent::CrdCatalogUpdated {
+            entries: vec![sample_crd_catalog_entry()],
+        },
+        SystemEvent::CrdInstancesUpdated {
+            group: "s".to_owned(),
+            kind: "s".to_owned(),
+            version: "s".to_owned(),
+            namespace: Some("s".to_owned()),
+            instances: vec!["{}".to_owned()],
+        },
     ]
+}
+
+fn sample_crd_catalog_entry() -> fathom::protocol::CrdCatalogEntry {
+    fathom::protocol::CrdCatalogEntry {
+        group: "source.toolkit.fluxcd.io".to_owned(),
+        kind: "GitRepository".to_owned(),
+        plural: "gitrepositories".to_owned(),
+        versions: vec!["v1".to_owned()],
+        scope: fathom::protocol::CrdScope::Namespaced,
+        permission_denied: false,
+    }
 }
 
 #[allow(dead_code)]
@@ -1797,6 +1903,8 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::FluxOverviewUpdated(..) => {}
         SystemEvent::HubbleTrafficUpdated(..) => {}
         SystemEvent::UiConfigLoaded { .. } => {}
+        SystemEvent::CrdCatalogUpdated { .. } => {}
+        SystemEvent::CrdInstancesUpdated { .. } => {}
     }
 }
 
@@ -1944,6 +2052,7 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
         ResourceReadEvent::ValidatingWebhookConfigurationDetailsUpdated(
             sample_validating_webhook_configuration_details(),
         ),
+        ResourceReadEvent::CrdInstanceDetailsUpdated(sample_crd_instance_details()),
     ]
 }
 
@@ -1989,6 +2098,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::LeaseDetailsUpdated(..) => {}
         ResourceReadEvent::MutatingWebhookConfigurationDetailsUpdated(..) => {}
         ResourceReadEvent::ValidatingWebhookConfigurationDetailsUpdated(..) => {}
+        ResourceReadEvent::CrdInstanceDetailsUpdated(..) => {}
     }
 }
 
@@ -1999,6 +2109,13 @@ fn all_stream_events() -> Vec<StreamEvent> {
             stream_id: StreamId(3),
             lines: vec!["s".to_owned()],
         },
+        StreamEvent::PodExecReady {
+            stream_id: StreamId(3),
+        },
+        StreamEvent::PodExecOutputChunk {
+            stream_id: StreamId(3),
+            data: "s".to_owned(),
+        },
         StreamEvent::PortForwardTunnel {
             tunnel_id: "s".to_owned(),
             status: PortForwardStatus::Connecting,
@@ -2008,6 +2125,22 @@ fn all_stream_events() -> Vec<StreamEvent> {
             stream_id: StreamId(3),
             reason: "s".to_owned(),
         },
+        StreamEvent::ResourceApplied {
+            request_id: "s".to_owned(),
+            resource_version: "s".to_owned(),
+        },
+        StreamEvent::DrainProgress {
+            request_id: "s".to_owned(),
+            total_pods: 3,
+            evicted: vec!["s".to_owned()],
+            blocked_on: vec![("s".to_owned(), "s".to_owned())],
+            ignored_daemonset_pods: vec!["s".to_owned()],
+        },
+        StreamEvent::NodeActionFinished {
+            request_id: "s".to_owned(),
+            ok: true,
+            error: None,
+        },
     ]
 }
 
@@ -2015,8 +2148,13 @@ fn all_stream_events() -> Vec<StreamEvent> {
 fn all_stream_events_is_exhaustive(v: &StreamEvent) {
     match v {
         StreamEvent::PodLogsChunk { .. } => {}
+        StreamEvent::PodExecReady { .. } => {}
+        StreamEvent::PodExecOutputChunk { .. } => {}
         StreamEvent::PortForwardTunnel { .. } => {}
         StreamEvent::StreamClosed { .. } => {}
+        StreamEvent::ResourceApplied { .. } => {}
+        StreamEvent::DrainProgress { .. } => {}
+        StreamEvent::NodeActionFinished { .. } => {}
     }
 }
 

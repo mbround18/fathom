@@ -25,6 +25,28 @@ pub enum BackendCmdV1 {
     SelectNode {
         name: String,
     },
+    CordonNode {
+        name: String,
+    },
+    UncordonNode {
+        name: String,
+    },
+    DrainNode {
+        name: String,
+        ignore_daemonsets: bool,
+        force_delete_empty_dir: bool,
+    },
+    CancelDrainNode {
+        name: String,
+        request_id: String,
+    },
+    TaintNode {
+        name: String,
+        op: TaintOp,
+        key: String,
+        value: Option<String>,
+        effect: String,
+    },
     RefreshEvents,
 
     // Workloads / Pods section
@@ -47,6 +69,19 @@ pub enum BackendCmdV1 {
         namespace: String,
         name: String,
     },
+    StartPodExec {
+        namespace: String,
+        name: String,
+        container: Option<String>,
+    },
+    SendPodExecInput {
+        data: String,
+    },
+    ResizePodExec {
+        cols: u16,
+        rows: u16,
+    },
+    StopPodExec,
 
     // Workloads / Deployments section
     RefreshDeployments,
@@ -487,6 +522,44 @@ pub enum BackendCmdV1 {
     SetMcpAutoStart {
         enabled: bool,
     },
+
+    // Resource YAML edit + apply (any kind; identity fields validated pre-cluster-write).
+    ApplyResourceYaml {
+        api_version: String,
+        kind: String,
+        namespace: Option<String>,
+        name: String,
+        yaml: String,
+        expected_resource_version: String,
+    },
+
+    // Custom Resource Definition browsing (generic, read-only)
+    RefreshCrds,
+    SelectCrdKind {
+        group: String,
+        kind: String,
+        version: String,
+    },
+    RefreshCrdInstances {
+        group: String,
+        kind: String,
+        version: String,
+        namespace: Option<String>,
+    },
+    SelectCrdInstance {
+        group: String,
+        kind: String,
+        version: String,
+        namespace: Option<String>,
+        name: String,
+    },
+}
+
+/// Direction of a `TaintNode` mutation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum TaintOp {
+    Add,
+    Remove,
 }
 
 pub type BackendCmd = BackendCmdV1;
@@ -513,5 +586,135 @@ impl CmdRequest {
 impl From<BackendCmd> for CmdRequest {
     fn from(cmd: BackendCmd) -> Self {
         Self { id: None, cmd }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roundtrip(cmd: BackendCmdV1) {
+        let json = serde_json::to_string(&cmd).unwrap();
+        let back: BackendCmdV1 = serde_json::from_str(&json).unwrap();
+        assert_eq!(format!("{back:?}"), format!("{cmd:?}"));
+    }
+
+    #[test]
+    fn start_pod_exec_roundtrip() {
+        roundtrip(BackendCmdV1::StartPodExec {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: Some("app".to_owned()),
+        });
+        roundtrip(BackendCmdV1::StartPodExec {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: None,
+        });
+    }
+
+    #[test]
+    fn send_pod_exec_input_roundtrip() {
+        roundtrip(BackendCmdV1::SendPodExecInput {
+            data: "bHM=".to_owned(),
+        });
+    }
+
+    #[test]
+    fn resize_pod_exec_roundtrip() {
+        roundtrip(BackendCmdV1::ResizePodExec { cols: 80, rows: 24 });
+    }
+
+    #[test]
+    fn stop_pod_exec_roundtrip() {
+        roundtrip(BackendCmdV1::StopPodExec);
+    }
+
+    #[test]
+    fn apply_resource_yaml_roundtrip() {
+        roundtrip(BackendCmdV1::ApplyResourceYaml {
+            api_version: "apps/v1".to_owned(),
+            kind: "Deployment".to_owned(),
+            namespace: Some("default".to_owned()),
+            name: "web".to_owned(),
+            yaml: "spec:\n  replicas: 3\n".to_owned(),
+            expected_resource_version: "12345".to_owned(),
+        });
+        roundtrip(BackendCmdV1::ApplyResourceYaml {
+            api_version: "v1".to_owned(),
+            kind: "PersistentVolume".to_owned(),
+            namespace: None,
+            name: "pv-1".to_owned(),
+            yaml: "spec: {}\n".to_owned(),
+            expected_resource_version: "1".to_owned(),
+        });
+    }
+
+    #[test]
+    fn cordon_uncordon_node_roundtrip() {
+        roundtrip(BackendCmdV1::CordonNode {
+            name: "node-1".to_owned(),
+        });
+        roundtrip(BackendCmdV1::UncordonNode {
+            name: "node-1".to_owned(),
+        });
+    }
+
+    #[test]
+    fn drain_node_roundtrip() {
+        roundtrip(BackendCmdV1::DrainNode {
+            name: "node-1".to_owned(),
+            ignore_daemonsets: true,
+            force_delete_empty_dir: false,
+        });
+    }
+
+    #[test]
+    fn cancel_drain_node_roundtrip() {
+        roundtrip(BackendCmdV1::CancelDrainNode {
+            name: "node-1".to_owned(),
+            request_id: "req-1".to_owned(),
+        });
+    }
+
+    #[test]
+    fn taint_node_roundtrip() {
+        roundtrip(BackendCmdV1::TaintNode {
+            name: "node-1".to_owned(),
+            op: TaintOp::Add,
+            key: "dedicated".to_owned(),
+            value: Some("gpu".to_owned()),
+            effect: "NoSchedule".to_owned(),
+        });
+        roundtrip(BackendCmdV1::TaintNode {
+            name: "node-1".to_owned(),
+            op: TaintOp::Remove,
+            key: "dedicated".to_owned(),
+            value: None,
+            effect: "NoSchedule".to_owned(),
+        });
+    }
+
+    #[test]
+    fn crd_commands_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshCrds);
+        roundtrip(BackendCmdV1::SelectCrdKind {
+            group: "source.toolkit.fluxcd.io".to_owned(),
+            kind: "GitRepository".to_owned(),
+            version: "v1".to_owned(),
+        });
+        roundtrip(BackendCmdV1::RefreshCrdInstances {
+            group: "source.toolkit.fluxcd.io".to_owned(),
+            kind: "GitRepository".to_owned(),
+            version: "v1".to_owned(),
+            namespace: Some("flux-system".to_owned()),
+        });
+        roundtrip(BackendCmdV1::SelectCrdInstance {
+            group: "source.toolkit.fluxcd.io".to_owned(),
+            kind: "GitRepository".to_owned(),
+            version: "v1".to_owned(),
+            namespace: Some("flux-system".to_owned()),
+            name: "podinfo".to_owned(),
+        });
     }
 }
