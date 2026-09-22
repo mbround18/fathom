@@ -214,10 +214,26 @@ function comparisonTable(): string {
   return `<table class="comparison"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>`
 }
 
+/** Small header/footer bar baked into every page: brand + internal label, date + page number. */
+function pageChrome(cls: string, inner: string, pageNum: number, totalPages: number, facts: Facts): string {
+  return `
+<div class="page ${cls}">
+  <div class="page-header">
+    <span class="page-brand">${BRAND_GLYPH} FATHOM</span>
+    <span class="page-tag">Internal &middot; Confidential</span>
+  </div>
+  ${inner}
+  <div class="page-footer">
+    <span>Generated ${escapeHtml(new Date(facts.generatedAt).toUTCString())}</span>
+    <span>Page ${String(pageNum)} of ${String(totalPages)}</span>
+  </div>
+</div>`
+}
+
 function buildHtml(facts: Facts, shots: Shot[]): string {
   const nodeNote =
     redactions().length > 0
-      ? '<p class="footnote">Node identifiers shown as node-1, node-2, … (redacted).</p>'
+      ? '<p class="node-note">Node identifiers shown as node-1, node-2, … (redacted).</p>'
       : ''
   const stats = [
     statTile('Pods watched live', String(facts.podCount)),
@@ -226,9 +242,8 @@ function buildHtml(facts: Facts, shots: Shot[]): string {
     ...facts.workloads.map((w) => statTile(w.kind, `${String(w.ready)}/${String(w.total)} ready`)),
   ].join('\n')
 
-  const shotSections = shots
-    .map(
-      (s, i) => `
+  const shotBodies = shots.map(
+    (s, i) => `
     <section class="shot ${i === 0 ? 'shot-hero' : ''}">
       <div class="shot-text">
         <h2>${escapeHtml(s.title)}</h2>
@@ -236,8 +251,35 @@ function buildHtml(facts: Facts, shots: Shot[]): string {
       </div>
       <div class="shot-frame"><img src="${s.dataUrl}" alt="${escapeHtml(s.title)}" /></div>
     </section>`,
-    )
-    .join('\n')
+  )
+
+  const coverBody = `
+  <div class="brand-glyph">${BRAND_GLYPH}</div>
+  <div class="wordmark">FATHOM</div>
+  <div class="tagline">Browse, inspect, and act on your Kubernetes cluster</div>
+  <div class="meta">Captured live from the fathom-dev sandbox &middot; ${escapeHtml(new Date(facts.generatedAt).toUTCString())}</div>`
+
+  const statsBody = `
+  <div class="section-label">Live from the cluster</div>
+  <h1>What Fathom is watching right now</h1>
+  <p>Every number below was read from a real Kubernetes namespace at generation time &mdash; not staged data.</p>
+  <div class="stats">${stats}</div>
+  ${nodeNote}`
+
+  const comparisonBody = `
+  <div class="section-label">How Fathom compares</div>
+  <h1>One native app, not five browser tabs</h1>
+  <p>Feature comparison against the other tools teams reach for when kubectl isn't enough.</p>
+  ${comparisonTable()}
+  <p class="comparison-note">✓ built in &middot; ~ partial or bolt-on &middot; &mdash; not offered. Lens/OpenLens and Headlamp are Electron-based, not native desktop apps; K9s is terminal-only (no GUI). None of the tools above ship a built-in GitOps reconciliation view or a built-in eBPF/Cilium flow view.</p>`
+
+  const totalPages = 3 + shotBodies.length
+  const pages = [
+    pageChrome('cover', coverBody, 1, totalPages, facts),
+    pageChrome('', statsBody, 2, totalPages, facts),
+    pageChrome('', comparisonBody, 3, totalPages, facts),
+    ...shotBodies.map((body, i) => pageChrome('', body, 4 + i, totalPages, facts)),
+  ].join('\n')
 
   return `<!doctype html>
 <html lang="en">
@@ -388,20 +430,43 @@ p { color: var(--muted); line-height: 1.5; margin: 0; }
   box-shadow: 0 0 32px color-mix(in srgb, var(--neon) 18%, transparent);
 }
 .shot-frame img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
-.footnote {
+.node-note { margin-top: 16px; font-size: 11px; color: var(--muted); }
+.page-header {
   position: absolute;
-  bottom: 32px;
+  top: 26px;
   left: 72px;
-  color: var(--muted);
-  font-size: 11px;
-}
-.footer-brand {
-  position: absolute;
-  bottom: 32px;
   right: 72px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.12em;
+}
+.page-header .page-brand {
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--neon);
+}
+.page-header .page-tag {
+  color: var(--warn);
+  font-weight: 700;
+}
+.page-footer {
+  position: absolute;
+  bottom: 26px;
+  left: 72px;
+  right: 72px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
 }
 .comparison {
   width: 100%;
@@ -441,36 +506,7 @@ p { color: var(--muted); line-height: 1.5; margin: 0; }
 </head>
 <body>
 
-<div class="page cover">
-  <div class="brand-glyph">${BRAND_GLYPH}</div>
-  <div class="wordmark">FATHOM</div>
-  <div class="tagline">Browse, inspect, and act on your Kubernetes cluster</div>
-  <div class="meta">Captured live from the fathom-dev sandbox &middot; ${escapeHtml(new Date(facts.generatedAt).toUTCString())}</div>
-</div>
-
-<div class="page">
-  <div class="section-label">Live from the cluster</div>
-  <h1>What Fathom is watching right now</h1>
-  <p>Every number below was read from a real Kubernetes namespace at generation time &mdash; not staged data.</p>
-  <div class="stats">${stats}</div>
-  ${nodeNote}
-  <div class="footer-brand">尋 FATHOM</div>
-</div>
-
-<div class="page">
-  <div class="section-label">How Fathom compares</div>
-  <h1>One native app, not five browser tabs</h1>
-  <p>Feature comparison against the other tools teams reach for when kubectl isn't enough.</p>
-  ${comparisonTable()}
-  <p class="comparison-note">✓ built in &middot; ~ partial or bolt-on &middot; &mdash; not offered. Lens/OpenLens and Headlamp are Electron-based, not native desktop apps; K9s is terminal-only (no GUI). None of the tools above ship a built-in GitOps reconciliation view or a built-in eBPF/Cilium flow view.</p>
-  <div class="footer-brand">尋 FATHOM</div>
-</div>
-
-${shotSections
-  .split('</section>')
-  .filter((s) => s.trim())
-  .map((s) => `<div class="page">${s}</section></div>`)
-  .join('\n')}
+${pages}
 
 </body>
 </html>
