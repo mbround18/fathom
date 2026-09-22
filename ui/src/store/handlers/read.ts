@@ -18,7 +18,17 @@ export function readKeyOf(env: BackendEventEnvelope, event: ResourceReadEvent): 
   // lookup always uses the stable identifier (`ObjectRef.name` = `instance` for Applications,
   // per `applications.tsx`'s `ref()`). Prefer `instance` when present so the two agree.
   const name = 'instance' in data ? data.instance : data.name
-  return detailKey(env.route.context, readKind(event.type), ns, name)
+  // Flux origin click-through (spec 005): one section covers both Kustomization- and
+  // HelmRelease-kind origins, so the cache key must be keyed by the real k8s kind carried in
+  // the payload (`data.kind`), not the syntactic `readKind(event.type)` (which would always say
+  // "FluxResource" and collide the two kinds under one key) — `flux-resource.tsx`'s `ref()`
+  // opens the inspector with `target.kind` set to that same real k8s kind.
+  const kind =
+    (event.type === 'FluxResourceDetailsUpdated' || event.type === 'FluxResourceNotFound') &&
+    'kind' in data
+      ? data.kind
+      : readKind(event.type)
+  return detailKey(env.route.context, kind, ns, name)
 }
 
 export function handleRead(d: Draft, env: BackendEventEnvelope, event: ResourceReadEvent): void {

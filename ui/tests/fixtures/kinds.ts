@@ -2,7 +2,12 @@
  * One list fixture per registered resource kind, keyed by section (T059; T075 extends this to
  * every kind). Each entry is the `ResourceListEvent` the backend emits for that section.
  */
-import type { ApplicationSummary, NodeSummary, ResourceListEvent } from '../../src/protocol/types'
+import type {
+  ApplicationSummary,
+  HelmReleaseSummary,
+  NodeSummary,
+  ResourceListEvent,
+} from '../../src/protocol/types'
 import { PODS_500 } from './batches'
 import { genDeployments } from './gen-pods'
 
@@ -40,9 +45,24 @@ const NODES: NodeSummary[] = [
   },
 ]
 
+const HELM_RELEASES: HelmReleaseSummary[] = [
+  {
+    name: 'redis',
+    namespace: 'cache',
+    chart: 'redis',
+    chart_version: '18.6.1',
+    app_version: '7.2.4',
+    revision: 3,
+    status: 'Deployed',
+    updated: '2024-01-15T10:00:00Z',
+    degraded: false,
+  },
+]
+
 export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/pods': { type: 'PodsUpdated', data: PODS_500 },
   'workloads/deployments': { type: 'DeploymentsUpdated', data: genDeployments('kind-a') },
   nodes: { type: 'NodesUpdated', data: NODES },
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
+  'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
 }

@@ -53,6 +53,7 @@ reqwest = { version = "0.13.1", features = ["json", "default-tls"] }
 rustls = { version = "0.23", features = ["ring"] }
 ring = "0.17.14"
 base64 = "0.22.1"
+flate2 = "1"
 dirs = "6.0.0"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",

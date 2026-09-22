@@ -5,11 +5,11 @@ use crossbeam_channel::Sender;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    applications, clusterrolebindings, clusterroles, configmaps, crds, endpoints,
-    horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges, mutatingwebhooks,
-    networkpolicies, persistentvolumeclaims, persistentvolumes, poddisruptionbudgets,
-    priorityclasses, related, resourcequotas, rolebindings, roles, runtimeclasses, secrets,
-    services, storageclasses, validatingwebhooks,
+    applications, clusterrolebindings, clusterroles, configmaps, crds, endpoints, flux,
+    helm, horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges,
+    mutatingwebhooks, networkpolicies, persistentvolumeclaims, persistentvolumes,
+    poddisruptionbudgets, priorityclasses, related, resourcequotas, rolebindings, roles,
+    runtimeclasses, secrets, services, storageclasses, validatingwebhooks,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -89,9 +89,77 @@ async fn handle_applications_cmd(
                 ),
             );
         }
+        BackendCmd::RefreshHelmReleases => {
+            helm::list_releases(state, sender).await?;
+        }
+        BackendCmd::SelectHelmRelease { namespace, name } => {
+            helm::get_release_details(state, sender, &namespace, &name).await?;
+        }
+        BackendCmd::SelectFluxResource {
+            kind,
+            namespace,
+            name,
+        } => {
+            handle_select_flux_resource(state, sender, kind, namespace, name).await?;
+        }
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+/// `SelectFluxResource`: re-runs the existing Flux discovery/summarize functions (no new poll
+/// loop, no new Kubernetes watch — research.md R3) and filters for the requested object,
+/// emitting `FluxResourceNotFound` rather than silently doing nothing when it's gone (FR-013).
+async fn handle_select_flux_resource(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    kind: String,
+    namespace: String,
+    name: String,
+) -> anyhow::Result<()> {
+    let client = state.cluster.client_or_err()?;
+    let (kustomizations, helmreleases) =
+        flux::list_kustomizations_and_helmreleases(&client).await?;
+    let candidates = if kind == "Kustomization" {
+        &kustomizations
+    } else {
+        &helmreleases
+    };
+    let found = find_flux_candidate(candidates, &namespace, &name);
+
+    let event = match found {
+        Some(obj) => crate::protocol::ResourceReadEvent::FluxResourceDetailsUpdated(
+            flux::summarize(obj, &kind, false),
+        ),
+        None => crate::protocol::ResourceReadEvent::FluxResourceNotFound {
+            kind: kind.clone(),
+            namespace: namespace.clone(),
+            name: name.clone(),
+        },
+    };
+
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        crate::protocol::Route::namespaced(
+            crate::protocol::section_keys::flux_resource(),
+            state.cluster.current_context.clone(),
+            Some(namespace),
+        ),
+        crate::protocol::Correlation::None,
+        crate::protocol::BackendEvent::ResourceRead(event),
+    );
+    Ok(())
+}
+
+fn find_flux_candidate<'a>(
+    candidates: &'a [kube::core::DynamicObject],
+    namespace: &str,
+    name: &str,
+) -> Option<&'a kube::core::DynamicObject> {
+    candidates.iter().find(|o| {
+        o.metadata.namespace.as_deref() == Some(namespace) && o.metadata.name.as_deref() == Some(name)
+    })
 }
 
 /// Generic, read-only Custom Resource Definition browsing (US3): discovers every installed
@@ -427,4 +495,41 @@ async fn handle_access_cmd(
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kube::core::{ApiResource, DynamicObject};
+
+    fn dynamic_object(namespace: &str, name: &str) -> DynamicObject {
+        let api_resource = ApiResource {
+            group: "helm.toolkit.fluxcd.io".to_owned(),
+            version: "v2".to_owned(),
+            kind: "HelmRelease".to_owned(),
+            api_version: "helm.toolkit.fluxcd.io/v2".to_owned(),
+            plural: "helmreleases".to_owned(),
+        };
+        DynamicObject::new(name, &api_resource).within(namespace)
+    }
+
+    #[test]
+    fn find_flux_candidate_locates_matching_namespace_and_name() {
+        let candidates = vec![dynamic_object("flux-system", "redis")];
+        let found = find_flux_candidate(&candidates, "flux-system", "redis");
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn find_flux_candidate_none_for_deleted_origin() {
+        let candidates = vec![dynamic_object("flux-system", "redis")];
+        let found = find_flux_candidate(&candidates, "flux-system", "gone");
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn find_flux_candidate_none_for_empty_list() {
+        let candidates: Vec<DynamicObject> = Vec::new();
+        assert!(find_flux_candidate(&candidates, "flux-system", "redis").is_none());
+    }
 }

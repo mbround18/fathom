@@ -20,6 +20,7 @@ mod endpoints;
 mod events;
 mod exec;
 mod flux;
+mod helm;
 mod hubble;
 mod ingressclasses;
 mod ingresses;

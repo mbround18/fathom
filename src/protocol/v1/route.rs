@@ -245,6 +245,14 @@ pub mod section_keys {
         SectionKey::new("applications")
     }
 
+    pub fn helm_releases() -> SectionKey {
+        SectionKey::new("helm/releases")
+    }
+
+    pub fn flux_resource() -> SectionKey {
+        SectionKey::new("integrations/flux-resource")
+    }
+
     pub fn integrations_argo() -> SectionKey {
         SectionKey::new("integrations/argo")
     }

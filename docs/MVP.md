@@ -23,7 +23,8 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | GitOps (Flux) integration panel | ✅ | promo-brochure-v2 work |
 | Hubble/Cilium traffic panel | ✅ | promo-brochure-v2 work |
 | **Applications view** | ⬜ | planned next |
-| **Helm** (install/upgrade/rollback) | ⬜ | planned next |
+| **Helm** — read (list/inspector/origin-link) | ✅ | 005-helm-release-origin-linking |
+| **Helm** — mutate (install/upgrade/rollback) | ⬜ | planned next |
 | **Rich interlinking / drill-down** (chart → pod, resource → resource) | ⬜ | planned next |
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ⬜ | planned, later |
 | Access Control (RBAC/OAuth/LDAP, role-scoped UI) | ⬜ | future — enterprise-auth tier |
@@ -98,7 +99,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 * Network ✅
 * Storage ✅
 * Namespaces ✅
-* Helm ⬜ *(see §5a)*
+* Helm ✅ read path *(see §5a)*
 * Access Control ⬜ *(future tier — see §14)*
 * Custom Resources ✅ *(generic, `003-yaml-node-crd-parity`)*
 * Events ✅
@@ -213,14 +214,15 @@ This view is the primary entry point for **§5b rich interlinking**: selecting a
 
 ## 5a. Helm
 
-*Status: ⬜ Not started.*
+*Status: ✅ Read path shipped (`005-helm-release-origin-linking`) — list, inspector, and GitOps origin-context linking to Flux. Mutate (upgrade/rollback/uninstall) still not started.*
 
-Today Fathom only sees Helm-managed resources indirectly (Flux `HelmRelease` inventories, or ownership labels on the resource itself). This section is genuinely new backend surface, not a read of something already streamed.
+Fathom now reads Helm-managed resources directly from Helm's own release storage, not just indirectly via Flux inventories or ownership labels.
 
-### Read (near-term)
+### Read (shipped)
 
 * List installed Helm releases (name, namespace, chart, chart version, app version, revision, status, last updated) — via Helm's own release storage (Secrets/ConfigMaps in the release namespace, `helm.sh/release.v1` type), not a shelled-out `helm` binary
 * Release inspector: values (effective + user-supplied), rendered manifest, revision history, resources owned by the release (feeds §5b drill-down)
+* GitOps origin-context linking: a Flux-owned release's inspector shows a click-through link to its owning `HelmRelease`/`Kustomization`, surfacing that controller's live Ready/Failed/Reconciling/Suspended state and message — the operator's originally-requested "trace to origin" workflow
 
 ### Mutate (later, explicit non-goal for the first pass — mirrors constitution Principle I)
 
@@ -458,14 +460,14 @@ A block-and-line topology diagram of the cluster, letting the operator zoom cont
 
 ## 11. Integration Expectations
 
-*Status: 🚧 Partial — Kubernetes API, Prometheus, CRDs, and GitOps (Flux) integrations done; Helm metadata not yet read (see §5a); logs done (`002`).*
+*Status: 🚧 Partial — Kubernetes API, Prometheus, CRDs, GitOps (Flux), and Helm metadata (see §5a) integrations done; logs done (`002`).*
 
 ### Required Integrations
 
 * Kubernetes API (watch + list) ✅
 * Prometheus ✅
 * CRDs ✅
-* Helm metadata ⬜ *(see §5a)*
+* Helm metadata ✅ *(see §5a)*
 * GitOps annotations (Flux / Argo) — Flux ✅, Argo not yet evaluated
 
 ### Optional Integrations

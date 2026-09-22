@@ -33,6 +33,12 @@ pub(super) async fn related_resources(
             related_for_workload(&client, kind, namespace, name).await
         }
         "Application" => related_for_application(state, namespace, name).await,
+        "HelmRelease" => {
+            let Some(namespace) = namespace else {
+                return Ok(Vec::new());
+            };
+            super::helm::related_for_helm_release(state, namespace, name).await
+        }
         _ => Ok(Vec::new()),
     }
 }

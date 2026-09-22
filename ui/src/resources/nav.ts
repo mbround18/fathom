@@ -28,6 +28,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   g('Overview', '概', [
     ['overview', 'Overview'],
     ['applications', 'Applications'],
+    ['helm/releases', 'Helm Releases'],
     ['nodes', 'Nodes'],
     ['namespaces', 'Namespaces'],
     ['events', 'Events'],

@@ -568,6 +568,20 @@ pub enum BackendCmdV1 {
         namespace: Option<String>,
         name: String,
     },
+
+    // Helm releases (read-only, reads release-storage Secret/ConfigMap objects directly)
+    RefreshHelmReleases,
+    SelectHelmRelease {
+        namespace: String,
+        name: String,
+    },
+
+    // Flux single-resource lookup (read-only; distinct from RefreshFlux's dashboard aggregate)
+    SelectFluxResource {
+        kind: String,
+        namespace: String,
+        name: String,
+    },
 }
 
 /// Direction of a `TaintNode` mutation.
@@ -739,6 +753,24 @@ mod tests {
         roundtrip(BackendCmdV1::SelectApplication {
             namespace: "default".to_owned(),
             instance: "redis".to_owned(),
+        });
+    }
+
+    #[test]
+    fn helm_release_commands_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshHelmReleases);
+        roundtrip(BackendCmdV1::SelectHelmRelease {
+            namespace: "cache".to_owned(),
+            name: "redis".to_owned(),
+        });
+    }
+
+    #[test]
+    fn select_flux_resource_roundtrip() {
+        roundtrip(BackendCmdV1::SelectFluxResource {
+            kind: "HelmRelease".to_owned(),
+            namespace: "flux-system".to_owned(),
+            name: "redis".to_owned(),
         });
     }
 

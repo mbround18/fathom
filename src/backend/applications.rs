@@ -46,6 +46,19 @@ pub(super) struct OwnedWorkload {
     pod_selector: String,
 }
 
+impl OwnedWorkload {
+    /// Exposed for `helm.rs`'s Helm-annotation-based attribution (Helm-installed resources
+    /// typically carry no `ownerReferences` back to their release, so it re-derives ownership
+    /// from the same `meta.helm.sh/*`/Flux labels this module already collects).
+    pub(super) fn labels(&self) -> &BTreeMap<String, String> {
+        &self.labels
+    }
+
+    pub(super) fn annotations(&self) -> &BTreeMap<String, String> {
+        &self.annotations
+    }
+}
+
 /// Which application a workload belongs to, and how Fathom attributed it.
 pub(super) struct Attribution {
     pub(super) instance: String,

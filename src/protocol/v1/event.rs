@@ -3,6 +3,7 @@ use super::{
     ClusterRoleDetails, ClusterRoleSummary, ConfigMapDetails, ConfigMapSummary, Correlation,
     CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails,
     DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary, FluxOverview,
+    FluxResourceSummary, HelmReleaseDetails, HelmReleaseSummary,
     HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
     IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
     JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
@@ -215,6 +216,7 @@ pub enum ResourceListEvent {
     MutatingWebhookConfigurationsUpdated(Vec<MutatingWebhookConfigurationSummary>),
     ValidatingWebhookConfigurationsUpdated(Vec<ValidatingWebhookConfigurationSummary>),
     ApplicationsUpdated(Vec<ApplicationSummary>),
+    HelmReleasesUpdated(Vec<HelmReleaseSummary>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -268,6 +270,13 @@ pub enum ResourceReadEvent {
         namespace: Option<String>,
         name: String,
         related: Vec<RelatedResourceRef>,
+    },
+    HelmReleaseDetailsUpdated(HelmReleaseDetails),
+    FluxResourceDetailsUpdated(FluxResourceSummary),
+    FluxResourceNotFound {
+        kind: String,
+        namespace: String,
+        name: String,
     },
 }
 

@@ -105,7 +105,7 @@ fn classify_ready(
 }
 
 /// Build a [`FluxResourceSummary`] from a dynamic object's spec/status/metadata.
-fn summarize(obj: &DynamicObject, kind: &str, is_source: bool) -> FluxResourceSummary {
+pub(super) fn summarize(obj: &DynamicObject, kind: &str, is_source: bool) -> FluxResourceSummary {
     let name = obj.metadata.name.clone().unwrap_or_default();
     let namespace = obj.metadata.namespace.clone().unwrap_or_default();
     let generation = obj.metadata.generation.unwrap_or(0);

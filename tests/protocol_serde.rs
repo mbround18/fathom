@@ -1011,6 +1011,64 @@ fn sample_endpoint_subset() -> EndpointSubset {
     }
 }
 
+fn sample_helm_revision_summary() -> HelmRevisionSummary {
+    HelmRevisionSummary {
+        revision: 3,
+        status: HelmReleaseStatus::Deployed,
+        description: Some("Upgrade complete".to_owned()),
+        updated: "s".to_owned(),
+        app_version: Some("7.0".to_owned()),
+        chart_version: "1.2.3".to_owned(),
+    }
+}
+
+fn sample_gitops_origin_ref() -> GitOpsOriginRef {
+    GitOpsOriginRef {
+        controller: GitOpsController::Flux,
+        section: section_keys::flux_resource(),
+        kind: "HelmRelease".to_owned(),
+        namespace: "flux-system".to_owned(),
+        name: "redis".to_owned(),
+        ready: FluxReadyState::Ready,
+        message: Some("s".to_owned()),
+    }
+}
+
+fn sample_helm_release_summary() -> HelmReleaseSummary {
+    HelmReleaseSummary {
+        name: "redis".to_owned(),
+        namespace: "cache".to_owned(),
+        chart: "redis".to_owned(),
+        chart_version: "1.2.3".to_owned(),
+        app_version: Some("7.0".to_owned()),
+        revision: 3,
+        status: HelmReleaseStatus::Deployed,
+        updated: "s".to_owned(),
+        degraded: false,
+    }
+}
+
+fn sample_helm_release_details() -> HelmReleaseDetails {
+    HelmReleaseDetails {
+        name: "redis".to_owned(),
+        namespace: "cache".to_owned(),
+        chart: "redis".to_owned(),
+        chart_version: "1.2.3".to_owned(),
+        app_version: Some("7.0".to_owned()),
+        revision: 3,
+        status: HelmReleaseStatus::Deployed,
+        updated: "s".to_owned(),
+        description: Some("Upgrade complete".to_owned()),
+        values_user_supplied: "replicas: 3\n".to_owned(),
+        values_effective: "replicas: 3\n".to_owned(),
+        manifest: "apiVersion: v1\nkind: Service\n".to_owned(),
+        revisions: vec![sample_helm_revision_summary()],
+        origin: Some(sample_gitops_origin_ref()),
+        related: vec![sample_related_resource_ref()],
+        degraded: false,
+    }
+}
+
 fn sample_flux_resource_summary() -> FluxResourceSummary {
     FluxResourceSummary {
         kind: "s".to_owned(),
@@ -1703,6 +1761,16 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: Some("s".to_owned()),
             name: "s".to_owned(),
         },
+        BackendCmd::RefreshHelmReleases,
+        BackendCmd::SelectHelmRelease {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+        },
+        BackendCmd::SelectFluxResource {
+            kind: "s".to_owned(),
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+        },
     ]
 }
 
@@ -1868,6 +1936,9 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshApplications => {}
         BackendCmd::SelectApplication { .. } => {}
         BackendCmd::RefreshRelatedResources { .. } => {}
+        BackendCmd::RefreshHelmReleases => {}
+        BackendCmd::SelectHelmRelease { .. } => {}
+        BackendCmd::SelectFluxResource { .. } => {}
     }
 }
 
@@ -2010,6 +2081,7 @@ fn all_resource_list_events() -> Vec<ResourceListEvent> {
             sample_validating_webhook_configuration_summary(),
         ]),
         ResourceListEvent::ApplicationsUpdated(vec![sample_application_summary()]),
+        ResourceListEvent::HelmReleasesUpdated(vec![sample_helm_release_summary()]),
     ]
 }
 
@@ -2053,6 +2125,7 @@ fn all_resource_list_events_is_exhaustive(v: &ResourceListEvent) {
         ResourceListEvent::MutatingWebhookConfigurationsUpdated(..) => {}
         ResourceListEvent::ValidatingWebhookConfigurationsUpdated(..) => {}
         ResourceListEvent::ApplicationsUpdated(..) => {}
+        ResourceListEvent::HelmReleasesUpdated(..) => {}
     }
 }
 
@@ -2116,6 +2189,13 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
             name: "s".to_owned(),
             related: vec![sample_related_resource_ref()],
         },
+        ResourceReadEvent::HelmReleaseDetailsUpdated(sample_helm_release_details()),
+        ResourceReadEvent::FluxResourceDetailsUpdated(sample_flux_resource_summary()),
+        ResourceReadEvent::FluxResourceNotFound {
+            kind: "HelmRelease".to_owned(),
+            namespace: "flux-system".to_owned(),
+            name: "redis".to_owned(),
+        },
     ]
 }
 
@@ -2165,6 +2245,9 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::ApplicationDetailsUpdated(..) => {}
         ResourceReadEvent::ApplicationMetricsUpdated(..) => {}
         ResourceReadEvent::RelatedResourcesUpdated { .. } => {}
+        ResourceReadEvent::HelmReleaseDetailsUpdated(..) => {}
+        ResourceReadEvent::FluxResourceDetailsUpdated(..) => {}
+        ResourceReadEvent::FluxResourceNotFound { .. } => {}
     }
 }
 

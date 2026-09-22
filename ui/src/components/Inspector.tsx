@@ -90,6 +90,9 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   if (!descriptor)
     return <Empty title="Not ported yet" detail={`${target.kind} has no inspector yet.`} />
   if (list?.status === 'ready' && !row) return <NoLongerExists name={target.name} />
+  // Flux origin click-through (spec 005 FR-013): a deleted origin resolves to an explicit
+  // `FluxResourceNotFound` reply, not a blank/frozen panel.
+  if (detailState?.eventType === 'FluxResourceNotFound') return <NoLongerExists name={target.name} />
 
   const detail = detailState ? descriptor.selectDetail(detailState) : undefined
   const raw = detail !== undefined && descriptor.rawJson ? descriptor.rawJson(detail) : undefined

@@ -5,15 +5,36 @@ import type { SectionKey } from '@/protocol/types'
 
 import { applications } from './applications'
 import { deployments } from './deployments'
+import { fluxResource } from './flux-resource'
+import { helm } from './helm'
 import { nodes } from './nodes'
 import { pods } from './pods'
 import type { AnyDescriptor } from './types'
 
 export type * from './types'
 
-export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [pods, deployments, nodes, applications]
+export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [
+  pods,
+  deployments,
+  nodes,
+  applications,
+  helm,
+]
 
-const BY_SECTION = new Map<SectionKey, AnyDescriptor>(ALL_DESCRIPTORS.map((d) => [d.section, d]))
+/**
+ * Detail-only descriptors (spec 005): reachable exclusively via `openInspector`'s
+ * origin-link click-through, never through a `ResourceTable`/nav entry, and with no backend
+ * list command at all — so they sit outside `ALL_DESCRIPTORS` (and `descriptors.test.ts`'s
+ * uniform "every kind is listable" contract) but still resolve through `descriptorFor`.
+ * `FluxResourceSummary` is also never a `ListRow`, so the cast mirrors the bivariant-registry
+ * trick `types.ts` documents for `ALL_DESCRIPTORS`, needed explicitly here since it's a type
+ * outside the `ResourceListEvent` union entirely.
+ */
+const DETAIL_ONLY_DESCRIPTORS: readonly AnyDescriptor[] = [fluxResource as unknown as AnyDescriptor]
+
+const BY_SECTION = new Map<SectionKey, AnyDescriptor>(
+  [...ALL_DESCRIPTORS, ...DETAIL_ONLY_DESCRIPTORS].map((d) => [d.section, d]),
+)
 
 export function descriptorFor(section: SectionKey | undefined): AnyDescriptor | undefined {
   return section === undefined ? undefined : BY_SECTION.get(section)
