@@ -1,0 +1,38 @@
+# A tiny Flux-managed Helm release, so the Helm view (list/inspector) and the
+# GitOps origin-link click-through (helm release -> owning Flux HelmRelease) have
+# something real to show. podinfo is the standard, well-known demo chart for
+# exactly this purpose: one Deployment, one Service, no external state.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: podinfo
+spec:
+  interval: 1h
+  url: https://stefanprodan.github.io/podinfo
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: podinfo
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: podinfo
+      sourceRef:
+        kind: HelmRepository
+        name: podinfo
+  values:
+    replicaCount: 1
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { cpu: 50m, memory: 64Mi }
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 101
+      runAsGroup: 101
+      seccompProfile: { type: RuntimeDefault }
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: { drop: ["ALL"] }
+      readOnlyRootFilesystem: true

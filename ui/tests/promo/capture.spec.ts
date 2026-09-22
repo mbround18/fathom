@@ -18,6 +18,12 @@ import { expect, LIVE_NAMESPACE, listPods, redactions, shoot, test } from './hel
 const APPLICATIONS = 'applications'
 const APP_INSTANCE = 'fathom-sandbox'
 
+/** The sandbox's one Flux-managed Helm release (`dev/sandbox/helm.yaml`): a real podinfo
+ * install, upgraded once, so both the release list/inspector and the origin-link click-through
+ * to its owning Flux `HelmRelease` have real, live data to show. */
+const HELM = 'helm/releases'
+const HELM_RELEASE = 'podinfo'
+
 /** A live pod of `app=<app>` (the first by name, so reruns pick the same one). */
 function podOf(app: string): string {
   const names = listPods(`app=${app}`)
@@ -161,6 +167,50 @@ test.describe('wide', () => {
     await expect(breadcrumb).toContainText(APP_INSTANCE)
     if (podName) await expect(inspector(page).getByRole('heading', { name: podName })).toBeVisible()
     await shoot(page, 'wide-applications-drilldown', pairs)
+  })
+
+  test('helm releases list', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Helm Releases', 'Overview')
+    await expect
+      .poll(async () => Number(await table(page, HELM).getAttribute('data-row-count')), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThanOrEqual(1)
+    await shoot(page, 'wide-helm-list', pairs)
+  })
+
+  test('helm release inspector', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Helm Releases', 'Overview')
+    await row(page, key(HELM_RELEASE), HELM).click()
+    const insp = inspector(page)
+    await expect(insp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
+    // Revision history streams in after the initial select; wait for both real revisions
+    // (v1 install, v2 upgrade) before photographing.
+    await expect
+      .poll(async () => insp.getByText('#2', { exact: true }).count())
+      .toBeGreaterThan(0)
+    await shoot(page, 'wide-helm-inspector', pairs)
+  })
+
+  test('helm origin link', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Helm Releases', 'Overview')
+    await row(page, key(HELM_RELEASE), HELM).click()
+    const insp = inspector(page)
+    await expect(insp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
+    const originLink = insp.getByRole('button', { name: `fathom-dev/${HELM_RELEASE}` })
+    await expect(originLink).toBeVisible()
+    await originLink.click()
+    const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' })
+    await expect(breadcrumb).toBeVisible()
+    await expect(breadcrumb).toContainText(HELM_RELEASE)
+    await expect(inspector(page).getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
+    await shoot(page, 'wide-helm-origin-link', pairs)
   })
 })
 

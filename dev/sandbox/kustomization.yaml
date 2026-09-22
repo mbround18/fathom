@@ -13,3 +13,4 @@ resources:
   - config.yaml
   - rbac.yaml
   - workloads.yaml
+  - helm.yaml

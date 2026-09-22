@@ -160,6 +160,24 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
       'Click "owns" on a related Pod and the inspector drills straight in — a breadcrumb tracks the path back to the application, so context is never lost.',
     scale: 2,
   },
+  'wide-helm-list': {
+    title: 'Helm, read straight from the source',
+    caption:
+      'Every installed release — name, chart, chart version, app version, revision, and status — read directly from Helm’s own release storage, no `helm` binary required.',
+    scale: 2,
+  },
+  'wide-helm-inspector': {
+    title: 'Every release, fully unpacked',
+    caption:
+      'User-supplied and effective values, the rendered manifest, and full revision history for one release — the same install/upgrade history `helm history` shows, in the app.',
+    scale: 2,
+  },
+  'wide-helm-origin-link': {
+    title: 'Trace a release back to its origin',
+    caption:
+      'A Flux-managed release links straight to the HelmRelease that owns it, with its live Ready state and reconciliation message — no more guessing why GitOps hasn’t caught up.',
+    scale: 2,
+  },
   'terminal-shot': {
     title: 'A real shell, inside the app',
     caption:
