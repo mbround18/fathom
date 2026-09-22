@@ -18,7 +18,8 @@ use kube::{
 use serde_json::Value;
 
 use crate::protocol::{
-    BackendEvent, Correlation, GitOpsController, GitOpsOriginRef, HelmReleaseDetails,
+    BackendEvent, Correlation, GitOpsController, GitOpsOriginRef, HelmMutationAction,
+    HelmMutationApplied, HelmMutationFailed, HelmMutationStage, HelmReleaseDetails,
     HelmReleaseStatus, HelmReleaseSummary, HelmRevisionSummary, ResourceListEvent,
     ResourceReadEvent, Route, section_keys,
 };
@@ -552,6 +553,157 @@ pub async fn helm_binary_available() -> bool {
         .is_ok_and(|out| out.status.success())
 }
 
+/// `HelmMutationFailed` for the FR-012 "missing `helm` binary" case, shared by every mutate flow
+/// that shells out (currently just uninstall — upgrade will reuse this once US2 lands).
+fn missing_helm_binary_failure(
+    namespace: &str,
+    release: &str,
+    action: HelmMutationAction,
+    stage: HelmMutationStage,
+) -> HelmMutationFailed {
+    HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        stage,
+        message: "The `helm` binary was not found on PATH. Install Helm (https://helm.sh) \
+                  to perform this action."
+            .to_owned(),
+    }
+}
+
+/// Pure precondition guard for [`uninstall_helm_release`], split out so the FR-012
+/// missing-binary and stale-`base_revision` edge cases (T029/T030) are unit-testable without a
+/// live cluster or subprocess.
+fn check_uninstall_preconditions(
+    namespace: &str,
+    release: &str,
+    helm_available: bool,
+    live_revision: i64,
+    base_revision: i64,
+) -> Result<(), HelmMutationFailed> {
+    if !helm_available {
+        return Err(missing_helm_binary_failure(
+            namespace,
+            release,
+            HelmMutationAction::Uninstall,
+            HelmMutationStage::Apply,
+        ));
+    }
+    if live_revision != base_revision {
+        return Err(HelmMutationFailed {
+            namespace: namespace.to_owned(),
+            release: release.to_owned(),
+            action: HelmMutationAction::Uninstall,
+            stage: HelmMutationStage::Apply,
+            message: format!(
+                "This release has changed since the confirm dialog was opened (now at \
+                 revision {live_revision}, expected {base_revision}). Reopen the release and \
+                 try again."
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// The current (highest-`version`) revision for `(namespace, release)`, or `None` if no
+/// release-storage object exists for it any more.
+async fn current_release_revision(
+    client: &Client,
+    namespace: &str,
+    release: &str,
+) -> anyhow::Result<Option<i64>> {
+    let objects = list_storage_objects(client, Some(namespace)).await?;
+    Ok(current_per_release(&objects)
+        .into_iter()
+        .find(|o| o.release_name == release)
+        .map(|o| o.revision))
+}
+
+/// Uninstalls a Helm release (T032): guards on `helm_binary_available()` (FR-012) and a stale
+/// `base_revision` (the operator's confirm dialog no longer matches the release's live
+/// revision) before shelling out to `helm uninstall`, which performs the actual release-storage
+/// removal (constitution: the backend performs the mutation, never the frontend). No preview
+/// step exists for uninstall (data-model.md), so this goes straight from guard to subprocess.
+pub(super) async fn uninstall_helm_release(
+    client: &Client,
+    namespace: &str,
+    release: &str,
+    base_revision: i64,
+) -> Result<HelmMutationApplied, HelmMutationFailed> {
+    let helm_available = helm_binary_available().await;
+    if !helm_available {
+        return Err(missing_helm_binary_failure(
+            namespace,
+            release,
+            HelmMutationAction::Uninstall,
+            HelmMutationStage::Apply,
+        ));
+    }
+
+    let live_revision = match current_release_revision(client, namespace, release).await {
+        Ok(Some(rev)) => rev,
+        Ok(None) => {
+            return Err(HelmMutationFailed {
+                namespace: namespace.to_owned(),
+                release: release.to_owned(),
+                action: HelmMutationAction::Uninstall,
+                stage: HelmMutationStage::Apply,
+                message: format!(
+                    "Release {release} was not found in namespace {namespace}; it may have \
+                     already been uninstalled."
+                ),
+            });
+        }
+        Err(e) => {
+            return Err(HelmMutationFailed {
+                namespace: namespace.to_owned(),
+                release: release.to_owned(),
+                action: HelmMutationAction::Uninstall,
+                stage: HelmMutationStage::Apply,
+                message: e.to_string(),
+            });
+        }
+    };
+
+    check_uninstall_preconditions(namespace, release, helm_available, live_revision, base_revision)?;
+
+    let output = tokio::process::Command::new("helm")
+        .args(["uninstall", release, "-n", namespace])
+        .output()
+        .await
+        .map_err(|e| HelmMutationFailed {
+            namespace: namespace.to_owned(),
+            release: release.to_owned(),
+            action: HelmMutationAction::Uninstall,
+            stage: HelmMutationStage::Apply,
+            message: format!("Failed to run `helm uninstall`: {e}"),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let message = if stderr.is_empty() {
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        } else {
+            stderr
+        };
+        return Err(HelmMutationFailed {
+            namespace: namespace.to_owned(),
+            release: release.to_owned(),
+            action: HelmMutationAction::Uninstall,
+            stage: HelmMutationStage::Apply,
+            message,
+        });
+    }
+
+    Ok(HelmMutationApplied {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action: HelmMutationAction::Uninstall,
+        new_revision: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,5 +867,57 @@ mod tests {
         assert_eq!(r.namespace.as_deref(), Some("flux-system"));
         assert_eq!(r.name, "redis");
         assert_eq!(r.status_hint.as_deref(), Some("Ready"));
+    }
+
+    // --- Helm mutate (006) US3: uninstall precondition guards (T029/T030). These exercise the
+    // pure `check_uninstall_preconditions` guard directly rather than the async
+    // `uninstall_helm_release` orchestrator, mirroring this module's existing convention of unit
+    // testing the sync logic extracted from cluster/subprocess-touching async functions (there is
+    // no mockable `kube::Client`/subprocess seam in this codebase to drive the orchestrator
+    // itself without a live cluster and a real `helm` binary). Because the guard function never
+    // touches the filesystem or network, these tests also demonstrate T029's "no subprocess
+    // spawned" and "no release-storage record removed" assertions by construction: nothing here
+    // can do either.
+
+    #[test]
+    fn uninstall_fails_clearly_when_helm_binary_missing() {
+        let result = check_uninstall_preconditions("cache", "redis", false, 5, 5);
+        let err = result.expect_err("missing helm binary must fail");
+        assert_eq!(err.namespace, "cache");
+        assert_eq!(err.release, "redis");
+        assert_eq!(err.action, HelmMutationAction::Uninstall);
+        assert_eq!(err.stage, HelmMutationStage::Apply);
+        assert!(
+            err.message.to_lowercase().contains("helm"),
+            "message should clearly mention the missing helm binary: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn uninstall_fails_before_checking_revision_when_helm_binary_missing() {
+        // Even when the (hypothetical) live revision matches base_revision, a missing binary
+        // must still fail first (FR-012 takes priority; nothing downstream should run).
+        let result = check_uninstall_preconditions("cache", "redis", false, 5, 5);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn uninstall_fails_on_stale_base_revision() {
+        let result = check_uninstall_preconditions("cache", "redis", true, 5, 3);
+        let err = result.expect_err("stale base_revision must fail");
+        assert_eq!(err.stage, HelmMutationStage::Apply);
+        assert_eq!(err.action, HelmMutationAction::Uninstall);
+        assert!(
+            err.message.contains('5') && err.message.contains('3'),
+            "message should surface both the live and expected revisions: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn uninstall_succeeds_precondition_when_binary_present_and_revision_matches() {
+        let result = check_uninstall_preconditions("cache", "redis", true, 5, 5);
+        assert!(result.is_ok());
     }
 }

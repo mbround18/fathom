@@ -95,6 +95,14 @@ async fn handle_applications_cmd(
         BackendCmd::SelectHelmRelease { namespace, name } => {
             helm::get_release_details(state, sender, &namespace, &name).await?;
         }
+        BackendCmd::UninstallHelmRelease {
+            namespace,
+            release,
+            base_revision,
+        } => {
+            handle_uninstall_helm_release(state, sender, namespace, release, base_revision)
+                .await?;
+        }
         BackendCmd::SelectFluxResource {
             kind,
             namespace,
@@ -150,6 +158,90 @@ async fn handle_select_flux_resource(
         crate::protocol::BackendEvent::ResourceRead(event),
     );
     Ok(())
+}
+
+/// `UninstallHelmRelease` (006 T033): shells out to `helm uninstall` via
+/// `helm::uninstall_helm_release`, then emits `HelmMutationApplied`/`HelmMutationFailed` on the
+/// release's own `helm/releases` route so the frontend's already-open Inspector (if any) updates
+/// without a separate refresh.
+async fn handle_uninstall_helm_release(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: String,
+    release: String,
+    base_revision: i64,
+) -> anyhow::Result<()> {
+    let route = crate::protocol::Route::namespaced(
+        crate::protocol::section_keys::helm_releases(),
+        state.cluster.current_context.clone(),
+        Some(namespace.clone()),
+    );
+
+    let client = match state.cluster.client_or_err() {
+        Ok(client) => client,
+        Err(e) => {
+            emit_helm_mutation_failed(
+                state,
+                sender,
+                route,
+                namespace,
+                release,
+                format!("{e}"),
+            );
+            return Ok(());
+        }
+    };
+
+    match helm::uninstall_helm_release(&client, &namespace, &release, base_revision).await {
+        Ok(applied) => {
+            crate::backend::events::emit(
+                state.cluster.seq.as_ref(),
+                sender,
+                route,
+                crate::protocol::Correlation::None,
+                crate::protocol::BackendEvent::System(
+                    crate::protocol::SystemEvent::HelmMutationApplied(applied),
+                ),
+            );
+        }
+        Err(failed) => {
+            crate::backend::events::emit(
+                state.cluster.seq.as_ref(),
+                sender,
+                route,
+                crate::protocol::Correlation::None,
+                crate::protocol::BackendEvent::System(
+                    crate::protocol::SystemEvent::HelmMutationFailed(failed),
+                ),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn emit_helm_mutation_failed(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    route: crate::protocol::Route,
+    namespace: String,
+    release: String,
+    message: String,
+) {
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        route,
+        crate::protocol::Correlation::None,
+        crate::protocol::BackendEvent::System(crate::protocol::SystemEvent::HelmMutationFailed(
+            crate::protocol::HelmMutationFailed {
+                namespace,
+                release,
+                action: crate::protocol::HelmMutationAction::Uninstall,
+                stage: crate::protocol::HelmMutationStage::Apply,
+                message,
+            },
+        )),
+    );
 }
 
 fn find_flux_candidate<'a>(
