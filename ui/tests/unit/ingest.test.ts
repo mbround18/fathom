@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DiskUsage, EventBatch, PodSummary } from '@/protocol/types'
 import { pods as podDescriptor } from '@/resources/pods'
-import { eventsFor, initialData, listKey, useStore } from '@/store'
+import { eventsFor, initialData, listKey, type LogStreamState, useStore } from '@/store'
 import { resetActions, runAction } from '@/store/actions'
 import { ingest } from '@/store/ingest'
 
@@ -218,7 +218,7 @@ describe('rule 4: streams', () => {
     ingest(batch([stream(1, route, { type: 'PodLogsChunk', data: { stream_id: 4, lines } })]))
     const first = useStore.getState().streams[4]
     ingest(batch([stream(2, route, { type: 'PodLogsChunk', data: { stream_id: 4, lines } })]))
-    const s = useStore.getState().streams[4]
+    const s = useStore.getState().streams[4] as LogStreamState | undefined
     expect(s).not.toBe(first)
     expect(s?.lines.length).toBe(10_000)
     expect(s?.lines.truncated).toBe(2_000)
@@ -226,6 +226,25 @@ describe('rule 4: streams', () => {
       batch([stream(3, route, { type: 'StreamClosed', data: { stream_id: 4, reason: 'EOF' } })]),
     )
     expect(useStore.getState().streams[4]).toMatchObject({ status: 'closed', reason: 'EOF' })
+  })
+
+  it('switching the selected container restarts the stream under a new stream_id, independent of the old one (T010)', () => {
+    ingest(twoContexts)
+    const route = nsRoute('kind-a', 'workloads/pods', 'default')
+    // Logs tab opens against the first container: backend assigns stream_id 7.
+    ingest(batch([stream(10, route, { type: 'PodLogsChunk', data: { stream_id: 7, lines: ['a'] } })]))
+    // Operator switches container: PodLogsTab sends StopPodLogs + StartPodLogs, a fresh
+    // stream_id (8) is assigned for the new container's stream.
+    ingest(batch([stream(11, route, { type: 'PodLogsChunk', data: { stream_id: 8, lines: ['b'] } })]))
+    // A late StreamClosed for the superseded stream_id 7 must not touch stream_id 8's state.
+    ingest(
+      batch([stream(12, route, { type: 'StreamClosed', data: { stream_id: 7, reason: 'EOF' } })]),
+    )
+    const streams = useStore.getState().streams
+    expect(streams[7]).toMatchObject({ status: 'closed', reason: 'EOF' })
+    const next = streams[8] as LogStreamState | undefined
+    expect(next?.status).toBe('open')
+    expect(next?.lines.toArray()).toEqual(['b'])
   })
 })
 

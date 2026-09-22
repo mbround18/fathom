@@ -49,10 +49,13 @@ test.describe('US1 inspector', () => {
     await expect(insp).toContainText('ReplicaSet')
     await expect(insp).toContainText('pod-template-hash')
 
+    // US1 (T025): Pod is edit-capable, so the YAML tab renders the edit buffer
+    // (ui/tests/e2e/us1-apply-yaml.spec.ts covers the edit/diff/apply flow itself) rather than a
+    // static read-only `<pre>`.
     await insp.getByRole('tab', { name: 'YAML' }).click()
-    const yaml = insp.locator('pre')
-    await expect(yaml).toContainText('kind: Pod')
-    await expect(yaml).toContainText(`name: ${DETAIL_POD.name}`)
+    const yaml = insp.getByTestId('yaml-edit-textarea')
+    await expect(yaml).toHaveValue(/kind: Pod/)
+    await expect(yaml).toHaveValue(new RegExp(`name: ${DETAIL_POD.name}`))
 
     await insp.getByRole('tab', { name: 'Events' }).click()
     await expect(insp).toContainText('BackOff')

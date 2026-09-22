@@ -7,7 +7,8 @@
  * brochure never drifts from what was actually photographed. Output: promo-out/facts.json,
  * promo-out/brochure.html, promo-out/fathom-promo.pdf.
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { BRAND_GLYPH, FONT_FACE_CSS, PALETTE, PALETTE_LIGHT } from './brand'
 import {
@@ -21,6 +22,15 @@ import {
   test,
   type KubePod,
 } from './helpers'
+
+/** Checked-in static promo assets (e.g. the staged Terminal screenshot) — not written by
+ * capture.spec.ts. See research.md R6: the Terminal tab is never driven by the automated
+ * pipeline, so its showcase image lives here as a hand-captured PNG instead. */
+const ASSETS_DIR = fileURLToPath(new URL('./assets/', import.meta.url))
+
+/** SHOT_META keys sourced from ui/tests/promo/assets/ (staged) instead of promo-out/shots/
+ * (captured live by capture.spec.ts this run). */
+const STAGED_SHOTS = new Set(['terminal-shot'])
 
 interface WorkloadCounts {
   kind: string
@@ -126,26 +136,54 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
       'The Hubble panel talks directly to Cilium’s Hubble Relay over gRPC and shows real forwarded and dropped flow traffic between namespaces — no separate dashboard required.',
     scale: 2,
   },
+  'wide-logs': {
+    title: 'Tail logs without leaving the app',
+    caption:
+      'The Logs tab live-streams real container output straight from the cluster, with auto-scroll and a jump-to-latest control.',
+    scale: 2,
+  },
+  'terminal-shot': {
+    title: 'A real shell, inside the app',
+    caption:
+      'The Terminal tab opens a genuine interactive `kube exec` session in the selected container — resizable, ANSI-aware, no separate window.',
+    scale: 2,
+  },
 }
 
 /** Narrative order: wide feature shots first, then ultra, then down to phone. Matches the
  * insertion order of SHOT_META, not filename order. */
 function loadShots(): Shot[] {
   const present = new Set(readdirSync(SHOTS_DIR).filter((f) => f.endsWith('.png')))
-  const shots = Object.entries(SHOT_META)
-    .filter(([name]) => present.has(`${name}.png`))
-    .map(([name, meta]) => {
-      const bytes = readFileSync(`${SHOTS_DIR}${name}.png`)
-      return {
-        name,
-        title: meta.title,
-        caption: meta.caption,
-        dataUrl: `data:image/png;base64,${bytes.toString('base64')}`,
-      } satisfies Shot
-    })
-  const missing = [...present].filter((f) => !(f.replace(/\.png$/, '') in SHOT_META))
+  const missing = [...present].filter(
+    (f) => !(f.replace(/\.png$/, '') in SHOT_META) || STAGED_SHOTS.has(f.replace(/\.png$/, '')),
+  )
   if (missing.length > 0) {
     throw new Error(`promo/compose: no SHOT_META entry for shot(s): ${missing.join(', ')}`)
+  }
+  // Narrative order follows SHOT_META's insertion order (not filename/readdir order), so a
+  // staged entry (e.g. Terminal) can sit right next to the live entry it belongs beside (Logs).
+  const shots: Shot[] = []
+  for (const [name, meta] of Object.entries(SHOT_META)) {
+    const staged = STAGED_SHOTS.has(name)
+    const dir = staged ? ASSETS_DIR : SHOTS_DIR
+    const path = `${dir}${name}.png`
+    if (staged) {
+      if (!existsSync(path)) {
+        throw new Error(
+          `promo/compose: staged asset missing: ${path}\n` +
+            'Capture it by hand per research.md R6 and save it there (never via capture.spec.ts).',
+        )
+      }
+    } else if (!present.has(`${name}.png`)) {
+      continue
+    }
+    const bytes = readFileSync(path)
+    shots.push({
+      name,
+      title: meta.title,
+      caption: meta.caption,
+      dataUrl: `data:image/png;base64,${bytes.toString('base64')}`,
+    })
   }
   return shots
 }
@@ -231,10 +269,25 @@ function comparisonTable(): string {
   return `<table class="comparison"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>`
 }
 
+/** A small, evenly-tiled diagonal watermark, the way "CONFIDENTIAL"/"DRAFT" stamps look on real
+ *  legal/financial PDFs: quiet and repeated, not one oversized word punched through the content. */
+function watermarkTileDataUri(color: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="220">` +
+    `<g transform="rotate(-28 180 110)">` +
+    `<text x="-20" y="118" font-family="Arial, Helvetica, sans-serif" font-size="15" ` +
+    `font-weight="600" letter-spacing="3" fill="${color}" fill-opacity="0.55">INTERNAL EVALUATION</text>` +
+    `</g></svg>`
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
+}
+const WATERMARK_TILE_LIGHT = watermarkTileDataUri(PALETTE_LIGHT.mutedForeground)
+const WATERMARK_TILE_DARK = watermarkTileDataUri(PALETTE.mutedForeground)
+
 /** Small header/footer bar baked into every page: brand + internal label, date + page number. */
 function pageChrome(cls: string, inner: string, pageNum: number, totalPages: number, facts: Facts): string {
   return `
 <div class="page ${cls}">
+  <div class="page-watermark" aria-hidden="true"></div>
   <div class="page-header">
     <span class="page-brand">${BRAND_GLYPH} FATHOM</span>
     <span class="page-tag">Internal &middot; Confidential</span>
@@ -448,6 +501,19 @@ p { color: var(--muted); line-height: 1.5; margin: 0; }
 }
 .shot-frame img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
 .node-note { margin-top: 16px; font-size: 11px; color: var(--muted); }
+.page-watermark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background-image: url("${WATERMARK_TILE_LIGHT}");
+  background-repeat: repeat;
+  opacity: 0.4;
+}
+.page.cover .page-watermark {
+  background-image: url("${WATERMARK_TILE_DARK}");
+  opacity: 0.5;
+}
 .page-header {
   position: absolute;
   top: 26px;

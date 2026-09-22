@@ -92,6 +92,24 @@ test.describe('wide', () => {
     await toolPane.open(page, 'hubble')
     await shoot(page, 'wide-hubble', pairs)
   })
+
+  test('logs tab', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    // chatty-logger emits ~5 lines/sec, so real streamed output is available almost immediately.
+    await openInspector(page, podOf('chatty-logger'))
+    const insp = inspector(page)
+    await insp.getByRole('tab', { name: 'Logs' }).click()
+    await expect(insp.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
+    const scroll = insp.getByTestId('pod-logs-scroll')
+    // Wait for real streamed lines (not just the "starting" placeholder) before shooting.
+    await expect
+      .poll(async () => (await scroll.innerText()).split('\n').filter((l) => l.trim()).length, {
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(0)
+    await shoot(page, 'wide-logs', pairs)
+  })
 })
 
 test.describe('ultra', () => {
