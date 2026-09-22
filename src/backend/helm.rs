@@ -10,17 +10,21 @@ use std::io::Read;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use k8s_openapi::ByteString;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::{
     Client, ResourceExt,
-    api::{Api, ListParams},
+    api::{Api, ListParams, Patch, PatchParams, PostParams},
+    core::ObjectMeta,
 };
 use serde_json::Value;
 
 use crate::protocol::{
-    BackendEvent, Correlation, GitOpsController, GitOpsOriginRef, HelmReleaseDetails,
-    HelmReleaseStatus, HelmReleaseSummary, HelmRevisionSummary, ResourceListEvent,
-    ResourceReadEvent, Route, section_keys,
+    BackendEvent, Correlation, GitOpsController, GitOpsOriginRef, HelmMutationAction,
+    HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady, HelmMutationStage,
+    HelmReleaseDetails, HelmReleaseStatus, HelmReleaseSummary, HelmRevisionSummary,
+    ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
 
 use super::{events, flux, state::BackendState};
@@ -39,6 +43,15 @@ const FLUX_HELMRELEASE_NAMESPACE_LABEL: &str = "helm.toolkit.fluxcd.io/namespace
 const FLUX_KUSTOMIZATION_NAME_LABEL: &str = "kustomize.toolkit.fluxcd.io/name";
 const FLUX_KUSTOMIZATION_NAMESPACE_LABEL: &str = "kustomize.toolkit.fluxcd.io/namespace";
 
+/// Which Kubernetes object kind backs a release's storage entry — Helm 3 defaults to `Secret`
+/// but supports `ConfigMap` storage too; rollback writes must target whichever kind the
+/// release already uses (data-model.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StorageKind {
+    Secret,
+    ConfigMap,
+}
+
 /// One Helm release-storage object, decoded far enough to attribute and sort it, with its full
 /// payload lazily available for the currently-selected revision only.
 struct StorageObject {
@@ -48,6 +61,10 @@ struct StorageObject {
     status_label: String,
     /// `Some` once base64/gzip/JSON decode succeeded; `None` means `degraded: true`.
     payload: Option<Value>,
+    /// The underlying Secret/ConfigMap's own `metadata.name` (needed to patch it, e.g. when
+    /// superseding it on rollback).
+    object_name: String,
+    kind: StorageKind,
 }
 
 /// base64-decode, gunzip, then JSON-parse Helm's release-storage payload. Unit-testable
@@ -151,6 +168,8 @@ fn storage_object_from_secret(secret: &Secret) -> Option<StorageObject> {
         revision,
         status_label,
         payload,
+        object_name: secret.name_any(),
+        kind: StorageKind::Secret,
     })
 }
 
@@ -174,6 +193,8 @@ fn storage_object_from_configmap(cm: &ConfigMap) -> Option<StorageObject> {
         revision,
         status_label,
         payload,
+        object_name: cm.name_any(),
+        kind: StorageKind::ConfigMap,
     })
 }
 
@@ -544,12 +565,362 @@ fn namespace_allowed(filter: &[String], namespace: &str) -> bool {
 
 /// Whether the `helm` binary is reachable on `PATH` (FR-012's "missing `helm` binary" error
 /// path for upgrade/uninstall — rollback never needs this).
+///
+/// `#[allow(dead_code)]`: unused in this US1-only worktree slice (rollback needs no rendering);
+/// US2 (upgrade)/US3 (uninstall) call this. Remove the allow once those land alongside this.
+#[allow(dead_code)]
 pub async fn helm_binary_available() -> bool {
     tokio::process::Command::new("helm")
         .arg("version")
         .output()
         .await
         .is_ok_and(|out| out.status.success())
+}
+
+// --- US1: Rollback ---------------------------------------------------------------------
+
+fn helm_storage_object_name(release: &str, revision: i64) -> String {
+    format!("sh.helm.release.v1.{release}.v{revision}")
+}
+
+fn infra_failure(
+    action: HelmMutationAction,
+    stage: HelmMutationStage,
+    namespace: &str,
+    release: &str,
+    err: impl std::fmt::Display,
+) -> HelmMutationFailed {
+    HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        stage,
+        message: format!("{err:#}"),
+    }
+}
+
+/// Finds the current (highest-revision) and requested-target storage objects for a release
+/// among `objects` (already filtered/fetched by the caller). Returns `None` for either side
+/// that isn't present.
+fn find_current_and_target<'a>(
+    objects: &'a [StorageObject],
+    release: &str,
+    target_revision: i64,
+) -> (Option<&'a StorageObject>, Option<&'a StorageObject>) {
+    let mut matching: Vec<&StorageObject> =
+        objects.iter().filter(|o| o.release_name == release).collect();
+    matching.sort_by_key(|o| std::cmp::Reverse(o.revision));
+    let current = matching.first().copied();
+    let target = matching.iter().find(|o| o.revision == target_revision).copied();
+    (current, target)
+}
+
+/// Pure rollback diff-preview computation (T010/T011): no cluster call, testable directly
+/// against `StorageObject` fixtures. Fails at `Preview` stage when the target revision's
+/// stored manifest can't be decoded (corrupted payload, FR-012) or is empty.
+fn build_rollback_preview(
+    namespace: &str,
+    release: &str,
+    current: &StorageObject,
+    target: &StorageObject,
+    gitops_warning: Option<GitOpsOriginRef>,
+) -> Result<HelmMutationPreviewReady, HelmMutationFailed> {
+    let fail = |message: String| HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action: HelmMutationAction::Rollback,
+        stage: HelmMutationStage::Preview,
+        message,
+    };
+
+    let Some(target_payload) = &target.payload else {
+        return Err(fail(format!(
+            "revision {} of {release} could not be decoded (corrupted release-storage payload)",
+            target.revision
+        )));
+    };
+    let target_manifest = payload_str(target_payload, "/manifest").unwrap_or_default();
+    if target_manifest.is_empty() {
+        return Err(fail(format!(
+            "revision {} of {release} has no stored manifest to roll back to",
+            target.revision
+        )));
+    }
+
+    let current_manifest = current
+        .payload
+        .as_ref()
+        .and_then(|p| payload_str(p, "/manifest"))
+        .unwrap_or_default();
+    if current_manifest.is_empty() {
+        return Err(fail(format!(
+            "the current revision of {release} could not be decoded (corrupted release-storage payload)"
+        )));
+    }
+
+    Ok(HelmMutationPreviewReady {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action: HelmMutationAction::Rollback,
+        base_revision: current.revision,
+        current_manifest,
+        target_manifest,
+        target_revision: Some(target.revision),
+        target_chart_version: None,
+        gitops_warning,
+    })
+}
+
+/// Stale-preview guard (T012): the release's live revision must still match the
+/// `base_revision` the preview was computed against, or the apply fails clearly rather than
+/// mutating against a moved target (FR-012).
+fn check_base_revision(
+    action: HelmMutationAction,
+    namespace: &str,
+    release: &str,
+    live_revision: i64,
+    base_revision: i64,
+) -> Result<(), HelmMutationFailed> {
+    if live_revision != base_revision {
+        return Err(HelmMutationFailed {
+            namespace: namespace.to_owned(),
+            release: release.to_owned(),
+            action,
+            stage: HelmMutationStage::Apply,
+            message: format!(
+                "{release} has moved to revision {live_revision} since the preview was computed \
+                 (expected revision {base_revision}); refresh and try again"
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Clones `source`'s decoded release payload for a new revision (rollback semantics: chart,
+/// values/config, and manifest carry over verbatim from the target revision; only `version`
+/// and `info` are updated) — pure, unit-testable without a cluster.
+fn payload_for_new_revision(source: &Value, new_revision: i64, description: String) -> Value {
+    let mut payload = source.clone();
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("version".to_owned(), serde_json::json!(new_revision));
+        let now = k8s_openapi::chrono::Utc::now().to_rfc3339();
+        let info = obj
+            .entry("info")
+            .or_insert_with(|| Value::Object(Default::default()));
+        if let Some(info_obj) = info.as_object_mut() {
+            info_obj.insert("status".to_owned(), serde_json::json!("deployed"));
+            info_obj.insert("last_deployed".to_owned(), serde_json::json!(now));
+            info_obj.insert("description".to_owned(), serde_json::json!(description));
+        }
+    }
+    payload
+}
+
+fn encode_release_payload(payload: &Value) -> anyhow::Result<String> {
+    let json_bytes = serde_json::to_vec(payload)?;
+    let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut encoder, &json_bytes)?;
+    let gz_bytes = encoder.finish()?;
+    Ok(BASE64.encode(gz_bytes))
+}
+
+/// Computes the rollback diff-preview for `release`/`target_revision` without mutating
+/// anything (FR-002). Reuses `resolve_release_origin` unmodified for `gitops_warning`
+/// (research.md R5).
+pub(super) async fn preview_helm_rollback(
+    state: &BackendState,
+    namespace: &str,
+    release: &str,
+    target_revision: i64,
+) -> Result<HelmMutationPreviewReady, HelmMutationFailed> {
+    let action = HelmMutationAction::Rollback;
+    let stage = HelmMutationStage::Preview;
+
+    let client = state
+        .cluster
+        .client_or_err()
+        .map_err(|e| infra_failure(action, stage, namespace, release, e))?;
+    let objects = list_storage_objects(&client, Some(namespace))
+        .await
+        .map_err(|e| infra_failure(action, stage, namespace, release, e))?;
+
+    let (current, target) = find_current_and_target(&objects, release, target_revision);
+    let current = current.ok_or_else(|| HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        stage,
+        message: format!("release {release} not found in {namespace}"),
+    })?;
+    let target = target.ok_or_else(|| HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        stage,
+        message: format!("revision {target_revision} of {release} not found"),
+    })?;
+
+    let workloads = super::applications::list_owned_workloads(state)
+        .await
+        .map_err(|e| infra_failure(action, stage, namespace, release, e))?;
+    let owned = owned_workloads_for_release(&workloads, namespace, release);
+    let gitops_warning = resolve_release_origin(&client, &owned, namespace).await;
+
+    build_rollback_preview(namespace, release, current, target, gitops_warning)
+}
+
+/// Applies a previously previewed rollback (FR-001/FR-002): re-checks `base_revision`
+/// against the release's live revision (stale-preview guard, T012), then writes a new
+/// release-storage revision entry cloned from the target revision's payload — standard Helm
+/// rollback semantics (creates a new revision, does not delete intervening ones).
+pub(super) async fn apply_helm_rollback(
+    state: &BackendState,
+    namespace: &str,
+    release: &str,
+    target_revision: i64,
+    base_revision: i64,
+) -> Result<HelmMutationApplied, HelmMutationFailed> {
+    let action = HelmMutationAction::Rollback;
+    let apply_stage = HelmMutationStage::Apply;
+
+    let client = state
+        .cluster
+        .client_or_err()
+        .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
+    let objects = list_storage_objects(&client, Some(namespace))
+        .await
+        .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
+
+    let (current, target) = find_current_and_target(&objects, release, target_revision);
+    let current = current.ok_or_else(|| HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        stage: apply_stage,
+        message: format!("release {release} not found in {namespace}"),
+    })?;
+    let target = target.ok_or_else(|| HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        stage: apply_stage,
+        message: format!("revision {target_revision} of {release} not found"),
+    })?;
+
+    check_base_revision(action, namespace, release, current.revision, base_revision)?;
+
+    let Some(target_payload) = &target.payload else {
+        return Err(HelmMutationFailed {
+            namespace: namespace.to_owned(),
+            release: release.to_owned(),
+            action,
+            stage: apply_stage,
+            message: format!(
+                "revision {target_revision} of {release} could not be decoded (corrupted \
+                 release-storage payload)"
+            ),
+        });
+    };
+
+    let new_revision = current.revision + 1;
+    let description = format!("Rollback to {target_revision}");
+    let new_payload = payload_for_new_revision(target_payload, new_revision, description);
+    let encoded = encode_release_payload(&new_payload)
+        .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
+
+    write_new_revision(
+        &client,
+        namespace,
+        release,
+        current.kind,
+        &current.object_name,
+        new_revision,
+        &encoded,
+    )
+    .await
+    .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
+
+    Ok(HelmMutationApplied {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        new_revision: Some(new_revision),
+    })
+}
+
+/// Writes a new release-storage object for `new_revision` (matching the release's existing
+/// `Secret`/`ConfigMap` storage kind) and marks the previous current object as `superseded`.
+async fn write_new_revision(
+    client: &Client,
+    namespace: &str,
+    release: &str,
+    kind: StorageKind,
+    current_object_name: &str,
+    new_revision: i64,
+    encoded_payload: &str,
+) -> anyhow::Result<()> {
+    let object_name = helm_storage_object_name(release, new_revision);
+    let mut labels = std::collections::BTreeMap::new();
+    labels.insert(HELM_OWNER_LABEL.to_owned(), HELM_OWNER_VALUE.to_owned());
+    labels.insert(HELM_NAME_LABEL.to_owned(), release.to_owned());
+    labels.insert(HELM_STATUS_LABEL.to_owned(), "deployed".to_owned());
+    labels.insert(HELM_VERSION_LABEL.to_owned(), new_revision.to_string());
+
+    let supersede_patch = serde_json::json!({
+        "metadata": { "labels": { HELM_STATUS_LABEL: "superseded" } }
+    });
+
+    match kind {
+        StorageKind::Secret => {
+            let api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+            let mut data = std::collections::BTreeMap::new();
+            data.insert(
+                HELM_RELEASE_DATA_KEY.to_owned(),
+                ByteString(encoded_payload.as_bytes().to_vec()),
+            );
+            let secret = Secret {
+                metadata: ObjectMeta {
+                    name: Some(object_name),
+                    namespace: Some(namespace.to_owned()),
+                    labels: Some(labels),
+                    ..Default::default()
+                },
+                type_: Some("helm.sh/release.v1".to_owned()),
+                data: Some(data),
+                ..Default::default()
+            };
+            api.create(&PostParams::default(), &secret).await?;
+            api.patch(
+                current_object_name,
+                &PatchParams::default(),
+                &Patch::Merge(&supersede_patch),
+            )
+            .await?;
+        }
+        StorageKind::ConfigMap => {
+            let api: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
+            let mut data = std::collections::BTreeMap::new();
+            data.insert(HELM_RELEASE_DATA_KEY.to_owned(), encoded_payload.to_owned());
+            let cm = ConfigMap {
+                metadata: ObjectMeta {
+                    name: Some(object_name),
+                    namespace: Some(namespace.to_owned()),
+                    labels: Some(labels),
+                    ..Default::default()
+                },
+                data: Some(data),
+                ..Default::default()
+            };
+            api.create(&PostParams::default(), &cm).await?;
+            api.patch(
+                current_object_name,
+                &PatchParams::default(),
+                &Patch::Merge(&supersede_patch),
+            )
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -607,6 +978,8 @@ mod tests {
                 revision: 1,
                 status_label: "superseded".to_owned(),
                 payload: None,
+                object_name: "sh.helm.release.v1.redis.v1".to_owned(),
+                kind: StorageKind::Secret,
             },
             StorageObject {
                 namespace: "default".to_owned(),
@@ -614,6 +987,8 @@ mod tests {
                 revision: 3,
                 status_label: "deployed".to_owned(),
                 payload: None,
+                object_name: "sh.helm.release.v1.redis.v3".to_owned(),
+                kind: StorageKind::Secret,
             },
             StorageObject {
                 namespace: "default".to_owned(),
@@ -621,6 +996,8 @@ mod tests {
                 revision: 2,
                 status_label: "superseded".to_owned(),
                 payload: None,
+                object_name: "sh.helm.release.v1.redis.v2".to_owned(),
+                kind: StorageKind::Secret,
             },
         ];
         let current = current_per_release(&objects);
@@ -636,6 +1013,8 @@ mod tests {
             revision: 1,
             status_label: "deployed".to_owned(),
             payload: None,
+            object_name: "sh.helm.release.v1.redis.v1".to_owned(),
+            kind: StorageKind::Secret,
         };
         let summary = summary_from_storage_object(&obj);
         assert!(summary.degraded);
@@ -715,5 +1094,172 @@ mod tests {
         assert_eq!(r.namespace.as_deref(), Some("flux-system"));
         assert_eq!(r.name, "redis");
         assert_eq!(r.status_hint.as_deref(), Some("Ready"));
+    }
+
+    // --- US1: Rollback (T010-T012) ---------------------------------------------------
+
+    fn storage_object_fixture(revision: i64, manifest: &str) -> StorageObject {
+        let payload = serde_json::json!({
+            "name": "redis",
+            "info": {"status": "deployed", "last_deployed": "2024-01-01T00:00:00Z", "description": "Install complete"},
+            "chart": {"metadata": {"name": "redis", "version": "1.2.3", "appVersion": "7.0"}, "values": {}},
+            "config": {},
+            "manifest": manifest,
+            "version": revision,
+        });
+        StorageObject {
+            namespace: "default".to_owned(),
+            release_name: "redis".to_owned(),
+            revision,
+            status_label: "deployed".to_owned(),
+            payload: Some(payload),
+            object_name: helm_storage_object_name("redis", revision),
+            kind: StorageKind::Secret,
+        }
+    }
+
+    fn corrupted_storage_object_fixture(revision: i64) -> StorageObject {
+        StorageObject {
+            namespace: "default".to_owned(),
+            release_name: "redis".to_owned(),
+            revision,
+            status_label: "superseded".to_owned(),
+            payload: None,
+            object_name: helm_storage_object_name("redis", revision),
+            kind: StorageKind::Secret,
+        }
+    }
+
+    /// T010: rollback diff-preview computation against fixture storage-object data — asserts
+    /// `current_manifest`/`target_manifest` populate correctly, with no cluster call (this is
+    /// a pure function, so "no cluster call" is structural, not merely asserted).
+    #[test]
+    fn build_rollback_preview_populates_manifests_from_fixtures() {
+        let current = storage_object_fixture(3, "apiVersion: v1\nkind: Service\nrevision: 3");
+        let target = storage_object_fixture(1, "apiVersion: v1\nkind: Service\nrevision: 1");
+
+        let preview = build_rollback_preview("default", "redis", &current, &target, None)
+            .expect("preview should succeed");
+
+        assert_eq!(preview.namespace, "default");
+        assert_eq!(preview.release, "redis");
+        assert_eq!(preview.action, HelmMutationAction::Rollback);
+        assert_eq!(preview.base_revision, 3);
+        assert_eq!(preview.target_revision, Some(1));
+        assert!(preview.current_manifest.contains("revision: 3"));
+        assert!(preview.target_manifest.contains("revision: 1"));
+        assert!(preview.gitops_warning.is_none());
+    }
+
+    /// T010 (GitOps-warning path): `gitops_warning` is carried through verbatim when present.
+    #[test]
+    fn build_rollback_preview_carries_gitops_warning_through_verbatim() {
+        let current = storage_object_fixture(2, "kind: Service");
+        let target = storage_object_fixture(1, "kind: Service");
+        let warning = GitOpsOriginRef {
+            controller: GitOpsController::Flux,
+            section: section_keys::flux_resource(),
+            kind: "HelmRelease".to_owned(),
+            namespace: "flux-system".to_owned(),
+            name: "redis".to_owned(),
+            ready: crate::protocol::FluxReadyState::Ready,
+            message: None,
+        };
+
+        let preview =
+            build_rollback_preview("default", "redis", &current, &target, Some(warning.clone()))
+                .expect("preview should succeed");
+
+        assert_eq!(preview.gitops_warning.map(|w| w.name), Some(warning.name));
+    }
+
+    /// T011: rollback against a target revision whose stored manifest fails to decode
+    /// (corrupted payload edge case) — asserts `HelmMutationFailed { stage: Preview, .. }`
+    /// with a clear message, no panic.
+    #[test]
+    fn build_rollback_preview_fails_at_preview_stage_for_corrupted_target() {
+        let current = storage_object_fixture(3, "kind: Service");
+        let target = corrupted_storage_object_fixture(1);
+
+        let err = build_rollback_preview("default", "redis", &current, &target, None)
+            .expect_err("corrupted target manifest must fail the preview");
+
+        assert_eq!(err.action, HelmMutationAction::Rollback);
+        assert_eq!(err.stage, HelmMutationStage::Preview);
+        assert!(err.message.contains("revision 1"));
+        assert!(!err.message.is_empty());
+    }
+
+    /// T012: `ApplyHelmRollback` with a `base_revision` that no longer matches the release's
+    /// live revision (stale-preview edge case) — asserts `HelmMutationFailed { stage: Apply,
+    /// .. }`. This is checked before any write is attempted (the check function itself never
+    /// touches a client), so "no write attempted" is structural.
+    #[test]
+    fn check_base_revision_fails_at_apply_stage_when_stale() {
+        let err = check_base_revision(HelmMutationAction::Rollback, "default", "redis", 4, 3)
+            .expect_err("stale base_revision must fail");
+
+        assert_eq!(err.action, HelmMutationAction::Rollback);
+        assert_eq!(err.stage, HelmMutationStage::Apply);
+        assert!(err.message.contains("revision 4"));
+        assert!(err.message.contains("revision 3"));
+    }
+
+    #[test]
+    fn check_base_revision_succeeds_when_matching() {
+        assert!(
+            check_base_revision(HelmMutationAction::Rollback, "default", "redis", 3, 3).is_ok()
+        );
+    }
+
+    #[test]
+    fn find_current_and_target_picks_highest_revision_and_requested_target() {
+        let objects = vec![
+            storage_object_fixture(1, "kind: Service"),
+            storage_object_fixture(3, "kind: Service"),
+            storage_object_fixture(2, "kind: Service"),
+        ];
+        let (current, target) = find_current_and_target(&objects, "redis", 1);
+        assert_eq!(current.map(|o| o.revision), Some(3));
+        assert_eq!(target.map(|o| o.revision), Some(1));
+    }
+
+    #[test]
+    fn find_current_and_target_none_for_missing_release_or_revision() {
+        let objects = vec![storage_object_fixture(1, "kind: Service")];
+        let (current, target) = find_current_and_target(&objects, "other-release", 1);
+        assert!(current.is_none());
+        assert!(target.is_none());
+
+        let (current, target) = find_current_and_target(&objects, "redis", 99);
+        assert!(current.is_some());
+        assert!(target.is_none());
+    }
+
+    #[test]
+    fn payload_for_new_revision_updates_version_and_status_keeps_manifest() {
+        let source = serde_json::json!({
+            "name": "redis",
+            "info": {"status": "superseded", "last_deployed": "2024-01-01T00:00:00Z", "description": "old"},
+            "chart": {"metadata": {"name": "redis", "version": "1.2.3"}, "values": {}},
+            "config": {},
+            "manifest": "kind: Service",
+            "version": 1,
+        });
+        let new_payload = payload_for_new_revision(&source, 4, "Rollback to 1".to_owned());
+        assert_eq!(new_payload["version"], 4);
+        assert_eq!(new_payload["info"]["status"], "deployed");
+        assert_eq!(new_payload["info"]["description"], "Rollback to 1");
+        assert_eq!(new_payload["manifest"], "kind: Service");
+        assert_eq!(new_payload["chart"]["metadata"]["version"], "1.2.3");
+    }
+
+    #[test]
+    fn encode_release_payload_roundtrips_through_decode_release_payload() {
+        let payload = serde_json::json!({"name": "redis", "version": 4});
+        let encoded = encode_release_payload(&payload).expect("encode");
+        let decoded = decode_release_payload(&encoded).expect("decode");
+        assert_eq!(decoded["name"], "redis");
+        assert_eq!(decoded["version"], 4);
     }
 }

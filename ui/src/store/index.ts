@@ -43,11 +43,19 @@ import {
   reviewDiff as reviewSessionDiff,
   type ResourceEditSession,
 } from './editSession'
+import {
+  initialHelmMutationSession,
+  startApply as startHelmApply,
+  startPreview as startHelmPreview,
+  reset as resetHelmMutationSession,
+  type HelmMutationSession,
+} from './helmMutation'
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
 import type { RingBuffer } from './ring-buffer'
 import { waitForCommandResult } from './actions'
 
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
+export type { HelmMutationSession, HelmMutationStatus } from './helmMutation'
 
 export { detailKey, listKey, listKeyOf, type DetailKey, type ListKey } from './keys'
 
@@ -293,6 +301,13 @@ export interface StoreData {
   integrations: IntegrationsState
   /** Node actions (US2), by node name. */
   nodeActions: Record<string, NodeAction>
+  /**
+   * 006-helm-mutate: the in-flight/last rollback-upgrade-uninstall preview→apply flow. Global
+   * (not keyed), same as `flux`/`hubble` — only one Helm mutate flow can be open at a time
+   * (research.md R2/R9). `system.ts` advances it as `HelmMutationPreviewReady/Applied/Failed`
+   * events arrive.
+   */
+  helmMutation: HelmMutationSession
   layout: LayoutState
   panes: Record<PaneId, PaneState>
   /**
@@ -400,6 +415,23 @@ export interface StoreState extends StoreData {
   setExpandedGroups: (groups: string[]) => void
   /** Set (or clear, with `undefined`) the in-flight/last node action for `nodeName` (US2). */
   setNodeAction: (nodeName: string, action: NodeAction | undefined) => void
+  /**
+   * Sends `PreviewHelmRollback` and marks the flow `previewing`; the reply arrives as
+   * `HelmMutationPreviewReady`/`HelmMutationFailed` (`system.ts`), not through this call.
+   */
+  previewHelmRollback: (namespace: string, release: string, targetRevision: number) => void
+  /**
+   * Sends `ApplyHelmRollback` and marks the flow `applying`; the reply arrives as
+   * `HelmMutationApplied`/`HelmMutationFailed` (`system.ts`), not through this call.
+   */
+  applyHelmRollback: (
+    namespace: string,
+    release: string,
+    targetRevision: number,
+    baseRevision: number,
+  ) => void
+  /** Back to `idle` (Cancel, or navigating away from the release). */
+  resetHelmMutation: () => void
 }
 
 /** Debounce for persisting navigator state (typing-speed toggles coalesce into one write). */
@@ -532,6 +564,7 @@ export function initialData(): StoreData {
     selection: {},
     pending: {},
     actionPrompt: undefined,
+    helmMutation: initialHelmMutationSession,
     ui: DEFAULT_UI,
     prefs: { loaded: false, expandedGroups: [], mcpAutoStart: false },
   }
@@ -712,6 +745,29 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
+
+  previewHelmRollback: (namespace, release, targetRevision) => {
+    set({ helmMutation: startHelmPreview() })
+    get().send({
+      type: 'PreviewHelmRollback',
+      data: { namespace, release, target_revision: targetRevision },
+    })
+  },
+
+  applyHelmRollback: (namespace, release, targetRevision, baseRevision) => {
+    set((s) => ({ helmMutation: startHelmApply(s.helmMutation) }))
+    get().send({
+      type: 'ApplyHelmRollback',
+      data: {
+        namespace,
+        release,
+        target_revision: targetRevision,
+        base_revision: baseRevision,
+      },
+    })
+  },
+
+  resetHelmMutation: () => set({ helmMutation: resetHelmMutationSession() }),
 
   selectCrdKind: (entry) => {
     const version = entry.versions[0] ?? ''

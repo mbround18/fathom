@@ -3,13 +3,26 @@
  * directly (no `helm` binary shellout — backend `src/backend/helm.rs`). `read()` also fires
  * `RefreshRelatedResources` so the "owns"/"reconciled-by" relations (US2's origin-link
  * click-through) populate the Related section, mirroring `applications.tsx`.
+ *
+ * 006-helm-mutate US1: the "Roll back" action on each revision row (`RollbackAction` below)
+ * drives `helmMutation` preview -> confirm -> apply through the store, reusing `YamlDiffView`
+ * (generalized T017) for the diff and `ConfirmDialog` (unmodified) as the confirm gate. Routed
+ * the same way as `YamlEditTab`'s apply flow rather than through the generic bulk
+ * `ActionDescriptor`, which is built for row-oriented bulk delete/scale/restart, not a per-row
+ * preview-diff-then-confirm flow.
  */
+import { useState } from 'react'
+
+import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import { StatusBadge } from '@/components/StatusBadge'
+import { Button } from '@/components/ui/button'
 import type {
   GitOpsOriginRef,
   HelmReleaseDetails,
   HelmReleaseStatus,
   HelmReleaseSummary,
+  HelmRevisionSummary,
 } from '@/protocol/types'
 import { useStore } from '@/store'
 
@@ -52,6 +65,135 @@ function OriginLink({ origin }: { origin: GitOpsOriginRef }) {
     >
       {origin.namespace}/{origin.name}
     </button>
+  )
+}
+
+/**
+ * "Roll back" on one revision row (006-helm-mutate T018/T019): previews the diff
+ * (`PreviewHelmRollback`), shows it inline via `YamlDiffView` with a GitOps-ownership warning
+ * when `preview.gitops_warning` is set (FR-009/FR-010), then gates the apply
+ * (`ApplyHelmRollback`) behind `ConfirmDialog`. Disabled on the currently-deployed revision
+ * (nothing to roll back to). Renders its inline preview only under the row it was opened for;
+ * `helmMutation` is a single global flow (store/helmMutation.ts), so opening a different row's
+ * preview implicitly replaces it.
+ */
+function RollbackAction({
+  namespace,
+  release,
+  revision,
+  currentRevision,
+}: {
+  namespace: string
+  release: string
+  revision: HelmRevisionSummary
+  currentRevision: number
+}) {
+  const session = useStore((s) => s.helmMutation)
+  const previewHelmRollback = useStore((s) => s.previewHelmRollback)
+  const applyHelmRollback = useStore((s) => s.applyHelmRollback)
+  const resetHelmMutation = useStore((s) => s.resetHelmMutation)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const preview = session.preview
+  const isThisRevision =
+    session.status !== 'idle' &&
+    preview?.release === release &&
+    preview.namespace === namespace &&
+    preview.target_revision === revision.revision
+
+  if (!isThisRevision) {
+    const busy = session.status === 'previewing' || session.status === 'applying'
+    return (
+      <Button
+        data-testid={`helm-rollback-${revision.revision}`}
+        size="sm"
+        variant="outline"
+        disabled={busy || revision.revision === currentRevision}
+        onClick={() => previewHelmRollback(namespace, release, revision.revision)}
+      >
+        Roll back
+      </Button>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border border-border p-2">
+      {session.status === 'previewing' && (
+        <p className="text-xs text-muted-foreground">Computing diff…</p>
+      )}
+      {session.status === 'preview_failed' && (
+        <p data-testid="helm-rollback-preview-error" className="text-xs text-destructive">
+          {session.lastError}
+        </p>
+      )}
+      {(session.status === 'preview_ready' || session.status === 'applying') && (
+        <>
+          {preview.gitops_warning && (
+            <p
+              data-testid="helm-rollback-gitops-warning"
+              className="flex items-center gap-2 border border-status-warn/50 bg-status-warn/10 px-2 py-1.5 text-xs text-status-warn"
+            >
+              Managed by {preview.gitops_warning.controller} ({preview.gitops_warning.namespace}/
+              {preview.gitops_warning.name}). A rollback may be reverted by the next
+              reconciliation.
+            </p>
+          )}
+          <YamlDiffView
+            currentManifest={preview.current_manifest}
+            targetManifest={preview.target_manifest}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={session.status === 'applying'}
+              onClick={() => resetHelmMutation()}
+            >
+              Cancel
+            </Button>
+            <Button
+              data-testid="helm-rollback-confirm-open"
+              size="sm"
+              disabled={session.status === 'applying'}
+              onClick={() => setConfirmOpen(true)}
+            >
+              Roll back to #{revision.revision}
+            </Button>
+          </div>
+        </>
+      )}
+      {session.status === 'applied' && <p className="text-xs text-status-ok">Rolled back.</p>}
+      {session.status === 'apply_failed' && (
+        <>
+          <p data-testid="helm-rollback-apply-error" className="text-xs text-destructive">
+            {session.lastError}
+          </p>
+          <div className="flex justify-end">
+            <Button size="sm" variant="ghost" onClick={() => resetHelmMutation()}>
+              Dismiss
+            </Button>
+          </div>
+        </>
+      )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={`Roll back ${release} to revision ${revision.revision}`}
+        items={[{ namespace, name: release }]}
+        detail={
+          preview.gitops_warning
+            ? `Managed by ${preview.gitops_warning.controller} — a rollback may be reverted by the next reconciliation. This creates a new revision; it cannot be undone.`
+            : 'This creates a new revision pointing at the target manifest. It cannot be undone.'
+        }
+        destructive
+        confirmLabel="Roll back"
+        onConfirm={() => {
+          setConfirmOpen(false)
+          applyHelmRollback(namespace, release, revision.revision, preview.base_revision)
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </div>
   )
 }
 
@@ -120,11 +262,19 @@ const helmReleaseSections: DetailSection<HelmReleaseSummary, HelmReleaseDetails>
       return {
         type: 'list',
         items: detail.revisions.map((r) => (
-          <div key={r.revision} className="flex items-center gap-2">
-            <span className="font-mono text-[0.85em]">#{r.revision}</span>
-            <StatusBadge status={helmReleaseStatusLabel(r.status)} />
-            <span className="text-muted-foreground text-[0.85em]">{r.chart_version}</span>
-            <span className="text-muted-foreground text-[0.85em]">{r.updated}</span>
+          <div key={r.revision} className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[0.85em]">#{r.revision}</span>
+              <StatusBadge status={helmReleaseStatusLabel(r.status)} />
+              <span className="text-muted-foreground text-[0.85em]">{r.chart_version}</span>
+              <span className="text-muted-foreground text-[0.85em]">{r.updated}</span>
+              <RollbackAction
+                namespace={detail.namespace}
+                release={detail.name}
+                revision={r}
+                currentRevision={detail.revision}
+              />
+            </div>
           </div>
         )),
       }

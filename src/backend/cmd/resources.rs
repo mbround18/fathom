@@ -95,6 +95,31 @@ async fn handle_applications_cmd(
         BackendCmd::SelectHelmRelease { namespace, name } => {
             helm::get_release_details(state, sender, &namespace, &name).await?;
         }
+        BackendCmd::PreviewHelmRollback {
+            namespace,
+            release,
+            target_revision,
+        } => {
+            let result =
+                helm::preview_helm_rollback(state, &namespace, &release, target_revision).await;
+            emit_helm_mutation_preview(state, sender, &namespace, result);
+        }
+        BackendCmd::ApplyHelmRollback {
+            namespace,
+            release,
+            target_revision,
+            base_revision,
+        } => {
+            let result = helm::apply_helm_rollback(
+                state,
+                &namespace,
+                &release,
+                target_revision,
+                base_revision,
+            )
+            .await;
+            emit_helm_mutation_applied(state, sender, &namespace, result);
+        }
         BackendCmd::SelectFluxResource {
             kind,
             namespace,
@@ -150,6 +175,55 @@ async fn handle_select_flux_resource(
         crate::protocol::BackendEvent::ResourceRead(event),
     );
     Ok(())
+}
+
+/// Emits a `HelmMutationPreviewReady` on success or `HelmMutationFailed` on failure (006 US1),
+/// routed to the Helm Releases section the same way `SelectHelmRelease` is.
+fn emit_helm_mutation_preview(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: &str,
+    result: Result<crate::protocol::HelmMutationPreviewReady, crate::protocol::HelmMutationFailed>,
+) {
+    let event = match result {
+        Ok(preview) => crate::protocol::SystemEvent::HelmMutationPreviewReady(preview),
+        Err(failed) => crate::protocol::SystemEvent::HelmMutationFailed(failed),
+    };
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        crate::protocol::Route::namespaced(
+            crate::protocol::section_keys::helm_releases(),
+            state.cluster.current_context.clone(),
+            Some(namespace.to_owned()),
+        ),
+        crate::protocol::Correlation::None,
+        crate::protocol::BackendEvent::System(event),
+    );
+}
+
+/// Emits a `HelmMutationApplied` on success or `HelmMutationFailed` on failure (006 US1).
+fn emit_helm_mutation_applied(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: &str,
+    result: Result<crate::protocol::HelmMutationApplied, crate::protocol::HelmMutationFailed>,
+) {
+    let event = match result {
+        Ok(applied) => crate::protocol::SystemEvent::HelmMutationApplied(applied),
+        Err(failed) => crate::protocol::SystemEvent::HelmMutationFailed(failed),
+    };
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        crate::protocol::Route::namespaced(
+            crate::protocol::section_keys::helm_releases(),
+            state.cluster.current_context.clone(),
+            Some(namespace.to_owned()),
+        ),
+        crate::protocol::Correlation::None,
+        crate::protocol::BackendEvent::System(event),
+    );
 }
 
 fn find_flux_candidate<'a>(
