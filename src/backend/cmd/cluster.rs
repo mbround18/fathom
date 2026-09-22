@@ -28,8 +28,34 @@ pub(super) async fn handle(
         }
         BackendCmd::SetContext { context } => set_context(state, sender, context).await?,
         BackendCmd::RefreshNamespaces => sync::refresh_namespaces(state, sender).await?,
-        BackendCmd::RefreshNodes => refresh_nodes(state, sender).await,
-        BackendCmd::SelectNode { name } => select_node(state, sender, &name).await?,
+        BackendCmd::RefreshNodes => nodes::refresh_nodes(state, sender).await,
+        BackendCmd::SelectNode { name } => nodes::select_node(state, sender, &name).await?,
+        BackendCmd::CordonNode { name } => nodes::cordon_node(state, sender, &name).await?,
+        BackendCmd::UncordonNode { name } => nodes::uncordon_node(state, sender, &name).await?,
+        BackendCmd::DrainNode {
+            name,
+            ignore_daemonsets,
+            force_delete_empty_dir,
+        } => {
+            nodes::drain_node(
+                state,
+                sender,
+                name,
+                ignore_daemonsets,
+                force_delete_empty_dir,
+            )
+            .await?;
+        }
+        BackendCmd::CancelDrainNode { name, request_id } => {
+            nodes::cancel_drain_node(state, sender, &name, &request_id);
+        }
+        BackendCmd::TaintNode {
+            name,
+            op,
+            key,
+            value,
+            effect,
+        } => nodes::taint_node(state, sender, &name, op, key, value, effect).await?,
         BackendCmd::RefreshEvents => refresh_events(state, sender).await,
         BackendCmd::SetNamespaceFilter { namespaces } => {
             set_namespace_filter(state, sender, namespaces).await?;
@@ -119,7 +145,9 @@ async fn set_context(
 ) -> anyhow::Result<()> {
     // Stop background activity and reconnect with the new context.
     state.log_stream.stop();
+    state.exec_session.stop();
     state.watch_tasks.abort_all();
+    state.node_actions.abort_all();
 
     state.cluster.current_context = Some(context.clone());
     state.metrics.reset_probe();
@@ -242,99 +270,6 @@ async fn set_namespace_filter(
     Ok(())
 }
 
-/// Best-effort: fetch node list and emit event.
-async fn refresh_nodes(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
-    tracing::debug!("RefreshNodes command received");
-    let Some(client) = &state.cluster.client else {
-        return;
-    };
-    // Capture the context at request start so a late result keeps its origin (FR-016).
-    let context = state.cluster.current_context.clone();
-    match fetch_node_summaries(client).await {
-        Ok(summaries) => {
-            tracing::debug!("Emitting NodesUpdated event with {} nodes", summaries.len());
-            events::emit(
-                state.cluster.seq.as_ref(),
-                sender,
-                nodes_route(context),
-                Correlation::None,
-                BackendEvent::ResourceList(ResourceListEvent::NodesUpdated(summaries)),
-            );
-        }
-        Err(e) => {
-            tracing::warn!("Failed to list nodes: {}", e);
-            events::notify_error(
-                state.cluster.seq.as_ref(),
-                sender,
-                format!("Failed to list nodes: {}", e),
-            );
-        }
-    }
-}
-
-/// List nodes and pods concurrently and build per-node summaries (with pod counts).
-async fn fetch_node_summaries(
-    client: &::kube::Client,
-) -> Result<Vec<crate::protocol::v1::NodeSummary>, ::kube::Error> {
-    use k8s_openapi::api::core::v1::{Node, Pod};
-    let node_api = ::kube::Api::<Node>::all(client.clone());
-    let pod_api = ::kube::Api::<Pod>::all(client.clone());
-    // Fetch nodes and pods concurrently for pod_count per node
-    let lp = ::kube::api::ListParams::default();
-    let (nodes_result, pods_result) = tokio::join!(node_api.list(&lp), pod_api.list(&lp),);
-    let nodes = nodes_result?;
-
-    // Build a map of node_name -> pod count from running pods
-    let pod_counts = pods_result
-        .map(|pods| nodes::pod_counts_by_node(pods.items))
-        .unwrap_or_default();
-
-    tracing::debug!("Fetched {} nodes from API", nodes.items.len());
-    Ok(nodes
-        .items
-        .into_iter()
-        .map(|node| nodes::node_summary(node, &pod_counts))
-        .collect())
-}
-
-/// Fetch node details.
-async fn select_node(
-    state: &BackendState,
-    sender: &Sender<BackendEventEnvelope>,
-    name: &str,
-) -> anyhow::Result<()> {
-    tracing::debug!("SelectNode command received for: {}", name);
-    let Some(client) = &state.cluster.client else {
-        return Ok(());
-    };
-    let context = state.cluster.current_context.clone();
-    use k8s_openapi::api::core::v1::Node;
-    let api = ::kube::Api::<Node>::all(client.clone());
-    match api.get(name).await {
-        Ok(node) => {
-            let details = nodes::extract_node_details(&node)?;
-            events::emit(
-                state.cluster.seq.as_ref(),
-                sender,
-                nodes_route(context),
-                Correlation::None,
-                BackendEvent::ResourceRead(crate::protocol::ResourceReadEvent::NodeDetailsUpdated(
-                    details,
-                )),
-            );
-        }
-        Err(e) => {
-            tracing::warn!("Failed to get node details: {}", e);
-            events::notify_error(
-                state.cluster.seq.as_ref(),
-                sender,
-                format!("Failed to get node details: {}", e),
-            );
-        }
-    }
-    Ok(())
-}
-
 /// Best-effort: fetch recent events and emit.
 async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
     let Some(client) = &state.cluster.client else {
@@ -364,11 +299,6 @@ async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelo
             );
         }
     }
-}
-
-/// Route for cluster-wide node data fetched from `context`.
-fn nodes_route(context: Option<String>) -> Route {
-    Route::cluster(section_keys::nodes(), context)
 }
 
 /// Route for the cluster-wide Kubernetes events list fetched from `context`.
@@ -449,13 +379,5 @@ mod tests {
             env.event,
             BackendEvent::ResourceList(ResourceListEvent::EventsUpdated(_))
         ));
-    }
-
-    #[test]
-    fn nodes_route_carries_originating_context() {
-        let route = nodes_route(Some("kind-b".to_owned()));
-        assert_eq!(route.context.as_deref(), Some("kind-b"));
-        assert_eq!(route.scope, ScopeKind::Cluster);
-        assert_eq!(route.section, section_keys::nodes());
     }
 }

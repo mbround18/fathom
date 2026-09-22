@@ -45,6 +45,18 @@ pub(super) fn take_cmd_errors() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The current command's request id, stringified, for stream events (e.g.
+/// `StreamEvent::ResourceApplied`) whose payload carries `request_id` as data rather than
+/// only as the envelope's correlation. Empty outside a command scope or for an
+/// uncorrelated command.
+pub(super) fn current_request_id_string() -> String {
+    CMD_SCOPE
+        .try_with(|scope| scope.request.map(|id| id.0.to_string()))
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }

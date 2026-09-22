@@ -1,9 +1,11 @@
 use crossbeam_channel::Sender;
 
+use super::apply;
 use super::state::BackendState;
 use super::{events, persistence};
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, StreamEvent, SystemEvent,
+    section_keys,
 };
 
 mod cluster;
@@ -32,6 +34,27 @@ pub async fn dispatch_cmd(
         | BackendCmd::SaveUiConfig { .. }
         | BackendCmd::SetMcpAutoStart { .. }) => {
             handle_ui_config_cmd(cmd, state, sender);
+            return Ok(false);
+        }
+        BackendCmd::ApplyResourceYaml {
+            api_version,
+            kind,
+            namespace,
+            name,
+            yaml,
+            expected_resource_version,
+        } => {
+            handle_apply_resource_yaml(
+                state,
+                sender,
+                api_version,
+                kind,
+                namespace,
+                name,
+                yaml,
+                expected_resource_version,
+            )
+            .await;
             return Ok(false);
         }
         other => other,
@@ -105,5 +128,76 @@ fn handle_ui_config_cmd(
             }
         }
         other => unreachable!("not a UI config command: {other:?}"),
+    }
+}
+
+/// `ApplyResourceYaml` (US1, FR-001..FR-007): parse and identity-validate the edited YAML
+/// against the command's own fields, then apply with optimistic concurrency. Never
+/// contacts the cluster when identity validation fails. Emits `StreamEvent::ResourceApplied`
+/// on success; on failure, emits a `Notification::Error` whose text is classifiable by the
+/// frontend into conflict (409, stale `expected_resource_version`), not-found (404, deleted
+/// mid-edit) or any other rejection (validation, permission denied, ...), per
+/// `ApplyError`'s `Display` impl.
+#[allow(clippy::too_many_arguments)]
+async fn handle_apply_resource_yaml(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    api_version: String,
+    kind: String,
+    namespace: Option<String>,
+    name: String,
+    yaml: String,
+    expected_resource_version: String,
+) {
+    let seq = state.cluster.seq.as_ref();
+
+    let object = match apply::parse_and_validate_yaml(
+        &yaml,
+        &api_version,
+        &kind,
+        namespace.as_deref(),
+        &name,
+    ) {
+        Ok(object) => object,
+        Err(msg) => {
+            events::notify_error(seq, sender, msg);
+            return;
+        }
+    };
+
+    let client = match state.cluster.client_or_err() {
+        Ok(client) => client,
+        Err(e) => {
+            events::notify_error(seq, sender, format!("{e:#}"));
+            return;
+        }
+    };
+
+    match apply::apply_resource(
+        &client,
+        &api_version,
+        &kind,
+        namespace.as_deref(),
+        &name,
+        object,
+        &expected_resource_version,
+    )
+    .await
+    {
+        Ok(resource_version) => {
+            events::emit(
+                seq,
+                sender,
+                Route::global(section_keys::system()),
+                Correlation::None,
+                BackendEvent::Stream(StreamEvent::ResourceApplied {
+                    request_id: events::current_request_id_string(),
+                    resource_version,
+                }),
+            );
+        }
+        Err(err) => {
+            events::notify_error(seq, sender, err.to_string());
+        }
     }
 }

@@ -9,12 +9,15 @@ use tokio::runtime::Runtime;
 
 use crate::config::Args;
 
+mod apply;
 mod cmd;
+mod crds;
 mod cronjobs;
 mod daemonsets;
 mod deployments;
 mod endpoints;
 mod events;
+mod exec;
 mod flux;
 mod hubble;
 mod ingressclasses;

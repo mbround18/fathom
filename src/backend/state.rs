@@ -1,6 +1,8 @@
 use crate::backend::metrics_provider::PrometheusClient;
 use crate::backend::portforward::PortForwardManager;
+use crate::protocol::CrdCatalogEntry;
 use kube::Client;
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock, atomic::AtomicU64};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +21,9 @@ pub(super) struct ClusterContext {
     pub(super) namespace_filter: Vec<String>,
     pub(super) namespace_filter_shared: Arc<RwLock<Vec<String>>>,
     pub(super) seq: Arc<AtomicU64>,
+    /// Last catalog discovered by `RefreshCrds` (US3), consulted by `RefreshCrdInstances`/
+    /// `SelectCrdInstance` to resolve a CRD's `plural`/`Scope` without re-listing every CRD.
+    pub(super) crd_catalog: Vec<CrdCatalogEntry>,
 }
 
 impl ClusterContext {
@@ -32,18 +37,39 @@ impl ClusterContext {
 /// Pod log-tailing session state.
 pub(super) struct LogStreamState {
     pub(super) log_task: Option<tokio::task::JoinHandle<()>>,
-    pub(super) next_stream_id: u64,
 }
 
 impl LogStreamState {
     pub(super) fn stop(&mut self) {
         abort_task(&mut self.log_task);
     }
+}
 
-    pub(super) fn next_id(&mut self) -> crate::protocol::StreamId {
-        let id = crate::protocol::StreamId(self.next_stream_id);
-        self.next_stream_id = self.next_stream_id.saturating_add(1);
-        id
+/// Interactive `kube exec` shell session state (one active application-wide, FR-012).
+pub(super) struct ExecSessionState {
+    /// Held for the lifetime of the session so `.abort()` can be called on stop; dropping
+    /// it early would leave the crate's internal message-loop task undriveable.
+    pub(super) attached: Option<kube::api::AttachedProcess>,
+    /// Owns the stdout-read relay loop that emits `StreamEvent::PodExecOutputChunk`.
+    pub(super) relay_task: Option<tokio::task::JoinHandle<()>>,
+    /// Written to directly by the `SendPodExecInput` handler.
+    ///
+    /// `+ Sync` (beyond research.md R2's minimal `Send`) is required so `&BackendState`
+    /// itself stays `Send` across the many `.await` points that hold a `&BackendState`
+    /// borrow elsewhere in the backend (e.g. `sync.rs`'s `tokio::join!`).
+    pub(super) stdin_writer: Option<Box<dyn tokio::io::AsyncWrite + Unpin + Send + Sync>>,
+    /// Sent to directly by the `ResizePodExec` handler.
+    pub(super) resize_tx: Option<futures::channel::mpsc::Sender<kube::api::TerminalSize>>,
+}
+
+impl ExecSessionState {
+    pub(super) fn stop(&mut self) {
+        if let Some(p) = self.attached.take() {
+            p.abort();
+        }
+        abort_task(&mut self.relay_task);
+        self.stdin_writer = None;
+        self.resize_tx = None;
     }
 }
 
@@ -63,6 +89,33 @@ impl WatchTasks {
         abort_task(&mut self.namespace_sync_task);
         abort_task(&mut self.hubble_poll_task);
         abort_task(&mut self.flux_poll_task);
+    }
+}
+
+/// In-flight `DrainNode` background tasks, keyed by the draining command's own request id
+/// (stringified), mirroring `LogStreamState`/`ExecSessionState`'s task-lifecycle pattern so a
+/// `CancelDrainNode` (or context switch / shutdown) can abort the task cleanly, preserving
+/// whatever partial `DrainProgress` was already reported.
+#[derive(Default)]
+pub(super) struct NodeActionState {
+    pub(super) drain_tasks: HashMap<String, tokio::task::JoinHandle<()>>,
+}
+
+impl NodeActionState {
+    /// Abort and drop one in-flight drain by its request id, if still running.
+    pub(super) fn cancel(&mut self, request_id: &str) -> bool {
+        if let Some(handle) = self.drain_tasks.remove(request_id) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(super) fn abort_all(&mut self) {
+        for (_, handle) in self.drain_tasks.drain() {
+            handle.abort();
+        }
     }
 }
 
@@ -102,10 +155,15 @@ pub(super) struct McpState {
 pub(super) struct BackendState {
     pub(super) cluster: ClusterContext,
     pub(super) log_stream: LogStreamState,
+    pub(super) exec_session: ExecSessionState,
     pub(super) watch_tasks: WatchTasks,
+    pub(super) node_actions: NodeActionState,
     pub(super) metrics: MetricsState,
     pub(super) port_forward_manager: PortForwardManager,
     pub(super) mcp: McpState,
+    /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
+    /// across both kinds of session (research.md R2).
+    next_stream_id: u64,
 }
 
 impl BackendState {
@@ -117,11 +175,16 @@ impl BackendState {
                 namespace_filter: Vec::new(),
                 namespace_filter_shared: Arc::new(RwLock::new(Vec::new())),
                 seq: Arc::new(AtomicU64::new(0)),
+                crd_catalog: Vec::new(),
             },
-            log_stream: LogStreamState {
-                log_task: None,
-                next_stream_id: 1,
+            log_stream: LogStreamState { log_task: None },
+            exec_session: ExecSessionState {
+                attached: None,
+                relay_task: None,
+                stdin_writer: None,
+                resize_tx: None,
             },
+            next_stream_id: 1,
             watch_tasks: WatchTasks {
                 pod_watch_task: None,
                 deployment_watch_task: None,
@@ -129,6 +192,7 @@ impl BackendState {
                 hubble_poll_task: None,
                 flux_poll_task: None,
             },
+            node_actions: NodeActionState::default(),
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,
                 unavailable_notified: false,
@@ -147,6 +211,14 @@ impl BackendState {
             },
         }
     }
+
+    /// Assigns the next `StreamId`, shared by log-tailing and exec sessions alike
+    /// (research.md R2) so a single stream_id key space is safe to use in `store.streams`.
+    pub(super) fn next_stream_id(&mut self) -> crate::protocol::StreamId {
+        let id = crate::protocol::StreamId(self.next_stream_id);
+        self.next_stream_id = self.next_stream_id.saturating_add(1);
+        id
+    }
 }
 
 pub(super) fn abort_task(task: &mut Option<tokio::task::JoinHandle<()>>) {
@@ -163,12 +235,19 @@ pub(super) fn cleanup_all_tasks(state: &mut BackendState) {
     tracing::info!("All background tasks aborted and cleaned up");
 }
 
-/// Abort log streaming, watch and metrics-polling tasks.
+/// Abort log streaming, exec, watch and metrics-polling tasks.
+// Cognitive-complexity is inflated by `tracing`'s level-check macro expansion, not real
+// branching; this function is a flat sequence of independent stop calls.
+#[allow(clippy::cognitive_complexity)]
 fn abort_background_tasks(state: &mut BackendState) {
     tracing::debug!("Aborting log task");
     state.log_stream.stop();
+    tracing::debug!("Aborting exec session");
+    state.exec_session.stop();
     tracing::debug!("Aborting watch tasks");
     state.watch_tasks.abort_all();
+    tracing::debug!("Aborting node action tasks");
+    state.node_actions.abort_all();
     tracing::debug!("Aborting metrics poll tasks");
     state.metrics.abort_tasks();
 }

@@ -5,7 +5,7 @@ use crossbeam_channel::Sender;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    clusterrolebindings, clusterroles, configmaps, endpoints, horizontalpodautoscalers,
+    clusterrolebindings, clusterroles, configmaps, crds, endpoints, horizontalpodautoscalers,
     ingressclasses, ingresses, leases, limitranges, mutatingwebhooks, networkpolicies,
     persistentvolumeclaims, persistentvolumes, poddisruptionbudgets, priorityclasses,
     resourcequotas, rolebindings, roles, runtimeclasses, secrets, services, storageclasses,
@@ -34,7 +34,62 @@ pub(super) async fn handle(
     let Some(cmd) = handle_admission_cmd(cmd, state, sender).await? else {
         return Ok(None);
     };
-    handle_access_cmd(cmd, state, sender).await
+    let Some(cmd) = handle_access_cmd(cmd, state, sender).await? else {
+        return Ok(None);
+    };
+    handle_crd_cmd(cmd, state, sender).await
+}
+
+/// Generic, read-only Custom Resource Definition browsing (US3): discovers every installed
+/// CRD and lists/reads its instances through `crds.rs` rather than one hardcoded module per
+/// CRD kind. `SelectCrdKind` is intentionally a no-op here: the frontend tracks the selected
+/// kind itself and follows up with `RefreshCrdInstances`, so no backend-held "current kind"
+/// state is needed.
+async fn handle_crd_cmd(
+    cmd: BackendCmd,
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) -> anyhow::Result<Option<BackendCmd>> {
+    match cmd {
+        BackendCmd::RefreshCrds => crds::refresh_crds(state, sender).await?,
+        BackendCmd::SelectCrdKind { .. } => {}
+        BackendCmd::RefreshCrdInstances {
+            group,
+            kind,
+            version,
+            namespace,
+        } => {
+            crds::refresh_crd_instances(
+                state,
+                sender,
+                &group,
+                &version,
+                &kind,
+                namespace.as_deref(),
+            )
+            .await?;
+        }
+        BackendCmd::SelectCrdInstance {
+            group,
+            kind,
+            version,
+            namespace,
+            name,
+        } => {
+            crds::select_crd_instance(
+                state,
+                sender,
+                &group,
+                &version,
+                &kind,
+                namespace.as_deref(),
+                &name,
+            )
+            .await?;
+        }
+        other => return Ok(Some(other)),
+    }
+    Ok(None)
 }
 
 async fn handle_network_cmd(

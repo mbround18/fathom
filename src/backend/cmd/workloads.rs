@@ -5,7 +5,7 @@ use crossbeam_channel::Sender;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    cronjobs, daemonsets, deployments, events, jobs, metrics, pods, replicasets,
+    cronjobs, daemonsets, deployments, events, exec, jobs, metrics, pods, replicasets,
     replicationcontrollers, statefulsets,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
@@ -48,6 +48,14 @@ async fn handle_pod_cmd(
             container,
         } => pods::start_logs(state, sender, namespace, name, container).await?,
         BackendCmd::StopPodLogs => state.log_stream.stop(),
+        BackendCmd::StartPodExec {
+            namespace,
+            name,
+            container,
+        } => exec::start_exec(state, sender, namespace, name, container).await?,
+        BackendCmd::SendPodExecInput { data } => exec::send_input(state, data).await?,
+        BackendCmd::ResizePodExec { cols, rows } => exec::resize(state, cols, rows).await?,
+        BackendCmd::StopPodExec => exec::stop(state),
         BackendCmd::FetchPodMetrics { namespace, name } => {
             metrics::fetch_metrics(state, sender, &namespace, &name).await?;
         }

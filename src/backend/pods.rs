@@ -300,7 +300,7 @@ pub(super) async fn start_logs(
 ) -> anyhow::Result<()> {
     state.log_stream.stop();
 
-    let stream_id = state.log_stream.next_id();
+    let stream_id = state.next_stream_id();
 
     let client = state.cluster.client_or_err()?;
     let api: Api<Pod> = Api::namespaced(client.clone(), &namespace);
