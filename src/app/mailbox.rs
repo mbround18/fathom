@@ -104,6 +104,11 @@ impl FathomApp {
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }
+                    SystemEvent::HelmMutationPreviewReady(_)
+                    | SystemEvent::HelmMutationApplied(_)
+                    | SystemEvent::HelmMutationFailed(_) => {
+                        // Helm mutate (React bridge) handles this in on_event; no egui view yet.
+                    }
                     SystemEvent::UiConfigLoaded { .. } => {
                         // Only the Tauri UI requests this; the egui UI reads config.json directly.
                     }

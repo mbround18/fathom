@@ -226,6 +226,13 @@ impl BackendCmdV1 {
                 Some(ns) => MutationTarget::namespaced(ns),
                 None => MutationTarget::ClusterScoped,
             },
+
+            // Helm releases (mutate): all namespaced release-storage writes.
+            C::PreviewHelmRollback { namespace, .. }
+            | C::ApplyHelmRollback { namespace, .. }
+            | C::PreviewHelmUpgrade { namespace, .. }
+            | C::ApplyHelmUpgrade { namespace, .. }
+            | C::UninstallHelmRelease { namespace, .. } => MutationTarget::namespaced(namespace),
         }
     }
 
@@ -399,7 +406,13 @@ impl BackendCmdV1 {
             | C::SelectCrdInstance { .. } => section_keys::custom_resources(),
             C::RefreshApplications | C::SelectApplication { .. } => section_keys::applications(),
             C::RefreshRelatedResources { section, .. } => section.clone(),
-            C::RefreshHelmReleases | C::SelectHelmRelease { .. } => section_keys::helm_releases(),
+            C::RefreshHelmReleases
+            | C::SelectHelmRelease { .. }
+            | C::PreviewHelmRollback { .. }
+            | C::ApplyHelmRollback { .. }
+            | C::PreviewHelmUpgrade { .. }
+            | C::ApplyHelmUpgrade { .. }
+            | C::UninstallHelmRelease { .. } => section_keys::helm_releases(),
             C::SelectFluxResource { .. } => section_keys::flux_resource(),
         };
         Some(key)

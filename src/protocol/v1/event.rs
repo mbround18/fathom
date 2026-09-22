@@ -3,19 +3,20 @@ use super::{
     ClusterRoleDetails, ClusterRoleSummary, ConfigMapDetails, ConfigMapSummary, Correlation,
     CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails,
     DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary, FluxOverview,
-    FluxResourceSummary, HelmReleaseDetails, HelmReleaseSummary,
-    HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
-    IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
-    JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
-    MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary, NamespaceDetails,
-    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
-    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
-    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
-    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
-    PrometheusMetrics, RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
-    ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
-    RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
-    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
+    FluxResourceSummary, HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady,
+    HelmReleaseDetails, HelmReleaseSummary, HorizontalPodAutoscalerDetails,
+    HorizontalPodAutoscalerSummary, HubbleTrafficSummary, IngressClassDetails, IngressClassSummary,
+    IngressDetails, IngressSummary, JobDetails, JobSummary, LeaseDetails, LeaseSummary,
+    LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
+    MutatingWebhookConfigurationSummary, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
+    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
+    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
+    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
+    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RelatedResourceRef,
+    ReplicaSetSummary, ReplicationControllerDetails, ReplicationControllerSummary,
+    ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary,
+    RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary, SecretDetails,
+    SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
     StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
     ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
     WorkloadMetricsAggregate,
@@ -107,6 +108,15 @@ pub enum SystemEvent {
 
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),
+
+    /// A rollback/upgrade diff-preview was computed; nothing has been mutated yet (006).
+    HelmMutationPreviewReady(HelmMutationPreviewReady),
+
+    /// A rollback/upgrade/uninstall mutation succeeded (006).
+    HelmMutationApplied(HelmMutationApplied),
+
+    /// A preview or apply stage of a Helm mutate flow failed (006).
+    HelmMutationFailed(HelmMutationFailed),
 
     /// Reply to `BackendCmd::LoadUiConfig`.
     /// `ui` is `None` when absent or invalid (the invalid blob is kept under `ui_invalid`).

@@ -537,6 +537,21 @@ fn namespace_allowed(filter: &[String], namespace: &str) -> bool {
     filter.is_empty() || filter.iter().any(|ns| ns == namespace)
 }
 
+// --- Helm mutate (006): upgrade preview/apply and uninstall shell out to the operator's local
+// `helm` binary (research.md R4 — no Go-template-rendering crate exists in this workspace).
+// Rollback needs no rendering (the target revision's manifest is already stored verbatim) and
+// is implemented directly against release-storage reads/writes, like the rest of this module.
+
+/// Whether the `helm` binary is reachable on `PATH` (FR-012's "missing `helm` binary" error
+/// path for upgrade/uninstall — rollback never needs this).
+pub async fn helm_binary_available() -> bool {
+    tokio::process::Command::new("helm")
+        .arg("version")
+        .output()
+        .await
+        .is_ok_and(|out| out.status.success())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

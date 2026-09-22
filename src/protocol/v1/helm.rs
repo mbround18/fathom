@@ -85,3 +85,63 @@ pub struct HelmReleaseDetails {
     pub related: Vec<RelatedResourceRef>,
     pub degraded: bool,
 }
+
+// --- Helm mutate (006): rollback, upgrade, uninstall preview/apply/failure payloads ---
+
+/// Which of the three mutate flows a preview/apply/failure event belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum HelmMutationAction {
+    Rollback,
+    Upgrade,
+    Uninstall,
+}
+
+/// Which stage of a mutate flow failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum HelmMutationStage {
+    Preview,
+    Apply,
+}
+
+/// Emitted after a rollback/upgrade diff-preview is computed, before any mutation.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct HelmMutationPreviewReady {
+    pub namespace: String,
+    pub release: String,
+    pub action: HelmMutationAction,
+    /// The live revision the preview was computed against.
+    pub base_revision: i64,
+    pub current_manifest: String,
+    /// Rollback: target revision's stored manifest verbatim.
+    /// Upgrade: freshly `helm upgrade --dry-run` rendered manifest.
+    pub target_manifest: String,
+    /// Rollback only: the revision being rolled back to.
+    pub target_revision: Option<i64>,
+    /// Upgrade only: chart version the upgrade would produce, if changed.
+    pub target_chart_version: Option<String>,
+    /// Reuses `HelmReleaseDetails.origin` verbatim; `None` means no GitOps warning.
+    pub gitops_warning: Option<GitOpsOriginRef>,
+}
+
+/// Emitted after a rollback/upgrade/uninstall mutation succeeds.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct HelmMutationApplied {
+    pub namespace: String,
+    pub release: String,
+    pub action: HelmMutationAction,
+    /// Rollback/upgrade: the new revision number. Uninstall: `None` (release is gone).
+    pub new_revision: Option<i64>,
+}
+
+/// Emitted when a preview or apply stage of a mutate flow fails.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct HelmMutationFailed {
+    pub namespace: String,
+    pub release: String,
+    pub action: HelmMutationAction,
+    pub stage: HelmMutationStage,
+    /// Verbatim backend error (Constitution Principle I).
+    pub message: String,
+}

@@ -582,6 +582,49 @@ pub enum BackendCmdV1 {
         namespace: String,
         name: String,
     },
+
+    // Helm releases (mutate: rollback, upgrade, uninstall — 006)
+    /// Compute a rollback diff-preview without mutating anything.
+    PreviewHelmRollback {
+        namespace: String,
+        release: String,
+        target_revision: i64,
+    },
+    /// Apply a previously previewed rollback. `base_revision` MUST match the
+    /// preview's `base_revision`; a mismatch fails with `HelmMutationFailed`
+    /// (stage: Apply).
+    ApplyHelmRollback {
+        namespace: String,
+        release: String,
+        target_revision: i64,
+        base_revision: i64,
+    },
+    /// Compute an upgrade diff-preview via `helm upgrade --dry-run` without
+    /// mutating anything. `values_yaml` is the (possibly edited) effective
+    /// values; `chart_version` is `None` to keep the current version.
+    PreviewHelmUpgrade {
+        namespace: String,
+        release: String,
+        values_yaml: String,
+        chart_version: Option<String>,
+    },
+    /// Apply a previously previewed upgrade. `base_revision` MUST match the
+    /// preview's `base_revision`.
+    ApplyHelmUpgrade {
+        namespace: String,
+        release: String,
+        values_yaml: String,
+        chart_version: Option<String>,
+        base_revision: i64,
+    },
+    /// Uninstall a release. No preview step exists (nothing to preview).
+    /// `base_revision` guards against uninstalling a release the operator's
+    /// confirm dialog is stale against.
+    UninstallHelmRelease {
+        namespace: String,
+        release: String,
+        base_revision: i64,
+    },
 }
 
 /// Direction of a `TaintNode` mutation.

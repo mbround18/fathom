@@ -1771,6 +1771,35 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::PreviewHelmRollback {
+            namespace: "s".to_owned(),
+            release: "s".to_owned(),
+            target_revision: 1,
+        },
+        BackendCmd::ApplyHelmRollback {
+            namespace: "s".to_owned(),
+            release: "s".to_owned(),
+            target_revision: 1,
+            base_revision: 2,
+        },
+        BackendCmd::PreviewHelmUpgrade {
+            namespace: "s".to_owned(),
+            release: "s".to_owned(),
+            values_yaml: "s".to_owned(),
+            chart_version: Some("1.2.3".to_owned()),
+        },
+        BackendCmd::ApplyHelmUpgrade {
+            namespace: "s".to_owned(),
+            release: "s".to_owned(),
+            values_yaml: "s".to_owned(),
+            chart_version: Some("1.2.3".to_owned()),
+            base_revision: 2,
+        },
+        BackendCmd::UninstallHelmRelease {
+            namespace: "s".to_owned(),
+            release: "s".to_owned(),
+            base_revision: 2,
+        },
     ]
 }
 
@@ -1939,6 +1968,11 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshHelmReleases => {}
         BackendCmd::SelectHelmRelease { .. } => {}
         BackendCmd::SelectFluxResource { .. } => {}
+        BackendCmd::PreviewHelmRollback { .. } => {}
+        BackendCmd::ApplyHelmRollback { .. } => {}
+        BackendCmd::PreviewHelmUpgrade { .. } => {}
+        BackendCmd::ApplyHelmUpgrade { .. } => {}
+        BackendCmd::UninstallHelmRelease { .. } => {}
     }
 }
 
@@ -1980,6 +2014,9 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
         SystemEvent::HubbleTrafficUpdated(sample_hubble_traffic_summary()),
+        SystemEvent::HelmMutationPreviewReady(sample_helm_mutation_preview_ready()),
+        SystemEvent::HelmMutationApplied(sample_helm_mutation_applied()),
+        SystemEvent::HelmMutationFailed(sample_helm_mutation_failed()),
         SystemEvent::UiConfigLoaded {
             ui: Some(sample_ui_config()),
             expanded_groups: vec!["s".to_owned()],
@@ -1996,6 +2033,39 @@ fn all_system_events() -> Vec<SystemEvent> {
             instances: vec!["{}".to_owned()],
         },
     ]
+}
+
+fn sample_helm_mutation_preview_ready() -> HelmMutationPreviewReady {
+    HelmMutationPreviewReady {
+        namespace: "s".to_owned(),
+        release: "s".to_owned(),
+        action: HelmMutationAction::Rollback,
+        base_revision: 3,
+        current_manifest: "apiVersion: v1\nkind: ConfigMap\n".to_owned(),
+        target_manifest: "apiVersion: v1\nkind: ConfigMap\ndata: {}\n".to_owned(),
+        target_revision: Some(2),
+        target_chart_version: None,
+        gitops_warning: Some(sample_gitops_origin_ref()),
+    }
+}
+
+fn sample_helm_mutation_applied() -> HelmMutationApplied {
+    HelmMutationApplied {
+        namespace: "s".to_owned(),
+        release: "s".to_owned(),
+        action: HelmMutationAction::Upgrade,
+        new_revision: Some(4),
+    }
+}
+
+fn sample_helm_mutation_failed() -> HelmMutationFailed {
+    HelmMutationFailed {
+        namespace: "s".to_owned(),
+        release: "s".to_owned(),
+        action: HelmMutationAction::Uninstall,
+        stage: HelmMutationStage::Apply,
+        message: "s".to_owned(),
+    }
 }
 
 fn sample_crd_catalog_entry() -> fathom::protocol::CrdCatalogEntry {
@@ -2025,6 +2095,9 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
         SystemEvent::HubbleTrafficUpdated(..) => {}
+        SystemEvent::HelmMutationPreviewReady(..) => {}
+        SystemEvent::HelmMutationApplied(..) => {}
+        SystemEvent::HelmMutationFailed(..) => {}
         SystemEvent::UiConfigLoaded { .. } => {}
         SystemEvent::CrdCatalogUpdated { .. } => {}
         SystemEvent::CrdInstancesUpdated { .. } => {}
