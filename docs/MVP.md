@@ -22,10 +22,10 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Custom Resources — generic CRD discovery/browsing | ✅ | 003-yaml-node-crd-parity |
 | GitOps (Flux) integration panel | ✅ | promo-brochure-v2 work |
 | Hubble/Cilium traffic panel | ✅ | promo-brochure-v2 work |
-| **Applications view** | ⬜ | planned next |
+| **Applications view** | ✅ | 004-applications-interlinking |
 | **Helm** — read (list/inspector/origin-link) | ✅ | 005-helm-release-origin-linking |
 | **Helm** — mutate (install/upgrade/rollback) | ⬜ | planned next |
-| **Rich interlinking / drill-down** (chart → pod, resource → resource) | ⬜ | planned next |
+| **Rich interlinking / drill-down** (chart → pod, resource → resource) | ✅ | 004-applications-interlinking, extended in 005 |
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ⬜ | planned, later |
 | Access Control (RBAC/OAuth/LDAP, role-scoped UI) | ⬜ | future — enterprise-auth tier |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
@@ -235,7 +235,7 @@ Fathom now reads Helm-managed resources directly from Helm's own release storage
 
 ## 5b. Rich Interlinking / Drill-down
 
-*Status: ⬜ Not started — cross-cutting requirement, needed by §5 and §5a, and the foundation for §5c.*
+*Status: ✅ Shipped — generic related-resources resolver (`src/backend/related.rs`) and Inspector breadcrumb/back-stack landed in 004-applications-interlinking, extended with the `"reconciled-by"` relation in 005-helm-release-origin-linking. Covers Node, Service, PVC, Pod, Deployment/StatefulSet/DaemonSet/ReplicaSet, Application, and Helm release relationships. Foundation for §5c is now in place.*
 
 **Problem today**: every resource kind is its own list + inspector island. Going from "this Application" or "this Helm release" to "the specific Pod that's crash-looping" means manually noticing an owner reference or label and re-navigating by hand.
 
