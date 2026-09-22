@@ -67,7 +67,10 @@ pub(super) async fn ensure_background_sync(
 /// Best-effort: if a `hubble-relay` Service is present, start (or keep running) a
 /// background poll of `Observer.GetFlows` every 20s, emitting `HubbleTrafficUpdated`.
 /// Does nothing if Hubble isn't installed or a poll task is already running.
-pub(super) async fn ensure_hubble_poll(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
+pub(super) async fn ensure_hubble_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
     if state.watch_tasks.hubble_poll_task.is_some() {
         return;
     }
@@ -91,7 +94,10 @@ pub(super) async fn ensure_hubble_poll(state: &mut BackendState, sender: &Sender
 /// resources every 20s, emitting `FluxOverviewUpdated`. Does nothing if a poll task
 /// is already running; `scan_flux` itself reports `installed: false` when Flux's
 /// CRDs are absent, so there is no separate detection gate here.
-pub(super) async fn ensure_flux_poll(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
+pub(super) async fn ensure_flux_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
     if state.watch_tasks.flux_poll_task.is_some() {
         return;
     }

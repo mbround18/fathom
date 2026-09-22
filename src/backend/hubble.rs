@@ -104,11 +104,13 @@ fn aggregate(flows: &[FlowRecord], generated_at: String) -> HubbleTrafficSummary
     }
     let mut top_pairs: Vec<HubbleFlowPair> = pair_counts
         .into_iter()
-        .map(|((source_namespace, dest_namespace), count)| HubbleFlowPair {
-            source_namespace,
-            dest_namespace,
-            count,
-        })
+        .map(
+            |((source_namespace, dest_namespace), count)| HubbleFlowPair {
+                source_namespace,
+                dest_namespace,
+                count,
+            },
+        )
         .collect();
     top_pairs.sort_by(|a, b| {
         b.count.cmp(&a.count).then_with(|| {
@@ -118,7 +120,8 @@ fn aggregate(flows: &[FlowRecord], generated_at: String) -> HubbleTrafficSummary
     });
     top_pairs.truncate(TOP_N);
 
-    let mut reason_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut reason_counts: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
     for f in flows.iter().filter_map(|f| f.drop_reason.as_ref()) {
         *reason_counts.entry(f.clone()).or_insert(0) += 1;
     }
@@ -274,7 +277,14 @@ mod tests {
     #[test]
     fn aggregate_truncates_to_top_n() {
         let flows: Vec<FlowRecord> = (0..10)
-            .map(|i| record(HubbleVerdict::Dropped, "a", &format!("ns{i}"), Some("POLICY_DENIED")))
+            .map(|i| {
+                record(
+                    HubbleVerdict::Dropped,
+                    "a",
+                    &format!("ns{i}"),
+                    Some("POLICY_DENIED"),
+                )
+            })
             .collect();
         let summary = aggregate(&flows, "now".to_owned());
         assert_eq!(summary.top_pairs.len(), TOP_N);
