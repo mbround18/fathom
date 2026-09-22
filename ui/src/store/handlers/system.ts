@@ -4,6 +4,12 @@ import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/pro
 
 import { commandFinished, type CommandResult } from '../actions'
 import type { Draft } from '../draft'
+import {
+  applied as helmMutationApplied,
+  applyFailed as helmMutationApplyFailed,
+  previewFailed as helmMutationPreviewFailed,
+  previewReady as helmMutationPreviewReady,
+} from '../helmMutation'
 import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
@@ -108,6 +114,21 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     case 'HubbleTrafficUpdated':
       d.put('hubble', { summary: event.data })
+      return
+
+    case 'HelmMutationPreviewReady':
+      d.put('helmMutation', helmMutationPreviewReady(event.data))
+      return
+    case 'HelmMutationApplied':
+      d.put('helmMutation', helmMutationApplied(d.read('helmMutation')))
+      return
+    case 'HelmMutationFailed':
+      d.put(
+        'helmMutation',
+        event.data.stage === 'preview'
+          ? helmMutationPreviewFailed(event.data.message)
+          : helmMutationApplyFailed(d.read('helmMutation'), event.data.message),
+      )
       return
 
     case 'CrdCatalogUpdated': {

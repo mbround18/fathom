@@ -39,8 +39,13 @@ export function startApply(session: HelmMutationSession): HelmMutationSession {
   return { ...session, status: 'applying' }
 }
 
-export function applied(): HelmMutationSession {
-  return { status: 'applied' }
+/**
+ * Keeps `preview` (unlike a bare reset) so a per-row UI (e.g. `RollbackAction`) that identifies
+ * "is this my row's flow?" by `preview.release`/`target_revision` can still recognize itself and
+ * show the applied confirmation, instead of silently reverting to its idle "Roll back" button.
+ */
+export function applied(session: HelmMutationSession): HelmMutationSession {
+  return { ...session, status: 'applied' }
 }
 
 export function applyFailed(session: HelmMutationSession, message: string): HelmMutationSession {
