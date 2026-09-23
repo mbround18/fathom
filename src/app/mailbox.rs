@@ -56,6 +56,10 @@ impl FathomApp {
                     SystemEvent::ContextChanged { .. } => {
                         self.reset_views_for_context_switch();
                     }
+                    SystemEvent::ContextStatusUpdated { .. } => {
+                        // 012-incluster-daemon-federation P1: the Tauri/React UI owns this
+                        // surface; the legacy egui shell doesn't render a context status list.
+                    }
                     SystemEvent::NamespaceFilterChanged { .. } => {
                         // ContextView handles this in on_event
                     }

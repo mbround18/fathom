@@ -31,7 +31,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ✅ | 009-port-forward-ui |
 | Container image layer inspection | ✅ | see §9a |
 | Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
-| In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | ⬜ | future — see §14 Tier D |
+| In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | 🚧 | P1 (multi-context sidebar + live status) shipped — see §14 Tier D; simultaneous federation/daemon/cloud-auth-plugins still future |
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
 | Teams & organizations (self-hosted multi-user) | ⬜ | future — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
@@ -599,11 +599,12 @@ Carried over from roadmap discussion, in priority order:
 
 ### Tier D — In-cluster context daemon & multi-cloud federation
 
-*Status: ⬜ Not started, exploratory.*
+*Status: 🚧 Partial — 012-incluster-daemon-federation P1 shipped (see below); P2-P4 still exploratory/not started.*
 
-* An optional lightweight in-cluster daemon (reusing the existing Rust backend/protocol crates rather than a new stack) that can push richer or lower-latency context than polling the API server from outside the cluster — e.g. controller-level events, long-lived watches that survive the desktop client disconnecting/reconnecting. Strictly optional — Fathom already works with zero in-cluster footprint today (direct `kube-rs` against the API server), and that must stay true; the daemon is an enhancement, not a requirement.
-* Multi-cluster / federated view: connect to several clusters' contexts (already how `kube-rs`/kubeconfig contexts work) and aggregate a cross-cluster overview, optionally talking to each cluster's daemon (above) where present.
-* Native credential/context plumbing for the managed-cloud auth plugins that already exist and are the standard path for each provider — `aws-iam-authenticator`/`aws eks get-token` for EKS, `gke-gcloud-auth-plugin` for GKE, `kubelogin` for AKS — rather than reimplementing each cloud's OIDC/IAM token exchange. This is a "shell out to (or vendor) the existing official plugin" integration, not a new auth protocol per cloud.
+* **✅ P1 (012-incluster-daemon-federation): always-visible multi-context sidebar with live per-context connection status.** Every kubeconfig context is listed at once (not just the active one), with a live `connected` / `connecting` / `error` / `not-connected` indicator — the active context's status is driven by its real connect attempt, every other context gets a lightweight, bounded (`apiserver_version()` + 5s timeout) background reachability probe triggered on `Initialize`/`RefreshContexts`/`SetContext`, never a periodic poll. An unreachable context's error is inspectable without switching to it. Switching contexts still uses the existing single-active-client model and reconnect path unchanged. Delivered via an additive `SystemEvent::ContextStatusUpdated`; no new command, no new dependency.
+* **⬜ P2 (not started): true simultaneous federation** — multiple live clients at once and a cross-cluster aggregate overview, rather than today's single-active-context-plus-status-probes model.
+* **⬜ P3 (not started): native credential/context plumbing for managed-cloud auth plugins** — `aws-iam-authenticator`/`aws eks get-token` for EKS, `gke-gcloud-auth-plugin` for GKE, `kubelogin` for AKS — shelling out to (or vendoring) each provider's existing official plugin rather than reimplementing its OIDC/IAM token exchange.
+* **⬜ P4 (not started): optional lightweight in-cluster daemon** (reusing the existing Rust backend/protocol crates rather than a new stack) that can push richer or lower-latency context than polling the API server from outside the cluster — e.g. controller-level events, long-lived watches that survive the desktop client disconnecting/reconnecting. Strictly optional — Fathom already works with zero in-cluster footprint today (direct `kube-rs` against the API server), and that must stay true; the daemon is an enhancement, not a requirement.
 
 ### Tier E — Agent SDK ops (AI-assist troubleshooting)
 

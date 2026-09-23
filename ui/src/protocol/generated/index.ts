@@ -27,6 +27,7 @@ export type * from "./ContainerMetricsHistory";
 export type * from "./ContainerPort";
 export type * from "./ContainerResourceSpec";
 export type * from "./ContainerState";
+export type * from "./ContextConnectionStatus";
 export type * from "./Correlation";
 export type * from "./CpuMetrics";
 export type * from "./CrdCatalogEntry";

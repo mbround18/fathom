@@ -87,6 +87,21 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
 
+    case 'ContextStatusUpdated': {
+      // Last write per context wins (data-model.md §"Frontend") — the backend never emits both
+      // a probe result and the active-context connect result for the same context
+      // (research.md R3), so no reconciliation beyond a plain overwrite is needed.
+      const session = d.edit('session')
+      session.contextStatuses = {
+        ...session.contextStatuses,
+        [event.data.context]: {
+          status: event.data.status,
+          ...(event.data.error ? { error: event.data.error } : {}),
+        },
+      }
+      return
+    }
+
     case 'NamespaceFilterChanged': {
       const session = d.edit('session')
       const namespaces = event.data.namespaces

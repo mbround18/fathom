@@ -11,8 +11,12 @@ use std::sync::atomic::AtomicU64;
 
 use super::{events, state::BackendState};
 
-/// Load kubeconfig respecting KUBECONFIG env var and ~/.kube/config default
-fn load_kubeconfig() -> anyhow::Result<Kubeconfig> {
+/// Load kubeconfig respecting KUBECONFIG env var and ~/.kube/config default.
+///
+/// `pub(super)` so `context_status.rs` can build short-lived clients for non-active contexts
+/// (012-incluster-daemon-federation P1) using the same kubeconfig-resolution path as the active
+/// connection.
+pub(super) fn load_kubeconfig() -> anyhow::Result<Kubeconfig> {
     // Try KUBECONFIG environment variable first
     if let Some(config) = load_kubeconfig_from_env() {
         return Ok(config);
@@ -67,11 +71,14 @@ fn load_kubeconfig_from_home() -> Option<Kubeconfig> {
     Some(config)
 }
 
+/// Loads and emits `ContextsUpdated`, returning the `(contexts, current)` tuple it computed so
+/// callers can also trigger per-context status probes (012-incluster-daemon-federation P1)
+/// without re-parsing the kubeconfig.
 pub(super) fn load_and_send_contexts(
     seq: &AtomicU64,
     selected_context: Option<String>,
     sender: &Sender<BackendEventEnvelope>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(Vec<String>, Option<String>)> {
     tracing::info!("Loading kubeconfig contexts...");
 
     // Best-effort: if kubeconfig isn't present (e.g. in-cluster), just report no contexts.
@@ -83,8 +90,8 @@ pub(super) fn load_and_send_contexts(
         }
     };
 
-    emit_contexts(seq, sender, contexts, current);
-    Ok(())
+    emit_contexts(seq, sender, contexts.clone(), current.clone());
+    Ok((contexts, current))
 }
 
 /// Sorted context names plus the effective current context (explicit selection wins

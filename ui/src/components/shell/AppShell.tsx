@@ -11,6 +11,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { useWidthClass } from '@/layout/use-width-class'
 import { useStore } from '@/store'
 
+import { FederationContextSwitcher } from './FederationContextSwitcher'
 import { PhoneStack } from './PhoneStack'
 import { SlotGrid } from './SlotGrid'
 import { StatusBar } from './StatusBar'
@@ -36,6 +37,7 @@ export function AppShell() {
       className="grain flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground"
     >
       <TopBar widthClass={widthClass} />
+      <FederationContextSwitcher />
       <main className="flex min-h-0 flex-1 flex-col">
         {widthClass === 'phone' ? (
           <PhoneStack />

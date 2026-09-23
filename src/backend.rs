@@ -13,6 +13,7 @@ mod agent;
 mod applications;
 mod apply;
 mod cmd;
+mod context_status;
 mod crds;
 mod cronjobs;
 mod daemonsets;

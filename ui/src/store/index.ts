@@ -14,6 +14,7 @@ import type {
   AgentAuthMode,
   AgentConversation,
   BackendCmd,
+  ContextConnectionStatus,
   CrdCatalogEntry,
   DiskUsage,
   FluxOverview,
@@ -118,6 +119,14 @@ export interface ConnState {
   lastNotice?: Notice
 }
 
+/** A context absent from `SessionState.contextStatuses` renders as `NotConnected` by convention
+ * (data-model.md) — this is not itself a wire status, just "never probed/reported yet". */
+export interface ContextStatusEntry {
+  status: ContextConnectionStatus
+  /** Present only when `status === 'Error'` (012-incluster-daemon-federation P1). */
+  error?: string
+}
+
 export interface SessionState {
   /** Kubeconfig context names. Empty with `contextsLoaded` means no kubeconfig. */
   contexts: string[]
@@ -128,6 +137,10 @@ export interface SessionState {
   activeNamespace: string | null
   /** The backend's namespace filter as last reported (`[]` = all). */
   namespaceFilter: string[]
+  /** Live per-context connection status (012-incluster-daemon-federation P1, FR-002). Last
+   * write per context wins — the backend never double-writes the same context (data-model.md
+   * §"Frontend"). */
+  contextStatuses: Record<string, ContextStatusEntry>
 }
 
 type RowOf<T> = T extends readonly (infer R)[] ? R : T extends { events: (infer E)[] } ? E : never
@@ -673,6 +686,7 @@ export function initialData(): StoreData {
       namespaces: [],
       activeNamespace: null,
       namespaceFilter: [],
+      contextStatuses: {},
     },
     lists: {},
     details: {},
