@@ -16,7 +16,7 @@ import {
 import type { TopologyGraph, TopologyNode } from './types'
 
 const MAX_TICKS = 200
-const NODE_RADIUS: Record<TopologyNode['tier'], number> = {
+export const NODE_RADIUS: Record<TopologyNode['tier'], number> = {
   namespace: 22,
   workload: 14,
   pod: 6,

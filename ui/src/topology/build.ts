@@ -49,7 +49,8 @@ export interface BuildInput {
   detailKeyFor: (kind: string, namespace: string | null, name: string) => string
 }
 
-const WORKLOAD_KINDS = [
+/** Exported so `TopologyCanvas` can dispatch the right `select`/`refresh` command per kind. */
+export const WORKLOAD_KINDS = [
   { kind: 'Deployment' as const, descriptor: deployments },
   { kind: 'StatefulSet' as const, descriptor: statefulsets },
   { kind: 'DaemonSet' as const, descriptor: daemonsets },
