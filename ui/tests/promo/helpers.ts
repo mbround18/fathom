@@ -92,7 +92,7 @@ async function readOnlyBridge(
                   },
                 },
                 expanded_groups: [],
-                mcp_auto_start: false,
+                mcp_stdio_enabled: false,
               },
             },
           },

@@ -67,7 +67,7 @@ import {
   type HelmMutationSession,
 } from './helmMutation'
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
-import type { RingBuffer } from './ring-buffer'
+import { RingBuffer } from './ring-buffer'
 import { waitForCommandResult } from './actions'
 
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
@@ -326,7 +326,6 @@ export interface ImageInspectState {
 }
 
 export interface IntegrationsState {
-  mcp?: { running: boolean; message: string }
   prometheusTest?: { success: boolean; message: string }
   grafanaTest?: { success: boolean; message: string }
   portAvailability: Record<number, boolean>
@@ -379,7 +378,51 @@ export interface PrefsState {
   /** True once `UiConfigLoaded` has arrived. */
   loaded: boolean
   expandedGroups: string[]
-  mcpAutoStart: boolean
+  /** `auto_start.mcp_stdio`: whether the stdio MCP server (015) is enabled. Off by default. */
+  mcpStdioEnabled: boolean
+}
+
+/**
+ * 015-mcp-agent-exposure: the stdio MCP server's operator-visible status, kept in sync by
+ * `McpServerStatusChanged` (`store/handlers/system.ts`) — the reply to `LoadMcpServerStatus`
+ * and the broadcast after every `SetMcpServerEnabled`.
+ */
+export interface McpState {
+  /** True once the first `McpServerStatusChanged` has arrived. */
+  loaded: boolean
+  /** The persisted operator preference (`auto_start.mcp_stdio`). Off by default (FR-002). */
+  enabled: boolean
+  /** Whether a stdio server task actually exists right now. Never `true` while `enabled` is false. */
+  running: boolean
+  /** The literal command an external MCP client should launch (FR-007). */
+  connectionCommand: string
+  /** 015 US4: the "Launch example chat" subprocess (`McpDemoChat*` events). */
+  demoChat: McpDemoChatState
+}
+
+/**
+ * 015-mcp-agent-exposure US4: the locally-launched `claude` CLI session.
+ *
+ * `'not-detected'` is only ever set by the backend's own `McpDemoChatNotDetected` — the
+ * frontend never guesses whether a CLI exists, so the panel can never offer a launch it has
+ * been told is impossible, nor claim a detection Fathom did not make (FR-009/FR-011).
+ */
+export interface McpDemoChatState {
+  /** `'idle'`: nothing launched yet (and nothing known to be missing). */
+  status: 'idle' | 'running' | 'ended' | 'not-detected'
+  /** The backend's monotonic session id; chunks from older sessions are ignored. */
+  sessionId?: number
+  /** Why the session ended, shown verbatim. */
+  reason?: string
+  /** The backend's setup text for the `'not-detected'` state. */
+  instructions?: string
+  /**
+   * Decoded output chunks, bounded like `ExecStreamState.chunks` — a short-lived handoff
+   * queue `DemoChatTerminal` drains into xterm.js, which owns the rendered scrollback.
+   */
+  chunks: RingBuffer<string>
+  /** Bumped on every appended chunk; the buffer itself is mutated in place. */
+  rev: number
 }
 
 export interface LayoutState {
@@ -499,6 +542,8 @@ export interface StoreData {
   actionPrompt?: ActionPrompt
   ui: UiConfig
   prefs: PrefsState
+  /** 015-mcp-agent-exposure: stdio MCP server status, shown in Cluster Settings. */
+  mcp: McpState
   /**
    * 008-pod-lifecycle-diagnostics: a "view logs for this container" click from the Lifecycle
    * section's Init Containers list, so the Inspector can switch to the Logs tab and
@@ -788,7 +833,14 @@ export function initialData(): StoreData {
     actionPrompt: undefined,
     helmMutation: initialHelmMutationSession,
     ui: DEFAULT_UI,
-    prefs: { loaded: false, expandedGroups: [], mcpAutoStart: false },
+    prefs: { loaded: false, expandedGroups: [], mcpStdioEnabled: false },
+    mcp: {
+      loaded: false,
+      enabled: false,
+      running: false,
+      connectionCommand: '',
+      demoChat: { status: 'idle', chunks: new RingBuffer<string>(), rev: 0 },
+    },
     podLogsIntent: null,
   }
 }
