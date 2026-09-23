@@ -5,11 +5,11 @@ use crossbeam_channel::Sender;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    applications, clusterrolebindings, clusterroles, configmaps, crds, endpoints, flux,
-    helm, horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges,
-    mutatingwebhooks, networkpolicies, persistentvolumeclaims, persistentvolumes,
-    poddisruptionbudgets, priorityclasses, related, resourcequotas, rolebindings, roles,
-    runtimeclasses, secrets, services, storageclasses, validatingwebhooks,
+    applications, clusterrolebindings, clusterroles, configmaps, crds, endpoints, flux, helm,
+    horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges, mutatingwebhooks,
+    networkpolicies, persistentvolumeclaims, persistentvolumes, poddisruptionbudgets,
+    priorityclasses, related, resourcequotas, rolebindings, roles, runtimeclasses, secrets,
+    services, storageclasses, validatingwebhooks,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -91,8 +91,7 @@ async fn handle_helm_cmd(
             release,
             base_revision,
         } => {
-            handle_uninstall_helm_release(state, sender, namespace, release, base_revision)
-                .await?;
+            handle_uninstall_helm_release(state, sender, namespace, release, base_revision).await?;
         }
         BackendCmd::PreviewHelmUpgrade {
             namespace,
@@ -100,8 +99,15 @@ async fn handle_helm_cmd(
             values_yaml,
             chart_version,
         } => {
-            handle_preview_helm_upgrade(state, sender, namespace, release, values_yaml, chart_version)
-                .await?;
+            handle_preview_helm_upgrade(
+                state,
+                sender,
+                namespace,
+                release,
+                values_yaml,
+                chart_version,
+            )
+            .await?;
         }
         BackendCmd::ApplyHelmUpgrade {
             namespace,
@@ -375,14 +381,7 @@ async fn handle_uninstall_helm_release(
     let client = match state.cluster.client_or_err() {
         Ok(client) => client,
         Err(e) => {
-            emit_helm_mutation_failed(
-                state,
-                sender,
-                route,
-                namespace,
-                release,
-                format!("{e}"),
-            );
+            emit_helm_mutation_failed(state, sender, route, namespace, release, format!("{e}"));
             return Ok(());
         }
     };
@@ -445,7 +444,8 @@ fn find_flux_candidate<'a>(
     name: &str,
 ) -> Option<&'a kube::core::DynamicObject> {
     candidates.iter().find(|o| {
-        o.metadata.namespace.as_deref() == Some(namespace) && o.metadata.name.as_deref() == Some(name)
+        o.metadata.namespace.as_deref() == Some(namespace)
+            && o.metadata.name.as_deref() == Some(name)
     })
 }
 

@@ -98,9 +98,7 @@ fn merge_values(base: &Value, overrides: &Value) -> Value {
         (Value::Object(base_map), Value::Object(override_map)) => {
             let mut merged = base_map.clone();
             for (k, v) in override_map {
-                let entry = merged
-                    .entry(k.clone())
-                    .or_insert(Value::Null);
+                let entry = merged.entry(k.clone()).or_insert(Value::Null);
                 *entry = merge_values(entry, v);
             }
             Value::Object(merged)
@@ -345,7 +343,10 @@ fn annotations_match_release(
     namespace: &str,
     name: &str,
 ) -> bool {
-    annotations.get(HELM_RELEASE_NAME_ANNOTATION).map(String::as_str) == Some(name)
+    annotations
+        .get(HELM_RELEASE_NAME_ANNOTATION)
+        .map(String::as_str)
+        == Some(name)
         && annotations
             .get(HELM_RELEASE_NAMESPACE_ANNOTATION)
             .map(String::as_str)
@@ -391,17 +392,16 @@ pub(super) async fn get_release_details(
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
     let objects = list_storage_objects(&client, Some(namespace)).await?;
-    let mut matching: Vec<&StorageObject> = objects
-        .iter()
-        .filter(|o| o.release_name == name)
-        .collect();
+    let mut matching: Vec<&StorageObject> =
+        objects.iter().filter(|o| o.release_name == name).collect();
     matching.sort_by_key(|o| std::cmp::Reverse(o.revision));
 
     let Some(current) = matching.first() else {
         return Ok(());
     };
 
-    let revisions: Vec<HelmRevisionSummary> = matching.iter().map(|o| revision_summary(o)).collect();
+    let revisions: Vec<HelmRevisionSummary> =
+        matching.iter().map(|o| revision_summary(o)).collect();
 
     let (values_user_supplied, values_effective, manifest, description) = match &current.payload {
         Some(payload) => {
@@ -487,8 +487,9 @@ async fn lookup_flux_resource(
     namespace: &str,
     name: &str,
 ) -> Option<FluxStatus> {
-    let (kustomizations, helmreleases) =
-        flux::list_kustomizations_and_helmreleases(client).await.ok()?;
+    let (kustomizations, helmreleases) = flux::list_kustomizations_and_helmreleases(client)
+        .await
+        .ok()?;
     let candidates = if kind == "Kustomization" {
         &kustomizations
     } else {
@@ -620,11 +621,16 @@ fn find_current_and_target<'a>(
     release: &str,
     target_revision: i64,
 ) -> (Option<&'a StorageObject>, Option<&'a StorageObject>) {
-    let mut matching: Vec<&StorageObject> =
-        objects.iter().filter(|o| o.release_name == release).collect();
+    let mut matching: Vec<&StorageObject> = objects
+        .iter()
+        .filter(|o| o.release_name == release)
+        .collect();
     matching.sort_by_key(|o| std::cmp::Reverse(o.revision));
     let current = matching.first().copied();
-    let target = matching.iter().find(|o| o.revision == target_revision).copied();
+    let target = matching
+        .iter()
+        .find(|o| o.revision == target_revision)
+        .copied();
     (current, target)
 }
 
@@ -1030,7 +1036,13 @@ pub(super) async fn uninstall_helm_release(
         }
     };
 
-    check_uninstall_preconditions(namespace, release, helm_available, live_revision, base_revision)?;
+    check_uninstall_preconditions(
+        namespace,
+        release,
+        helm_available,
+        live_revision,
+        base_revision,
+    )?;
 
     let output = tokio::process::Command::new("helm")
         .args(["uninstall", release, "-n", namespace])
@@ -1149,8 +1161,10 @@ async fn current_release_state(
 ) -> anyhow::Result<Option<CurrentReleaseState>> {
     let client = state.cluster.client_or_err()?;
     let objects = list_storage_objects(&client, Some(namespace)).await?;
-    let mut matching: Vec<&StorageObject> =
-        objects.iter().filter(|o| o.release_name == release).collect();
+    let mut matching: Vec<&StorageObject> = objects
+        .iter()
+        .filter(|o| o.release_name == release)
+        .collect();
     matching.sort_by_key(|o| std::cmp::Reverse(o.revision));
     let Some(current) = matching.first() else {
         return Ok(None);
@@ -1161,7 +1175,11 @@ async fn current_release_state(
         .as_ref()
         .and_then(|p| payload_str(p, "/manifest"))
         .unwrap_or_default();
-    let chart_payload = current.payload.as_ref().and_then(|p| p.pointer("/chart")).cloned();
+    let chart_payload = current
+        .payload
+        .as_ref()
+        .and_then(|p| p.pointer("/chart"))
+        .cloned();
 
     let workloads = super::applications::list_owned_workloads(state).await?;
     let owned = owned_workloads_for_release(&workloads, namespace, release);
@@ -1213,10 +1231,15 @@ fn check_chart_version(
 /// `/chart/metadata`, `/chart/values` from) to a temp directory so `helm upgrade [--dry-run]`
 /// can render it without needing network access to a chart repository (FR-004, research.md R4).
 fn materialize_chart(chart_payload: &Value) -> anyhow::Result<tempfile::TempDir> {
-    let dir = tempfile::Builder::new().prefix("fathom-helm-upgrade-").tempdir()?;
+    let dir = tempfile::Builder::new()
+        .prefix("fathom-helm-upgrade-")
+        .tempdir()?;
     let root = dir.path();
 
-    let metadata = chart_payload.get("metadata").cloned().unwrap_or(Value::Null);
+    let metadata = chart_payload
+        .get("metadata")
+        .cloned()
+        .unwrap_or(Value::Null);
     std::fs::write(root.join("Chart.yaml"), to_yaml(&metadata))?;
 
     let values = chart_payload.get("values").cloned().unwrap_or(Value::Null);
@@ -1339,7 +1362,14 @@ async fn render_upgrade_preview(
             "The release's stored chart payload is corrupted or unreadable; cannot render an upgrade preview.",
         ));
     };
-    check_chart_version(namespace, release, action, stage, chart_payload, chart_version)?;
+    check_chart_version(
+        namespace,
+        release,
+        action,
+        stage,
+        chart_payload,
+        chart_version,
+    )?;
 
     let chart_dir = materialize_chart(chart_payload).map_err(|e| {
         mutation_failed(
@@ -1353,10 +1383,24 @@ async fn render_upgrade_preview(
 
     let output = run_helm_upgrade(release, chart_dir.path(), namespace, values_yaml, true)
         .await
-        .map_err(|e| mutation_failed(namespace, release, action, stage, format!("Failed to run helm: {e}")))?;
+        .map_err(|e| {
+            mutation_failed(
+                namespace,
+                release,
+                action,
+                stage,
+                format!("Failed to run helm: {e}"),
+            )
+        })?;
 
     if !output.status.success() {
-        return Err(mutation_failed(namespace, release, action, stage, helm_error_message(&output)));
+        return Err(mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            helm_error_message(&output),
+        ));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1395,12 +1439,24 @@ pub(super) async fn preview_helm_upgrade(
 ) -> Result<HelmMutationPreviewReady, HelmMutationFailed> {
     let action = HelmMutationAction::Upgrade;
     let stage = HelmMutationStage::Preview;
-    guard_helm_available(namespace, release, action, stage, helm_binary_available().await)?;
+    guard_helm_available(
+        namespace,
+        release,
+        action,
+        stage,
+        helm_binary_available().await,
+    )?;
 
     let current = current_release_state(state, namespace, release)
         .await
         .map_err(|e| {
-            mutation_failed(namespace, release, action, stage, format!("Failed to read release state: {e}"))
+            mutation_failed(
+                namespace,
+                release,
+                action,
+                stage,
+                format!("Failed to read release state: {e}"),
+            )
         })?
         .ok_or_else(|| {
             mutation_failed(
@@ -1437,7 +1493,14 @@ async fn apply_upgrade_with_state(
             "The release's stored chart payload is corrupted or unreadable; cannot apply the upgrade.",
         ));
     };
-    check_chart_version(namespace, release, action, stage, chart_payload, chart_version)?;
+    check_chart_version(
+        namespace,
+        release,
+        action,
+        stage,
+        chart_payload,
+        chart_version,
+    )?;
 
     let chart_dir = materialize_chart(chart_payload).map_err(|e| {
         mutation_failed(
@@ -1451,10 +1514,24 @@ async fn apply_upgrade_with_state(
 
     let output = run_helm_upgrade(release, chart_dir.path(), namespace, values_yaml, false)
         .await
-        .map_err(|e| mutation_failed(namespace, release, action, stage, format!("Failed to run helm: {e}")))?;
+        .map_err(|e| {
+            mutation_failed(
+                namespace,
+                release,
+                action,
+                stage,
+                format!("Failed to run helm: {e}"),
+            )
+        })?;
 
     if !output.status.success() {
-        return Err(mutation_failed(namespace, release, action, stage, helm_error_message(&output)));
+        return Err(mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            helm_error_message(&output),
+        ));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1478,12 +1555,24 @@ pub(super) async fn apply_helm_upgrade(
 ) -> Result<HelmMutationApplied, HelmMutationFailed> {
     let action = HelmMutationAction::Upgrade;
     let stage = HelmMutationStage::Apply;
-    guard_helm_available(namespace, release, action, stage, helm_binary_available().await)?;
+    guard_helm_available(
+        namespace,
+        release,
+        action,
+        stage,
+        helm_binary_available().await,
+    )?;
 
     let current = current_release_state(state, namespace, release)
         .await
         .map_err(|e| {
-            mutation_failed(namespace, release, action, stage, format!("Failed to read release state: {e}"))
+            mutation_failed(
+                namespace,
+                release,
+                action,
+                stage,
+                format!("Failed to read release state: {e}"),
+            )
         })?
         .ok_or_else(|| {
             mutation_failed(
@@ -1673,9 +1762,7 @@ mod tests {
         assert_eq!(r.status_hint.as_deref(), Some("Ready"));
     }
 
-
     // --- US2: Upgrade -----------------------------------------------------------------
-
 
     // ---- 006-helm-mutate US2 (upgrade): T020, T021, T022 ----
 
@@ -1720,12 +1807,19 @@ mod tests {
         let err = check_base_revision_fresh("default", "redis", HelmMutationAction::Upgrade, 5, 4)
             .expect_err("stale base_revision must fail");
         assert_eq!(err.stage, HelmMutationStage::Apply);
-        assert!(err.message.contains('4') && err.message.contains('5'), "message: {}", err.message);
+        assert!(
+            err.message.contains('4') && err.message.contains('5'),
+            "message: {}",
+            err.message
+        );
     }
 
     #[test]
     fn check_base_revision_fresh_passes_when_matching() {
-        assert!(check_base_revision_fresh("default", "redis", HelmMutationAction::Upgrade, 5, 5).is_ok());
+        assert!(
+            check_base_revision_fresh("default", "redis", HelmMutationAction::Upgrade, 5, 5)
+                .is_ok()
+        );
     }
 
     /// Guards the parallel PATH-manipulating tests in this module against interleaving on a
@@ -1753,8 +1847,13 @@ mod tests {
     }
 
     fn install_failing_fake_helm(stderr_message: &str) -> FakeHelmGuard {
-        let lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let dir = tempfile::Builder::new().prefix("fathom-fake-helm-").tempdir().unwrap();
+        let lock = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = tempfile::Builder::new()
+            .prefix("fathom-fake-helm-")
+            .tempdir()
+            .unwrap();
         let script_path = dir.path().join("helm");
         std::fs::write(
             &script_path,

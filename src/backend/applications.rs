@@ -623,6 +623,9 @@ mod tests {
     fn workload_owns_ref_reports_not_ready() {
         let mut w = workload("Deployment", &[], &[]);
         w.ready = false;
-        assert_eq!(workload_owns_ref(&w).status_hint.as_deref(), Some("NotReady"));
+        assert_eq!(
+            workload_owns_ref(&w).status_hint.as_deref(),
+            Some("NotReady")
+        );
     }
 }
