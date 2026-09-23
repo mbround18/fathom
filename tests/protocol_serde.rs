@@ -1791,6 +1791,13 @@ fn all_cmds() -> Vec<BackendCmd> {
             yaml: "spec: {}\n".to_owned(),
             expected_resource_version: "1".to_owned(),
         },
+        BackendCmd::CreateResourceYaml {
+            api_version: "rbac.authorization.k8s.io/v1".to_owned(),
+            kind: "RoleBinding".to_owned(),
+            namespace: Some("s".to_owned()),
+            name: "s".to_owned(),
+            yaml: "roleRef: {}\n".to_owned(),
+        },
         BackendCmd::RefreshCrds,
         BackendCmd::SelectCrdKind {
             group: "s".to_owned(),
@@ -2022,6 +2029,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SaveUiConfig { .. } => {}
         BackendCmd::SetMcpAutoStart { .. } => {}
         BackendCmd::ApplyResourceYaml { .. } => {}
+        BackendCmd::CreateResourceYaml { .. } => {}
         BackendCmd::RefreshCrds => {}
         BackendCmd::SelectCrdKind { .. } => {}
         BackendCmd::RefreshCrdInstances { .. } => {}

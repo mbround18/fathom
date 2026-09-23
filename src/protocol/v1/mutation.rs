@@ -231,6 +231,13 @@ impl BackendCmdV1 {
                 None => MutationTarget::ClusterScoped,
             },
 
+            // Create-only sibling of ApplyResourceYaml (011-rbac-oidc-administration):
+            // scope follows the target object's own scope, same as apply.
+            C::CreateResourceYaml { namespace, .. } => match namespace {
+                Some(ns) => MutationTarget::namespaced(ns),
+                None => MutationTarget::ClusterScoped,
+            },
+
             // Helm releases (mutate): all namespaced release-storage writes.
             C::PreviewHelmRollback { namespace, .. }
             | C::ApplyHelmRollback { namespace, .. }
@@ -255,7 +262,8 @@ impl BackendCmdV1 {
             | C::LoadUiConfig
             | C::SaveUiConfig { .. }
             | C::SetMcpAutoStart { .. }
-            | C::ApplyResourceYaml { .. } => return None,
+            | C::ApplyResourceYaml { .. }
+            | C::CreateResourceYaml { .. } => return None,
             C::RefreshNamespaces => section_keys::namespaces(),
             C::RefreshNodes
             | C::SelectNode { .. }

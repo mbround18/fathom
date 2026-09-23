@@ -151,6 +151,47 @@ pub async fn apply_resource(
     }
 }
 
+/// Create-only sibling of [`apply_resource`] (011-rbac-oidc-administration): `.create()`s a
+/// brand-new object instead of `.replace()`-ing an existing one. `apply_resource`'s own
+/// behavior is intentionally untouched by this function's existence — every other kind's
+/// YAML-edit tab keeps going through `apply_resource` exactly as before. Object identity is
+/// still validated by the caller via [`parse_and_validate_yaml`] first, same as apply.
+pub async fn create_resource(
+    client: &Client,
+    api_version: &str,
+    kind: &str,
+    namespace: Option<&str>,
+    object: serde_json::Value,
+) -> Result<String, ApplyError> {
+    let (group, version) = split_api_version(api_version);
+    let gvk = GroupVersionKind::gvk(&group, &version, kind);
+    let (api_resource, _caps) = discovery::oneshot::pinned_kind(client, &gvk)
+        .await
+        .map_err(|e| {
+            ApplyError::Other(anyhow::anyhow!(
+                "could not discover the API for {kind} ({api_version}): {e}"
+            ))
+        })?;
+
+    let api: Api<DynamicObject> = match namespace {
+        Some(ns) => Api::namespaced_with(client.clone(), ns, &api_resource),
+        None => Api::all_with(client.clone(), &api_resource),
+    };
+
+    let dyn_obj: DynamicObject = serde_json::from_value(object)
+        .map_err(|e| ApplyError::Other(anyhow::anyhow!("invalid object: {e}")))?;
+
+    match api.create(&PostParams::default(), &dyn_obj).await {
+        Ok(created) => Ok(created.resource_version().unwrap_or_default()),
+        // 409 here means "already exists" (a different name collision), not a stale
+        // resourceVersion — same wire prefix as apply's conflict since the frontend's
+        // classifyApplyError() only branches on the prefix, and "conflict" reads correctly
+        // for both cases ("something about doing this right now failed, re-check and retry").
+        Err(kube::Error::Api(resp)) if resp.code == 409 => Err(ApplyError::Conflict(resp.message)),
+        Err(e) => Err(ApplyError::Other(e.into())),
+    }
+}
+
 /// Split `"apps/v1"` into `("apps", "v1")`, and `"v1"` into `("", "v1")` (the core group).
 fn split_api_version(api_version: &str) -> (String, String) {
     match api_version.split_once('/') {

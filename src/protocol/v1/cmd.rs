@@ -558,6 +558,19 @@ pub enum BackendCmdV1 {
         expected_resource_version: String,
     },
 
+    // 011-rbac-oidc-administration: create-only sibling of `ApplyResourceYaml`. Never
+    // `.replace()`s an existing object — always `.create()`s a brand-new one (RoleBinding/
+    // ClusterRoleBinding today; generic over kind like `ApplyResourceYaml` for the same
+    // discovery reasons). Reuses `ApplyResourceYaml`'s identity-validation + diff-preview/
+    // confirm frontend flow; `ApplyResourceYaml`'s own semantics are unchanged.
+    CreateResourceYaml {
+        api_version: String,
+        kind: String,
+        namespace: Option<String>,
+        name: String,
+        yaml: String,
+    },
+
     // Custom Resource Definition browsing (generic, read-only)
     RefreshCrds,
     SelectCrdKind {
@@ -744,6 +757,24 @@ mod tests {
             name: "pv-1".to_owned(),
             yaml: "spec: {}\n".to_owned(),
             expected_resource_version: "1".to_owned(),
+        });
+    }
+
+    #[test]
+    fn create_resource_yaml_roundtrip() {
+        roundtrip(BackendCmdV1::CreateResourceYaml {
+            api_version: "rbac.authorization.k8s.io/v1".to_owned(),
+            kind: "RoleBinding".to_owned(),
+            namespace: Some("default".to_owned()),
+            name: "read-pods".to_owned(),
+            yaml: "roleRef:\n  kind: Role\n  name: pod-reader\n".to_owned(),
+        });
+        roundtrip(BackendCmdV1::CreateResourceYaml {
+            api_version: "rbac.authorization.k8s.io/v1".to_owned(),
+            kind: "ClusterRoleBinding".to_owned(),
+            namespace: None,
+            name: "cluster-read-pods".to_owned(),
+            yaml: "roleRef:\n  kind: ClusterRole\n  name: view\n".to_owned(),
         });
     }
 
