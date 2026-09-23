@@ -24,10 +24,16 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Hubble/Cilium traffic panel | ✅ | promo-brochure-v2 work |
 | **Applications view** | ✅ | 004-applications-interlinking |
 | **Helm** — read (list/inspector/origin-link) | ✅ | 005-helm-release-origin-linking |
-| **Helm** — mutate (install/upgrade/rollback) | ⬜ | planned next |
+| **Helm** — mutate (rollback/upgrade/uninstall) | ✅ | 006-helm-mutate |
 | **Rich interlinking / drill-down** (chart → pod, resource → resource) | ✅ | 004-applications-interlinking, extended in 005 |
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ⬜ | planned, later |
-| Access Control (RBAC/OAuth/LDAP, role-scoped UI) | ⬜ | future — enterprise-auth tier |
+| Pod lifecycle hooks / probes / init-container detail | ⬜ | gap identified, see §7 |
+| Port-forward rich UI (backend already shipped, no frontend panel yet) | ⬜ | gap identified, see §10 |
+| Container image layer inspection | ⬜ | future — see §9a |
+| Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
+| In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | ⬜ | future — see §14 Tier D |
+| Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ⬜ | future — see §14 Tier E |
+| Teams & organizations (self-hosted multi-user) | ⬜ | future — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
 | Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | ⬜ | not yet planned |
 
@@ -359,6 +365,14 @@ A block-and-line topology diagram of the cluster, letting the operator zoom cont
 * QoS class
 * Priority class
 
+*Status: 🚧 Partial — the above is shipped; the items below are not rendered anywhere today (verified: no `postStart`/`preStop`/`*Probe`/`initContainers` reference exists in `ui/src/resources/workloads.tsx`) despite the data already being present on `PodSpec`/`PodStatus`, so this is cheap to close relative to most other gaps in this doc.*
+
+* **Init containers** — listed distinctly from regular containers, with their own status/exit-code/logs access (they currently fall through the same per-container list as app containers, with no init-vs-app distinction surfaced).
+* **Container lifecycle hooks** — `postStart`/`preStop` as configured on the container spec, plus (from Events) whether a hook actually ran and failed — a common source of slow/failed rollouts that's invisible today.
+* **Probes** — `livenessProbe`/`readinessProbe`/`startupProbe` configuration (type, thresholds, period) per container, correlated with the container's current probe-failure state (from `ContainerStatus`/Events) rather than just the aggregate `Ready` condition.
+* **Restart history per container** — restart count, last termination reason, exit code, and last-terminated timestamp (`ContainerStatus.lastState`) — today only the pod-level `Ready`/`ContainersReady` conditions are shown, not per-container restart causes.
+* **Events timeline** — the pod's own `Event` objects (scheduling, pulling, hook failures, probe failures) rendered as a chronological timeline in the inspector, not just the cluster-wide Events list requiring a manual filter.
+
 #### Metrics
 
 * Per-container CPU
@@ -432,6 +446,27 @@ A block-and-line topology diagram of the cluster, letting the operator zoom cont
 
 ---
 
+## 9a. Container Image Inspection
+
+*Status: ⬜ Not started — future. Would live off a Pod/Deployment's container spec, not its own nav section.*
+
+A "download and inspect layers" affordance on a container's image reference, without pulling the whole image: fetch the OCI manifest + config from the image's registry (using the same `imagePullSecrets` the cluster already has, when the registry is private) and show layer sizes, the image's build history (`Cmd`/commands per layer, from the OCI config's `history` field), total size, and base-image digest — the kind of thing `docker history`/`dive` give you today, surfaced in-app instead of requiring a shell.
+
+### Requirements
+
+* Backend fetches only the manifest + config blobs (OCI distribution spec `GET /v2/<name>/manifests/<ref>` and the config blob it references) — never pulls layer content itself; this stays fast and small regardless of image size.
+* Reuses a registry-client crate that already speaks the OCI distribution spec (e.g. `oci-client`/`oci-distribution`) rather than hand-rolling registry HTTP + auth — same "check Cargo.toml, use a public crate" discipline this repo already applies to `kube`, `tonic`, etc.
+* Auth: try anonymous first, fall back to the pod's resolved `imagePullSecrets` (already visible to the backend via the pod spec) — no new credential UI.
+* Container inspector gains an "Image" tab/section per container: registry, repo, tag/digest, total size, per-layer size + history command, base image (best-effort, from the last shared layer digest against well-known base images — best-effort only, not guaranteed).
+
+### Explicit non-goals for v1
+
+* Vulnerability/CVE scanning — a real feature, but a distinct one (needs a vuln database, not just registry metadata); track separately if/when prioritized.
+* Pulling/caching full image content locally.
+* Private registries requiring interactive/browser-based auth (device-code OIDC registries) — service-account/secret-based auth only for v1.
+
+---
+
 ## 10. Configuration & Settings
 
 *Status: 🚧 Partial — cluster settings/preferences shipped in `001-tauri-shadcn-frontend`; Node Shell not built.*
@@ -451,6 +486,16 @@ A block-and-line topology diagram of the cluster, letting the operator zoom cont
 * Configurable image
 * Optional image pull secret
 * On-demand ephemeral pod
+
+### Port Forward Interface
+
+*Status: 🚧 Backend shipped, frontend is a stub — `src/backend/portforward.rs`'s `PortForwardManager` already does the real work (used internally by the Prometheus and Hubble integrations), and there's a `Port Forwards` nav entry (`network/portforwards`) with protocol types (`PortForward`, `PortForwardStatus`, `TunnelStatus`) and store wiring already generated, but no panel component renders them — the tool pane falls back to the generic empty state today. This is the same shape of gap Flux/Hubble were in before their panels landed, and the cheapest of the ideas in this section to ship.*
+
+* One-click "Forward" action from a Service or Pod inspector (mirrors the existing per-resource action affordances), not just a standalone form requiring the operator to already know the target port.
+* A live list of active forwards (this cluster context) showing local port, target namespace/pod-or-service/port, and live tunnel status (`TunnelStatus`), with stop/restart controls per row.
+* Local port picker with conflict detection (don't silently fail if the port's taken — surface it before the operator tries to connect).
+* Copy-address button (`localhost:<port>`) for pasting into a browser/`psql`/etc.
+* Forwards are cluster-context-scoped and torn down on context switch/app exit (already true at the backend level per `PortForwardManager`'s existing lifecycle — the UI just needs to reflect it, not reimplement it).
 
 ### Preferences
 
@@ -536,6 +581,43 @@ Carried over from roadmap discussion, in priority order:
 * Role assignment UI — ⬜
 * RBAC-scoped UI (hiding/disabling actions a role can't perform, not just erroring after the fact — ties to constitution Principle VI) — ⬜
 
+### Tier C — Cluster-admin RBAC / OIDC-OAuth administration
+
+*Status: ⬜ Not started. This is a UI/workflow layer over Kubernetes' own OIDC-auth and RBAC primitives, not a parallel auth system — the API server already supports OIDC token auth and `Role`/`ClusterRole`/`RoleBinding` objects; Fathom's job is to make configuring and auditing them tractable through a GUI instead of hand-written YAML, gated behind the operator already having cluster-admin (or the specific RBAC-edit permissions) themselves.*
+
+* A cluster-admin-only settings surface for wiring up the API server's OIDC issuer/audience/claim-mapping (where the operator manages the API server config directly, e.g. via kubeadm/managed-cluster provider settings) — or, where the platform doesn't expose that, a guided "here's what to add to your cluster's OIDC config" doc-generation flow rather than a live edit (many managed clusters don't let a client mutate API-server flags).
+* A role-assignment UI: browse existing `Role`/`ClusterRole`s, create/edit `RoleBinding`/`ClusterRoleBinding`s mapping OIDC groups/claims (or service accounts) to roles, namespace-scoped or cluster-scoped — reusing the existing YAML-apply diff-preview/confirmation pattern (Principle I) rather than a bespoke mutation path.
+* A namespace-assignment view: for a given identity (user/group), which namespaces they can act in and with what verbs — computed from `RoleBinding`/`ClusterRoleBinding` + `Role`/`ClusterRole` resolution, read-only first.
+* Ties directly into Tier B's "RBAC-scoped UI" item — once role resolution exists for the signed-in identity, the same data disables/hides actions the identity can't perform.
+
+### Tier D — In-cluster context daemon & multi-cloud federation
+
+*Status: ⬜ Not started, exploratory.*
+
+* An optional lightweight in-cluster daemon (reusing the existing Rust backend/protocol crates rather than a new stack) that can push richer or lower-latency context than polling the API server from outside the cluster — e.g. controller-level events, long-lived watches that survive the desktop client disconnecting/reconnecting. Strictly optional — Fathom already works with zero in-cluster footprint today (direct `kube-rs` against the API server), and that must stay true; the daemon is an enhancement, not a requirement.
+* Multi-cluster / federated view: connect to several clusters' contexts (already how `kube-rs`/kubeconfig contexts work) and aggregate a cross-cluster overview, optionally talking to each cluster's daemon (above) where present.
+* Native credential/context plumbing for the managed-cloud auth plugins that already exist and are the standard path for each provider — `aws-iam-authenticator`/`aws eks get-token` for EKS, `gke-gcloud-auth-plugin` for GKE, `kubelogin` for AKS — rather than reimplementing each cloud's OIDC/IAM token exchange. This is a "shell out to (or vendor) the existing official plugin" integration, not a new auth protocol per cloud.
+
+### Tier E — Agent SDK ops (AI-assist troubleshooting)
+
+*Status: ⬜ Not started, exploratory. MCP server already shipped (Tier A) — this is the natural next layer on top of it.*
+
+* An in-app "what's wrong with this pod/cluster" assistant built on the Claude Agent SDK, grounded in data already streamed to the store (events, conditions, logs, the Pod-lifecycle detail from §7's gap) rather than a separate scraping/ingestion path — the assistant reads the same protocol events the UI renders.
+* Auth modes chosen per the operator, not hardcoded: bring-your-own API key (Anthropic key entered locally, self-hosted-first, matches Fathom's no-cloud-dependency default) or local inference via Ollama (already ⬜ in Tier A) for a fully offline mode.
+* Built against the Agent SDK's public interface (not its internals) specifically so a future hosted/cloud-ops mode is a different auth/config path later, not a rewrite — "cloud-ops ready" without requiring a cloud dependency today.
+* Explicit non-goal for v1: autonomous/unattended mutation — any action the assistant proposes still goes through the same diff-preview + confirmation gate as a human-initiated one (Principle I applies to agent-initiated actions exactly as it does to operator-initiated ones).
+
+### Tier F — Teams & organizations (self-hosted)
+
+*Status: ⬜ Not started, exploratory. Depends on Tier C's role resolution for anything beyond shared connection profiles.*
+
+* Shared cluster-connection profiles within a team (kubeconfig/context sharing, not shared credentials) so a team doesn't each hand-roll their own connection setup.
+* Per-user RBAC-scoped views once signed in via Tier C's OIDC flow — the UI already reflects what that identity can do, per-user, not per-install.
+* Org-level settings/preferences sync (metrics source, hidden-metrics config, etc. from §10) shared across a team rather than re-configured per machine.
+* Explicit non-goal: a hosted multi-tenant SaaS control plane — this is about self-hosted teams who already share real clusters, not standing up a new hosted backend.
+
+**Design constraint across Tiers C–F**: prefer existing public crates, cloud SDKs/CLIs, and Kubernetes-native primitives (OIDC, RBAC objects, kubeconfig contexts, each cloud's official auth plugin, the OCI distribution spec, the Agent SDK's public surface) over inventing new protocols — the same discipline already applied when adding `tonic`/`oci-client`-style dependencies for Flux/Helm/Hubble: check what's already a standard, well-supported crate or API before building a bespoke one.
+
 ---
 
 ## Suggested Next Slices (in order)
@@ -545,3 +627,8 @@ Carried over from roadmap discussion, in priority order:
 3. **Helm (§5a)**, read-only (list + inspector + revision history) — new backend surface (release Secret/ConfigMap parsing), feeds Applications' "Managed By: Helm" rows with real data instead of a label guess.
 4. **Helm mutate** (upgrade/rollback/uninstall) — once read path is solid, follows the same diff-preview + confirmation pattern as `003`'s YAML apply.
 5. **Topology graph (§5c)** — once §5b's relationship model exists and is exercised by real UI, extend it into a zoomable graph rather than modeling relationships twice.
+6. **Pod lifecycle/probes/hooks polish (§7)** — cheapest remaining gap: the data (`initContainers`, probes, hook config, `ContainerStatus.lastState`) is already on objects the app already reads, this is purely a rendering gap, no new backend integration.
+7. **Port-forward rich UI (§10)** — backend (`portforward.rs`) and protocol types already exist; this is a frontend-only panel, same shape of work as the Flux/Hubble panels that already shipped.
+8. **Container image inspection (§9a)** — new but small backend surface (one OCI-registry-client crate, manifest/config fetch only, no layer pulls).
+9. **RBAC/OIDC administration (§14 Tier C)** — the foundational piece for both Tier B's RBAC-scoped UI and Tier F's teams/orgs work; do this before either, not after, since both depend on identity + role resolution existing first.
+10. **In-cluster daemon / multi-cloud federation (§14 Tier D)** and **Agent SDK ops (§14 Tier E)** — largest, most exploratory items; sequence after Tier C since both benefit from (E) or assume (D's federation) a resolved identity/role model.
