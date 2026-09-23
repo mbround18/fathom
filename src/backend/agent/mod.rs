@@ -15,6 +15,7 @@
 //! `src/protocol/v1/mutation.rs`'s `agent_commands_never_write_cluster` test, which
 //! proves this at the type level for every `Agent*` command.
 
+pub(crate) mod action_parse;
 pub(crate) mod anthropic;
 pub(crate) mod credentials;
 pub(crate) mod grounding;
@@ -23,6 +24,18 @@ pub(crate) mod state_machine;
 
 use crate::protocol::v1::AgentTurnAuthor;
 
+pub(crate) use action_parse::ParsedAction;
+
+/// Brief instructions appended to every provider's system prompt (Phase 3, US1) so the
+/// model knows about the `fathom-action` fenced-block convention for proposing a
+/// concrete corrective action. Parsing that convention out of the raw reply happens in
+/// `src/backend/cmd/agent.rs::handle_ask` via `action_parse::parse_suggested_actions`.
+pub(crate) const ACTION_PROPOSAL_INSTRUCTIONS: &str = "If you want to propose a concrete \
+corrective action the operator could take, emit it as a fenced code block tagged \
+`fathom-action` containing JSON {\"action_kind\":...,\"target\":{\"kind\":...,\"namespace\":...,\"name\":...},\"params\":{...},\"rationale\":...}. \
+Only propose actions you are confident are safe and directly relevant. Never claim you \
+have performed an action — you can only propose it for human review.";
+
 /// One turn of conversation sent to a provider as context.
 #[derive(Debug, Clone)]
 pub(crate) struct Turn {
@@ -30,13 +43,20 @@ pub(crate) struct Turn {
     pub text: String,
 }
 
-/// A provider's reply to a turn. `suggested_actions` is populated only when the
-/// provider's response can be parsed into one or more structured proposals; wiring
-/// that parsing is Phase 5 (US3) work — an empty vec here is always valid and simply
-/// means the assistant's reply was informational only.
+/// A provider's reply to a turn. `suggested_actions` is populated only when the raw
+/// `text` contains one or more parseable ```fathom-action fenced blocks (see
+/// `action_parse`); an empty vec here is always valid and simply means the assistant's
+/// reply was informational only. Providers themselves never populate this field —
+/// `text` always carries the raw, unstripped reply; parsing happens centrally in
+/// `src/backend/cmd/agent.rs::handle_ask`.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TurnResult {
     pub text: String,
+    /// Reserved for a future provider that returns structured tool-call output
+    /// directly rather than text-embedded fenced blocks; both current clients leave
+    /// this empty and `handle_ask` parses `text` itself via `action_parse`.
+    #[allow(dead_code)]
+    pub suggested_actions: Vec<ParsedAction>,
 }
 
 /// Abstraction over the two supported providers (research.md R1). Deliberately thin:

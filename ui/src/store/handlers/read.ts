@@ -11,13 +11,14 @@ export function readKind(type: ResourceReadEvent['type']): string {
 }
 
 /**
- * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones, which
- * `ingest.ts` routes to `handleImageInspect` before this is ever reached (their payload has no
- * `name` field for the generic `details` keying below to key on).
+ * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones and
+ * 013-agent-sdk-ops's `AgentConversationUpdated`, which `ingest.ts` routes to
+ * `handleImageInspect`/`handleAgentConversation` before this is ever reached (none of their
+ * payloads have a top-level `name` field for the generic `details` keying below to key on).
  */
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
-  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
 >
 
 export function readKeyOf(env: BackendEventEnvelope, event: GenericReadEvent): string {

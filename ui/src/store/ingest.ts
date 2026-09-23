@@ -20,6 +20,7 @@ import type { StoreApi } from 'zustand'
 import { PROTOCOL_VERSION, type BackendEventEnvelope, type EventBatch } from '@/protocol/types'
 
 import { Draft } from './draft'
+import { handleAgentConversation } from './handlers/agent'
 import { handleImageInspect } from './handlers/imageInspect'
 import { handleList } from './handlers/list'
 import { handleRead, readKeyOf } from './handlers/read'
@@ -90,6 +91,12 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
         event.data.type === 'ContainerImageInspectFailed'
       ) {
         handleImageInspect(d, event.data)
+        return
+      }
+      // 013-agent-sdk-ops: same problem — `{object, conversation}` carries no top-level
+      // `name` for `readKeyOf`, so this is keyed and handled separately too.
+      if (event.data.type === 'AgentConversationUpdated') {
+        handleAgentConversation(d, event.data.data)
         return
       }
       const latest = d.read('details')[readKeyOf(env, event.data)]?.latestRequest

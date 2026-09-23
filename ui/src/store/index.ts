@@ -11,6 +11,7 @@ import { resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type {
+  AgentConversation,
   BackendCmd,
   CrdCatalogEntry,
   DiskUsage,
@@ -145,13 +146,14 @@ export interface ListState {
 }
 
 /**
- * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones, which
- * are never stored here — they live in `imageInspections` instead (their payload has no `name`
- * field for this generic namespace/kind/name keying).
+ * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones and
+ * 013-agent-sdk-ops's `AgentConversationUpdated`, which are never stored here — they live in
+ * `imageInspections`/`agentConversations` instead (neither payload has a `name` field for this
+ * generic namespace/kind/name keying).
  */
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
-  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
 >
 
 export interface DetailState {
@@ -377,6 +379,13 @@ export interface StoreData {
    * `${namespace}/${pod}/${container}`. See `ImageInspectState`.
    */
   imageInspections: Record<string, ImageInspectState>
+  /**
+   * 013-agent-sdk-ops: per-object assistant conversations, keyed by
+   * `${kind}/${namespace}/${name}` (matches the backend's `conversation_key`). Driven entirely
+   * by `AgentConversationUpdated` (`store/handlers/agent.ts`) — its payload has no top-level
+   * `namespace`/`name`, so it is special-cased in `ingest.ts` like `ContainerImageInspected`.
+   */
+  agentConversations: Record<string, AgentConversation>
   /**
    * 006-helm-mutate: the in-flight/last rollback-upgrade-uninstall preview→apply flow. Global
    * (not keyed), same as `flux`/`hubble` — only one Helm mutate flow can be open at a time
@@ -666,6 +675,7 @@ export function initialData(): StoreData {
     integrations: { portAvailability: {} },
     nodeActions: {},
     imageInspections: {},
+    agentConversations: {},
     helmUninstalls: {},
     helmMutations: {},
     layout: {

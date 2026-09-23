@@ -22,6 +22,7 @@ import { detailKey, listKey, useStore, type ListRow, type PaneId, type PaneState
 import { cn } from '@/lib/utils'
 
 import { DetailSections } from './DetailSections'
+import { AgentPanel } from './panels/agent-ops/AgentPanel'
 import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
 import { HelmUpgradePanel } from './panels/HelmUpgradePanel'
 import { ImageInspectPanel } from './panels/ImageInspectPanel'
@@ -36,6 +37,21 @@ const DISCARD_EDIT_PROMPT =
   'You have unsaved YAML changes that have not been applied. Leave anyway and discard them?'
 
 const NO_ROWS: readonly ListRow[] = []
+
+// 013-agent-sdk-ops (US1 MVP): kinds the "Agent" tab is offered for. Grounding data collection
+// (`src/backend/agent/grounding.rs`) currently only implements Pod grounding — other kinds still
+// get a working conversation, just without grounding context yet, so this list is intentionally
+// broader than "Pod only" per the feature's "be reasonably inclusive" guidance.
+const AGENT_OPS_KINDS = new Set([
+  'Pod',
+  'Deployment',
+  'DaemonSet',
+  'StatefulSet',
+  'ReplicaSet',
+  'Job',
+  'CronJob',
+  'Service',
+])
 
 export function Inspector({ pane }: { pane: PaneState }) {
   useEscapeToClose(pane.target !== undefined)
@@ -230,6 +246,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
               Upgrade
             </TabsTrigger>
           )}
+          {target.namespace && AGENT_OPS_KINDS.has(target.kind) && (
+            <TabsTrigger
+              value="agent-ops"
+              data-testid="agent-ops-tab"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Ask AI
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="details" className="min-h-0 overflow-y-auto text-sm">
           <DetailSections
@@ -317,6 +342,13 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
               namespace={target.namespace}
               release={target.name}
               detail={detail as HelmReleaseDetails | undefined}
+            />
+          </TabsContent>
+        )}
+        {target.namespace && AGENT_OPS_KINDS.has(target.kind) && (
+          <TabsContent value="agent-ops" className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <AgentPanel
+              object={{ kind: target.kind, namespace: target.namespace, name: target.name }}
             />
           </TabsContent>
         )}

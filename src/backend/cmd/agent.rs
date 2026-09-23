@@ -219,8 +219,8 @@ async fn handle_ask(
          using the grounding data provided below; if the question is unrelated to this \
          object or the data given, say so rather than guessing. Do not claim to have \
          taken any action — you may only describe a possible next step for the \
-         operator to review and confirm.\n\nGrounding data for {}/{}/{}:\n{}",
-        object.kind, object.namespace, object.name, grounding_text
+         operator to review and confirm.\n\n{}\n\nGrounding data for {}/{}/{}:\n{}",
+        agent::ACTION_PROPOSAL_INSTRUCTIONS, object.kind, object.namespace, object.name, grounding_text
     );
 
     let history: Vec<Turn> = state
@@ -237,17 +237,35 @@ async fn handle_ask(
         })
         .unwrap_or_default();
 
-    let reply_text = match dispatch_to_provider(&system_prompt, &history).await {
+    let raw_reply_text = match dispatch_to_provider(&system_prompt, &history).await {
         Ok(result) => result.text,
         Err(err) => err.to_string(),
     };
+
+    // Parse the fathom-action convention out of the raw reply (Phase 3, US1:
+    // informational only — no review/execute wiring here, see mod-level safety doc).
+    // A parse failure is never surfaced to the operator: malformed blocks are simply
+    // skipped inside `parse_suggested_actions`.
+    let parsed_actions = agent::action_parse::parse_suggested_actions(&raw_reply_text);
+    let suggested_actions = parsed_actions
+        .into_iter()
+        .map(|parsed| crate::protocol::SuggestedAction {
+            id: agent::next_local_id("sugg"),
+            action_kind: parsed.action_kind,
+            target: parsed.target,
+            params: parsed.params,
+            rationale: parsed.rationale,
+            status: crate::protocol::SuggestedActionStatus::Proposed,
+        })
+        .collect();
+    let reply_text = agent::action_parse::strip_action_blocks(&raw_reply_text);
 
     let assistant_message = AgentMessage {
         id: agent::next_local_id("msg"),
         author: AgentTurnAuthor::Assistant,
         text: reply_text,
         grounding: grounding_sources,
-        suggested_actions: Vec::new(),
+        suggested_actions,
         created_at: k8s_openapi::chrono::Utc::now().to_rfc3339(),
     };
 

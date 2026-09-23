@@ -111,6 +111,9 @@ impl AgentClient for AnthropicClient {
             .collect::<Vec<_>>()
             .join("\n");
 
-        Ok(TurnResult { text })
+        Ok(TurnResult {
+            text,
+            suggested_actions: Vec::new(),
+        })
     }
 }

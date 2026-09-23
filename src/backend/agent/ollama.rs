@@ -94,6 +94,7 @@ impl AgentClient for OllamaClient {
 
         Ok(TurnResult {
             text: parsed.message.map(|m| m.content).unwrap_or_default(),
+            suggested_actions: Vec::new(),
         })
     }
 }
