@@ -7,6 +7,7 @@ import type {
   HelmReleaseSummary,
   NodeSummary,
   ResourceListEvent,
+  ServiceSummary,
 } from '../../src/protocol/types'
 import { PODS_500 } from './batches'
 import { genDeployments } from './gen-pods'
@@ -59,10 +60,30 @@ const HELM_RELEASES: HelmReleaseSummary[] = [
   },
 ]
 
+const SERVICES: ServiceSummary[] = [
+  {
+    name: 'web',
+    namespace: 'default',
+    service_type: 'ClusterIP',
+    cluster_ip: '10.0.0.1',
+    external_ips: [],
+    port_count: 1,
+  },
+  {
+    name: 'web-lb',
+    namespace: 'default',
+    service_type: 'LoadBalancer',
+    cluster_ip: '10.0.0.2',
+    external_ips: ['203.0.113.1'],
+    port_count: 2,
+  },
+]
+
 export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/pods': { type: 'PodsUpdated', data: PODS_500 },
   'workloads/deployments': { type: 'DeploymentsUpdated', data: genDeployments('kind-a') },
   nodes: { type: 'NodesUpdated', data: NODES },
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
   'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
+  'network/services': { type: 'ServicesUpdated', data: SERVICES },
 }
