@@ -365,13 +365,13 @@ A block-and-line topology diagram of the cluster, letting the operator zoom cont
 * QoS class
 * Priority class
 
-*Status: 🚧 Partial — the above is shipped; the items below are not rendered anywhere today (verified: no `postStart`/`preStop`/`*Probe`/`initContainers` reference exists in `ui/src/resources/workloads.tsx`) despite the data already being present on `PodSpec`/`PodStatus`, so this is cheap to close relative to most other gaps in this doc.*
+*Status: ✅ Done — `008-pod-lifecycle-diagnostics` shipped the items below as a new "Lifecycle" Pod Inspector section (`ui/src/components/PodLifecyclePanels.tsx`, `PodDetails.containers_lifecycle`).*
 
-* **Init containers** — listed distinctly from regular containers, with their own status/exit-code/logs access (they currently fall through the same per-container list as app containers, with no init-vs-app distinction surfaced).
-* **Container lifecycle hooks** — `postStart`/`preStop` as configured on the container spec, plus (from Events) whether a hook actually ran and failed — a common source of slow/failed rollouts that's invisible today.
-* **Probes** — `livenessProbe`/`readinessProbe`/`startupProbe` configuration (type, thresholds, period) per container, correlated with the container's current probe-failure state (from `ContainerStatus`/Events) rather than just the aggregate `Ready` condition.
-* **Restart history per container** — restart count, last termination reason, exit code, and last-terminated timestamp (`ContainerStatus.lastState`) — today only the pod-level `Ready`/`ContainersReady` conditions are shown, not per-container restart causes.
-* **Events timeline** — the pod's own `Event` objects (scheduling, pulling, hook failures, probe failures) rendered as a chronological timeline in the inspector, not just the cluster-wide Events list requiring a manual filter.
+* **Init containers** — listed distinctly from app containers, with status/exit-code and a "view logs" affordance that switches to the Logs tab and starts a stream scoped to that container.
+* **Container lifecycle hooks** — `postStart`/`preStop` as configured on the container spec, correlated with `FailedPostStartHook`/`FailedPreStopHook` Events to flag a hook that actually failed.
+* **Probes** — `livenessProbe`/`readinessProbe`/`startupProbe` configuration (type, mechanism/target, thresholds, period) per container, correlated with the container's current probe-failure state (`ContainerStatus.ready`/Events) rather than just the aggregate `Ready` condition.
+* **Restart history per container** — restart count, last termination reason, exit code, and last-terminated timestamp (`ContainerStatus.lastState`), including the `restartPolicy: Never` edge case where a container that never restarted still surfaces its termination from `state`.
+* **Events timeline** — the pod's own `Event` objects rendered as a chronological, live-updating timeline inside the inspector, sourced from the same cluster-events list the Events tab uses (no duplicate fetch).
 
 #### Metrics
 
