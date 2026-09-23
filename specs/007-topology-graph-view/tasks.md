@@ -5,9 +5,9 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
 ## Phase 0: Setup
 
 - [X] T001 Add `d3-force` dependency to `ui/package.json`, `pnpm -C ui install`
-- [ ] T002 [P] Add `Topology` variant to `pub enum ToolKind` in `src/protocol/v1/ui_config.rs`;
+- [X] T002 [P] Add `Topology` variant to `pub enum ToolKind` in `src/protocol/v1/ui_config.rs`;
       extend its round-trip test in the same module
-- [ ] T003 [P] Regenerate/hand-sync `ui/src/protocol/generated/ToolKind.ts` to include `"topology"`
+- [X] T003 [P] Regenerate/hand-sync `ui/src/protocol/generated/ToolKind.ts` to include `"topology"`
 
 ## Phase 1: Foundational (blocks all user stories)
 
@@ -24,10 +24,10 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
       contracts/topology-graph-module.md
 - [X] T015 [P] Unit test `ui/tests/unit/topology/layout.test.ts`: all nodes get finite x/y; prior
       positions seed the simulation
-- [ ] T016 Add `topology?: { scale: number; x: number; y: number }` to `PaneState` in
+- [X] T016 Add `topology?: { scale: number; x: number; y: number }` to `PaneState` in
       `ui/src/store/index.ts`; ensure `newPane`/`assignPanes` leave it undefined by default
       (research.md R4)
-- [ ] T017 Register `'topology'` tool: `TOOL_KINDS` set and `TOOL_LABEL['topology']` in
+- [X] T017 Register `'topology'` tool: `TOOL_KINDS` set and `TOOL_LABEL['topology']` in
       `ui/src/layout/defaults.ts` / `ui/src/components/shell/labels.ts`; add to
       `DOCK.tabs` default (laptop+) and to phone/tablet `StackTab` lists
       (`ui/src/components/shell/PhoneStack.tsx`, `TabletTabs.tsx`, `stack-tabs.ts`) so the pane is

@@ -89,6 +89,11 @@ export interface PaneState {
    * R6). Empty when opened directly from a list row. Session-transient, never persisted.
    */
   history?: ObjectRef[]
+  /**
+   * Tool (topology): last camera transform (research.md R4), mirroring how `scrollTop` persists
+   * a list pane's scroll position across re-layout. `undefined` until the pane's first render.
+   */
+  topology?: { scale: number; x: number; y: number }
 }
 
 /** data-model.md §4: starting → ready → backend-gone (fatal; retry = app restart). */

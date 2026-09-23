@@ -52,7 +52,7 @@ fn sample_ui_config() -> UiConfig {
             dock: Some(DockConfig {
                 open: true,
                 height_pct: 30.0,
-                tabs: vec![ToolKind::Events, ToolKind::Portforwards],
+                tabs: vec![ToolKind::Events, ToolKind::Portforwards, ToolKind::Topology],
             }),
         },
     );

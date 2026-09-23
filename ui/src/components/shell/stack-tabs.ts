@@ -1,4 +1,11 @@
-import { PlugsIcon, PulseIcon, StackIcon, TerminalIcon, type Icon } from '@phosphor-icons/react'
+import {
+  PlugsIcon,
+  PulseIcon,
+  ShareNetworkIcon,
+  StackIcon,
+  TerminalIcon,
+  type Icon,
+} from '@phosphor-icons/react'
 
 import type { ToolKind } from '@/protocol/types'
 import { useStore, type PaneKind } from '@/store'
@@ -23,6 +30,12 @@ export const FORWARDS_TAB: StackTab = {
   icon: PlugsIcon,
   kind: 'tool',
   tool: 'portforwards',
+}
+export const TOPOLOGY_TAB: StackTab = {
+  label: 'Topology',
+  icon: ShareNetworkIcon,
+  kind: 'tool',
+  tool: 'topology',
 }
 
 /** Which tab the stack root belongs to: tool panes by tool, everything else is Resources. */

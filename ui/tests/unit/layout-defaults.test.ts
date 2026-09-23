@@ -22,7 +22,10 @@ describe('defaultProfile', () => {
 
   it('has a dock from desktop up only', () => {
     expect(defaultProfile('laptop').dock).toBeUndefined()
-    expect(defaultProfile('desktop').dock).toMatchObject({ open: true, tabs: ['logs', 'events'] })
+    expect(defaultProfile('desktop').dock).toMatchObject({
+      open: true,
+      tabs: ['logs', 'events', 'topology'],
+    })
   })
 })
 
