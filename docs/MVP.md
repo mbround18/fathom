@@ -29,7 +29,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ⬜ | planned, later |
 | Pod lifecycle hooks / probes / init-container detail | ⬜ | gap identified, see §7 |
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ⬜ | gap identified, see §10 |
-| Container image layer inspection | ⬜ | future — see §9a |
+| Container image layer inspection | ✅ | see §9a |
 | Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
 | In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | ⬜ | future — see §14 Tier D |
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ⬜ | future — see §14 Tier E |
@@ -448,7 +448,7 @@ A block-and-line topology diagram of the cluster, letting the operator zoom cont
 
 ## 9a. Container Image Inspection
 
-*Status: ⬜ Not started — future. Would live off a Pod/Deployment's container spec, not its own nav section.*
+*Status: ✅ Shipped (`010-container-image-inspection`) — lives off the Pod inspector's "Image" tab, not its own nav section.*
 
 A "download and inspect layers" affordance on a container's image reference, without pulling the whole image: fetch the OCI manifest + config from the image's registry (using the same `imagePullSecrets` the cluster already has, when the registry is private) and show layer sizes, the image's build history (`Cmd`/commands per layer, from the OCI config's `history` field), total size, and base-image digest — the kind of thing `docker history`/`dive` give you today, surfaced in-app instead of requiring a shell.
 
