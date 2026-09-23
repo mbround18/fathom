@@ -4,12 +4,16 @@
 import type { SectionKey } from '@/protocol/types'
 
 import { applications } from './applications'
+import { clusterrolebindings } from './clusterrolebindings'
+import { clusterroles } from './clusterroles'
 import { daemonsets } from './daemonsets'
 import { deployments } from './deployments'
 import { fluxResource } from './flux-resource'
 import { helm } from './helm'
 import { nodes } from './nodes'
 import { pods } from './pods'
+import { rolebindings } from './rolebindings'
+import { roles } from './roles'
 import { services } from './services'
 import { statefulsets } from './statefulsets'
 import type { AnyDescriptor } from './types'
@@ -25,6 +29,11 @@ export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [
   applications,
   helm,
   services,
+  // 011-rbac-oidc-administration
+  roles,
+  clusterroles,
+  rolebindings,
+  clusterrolebindings,
 ]
 
 /**

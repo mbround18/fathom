@@ -59,6 +59,17 @@ pub async fn dispatch_cmd(
             .await;
             return Ok(false);
         }
+        BackendCmd::CreateResourceYaml {
+            api_version,
+            kind,
+            namespace,
+            name,
+            yaml,
+        } => {
+            handle_create_resource_yaml(state, sender, api_version, kind, namespace, name, yaml)
+                .await;
+            return Ok(false);
+        }
         other => other,
     };
 
@@ -192,6 +203,63 @@ async fn handle_apply_resource_yaml(
     )
     .await
     {
+        Ok(resource_version) => {
+            events::emit(
+                seq,
+                sender,
+                Route::global(section_keys::system()),
+                Correlation::None,
+                BackendEvent::Stream(StreamEvent::ResourceApplied {
+                    request_id: events::current_request_id_string(),
+                    resource_version,
+                }),
+            );
+        }
+        Err(err) => {
+            events::notify_error(seq, sender, err.to_string());
+        }
+    }
+}
+
+/// `CreateResourceYaml` (011-rbac-oidc-administration): create-only sibling of
+/// `handle_apply_resource_yaml` above. Reuses the same identity validation and the same
+/// `ResourceApplied` success event (so the frontend's existing edit-session/diff-preview
+/// machinery needs no new event type to recognize a create as done) but calls
+/// `apply::create_resource` instead of `apply::apply_resource`.
+async fn handle_create_resource_yaml(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    api_version: String,
+    kind: String,
+    namespace: Option<String>,
+    name: String,
+    yaml: String,
+) {
+    let seq = state.cluster.seq.as_ref();
+
+    let object = match apply::parse_and_validate_yaml(
+        &yaml,
+        &api_version,
+        &kind,
+        namespace.as_deref(),
+        &name,
+    ) {
+        Ok(object) => object,
+        Err(msg) => {
+            events::notify_error(seq, sender, msg);
+            return;
+        }
+    };
+
+    let client = match state.cluster.client_or_err() {
+        Ok(client) => client,
+        Err(e) => {
+            events::notify_error(seq, sender, format!("{e:#}"));
+            return;
+        }
+    };
+
+    match apply::create_resource(&client, &api_version, &kind, namespace.as_deref(), object).await {
         Ok(resource_version) => {
             events::emit(
                 seq,

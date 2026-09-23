@@ -12,7 +12,9 @@ use base64::Engine as _;
 use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::{Node, Pod, Secret};
 use kube::Api;
-use oci_client::{Client, Reference, client::ClientConfig, manifest::ImageIndexEntry, secrets::RegistryAuth};
+use oci_client::{
+    Client, Reference, client::ClientConfig, manifest::ImageIndexEntry, secrets::RegistryAuth,
+};
 use oci_spec::image::{Arch, Os};
 use serde::Deserialize;
 
@@ -304,9 +306,12 @@ async fn try_with_pull_secrets(
         match pull(oci, reference.clone_with_auth(auth)).await {
             Ok(result) => return Ok(finish(reference, registry_display, result)),
             Err(RegistryFetchError::Unauthorized) => {
-                last_detail = format!("imagePullSecrets {name} did not grant access to {registry_display}");
+                last_detail =
+                    format!("imagePullSecrets {name} did not grant access to {registry_display}");
             }
-            Err(RegistryFetchError::NotFound(d)) => return Err(ImageInspectError::ImageNotFound(d)),
+            Err(RegistryFetchError::NotFound(d)) => {
+                return Err(ImageInspectError::ImageNotFound(d));
+            }
             Err(RegistryFetchError::Unreachable(d)) => {
                 return Err(ImageInspectError::RegistryUnreachable(d));
             }
@@ -399,8 +404,12 @@ fn classify_error(err: oci_client::errors::OciDistributionError) -> RegistryFetc
     match &err {
         E::UnauthorizedError { .. } => RegistryFetchError::Unauthorized,
         E::ImageManifestNotFoundError(_) => RegistryFetchError::NotFound(err.to_string()),
-        E::ServerError { code, .. } if *code == 404 => RegistryFetchError::NotFound(err.to_string()),
-        E::ServerError { code, .. } if *code == 401 || *code == 403 => RegistryFetchError::Unauthorized,
+        E::ServerError { code, .. } if *code == 404 => {
+            RegistryFetchError::NotFound(err.to_string())
+        }
+        E::ServerError { code, .. } if *code == 401 || *code == 403 => {
+            RegistryFetchError::Unauthorized
+        }
         E::RequestError(e) if e.is_connect() || e.is_timeout() => {
             RegistryFetchError::Unreachable(err.to_string())
         }
@@ -463,7 +472,11 @@ fn dockerconfigjson_auth(secret: &Secret, registry: &str) -> Option<RegistryAuth
     let parsed: DockerConfigJson = serde_json::from_slice(&bytes.0).ok()?;
 
     let candidates: &[&str] = if registry == "docker.io" {
-        &["docker.io", "https://index.docker.io/v1/", "index.docker.io"]
+        &[
+            "docker.io",
+            "https://index.docker.io/v1/",
+            "index.docker.io",
+        ]
     } else {
         &[registry]
     };
@@ -489,8 +502,7 @@ fn finish(reference: &Reference, registry_display: &str, result: PullResult) -> 
     let config: oci_spec::image::ImageConfiguration =
         serde_json::from_str(&result.config_json).unwrap_or_default();
 
-    let history: Vec<oci_spec::image::History> =
-        config.history().clone().unwrap_or_default();
+    let history: Vec<oci_spec::image::History> = config.history().clone().unwrap_or_default();
 
     let mut history_iter = history.into_iter();
     let mut layers = Vec::with_capacity(result.manifest.layers.len());
@@ -616,8 +628,9 @@ mod tests {
             .await;
 
         let host = server.address().to_string();
-        let reference: Reference =
-            format!("{host}/library/nginx:latest").parse().expect("valid reference");
+        let reference: Reference = format!("{host}/library/nginx:latest")
+            .parse()
+            .expect("valid reference");
 
         let oci = Client::new(ClientConfig {
             protocol: oci_client::client::ClientProtocol::Http,
@@ -742,12 +755,9 @@ mod tests {
             .image_inspect_cache
             .insert(cached.image_ref.digest.clone(), cached.clone());
 
-        let reference: Reference = format!(
-            "docker.io/library/nginx@{}",
-            cached.image_ref.digest
-        )
-        .parse()
-        .expect("valid reference");
+        let reference: Reference = format!("docker.io/library/nginx@{}", cached.image_ref.digest)
+            .parse()
+            .expect("valid reference");
 
         // A fake client is never invoked in the cache-hit path — this asserts on the cache
         // lookup taken by `fetch_inspection` directly rather than an oci_client::Client mock,

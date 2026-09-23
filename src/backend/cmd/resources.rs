@@ -8,8 +8,8 @@ use crate::backend::{
     applications, clusterrolebindings, clusterroles, configmaps, crds, endpoints, flux, helm,
     horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges, mutatingwebhooks,
     networkpolicies, persistentvolumeclaims, persistentvolumes, poddisruptionbudgets,
-    priorityclasses, related, resourcequotas, rolebindings, roles, runtimeclasses, secrets,
-    services, storageclasses, validatingwebhooks,
+    priorityclasses, rbac_access, related, resourcequotas, rolebindings, roles, runtimeclasses,
+    secrets, services, storageclasses, validatingwebhooks,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -778,6 +778,26 @@ async fn handle_access_cmd(
         BackendCmd::DeleteClusterRoleBinding { name } => {
             clusterrolebindings::delete_cluster_role_binding(state, sender, &name).await?;
             clusterrolebindings::refresh_cluster_role_bindings(state, sender).await?;
+        }
+        BackendCmd::RefreshRbacSelfAccess { checks } => {
+            rbac_access::handle_refresh_rbac_self_access(state, sender, checks).await?;
+        }
+        BackendCmd::ResolveNamespaceAccess {
+            subject_kind,
+            subject_name,
+            subject_namespace,
+        } => {
+            rbac_access::handle_resolve_namespace_access(
+                state,
+                sender,
+                subject_kind,
+                subject_name,
+                subject_namespace,
+            )
+            .await?;
+        }
+        BackendCmd::RefreshKubeadmDetection => {
+            rbac_access::handle_refresh_kubeadm_detection(state, sender).await?;
         }
         other => return Ok(Some(other)),
     }

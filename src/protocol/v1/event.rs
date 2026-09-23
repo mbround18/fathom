@@ -7,13 +7,14 @@ use super::{
     HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails,
     HelmReleaseSummary, HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary,
     HubbleTrafficSummary, IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary,
-    JobDetails, JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
-    MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary, NamespaceDetails,
-    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
-    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
-    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
-    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
-    PrometheusMetrics, RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
+    JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
+    LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
+    NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
+    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
+    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
+    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
+    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
+    RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
     ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
     RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
     SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
@@ -387,6 +388,15 @@ pub enum ResourceReadEvent {
         object: super::AgentObjectRef,
         conversation: super::AgentConversation,
     },
+    /// Reply for `RefreshRbacSelfAccess` (011-rbac-oidc-administration, FR-007 gating).
+    RbacSelfAccessUpdated {
+        results: Vec<RbacAccessResult>,
+    },
+    /// Reply for `ResolveNamespaceAccess` (011-rbac-oidc-administration, Story 4). Read-only.
+    NamespaceAccessResolved(NamespaceAccessResolved),
+    /// Reply for `RefreshKubeadmDetection` (011-rbac-oidc-administration, Story 5). Never an
+    /// error: an unreadable/absent ConfigMap simply yields `checked: false`.
+    KubeadmDetectionUpdated(KubeadmDetectionResult),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

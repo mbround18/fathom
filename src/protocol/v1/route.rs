@@ -237,6 +237,14 @@ pub mod section_keys {
         SectionKey::new("access/clusterrolebindings")
     }
 
+    pub fn access_namespace_access() -> SectionKey {
+        SectionKey::new("access/namespace-access")
+    }
+
+    pub fn access_oidc_config() -> SectionKey {
+        SectionKey::new("access/oidc-config")
+    }
+
     pub fn custom_resources() -> SectionKey {
         SectionKey::new("custom-resources")
     }

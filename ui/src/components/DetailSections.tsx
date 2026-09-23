@@ -32,7 +32,11 @@ export function DetailSections({
       ? descriptor.columns.filter((c) => hiddenColumns.includes(c.id))
       : []
   return (
-    <div className="flex flex-col gap-5 p-3">
+    <div
+      data-testid="detail-sections"
+      data-section={descriptor.section}
+      className="flex flex-col gap-5 p-3"
+    >
       {descriptor.detailSections.map((s) => (
         <Section key={s.id} title={s.title}>
           <Block block={s.render({ row, detail, related })} />

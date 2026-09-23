@@ -300,6 +300,18 @@ fn access_control_sections() -> Vec<SectionDef> {
             group,
             ScopeKind::Cluster,
         ),
+        section(
+            section_keys::access_namespace_access(),
+            "Namespace Access",
+            group,
+            ScopeKind::Cluster,
+        ),
+        section(
+            section_keys::access_oidc_config(),
+            "OIDC Configuration",
+            group,
+            ScopeKind::Cluster,
+        ),
     ]
 }
 

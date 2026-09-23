@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
-    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ClusterSettings, RequestId, SectionKey,
-    UiConfig,
+    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ClusterSettings, RbacAccessCheck, RequestId,
+    SectionKey, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -410,6 +410,24 @@ pub enum BackendCmdV1 {
         name: String,
     },
 
+    // access_rolebindings / access_clusterrolebindings: live self-permission gating for
+    // create/edit/delete actions (FR-007). Read-only; never mutates the cluster.
+    RefreshRbacSelfAccess {
+        checks: Vec<RbacAccessCheck>,
+    },
+
+    // access/namespace-access (read-only, derived from already-fetched RBAC objects)
+    ResolveNamespaceAccess {
+        subject_kind: String,
+        subject_name: String,
+        subject_namespace: Option<String>,
+    },
+
+    // access/oidc-config: best-effort read-only detection only, never a live config edit
+    // (FR-008). The OIDC flag/instruction generation itself is frontend-only and has no
+    // protocol command at all.
+    RefreshKubeadmDetection,
+
     // config_configmaps
     RefreshConfigMaps,
     SelectConfigMap {
@@ -576,6 +594,19 @@ pub enum BackendCmdV1 {
         name: String,
         yaml: String,
         expected_resource_version: String,
+    },
+
+    // 011-rbac-oidc-administration: create-only sibling of `ApplyResourceYaml`. Never
+    // `.replace()`s an existing object — always `.create()`s a brand-new one (RoleBinding/
+    // ClusterRoleBinding today; generic over kind like `ApplyResourceYaml` for the same
+    // discovery reasons). Reuses `ApplyResourceYaml`'s identity-validation + diff-preview/
+    // confirm frontend flow; `ApplyResourceYaml`'s own semantics are unchanged.
+    CreateResourceYaml {
+        api_version: String,
+        kind: String,
+        namespace: Option<String>,
+        name: String,
+        yaml: String,
     },
 
     // Custom Resource Definition browsing (generic, read-only)
@@ -814,6 +845,24 @@ mod tests {
             name: "pv-1".to_owned(),
             yaml: "spec: {}\n".to_owned(),
             expected_resource_version: "1".to_owned(),
+        });
+    }
+
+    #[test]
+    fn create_resource_yaml_roundtrip() {
+        roundtrip(BackendCmdV1::CreateResourceYaml {
+            api_version: "rbac.authorization.k8s.io/v1".to_owned(),
+            kind: "RoleBinding".to_owned(),
+            namespace: Some("default".to_owned()),
+            name: "read-pods".to_owned(),
+            yaml: "roleRef:\n  kind: Role\n  name: pod-reader\n".to_owned(),
+        });
+        roundtrip(BackendCmdV1::CreateResourceYaml {
+            api_version: "rbac.authorization.k8s.io/v1".to_owned(),
+            kind: "ClusterRoleBinding".to_owned(),
+            namespace: None,
+            name: "cluster-read-pods".to_owned(),
+            yaml: "roleRef:\n  kind: ClusterRole\n  name: view\n".to_owned(),
         });
     }
 

@@ -32,6 +32,13 @@ export type EditSessionStatus =
 
 export interface ResourceEditSession {
   target: ResourceEditTarget
+  /**
+   * `'create'` for a session opened via `openCreateSession` (011-rbac-oidc-administration US2):
+   * no live object exists yet, so `buildApplyCommand` emits `CreateResourceYaml` instead of
+   * `ApplyResourceYaml` and the diff view compares against an empty live buffer. Absent (the
+   * default) for the ordinary edit-an-existing-object flow.
+   */
+  mode?: 'create'
   /** `metadata.resourceVersion` captured when the tab was opened; sent back on apply. */
   openedResourceVersion: string
   /** Rendered via `jsonToYaml()`; re-derived on every live update while the session is open. */
@@ -90,6 +97,29 @@ export function openSession(ref: ObjectRef, raw: string): ResourceEditSession {
     liveYaml: yaml,
     editedYaml: yaml,
     dirty: false,
+    liveYamlChangedSinceReview: false,
+    status: 'editing',
+  }
+}
+
+/**
+ * A fresh create-mode session (011-rbac-oidc-administration US2): no live object exists yet, so
+ * `liveYaml` starts empty (the diff view then shows the whole generated object as additions) and
+ * `openedResourceVersion` is unused (`buildApplyCommand` omits it via `CreateResourceYaml`).
+ * `target` still needs `apiVersion`/`kind`/`namespace`/`name` up front — for RBAC bindings these
+ * come from the form's role/subject selections before any YAML exists server-side.
+ */
+export function openCreateSession(
+  target: ResourceEditTarget,
+  initialYaml: string,
+): ResourceEditSession {
+  return {
+    target,
+    mode: 'create',
+    openedResourceVersion: '',
+    liveYaml: '',
+    editedYaml: initialYaml,
+    dirty: true,
     liveYamlChangedSinceReview: false,
     status: 'editing',
   }
@@ -184,8 +214,24 @@ export function markApplied(
   }
 }
 
-/** The `ApplyResourceYaml` command for `session`'s current edit buffer. */
+/**
+ * The command for `session`'s current edit buffer: `CreateResourceYaml` for a create-mode
+ * session (T027, no `expected_resource_version` — nothing to conflict against), otherwise the
+ * ordinary `ApplyResourceYaml` full-replace.
+ */
 export function buildApplyCommand(session: ResourceEditSession): BackendCmd {
+  if (session.mode === 'create') {
+    return {
+      type: 'CreateResourceYaml',
+      data: {
+        api_version: session.target.apiVersion,
+        kind: session.target.kind,
+        namespace: session.target.namespace,
+        name: session.target.name,
+        yaml: session.editedYaml,
+      },
+    }
+  }
   return {
     type: 'ApplyResourceYaml',
     data: {

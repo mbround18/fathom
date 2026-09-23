@@ -162,7 +162,12 @@ impl BackendCmdV1 {
             // 014-teams-organizations: reads of local/shared team state only.
             | C::LoadClusterSettings { .. }
             | C::RefreshTeamStoreStatus
-            | C::RefreshConnectionProfiles => MutationTarget::ReadOnly,
+            | C::RefreshConnectionProfiles
+            // 011-rbac-oidc-administration: self-access checks, namespace-access lookup, and
+            // kubeadm ConfigMap detection are all read-only.
+            | C::RefreshRbacSelfAccess { .. }
+            | C::ResolveNamespaceAccess { .. }
+            | C::RefreshKubeadmDetection => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -261,6 +266,13 @@ impl BackendCmdV1 {
                 None => MutationTarget::ClusterScoped,
             },
 
+            // Create-only sibling of ApplyResourceYaml (011-rbac-oidc-administration):
+            // scope follows the target object's own scope, same as apply.
+            C::CreateResourceYaml { namespace, .. } => match namespace {
+                Some(ns) => MutationTarget::namespaced(ns),
+                None => MutationTarget::ClusterScoped,
+            },
+
             // Helm releases (mutate): all namespaced release-storage writes.
             C::PreviewHelmRollback { namespace, .. }
             | C::ApplyHelmRollback { namespace, .. }
@@ -297,7 +309,9 @@ impl BackendCmdV1 {
             | C::AgentClearConversation { .. }
             | C::AgentReviewSuggestedAction { .. }
             | C::AgentDeclineSuggestedAction { .. }
-            | C::AgentRecordExecutedAction { .. } => return None,
+            | C::AgentRecordExecutedAction { .. }
+            // 011-rbac-oidc-administration: create-pathway apply, likewise global.
+            | C::CreateResourceYaml { .. } => return None,
             C::RefreshNamespaces => section_keys::namespaces(),
             C::RefreshNodes
             | C::SelectNode { .. }
@@ -419,6 +433,11 @@ impl BackendCmdV1 {
             C::RefreshClusterRoleBindings
             | C::SelectClusterRoleBinding { .. }
             | C::DeleteClusterRoleBinding { .. } => section_keys::access_clusterrolebindings(),
+            // Gates whichever binding kind the caller is checking; the section is advisory
+            // (used for correlation/routing only, not for scoping the review itself).
+            C::RefreshRbacSelfAccess { .. } => section_keys::access_rolebindings(),
+            C::ResolveNamespaceAccess { .. } => section_keys::access_namespace_access(),
+            C::RefreshKubeadmDetection => section_keys::access_oidc_config(),
             C::RefreshConfigMaps | C::SelectConfigMap { .. } | C::DeleteConfigMap { .. } => {
                 section_keys::config_configmaps()
             }

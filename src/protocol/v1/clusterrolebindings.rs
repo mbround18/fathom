@@ -20,4 +20,7 @@ pub struct ClusterRoleBindingDetails {
     pub role_ref: String,
     pub subjects: Vec<SubjectSummary>,
     pub raw_json: String,
+    /// The live object's `metadata.resourceVersion`; see
+    /// [`super::rolebindings::RoleBindingDetails::resource_version`].
+    pub resource_version: String,
 }

@@ -73,6 +73,7 @@ fn sample_cluster_role_binding_details() -> ClusterRoleBindingDetails {
         role_ref: "s".to_owned(),
         subjects: vec![sample_subject_summary()],
         raw_json: "s".to_owned(),
+        resource_version: "s".to_owned(),
     }
 }
 
@@ -739,6 +740,7 @@ fn sample_role_binding_details() -> RoleBindingDetails {
         role_ref: "s".to_owned(),
         subjects: vec![sample_subject_summary()],
         raw_json: "s".to_owned(),
+        resource_version: "s".to_owned(),
     }
 }
 
@@ -1675,6 +1677,15 @@ fn all_cmds() -> Vec<BackendCmd> {
         BackendCmd::DeleteClusterRoleBinding {
             name: "s".to_owned(),
         },
+        BackendCmd::RefreshRbacSelfAccess {
+            checks: vec![sample_rbac_access_check()],
+        },
+        BackendCmd::ResolveNamespaceAccess {
+            subject_kind: "s".to_owned(),
+            subject_name: "s".to_owned(),
+            subject_namespace: Some("s".to_owned()),
+        },
+        BackendCmd::RefreshKubeadmDetection,
         BackendCmd::RefreshConfigMaps,
         BackendCmd::SelectConfigMap {
             namespace: "s".to_owned(),
@@ -1779,6 +1790,13 @@ fn all_cmds() -> Vec<BackendCmd> {
             name: "s".to_owned(),
             yaml: "spec: {}\n".to_owned(),
             expected_resource_version: "1".to_owned(),
+        },
+        BackendCmd::CreateResourceYaml {
+            api_version: "rbac.authorization.k8s.io/v1".to_owned(),
+            kind: "RoleBinding".to_owned(),
+            namespace: Some("s".to_owned()),
+            name: "s".to_owned(),
+            yaml: "roleRef: {}\n".to_owned(),
         },
         BackendCmd::RefreshCrds,
         BackendCmd::SelectCrdKind {
@@ -2042,6 +2060,9 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshClusterRoleBindings => {}
         BackendCmd::SelectClusterRoleBinding { .. } => {}
         BackendCmd::DeleteClusterRoleBinding { .. } => {}
+        BackendCmd::RefreshRbacSelfAccess { .. } => {}
+        BackendCmd::ResolveNamespaceAccess { .. } => {}
+        BackendCmd::RefreshKubeadmDetection => {}
         BackendCmd::RefreshConfigMaps => {}
         BackendCmd::SelectConfigMap { .. } => {}
         BackendCmd::DeleteConfigMap { .. } => {}
@@ -2079,6 +2100,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SaveUiConfig { .. } => {}
         BackendCmd::SetMcpAutoStart { .. } => {}
         BackendCmd::ApplyResourceYaml { .. } => {}
+        BackendCmd::CreateResourceYaml { .. } => {}
         BackendCmd::RefreshCrds => {}
         BackendCmd::SelectCrdKind { .. } => {}
         BackendCmd::RefreshCrdInstances { .. } => {}
@@ -2423,7 +2445,8 @@ fn all_resource_list_events_is_exhaustive(v: &ResourceListEvent) {
 /// Every `ResourceReadEvent` variant. The match in `all_resource_read_events_is_exhaustive` fails to compile when a variant is added.
 // Line count grows with every new `ResourceReadEvent` variant by design (it's a flat
 // fixture list, not real branching logic); 013-agent-sdk-ops's `AgentConversationUpdated`
-// addition pushed it over clippy's default threshold.
+// and 011-rbac-oidc-administration's RBAC/kubeadm additions pushed it over clippy's default
+// threshold.
 #[allow(clippy::too_many_lines)]
 fn all_resource_read_events() -> Vec<ResourceReadEvent> {
     vec![
@@ -2550,7 +2573,54 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
                 }],
             },
         },
+        ResourceReadEvent::RbacSelfAccessUpdated {
+            results: vec![sample_rbac_access_result()],
+        },
+        ResourceReadEvent::NamespaceAccessResolved(sample_namespace_access_resolved()),
+        ResourceReadEvent::KubeadmDetectionUpdated(sample_kubeadm_detection_result()),
     ]
+}
+
+fn sample_rbac_access_check() -> fathom::protocol::RbacAccessCheck {
+    fathom::protocol::RbacAccessCheck {
+        verb: "s".to_owned(),
+        resource: "s".to_owned(),
+        namespace: Some("s".to_owned()),
+    }
+}
+
+fn sample_rbac_access_result() -> fathom::protocol::RbacAccessResult {
+    fathom::protocol::RbacAccessResult {
+        check: sample_rbac_access_check(),
+        allowed: true,
+        reason: Some("s".to_owned()),
+    }
+}
+
+fn sample_namespace_access_resolved() -> fathom::protocol::NamespaceAccessResolved {
+    let entry = fathom::protocol::NamespaceAccessEntry {
+        namespace: "s".to_owned(),
+        verbs: vec!["s".to_owned()],
+        resources: vec!["s".to_owned()],
+        via: vec!["s".to_owned()],
+    };
+    fathom::protocol::NamespaceAccessResolved {
+        subject_kind: "s".to_owned(),
+        subject_name: "s".to_owned(),
+        subject_namespace: Some("s".to_owned()),
+        cluster_wide: vec![entry.clone()],
+        per_namespace: vec![entry],
+        dangling_bindings: vec!["s".to_owned()],
+        degraded_scopes: vec!["s".to_owned()],
+        found_any: true,
+    }
+}
+
+fn sample_kubeadm_detection_result() -> fathom::protocol::KubeadmDetectionResult {
+    fathom::protocol::KubeadmDetectionResult {
+        detected: true,
+        checked: true,
+    }
 }
 
 #[allow(dead_code)]
@@ -2605,6 +2675,9 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::ContainerImageInspected { .. } => {}
         ResourceReadEvent::ContainerImageInspectFailed { .. } => {}
         ResourceReadEvent::AgentConversationUpdated { .. } => {}
+        ResourceReadEvent::RbacSelfAccessUpdated { .. } => {}
+        ResourceReadEvent::NamespaceAccessResolved(..) => {}
+        ResourceReadEvent::KubeadmDetectionUpdated(..) => {}
     }
 }
 
