@@ -1,7 +1,8 @@
 /** `BackendEvent::ResourceList` arm: list replacement with row-identity reuse (rule 3). */
-import type { BackendEventEnvelope, ResourceListEvent } from '@/protocol/types'
+import type { BackendEventEnvelope, PortForward, ResourceListEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
+import { pendingPortForwardOriginKey } from '../index'
 import type { ListRow, ListState } from '../index'
 import { listKeyOf } from '../keys'
 
@@ -25,6 +26,38 @@ export function handleList(d: Draft, env: BackendEventEnvelope, event: ResourceL
   const latest = env.correlation.type === 'Request' ? env.correlation.data : prev?.latestRequest
   if (latest !== undefined) next.latestRequest = latest
   d.edit('lists')[key] = next
+
+  if (event.type === 'PortForwardsUpdated') tagPortForwardOrigins(d, event.data)
+}
+
+/**
+ * 009 (data-model.md): match each not-yet-tagged `PortForward` row against a pending
+ * Service-launched start (by namespace/pod/local_port/remote_port) and, on a match, tag
+ * `portForwardOrigins[row.id]` and drop the pending entry so it is consumed at most once.
+ */
+function tagPortForwardOrigins(d: Draft, rows: readonly PortForward[]): void {
+  const pending = d.read('pendingPortForwardOrigins')
+  if (Object.keys(pending).length === 0) return
+  const origins = d.read('portForwardOrigins')
+  let nextPending: Record<string, string> | undefined
+  let nextOrigins: Record<string, { service: string }> | undefined
+  for (const row of rows) {
+    if (row.id in origins) continue
+    const key = pendingPortForwardOriginKey(
+      row.namespace,
+      row.pod,
+      row.local_port,
+      row.remote_port,
+    )
+    const service = (nextPending ?? pending)[key]
+    if (service === undefined) continue
+    nextOrigins ??= { ...origins }
+    nextOrigins[row.id] = { service }
+    nextPending ??= { ...pending }
+    nextPending = Object.fromEntries(Object.entries(nextPending).filter(([k]) => k !== key))
+  }
+  if (nextOrigins) d.put('portForwardOrigins', nextOrigins)
+  if (nextPending) d.put('pendingPortForwardOrigins', nextPending)
 }
 
 /**

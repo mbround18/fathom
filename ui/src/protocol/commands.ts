@@ -15,6 +15,8 @@ export const SECTION = {
   customResources: 'custom-resources',
   nodes: 'nodes',
   applications: 'applications',
+  services: 'network/services',
+  portForwards: 'network/portforwards',
 } as const satisfies Record<string, SectionKey>
 
 /** Commands sent once the event subscription is up (mirrors egui's startup in src/app/mod.rs). */
@@ -35,6 +37,8 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.customResources]: { type: 'RefreshCrds' },
   [SECTION.nodes]: { type: 'RefreshNodes' },
   [SECTION.applications]: { type: 'RefreshApplications' },
+  [SECTION.services]: { type: 'RefreshServices' },
+  [SECTION.portForwards]: { type: 'RefreshPortForwards' },
 }
 
 /** The refresh command for a list section, if the UI knows one yet. */
@@ -55,6 +59,8 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectDeployment', data: { namespace, name } }
     case 'Node':
       return { type: 'SelectNode', data: { name } }
+    case 'Service':
+      return { type: 'SelectService', data: { namespace, name } }
     default:
       return undefined
   }

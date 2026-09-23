@@ -10,6 +10,7 @@ import { fluxResource } from './flux-resource'
 import { helm } from './helm'
 import { nodes } from './nodes'
 import { pods } from './pods'
+import { services } from './services'
 import { statefulsets } from './statefulsets'
 import type { AnyDescriptor } from './types'
 
@@ -23,6 +24,7 @@ export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [
   nodes,
   applications,
   helm,
+  services,
 ]
 
 /**

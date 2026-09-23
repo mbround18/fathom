@@ -10,8 +10,10 @@ import type {
   HelmReleaseDetails,
   HelmReleaseSummary,
   KubernetesEvent,
+  PodDetails,
   PodSummary,
   RelatedResourceRef,
+  ServiceDetails,
 } from '@/protocol/types'
 import { descriptorFor, type ObjectRef } from '@/resources'
 import { formatAge } from '@/resources/format'
@@ -24,6 +26,7 @@ import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
 import { HelmUpgradePanel } from './panels/HelmUpgradePanel'
 import { ImageInspectPanel } from './panels/ImageInspectPanel'
 import { NodeActionsPanel } from './panels/NodeActionsPanel'
+import { PortForwardActionsPanel } from './panels/PortForwardActionsPanel'
 import { PodLogsTab } from './panels/PodLogsTab'
 import { PodTerminalTab } from './panels/PodTerminalTab'
 import { YamlEditTab } from './panels/YamlEditTab'
@@ -200,6 +203,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
               Actions
             </TabsTrigger>
           )}
+          {(target.kind === 'Pod' || target.kind === 'Service') && (
+            <TabsTrigger
+              value="port-forward"
+              data-testid="port-forward-tab"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Forward
+            </TabsTrigger>
+          )}
           {target.kind === 'HelmRelease' && (
             <TabsTrigger
               value="helm-actions"
@@ -260,6 +272,26 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
         {target.kind === 'Node' && (
           <TabsContent value="node-actions" className="min-h-0 flex-1 overflow-y-auto">
             <NodeActionsPanel nodeName={target.name} />
+          </TabsContent>
+        )}
+        {target.kind === 'Pod' && target.namespace && (
+          <TabsContent value="port-forward" className="min-h-0 flex-1 overflow-y-auto">
+            <PortForwardActionsPanel
+              kind="Pod"
+              namespace={target.namespace}
+              name={target.name}
+              containerPorts={(detail as PodDetails | undefined)?.ports}
+            />
+          </TabsContent>
+        )}
+        {target.kind === 'Service' && target.namespace && (
+          <TabsContent value="port-forward" className="min-h-0 flex-1 overflow-y-auto">
+            <PortForwardActionsPanel
+              kind="Service"
+              namespace={target.namespace}
+              name={target.name}
+              servicePorts={(detail as ServiceDetails | undefined)?.ports}
+            />
           </TabsContent>
         )}
         {target.kind === 'HelmRelease' && target.namespace && (

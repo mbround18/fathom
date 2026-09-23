@@ -195,6 +195,30 @@ export interface TunnelState {
   localEndpoint: string | null
 }
 
+/**
+ * 009: decorative "which Service, if any, this forward was launched from" info (data-model.md
+ * "New frontend-only state"). Ephemeral, matched by namespace/pod/local_port/remote_port right
+ * after a Service-launched `StartPortForward` succeeds, against the next `PortForwardsUpdated`
+ * reply that contains a matching, not-yet-tagged row. Lost on reload; purely decorative, never
+ * the tunnel's identity.
+ */
+export interface PortForwardOrigin {
+  service: string
+}
+
+/** A Service-launched forward-start still waiting to be matched to its tunnel id, keyed by
+ * `${namespace}|${pod}|${localPort}|${remotePort}` (data-model.md's matching rule). */
+export type PendingPortForwardOrigins = Record<string, string>
+
+export function pendingPortForwardOriginKey(
+  namespace: string,
+  pod: string,
+  localPort: number,
+  remotePort: number,
+): string {
+  return `${namespace}|${pod}|${String(localPort)}|${String(remotePort)}`
+}
+
 export interface PendingAction {
   /** Shown in the result toast, e.g. "Delete 3 pods". */
   label: string
@@ -337,6 +361,10 @@ export interface StoreData {
   streams: Record<number, LogStreamState | ExecStreamState>
   /** Port-forward tunnels by tunnel id. */
   tunnels: Record<string, TunnelState>
+  /** 009: decorative Service-origin tags for forwards, by tunnel id. */
+  portForwardOrigins: Record<string, PortForwardOrigin>
+  /** 009: Service-launched starts awaiting a matching `PortForwardsUpdated` row. */
+  pendingPortForwardOrigins: PendingPortForwardOrigins
   metrics: MetricsState
   flux: { overview?: FluxOverview }
   hubble: { summary?: HubbleTrafficSummary }
@@ -439,6 +467,18 @@ export interface StoreState extends StoreData {
   requestPodLogs: (namespace: string, name: string, container: string) => void
   /** Clears `podLogsIntent` once `PodLogsTab` has consumed it. */
   clearPodLogsIntent: () => void
+  /**
+   * 009: record that a `StartPortForward` just dispatched from a Service inspector targeted
+   * `namespace/pod/localPort/remotePort`, so the next matching `PortForwardsUpdated` row gets
+   * tagged with `service` in `portForwardOrigins` (`store/handlers/list.ts`).
+   */
+  recordPortForwardOrigin: (target: {
+    namespace: string
+    pod: string
+    localPort: number
+    remotePort: number
+    service: string
+  }) => void
   /**
    * Show `ref` in the nearest inspector (pushing one on phone), mark it selected in the `from`
    * list pane, and send the descriptor's read commands. `push` (US3, research.md R6): true when
@@ -617,6 +657,8 @@ export function initialData(): StoreData {
     details: {},
     streams: {},
     tunnels: {},
+    portForwardOrigins: {},
+    pendingPortForwardOrigins: {},
     metrics: { diskUsage: [] },
     flux: {},
     hubble: {},
@@ -868,6 +910,14 @@ export const useStore = create<StoreState>()((set, get) => ({
   requestPodLogs: (namespace, name, container) =>
     set({ podLogsIntent: { namespace, name, container } }),
   clearPodLogsIntent: () => set({ podLogsIntent: null }),
+
+  recordPortForwardOrigin: ({ namespace, pod, localPort, remotePort, service }) =>
+    set((s) => ({
+      pendingPortForwardOrigins: {
+        ...s.pendingPortForwardOrigins,
+        [pendingPortForwardOriginKey(namespace, pod, localPort, remotePort)]: service,
+      },
+    })),
 
   openInspector: (ref, from, push) => {
     const nextHistory = (pane: PaneState | undefined): ObjectRef[] =>
