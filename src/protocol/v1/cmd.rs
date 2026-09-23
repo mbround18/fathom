@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{RequestId, SectionKey, UiConfig};
+use super::{ActionOutcome, AgentAuthModeInput, AgentObjectRef, RequestId, SectionKey, UiConfig};
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
 ///
@@ -632,6 +632,56 @@ pub enum BackendCmdV1 {
         release: String,
         base_revision: i64,
     },
+
+    // Agent SDK Ops (013): in-app troubleshooting assistant. `AgentAsk` is the only
+    // variant that calls out to a model provider; it never issues a cluster-mutating
+    // command itself (see `mutation.rs`'s `agent_commands_never_write_cluster` test).
+    /// Read the current auth mode (BYOK / Ollama / disabled / unconfigured).
+    AgentGetAuthMode,
+    /// Set the auth mode. Carries the raw key on the way in for `Anthropic`; never
+    /// echoed back except via `AgentRevealKey` (FR-004).
+    AgentSetAuthMode {
+        mode: AgentAuthModeInput,
+    },
+    /// Return the currently configured BYOK key in full, once, only in direct response
+    /// to this explicit operator action (FR-004, Principle VI).
+    AgentRevealKey,
+    /// Load (or start) the conversation scoped to `object`. Never triggers a model
+    /// call — existing history is inert until the operator asks something new
+    /// (FR-017, US4 AS3).
+    AgentOpenConversation {
+        object: AgentObjectRef,
+    },
+    /// Ask the assistant a question scoped to `object`. The only `Agent*` command that
+    /// calls the configured model provider.
+    AgentAsk {
+        object: AgentObjectRef,
+        question: String,
+    },
+    /// Permanently remove the persisted conversation for `object` (FR-017).
+    AgentClearConversation {
+        object: AgentObjectRef,
+    },
+    /// Mark a suggestion `Reviewed`. Pure status change — never calls a cluster
+    /// command (FR-007).
+    AgentReviewSuggestedAction {
+        object: AgentObjectRef,
+        suggestion_id: String,
+    },
+    /// Mark a suggestion `Declined` (dialog cancelled/closed, or card dismissed).
+    AgentDeclineSuggestedAction {
+        object: AgentObjectRef,
+        suggestion_id: String,
+    },
+    /// Record the outcome of a confirmed suggestion after its *existing* mutating
+    /// command (sent through the ordinary, unmodified dispatch path) has finished.
+    /// Local-only: this command itself never touches the cluster.
+    AgentRecordExecutedAction {
+        object: AgentObjectRef,
+        suggestion_id: String,
+        command_summary: String,
+        outcome: ActionOutcome,
+    },
 }
 
 /// Direction of a `TaintNode` mutation.
@@ -837,6 +887,94 @@ mod tests {
             kind: "Pod".to_owned(),
             namespace: Some("default".to_owned()),
             name: "web-0".to_owned(),
+        });
+    }
+
+    fn sample_object() -> AgentObjectRef {
+        AgentObjectRef {
+            kind: "Pod".to_owned(),
+            namespace: "default".to_owned(),
+            name: "api-0".to_owned(),
+        }
+    }
+
+    #[test]
+    fn agent_get_auth_mode_roundtrip() {
+        roundtrip(BackendCmdV1::AgentGetAuthMode);
+    }
+
+    #[test]
+    fn agent_set_auth_mode_roundtrip() {
+        roundtrip(BackendCmdV1::AgentSetAuthMode {
+            mode: AgentAuthModeInput::Anthropic {
+                key: "sk-ant-test".to_owned(),
+            },
+        });
+        roundtrip(BackendCmdV1::AgentSetAuthMode {
+            mode: AgentAuthModeInput::Ollama {
+                endpoint: "http://localhost:11434".to_owned(),
+                model: "llama3.1".to_owned(),
+            },
+        });
+        roundtrip(BackendCmdV1::AgentSetAuthMode {
+            mode: AgentAuthModeInput::Disabled,
+        });
+    }
+
+    #[test]
+    fn agent_reveal_key_roundtrip() {
+        roundtrip(BackendCmdV1::AgentRevealKey);
+    }
+
+    #[test]
+    fn agent_open_conversation_roundtrip() {
+        roundtrip(BackendCmdV1::AgentOpenConversation {
+            object: sample_object(),
+        });
+    }
+
+    #[test]
+    fn agent_ask_roundtrip() {
+        roundtrip(BackendCmdV1::AgentAsk {
+            object: sample_object(),
+            question: "What's wrong with this pod?".to_owned(),
+        });
+    }
+
+    #[test]
+    fn agent_clear_conversation_roundtrip() {
+        roundtrip(BackendCmdV1::AgentClearConversation {
+            object: sample_object(),
+        });
+    }
+
+    #[test]
+    fn agent_review_and_decline_suggested_action_roundtrip() {
+        roundtrip(BackendCmdV1::AgentReviewSuggestedAction {
+            object: sample_object(),
+            suggestion_id: "sugg-1".to_owned(),
+        });
+        roundtrip(BackendCmdV1::AgentDeclineSuggestedAction {
+            object: sample_object(),
+            suggestion_id: "sugg-1".to_owned(),
+        });
+    }
+
+    #[test]
+    fn agent_record_executed_action_roundtrip() {
+        roundtrip(BackendCmdV1::AgentRecordExecutedAction {
+            object: sample_object(),
+            suggestion_id: "sugg-1".to_owned(),
+            command_summary: "RestartDeployment default/api".to_owned(),
+            outcome: ActionOutcome::Success,
+        });
+        roundtrip(BackendCmdV1::AgentRecordExecutedAction {
+            object: sample_object(),
+            suggestion_id: "sugg-1".to_owned(),
+            command_summary: "RestartDeployment default/api".to_owned(),
+            outcome: ActionOutcome::Error {
+                message: "deployments.apps \"api\" not found".to_owned(),
+            },
         });
     }
 }

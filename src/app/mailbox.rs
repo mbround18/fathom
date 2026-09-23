@@ -116,6 +116,9 @@ impl FathomApp {
                     | SystemEvent::CrdInstancesUpdated { .. } => {
                         // Custom Resources browsing (React bridge) handles this in on_event; no egui view yet.
                     }
+                    SystemEvent::AgentAuthModeUpdated { .. } | SystemEvent::AgentKeyRevealed { .. } => {
+                        // Agent SDK Ops (React bridge) handles this in on_event; no egui view yet.
+                    }
                 },
 
                 BackendEvent::ResourceList(ev) => match ev {

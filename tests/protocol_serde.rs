@@ -1849,7 +1849,46 @@ fn all_cmds() -> Vec<BackendCmd> {
             release: "s".to_owned(),
             base_revision: 2,
         },
+        BackendCmd::AgentGetAuthMode,
+        BackendCmd::AgentSetAuthMode {
+            mode: AgentAuthModeInput::Anthropic {
+                key: "sk-ant-test".to_owned(),
+            },
+        },
+        BackendCmd::AgentRevealKey,
+        BackendCmd::AgentOpenConversation {
+            object: sample_agent_object_ref(),
+        },
+        BackendCmd::AgentAsk {
+            object: sample_agent_object_ref(),
+            question: "s".to_owned(),
+        },
+        BackendCmd::AgentClearConversation {
+            object: sample_agent_object_ref(),
+        },
+        BackendCmd::AgentReviewSuggestedAction {
+            object: sample_agent_object_ref(),
+            suggestion_id: "s".to_owned(),
+        },
+        BackendCmd::AgentDeclineSuggestedAction {
+            object: sample_agent_object_ref(),
+            suggestion_id: "s".to_owned(),
+        },
+        BackendCmd::AgentRecordExecutedAction {
+            object: sample_agent_object_ref(),
+            suggestion_id: "s".to_owned(),
+            command_summary: "s".to_owned(),
+            outcome: ActionOutcome::Success,
+        },
     ]
+}
+
+fn sample_agent_object_ref() -> AgentObjectRef {
+    AgentObjectRef {
+        kind: "Pod".to_owned(),
+        namespace: "default".to_owned(),
+        name: "api-0".to_owned(),
+    }
 }
 
 #[allow(dead_code)]
@@ -2023,6 +2062,15 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::PreviewHelmUpgrade { .. } => {}
         BackendCmd::ApplyHelmUpgrade { .. } => {}
         BackendCmd::UninstallHelmRelease { .. } => {}
+        BackendCmd::AgentGetAuthMode => {}
+        BackendCmd::AgentSetAuthMode { .. } => {}
+        BackendCmd::AgentRevealKey => {}
+        BackendCmd::AgentOpenConversation { .. } => {}
+        BackendCmd::AgentAsk { .. } => {}
+        BackendCmd::AgentClearConversation { .. } => {}
+        BackendCmd::AgentReviewSuggestedAction { .. } => {}
+        BackendCmd::AgentDeclineSuggestedAction { .. } => {}
+        BackendCmd::AgentRecordExecutedAction { .. } => {}
     }
 }
 
@@ -2081,6 +2129,14 @@ fn all_system_events() -> Vec<SystemEvent> {
             version: "s".to_owned(),
             namespace: Some("s".to_owned()),
             instances: vec!["{}".to_owned()],
+        },
+        SystemEvent::AgentAuthModeUpdated {
+            mode: AgentAuthMode::Anthropic {
+                key_configured: true,
+            },
+        },
+        SystemEvent::AgentKeyRevealed {
+            key: "sk-ant-test".to_owned(),
         },
     ]
 }
@@ -2151,6 +2207,8 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::UiConfigLoaded { .. } => {}
         SystemEvent::CrdCatalogUpdated { .. } => {}
         SystemEvent::CrdInstancesUpdated { .. } => {}
+        SystemEvent::AgentAuthModeUpdated { .. } => {}
+        SystemEvent::AgentKeyRevealed { .. } => {}
     }
 }
 
@@ -2351,6 +2409,33 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
             container: "s".to_owned(),
             error: fathom::protocol::ImageInspectError::AuthenticationFailed("s".to_owned()),
         },
+        ResourceReadEvent::AgentConversationUpdated {
+            object: sample_agent_object_ref(),
+            conversation: AgentConversation {
+                messages: vec![AgentMessage {
+                    id: "msg-1".to_owned(),
+                    author: AgentTurnAuthor::Assistant,
+                    text: "s".to_owned(),
+                    grounding: vec![GroundingSource::Events],
+                    suggested_actions: vec![SuggestedAction {
+                        id: "sugg-1".to_owned(),
+                        action_kind: "restart".to_owned(),
+                        target: sample_agent_object_ref(),
+                        params: serde_json::json!({}),
+                        rationale: "s".to_owned(),
+                        status: SuggestedActionStatus::Proposed,
+                    }],
+                    created_at: "2026-09-22T00:00:00Z".to_owned(),
+                }],
+                executed_actions: vec![ExecutedAction {
+                    id: "exec-1".to_owned(),
+                    suggested_action_id: "sugg-1".to_owned(),
+                    command_summary: "s".to_owned(),
+                    outcome: ActionOutcome::Success,
+                    executed_at: "2026-09-22T00:00:00Z".to_owned(),
+                }],
+            },
+        },
     ]
 }
 
@@ -2405,6 +2490,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::FluxResourceNotFound { .. } => {}
         ResourceReadEvent::ContainerImageInspected { .. } => {}
         ResourceReadEvent::ContainerImageInspectFailed { .. } => {}
+        ResourceReadEvent::AgentConversationUpdated { .. } => {}
     }
 }
 

@@ -1,3 +1,4 @@
+mod agent;
 mod applications;
 mod bridge_types;
 mod clusterrolebindings;
@@ -47,6 +48,7 @@ mod ui_config;
 mod validatingwebhooks;
 mod workloads;
 
+pub use agent::*;
 pub use applications::*;
 pub use bridge_types::*;
 pub use clusterrolebindings::*;

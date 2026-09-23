@@ -5,6 +5,8 @@
 //! `BackendCmdV1` variant must force a decision here at compile time.
 
 use super::{BackendCmdV1, SectionKey, section_keys};
+#[cfg(test)]
+use super::{ActionOutcome, AgentAuthModeInput, AgentObjectRef};
 
 /// What executing a command can modify.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,7 +148,17 @@ impl BackendCmdV1 {
             | C::RefreshRelatedResources { .. }
             | C::RefreshHelmReleases
             | C::SelectHelmRelease { .. }
-            | C::SelectFluxResource { .. } => MutationTarget::ReadOnly,
+            | C::SelectFluxResource { .. }
+            // Agent SDK Ops (013): `AgentAsk` calls an external model provider but
+            // writes no cluster/persisted state beyond the in-memory/on-disk
+            // conversation (classified `Local` below is where persistence writes
+            // live); reviewing a suggestion is a pure status read/change, never a
+            // cluster call. See mutation.rs test `agent_commands_never_write_cluster`.
+            | C::AgentGetAuthMode
+            | C::AgentRevealKey
+            | C::AgentOpenConversation { .. }
+            | C::AgentAsk { .. }
+            | C::AgentReviewSuggestedAction { .. } => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -160,7 +172,14 @@ impl BackendCmdV1 {
             | C::StopMcpServer
             | C::OpenMcpConfigDir
             | C::SaveUiConfig { .. }
-            | C::SetMcpAutoStart { .. } => MutationTarget::Local,
+            | C::SetMcpAutoStart { .. }
+            // Agent SDK Ops (013): writes `credentials.json`'s `agent` section or
+            // `agent_conversations.json` only — never the cluster. See the
+            // `agent_commands_never_write_cluster` test below.
+            | C::AgentSetAuthMode { .. }
+            | C::AgentClearConversation { .. }
+            | C::AgentDeclineSuggestedAction { .. }
+            | C::AgentRecordExecutedAction { .. } => MutationTarget::Local,
 
             C::SetContext { context } => MutationTarget::ContextSwitch {
                 context: context.clone(),
@@ -252,7 +271,19 @@ impl BackendCmdV1 {
             | C::LoadUiConfig
             | C::SaveUiConfig { .. }
             | C::SetMcpAutoStart { .. }
-            | C::ApplyResourceYaml { .. } => return None,
+            | C::ApplyResourceYaml { .. }
+            // Agent SDK Ops (013): not tied to one existing UI section (a conversation
+            // is scoped to an arbitrary object ref, not a section key) — global, like
+            // `ApplyResourceYaml`.
+            | C::AgentGetAuthMode
+            | C::AgentSetAuthMode { .. }
+            | C::AgentRevealKey
+            | C::AgentOpenConversation { .. }
+            | C::AgentAsk { .. }
+            | C::AgentClearConversation { .. }
+            | C::AgentReviewSuggestedAction { .. }
+            | C::AgentDeclineSuggestedAction { .. }
+            | C::AgentRecordExecutedAction { .. } => return None,
             C::RefreshNamespaces => section_keys::namespaces(),
             C::RefreshNodes
             | C::SelectNode { .. }
@@ -595,5 +626,59 @@ mod tests {
             BackendCmdV1::BulkDelete { items: vec![] }.section(),
             Some(section_keys::workloads_pods())
         );
+    }
+
+    /// Type-level proof backing SC-002: no `Agent*` command can write to the cluster.
+    /// Every `Agent*` variant MUST classify as `ReadOnly` or `Local`; if a future
+    /// `Agent*` variant is added without an arm here, this test — not just the
+    /// exhaustive match above — will still catch a `Namespaced`/`ClusterScoped`
+    /// misclassification for any variant added to the sample list below.
+    #[test]
+    fn agent_commands_never_write_cluster() {
+        fn object() -> AgentObjectRef {
+            AgentObjectRef {
+                kind: s("Pod"),
+                namespace: s("default"),
+                name: s("api-0"),
+            }
+        }
+
+        for cmd in [
+            BackendCmdV1::AgentGetAuthMode,
+            BackendCmdV1::AgentSetAuthMode {
+                mode: AgentAuthModeInput::Disabled,
+            },
+            BackendCmdV1::AgentRevealKey,
+            BackendCmdV1::AgentOpenConversation { object: object() },
+            BackendCmdV1::AgentAsk {
+                object: object(),
+                question: s("what's wrong?"),
+            },
+            BackendCmdV1::AgentClearConversation { object: object() },
+            BackendCmdV1::AgentReviewSuggestedAction {
+                object: object(),
+                suggestion_id: s("sugg-1"),
+            },
+            BackendCmdV1::AgentDeclineSuggestedAction {
+                object: object(),
+                suggestion_id: s("sugg-1"),
+            },
+            BackendCmdV1::AgentRecordExecutedAction {
+                object: object(),
+                suggestion_id: s("sugg-1"),
+                command_summary: s("RestartDeployment default/api"),
+                outcome: ActionOutcome::Success,
+            },
+        ] {
+            let target = cmd.mutation_target();
+            assert!(
+                matches!(
+                    target,
+                    MutationTarget::ReadOnly | MutationTarget::Local
+                ),
+                "Agent* command must never write the cluster, got {target:?} for {cmd:?}"
+            );
+            assert!(!target.writes_cluster(), "{cmd:?}");
+        }
     }
 }

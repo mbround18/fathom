@@ -141,6 +141,16 @@ pub enum SystemEvent {
         namespace: Option<String>,
         instances: Vec<String>,
     },
+
+    /// Reply to `AgentGetAuthMode`, and broadcast after `AgentSetAuthMode` (013).
+    AgentAuthModeUpdated {
+        mode: crate::protocol::v1::AgentAuthMode,
+    },
+    /// Reply to `AgentRevealKey` only — never sent unprompted, never logged (FR-004,
+    /// Principle VI).
+    AgentKeyRevealed {
+        key: String,
+    },
 }
 
 /// One installed CustomResourceDefinition, discovered via `kube::discovery`. See
@@ -302,6 +312,15 @@ pub enum ResourceReadEvent {
         pod: String,
         container: String,
         error: super::ImageInspectError,
+    },
+    /// Full conversation state for one object, sent after `AgentOpenConversation`,
+    /// `AgentAsk`, `AgentClearConversation`, `AgentReviewSuggestedAction`,
+    /// `AgentDeclineSuggestedAction`, and `AgentRecordExecutedAction` (013). Always the
+    /// full conversation, never a partial diff — the same "resend the whole detail"
+    /// convention every other `*DetailsUpdated` event already uses.
+    AgentConversationUpdated {
+        object: super::AgentObjectRef,
+        conversation: super::AgentConversation,
     },
 }
 
@@ -484,6 +503,43 @@ mod tests {
             version: "v1".to_owned(),
             namespace: Some("flux-system".to_owned()),
             instances: vec![serde_json::json!({"metadata": {"name": "podinfo"}}).to_string()],
+        });
+    }
+
+    #[test]
+    fn agent_auth_mode_updated_roundtrip() {
+        system_roundtrip(SystemEvent::AgentAuthModeUpdated {
+            mode: super::super::AgentAuthMode::Unconfigured,
+        });
+        system_roundtrip(SystemEvent::AgentAuthModeUpdated {
+            mode: super::super::AgentAuthMode::Anthropic {
+                key_configured: true,
+            },
+        });
+    }
+
+    #[test]
+    fn agent_key_revealed_roundtrip() {
+        system_roundtrip(SystemEvent::AgentKeyRevealed {
+            key: "sk-ant-test".to_owned(),
+        });
+    }
+
+    fn resource_read_roundtrip(event: ResourceReadEvent) {
+        let json = serde_json::to_string(&event).unwrap();
+        let back: ResourceReadEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(format!("{back:?}"), format!("{event:?}"));
+    }
+
+    #[test]
+    fn agent_conversation_updated_roundtrip() {
+        resource_read_roundtrip(ResourceReadEvent::AgentConversationUpdated {
+            object: super::super::AgentObjectRef {
+                kind: "Pod".to_owned(),
+                namespace: "default".to_owned(),
+                name: "api-0".to_owned(),
+            },
+            conversation: super::super::AgentConversation::default(),
         });
     }
 }
