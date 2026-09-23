@@ -16,6 +16,8 @@ import type {
   DiskUsage,
   FluxOverview,
   HubbleTrafficSummary,
+  ImageInspectError,
+  ImageInspection,
   KubernetesEvent,
   LayoutProfile,
   MetricsStackScanResult,
@@ -137,11 +139,21 @@ export interface ListState {
   updatedAt: number
 }
 
+/**
+ * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones, which
+ * are never stored here — they live in `imageInspections` instead (their payload has no `name`
+ * field for this generic namespace/kind/name keying).
+ */
+type GenericReadEvent = Exclude<
+  ResourceReadEvent,
+  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+>
+
 export interface DetailState {
   /** Object kind derived from the event (`PodDetailsUpdated` → `Pod`, `PodMetricsUpdated` → `PodMetrics`). */
   kind: string
-  eventType: ResourceReadEvent['type']
-  data: ResourceReadEvent['data']
+  eventType: GenericReadEvent['type']
+  data: GenericReadEvent['data']
   latestRequest?: number
   updatedAt: number
 }
@@ -241,6 +253,20 @@ export interface HelmUninstallState {
   error?: string
 }
 
+/**
+ * One container's on-demand image inspection (010-container-image-inspection), keyed by
+ * `${namespace}/${pod}/${container}` (`imageInspectKey`, `store/handlers/imageInspect.ts`).
+ * Driven entirely by `ContainerImageInspected`/`ContainerImageInspectFailed` events — there is
+ * no local setter; `ImageInspectPanel` only ever reads this and sends `InspectContainerImage`
+ * on mount/container-change (never eagerly, FR-003).
+ */
+export interface ImageInspectState {
+  status: 'loading' | 'ready' | 'error'
+  inspection?: ImageInspection
+  error?: ImageInspectError
+  updatedAt: number
+}
+
 export interface IntegrationsState {
   mcp?: { running: boolean; message: string }
   prometheusTest?: { success: boolean; message: string }
@@ -313,6 +339,11 @@ export interface StoreData {
   integrations: IntegrationsState
   /** Node actions (US2), by node name. */
   nodeActions: Record<string, NodeAction>
+  /**
+   * Container image inspections (010-container-image-inspection), by
+   * `${namespace}/${pod}/${container}`. See `ImageInspectState`.
+   */
+  imageInspections: Record<string, ImageInspectState>
   /**
    * 006-helm-mutate: the in-flight/last rollback-upgrade-uninstall preview→apply flow. Global
    * (not keyed), same as `flux`/`hubble` — only one Helm mutate flow can be open at a time
@@ -587,6 +618,7 @@ export function initialData(): StoreData {
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
     nodeActions: {},
+    imageInspections: {},
     helmUninstalls: {},
     helmMutations: {},
     layout: {

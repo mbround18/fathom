@@ -59,6 +59,13 @@ pub enum BackendCmdV1 {
         namespace: String,
         name: String,
     },
+    /// Fetch one container's OCI image manifest/config metadata (010-container-image-inspection).
+    /// Sent only when the operator opens that container's "Image" tab (FR-003) — never eagerly.
+    InspectContainerImage {
+        namespace: String,
+        pod: String,
+        container: String,
+    },
     StartPodLogs {
         namespace: String,
         name: String,

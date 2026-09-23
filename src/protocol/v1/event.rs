@@ -288,6 +288,21 @@ pub enum ResourceReadEvent {
         namespace: String,
         name: String,
     },
+    /// Success reply for `InspectContainerImage` (010-container-image-inspection).
+    ContainerImageInspected {
+        namespace: String,
+        pod: String,
+        container: String,
+        inspection: super::ImageInspection,
+    },
+    /// Failure reply for `InspectContainerImage`: an explicit, distinguishable error state
+    /// (FR-009), never a blank/generic panel.
+    ContainerImageInspectFailed {
+        namespace: String,
+        pod: String,
+        container: String,
+        error: super::ImageInspectError,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
