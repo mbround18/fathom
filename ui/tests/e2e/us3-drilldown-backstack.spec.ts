@@ -126,6 +126,7 @@ test.describe('US3 drill-down back-stack', () => {
             resolved_owner: null,
             persistent_volume_claims: [],
             raw_json: '{}',
+            containers_lifecycle: [],
           },
         }),
         read(5, nsRoute('kind-a', 'workloads/pods', WEB.namespace), {

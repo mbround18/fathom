@@ -95,6 +95,25 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
     setTab(next)
   }
 
+  // 008-pod-lifecycle-diagnostics: a "view logs" click from the Lifecycle section's Init
+  // Containers list switches this Inspector to the Logs tab; `PodLogsTab` itself consumes and
+  // clears `podLogsIntent` to pre-select the container. Adjusted during render — React's
+  // documented "adjusting state when a value changes" pattern (comparing against state, not a
+  // ref, so it works with the React Compiler) — rather than in an effect.
+  const podLogsIntent = useStore((s) => s.podLogsIntent)
+  const [lastAppliedLogsIntent, setLastAppliedLogsIntent] = useState(podLogsIntent)
+  if (podLogsIntent !== lastAppliedLogsIntent) {
+    setLastAppliedLogsIntent(podLogsIntent)
+    if (
+      podLogsIntent &&
+      target.kind === 'Pod' &&
+      podLogsIntent.namespace === target.namespace &&
+      podLogsIntent.name === target.name
+    ) {
+      setTab('logs')
+    }
+  }
+
   if (!descriptor)
     return <Empty title="Not ported yet" detail={`${target.kind} has no inspector yet.`} />
   if (list?.status === 'ready' && !row) return <NoLongerExists name={target.name} />

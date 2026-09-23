@@ -3,6 +3,7 @@
  * reads. Seeded, so the same fixture is byte-identical on every run.
  */
 import type {
+  ContainerLifecycle,
   KubernetesEvent,
   PodDetails,
   PodSummary,
@@ -138,6 +139,130 @@ export function podDetails(pod: Pick<PodSummary, 'namespace' | 'name' | 'node'>)
     resolved_owner: { kind: 'Deployment', name: app },
     persistent_volume_claims: [],
     raw_json: JSON.stringify(manifest, null, 2),
+    containers_lifecycle: [
+      {
+        name: app,
+        is_init: false,
+        image: `registry.example.com/${app}:1.4.2`,
+        ready: true,
+        state: { phase: 'running', reason: null, exit_code: null, started_at: null, finished_at: null },
+        restart_count: 0,
+        last_state: null,
+        probes: [],
+        hooks: [],
+      },
+    ],
+  }
+}
+
+/**
+ * 008-pod-lifecycle-diagnostics (T011): a `PodDetails` fixture with a richer
+ * `containers_lifecycle` — two init containers (one succeeded, one failed), and an app container
+ * with a full set of probes, a `postStart`/`preStop` hook pair, and a prior `OOMKilled` restart —
+ * for the five `us{1..5}-pod-lifecycle-*` e2e specs. Independent of `podDetails()` so its existing
+ * callers are unaffected.
+ */
+export function podDetailsWithLifecycle(
+  pod: Pick<PodSummary, 'namespace' | 'name' | 'node'>,
+): PodDetails {
+  const base = podDetails(pod)
+  const app = base.containers[0] ?? 'app'
+  const containersLifecycle: ContainerLifecycle[] = [
+    {
+      name: 'init-migrate',
+      is_init: true,
+      image: 'registry.example.com/migrate:1.0.0',
+      ready: false,
+      state: {
+        phase: 'terminated',
+        reason: 'Completed',
+        exit_code: 0,
+        started_at: '2026-09-20T08:14:50Z',
+        finished_at: '2026-09-20T08:14:55Z',
+      },
+      restart_count: 0,
+      last_state: null,
+      probes: [],
+      hooks: [],
+    },
+    {
+      name: 'init-verify',
+      is_init: true,
+      image: 'registry.example.com/verify:1.0.0',
+      ready: false,
+      state: {
+        phase: 'terminated',
+        reason: 'Error',
+        exit_code: 1,
+        started_at: '2026-09-20T08:14:56Z',
+        finished_at: '2026-09-20T08:14:58Z',
+      },
+      restart_count: 0,
+      last_state: null,
+      probes: [],
+      hooks: [],
+    },
+    {
+      name: app,
+      is_init: false,
+      image: `registry.example.com/${app}:1.4.2`,
+      ready: false,
+      state: { phase: 'running', reason: null, exit_code: null, started_at: '2026-09-20T08:15:05Z', finished_at: null },
+      restart_count: 3,
+      last_state: {
+        phase: 'terminated',
+        reason: 'OOMKilled',
+        exit_code: 137,
+        started_at: '2026-09-20T08:10:00Z',
+        finished_at: '2026-09-20T08:12:30Z',
+      },
+      probes: [
+        {
+          probe_type: 'readiness',
+          mechanism: 'httpGet',
+          target: 'GET /healthz:8080',
+          period_seconds: 10,
+          failure_threshold: 3,
+          success_threshold: 1,
+        },
+        {
+          probe_type: 'liveness',
+          mechanism: 'httpGet',
+          target: 'GET /livez:8080',
+          period_seconds: 15,
+          failure_threshold: 3,
+          success_threshold: 1,
+        },
+        {
+          probe_type: 'startup',
+          mechanism: 'tcpSocket',
+          target: 'tcp:8080',
+          period_seconds: 5,
+          failure_threshold: 30,
+          success_threshold: 1,
+        },
+      ],
+      hooks: [
+        { hook_type: 'postStart', mechanism: 'exec', target: 'exec: /bin/sh -c warm-cache.sh' },
+        { hook_type: 'preStop', mechanism: 'httpGet', target: 'GET /shutdown:8080' },
+      ],
+    },
+    {
+      name: 'sidecar',
+      is_init: false,
+      image: 'registry.example.com/sidecar:1.0.0',
+      ready: true,
+      state: { phase: 'running', reason: null, exit_code: null, started_at: '2026-09-20T08:15:05Z', finished_at: null },
+      restart_count: 0,
+      last_state: null,
+      probes: [],
+      hooks: [],
+    },
+  ]
+  return {
+    ...base,
+    containers: [...base.containers, 'sidecar'],
+    containers_lifecycle: containersLifecycle,
   }
 }
 
@@ -180,6 +305,57 @@ export function podEvents(pod: Pick<PodSummary, 'namespace' | 'name' | 'node'>):
       count: 4,
       first_timestamp: '2026-09-20T08:20:11Z',
       last_timestamp: '2026-09-20T08:31:47Z',
+      source: 'kubelet',
+    },
+  ]
+}
+
+/**
+ * 008-pod-lifecycle-diagnostics (T011): events correlating with `podDetailsWithLifecycle()`'s
+ * probe/hook failures, plus an event with an unrecognized `reason` (FR-019 — still shown as-is).
+ */
+export function podEventsWithLifecycle(
+  pod: Pick<PodSummary, 'namespace' | 'name' | 'node'>,
+): KubernetesEvent[] {
+  const app = pod.name.split('-')[0] ?? 'app'
+  const base = {
+    namespace: pod.namespace,
+    involved_object_kind: 'Pod' as const,
+    involved_object_name: pod.name,
+  }
+  return [
+    ...podEvents(pod),
+    {
+      ...base,
+      name: `${pod.name}.unhealthy`,
+      event_type: 'Warning',
+      reason: 'Unhealthy',
+      message: `Liveness probe failed: HTTP probe failed with statuscode: 503 (container ${app})`,
+      count: 2,
+      first_timestamp: '2026-09-20T08:15:10Z',
+      last_timestamp: '2026-09-20T08:15:40Z',
+      source: 'kubelet',
+    },
+    {
+      ...base,
+      name: `${pod.name}.poststart-failed`,
+      event_type: 'Warning',
+      reason: 'FailedPostStartHook',
+      message: `Exec lifecycle hook ([/bin/sh -c warm-cache.sh]) for Container "${app}" in Pod "${pod.name}_${pod.namespace}(uid)" failed`,
+      count: 1,
+      first_timestamp: '2026-09-20T08:15:05Z',
+      last_timestamp: '2026-09-20T08:15:05Z',
+      source: 'kubelet',
+    },
+    {
+      ...base,
+      name: `${pod.name}.unknown`,
+      event_type: 'Normal',
+      reason: 'SomeUnknownReason',
+      message: 'An event reason Fathom does not specifically recognize.',
+      count: 1,
+      first_timestamp: '2026-09-20T08:16:00Z',
+      last_timestamp: '2026-09-20T08:16:00Z',
       source: 'kubelet',
     },
   ]

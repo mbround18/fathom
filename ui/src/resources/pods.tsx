@@ -4,6 +4,7 @@
  * The protocol v1 `PodSummary` has no creation timestamp or pod IP, so the planned `age` (p3)
  * and `IP` (p5) columns are omitted; the inspector shows the age from `PodDetails`.
  */
+import { PodLifecyclePanels } from '@/components/PodLifecyclePanels'
 import { StatusBadge } from '@/components/StatusBadge'
 import { selectCmd } from '@/protocol/commands'
 import type { PodDetails, PodSummary } from '@/protocol/types'
@@ -120,6 +121,27 @@ const podSections: DetailSection<PodSummary, PodDetails>[] = [
     id: 'related',
     title: 'Related',
     render: ({ related }) => relatedResourcesBlock(related),
+  },
+  {
+    // 008-pod-lifecycle-diagnostics: init containers, probes, restart history, hooks, and the
+    // Pod's own Events, all sourced from `detail.containers_lifecycle` (additive — FR-018,
+    // placed after `related` so existing sections/tests are unaffected).
+    id: 'lifecycle',
+    title: 'Lifecycle',
+    render: ({ detail }) => {
+      if (!detail) return null
+      return {
+        type: 'list',
+        items: [
+          <PodLifecyclePanels
+            key="pod-lifecycle"
+            namespace={detail.namespace}
+            name={detail.name}
+            containers={detail.containers_lifecycle}
+          />,
+        ],
+      }
+    },
   },
 ]
 

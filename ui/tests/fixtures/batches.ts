@@ -15,7 +15,9 @@ import {
   genPods,
   NAMESPACES,
   podDetails,
+  podDetailsWithLifecycle,
   podEvents,
+  podEventsWithLifecycle,
   type FixtureContext,
 } from './gen-pods'
 
@@ -191,6 +193,34 @@ export function podDetail(context: FixtureContext, pod: PodSummary, seq = 50): E
 }
 
 export const podDetailKindA: EventBatch = podDetail('kind-a', DETAIL_POD)
+
+/**
+ * 008-pod-lifecycle-diagnostics: `SelectPod` reply with a rich `containers_lifecycle` (init
+ * containers, probes, restart history, hooks) for the `us{1..5}-pod-lifecycle-*` e2e specs.
+ */
+export function podLifecycleDetail(context: FixtureContext, pod: PodSummary, seq = 50): EventBatch {
+  return batch([
+    read(seq, nsRoute(context, SECTIONS.pods, pod.namespace), {
+      type: 'PodDetailsUpdated',
+      data: podDetailsWithLifecycle(pod),
+    }),
+  ])
+}
+
+/** Cluster events batch matching `podLifecycleDetail`'s probe/hook failure fixtures. */
+export function podLifecycleEvents(
+  pod: PodSummary,
+  seq = 51,
+  context: FixtureContext = 'kind-a',
+): EventBatch {
+  const events = podEventsWithLifecycle(pod)
+  return batch([
+    list(seq, clusterRoute(context, SECTIONS.events), {
+      type: 'EventsUpdated',
+      data: { events, total_count: events.length },
+    }),
+  ])
+}
 
 /** `SelectDeployment` reply (raw_json feeds the YAML view). */
 export function deploymentDetail(

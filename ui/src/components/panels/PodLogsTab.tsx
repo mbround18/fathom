@@ -37,9 +37,38 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
   const detailState = useStore((s) => s.details[detailKey(context, 'Pod', namespace, name)])
   const detail =
     detailState?.eventType === 'PodDetailsUpdated' ? (detailState.data as PodDetails) : undefined
-  const containers = detail?.containers ?? []
+  // 008-pod-lifecycle-diagnostics (FR-003): init containers' logs are reachable the same way as
+  // app containers', so the picker lists both — init containers first, matching spec/status order.
+  const containers = detail
+    ? [
+        ...detail.containers_lifecycle.filter((c) => c.is_init).map((c) => c.name),
+        ...detail.containers,
+      ]
+    : []
 
+  const podLogsIntent = useStore((s) => s.podLogsIntent)
+  const clearPodLogsIntent = useStore((s) => s.clearPodLogsIntent)
   const [selected, setSelected] = useState<string | undefined>(undefined)
+
+  // Consume a pending "view logs for this container" request (Lifecycle section) during render —
+  // React's documented "adjusting state when a value changes" pattern (comparing against state,
+  // not a ref, so it works with the React Compiler) — rather than in an effect. Clearing the
+  // store's `podLogsIntent` is deferred to a microtask so it doesn't update a different store
+  // subscriber mid-render.
+  const [lastAppliedIntent, setLastAppliedIntent] = useState(podLogsIntent)
+  if (podLogsIntent !== lastAppliedIntent) {
+    setLastAppliedIntent(podLogsIntent)
+    if (
+      podLogsIntent &&
+      podLogsIntent.namespace === namespace &&
+      podLogsIntent.name === name &&
+      containers.includes(podLogsIntent.container)
+    ) {
+      setSelected(podLogsIntent.container)
+      queueMicrotask(clearPodLogsIntent)
+    }
+  }
+
   const activeContainer =
     containers.length > 0
       ? selected && containers.includes(selected)

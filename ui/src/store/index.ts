@@ -343,6 +343,12 @@ export interface StoreData {
   actionPrompt?: ActionPrompt
   ui: UiConfig
   prefs: PrefsState
+  /**
+   * 008-pod-lifecycle-diagnostics: a "view logs for this container" click from the Lifecycle
+   * section's Init Containers list, so the Inspector can switch to the Logs tab and
+   * `PodLogsTab` can pre-select the container. Cleared once `PodLogsTab` consumes it.
+   */
+  podLogsIntent: { namespace: string; name: string; container: string } | null
 }
 
 export interface StoreState extends StoreData {
@@ -390,6 +396,13 @@ export interface StoreState extends StoreData {
   selectCrdKind: (entry: CrdCatalogEntry) => void
   /** Remember which list pane the navigator should retarget. */
   focusList: (id: PaneId) => void
+  /**
+   * 008-pod-lifecycle-diagnostics: request that the Inspector switch to the Logs tab and
+   * pre-select `container` (used by the Lifecycle section's Init Containers logs affordance).
+   */
+  requestPodLogs: (namespace: string, name: string, container: string) => void
+  /** Clears `podLogsIntent` once `PodLogsTab` has consumed it. */
+  clearPodLogsIntent: () => void
   /**
    * Show `ref` in the nearest inspector (pushing one on phone), mark it selected in the `from`
    * list pane, and send the descriptor's read commands. `push` (US3, research.md R6): true when
@@ -593,6 +606,7 @@ export function initialData(): StoreData {
     helmMutation: initialHelmMutationSession,
     ui: DEFAULT_UI,
     prefs: { loaded: false, expandedGroups: [], mcpAutoStart: false },
+    podLogsIntent: null,
   }
 }
 
@@ -813,6 +827,10 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   focusList: (id) =>
     set((s) => (s.layout.focusedList === id ? s : { layout: { ...s.layout, focusedList: id } })),
+
+  requestPodLogs: (namespace, name, container) =>
+    set({ podLogsIntent: { namespace, name, container } }),
+  clearPodLogsIntent: () => set({ podLogsIntent: null }),
 
   openInspector: (ref, from, push) => {
     const nextHistory = (pane: PaneState | undefined): ObjectRef[] =>
