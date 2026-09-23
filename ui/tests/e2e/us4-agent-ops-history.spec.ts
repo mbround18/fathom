@@ -22,6 +22,7 @@
  * `src/backend/agent/persistence.rs`, not by this suite.
  */
 import { expect, test } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 import type { AgentConversation, AgentObjectRef } from '../../src/protocol/types'
 import { DETAIL_POD } from '../fixtures'
@@ -71,7 +72,7 @@ const CONVERSATION: AgentConversation = {
   ],
 }
 
-async function openAgentTab(page: import('@playwright/test').Page) {
+async function openAgentTab(page: Page) {
   await row(page, key(DETAIL_POD)).click()
   const insp = inspector(page)
   await expect(insp).toBeVisible()

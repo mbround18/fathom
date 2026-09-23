@@ -133,8 +133,7 @@ describe('AgentPanel', () => {
     )
   })
 
-  it('"Clear history" is disabled with no messages, and does nothing without confirming', async () => {
-    const user = userEvent.setup()
+  it('"Clear history" is disabled with no messages, and does nothing without confirming', () => {
     render(<AgentPanel object={TARGET} />)
 
     expect(screen.getByTestId('agent-ops-clear-history')).toBeDisabled()
