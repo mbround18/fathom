@@ -51,6 +51,17 @@ the **Topology** dock tab (laptop+) or **Topology** stack tab (phone/tablet).
    label updates, with no new command issued solely by the graph (check via the fake backend's
    "commands received" assertion helper already used by other e2e specs).
 
+## Validate idle CPU (SC-006, manual — not automatable in CI)
+
+1. Open the Topology pane, let the layout settle, and do not touch the mouse/trackpad.
+2. Open your OS/browser performance monitor (e.g. Chrome DevTools' Performance Monitor, or
+   `top`/Activity Monitor for the whole app).
+3. **Expected**: CPU usage for the tab/process drops back to idle within a second or two of the
+   layout settling, and stays there. `TopologyCanvas.tsx`'s redraw effect has no
+   `requestAnimationFrame` loop or polling interval — it only redraws when the graph, camera, or
+   canvas size actually changes (code review note at the effect itself), so an idle graph should
+   draw once and then do nothing.
+
 ## Automated coverage
 
 ```bash

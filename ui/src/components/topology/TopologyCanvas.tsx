@@ -256,6 +256,11 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     }
   }, [laidOut, camera, size])
 
+  // T060 (idle-CPU, SC-006): this is the entire redraw trigger -- no `requestAnimationFrame`
+  // loop, no polling interval. `draw` only changes identity (and therefore only re-runs this
+  // effect) when `laidOut`/`camera`/`size` actually change, so an idle graph with a settled
+  // layout and a still camera draws exactly once and then does nothing until the next real
+  // store update, pointer drag, or wheel event.
   useEffect(() => draw(), [draw])
 
   // ---- pan/zoom input

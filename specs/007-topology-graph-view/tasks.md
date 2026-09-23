@@ -111,14 +111,16 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
 
 ## Phase 6: Polish & cross-cutting
 
-- [ ] T060 [P] Idle-CPU sanity: verify `TopologyCanvas`'s redraw is `requestAnimationFrame`-gated
+- [X] T060 [P] Idle-CPU sanity: verify `TopologyCanvas`'s redraw is `requestAnimationFrame`-gated
       by an actual "did anything change" check (no continuous loop) — code review + note in
       `TopologyCanvas.tsx` doc comment; SC-006 is inherently unautomatable in CI so this is a
       documented manual check in quickstart.md, not a new test
-- [ ] T061 [P] Phone-width pass: verify pan/zoom/tap-to-inspect works at phone width
+- [X] T061 [P] Phone-width pass: verify pan/zoom/tap-to-inspect works at phone width
       (`data-testid="topology-canvas"` under `PhoneStack`); add to `us1-topology-overview.spec.ts`
       as a phone-viewport variant if the existing e2e project config parametrizes viewport
-- [ ] T062 Run `cargo build && cargo clippy --all-targets -- -D warnings && cargo test`
-- [ ] T063 Run `pnpm -C ui typecheck && pnpm -C ui lint && pnpm -C ui test && pnpm -C ui e2e`
+      (covered: every `usN-topology-*.spec.ts` file already runs its full assertion set under the
+      `chromium-phone`/`chromium-tablet` projects, including click-to-inspect via `PhoneStack`)
+- [X] T062 Run `cargo build && cargo clippy --all-targets -- -D warnings && cargo test`
+- [X] T063 Run `pnpm -C ui typecheck && pnpm -C ui lint && pnpm -C ui test && pnpm -C ui e2e`
 - [ ] T064 Update `docs/MVP.md` Status Summary row for Topology Graph View to shipped, matching
       006-helm-mutate's row format

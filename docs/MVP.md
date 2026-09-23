@@ -26,7 +26,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | **Helm** — read (list/inspector/origin-link) | ✅ | 005-helm-release-origin-linking |
 | **Helm** — mutate (rollback/upgrade/uninstall) | ✅ | 006-helm-mutate |
 | **Rich interlinking / drill-down** (chart → pod, resource → resource) | ✅ | 004-applications-interlinking, extended in 005 |
-| **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ⬜ | planned, later |
+| **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ✅ | 007-topology-graph-view |
 | Pod lifecycle hooks / probes / init-container detail | ⬜ | gap identified, see §7 |
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ⬜ | gap identified, see §10 |
 | Container image layer inspection | ⬜ | future — see §9a |
@@ -261,7 +261,14 @@ Fathom now reads Helm-managed resources directly from Helm's own release storage
 
 ## 5c. Topology Graph View
 
-*Status: ⬜ Not started — later, depends on §5b's relationship data being modeled once, generically.*
+*Status: ✅ Shipped (`007-topology-graph-view`) — canvas-rendered, force-directed graph with
+continuous zoom (namespace → workload → pod tiers), click-to-inspect reusing the existing
+Inspector pane/back-stack, and live health-state recoloring. **v1 scope reduction**: node kinds
+are Namespace/Application/HelmRelease/Node/Deployment/StatefulSet/DaemonSet/Pod — Service and
+generic CRD instances are deferred to a later iteration (see
+`ui/src/topology/types.ts`'s `TopologyNodeKind` doc comment), a deviation from this section's
+original "Namespace, Application/Helm-release, Workload, Pod, Service, Node, or CRD instances"
+wording.*
 
 A block-and-line topology diagram of the cluster, letting the operator zoom continuously between **namespace-level** and **pod-level** detail rather than only drilling through a list/inspector chain.
 
