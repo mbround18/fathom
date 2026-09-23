@@ -16,9 +16,8 @@ use crossbeam_channel::Sender;
 use crate::backend::agent::{self, AgentClient, Turn, credentials, grounding, state_machine};
 use crate::backend::state::BackendState;
 use crate::protocol::{
-    ActionOutcome, AgentAuthMode, AgentConversation, AgentMessage, AgentObjectRef,
-    AgentTurnAuthor, BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route,
-    SystemEvent, section_keys,
+    ActionOutcome, AgentAuthMode, AgentConversation, AgentMessage, AgentObjectRef, AgentTurnAuthor,
+    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
 };
 
 fn conversation_key(object: &AgentObjectRef) -> String {
@@ -47,14 +46,20 @@ fn emit_conversation_updated(
         sender,
         Route::global(section_keys::agent()),
         Correlation::None,
-        BackendEvent::ResourceRead(crate::protocol::ResourceReadEvent::AgentConversationUpdated {
-            object,
-            conversation,
-        }),
+        BackendEvent::ResourceRead(
+            crate::protocol::ResourceReadEvent::AgentConversationUpdated {
+                object,
+                conversation,
+            },
+        ),
     );
 }
 
-fn emit_auth_mode(state: &BackendState, sender: &Sender<BackendEventEnvelope>, mode: AgentAuthMode) {
+fn emit_auth_mode(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    mode: AgentAuthMode,
+) {
     crate::backend::events::emit(
         state.cluster.seq.as_ref(),
         sender,
@@ -115,7 +120,13 @@ pub(super) async fn handle(
             object,
             suggestion_id,
         } => {
-            handle_transition(state, sender, object, &suggestion_id, state_machine::decline);
+            handle_transition(
+                state,
+                sender,
+                object,
+                &suggestion_id,
+                state_machine::decline,
+            );
         }
         BackendCmd::AgentRecordExecutedAction {
             object,
@@ -123,7 +134,14 @@ pub(super) async fn handle(
             command_summary,
             outcome,
         } => {
-            handle_record_executed(state, sender, object, suggestion_id, command_summary, outcome);
+            handle_record_executed(
+                state,
+                sender,
+                object,
+                suggestion_id,
+                command_summary,
+                outcome,
+            );
         }
         other => return Ok(Some(other)),
     }
@@ -226,7 +244,8 @@ async fn handle_ask(
         .messages
         .push(operator_message.clone());
 
-    let (grounding_text, grounding_sources) = grounding::collect_pod_grounding(state, &object).await;
+    let (grounding_text, grounding_sources) =
+        grounding::collect_pod_grounding(state, &object).await;
 
     let system_prompt = format!(
         "You are Fathom's in-app Kubernetes troubleshooting assistant. Answer only \
@@ -234,7 +253,11 @@ async fn handle_ask(
          object or the data given, say so rather than guessing. Do not claim to have \
          taken any action — you may only describe a possible next step for the \
          operator to review and confirm.\n\n{}\n\nGrounding data for {}/{}/{}:\n{}",
-        agent::ACTION_PROPOSAL_INSTRUCTIONS, object.kind, object.namespace, object.name, grounding_text
+        agent::ACTION_PROPOSAL_INSTRUCTIONS,
+        object.kind,
+        object.namespace,
+        object.name,
+        grounding_text
     );
 
     let history: Vec<Turn> = state

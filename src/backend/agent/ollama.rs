@@ -113,7 +113,8 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/chat"))
             .respond_with(
-                ResponseTemplate::new(404).set_body_string(r#"{"error":"model \"ghost\" not found"}"#),
+                ResponseTemplate::new(404)
+                    .set_body_string(r#"{"error":"model \"ghost\" not found"}"#),
             )
             .mount(&server)
             .await;
@@ -139,7 +140,10 @@ mod tests {
             .await
             .expect_err("unreachable endpoint must be an error");
         let msg = err.to_string();
-        assert!(msg.contains("Could not reach local Ollama endpoint"), "{msg}");
+        assert!(
+            msg.contains("Could not reach local Ollama endpoint"),
+            "{msg}"
+        );
         assert!(msg.contains("127.0.0.1:1"), "{msg}");
     }
 }

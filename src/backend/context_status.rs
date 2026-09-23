@@ -7,10 +7,7 @@
 //! `research.md` R2's Constitution V idle-CPU rationale.
 
 use crossbeam_channel::Sender;
-use kube::{
-    Client, Config,
-    config::KubeConfigOptions,
-};
+use kube::{Client, Config, config::KubeConfigOptions};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
@@ -52,9 +49,21 @@ pub(super) fn spawn_status_probes(
         let seq = state.cluster.seq.clone();
         let sender = sender.clone();
         tokio::spawn(async move {
-            emit_status(&seq, &sender, &name, ContextConnectionStatus::Connecting, None);
+            emit_status(
+                &seq,
+                &sender,
+                &name,
+                ContextConnectionStatus::Connecting,
+                None,
+            );
             match probe_context(&name).await {
-                Ok(()) => emit_status(&seq, &sender, &name, ContextConnectionStatus::NotConnected, None),
+                Ok(()) => emit_status(
+                    &seq,
+                    &sender,
+                    &name,
+                    ContextConnectionStatus::NotConnected,
+                    None,
+                ),
                 Err(e) => emit_status(
                     &seq,
                     &sender,
@@ -81,7 +90,12 @@ async fn probe_context(context_name: &str) -> anyhow::Result<()> {
     let client = Client::try_from(config)?;
     tokio::time::timeout(PROBE_TIMEOUT, client.apiserver_version())
         .await
-        .map_err(|_| anyhow::anyhow!("Timed out after {}s probing context", PROBE_TIMEOUT.as_secs()))??;
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "Timed out after {}s probing context",
+                PROBE_TIMEOUT.as_secs()
+            )
+        })??;
     Ok(())
 }
 
@@ -150,7 +164,11 @@ mod tests {
         );
         let env = rx.try_recv().expect("an envelope");
         match env.event {
-            BackendEvent::System(SystemEvent::ContextStatusUpdated { context, status, error }) => {
+            BackendEvent::System(SystemEvent::ContextStatusUpdated {
+                context,
+                status,
+                error,
+            }) => {
                 assert_eq!(context, "prod");
                 assert_eq!(status, ContextConnectionStatus::NotConnected);
                 assert_eq!(error, None);

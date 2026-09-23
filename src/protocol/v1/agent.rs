@@ -50,7 +50,9 @@ pub enum GroundingSource {
     ContainerStatuses,
     /// `truncated` is `true` when the bounded log ring buffer (Principle V) meant not
     /// all available log lines were sent to the model (FR-018).
-    Logs { truncated: bool },
+    Logs {
+        truncated: bool,
+    },
     Lifecycle,
 }
 
@@ -270,7 +272,10 @@ mod tests {
             id: "msg-1".to_owned(),
             author: AgentTurnAuthor::Assistant,
             text: "This pod is crash-looping due to an OOMKilled event.".to_owned(),
-            grounding: vec![GroundingSource::Events, GroundingSource::Logs { truncated: false }],
+            grounding: vec![
+                GroundingSource::Events,
+                GroundingSource::Logs { truncated: false },
+            ],
             suggested_actions: vec![sample_suggested_action(SuggestedActionStatus::Proposed)],
             created_at: "2026-09-22T00:00:00Z".to_owned(),
         });

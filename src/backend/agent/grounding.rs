@@ -51,7 +51,14 @@ pub(crate) async fn collect_pod_grounding(
             if let Some(conditions) = &status.conditions {
                 let cond_lines: Vec<String> = conditions
                     .iter()
-                    .map(|c| format!("- {} = {} ({})", c.type_, c.status, c.reason.clone().unwrap_or_default()))
+                    .map(|c| {
+                        format!(
+                            "- {} = {} ({})",
+                            c.type_,
+                            c.status,
+                            c.reason.clone().unwrap_or_default()
+                        )
+                    })
                     .collect();
                 if !cond_lines.is_empty() {
                     sections.push(format!("Conditions:\n{}", cond_lines.join("\n")));
@@ -140,7 +147,14 @@ fn describe_container_state(state: &Option<k8s_openapi::api::core::v1::Container
     if let Some(waiting) = &state.waiting {
         format!("waiting({})", waiting.reason.clone().unwrap_or_default())
     } else if let Some(running) = &state.running {
-        format!("running(since {})", running.started_at.clone().map(|t| t.0.to_rfc3339()).unwrap_or_default())
+        format!(
+            "running(since {})",
+            running
+                .started_at
+                .clone()
+                .map(|t| t.0.to_rfc3339())
+                .unwrap_or_default()
+        )
     } else if let Some(terminated) = &state.terminated {
         format!(
             "terminated(exitCode={}, reason={})",

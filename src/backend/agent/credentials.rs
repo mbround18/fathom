@@ -156,7 +156,12 @@ mod tests {
             .expect("save");
 
             let mode = load_agent_auth();
-            assert_eq!(mode, AgentAuthMode::Anthropic { key_configured: true });
+            assert_eq!(
+                mode,
+                AgentAuthMode::Anthropic {
+                    key_configured: true
+                }
+            );
 
             let revealed = reveal_key().expect("key present");
             assert_eq!(revealed, "sk-ant-test-key");

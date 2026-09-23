@@ -173,10 +173,9 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
-            .respond_with(
-                ResponseTemplate::new(429)
-                    .set_body_string(r#"{"type":"error","error":{"message":"rate limited, slow down"}}"#),
-            )
+            .respond_with(ResponseTemplate::new(429).set_body_string(
+                r#"{"type":"error","error":{"message":"rate limited, slow down"}}"#,
+            ))
             .mount(&server)
             .await;
 
@@ -208,6 +207,9 @@ mod tests {
             .send_turn("system prompt", &[])
             .await
             .expect_err("unreachable endpoint must be an error");
-        assert!(err.to_string().contains("Could not reach Anthropic API"), "{err}");
+        assert!(
+            err.to_string().contains("Could not reach Anthropic API"),
+            "{err}"
+        );
     }
 }

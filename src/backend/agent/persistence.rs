@@ -61,7 +61,10 @@ pub(crate) fn save_agent_conversations(
     let path = agent_conversations_config_path()?;
     let content = serde_json::to_string_pretty(conversations)?;
     std::fs::write(&path, content)?;
-    tracing::debug!("Saved {} agent conversation(s) to disk", conversations.len());
+    tracing::debug!(
+        "Saved {} agent conversation(s) to disk",
+        conversations.len()
+    );
     Ok(())
 }
 

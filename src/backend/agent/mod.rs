@@ -73,6 +73,8 @@ pub(crate) trait AgentClient: Send + Sync {
 /// crate dependency exists in this workspace; a monotonic-enough id is sufficient
 /// since these ids are only ever compared within one persisted conversation.
 pub(crate) fn next_local_id(prefix: &str) -> String {
-    let nanos = k8s_openapi::chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
+    let nanos = k8s_openapi::chrono::Utc::now()
+        .timestamp_nanos_opt()
+        .unwrap_or_default();
     format!("{prefix}-{nanos}")
 }
