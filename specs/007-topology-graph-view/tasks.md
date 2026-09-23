@@ -72,7 +72,7 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
 - [X] T033 [US2] Large-pod-count handling (FR-012, US2 Acceptance Scenario 4): when a focused
       workload's pod count exceeds a threshold, render pods with lighter per-node draw (no
       per-pod hit-test hover, batched draw calls) but keep individual click targets distinguishable
-- [ ] T034 [P] [US2] `ui/tests/e2e/us2-topology-zoom.spec.ts`: zoom into one namespace ->
+- [X] T034 [P] [US2] `ui/tests/e2e/us2-topology-zoom.spec.ts`: zoom into one namespace ->
       workload nodes appear, others stay collapsed; zoom into one workload -> pod nodes with phase
       appear; zoom out -> overview restored, same pane; 500-pod fixture stays responsive to a
       subsequent click
@@ -100,9 +100,9 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
 
 ## Phase 5: User Story 4 - Live health state (P3)
 
-- [ ] T050 [US4] Confirm `nodeTone`/`detail` (ready-count, phase) recompute on every store-driven
+- [X] T050 [US4] Confirm `nodeTone`/`detail` (ready-count, phase) recompute on every store-driven
       rebuild already wired in T024/T032 (likely no new code — add regression test only)
-- [ ] T051 [P] [US4] `ui/tests/e2e/us4-topology-live-update.spec.ts`: Deployment at 3/3, scripted
+- [X] T051 [P] [US4] `ui/tests/e2e/us4-topology-live-update.spec.ts`: Deployment at 3/3, scripted
       pod-failure event -> pod node color/status and Deployment ready-count label update in place,
       with no new command sent by the graph beyond what the equivalent list/detail views already
       send (assert via fake backend's received-commands log)

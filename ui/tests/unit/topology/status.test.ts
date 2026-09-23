@@ -26,4 +26,21 @@ describe('topology status tone', () => {
       }),
     ).toBe('ok')
   })
+
+  // 007-topology-graph-view US4/T050: `nodeSummaryTone` is a pure function of the row, so a
+  // live status change recomputes tone with no new production code — this is the regression
+  // coverage for that (the e2e side, `us4-topology-live-update.spec.ts`, only proves the
+  // redraw-in-place wiring, since pixel-exact color isn't reliably sampled across browsers there).
+  it('recomputes tone when a node goes from ready to not-ready', () => {
+    const base = {
+      name: 'node-1',
+      role: 'worker',
+      pod_count: 1,
+      pod_capacity: 10,
+      cpu_allocatable_millicores: 1000,
+      memory_allocatable_bytes: 1,
+    }
+    expect(nodeSummaryTone({ ...base, status: 'Ready' })).toBe('ok')
+    expect(nodeSummaryTone({ ...base, status: 'NotReady' })).not.toBe('ok')
+  })
 })
