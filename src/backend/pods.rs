@@ -1,12 +1,14 @@
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, ContainerPort, ContainerResourceSpec, Correlation,
-    PodDetails, PodOwner, PodSummary, ResourceListEvent, ResourceReadEvent, Route, StreamEvent,
-    section_keys,
+    BackendEvent, BackendEventEnvelope, ContainerLifecycle, ContainerPort, ContainerResourceSpec,
+    ContainerState, Correlation, LifecycleHookSpec, PodDetails, PodOwner, PodSummary, ProbeSpec,
+    ResourceListEvent, ResourceReadEvent, Route, StreamEvent, section_keys,
 };
 use crossbeam_channel::Sender;
 use futures_util::{StreamExt, io::AsyncBufReadExt};
 use k8s_openapi::api::apps::v1::ReplicaSet;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{
+    Container, ContainerState as K8sContainerState, ContainerStatus, LifecycleHandler, Pod, Probe,
+};
 use kube::{
     ResourceExt,
     api::{Api, DeleteParams, ListParams, LogParams},
@@ -186,28 +188,10 @@ pub(super) async fn fetch_pod_details(
         .unwrap_or_default();
 
     let resource_specs: Vec<ContainerResourceSpec> = extract_resource_specs(&pod);
-
-    // Best-effort collect PVC claim names from pod.spec.volumes (volumes may be optional)
-    let persistent_volume_claims: Vec<String> = pod
-        .spec
-        .as_ref()
-        .map(|s| {
-            s.volumes
-                .as_ref()
-                .map(|vols| {
-                    vols.iter()
-                        .filter_map(|v| {
-                            v.persistent_volume_claim
-                                .as_ref()
-                                .map(|p| p.claim_name.clone())
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
-        })
-        .unwrap_or_default();
+    let persistent_volume_claims: Vec<String> = extract_persistent_volume_claims(&pod);
 
     let raw_json = serde_json::to_string_pretty(&pod)?;
+    let containers_lifecycle = build_container_lifecycle(&pod);
 
     let details = PodDetails {
         namespace: namespace.to_owned(),
@@ -222,6 +206,7 @@ pub(super) async fn fetch_pod_details(
         owner,
         resolved_owner,
         raw_json,
+        containers_lifecycle,
     };
 
     events::emit(
@@ -383,6 +368,23 @@ pub(super) async fn start_logs(
     Ok(())
 }
 
+/// Best-effort collect PVC claim names from pod.spec.volumes (volumes may be optional).
+pub(super) fn extract_persistent_volume_claims(pod: &Pod) -> Vec<String> {
+    pod.spec
+        .as_ref()
+        .and_then(|s| s.volumes.as_ref())
+        .map(|vols| {
+            vols.iter()
+                .filter_map(|v| {
+                    v.persistent_volume_claim
+                        .as_ref()
+                        .map(|p| p.claim_name.clone())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub(super) fn extract_resource_specs(pod: &Pod) -> Vec<ContainerResourceSpec> {
     use super::metrics::{parse_cpu_quantity, parse_memory_quantity};
 
@@ -429,4 +431,476 @@ pub(super) fn extract_resource_specs(pod: &Pod) -> Vec<ContainerResourceSpec> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// 008-pod-lifecycle-diagnostics: assemble per-container lifecycle detail (init containers
+/// distinct from app containers, current/last state, restarts, probes, hooks) from the `Pod`
+/// object `fetch_pod_details` already fetched. No additional cluster call.
+pub(super) fn build_container_lifecycle(pod: &Pod) -> Vec<ContainerLifecycle> {
+    let Some(spec) = pod.spec.as_ref() else {
+        return Vec::new();
+    };
+    let status = pod.status.as_ref();
+
+    let init_statuses = status.and_then(|s| s.init_container_statuses.as_ref());
+    let app_statuses = status.and_then(|s| s.container_statuses.as_ref());
+
+    let init_containers = spec
+        .init_containers
+        .iter()
+        .flatten()
+        .map(|c| container_lifecycle(c, true, find_status(init_statuses, &c.name)));
+    let app_containers = spec
+        .containers
+        .iter()
+        .map(|c| container_lifecycle(c, false, find_status(app_statuses, &c.name)));
+
+    init_containers.chain(app_containers).collect()
+}
+
+fn find_status<'a>(
+    statuses: Option<&'a Vec<ContainerStatus>>,
+    name: &str,
+) -> Option<&'a ContainerStatus> {
+    statuses.and_then(|list| list.iter().find(|s| s.name == name))
+}
+
+fn container_lifecycle(
+    container: &Container,
+    is_init: bool,
+    status: Option<&ContainerStatus>,
+) -> ContainerLifecycle {
+    let state = status
+        .and_then(|s| s.state.as_ref())
+        .map(convert_state)
+        .unwrap_or(ContainerState {
+            phase: "waiting".to_owned(),
+            reason: None,
+            exit_code: None,
+            started_at: None,
+            finished_at: None,
+        });
+    let last_state = status
+        .and_then(|s| s.last_state.as_ref())
+        .filter(|ls| ls.running.is_some() || ls.terminated.is_some() || ls.waiting.is_some())
+        .map(convert_state);
+
+    let mut probes = Vec::new();
+    if let Some(p) = &container.liveness_probe {
+        probes.push(build_probe("liveness", p));
+    }
+    if let Some(p) = &container.readiness_probe {
+        probes.push(build_probe("readiness", p));
+    }
+    if let Some(p) = &container.startup_probe {
+        probes.push(build_probe("startup", p));
+    }
+
+    let mut hooks = Vec::new();
+    if let Some(lifecycle) = &container.lifecycle {
+        if let Some(h) = &lifecycle.post_start {
+            hooks.push(build_hook("postStart", h));
+        }
+        if let Some(h) = &lifecycle.pre_stop {
+            hooks.push(build_hook("preStop", h));
+        }
+    }
+
+    ContainerLifecycle {
+        name: container.name.clone(),
+        is_init,
+        image: container.image.clone().unwrap_or_default(),
+        ready: status.map(|s| s.ready).unwrap_or(false),
+        state,
+        restart_count: status.map(|s| s.restart_count).unwrap_or(0),
+        last_state,
+        probes,
+        hooks,
+    }
+}
+
+fn convert_state(state: &K8sContainerState) -> ContainerState {
+    if let Some(t) = &state.terminated {
+        ContainerState {
+            phase: "terminated".to_owned(),
+            reason: t.reason.clone(),
+            exit_code: Some(t.exit_code),
+            started_at: t.started_at.as_ref().map(|ts| ts.0.to_rfc3339()),
+            finished_at: t.finished_at.as_ref().map(|ts| ts.0.to_rfc3339()),
+        }
+    } else if let Some(r) = &state.running {
+        ContainerState {
+            phase: "running".to_owned(),
+            reason: None,
+            exit_code: None,
+            started_at: r.started_at.as_ref().map(|ts| ts.0.to_rfc3339()),
+            finished_at: None,
+        }
+    } else {
+        // Waiting, or unspecified (k8s treats unspecified as waiting).
+        ContainerState {
+            phase: "waiting".to_owned(),
+            reason: state.waiting.as_ref().and_then(|w| w.reason.clone()),
+            exit_code: None,
+            started_at: None,
+            finished_at: None,
+        }
+    }
+}
+
+fn build_probe(probe_type: &str, probe: &Probe) -> ProbeSpec {
+    let (mechanism, target) = if let Some(http) = &probe.http_get {
+        let port = format_int_or_string(&http.port);
+        let scheme = http.scheme.clone().unwrap_or_else(|| "HTTP".to_owned());
+        let path = http.path.clone().unwrap_or_default();
+        ("httpGet".to_owned(), format!("{scheme} {path}:{port}"))
+    } else if let Some(tcp) = &probe.tcp_socket {
+        (
+            "tcpSocket".to_owned(),
+            format!("tcp:{}", format_int_or_string(&tcp.port)),
+        )
+    } else if let Some(exec) = &probe.exec {
+        (
+            "exec".to_owned(),
+            format!(
+                "exec: {}",
+                exec.command.clone().unwrap_or_default().join(" ")
+            ),
+        )
+    } else if let Some(grpc) = &probe.grpc {
+        let service = grpc.service.clone().unwrap_or_default();
+        ("grpc".to_owned(), format!("grpc:{}/{}", grpc.port, service))
+    } else {
+        ("unknown".to_owned(), String::new())
+    };
+
+    ProbeSpec {
+        probe_type: probe_type.to_owned(),
+        mechanism,
+        target,
+        period_seconds: probe.period_seconds.unwrap_or(10),
+        failure_threshold: probe.failure_threshold.unwrap_or(3),
+        success_threshold: probe.success_threshold.unwrap_or(1),
+    }
+}
+
+fn build_hook(hook_type: &str, handler: &LifecycleHandler) -> LifecycleHookSpec {
+    let (mechanism, target) = if let Some(exec) = &handler.exec {
+        (
+            "exec".to_owned(),
+            format!(
+                "exec: {}",
+                exec.command.clone().unwrap_or_default().join(" ")
+            ),
+        )
+    } else if let Some(http) = &handler.http_get {
+        let port = format_int_or_string(&http.port);
+        let scheme = http.scheme.clone().unwrap_or_else(|| "HTTP".to_owned());
+        let path = http.path.clone().unwrap_or_default();
+        ("httpGet".to_owned(), format!("{scheme} {path}:{port}"))
+    } else if let Some(sleep) = &handler.sleep {
+        ("sleep".to_owned(), format!("sleep: {}s", sleep.seconds))
+    } else {
+        ("unknown".to_owned(), String::new())
+    };
+
+    LifecycleHookSpec {
+        hook_type: hook_type.to_owned(),
+        mechanism,
+        target,
+    }
+}
+
+fn format_int_or_string(v: &k8s_openapi::apimachinery::pkg::util::intstr::IntOrString) -> String {
+    use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+    match v {
+        IntOrString::Int(i) => i.to_string(),
+        IntOrString::String(s) => s.clone(),
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use k8s_openapi::api::core::v1::{
+        ContainerStateRunning, ContainerStateTerminated, ContainerStateWaiting, ExecAction,
+        HTTPGetAction, Lifecycle, PodSpec, PodStatus,
+    };
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
+    use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+
+    fn container(name: &str) -> Container {
+        Container {
+            name: name.to_owned(),
+            image: Some(format!("registry.example.com/{name}:1.0")),
+            ..Default::default()
+        }
+    }
+
+    fn status(
+        name: &str,
+        ready: bool,
+        restart_count: i32,
+        state: K8sContainerState,
+    ) -> ContainerStatus {
+        ContainerStatus {
+            name: name.to_owned(),
+            ready,
+            restart_count,
+            state: Some(state),
+            image: String::new(),
+            image_id: String::new(),
+            ..Default::default()
+        }
+    }
+
+    fn terminated(exit_code: i32, reason: &str) -> K8sContainerState {
+        K8sContainerState {
+            terminated: Some(ContainerStateTerminated {
+                exit_code,
+                reason: Some(reason.to_owned()),
+                started_at: Some(Time(k8s_openapi::chrono::Utc::now())),
+                finished_at: Some(Time(k8s_openapi::chrono::Utc::now())),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn running() -> K8sContainerState {
+        K8sContainerState {
+            running: Some(ContainerStateRunning {
+                started_at: Some(Time(k8s_openapi::chrono::Utc::now())),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn waiting(reason: &str) -> K8sContainerState {
+        K8sContainerState {
+            waiting: Some(ContainerStateWaiting {
+                reason: Some(reason.to_owned()),
+                message: None,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn pod_with(
+        init: Vec<Container>,
+        app: Vec<Container>,
+        init_statuses: Vec<ContainerStatus>,
+        app_statuses: Vec<ContainerStatus>,
+    ) -> Pod {
+        Pod {
+            spec: Some(PodSpec {
+                init_containers: if init.is_empty() { None } else { Some(init) },
+                containers: app,
+                ..Default::default()
+            }),
+            status: Some(PodStatus {
+                init_container_statuses: if init_statuses.is_empty() {
+                    None
+                } else {
+                    Some(init_statuses)
+                },
+                container_statuses: Some(app_statuses),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// FR-001/FR-002/FR-003: init containers are distinct (`is_init: true`) with their own
+    /// status; a succeeded one shows exit code 0, a failed one shows its nonzero exit code.
+    #[test]
+    fn init_containers_distinct_with_exit_codes() {
+        let pod = pod_with(
+            vec![container("init-a"), container("init-b")],
+            vec![container("app")],
+            vec![
+                status("init-a", false, 0, terminated(0, "Completed")),
+                status("init-b", false, 0, terminated(1, "Error")),
+            ],
+            vec![status("app", false, 0, waiting("PodInitializing"))],
+        );
+        let out = build_container_lifecycle(&pod);
+        assert_eq!(out.len(), 3);
+        let a = out.iter().find(|c| c.name == "init-a").unwrap();
+        assert!(a.is_init);
+        assert_eq!(a.state.phase, "terminated");
+        assert_eq!(a.state.exit_code, Some(0));
+        let b = out.iter().find(|c| c.name == "init-b").unwrap();
+        assert!(b.is_init);
+        assert_eq!(b.state.exit_code, Some(1));
+        assert_eq!(b.state.reason.as_deref(), Some("Error"));
+        let app = out.iter().find(|c| c.name == "app").unwrap();
+        assert!(!app.is_init);
+        assert_eq!(app.state.phase, "waiting");
+    }
+
+    /// FR-004: a Pod with no init containers has zero `is_init: true` entries.
+    #[test]
+    fn no_init_containers_is_empty_not_error() {
+        let pod = pod_with(
+            vec![],
+            vec![container("app")],
+            vec![],
+            vec![status("app", true, 0, running())],
+        );
+        let out = build_container_lifecycle(&pod);
+        assert!(out.iter().all(|c| !c.is_init));
+        assert_eq!(out.len(), 1);
+    }
+
+    /// FR-005/FR-007: all three probe types are extracted with type/mechanism/thresholds/period;
+    /// a container with none configured has an empty `probes` Vec.
+    #[test]
+    fn probes_extracted_or_empty() {
+        let mut c = container("api");
+        c.liveness_probe = Some(Probe {
+            http_get: Some(HTTPGetAction {
+                path: Some("/healthz".to_owned()),
+                port: IntOrString::Int(8080),
+                ..Default::default()
+            }),
+            period_seconds: Some(15),
+            failure_threshold: Some(5),
+            success_threshold: Some(1),
+            ..Default::default()
+        });
+        c.readiness_probe = Some(Probe {
+            tcp_socket: Some(k8s_openapi::api::core::v1::TCPSocketAction {
+                port: IntOrString::Int(8080),
+                host: None,
+            }),
+            ..Default::default()
+        });
+        c.startup_probe = Some(Probe {
+            exec: Some(ExecAction {
+                command: Some(vec!["cat".to_owned(), "/tmp/ready".to_owned()]),
+            }),
+            ..Default::default()
+        });
+        let pod = pod_with(
+            vec![],
+            vec![c, container("sidecar")],
+            vec![],
+            vec![
+                status("api", true, 0, running()),
+                status("sidecar", true, 0, running()),
+            ],
+        );
+        let out = build_container_lifecycle(&pod);
+        let api = out.iter().find(|c| c.name == "api").unwrap();
+        assert_eq!(api.probes.len(), 3);
+        assert!(api.probes.iter().any(|p| p.probe_type == "liveness"
+            && p.mechanism == "httpGet"
+            && p.period_seconds == 15));
+        assert!(
+            api.probes
+                .iter()
+                .any(|p| p.probe_type == "readiness" && p.mechanism == "tcpSocket")
+        );
+        assert!(
+            api.probes
+                .iter()
+                .any(|p| p.probe_type == "startup" && p.mechanism == "exec")
+        );
+
+        let sidecar = out.iter().find(|c| c.name == "sidecar").unwrap();
+        assert!(sidecar.probes.is_empty());
+    }
+
+    /// FR-008/FR-009: nonzero restart count carries last_state (reason/exit code); zero restart
+    /// count has no stale last_state.
+    #[test]
+    fn restart_history_attributed_per_container() {
+        let mut crashed = status("crashed", true, 3, running());
+        crashed.last_state = Some(terminated(137, "OOMKilled"));
+        let healthy = status("healthy", true, 0, running());
+
+        let pod = pod_with(
+            vec![],
+            vec![container("crashed"), container("healthy")],
+            vec![],
+            vec![crashed, healthy],
+        );
+        let out = build_container_lifecycle(&pod);
+        let c = out.iter().find(|c| c.name == "crashed").unwrap();
+        assert_eq!(c.restart_count, 3);
+        let last = c.last_state.as_ref().unwrap();
+        assert_eq!(last.exit_code, Some(137));
+        assert_eq!(last.reason.as_deref(), Some("OOMKilled"));
+
+        let h = out.iter().find(|c| c.name == "healthy").unwrap();
+        assert_eq!(h.restart_count, 0);
+        assert!(h.last_state.is_none());
+    }
+
+    /// Edge case: `restartPolicy: Never` pod, container terminated without `last_state` set —
+    /// `state` (not `last_state`) still carries the termination info.
+    #[test]
+    fn terminated_without_last_state_still_shows_current_state() {
+        let s = status("job", false, 0, terminated(0, "Completed"));
+        let pod = pod_with(vec![], vec![container("job")], vec![], vec![s]);
+        let out = build_container_lifecycle(&pod);
+        let c = &out[0];
+        assert_eq!(c.state.phase, "terminated");
+        assert_eq!(c.state.exit_code, Some(0));
+        assert!(c.last_state.is_none());
+    }
+
+    /// FR-010/FR-012: postStart/preStop hooks extracted with mechanism/target; none configured
+    /// yields an empty `hooks` Vec.
+    #[test]
+    fn hooks_extracted_or_empty() {
+        let mut c = container("api");
+        c.lifecycle = Some(Lifecycle {
+            post_start: Some(LifecycleHandler {
+                exec: Some(ExecAction {
+                    command: Some(vec![
+                        "/bin/sh".to_owned(),
+                        "-c".to_owned(),
+                        "warm".to_owned(),
+                    ]),
+                }),
+                ..Default::default()
+            }),
+            pre_stop: Some(LifecycleHandler {
+                http_get: Some(HTTPGetAction {
+                    path: Some("/shutdown".to_owned()),
+                    port: IntOrString::Int(8080),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let pod = pod_with(
+            vec![],
+            vec![c, container("sidecar")],
+            vec![],
+            vec![
+                status("api", true, 0, running()),
+                status("sidecar", true, 0, running()),
+            ],
+        );
+        let out = build_container_lifecycle(&pod);
+        let api = out.iter().find(|c| c.name == "api").unwrap();
+        assert_eq!(api.hooks.len(), 2);
+        assert!(
+            api.hooks
+                .iter()
+                .any(|h| h.hook_type == "postStart" && h.mechanism == "exec")
+        );
+        assert!(
+            api.hooks
+                .iter()
+                .any(|h| h.hook_type == "preStop" && h.mechanism == "httpGet")
+        );
+
+        let sidecar = out.iter().find(|c| c.name == "sidecar").unwrap();
+        assert!(sidecar.hooks.is_empty());
+    }
 }

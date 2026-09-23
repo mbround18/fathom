@@ -48,6 +48,64 @@ pub struct PodDetails {
     pub persistent_volume_claims: Vec<String>,
 
     pub raw_json: String,
+
+    /// 008-pod-lifecycle-diagnostics: init + app container lifecycle detail (status, restarts,
+    /// probes, hooks). Additive; does not replace `containers` above.
+    pub containers_lifecycle: Vec<ContainerLifecycle>,
+}
+
+/// 008-pod-lifecycle-diagnostics: current or last-observed state of a container.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ContainerState {
+    /// `"waiting"` | `"running"` | `"terminated"`.
+    pub phase: String,
+    pub reason: Option<String>,
+    pub exit_code: Option<i32>,
+    /// RFC3339.
+    pub started_at: Option<String>,
+    /// RFC3339, terminated only.
+    pub finished_at: Option<String>,
+}
+
+/// 008-pod-lifecycle-diagnostics: a `livenessProbe`/`readinessProbe`/`startupProbe` config.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ProbeSpec {
+    /// `"liveness"` | `"readiness"` | `"startup"`.
+    pub probe_type: String,
+    /// `"httpGet"` | `"tcpSocket"` | `"exec"` | `"grpc"`.
+    pub mechanism: String,
+    /// Human-readable target, e.g. `GET /healthz:8080`, `tcp:8080`, `exec: cat /tmp/ready`.
+    pub target: String,
+    pub period_seconds: i32,
+    pub failure_threshold: i32,
+    pub success_threshold: i32,
+}
+
+/// 008-pod-lifecycle-diagnostics: a `postStart`/`preStop` lifecycle hook config.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct LifecycleHookSpec {
+    /// `"postStart"` | `"preStop"`.
+    pub hook_type: String,
+    /// `"exec"` | `"httpGet"` | `"sleep"`.
+    pub mechanism: String,
+    pub target: String,
+}
+
+/// 008-pod-lifecycle-diagnostics: one entry per container in `spec.initContainers` (is_init =
+/// true) and `spec.containers` (is_init = false). Probe/hook *failure* correlation against the
+/// Pod's Events is computed in the frontend (already has the Events via `RefreshEvents`), not
+/// stored here — this is a pure snapshot of spec + status.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ContainerLifecycle {
+    pub name: String,
+    pub is_init: bool,
+    pub image: String,
+    pub ready: bool,
+    pub state: ContainerState,
+    pub restart_count: i32,
+    pub last_state: Option<ContainerState>,
+    pub probes: Vec<ProbeSpec>,
+    pub hooks: Vec<LifecycleHookSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

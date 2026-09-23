@@ -558,6 +558,50 @@ fn sample_pod_details() -> PodDetails {
         resolved_owner: Some(sample_pod_owner()),
         persistent_volume_claims: vec!["s".to_owned()],
         raw_json: "s".to_owned(),
+        containers_lifecycle: vec![sample_container_lifecycle()],
+    }
+}
+
+fn sample_container_state() -> ContainerState {
+    ContainerState {
+        phase: "terminated".to_owned(),
+        reason: Some("s".to_owned()),
+        exit_code: Some(1),
+        started_at: Some("s".to_owned()),
+        finished_at: Some("s".to_owned()),
+    }
+}
+
+fn sample_probe_spec() -> ProbeSpec {
+    ProbeSpec {
+        probe_type: "readiness".to_owned(),
+        mechanism: "httpGet".to_owned(),
+        target: "s".to_owned(),
+        period_seconds: 10,
+        failure_threshold: 3,
+        success_threshold: 1,
+    }
+}
+
+fn sample_lifecycle_hook_spec() -> LifecycleHookSpec {
+    LifecycleHookSpec {
+        hook_type: "preStop".to_owned(),
+        mechanism: "exec".to_owned(),
+        target: "s".to_owned(),
+    }
+}
+
+fn sample_container_lifecycle() -> ContainerLifecycle {
+    ContainerLifecycle {
+        name: "s".to_owned(),
+        is_init: false,
+        image: "s".to_owned(),
+        ready: true,
+        state: sample_container_state(),
+        restart_count: 1,
+        last_state: Some(sample_container_state()),
+        probes: vec![sample_probe_spec()],
+        hooks: vec![sample_lifecycle_hook_spec()],
     }
 }
 

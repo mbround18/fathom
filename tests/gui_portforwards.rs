@@ -42,6 +42,7 @@ fn pod_details() -> PodDetails {
         resolved_owner: None,
         persistent_volume_claims: Vec::new(),
         raw_json: "{}".to_owned(),
+        containers_lifecycle: Vec::new(),
     }
 }
 
