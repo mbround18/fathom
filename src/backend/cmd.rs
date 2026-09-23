@@ -8,6 +8,7 @@ use crate::protocol::{
     section_keys,
 };
 
+mod agent;
 mod cluster;
 mod integrations;
 mod port_forwards;
@@ -70,6 +71,9 @@ pub async fn dispatch_cmd(
         return Ok(false);
     };
     let Some(cmd) = resources::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    let Some(cmd) = agent::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
     // Any command left over after the integrations family is intentionally a no-op.

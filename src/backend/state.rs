@@ -165,6 +165,11 @@ pub(super) struct BackendState {
     /// (010-container-image-inspection, FR-008/data-model.md). In-memory only, never
     /// persisted to `~/.fathom/` (Constitution VI) or shared across cluster connections.
     pub(super) image_inspect_cache: HashMap<String, crate::protocol::ImageInspection>,
+    /// 013-agent-sdk-ops: per-object assistant conversations, keyed by
+    /// `"<kind>/<namespace>/<name>"`. Session-scoped for now (Phase 6/T044 adds
+    /// `~/.fathom/agent_conversations.json` persistence across restarts); never
+    /// shared across cluster connections.
+    pub(super) agent_conversations: HashMap<String, crate::protocol::v1::AgentConversation>,
     /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
@@ -214,6 +219,7 @@ impl BackendState {
                 disabled: false,
             },
             image_inspect_cache: HashMap::new(),
+            agent_conversations: HashMap::new(),
         }
     }
 

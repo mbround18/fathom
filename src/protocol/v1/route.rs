@@ -280,4 +280,10 @@ pub mod section_keys {
     pub fn network_portforwards() -> SectionKey {
         SectionKey::new("network/portforwards")
     }
+
+    /// 013-agent-sdk-ops: the in-app troubleshooting assistant. Not tied to one
+    /// existing UI section since a conversation is scoped per-object, not per-section.
+    pub fn agent() -> SectionKey {
+        SectionKey::new("agent")
+    }
 }

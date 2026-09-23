@@ -9,6 +9,7 @@ use tokio::runtime::Runtime;
 
 use crate::config::Args;
 
+mod agent;
 mod applications;
 mod apply;
 mod cmd;

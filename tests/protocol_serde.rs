@@ -2311,6 +2311,10 @@ fn all_resource_list_events_is_exhaustive(v: &ResourceListEvent) {
 }
 
 /// Every `ResourceReadEvent` variant. The match in `all_resource_read_events_is_exhaustive` fails to compile when a variant is added.
+// Line count grows with every new `ResourceReadEvent` variant by design (it's a flat
+// fixture list, not real branching logic); 013-agent-sdk-ops's `AgentConversationUpdated`
+// addition pushed it over clippy's default threshold.
+#[allow(clippy::too_many_lines)]
 fn all_resource_read_events() -> Vec<ResourceReadEvent> {
     vec![
         ResourceReadEvent::NodeDetailsUpdated(sample_node_details()),

@@ -1,0 +1,286 @@
+//! Agent commands: 013-agent-sdk-ops's in-app troubleshooting assistant.
+//!
+//! # Safety invariant (Principle I / SC-002 / SC-003)
+//!
+//! Nothing in this file ever constructs or dispatches a cluster-mutating
+//! `BackendCmd`. `AgentReviewSuggestedAction`/`AgentDeclineSuggestedAction` only ever
+//! flip a `SuggestedActionStatus` via `crate::backend::agent::state_machine`, and
+//! `AgentRecordExecutedAction` only ever records the outcome of a command the
+//! *frontend* already ran through the ordinary, unmodified action-dispatch path (see
+//! `ui/src/features/agent-ops/reviewSuggestedAction.ts`) — this handler never runs
+//! that command itself. See `src/protocol/v1/mutation.rs`'s
+//! `agent_commands_never_write_cluster` test for the type-level proof.
+
+use crossbeam_channel::Sender;
+
+use crate::backend::agent::{self, AgentClient, Turn, credentials, grounding, state_machine};
+use crate::backend::state::BackendState;
+use crate::protocol::{
+    ActionOutcome, AgentAuthMode, AgentConversation, AgentMessage, AgentObjectRef,
+    AgentTurnAuthor, BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route,
+    SystemEvent, section_keys,
+};
+
+fn conversation_key(object: &AgentObjectRef) -> String {
+    format!("{}/{}/{}", object.kind, object.namespace, object.name)
+}
+
+fn emit_conversation_updated(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    object: AgentObjectRef,
+    conversation: AgentConversation,
+) {
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::global(section_keys::agent()),
+        Correlation::None,
+        BackendEvent::ResourceRead(crate::protocol::ResourceReadEvent::AgentConversationUpdated {
+            object,
+            conversation,
+        }),
+    );
+}
+
+fn emit_auth_mode(state: &BackendState, sender: &Sender<BackendEventEnvelope>, mode: AgentAuthMode) {
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::global(section_keys::agent()),
+        Correlation::None,
+        BackendEvent::System(SystemEvent::AgentAuthModeUpdated { mode }),
+    );
+}
+
+/// Handles `Agent*` commands; returns the command back if it belongs to another family
+/// (mirrors `cmd/integrations.rs`'s shape).
+pub(super) async fn handle(
+    cmd: BackendCmd,
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) -> anyhow::Result<Option<BackendCmd>> {
+    match cmd {
+        BackendCmd::AgentGetAuthMode => {
+            emit_auth_mode(state, sender, credentials::load_agent_auth());
+        }
+        BackendCmd::AgentSetAuthMode { mode } => {
+            let updated = credentials::save_agent_auth(mode)?;
+            emit_auth_mode(state, sender, updated);
+        }
+        BackendCmd::AgentRevealKey => {
+            let key = credentials::reveal_key().unwrap_or_default();
+            crate::backend::events::emit(
+                state.cluster.seq.as_ref(),
+                sender,
+                Route::global(section_keys::agent()),
+                Correlation::None,
+                BackendEvent::System(SystemEvent::AgentKeyRevealed { key }),
+            );
+        }
+        BackendCmd::AgentOpenConversation { object } => {
+            let conversation = state
+                .agent_conversations
+                .entry(conversation_key(&object))
+                .or_default()
+                .clone();
+            emit_conversation_updated(state, sender, object, conversation);
+        }
+        BackendCmd::AgentAsk { object, question } => {
+            handle_ask(state, sender, object, question).await;
+        }
+        BackendCmd::AgentClearConversation { object } => {
+            state.agent_conversations.remove(&conversation_key(&object));
+            emit_conversation_updated(state, sender, object, AgentConversation::default());
+        }
+        BackendCmd::AgentReviewSuggestedAction {
+            object,
+            suggestion_id,
+        } => {
+            handle_transition(state, sender, object, &suggestion_id, state_machine::review);
+        }
+        BackendCmd::AgentDeclineSuggestedAction {
+            object,
+            suggestion_id,
+        } => {
+            handle_transition(state, sender, object, &suggestion_id, state_machine::decline);
+        }
+        BackendCmd::AgentRecordExecutedAction {
+            object,
+            suggestion_id,
+            command_summary,
+            outcome,
+        } => {
+            handle_record_executed(state, sender, object, suggestion_id, command_summary, outcome);
+        }
+        other => return Ok(Some(other)),
+    }
+    Ok(None)
+}
+
+fn handle_transition(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    object: AgentObjectRef,
+    suggestion_id: &str,
+    transition: fn(&mut crate::protocol::SuggestedAction) -> Result<(), state_machine::StateError>,
+) {
+    let key = conversation_key(&object);
+    let Some(conversation) = state.agent_conversations.get_mut(&key) else {
+        return;
+    };
+    for message in &mut conversation.messages {
+        for suggestion in &mut message.suggested_actions {
+            if suggestion.id == suggestion_id
+                && let Err(err) = transition(suggestion)
+            {
+                tracing::warn!("Agent suggested-action transition rejected: {err}");
+            }
+        }
+    }
+    let conversation = conversation.clone();
+    emit_conversation_updated(state, sender, object, conversation);
+}
+
+fn handle_record_executed(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    object: AgentObjectRef,
+    suggestion_id: String,
+    command_summary: String,
+    outcome: ActionOutcome,
+) {
+    let key = conversation_key(&object);
+    let Some(conversation) = state.agent_conversations.get_mut(&key) else {
+        return;
+    };
+
+    let suggestion = conversation
+        .messages
+        .iter()
+        .flat_map(|m| m.suggested_actions.iter())
+        .find(|s| s.id == suggestion_id)
+        .cloned();
+
+    let Some(suggestion) = suggestion else {
+        tracing::warn!("AgentRecordExecutedAction: no such suggestion {suggestion_id}");
+        return;
+    };
+
+    let executed_at = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    match state_machine::build_executed_action(
+        agent::next_local_id("exec"),
+        &suggestion,
+        command_summary,
+        outcome,
+        executed_at,
+    ) {
+        Ok(executed) => conversation.executed_actions.push(executed),
+        Err(err) => {
+            tracing::warn!("AgentRecordExecutedAction rejected: {err}");
+        }
+    }
+
+    let conversation = conversation.clone();
+    emit_conversation_updated(state, sender, object, conversation);
+}
+
+/// Builds the system prompt, collects grounding data, dispatches to the configured
+/// provider, and appends both turns to the conversation. On any client error, the
+/// error's verbatim message becomes the assistant's reply text (Principle I) — never
+/// replaced with a generic string.
+async fn handle_ask(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    object: AgentObjectRef,
+    question: String,
+) {
+    let key = conversation_key(&object);
+
+    let operator_message = AgentMessage {
+        id: agent::next_local_id("msg"),
+        author: AgentTurnAuthor::Operator,
+        text: question.clone(),
+        grounding: Vec::new(),
+        suggested_actions: Vec::new(),
+        created_at: k8s_openapi::chrono::Utc::now().to_rfc3339(),
+    };
+    state
+        .agent_conversations
+        .entry(key.clone())
+        .or_default()
+        .messages
+        .push(operator_message.clone());
+
+    let (grounding_text, grounding_sources) = grounding::collect_pod_grounding(state, &object).await;
+
+    let system_prompt = format!(
+        "You are Fathom's in-app Kubernetes troubleshooting assistant. Answer only \
+         using the grounding data provided below; if the question is unrelated to this \
+         object or the data given, say so rather than guessing. Do not claim to have \
+         taken any action — you may only describe a possible next step for the \
+         operator to review and confirm.\n\nGrounding data for {}/{}/{}:\n{}",
+        object.kind, object.namespace, object.name, grounding_text
+    );
+
+    let history: Vec<Turn> = state
+        .agent_conversations
+        .get(&key)
+        .map(|c| {
+            c.messages
+                .iter()
+                .map(|m| Turn {
+                    author: m.author,
+                    text: m.text.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let reply_text = match dispatch_to_provider(&system_prompt, &history).await {
+        Ok(result) => result.text,
+        Err(err) => err.to_string(),
+    };
+
+    let assistant_message = AgentMessage {
+        id: agent::next_local_id("msg"),
+        author: AgentTurnAuthor::Assistant,
+        text: reply_text,
+        grounding: grounding_sources,
+        suggested_actions: Vec::new(),
+        created_at: k8s_openapi::chrono::Utc::now().to_rfc3339(),
+    };
+
+    let conversation = {
+        let conversation = state.agent_conversations.entry(key).or_default();
+        conversation.messages.push(assistant_message);
+        conversation.clone()
+    };
+
+    emit_conversation_updated(state, sender, object, conversation);
+}
+
+async fn dispatch_to_provider(
+    system_prompt: &str,
+    history: &[Turn],
+) -> anyhow::Result<agent::TurnResult> {
+    match credentials::load_for_request() {
+        credentials::AgentAuthModeForRequest::Unconfigured => {
+            anyhow::bail!(
+                "The assistant is not configured yet. Choose an auth mode (BYOK Anthropic key \
+                 or local Ollama) before asking a question."
+            )
+        }
+        credentials::AgentAuthModeForRequest::Disabled => {
+            anyhow::bail!("The assistant is disabled. Enable it to ask a question.")
+        }
+        credentials::AgentAuthModeForRequest::Anthropic { key } => {
+            let client = crate::backend::agent::anthropic::AnthropicClient::new(key);
+            client.send_turn(system_prompt, history).await
+        }
+        credentials::AgentAuthModeForRequest::Ollama { endpoint, model } => {
+            let client = crate::backend::agent::ollama::OllamaClient::new(endpoint, model);
+            client.send_turn(system_prompt, history).await
+        }
+    }
+}
