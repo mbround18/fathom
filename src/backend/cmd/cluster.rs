@@ -5,10 +5,12 @@ use crossbeam_channel::Sender;
 use std::time::Duration;
 
 use crate::backend::state::BackendState;
-use crate::backend::{deployments, events, integrations, kube, metrics, nodes, pods, sync};
+use crate::backend::{
+    context_status, deployments, events, integrations, kube, metrics, nodes, pods, sync,
+};
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent, Route,
-    SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, ContextConnectionStatus, Correlation,
+    ResourceListEvent, Route, SystemEvent, section_keys,
 };
 
 /// Handles cluster-level commands; returns the command back if it belongs to another family.
@@ -20,11 +22,13 @@ pub(super) async fn handle(
     match cmd {
         BackendCmd::Initialize => initialize(state, sender).await?,
         BackendCmd::RefreshContexts => {
-            let _ = kube::load_and_send_contexts(
+            if let Ok((contexts, current)) = kube::load_and_send_contexts(
                 state.cluster.seq.as_ref(),
                 state.cluster.current_context.clone(),
                 sender,
-            );
+            ) {
+                context_status::spawn_status_probes(state, sender, &contexts, current.as_deref());
+            }
         }
         BackendCmd::SetContext { context } => set_context(state, sender, context).await?,
         BackendCmd::RefreshNamespaces => sync::refresh_namespaces(state, sender).await?,
@@ -87,7 +91,7 @@ async fn initialize(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     // Contexts can be loaded even before we connect.
-    let _ = kube::load_and_send_contexts(
+    let contexts_result = kube::load_and_send_contexts(
         state.cluster.seq.as_ref(),
         state.cluster.current_context.clone(),
         sender,
@@ -99,7 +103,45 @@ async fn initialize(
         "Connecting to cluster (kubeconfig/in-cluster)...".to_owned(),
     );
 
-    connect_and_share_client(state).await?;
+    // The context that will end up active is either the explicit selection, or (best-effort)
+    // kubeconfig's own `current-context` — mirror the fallback below so the Connecting/
+    // Connected/Error bracket (012-incluster-daemon-federation P1, FR-002) targets the right
+    // context even on first launch with no prior selection.
+    let connecting_target = state
+        .cluster
+        .current_context
+        .clone()
+        .or_else(kube::read_kubeconfig_current_context);
+    if let Some(target) = &connecting_target {
+        context_status::emit_status(
+            &state.cluster.seq,
+            sender,
+            target,
+            ContextConnectionStatus::Connecting,
+            None,
+        );
+    }
+
+    let connect_result = connect_and_share_client(state).await;
+    if let Some(target) = &connecting_target {
+        match &connect_result {
+            Ok(()) => context_status::emit_status(
+                &state.cluster.seq,
+                sender,
+                target,
+                ContextConnectionStatus::Connected,
+                None,
+            ),
+            Err(e) => context_status::emit_status(
+                &state.cluster.seq,
+                sender,
+                target,
+                ContextConnectionStatus::Error,
+                Some(format!("{e:#}")),
+            ),
+        }
+    }
+    connect_result?;
 
     // Best-effort: if we didn't have an explicit context selection, treat kubeconfig's
     // current context as the backend-authoritative active context.
@@ -110,6 +152,10 @@ async fn initialize(
         mcp.set_context(ctx.clone()).await;
     }
     emit_context_changed(state, sender);
+
+    if let Ok((contexts, current)) = &contexts_result {
+        context_status::spawn_status_probes(state, sender, contexts, current.as_deref());
+    }
 
     events::notify_info(state.cluster.seq.as_ref(), sender, "Connected.".to_owned());
 
@@ -176,15 +222,42 @@ async fn set_context(
         format!("Switching context to '{}'...", context),
     );
 
-    connect_and_share_client(state).await?;
+    context_status::emit_status(
+        &state.cluster.seq,
+        sender,
+        &context,
+        ContextConnectionStatus::Connecting,
+        None,
+    );
+    let connect_result = connect_and_share_client(state).await;
+    match &connect_result {
+        Ok(()) => context_status::emit_status(
+            &state.cluster.seq,
+            sender,
+            &context,
+            ContextConnectionStatus::Connected,
+            None,
+        ),
+        Err(e) => context_status::emit_status(
+            &state.cluster.seq,
+            sender,
+            &context,
+            ContextConnectionStatus::Error,
+            Some(format!("{e:#}")),
+        ),
+    }
+    connect_result?;
     emit_context_changed(state, sender);
 
-    // Re-load contexts so UI reflects the selected one.
-    let _ = kube::load_and_send_contexts(
+    // Re-load contexts so UI reflects the selected one, and re-probe every other context's
+    // status now that the active one has changed.
+    if let Ok((contexts, current)) = kube::load_and_send_contexts(
         state.cluster.seq.as_ref(),
         state.cluster.current_context.clone(),
         sender,
-    );
+    ) {
+        context_status::spawn_status_probes(state, sender, &contexts, current.as_deref());
+    }
 
     metrics::probe_metrics_api(state, sender).await?;
     auto_discover_prometheus(state).await;

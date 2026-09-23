@@ -56,6 +56,22 @@ pub enum NotificationLevel {
     Error,
 }
 
+/// Live reachability/connection status for one kubeconfig context
+/// (012-incluster-daemon-federation P1, FR-002). Fieldless enum: serialized as a plain string
+/// (`"Connected" | "Connecting" | "Error" | "NotConnected"`), matching `NotificationLevel`'s
+/// convention. See `data-model.md` for the state-transition diagram.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ContextConnectionStatus {
+    /// This is the active context and its live client is connected.
+    Connected,
+    /// A connect attempt (active context) or reachability probe (other context) is in flight.
+    Connecting,
+    /// Last connect attempt or probe failed; the sibling `error` field carries the detail.
+    Error,
+    /// Reachability probe succeeded but this is not the active context (no live client).
+    NotConnected,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data")]
 pub enum SystemEvent {
@@ -72,6 +88,18 @@ pub enum SystemEvent {
 
     ContextChanged {
         current: Option<String>,
+    },
+
+    /// Live per-context connection status (012-incluster-daemon-federation P1, FR-002/FR-004).
+    /// Emitted once per non-active context by a bounded background reachability probe, and for
+    /// the active context by the actual connect/switch attempt in `cmd/cluster.rs` — never both
+    /// for the same context (research.md R3), so the UI can apply these last-write-wins per
+    /// `context` with no reconciliation.
+    ContextStatusUpdated {
+        context: String,
+        status: ContextConnectionStatus,
+        /// Verbatim backend error (Principle I), present only when `status == Error`.
+        error: Option<String>,
     },
 
     NamespaceFilterChanged {
@@ -484,6 +512,30 @@ mod tests {
             version: "v1".to_owned(),
             namespace: Some("flux-system".to_owned()),
             instances: vec![serde_json::json!({"metadata": {"name": "podinfo"}}).to_string()],
+        });
+    }
+
+    #[test]
+    fn context_status_updated_roundtrip() {
+        system_roundtrip(SystemEvent::ContextStatusUpdated {
+            context: "prod".to_owned(),
+            status: ContextConnectionStatus::Connected,
+            error: None,
+        });
+        system_roundtrip(SystemEvent::ContextStatusUpdated {
+            context: "prod".to_owned(),
+            status: ContextConnectionStatus::Connecting,
+            error: None,
+        });
+        system_roundtrip(SystemEvent::ContextStatusUpdated {
+            context: "prod".to_owned(),
+            status: ContextConnectionStatus::NotConnected,
+            error: None,
+        });
+        system_roundtrip(SystemEvent::ContextStatusUpdated {
+            context: "prod".to_owned(),
+            status: ContextConnectionStatus::Error,
+            error: Some("connection refused".to_owned()),
         });
     }
 }

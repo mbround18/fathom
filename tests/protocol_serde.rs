@@ -2041,6 +2041,11 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::ContextChanged {
             current: Some("s".to_owned()),
         },
+        SystemEvent::ContextStatusUpdated {
+            context: "s".to_owned(),
+            status: fathom::protocol::ContextConnectionStatus::Error,
+            error: Some("s".to_owned()),
+        },
         SystemEvent::NamespaceFilterChanged {
             namespaces: vec!["s".to_owned()],
         },
@@ -2136,6 +2141,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::Notification { .. } => {}
         SystemEvent::ContextsUpdated { .. } => {}
         SystemEvent::ContextChanged { .. } => {}
+        SystemEvent::ContextStatusUpdated { .. } => {}
         SystemEvent::NamespaceFilterChanged { .. } => {}
         SystemEvent::PrometheusConnectionTest { .. } => {}
         SystemEvent::GrafanaConnectionTest { .. } => {}
