@@ -90,6 +90,49 @@ export const noKubeconfig: EventBatch = batch([
   }),
 ])
 
+/**
+ * 012-incluster-daemon-federation P1: a third context beyond `CONTEXTS`, unreachable in the
+ * fixture data. Kept separate from `FixtureContext` (`kind-a`/`kind-b`) since the fake backend's
+ * `SCENARIOS` never connects to it — it exists purely to exercise the always-visible status
+ * strip's `error` state.
+ */
+export const FEDERATION_ERROR_CONTEXT = 'kind-c'
+export const FEDERATION_ERROR_MESSAGE =
+  'Timed out after 5s probing context: dial tcp 10.0.0.9:6443: i/o timeout'
+
+/**
+ * `ContextsUpdated` (3 contexts) + `ContextStatusUpdated` for each (US1 e2e: FR-001/FR-002/FR-004).
+ * `kind-a` is `Connected` (mirrors the active-context connect bracketing in
+ * `src/backend/cmd/cluster.rs`), `kind-b` is `NotConnected` (a settled probe), `kind-c` is
+ * `Error` with a distinctive, verbatim-checkable message.
+ */
+export const federationContexts: EventBatch = batch([
+  system(3, {
+    type: 'ContextsUpdated',
+    data: { contexts: ['kind-a', 'kind-b', FEDERATION_ERROR_CONTEXT], current: 'kind-a' },
+  }),
+  system(4, { type: 'ContextChanged', data: { current: 'kind-a' } }),
+])
+
+export const federationStatuses: EventBatch = batch([
+  system(5, {
+    type: 'ContextStatusUpdated',
+    data: { context: 'kind-a', status: 'Connected', error: null },
+  }),
+  system(6, {
+    type: 'ContextStatusUpdated',
+    data: { context: 'kind-b', status: 'NotConnected', error: null },
+  }),
+  system(7, {
+    type: 'ContextStatusUpdated',
+    data: {
+      context: FEDERATION_ERROR_CONTEXT,
+      status: 'Error',
+      error: FEDERATION_ERROR_MESSAGE,
+    },
+  }),
+])
+
 export function contextChanged(context: FixtureContext, seq = 10): EventBatch {
   return batch([
     system(seq, { type: 'NamespaceFilterChanged', data: { namespaces: [] } }),
