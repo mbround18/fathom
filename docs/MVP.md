@@ -214,7 +214,7 @@ This view is the primary entry point for **§5b rich interlinking**: selecting a
 
 ## 5a. Helm
 
-*Status: ✅ Read path shipped (`005-helm-release-origin-linking`) — list, inspector, and GitOps origin-context linking to Flux. Mutate (upgrade/rollback/uninstall) still not started.*
+*Status: ✅ Shipped — read path (`005-helm-release-origin-linking`): list, inspector, and GitOps origin-context linking to Flux. Mutate (`006-helm-mutate`): rollback, upgrade, uninstall, all diff-previewed and confirmation-gated, with GitOps-ownership warnings.*
 
 Fathom now reads Helm-managed resources directly from Helm's own release storage, not just indirectly via Flux inventories or ownership labels.
 
@@ -224,10 +224,12 @@ Fathom now reads Helm-managed resources directly from Helm's own release storage
 * Release inspector: values (effective + user-supplied), rendered manifest, revision history, resources owned by the release (feeds §5b drill-down)
 * GitOps origin-context linking: a Flux-owned release's inspector shows a click-through link to its owning `HelmRelease`/`Kustomization`, surfacing that controller's live Ready/Failed/Reconciling/Suspended state and message — the operator's originally-requested "trace to origin" workflow
 
-### Mutate (later, explicit non-goal for the first pass — mirrors constitution Principle I)
+### Mutate (shipped, `006-helm-mutate`)
 
-* Upgrade / rollback to a prior revision, with a diff-preview step analogous to `003`'s YAML-apply diff
-* Uninstall, confirmation-gated
+* Rollback to a prior revision — pick from the release's revision history, diff-preview (current manifest vs. target revision's stored manifest) before applying
+* Upgrade — edit the release's effective values via the existing YAML editor, diff-preview (rendered `helm upgrade --dry-run` manifest vs. current) before applying
+* Uninstall, confirmation-gated — no typed-name input required (single-target action)
+* All three actions surface a GitOps-ownership warning (linking to the owning Flux `HelmRelease`/`Kustomization`) when the release is Flux-managed, before the operator confirms
 
 **Explicit non-goal for v1**: chart install/search from a repo, or a values-editor wizard — this is read/rollback parity first, not a package-manager UI.
 
