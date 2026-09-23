@@ -24,7 +24,7 @@
  */
 import { expect, type Locator, type Page, test } from '@playwright/test'
 
-import { batch, list, nsRoute, read } from '../fixtures/builders'
+import { batch, list, nsRoute, read, stream } from '../fixtures/builders'
 import {
   check,
   clearSent,
@@ -38,7 +38,6 @@ import {
   row,
   sent,
   sentTypes,
-  table,
 } from './helpers'
 
 const ROLE_BINDINGS = 'access/rolebindings'
@@ -77,7 +76,8 @@ const BINDING_DETAILS = {
 async function openBindingDetail(page: Page): Promise<void> {
   await open(page)
   await navigateTo(page, 'Role Bindings', 'Access Control')
-  await expect(table(page, ROLE_BINDINGS)).toBeVisible()
+  // The pane shows a loading state (not the `resource-table` testid) until the list event below
+  // lands, so this waits for the Refresh command and emits before asserting row count.
   await expect.poll(() => sentTypes(page)).toContain('RefreshRoleBindings')
   await emit(page, batch([list(1, nsRoute('kind-a', ROLE_BINDINGS), { type: 'RoleBindingsUpdated', data: [BINDING_ROW] })]))
   await expectRowCount(page, 1, ROLE_BINDINGS)
@@ -160,6 +160,17 @@ test.describe('US3 edit/delete RoleBinding', () => {
       },
     })
 
+    // The session only reaches `applied` once the `ResourceApplied` stream event lands (the same
+    // event `CommandFinished` accompanies for every apply — mirrors `us1-apply-yaml.spec.ts`).
+    await emit(
+      page,
+      batch([
+        stream(900, nsRoute('kind-a', ROLE_BINDINGS, BINDING_ROW.namespace), {
+          type: 'ResourceApplied',
+          data: { request_id: String(id), resource_version: '43' },
+        }),
+      ]),
+    )
     await finish(page, id, true)
     await expect(form.getByTestId('rbac-binding-applied')).toBeVisible()
   })

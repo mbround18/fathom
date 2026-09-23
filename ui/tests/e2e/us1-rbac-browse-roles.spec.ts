@@ -46,9 +46,16 @@ const DANGLING_BINDING = {
   subjects_count: 1,
 }
 
-async function goTo(page: Page, label: string, section: string): Promise<void> {
+async function goTo(page: Page, label: string): Promise<void> {
+  // The pane shows a loading state (not the `resource-table` testid) until the caller emits the
+  // corresponding list event below, so this only navigates — it does not assert visibility yet.
   await navigateTo(page, label, 'Access Control')
-  await expect(table(page, section)).toBeVisible()
+  // On phone/tablet the navigator is a Sheet drawer that closes (with a CSS transition) on every
+  // selection; this test calls `goTo` several times back-to-back (T015/T016), and reopening the
+  // drawer for the next navigation while the previous close animation is still unmounting its
+  // content causes a flaky "element is not stable"/"detached from the DOM" failure. Wait for the
+  // drawer's content to fully unmount before returning (a no-op on laptop+, which has no Sheet).
+  await page.locator('[data-slot="sheet-content"]').waitFor({ state: 'detached' })
 }
 
 test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindings', () => {
@@ -56,7 +63,7 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
     page,
   }) => {
     await open(page)
-    await goTo(page, 'Roles', ROLES)
+    await goTo(page, 'Roles')
     await expect.poll(() => sentTypes(page)).toContain('RefreshRoles')
 
     await emit(
@@ -108,7 +115,7 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
 
   test('T014: lists ClusterRoles', async ({ page }) => {
     await open(page)
-    await goTo(page, 'Cluster Roles', CLUSTER_ROLES)
+    await goTo(page, 'Cluster Roles')
     await expect.poll(() => sentTypes(page)).toContain('RefreshClusterRoles')
 
     await emit(
@@ -134,14 +141,14 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
     await open(page)
 
     // Load the known Roles/ClusterRoles first (the dangling check resolves against them).
-    await goTo(page, 'Roles', ROLES)
+    await goTo(page, 'Roles')
     await emit(
       page,
       batch([list(1, nsRoute('kind-a', ROLES), { type: 'RolesUpdated', data: [POD_READER] })]),
     )
     await expectRowCount(page, 1, ROLES)
 
-    await goTo(page, 'Cluster Roles', CLUSTER_ROLES)
+    await goTo(page, 'Cluster Roles')
     await emit(
       page,
       batch([
@@ -156,7 +163,7 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
       ]),
     )
 
-    await goTo(page, 'Role Bindings', ROLE_BINDINGS)
+    await goTo(page, 'Role Bindings')
     await expect.poll(() => sentTypes(page)).toContain('RefreshRoleBindings')
     await emit(
       page,
@@ -179,9 +186,19 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
       `${DANGLING_BINDING.namespace}/${DANGLING_BINDING.name}`,
       ROLE_BINDINGS,
     )
-    await expect(healthyRow.getByTestId('rbac-dangling-badge')).toHaveCount(0)
-    await expect(danglingRow.getByTestId('rbac-dangling-badge')).toBeVisible()
-    await expect(danglingRow.getByTestId('rbac-dangling-badge')).toContainText('Dangling')
+    // The `roleRef` column (and the badge embedded in it) is priority 2 (contracts/layout.md §
+    // Column budgets) and is dropped once the pane is too narrow to fit it (phone always, and
+    // sometimes tablet) — assert the list-row badge only when that column is actually rendered;
+    // the detail pane below is the viewport-independent assertion of the same behavior.
+    const roleRefColumnVisible = await table(page, ROLE_BINDINGS)
+      .locator('[role="columnheader"]', { hasText: 'Role Ref' })
+      .count()
+      .then((n) => n > 0)
+    if (roleRefColumnVisible) {
+      await expect(healthyRow.getByTestId('rbac-dangling-badge')).toHaveCount(0)
+      await expect(danglingRow.getByTestId('rbac-dangling-badge')).toBeVisible()
+      await expect(danglingRow.getByTestId('rbac-dangling-badge')).toContainText('Dangling')
+    }
 
     // The detail pane also surfaces the badge once the binding is opened.
     await danglingRow.click()
@@ -205,13 +222,16 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
       ]),
     )
     const detail = page.locator('[data-testid="detail-sections"]').first()
-    await expect(detail.getByTestId('rbac-dangling-badge')).toBeVisible()
+    // On phone/tablet the "roleRef" column is hidden from the list (priority 2) and so the
+    // detail pane also echoes it in a "More columns" section (FR-009) alongside the dedicated
+    // "Role Ref" section — both render `DanglingRoleRefBadge`, so `.first()` is intentional here.
+    await expect(detail.getByTestId('rbac-dangling-badge').first()).toBeVisible()
     await expect(detail).toContainText('jane')
   })
 
   test('T017: lists ClusterRoleBindings', async ({ page }) => {
     await open(page)
-    await goTo(page, 'Cluster Role Bindings', CLUSTER_ROLE_BINDINGS)
+    await goTo(page, 'Cluster Role Bindings')
     await expect.poll(() => sentTypes(page)).toContain('RefreshClusterRoleBindings')
 
     const binding = { name: 'cluster-admins', role_ref: 'cluster-admin', subjects_count: 2 }

@@ -16,7 +16,7 @@
  */
 import { expect, type Page, test } from '@playwright/test'
 
-import { batch, list, nsRoute, read } from '../fixtures/builders'
+import { batch, list, nsRoute, read, stream } from '../fixtures/builders'
 import {
   clearSent,
   confirmDialog,
@@ -37,6 +37,13 @@ const ROLE_BINDINGS = 'access/rolebindings'
 async function openCreateForm(page: Page): Promise<void> {
   await open(page)
   await navigateTo(page, 'Role Bindings', 'Access Control')
+  // The pane (and its "New RoleBinding" toolbar button) only render once the list leaves its
+  // loading state, so seed it with an (empty) list event before interacting with it.
+  await expect.poll(() => sentTypes(page)).toContain('RefreshRoleBindings')
+  await emit(
+    page,
+    batch([list(1, nsRoute('kind-a', ROLE_BINDINGS), { type: 'RoleBindingsUpdated', data: [] })]),
+  )
   await expect(table(page, ROLE_BINDINGS)).toBeVisible()
   await page.getByTestId('rbac-binding-create-open').click()
   await expect(page.getByTestId('rbac-binding-form')).toBeVisible()
@@ -108,6 +115,17 @@ test.describe('US2 create RoleBinding', () => {
       },
     })
 
+    // The session only reaches `applied` once the `ResourceApplied` stream event lands (the same
+    // event `CommandFinished` accompanies for every apply — mirrors `us1-apply-yaml.spec.ts`).
+    await emit(
+      page,
+      batch([
+        stream(900, nsRoute('kind-a', ROLE_BINDINGS, 'team-a'), {
+          type: 'ResourceApplied',
+          data: { request_id: String(id), resource_version: '1' },
+        }),
+      ]),
+    )
     await finish(page, id, true)
     await expect(form.getByTestId('rbac-binding-applied')).toBeVisible()
 
