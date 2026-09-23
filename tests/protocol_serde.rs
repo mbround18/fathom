@@ -1336,6 +1336,11 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::InspectContainerImage {
+            namespace: "s".to_owned(),
+            pod: "s".to_owned(),
+            container: "s".to_owned(),
+        },
         BackendCmd::StartPodLogs {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
@@ -1824,6 +1829,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshPods => {}
         BackendCmd::SelectPod { .. } => {}
         BackendCmd::DeletePod { .. } => {}
+        BackendCmd::InspectContainerImage { .. } => {}
         BackendCmd::StartPodLogs { .. } => {}
         BackendCmd::StopPodLogs => {}
         BackendCmd::FetchPodMetrics { .. } => {}
@@ -2269,6 +2275,38 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
             namespace: "flux-system".to_owned(),
             name: "redis".to_owned(),
         },
+        ResourceReadEvent::ContainerImageInspected {
+            namespace: "s".to_owned(),
+            pod: "s".to_owned(),
+            container: "s".to_owned(),
+            inspection: fathom::protocol::ImageInspection {
+                image_ref: fathom::protocol::ImageRef {
+                    registry: "docker.io".to_owned(),
+                    repository: "library/nginx".to_owned(),
+                    tag: Some("latest".to_owned()),
+                    digest: "sha256:abc".to_owned(),
+                },
+                total_size_bytes: 1234,
+                layers: vec![fathom::protocol::ImageLayer {
+                    digest: "sha256:def".to_owned(),
+                    size_bytes: 1000,
+                    media_type: "application/vnd.oci.image.layer.v1.tar+gzip".to_owned(),
+                    command: Some("COPY file:abc in /".to_owned()),
+                    empty_layer: false,
+                }],
+                created: Some("2026-01-01T00:00:00Z".to_owned()),
+                base_image: Some(fathom::protocol::BaseImageGuess {
+                    label: "alpine:3.19 (best-effort)".to_owned(),
+                    confidence: "best-effort".to_owned(),
+                }),
+            },
+        },
+        ResourceReadEvent::ContainerImageInspectFailed {
+            namespace: "s".to_owned(),
+            pod: "s".to_owned(),
+            container: "s".to_owned(),
+            error: fathom::protocol::ImageInspectError::AuthenticationFailed("s".to_owned()),
+        },
     ]
 }
 
@@ -2321,6 +2359,8 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::HelmReleaseDetailsUpdated(..) => {}
         ResourceReadEvent::FluxResourceDetailsUpdated(..) => {}
         ResourceReadEvent::FluxResourceNotFound { .. } => {}
+        ResourceReadEvent::ContainerImageInspected { .. } => {}
+        ResourceReadEvent::ContainerImageInspectFailed { .. } => {}
     }
 }
 

@@ -81,6 +81,13 @@ rfd = { version = "0.17", optional = true }
 arboard = { version = "3.6", optional = true }
 open = { version = "5.3", optional = true }
 
+# OCI Distribution client for container image inspection (010-container-image-inspection,
+# research.md R1): manifest + config metadata fetch only, never layer blob pulls.
+oci-client = "0.18"
+# Image config (History/ImageConfiguration) parsing — already pulled in transitively by
+# oci-client, declared directly since we deserialize its types ourselves.
+oci-spec = { version = "0.10", default-features = false, features = ["image"] }
+
 # Hubble/Cilium gRPC client (Observer.GetFlows)
 tonic = "0.14.6"
 tonic-prost = "0.14.6"
@@ -98,6 +105,10 @@ protobuf-src = "2.1.1"
 # Headless GUI test harness (AccessKit-based; no window/GPU required)
 egui_kittest = { version = "0.33.3", features = ["eframe"] }
 accesskit = "0.21"
+
+# Mock HTTP registry server for image-inspection auth-fallback/parsing unit tests
+# (010-container-image-inspection, research.md R6) — no live registry required.
+wiremock = "0.6"
 
 # Tests that exercise the legacy egui UI (src/app) only build with `egui-ui`.
 [[test]]

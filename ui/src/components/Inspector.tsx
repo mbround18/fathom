@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { DetailSections } from './DetailSections'
 import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
 import { HelmUpgradePanel } from './panels/HelmUpgradePanel'
+import { ImageInspectPanel } from './panels/ImageInspectPanel'
 import { NodeActionsPanel } from './panels/NodeActionsPanel'
 import { PodLogsTab } from './panels/PodLogsTab'
 import { PodTerminalTab } from './panels/PodTerminalTab'
@@ -154,6 +155,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
               Logs
             </TabsTrigger>
           )}
+          {target.kind === 'Pod' && (
+            <TabsTrigger
+              value="image"
+              data-testid="image-inspect-tab"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Image
+            </TabsTrigger>
+          )}
           {isRunningPod && (
             <TabsTrigger
               value="terminal"
@@ -216,6 +226,11 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
         {target.kind === 'Pod' && (
           <TabsContent value="logs" className="flex min-h-0 flex-1 flex-col">
             <PodLogsTab target={target} />
+          </TabsContent>
+        )}
+        {target.kind === 'Pod' && (
+          <TabsContent value="image" className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <ImageInspectPanel target={target} />
           </TabsContent>
         )}
         {isRunningPod && (
