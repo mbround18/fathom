@@ -4,9 +4,13 @@
  */
 import type {
   ApplicationSummary,
+  ClusterRoleBindingSummary,
+  ClusterRoleSummary,
   HelmReleaseSummary,
   NodeSummary,
   ResourceListEvent,
+  RoleBindingSummary,
+  RoleSummary,
   ServiceSummary,
 } from '../../src/protocol/types'
 import { PODS_500 } from './batches'
@@ -79,6 +83,25 @@ const SERVICES: ServiceSummary[] = [
   },
 ]
 
+const ROLES: RoleSummary[] = [
+  { name: 'pod-reader', namespace: 'default', rules_count: 1 },
+  { name: 'configmap-editor', namespace: 'default', rules_count: 2 },
+]
+
+const CLUSTER_ROLES: ClusterRoleSummary[] = [
+  { name: 'view', rules_count: 12 },
+  { name: 'edit', rules_count: 20 },
+]
+
+const ROLE_BINDINGS: RoleBindingSummary[] = [
+  { name: 'pod-reader-binding', namespace: 'default', role_ref: 'pod-reader', subjects_count: 1 },
+  { name: 'ci-binding', namespace: 'default', role_ref: 'dangling-role', subjects_count: 1 },
+]
+
+const CLUSTER_ROLE_BINDINGS: ClusterRoleBindingSummary[] = [
+  { name: 'cluster-admins', role_ref: 'cluster-admin', subjects_count: 2 },
+]
+
 export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/pods': { type: 'PodsUpdated', data: PODS_500 },
   'workloads/deployments': { type: 'DeploymentsUpdated', data: genDeployments('kind-a') },
@@ -88,4 +111,12 @@ export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
   'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
   'network/services': { type: 'ServicesUpdated', data: SERVICES },
+  // 011-rbac-oidc-administration
+  'access/roles': { type: 'RolesUpdated', data: ROLES },
+  'access/clusterroles': { type: 'ClusterRolesUpdated', data: CLUSTER_ROLES },
+  'access/rolebindings': { type: 'RoleBindingsUpdated', data: ROLE_BINDINGS },
+  'access/clusterrolebindings': {
+    type: 'ClusterRoleBindingsUpdated',
+    data: CLUSTER_ROLE_BINDINGS,
+  },
 }

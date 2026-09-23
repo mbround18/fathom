@@ -12,9 +12,25 @@ import { KIND_LIST_EVENTS } from '../fixtures/kinds'
 /** A 390 px phone minus the 16 px gutters on each side. */
 const PHONE_BUDGET = 358
 
+/**
+ * 011-rbac-oidc-administration: RBAC kinds (Role/ClusterRole/RoleBinding/ClusterRoleBinding)
+ * have no `.status` or `.spec` subresource in the Kubernetes API — they either exist or don't,
+ * with no Ready/Degraded lifecycle a "status" column or section could truthfully represent, and
+ * their real content (rules / roleRef+subjects) already has its own dedicated columns and detail
+ * sections (see `resources/roles.tsx` etc.). Exempted here rather than fabricating a synthetic
+ * status/spec, per constitution I ("no invented state").
+ */
+const NO_STATUS_OR_SPEC = new Set([
+  'access/roles',
+  'access/clusterroles',
+  'access/rolebindings',
+  'access/clusterrolebindings',
+])
+
 describe.each(ALL_DESCRIPTORS.map((d) => [d.section, d] as const))('%s', (section, d) => {
   const route: Route = { section, scope: 'Namespaced', context: 'kind-a', namespace: null }
   const event = KIND_LIST_EVENTS[section]
+  const hasStatusAndSpec = !NO_STATUS_OR_SPEC.has(section)
 
   it('is registered under its own section', () => {
     expect(descriptorFor(section)).toBe(d)
@@ -23,7 +39,7 @@ describe.each(ALL_DESCRIPTORS.map((d) => [d.section, d] as const))('%s', (sectio
   it('has priority-1 name and status columns', () => {
     const p1 = d.columns.filter((c) => c.priority === 1).map((c) => c.id)
     expect(p1).toContain('name')
-    expect(p1).toContain('status')
+    if (hasStatusAndSpec) expect(p1).toContain('status')
   })
 
   it('fits its priority-1 columns in a phone pane', () => {
@@ -86,9 +102,10 @@ describe.each(ALL_DESCRIPTORS.map((d) => [d.section, d] as const))('%s', (sectio
 
   it('has detail sections for metadata, status, spec, and labels/annotations', () => {
     const ids = d.detailSections.map((s) => s.id)
-    for (const want of ['metadata', 'status', 'spec', 'labels', 'annotations']) {
-      expect(ids).toContain(want)
-    }
+    const want = hasStatusAndSpec
+      ? ['metadata', 'status', 'spec', 'labels', 'annotations']
+      : ['metadata', 'labels', 'annotations']
+    for (const id of want) expect(ids).toContain(id)
   })
 })
 
