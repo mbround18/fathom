@@ -20,6 +20,7 @@ pub(crate) mod anthropic;
 pub(crate) mod credentials;
 pub(crate) mod grounding;
 pub(crate) mod ollama;
+pub(crate) mod persistence;
 pub(crate) mod state_machine;
 
 use crate::protocol::v1::AgentTurnAuthor;

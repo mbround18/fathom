@@ -132,4 +132,46 @@ describe('AgentPanel', () => {
       'Not connected to backend',
     )
   })
+
+  it('"Clear history" is disabled with no messages, and does nothing without confirming', async () => {
+    const user = userEvent.setup()
+    render(<AgentPanel object={TARGET} />)
+
+    expect(screen.getByTestId('agent-ops-clear-history')).toBeDisabled()
+  })
+
+  it('"Clear history" asks for confirmation, and sends AgentClearConversation only on confirm', async () => {
+    const conversation: AgentConversation = {
+      messages: [
+        {
+          id: 'msg-1',
+          author: 'Operator',
+          text: 'Why is this pod crashing?',
+          grounding: [],
+          suggested_actions: [],
+          created_at: '2026-09-22T00:00:00Z',
+        },
+      ],
+      executed_actions: [],
+    }
+    useStore.setState((s) => ({
+      agentConversations: { ...s.agentConversations, [KEY]: conversation },
+    }))
+    const user = userEvent.setup()
+    render(<AgentPanel object={TARGET} />)
+
+    await user.click(screen.getByTestId('agent-ops-clear-history'))
+    expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+    // Not sent yet: only AgentOpenConversation (on mount) so far.
+    expect(sent).toEqual([{ type: 'AgentOpenConversation', data: { object: TARGET } }])
+
+    await user.click(screen.getByTestId('confirm-cancel'))
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull()
+    expect(sent).toEqual([{ type: 'AgentOpenConversation', data: { object: TARGET } }])
+
+    await user.click(screen.getByTestId('agent-ops-clear-history'))
+    await user.click(screen.getByTestId('confirm-submit'))
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull()
+    expect(sent).toContainEqual({ type: 'AgentClearConversation', data: { object: TARGET } })
+  })
 })

@@ -79,6 +79,7 @@ where
     let rt = Runtime::new().expect("Failed to create Tokio runtime");
 
     let mut state = BackendState::new();
+    state.agent_conversations = agent::persistence::load_agent_conversations();
 
     // Clear metrics history on startup to begin fresh collection
     if let Err(e) = persistence::clear_metrics_history() {

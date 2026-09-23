@@ -16,6 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import type { AgentMessage, AgentObjectRef, ExecutedAction } from '@/protocol/types'
 import { useStore } from '@/store'
@@ -38,6 +39,11 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
   // this app has no standalone global-settings surface yet, so `AuthSetup` is mounted here,
   // behind an explicit toggle, rather than always shown above the conversation.
   const [showAuthSetup, setShowAuthSetup] = useState(false)
+  // 013-agent-sdk-ops (US4/P3): "Clear history" is a local-only, non-cluster-mutating action —
+  // it never touches the cluster — but a misclick would permanently wipe this object's
+  // conversation (FR-017), so it is still confirmation-gated via the app's existing
+  // `ConfirmDialog`, reused with a single item representing this object.
+  const [confirmingClear, setConfirmingClear] = useState(false)
 
   // Load (or create) this object's conversation once per object, on mount — mirrors
   // `ImageInspectPanel`'s "send only on mount/target-change" contract.
@@ -78,7 +84,17 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3">
-      <div className="flex shrink-0 justify-end">
+      <div className="flex shrink-0 justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="agent-ops-clear-history"
+          disabled={messages.length === 0}
+          onClick={() => setConfirmingClear(true)}
+        >
+          Clear history
+        </Button>
         <Button
           type="button"
           variant="ghost"
@@ -90,6 +106,22 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
           {showAuthSetup ? 'Close auth settings' : 'Auth settings'}
         </Button>
       </div>
+      {confirmingClear && (
+        <ConfirmDialog
+          open
+          title="Clear conversation history?"
+          items={[{ namespace: object.namespace, name: object.name }]}
+          destructive
+          confirmLabel="Clear history"
+          onConfirm={() => {
+            setConfirmingClear(false)
+            void request({ type: 'AgentClearConversation', data: { object } }).catch(() => {
+              /* no-op: AgentConversationUpdated (or its absence) is the source of truth */
+            })
+          }}
+          onCancel={() => setConfirmingClear(false)}
+        />
+      )}
       {showAuthSetup && (
         <div className="shrink-0 border-b border-border pb-3">
           <AuthSetup />

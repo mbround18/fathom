@@ -25,6 +25,17 @@ fn conversation_key(object: &AgentObjectRef) -> String {
     format!("{}/{}/{}", object.kind, object.namespace, object.name)
 }
 
+/// Persists the full in-memory conversation map to `~/.fathom/agent_conversations.json`
+/// (US4/FR-017). Best-effort: a write failure is logged and never blocks or fails the
+/// caller — the in-memory state and the `AgentConversationUpdated` event emitted
+/// alongside every call site of this function remain the source of truth for the
+/// running session; disk is durability-only.
+fn persist_conversations(state: &BackendState) {
+    if let Err(err) = agent::persistence::save_agent_conversations(&state.agent_conversations) {
+        tracing::error!("Failed to save agent_conversations.json: {}", err);
+    }
+}
+
 fn emit_conversation_updated(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
@@ -91,6 +102,7 @@ pub(super) async fn handle(
         }
         BackendCmd::AgentClearConversation { object } => {
             state.agent_conversations.remove(&conversation_key(&object));
+            persist_conversations(state);
             emit_conversation_updated(state, sender, object, AgentConversation::default());
         }
         BackendCmd::AgentReviewSuggestedAction {
@@ -139,6 +151,7 @@ fn handle_transition(
         }
     }
     let conversation = conversation.clone();
+    persist_conversations(state);
     emit_conversation_updated(state, sender, object, conversation);
 }
 
@@ -182,6 +195,7 @@ fn handle_record_executed(
     }
 
     let conversation = conversation.clone();
+    persist_conversations(state);
     emit_conversation_updated(state, sender, object, conversation);
 }
 
@@ -275,6 +289,7 @@ async fn handle_ask(
         conversation.clone()
     };
 
+    persist_conversations(state);
     emit_conversation_updated(state, sender, object, conversation);
 }
 
