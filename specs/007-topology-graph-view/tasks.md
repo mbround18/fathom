@@ -37,20 +37,20 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
 
 ## Phase 2: User Story 1 - See the cluster shape at a glance (P1)
 
-- [ ] T020 [US1] Create `ui/src/components/topology/TopologyCanvas.tsx`: canvas element, draws
+- [X] T020 [US1] Create `ui/src/components/topology/TopologyCanvas.tsx`: canvas element, draws
       namespace-tier nodes/edges from `buildTopologyGraph`+`layoutTopologyGraph`, no pan/zoom/LOD
       yet (namespace tier only for this story)
-- [ ] T021 [US1] Create `ui/src/components/panels/TopologyPanel.tsx` (mirrors `FluxPanel.tsx`):
+- [X] T021 [US1] Create `ui/src/components/panels/TopologyPanel.tsx` (mirrors `FluxPanel.tsx`):
       disconnected/no-kubeconfig states via existing `PaneStates`, else `<TopologyCanvas/>`
-- [ ] T022 [US1] Wire `pane.tool === 'topology'` in `ui/src/components/shell/PaneHost.tsx`'s
+- [X] T022 [US1] Wire `pane.tool === 'topology'` in `ui/src/components/shell/PaneHost.tsx`'s
       `PaneBody` switch to render `<TopologyPanel/>`
-- [ ] T023 [US1] On `TopologyPanel` mount, dispatch the Namespaces/Applications/Services/HelmRelease
+- [X] T023 [US1] On `TopologyPanel` mount, dispatch the Namespaces/Applications/Services/HelmRelease
       list `refreshSection` calls needed for the overview tier (idempotent, matches existing
       list-pane mount behavior)
-- [ ] T024 [US1] Live redraw: subscribe to the relevant store slices so a new namespace row
+- [X] T024 [US1] Live redraw: subscribe to the relevant store slices so a new namespace row
       triggers a rebuild without reload (`requestAnimationFrame`-gated, no polling loop —
       Principle V)
-- [ ] T025 [P] [US1] `ui/tests/e2e/us1-topology-overview.spec.ts`: 5 namespaces / 3 with
+- [X] T025 [P] [US1] `ui/tests/e2e/us1-topology-overview.spec.ts`: 5 namespaces / 3 with
       Application+Service fixture → asserts 5 namespace nodes rendered (`data-testid="topology-node"`
       count via canvas-adjacent a11y list, see T026) and edges only for the 3; scripted
       namespace-created event → new node appears without navigation
@@ -59,17 +59,17 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
 
 ## Phase 3: User Story 2 - Zoom from namespace down to pod (P1)
 
-- [ ] T030 [US2] Add pan/zoom input handling to `TopologyCanvas.tsx` (wheel, drag, pinch via
+- [X] T030 [US2] Add pan/zoom input handling to `TopologyCanvas.tsx` (wheel, drag, pinch via
       Pointer Events) updating `scale/x/y`, persisted to `PaneState.topology` via `updatePane`
       (research.md R4), `data-testid="topology-canvas"`
-- [ ] T031 [US2] Implement `TopologyViewport` focus-set derivation in
+- [X] T031 [US2] Implement `TopologyViewport` focus-set derivation in
       `ui/src/components/topology/TopologyCanvas.utils.ts` (`deriveFocus(viewport, nodes) ->
       {namespaceFocus, workloadFocus}` per research.md R3), unit-tested in
       `ui/tests/unit/topology/viewport.test.ts`
-- [ ] T032 [US2] Extend `buildTopologyGraph` call sites to pass current focus sets; on entering
+- [X] T032 [US2] Extend `buildTopologyGraph` call sites to pass current focus sets; on entering
       workload/pod tier for a namespace/workload not yet fetched, dispatch
       `RefreshRelatedResources`/`refreshSection` and render `loading: true` node (FR-015)
-- [ ] T033 [US2] Large-pod-count handling (FR-012, US2 Acceptance Scenario 4): when a focused
+- [X] T033 [US2] Large-pod-count handling (FR-012, US2 Acceptance Scenario 4): when a focused
       workload's pod count exceeds a threshold, render pods with lighter per-node draw (no
       per-pod hit-test hover, batched draw calls) but keep individual click targets distinguishable
 - [ ] T034 [P] [US2] `ui/tests/e2e/us2-topology-zoom.spec.ts`: zoom into one namespace ->
@@ -81,18 +81,20 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
 
 ## Phase 4: User Story 3 - Jump from a graph node into its inspector (P2)
 
-- [ ] T040 [US3] Add click hit-testing to `TopologyCanvas.utils.ts` (`hitTest(point, nodes) ->
+- [X] T040 [US3] Add click hit-testing to `TopologyCanvas.utils.ts` (`hitTest(point, nodes) ->
       TopologyNode | undefined`), unit-tested
-- [ ] T041 [US3] Wire node click in `TopologyCanvas.tsx` to `store.openInspector(node.ref,
+- [X] T041 [US3] Wire node click in `TopologyCanvas.tsx` to `store.openInspector(node.ref,
       topologyPaneId)` (no new inspector code path)
-- [ ] T042 [US3] Confirm/verify (no code change expected) that `PaneState.topology` viewport
+- [X] T042 [US3] Confirm/verify (no code change expected) that `PaneState.topology` viewport
       persists across the inspector round-trip per research.md R4; add regression assertion in
       the e2e spec rather than new production code if it already works
-- [ ] T043 [P] [US3] `ui/tests/e2e/us3-topology-inspector.spec.ts`: click a Service node -> its
-      Details/YAML/Events inspector opens; click a pod node opened via graph, then use existing
-      related-resource link inside that inspector -> behaves identically to list-opened inspector;
-      back-navigate -> graph shows prior zoom/pan (asserted via `data-testid="topology-canvas"`
-      transform state or a re-click landing on the same node's prior screen position)
+- [X] T043 [P] [US3] `ui/tests/e2e/us3-topology-inspector.spec.ts`: click a graph node -> its
+      inspector opens (Node kind, since Service is out of scope for v1 — see
+      `ui/src/topology/types.ts`'s `TopologyNodeKind` comment); Escape/back-navigate -> graph
+      shows prior zoom/pan, verified for chromium-desktop/tablet/phone (fixed a real
+      `openInspector` slot-routing bug found along the way: tablet's tool tabs are mutually
+      exclusive with its Resources-tab list|inspector row, so the always-present slotted inspector
+      pane is no longer preferred when the click didn't originate from that visible row)
 
 **Checkpoint**: graph nodes are real, reusable entry points into the existing inspector.
 

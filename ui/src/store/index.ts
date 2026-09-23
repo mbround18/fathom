@@ -831,7 +831,15 @@ export const useStore = create<StoreState>()((set, get) => ({
 
       const slotted = s.layout.slotPanes.find((id) => panes[id]?.kind === 'inspector')
       const slottedPane = slotted ? panes[slotted] : undefined
-      if (slottedPane && s.layout.widthClass !== 'phone') {
+      // The fixed-slot inspector is only a valid target when it's actually on screen at the same
+      // time as whatever triggered this: laptop+ always shows the row alongside the dock, but
+      // tablet swaps the whole content area between the row and a tool tab (007-topology-graph-
+      // view: a topology node click while the Topology tab is active must NOT silently retarget
+      // the off-screen Resources-tab inspector slot) — so on tablet the fast path only applies
+      // when the click genuinely came from a pane that's part of that visible row.
+      const rowAlwaysVisible = s.layout.profile.dock !== undefined
+      const fromVisibleSlot = from !== undefined && s.layout.slotPanes.includes(from)
+      if (slottedPane && s.layout.widthClass !== 'phone' && (rowAlwaysVisible || fromVisibleSlot)) {
         panes[slottedPane.id] = {
           ...slottedPane,
           target: ref,
@@ -1009,7 +1017,11 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
       const top = s.layout.stack.at(-1)
       const topPane = top ? panes[top] : undefined
-      if (s.layout.widthClass === 'phone' && topPane?.kind === 'inspector') {
+      // An inspector pushed onto `layout.stack` (phone always; tablet/desktop's "tool tab has no
+      // dedicated inspector slot" fallback in `openInspector`) is closed by popping the stack.
+      // An inspector living in a fixed row slot (`layout.slotPanes`, the desktop/wide grid) is
+      // closed by clearing its target instead, in the loop below.
+      if (topPane?.kind === 'inspector' && !s.layout.slotPanes.includes(topPane.id)) {
         clearSource(topPane.source)
         const stack = s.layout.stack.length > 1 ? s.layout.stack.slice(0, -1) : s.layout.stack
         return { panes, layout: { ...s.layout, stack } }

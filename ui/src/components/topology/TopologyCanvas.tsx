@@ -55,9 +55,10 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     [ctx],
   )
 
-  const [camera, setCamera] = useState<Camera>(
-    () => pane?.topology ?? { scale: 1, x: size.width / 2, y: size.height / 2 },
-  )
+  // Layout runs in the same coordinate box as the canvas (`layoutTopologyGraph`'s `forceCenter`
+  // targets `size.width/2, size.height/2`), so the identity camera (`scale: 1, x: 0, y: 0`)
+  // already centers the graph on first paint — no extra translation needed.
+  const [camera, setCamera] = useState<Camera>(() => pane?.topology ?? { scale: 1, x: 0, y: 0 })
 
   // ---- responsive size (ResizeObserver, no continuous polling)
   useEffect(() => {
