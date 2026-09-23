@@ -229,6 +229,18 @@ export interface NodeAction {
   requestId?: string
 }
 
+/**
+ * One Helm release uninstall in flight (006-helm-mutate US3, T034/T035), keyed by
+ * `namespace/release`. Ephemeral, frontend-held UI state driven by `HelmMutationApplied`/
+ * `HelmMutationFailed` (`store/handlers/system.ts`) rather than the generic `CommandFinished`,
+ * since those events carry the actual mutate-flow outcome. Success also removes the release from
+ * `lists` and closes a matching open Inspector, so a 'complete' entry is normally short-lived.
+ */
+export interface HelmUninstallState {
+  status: 'in-progress' | 'complete' | 'failed'
+  error?: string
+}
+
 export interface IntegrationsState {
   mcp?: { running: boolean; message: string }
   prometheusTest?: { success: boolean; message: string }
@@ -308,6 +320,8 @@ export interface StoreData {
    * events arrive.
    */
   helmMutation: HelmMutationSession
+  /** Helm release uninstalls (006 US3), by `namespace/release`. */
+  helmUninstalls: Record<string, HelmUninstallState>
   layout: LayoutState
   panes: Record<PaneId, PaneState>
   /**
@@ -432,6 +446,8 @@ export interface StoreState extends StoreData {
   ) => void
   /** Back to `idle` (Cancel, or navigating away from the release). */
   resetHelmMutation: () => void
+  /** Set (or clear, with `undefined`) the in-flight/last uninstall for `namespace/release` (006 US3). */
+  setHelmUninstall: (key: string, state: HelmUninstallState | undefined) => void
 }
 
 /** Debounce for persisting navigator state (typing-speed toggles coalesce into one write). */
@@ -550,6 +566,7 @@ export function initialData(): StoreData {
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
     nodeActions: {},
+    helmUninstalls: {},
     layout: {
       widthClass: 'phone',
       ultraPlus: false,
@@ -1002,6 +1019,18 @@ export const useStore = create<StoreState>()((set, get) => ({
         delete nodeActions[nodeName]
       }
       return { nodeActions }
+    }),
+
+  setHelmUninstall: (key, state) =>
+    set((s) => {
+      const helmUninstalls = { ...s.helmUninstalls }
+      if (state) {
+        helmUninstalls[key] = state
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- keyed by namespace/release
+        delete helmUninstalls[key]
+      }
+      return { helmUninstalls }
     }),
 }))
 

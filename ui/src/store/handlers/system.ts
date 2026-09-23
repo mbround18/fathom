@@ -11,11 +11,20 @@ import {
   previewReady as helmMutationPreviewReady,
 } from '../helmMutation'
 import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
+import { rowId } from './list'
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
   Info: 'info',
   Warn: 'warn',
   Error: 'error',
+}
+
+/** Mirrors `SECTION` in `resources/helm.tsx` — not imported directly to avoid a cycle back into
+ * `@/resources` from a store handler module. */
+const HELM_RELEASES_SECTION = 'helm/releases'
+
+function helmUninstallKey(namespace: string, release: string): string {
+  return `${namespace}/${release}`
 }
 
 /**
@@ -193,6 +202,51 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       const { slotPanes, dockPanes, panes } = assignPanes(profile, d.read('panes'))
       d.put('panes', panes)
       d.put('layout', { ...layout, profile, slotPanes, dockPanes })
+      return
+    }
+
+    case 'HelmMutationApplied': {
+      if (event.data.action !== 'uninstall') return
+      const { namespace, release } = event.data
+      const key = helmUninstallKey(namespace, release)
+      d.edit('helmUninstalls')[key] = { status: 'complete' }
+
+      // T035: drop the release from the list state immediately (no need to wait for a refresh)
+      // and close the Inspector if it was open on the now-gone release.
+      const ctx = d.read('session').activeContext
+      const listK = listKey(ctx, HELM_RELEASES_SECTION, 'Namespaced', null)
+      const list = d.read('lists')[listK]
+      if (list) {
+        const removedId = `${namespace}/${release}`
+        d.edit('lists')[listK] = {
+          ...list,
+          rows: list.rows.filter((r) => rowId(r) !== removedId),
+          updatedAt: Date.now(),
+        }
+      }
+
+      const panes = d.read('panes')
+      let panesChanged = false
+      const nextPanes = { ...panes }
+      for (const [id, pane] of Object.entries(panes)) {
+        if (
+          pane.kind === 'inspector' &&
+          pane.target?.section === HELM_RELEASES_SECTION &&
+          pane.target.namespace === namespace &&
+          pane.target.name === release
+        ) {
+          nextPanes[id] = { ...pane, target: undefined, source: undefined }
+          panesChanged = true
+        }
+      }
+      if (panesChanged) d.put('panes', nextPanes)
+      return
+    }
+
+    case 'HelmMutationFailed': {
+      if (event.data.action !== 'uninstall') return
+      const key = helmUninstallKey(event.data.namespace, event.data.release)
+      d.edit('helmUninstalls')[key] = { status: 'failed', error: event.data.message }
       return
     }
   }
