@@ -33,7 +33,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
 | In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | 🚧 | P1 (multi-context sidebar + live status) shipped — see §14 Tier D; simultaneous federation/daemon/cloud-auth-plugins still future |
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
-| Teams & organizations (self-hosted multi-user) | ⬜ | future — see §14 Tier F |
+| Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) blocked on 011 landing in `main` — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
 | Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | ⬜ | not yet planned |
 
@@ -617,11 +617,11 @@ Carried over from roadmap discussion, in priority order:
 
 ### Tier F — Teams & organizations (self-hosted)
 
-*Status: ⬜ Not started, exploratory. Depends on Tier C's role resolution for anything beyond shared connection profiles.*
+*Status: 🚧 Partial — 014-teams-organizations. Shared connection profiles and org-level §10 settings sync shipped; per-user RBAC-scoped views remain blocked on Tier C's role resolution (spec 011, not yet merged into `main`).*
 
-* Shared cluster-connection profiles within a team (kubeconfig/context sharing, not shared credentials) so a team doesn't each hand-roll their own connection setup.
-* Per-user RBAC-scoped views once signed in via Tier C's OIDC flow — the UI already reflects what that identity can do, per-user, not per-install.
-* Org-level settings/preferences sync (metrics source, hidden-metrics config, etc. from §10) shared across a team rather than re-configured per machine.
+* ✅ Shared cluster-connection profiles within a team (kubeconfig/context sharing, not shared credentials) via a self-hosted shared config store the operator points at — the shared record carries no credential field, and a heuristic scan refuses any publish that looks like it contains one (`TeamPublishRejected { kind: 'suspectedSecret' }`), surfaced in the UI rather than silently dropped.
+* ⬜ Per-user RBAC-scoped views once signed in via Tier C's OIDC flow — the UI already reflects what that identity can do, per-user, not per-install. *Blocked on 011 landing in `main`.*
+* ✅ Org-level settings/preferences sync (metrics source, hidden-metrics config, etc. from §10) shared across a team rather than re-configured per machine — publish-as-org-default with optimistic-concurrency conflict detection, and an accept/dismiss banner when a teammate publishes a newer default for a context you're on.
 * Explicit non-goal: a hosted multi-tenant SaaS control plane — this is about self-hosted teams who already share real clusters, not standing up a new hosted backend.
 
 **Design constraint across Tiers C–F**: prefer existing public crates, cloud SDKs/CLIs, and Kubernetes-native primitives (OIDC, RBAC objects, kubeconfig contexts, each cloud's official auth plugin, the OCI distribution spec, the Agent SDK's public surface) over inventing new protocols — the same discipline already applied when adding `tonic`/`oci-client`-style dependencies for Flux/Helm/Hubble: check what's already a standard, well-supported crate or API before building a bespoke one.
