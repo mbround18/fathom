@@ -22,6 +22,7 @@ import { PROTOCOL_VERSION, type BackendEventEnvelope, type EventBatch } from '@/
 import { Draft } from './draft'
 import { handleImageInspect } from './handlers/imageInspect'
 import { handleList } from './handlers/list'
+import { handleRbacAccess } from './handlers/rbacAccess'
 import { handleRead, readKeyOf } from './handlers/read'
 import { handleStream } from './handlers/stream'
 import { handleCommandFinished, handleSystem } from './handlers/system'
@@ -90,6 +91,15 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
         event.data.type === 'ContainerImageInspectFailed'
       ) {
         handleImageInspect(d, event.data)
+        return
+      }
+      // 011-rbac-oidc-administration: same reasoning, see handlers/rbacAccess.ts.
+      if (
+        event.data.type === 'RbacSelfAccessUpdated' ||
+        event.data.type === 'NamespaceAccessResolved' ||
+        event.data.type === 'KubeadmDetectionUpdated'
+      ) {
+        handleRbacAccess(d, event.data)
         return
       }
       const latest = d.read('details')[readKeyOf(env, event.data)]?.latestRequest

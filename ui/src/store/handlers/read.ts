@@ -17,7 +17,9 @@ export function readKind(type: ResourceReadEvent['type']): string {
  */
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
-  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+  | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+  // 011-rbac-oidc-administration: no `name` field; routed by `handleRbacAccess` instead.
+  | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
 >
 
 export function readKeyOf(env: BackendEventEnvelope, event: GenericReadEvent): string {

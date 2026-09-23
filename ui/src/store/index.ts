@@ -18,9 +18,12 @@ import type {
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
+  KubeadmDetectionResult,
   KubernetesEvent,
   LayoutProfile,
   MetricsStackScanResult,
+  NamespaceAccessResolved,
+  RbacAccessResult,
   ResourceListEvent,
   ResourceReadEvent,
   Route,
@@ -41,9 +44,11 @@ import {
   editYaml,
   markApplying,
   markFailed,
+  openCreateSession,
   openSession,
   reviewDiff as reviewSessionDiff,
   type ResourceEditSession,
+  type ResourceEditTarget,
 } from './editSession'
 import {
   initialHelmMutationSession,
@@ -145,13 +150,15 @@ export interface ListState {
 }
 
 /**
- * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones, which
- * are never stored here — they live in `imageInspections` instead (their payload has no `name`
- * field for this generic namespace/kind/name keying).
+ * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones and the
+ * three 011-rbac-oidc-administration ones, none of which are stored here — they live in
+ * `imageInspections`/`rbacAccess` instead (their payloads have no `name` field for this generic
+ * namespace/kind/name keying). Must match `handlers/read.ts`'s identical `GenericReadEvent`.
  */
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
-  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+  | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+  | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
 >
 
 export interface DetailState {
@@ -378,6 +385,20 @@ export interface StoreData {
    */
   imageInspections: Record<string, ImageInspectState>
   /**
+   * 011-rbac-oidc-administration: three read-only RBAC payloads with no `name` field for the
+   * generic `details` keying (`readKeyOf` assumes one) — same reasoning as `imageInspections`.
+   * Global (not keyed): only one self-access check, namespace-access lookup, or kubeadm
+   * detection is ever in flight/shown at a time.
+   */
+  rbacAccess: {
+    /** Latest `RbacSelfAccessUpdated` reply (US2/US3 create/edit/delete gating, FR-007). */
+    selfAccess?: RbacAccessResult[]
+    /** Latest `NamespaceAccessResolved` reply (US4). */
+    namespaceAccess?: NamespaceAccessResolved
+    /** Latest `KubeadmDetectionUpdated` reply (US5), never an error. */
+    kubeadmDetection?: KubeadmDetectionResult
+  }
+  /**
    * 006-helm-mutate: the in-flight/last rollback-upgrade-uninstall preview→apply flow. Global
    * (not keyed), same as `flux`/`hubble` — only one Helm mutate flow can be open at a time
    * (research.md R2/R9). `system.ts` advances it as `HelmMutationPreviewReady/Applied/Failed`
@@ -498,6 +519,13 @@ export interface StoreState extends StoreData {
    * (the same `raw_json` the read-only YAML tab renders).
    */
   openEditSession: (ref: ObjectRef, raw: string) => void
+  /**
+   * 011-rbac-oidc-administration US2: open a create-mode session for a not-yet-existing object
+   * (e.g. a new RoleBinding built by `RoleBindingForm`), keyed the same as an edit session so
+   * the rest of the diff/apply machinery (`updateEditedYaml`/`reviewEditDiff`/`applyEditSession`)
+   * needs no changes. Returns the session's `DetailKey` so the caller can look it up.
+   */
+  openCreateEditSession: (target: ResourceEditTarget, initialYaml: string) => DetailKey
   /** Update the operator's edit buffer for the session at `key` (`detailKey(...)`). */
   updateEditedYaml: (key: DetailKey, yaml: string) => void
   /** Open the diff view and mark the current `liveYaml` as reviewed. */
@@ -666,6 +694,7 @@ export function initialData(): StoreData {
     integrations: { portAvailability: {} },
     nodeActions: {},
     imageInspections: {},
+    rbacAccess: {},
     helmUninstalls: {},
     helmMutations: {},
     layout: {
@@ -1004,6 +1033,14 @@ export const useStore = create<StoreState>()((set, get) => ({
       const key = detailKey(s.session.activeContext, ref.kind, ref.namespace, ref.name)
       return { editSessions: { ...s.editSessions, [key]: openSession(ref, raw) } }
     }),
+
+  openCreateEditSession: (target, initialYaml) => {
+    const key = detailKey(get().session.activeContext, target.kind, target.namespace, target.name)
+    set((s) => ({
+      editSessions: { ...s.editSessions, [key]: openCreateSession(target, initialYaml) },
+    }))
+    return key
+  },
 
   updateEditedYaml: (key, yaml) =>
     set((s) => {
