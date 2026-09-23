@@ -32,7 +32,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Container image layer inspection | ✅ | see §9a |
 | Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
 | In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | ⬜ | future — see §14 Tier D |
-| Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ⬜ | future — see §14 Tier E |
+| Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
 | Teams & organizations (self-hosted multi-user) | ⬜ | future — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
 | Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | ⬜ | not yet planned |
