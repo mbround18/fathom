@@ -54,6 +54,7 @@ impl BackendCmdV1 {
             | C::RefreshEvents
             | C::RefreshPods
             | C::SelectPod { .. }
+            | C::InspectContainerImage { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
@@ -264,6 +265,7 @@ impl BackendCmdV1 {
             C::RefreshPods
             | C::SelectPod { .. }
             | C::DeletePod { .. }
+            | C::InspectContainerImage { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
