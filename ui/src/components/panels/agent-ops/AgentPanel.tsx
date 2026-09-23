@@ -7,22 +7,23 @@
  * (`store/handlers/agent.ts`), keyed by `${kind}/${namespace}/${name}` — driven entirely by
  * `AgentConversationUpdated` events, never written locally.
  *
- * `SuggestedAction`s attached to an assistant message are rendered here as plain, read-only
- * cards (rationale + action kind + target) — Phase 5 (US3) is what makes these interactive
- * (`SuggestedActionCard.tsx`'s Review/Decline flow through the app's existing confirm-dialog
- * path, constitution Principle I). Nothing here is clickable/actionable yet.
+ * `SuggestedAction`s attached to an assistant message render as `SuggestedActionCard`s (Phase
+ * 5/US3): Review opens the app's existing `ConfirmDialog` with a diff computed fresh at click
+ * time, and confirming it runs the same unmodified mutating command a manual click would,
+ * through the same `runAction` — see `reviewSuggestedAction.ts` (constitution Principle I).
  *
  * All new testids introduced by this feature are prefixed `agent-ops-`.
  */
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import type { AgentMessage, AgentObjectRef } from '@/protocol/types'
+import type { AgentMessage, AgentObjectRef, ExecutedAction } from '@/protocol/types'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 import { agentConversationKey } from '@/store/handlers/agent'
 
 import { AuthSetup } from './AuthSetup'
+import { SuggestedActionCard } from './SuggestedActionCard'
 
 export function AgentPanel({ object }: { object: AgentObjectRef }) {
   const request = useStore((s) => s.request)
@@ -102,7 +103,12 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
           </p>
         )}
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <MessageBubble
+            key={m.id}
+            object={object}
+            message={m}
+            executedActions={conversation?.executed_actions ?? []}
+          />
         ))}
         {asking && (
           <p
@@ -151,7 +157,15 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
   )
 }
 
-function MessageBubble({ message }: { message: AgentMessage }) {
+function MessageBubble({
+  object,
+  message,
+  executedActions,
+}: {
+  object: AgentObjectRef
+  message: AgentMessage
+  executedActions: readonly ExecutedAction[]
+}) {
   const isOperator = message.author === 'Operator'
   return (
     <div
@@ -168,18 +182,14 @@ function MessageBubble({ message }: { message: AgentMessage }) {
       {message.suggested_actions.length > 0 && (
         <div className="flex flex-col gap-2 pt-1">
           {message.suggested_actions.map((sa) => (
-            // Phase 5 (US3) makes this card interactive (Review/Decline via
-            // `SuggestedActionCard.tsx`): plain, read-only display only, for now.
-            <div
+            <SuggestedActionCard
               key={sa.id}
-              data-testid="agent-ops-suggested-action"
-              className="rounded-md border border-accent-neon/40 bg-accent-neon/5 p-2"
-            >
-              <p className="font-display text-[10px] tracking-wider text-accent-neon uppercase">
-                {sa.action_kind} · {sa.target.kind} {sa.target.namespace}/{sa.target.name}
-              </p>
-              <p className="pt-1 text-foreground/80">{sa.rationale}</p>
-            </div>
+              object={object}
+              suggestion={sa}
+              executedOutcome={
+                executedActions.find((e) => e.suggested_action_id === sa.id)?.outcome
+              }
+            />
           ))}
         </div>
       )}

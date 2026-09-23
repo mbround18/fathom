@@ -93,7 +93,7 @@ test.describe('US1 agent ops: ask the assistant', () => {
     await expect(messages.nth(0)).toContainText(question)
     await expect(messages.nth(1)).toContainText('OOMKilled twice')
 
-    const suggestion = insp.getByTestId('agent-ops-suggested-action')
+    const suggestion = insp.getByTestId('agent-ops-suggested-action-card')
     await expect(suggestion).toBeVisible()
     await expect(suggestion).toContainText('restart')
     await expect(suggestion).toContainText('Clears the current OOMKilled crash loop')

@@ -100,7 +100,7 @@ describe('AgentPanel', () => {
     expect(messages[0]).toHaveTextContent('Why is this pod crashing?')
     expect(messages[1]).toHaveTextContent('It looks OOMKilled.')
 
-    const action = screen.getByTestId('agent-ops-suggested-action')
+    const action = screen.getByTestId('agent-ops-suggested-action-card')
     expect(action).toHaveTextContent('restart')
     expect(action).toHaveTextContent('Pod is crash-looping on OOMKilled')
   })
