@@ -143,15 +143,6 @@ impl MetricsState {
     }
 }
 
-/// MCP HTTP server task, shared state, and configured port.
-pub(super) struct McpState {
-    pub(super) http_task: Option<tokio::task::JoinHandle<()>>,
-    pub(super) state: Option<std::sync::Arc<crate::mcp_server::McpAppState>>,
-    pub(super) port: u16,
-    /// Set from `Args::disable_mcp`: `StartMcpServer` is refused.
-    pub(super) disabled: bool,
-}
-
 pub(super) struct BackendState {
     pub(super) cluster: ClusterContext,
     pub(super) log_stream: LogStreamState,
@@ -160,7 +151,6 @@ pub(super) struct BackendState {
     pub(super) node_actions: NodeActionState,
     pub(super) metrics: MetricsState,
     pub(super) port_forward_manager: PortForwardManager,
-    pub(super) mcp: McpState,
     /// Session-scoped image-inspection cache, keyed by resolved manifest digest
     /// (010-container-image-inspection, FR-008/data-model.md). In-memory only, never
     /// persisted to `~/.fathom/` (Constitution VI) or shared across cluster connections.
@@ -170,6 +160,10 @@ pub(super) struct BackendState {
     /// `~/.fathom/agent_conversations.json` persistence across restarts); never
     /// shared across cluster connections.
     pub(super) agent_conversations: HashMap<String, crate::protocol::v1::AgentConversation>,
+    /// 015-mcp-agent-exposure: the stdio MCP server's lifecycle. Default-constructed holds no
+    /// task and no cancellation token, so a Fathom process that never receives
+    /// `SetMcpServerEnabled { enabled: true }` never spawns a server (FR-002).
+    pub(super) mcp: crate::backend::mcp::McpState,
     /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
@@ -212,14 +206,9 @@ impl BackendState {
                 prometheus_client: None,
             },
             port_forward_manager: PortForwardManager::new(),
-            mcp: McpState {
-                http_task: None,
-                state: None,
-                port: 18288,
-                disabled: false,
-            },
             image_inspect_cache: HashMap::new(),
             agent_conversations: HashMap::new(),
+            mcp: crate::backend::mcp::McpState::default(),
         }
     }
 
@@ -261,4 +250,6 @@ fn abort_background_tasks(state: &mut BackendState) {
     state.node_actions.abort_all();
     tracing::debug!("Aborting metrics poll tasks");
     state.metrics.abort_tasks();
+    tracing::debug!("Aborting MCP stdio server");
+    state.mcp.abort();
 }

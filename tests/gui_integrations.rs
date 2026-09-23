@@ -1,4 +1,4 @@
-//! Integrations panel (Prometheus scan) and MCP status-sync flows. See
+//! Integrations panel (Prometheus scan) flows. See
 //! `tests/common/mod.rs` for the shared harness and gotchas.
 
 mod common;
@@ -64,52 +64,4 @@ fn scan_button_recovers_after_a_failed_scan() {
         BackendCmd::RefreshIntegrations => {}
         other => panic!("expected RefreshIntegrations, got {other:?}"),
     }
-}
-
-/// Regression test for a bug found by inspection: `McpIntegrationView`'s
-/// `mcp_running` field only ever changed in response to a `McpServerStatus`
-/// event fired by the Start/Stop command handlers - nothing queried the
-/// server's *actual* running state when the view mounted. Anyone using the
-/// MCP HTTP auto-start preference (a checkbox on this exact page) would see
-/// "🔴 Stopped" every time they opened this view, even though the server was
-/// actually running, since startup never emits a status event either.
-/// Fixed by having `on_mount` send `BackendCmd::RefreshMcpStatus`, and by the
-/// backend actually answering it.
-#[test]
-fn mcp_view_syncs_actual_status_on_mount() {
-    let mut app = setup();
-    app.navigate("Integrations", "  MCP Server");
-
-    // Navigating also dispatches SetActiveSection alongside on_mount's
-    // RefreshMcpStatus - check RefreshMcpStatus is among them rather than
-    // assuming it's the only command sent.
-    let mut saw_refresh_status = false;
-    while let Ok(cmd) = app.cmds_rx.try_recv() {
-        if matches!(cmd, BackendCmd::RefreshMcpStatus) {
-            saw_refresh_status = true;
-        }
-    }
-    assert!(
-        saw_refresh_status,
-        "expected on_mount to send RefreshMcpStatus"
-    );
-
-    // No status has arrived yet - should still show Stopped, not have
-    // silently assumed Running.
-    assert!(app.harness.query_by_label("🔴 Stopped").is_some());
-
-    // Simulate the backend answering: actually running (e.g. started via
-    // --mcp-http or the auto-start preference at launch).
-    app.push_event(
-        Route::global(section_keys::integrations_mcp()),
-        BackendEvent::System(SystemEvent::McpServerStatus {
-            running: true,
-            message: "MCP server is running".to_owned(),
-        }),
-    );
-
-    assert!(
-        app.harness.query_by_label("🟢 Running").is_some(),
-        "expected the view to reflect the server's actual running state after RefreshMcpStatus resolves"
-    );
 }

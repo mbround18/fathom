@@ -70,8 +70,7 @@ async fn main() -> anyhow::Result<()> {
     let (gui_tx, gui_rx) = unbounded::<BackendEventEnvelope>();
     let (cmd_tx, cmd_rx) = unbounded::<CmdRequest>();
     let args = Args {
-        mcp_http: false,
-        mcp_port: 18288,
+        mcp_stdio: false,
         only_mcp: false,
         disable_mcp: true,
     };

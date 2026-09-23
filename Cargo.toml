@@ -69,11 +69,13 @@ urlencoding = "2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 
-# MCP Server for VSCode & Claude integration
-rmcp = { version = "0.12.0", features = ["server"] }
-axum = "0.8"
+# MCP Server for VSCode & Claude integration (stdio transport)
+rmcp = { version = "0.12.0", features = ["server", "transport-io"] }
+# `CancellationToken` for the stdio MCP server's graceful shutdown
+# (`rmcp::service::serve_server_with_ct`, 015-mcp-agent-exposure).
+tokio-util = { version = "0.7.19", features = ["rt"] }
+# tonic/Hubble gRPC channel connector (`backend::hubble`), not MCP-related.
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 
 # Native file dialogs for saving logs

@@ -11,6 +11,7 @@ import {
   previewReady as helmMutationPreviewReady,
 } from '../helmMutation'
 import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
+import { RingBuffer } from '../ring-buffer'
 import { rowId } from './list'
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
@@ -116,9 +117,6 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'GrafanaConnectionTest':
       d.edit('integrations').grafanaTest = event.data
       return
-    case 'McpServerStatus':
-      d.edit('integrations').mcp = event.data
-      return
     case 'PortAvailability': {
       const integrations = d.edit('integrations')
       integrations.portAvailability = {
@@ -195,7 +193,7 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       d.put('prefs', {
         loaded: true,
         expandedGroups: event.data.expanded_groups,
-        mcpAutoStart: event.data.mcp_auto_start,
+        mcpStdioEnabled: event.data.mcp_stdio_enabled,
       })
       // `null` = nothing saved (or unreadable): keep the defaults (SC-009).
       const ui = event.data.ui
@@ -262,6 +260,61 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
 
     // 013-agent-sdk-ops (US2/P1): the global assistant auth mode, replied to
     // `AgentGetAuthMode`/`AgentSetAuthMode`. Never carries the raw key (`AuthSetup.tsx`).
+    // 015-mcp-agent-exposure: reply to `LoadMcpServerStatus` and broadcast after every
+    // `SetMcpServerEnabled`. `running` is taken from the backend as given — it is never inferred
+    // from `enabled`, so a failed start shows as enabled-but-not-running instead of healthy.
+    case 'McpServerStatusChanged': {
+      const mcp = d.edit('mcp')
+      mcp.loaded = true
+      mcp.enabled = event.data.enabled
+      mcp.running = event.data.running
+      mcp.connectionCommand = event.data.connection_command
+      return
+    }
+
+    // 015-mcp-agent-exposure US4: the locally-launched `claude` CLI session. `sessionId` is
+    // the backend's monotonic counter — chunks and endings that name an *older* session are
+    // dropped, so a previous run's trailing output can never bleed into a fresh terminal.
+    case 'McpDemoChatReady': {
+      d.edit('mcp').demoChat = {
+        status: 'running',
+        sessionId: event.data.session_id,
+        chunks: new RingBuffer<string>(),
+        rev: 0,
+      }
+      return
+    }
+
+    case 'McpDemoChatOutputChunk': {
+      const mcp = d.edit('mcp')
+      const prev = mcp.demoChat
+      if (prev.sessionId !== event.data.session_id) return
+      // xterm.js wants a Latin1-per-char "binary string" so raw escape bytes survive verbatim,
+      // exactly as `handlers/stream.ts` decodes `PodExecOutputChunk`.
+      prev.chunks.push(atob(event.data.data))
+      mcp.demoChat = { ...prev, rev: prev.rev + 1 }
+      return
+    }
+
+    case 'McpDemoChatEnded': {
+      const mcp = d.edit('mcp')
+      if (mcp.demoChat.sessionId !== event.data.session_id) return
+      mcp.demoChat = { ...mcp.demoChat, status: 'ended', reason: event.data.reason }
+      return
+    }
+
+    // The backend found no `claude` on PATH. Purely backend-sourced: the UI never infers this
+    // (FR-009), and it clears any session state so no stale terminal stays on screen.
+    case 'McpDemoChatNotDetected': {
+      d.edit('mcp').demoChat = {
+        status: 'not-detected',
+        instructions: event.data.instructions,
+        chunks: new RingBuffer<string>(),
+        rev: 0,
+      }
+      return
+    }
+
     case 'AgentAuthModeUpdated': {
       d.edit('agentAuth').mode = event.data.mode
       return

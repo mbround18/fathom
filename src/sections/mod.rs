@@ -352,12 +352,6 @@ fn integration_sections() -> Vec<SectionDef> {
             group,
             ScopeKind::Namespaced,
         ),
-        section(
-            section_keys::integrations_mcp(),
-            "MCP Server",
-            group,
-            ScopeKind::Cluster,
-        ),
     ]
 }
 pub fn find_section<'a>(sections: &'a [SectionDef], key: &SectionKey) -> Option<&'a SectionDef> {

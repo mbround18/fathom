@@ -19,15 +19,18 @@ impl WriteGuard {
 
     /// `Ok` if `cmd` may be forwarded, otherwise the reason it is refused.
     ///
-    /// - `ReadOnly` and `Local` pass, except `StartMcpServer`: the MCP server exposes its
-    ///   own cluster-writing tools, which would bypass this guard.
+    /// - `ReadOnly` and `Local` pass, with one exception: `SetMcpServerEnabled` is refused
+    ///   outright. It classifies as `Local` (it writes a preference, not the cluster), but a
+    ///   dev/debug bridge must never be able to expose an MCP endpoint. The backend also
+    ///   hard-sets `Args::disable_mcp` in a devbridge shell, so this is defence in depth: the
+    ///   command never even reaches it.
     /// - `Namespaced` passes only if every target namespace is the write namespace.
     /// - `ClusterScoped` never passes.
     /// - `ContextSwitch` passes only to the guarded context.
     pub fn check(&self, cmd: &BackendCmd) -> Result<(), String> {
-        if matches!(cmd, BackendCmd::StartMcpServer) {
+        if matches!(cmd, BackendCmd::SetMcpServerEnabled { .. }) {
             return Err(
-                "StartMcpServer is disabled: the MCP server's tools would bypass the devbridge write guard"
+                "SetMcpServerEnabled is refused; a dev bridge must never toggle the MCP server"
                     .to_owned(),
             );
         }
@@ -84,6 +87,21 @@ mod tests {
         v.to_owned()
     }
 
+    /// 015-mcp-agent-exposure: the toggle that would start the stdio MCP server is refused
+    /// even though `mutation_target()` classifies it as `Local`. Restores the guarantee the
+    /// deleted `mcp_server_cannot_be_started` test held for `StartMcpServer`.
+    #[test]
+    fn mcp_server_cannot_be_enabled() {
+        for enabled in [true, false] {
+            let err = guard()
+                .check(&BackendCmd::SetMcpServerEnabled { enabled })
+                .expect_err("the dev bridge must never toggle the MCP server");
+            assert!(err.contains("SetMcpServerEnabled"), "{err}");
+        }
+        // The status read is harmless and still passes.
+        assert!(guard().check(&BackendCmd::LoadMcpServerStatus).is_ok());
+    }
+
     #[test]
     fn read_only_and_local_pass() {
         let g = guard();
@@ -96,7 +114,6 @@ mod tests {
             },
             BackendCmd::RefreshClusterRoles,
             BackendCmd::LoadUiConfig,
-            BackendCmd::StopMcpServer,
             BackendCmd::StartPortForward {
                 namespace: s("kube-system"),
                 pod: s("p"),
@@ -172,10 +189,5 @@ mod tests {
             .check(&BackendCmd::SetContext { context: s("prod") })
             .unwrap_err();
         assert!(err.contains("prod"), "{err}");
-    }
-
-    #[test]
-    fn mcp_server_cannot_be_started() {
-        assert!(guard().check(&BackendCmd::StartMcpServer).is_err());
     }
 }

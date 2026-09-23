@@ -36,7 +36,7 @@ export const backendStarted: EventBatch = batch([system(1, { type: 'BackendStart
 export const uiConfigDefault: EventBatch = batch([
   system(2, {
     type: 'UiConfigLoaded',
-    data: { ui: null, expanded_groups: ['Workloads'], mcp_auto_start: false },
+    data: { ui: null, expanded_groups: ['Workloads'], mcp_stdio_enabled: false },
   }),
 ])
 
@@ -52,7 +52,7 @@ export const SAVED_UI: UiConfig = {
 export const uiConfigSaved: EventBatch = batch([
   system(2, {
     type: 'UiConfigLoaded',
-    data: { ui: SAVED_UI, expanded_groups: ['Workloads', 'Network'], mcp_auto_start: true },
+    data: { ui: SAVED_UI, expanded_groups: ['Workloads', 'Network'], mcp_stdio_enabled: true },
   }),
 ])
 

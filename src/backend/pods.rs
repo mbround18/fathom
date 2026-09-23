@@ -48,25 +48,41 @@ pub(super) async fn delete_pod(
     name: &str,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<Pod> = Api::namespaced(client, namespace);
-
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
-    let _ = interactions::annotate_action(
-        &api,
-        name,
-        state.cluster.current_context.as_deref(),
-        "delete",
-        &ts,
-        serde_json::json!({}),
-    )
-    .await;
-
-    api.delete(name, &DeleteParams::default()).await?;
-    events::notify_info(
+    delete_pod_with_client(
+        &client,
         state.cluster.seq.as_ref(),
         sender,
-        format!("Deleted pod {}/{}", namespace, name),
-    );
+        state.cluster.current_context.as_deref(),
+        namespace,
+        name,
+    )
+    .await
+}
+
+/// The delete itself, against an explicitly supplied client rather than whatever
+/// `BackendState` currently holds.
+///
+/// Split out for 015-mcp-agent-exposure's `delete_resource` MCP tool
+/// (`crate::backend::mcp::tools_mutate`), which runs in a spawned task holding a
+/// `kube::Client` but no `&BackendState`. Annotation, delete and `Notification` emission stay
+/// together here so the UI-driven and MCP-driven deletes are one code path.
+pub(super) async fn delete_pod_with_client(
+    client: &kube::Client,
+    seq: &std::sync::atomic::AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<&str>,
+    namespace: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+
+    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let _ =
+        interactions::annotate_action(&api, name, context, "delete", &ts, serde_json::json!({}))
+            .await;
+
+    api.delete(name, &DeleteParams::default()).await?;
+    events::notify_info(seq, sender, format!("Deleted pod {}/{}", namespace, name));
     Ok(())
 }
 

@@ -7,6 +7,7 @@ use k8s_openapi::{api::apps::v1::StatefulSet, chrono::Utc};
 use kube::ResourceExt;
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams};
 use serde_json::json;
+use std::sync::atomic::AtomicU64;
 
 use super::{events, state::BackendState};
 
@@ -87,22 +88,41 @@ pub(super) async fn delete_statefulset(
     name: &str,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<StatefulSet> = Api::namespaced(client, namespace);
+    delete_statefulset_with_client(
+        &client,
+        state.cluster.seq.as_ref(),
+        sender,
+        state.cluster.current_context.as_deref(),
+        namespace,
+        name,
+    )
+    .await
+}
+
+/// The delete itself, against an explicitly supplied client rather than whatever
+/// `BackendState` currently holds.
+///
+/// Split out for 015-mcp-agent-exposure's `delete_resource` MCP tool
+/// (`crate::backend::mcp::tools_mutate`), which runs in a spawned task holding a
+/// `kube::Client` but no `&BackendState`. The interaction annotation, the delete and the
+/// `Notification` emission all stay together here, so UI-driven and MCP-driven deletes are one
+/// code path.
+pub(super) async fn delete_statefulset_with_client(
+    client: &kube::Client,
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<&str>,
+    namespace: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    let api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
 
     let ts = Utc::now().to_rfc3339();
-    let _ = interactions::annotate_action(
-        &api,
-        name,
-        state.cluster.current_context.as_deref(),
-        "delete",
-        &ts,
-        json!({}),
-    )
-    .await;
+    let _ = interactions::annotate_action(&api, name, context, "delete", &ts, json!({})).await;
 
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.cluster.seq.as_ref(),
+        seq,
         sender,
         format!("Deleted statefulset {}/{}", namespace, name),
     );
@@ -117,13 +137,37 @@ pub(super) async fn scale_statefulset(
     replicas: i32,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<StatefulSet> = Api::namespaced(client, namespace);
+    scale_statefulset_with_client(
+        &client,
+        state.cluster.seq.as_ref(),
+        sender,
+        state.cluster.current_context.as_deref(),
+        namespace,
+        name,
+        replicas,
+    )
+    .await
+}
+
+/// Client-explicit sibling of [`scale_statefulset`]; see
+/// [`delete_statefulset_with_client`] for why it exists.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn scale_statefulset_with_client(
+    client: &kube::Client,
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<&str>,
+    namespace: &str,
+    name: &str,
+    replicas: i32,
+) -> anyhow::Result<()> {
+    let api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
 
     let ts = Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
-        state.cluster.current_context.as_deref(),
+        context,
         "scale",
         &ts,
         json!({"replicas": replicas}),
@@ -134,7 +178,7 @@ pub(super) async fn scale_statefulset(
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.cluster.seq.as_ref(),
+        seq,
         sender,
         format!("Scaled statefulset {}/{} to {}", namespace, name, replicas),
     );

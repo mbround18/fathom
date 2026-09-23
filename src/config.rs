@@ -4,21 +4,18 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Enable MCP HTTP server (localhost:18288) [default: false]
-    #[arg(long, env = "FATHOM_MCP_HTTP_ENABLED")]
-    pub mcp_http: bool,
+    /// Force-enable the stdio MCP server on startup, overriding the persisted Settings
+    /// toggle (which defaults to off). [default: false]
+    #[arg(long, env = "FATHOM_MCP_STDIO_ENABLED")]
+    pub mcp_stdio: bool,
 
-    /// MCP HTTP server port (default: 18288 - 1.8288m ≈ 1 fathom)
-    #[arg(long, env = "FATHOM_MCP_PORT", default_value = "18288")]
-    pub mcp_port: u16,
-
-    /// Run only MCP server (headless, no UI)
+    /// Run only the MCP server (headless, no UI) — its stdio IS this process's stdio.
     #[arg(long, env = "FATHOM_ONLY_MCP")]
     pub only_mcp: bool,
 
-    /// Never start the MCP server in this process (ignores `--mcp-http`, the persisted
-    /// auto-start preference, and `StartMcpServer`). Not a CLI flag: set by shells that
-    /// must not expose an unguarded MCP endpoint (`fathom-devbridge`).
+    /// Never start the MCP server in this process (ignores `--mcp-stdio` and the persisted
+    /// enabled preference). Not a CLI flag: set by shells that
+    /// must not expose an MCP endpoint (`fathom-devbridge`).
     #[arg(skip)]
     pub disable_mcp: bool,
 }

@@ -120,11 +120,6 @@ pub enum SystemEvent {
 
     MetricsStackScanned(crate::protocol::MetricsStackScanResult),
 
-    McpServerStatus {
-        running: bool,
-        message: String,
-    },
-
     PortAvailability {
         port: u16,
         available: bool,
@@ -153,7 +148,9 @@ pub enum SystemEvent {
     UiConfigLoaded {
         ui: Option<UiConfig>,
         expanded_groups: Vec<String>,
-        mcp_auto_start: bool,
+        /// `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
+        /// (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
+        mcp_stdio_enabled: bool,
     },
 
     /// Full CRD catalog, refreshed via `RefreshCrds` or on context switch.
@@ -216,6 +213,43 @@ pub enum SystemEvent {
     /// secret, a store-write conflict, or an unreachable store (FR-002, FR-012).
     TeamPublishRejected {
         rejection: TeamPublishRejection,
+    },
+
+    /// 015-mcp-agent-exposure: reply to `LoadMcpServerStatus`, and broadcast after every
+    /// `SetMcpServerEnabled`. `running` is never `true` while `enabled` is `false` — the
+    /// stdio server task only ever exists inside the `enabled: true` path (FR-002/FR-013).
+    McpServerStatusChanged {
+        enabled: bool,
+        running: bool,
+        /// The literal command an external MCP client should launch to attach to this
+        /// Fathom installation over stdio (FR-007).
+        connection_command: String,
+    },
+
+    // 015-mcp-agent-exposure US4: the "Launch example chat" subprocess (`src/backend/mcp/
+    // demo_chat.rs`). `session_id` counts up from 1 per Fathom process, so the terminal view
+    // can tell its own session's output from a previous one's trailing chunks — the same
+    // "track the highest id you started" convention `PodTerminalTab` uses for stream ids.
+    /// The `claude` subprocess started and its stdin/stdout are attached.
+    McpDemoChatReady {
+        session_id: u32,
+    },
+    /// Base64-encoded subprocess output (stdout and stderr interleaved), same shape as
+    /// `StreamEvent::PodExecOutputChunk`.
+    McpDemoChatOutputChunk {
+        session_id: u32,
+        data: String,
+    },
+    /// The subprocess exited, or was stopped. `reason` is shown verbatim.
+    McpDemoChatEnded {
+        session_id: u32,
+        reason: String,
+    },
+    /// No `claude` executable was found on `PATH`. Emitted instead of — never alongside — a
+    /// spawn, so the affordance can never present a fabricated session (FR-009/FR-011).
+    /// `instructions` is the operator-facing setup text.
+    McpDemoChatNotDetected {
+        instructions: String,
     },
 }
 

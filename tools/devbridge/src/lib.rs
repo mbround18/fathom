@@ -12,5 +12,5 @@ pub mod guard;
 pub mod sandbox;
 pub mod server;
 
-/// Default listen port (the MCP server's default is 18288).
+/// Default listen port.
 pub const DEFAULT_PORT: u16 = 18290;

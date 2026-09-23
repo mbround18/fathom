@@ -99,7 +99,6 @@ impl BackendCmdV1 {
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
             | C::RefreshHubble
-            | C::RefreshMcpStatus
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
             | C::RefreshPersistentVolumes
@@ -163,6 +162,9 @@ impl BackendCmdV1 {
             | C::LoadClusterSettings { .. }
             | C::RefreshTeamStoreStatus
             | C::RefreshConnectionProfiles
+            // 015-mcp-agent-exposure: reads the persisted toggle and the derived connection
+            // snippet only; never the cluster, never a write.
+            | C::LoadMcpServerStatus
             // 011-rbac-oidc-administration: self-access checks, namespace-access lookup, and
             // kubeadm ConfigMap detection are all read-only.
             | C::RefreshRbacSelfAccess { .. }
@@ -177,11 +179,7 @@ impl BackendCmdV1 {
             | C::UpdatePortForward { .. }
             | C::ConfigurePrometheus { .. }
             | C::ConfigureGrafana { .. }
-            | C::StartMcpServer
-            | C::StopMcpServer
-            | C::OpenMcpConfigDir
             | C::SaveUiConfig { .. }
-            | C::SetMcpAutoStart { .. }
             // 014-teams-organizations: writes `cluster-settings.json`/`team.json`, or
             // the self-hosted shared config store — never the cluster itself.
             | C::SaveClusterSettings { .. }
@@ -198,7 +196,18 @@ impl BackendCmdV1 {
             | C::AgentSetAuthMode { .. }
             | C::AgentClearConversation { .. }
             | C::AgentDeclineSuggestedAction { .. }
-            | C::AgentRecordExecutedAction { .. } => MutationTarget::Local,
+            | C::AgentRecordExecutedAction { .. }
+            // 015-mcp-agent-exposure: writes `config.json`'s `auto_start.mcp_stdio` and
+            // starts/stops the local stdio server task — never the cluster itself. (The MCP
+            // server's own tools re-enter the backend's existing guarded mutation paths.)
+            | C::SetMcpServerEnabled { .. }
+            // 015-mcp-agent-exposure US4: the demo chat is a subprocess on the operator's own
+            // machine (`claude` from `PATH`) talking to Fathom's stdio MCP server; nothing here
+            // reaches the cluster except through that server's own guarded tools.
+            | C::StartMcpDemoChat
+            | C::StopMcpDemoChat
+            | C::SendMcpDemoChatInput { .. }
+            | C::ResizeMcpDemoChat { .. } => MutationTarget::Local,
 
             C::SetContext { context } => MutationTarget::ContextSwitch {
                 context: context.clone(),
@@ -296,7 +305,6 @@ impl BackendCmdV1 {
             | C::SetActiveSection { .. }
             | C::LoadUiConfig
             | C::SaveUiConfig { .. }
-            | C::SetMcpAutoStart { .. }
             | C::ApplyResourceYaml { .. }
             // Agent SDK Ops (013): not tied to one existing UI section (a conversation
             // is scoped to an arbitrary object ref, not a section key) — global, like
@@ -397,7 +405,15 @@ impl BackendCmdV1 {
             | C::SaveClusterSettings { .. }
             | C::PublishOrgClusterSettings { .. }
             | C::AcceptOrgClusterSettings { .. }
-            | C::DismissOrgClusterSettings { .. } => section_keys::cluster_settings(),
+            | C::DismissOrgClusterSettings { .. }
+            // 015-mcp-agent-exposure: the "Available Agents" section lives inside Cluster
+            // Settings, so its commands route to the same section key.
+            | C::LoadMcpServerStatus
+            | C::SetMcpServerEnabled { .. }
+            | C::StartMcpDemoChat
+            | C::StopMcpDemoChat
+            | C::SendMcpDemoChatInput { .. }
+            | C::ResizeMcpDemoChat { .. } => section_keys::cluster_settings(),
             C::SetTeamStorePath { .. }
             | C::RefreshTeamStoreStatus
             | C::RefreshConnectionProfiles
@@ -409,9 +425,6 @@ impl BackendCmdV1 {
             }
             C::RefreshFlux => section_keys::integrations_flux(),
             C::RefreshHubble => section_keys::integrations_hubble(),
-            C::StartMcpServer | C::StopMcpServer | C::RefreshMcpStatus | C::OpenMcpConfigDir => {
-                section_keys::integrations_mcp()
-            }
             C::RefreshPersistentVolumes
             | C::SelectPersistentVolume { .. }
             | C::DeletePersistentVolume { .. } => section_keys::storage_pv(),
@@ -559,8 +572,6 @@ mod tests {
                 base_url: s("http://g"),
                 api_key: s("k"),
             },
-            BackendCmdV1::StartMcpServer,
-            BackendCmdV1::SetMcpAutoStart { enabled: true },
         ] {
             assert_eq!(cmd.mutation_target(), MutationTarget::Local, "{cmd:?}");
         }

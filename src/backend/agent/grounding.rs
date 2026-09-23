@@ -29,15 +29,29 @@ pub(crate) async fn collect_pod_grounding(
     state: &BackendState,
     object: &AgentObjectRef,
 ) -> (String, Vec<GroundingSource>) {
+    let Ok(client) = state.cluster.client_or_err() else {
+        return (String::new(), Vec::new());
+    };
+    collect_pod_grounding_with_client(&client, object).await
+}
+
+/// The same collection logic, against an explicitly supplied client rather than whatever
+/// `BackendState` currently holds.
+///
+/// Split out for 015-mcp-agent-exposure's `describe_pod` MCP tool
+/// (`crate::backend::mcp::tools_read`), which serves external MCP clients from a spawned task
+/// that has a `kube::Client` but no `&BackendState` borrow. Reusing this exact function is what
+/// makes the MCP tool's output identical to the in-app Agent panel's grounding (research.md R6);
+/// it is not a second, parallel read path.
+pub(crate) async fn collect_pod_grounding_with_client(
+    client: &kube::Client,
+    object: &AgentObjectRef,
+) -> (String, Vec<GroundingSource>) {
     if object.kind != "Pod" {
         // Only Pod grounding is implemented for the US1 MVP slice; other kinds get an
         // empty grounding block rather than a fabricated one.
         return (String::new(), Vec::new());
     }
-
-    let Ok(client) = state.cluster.client_or_err() else {
-        return (String::new(), Vec::new());
-    };
 
     let mut sections = Vec::new();
     let mut sources = Vec::new();

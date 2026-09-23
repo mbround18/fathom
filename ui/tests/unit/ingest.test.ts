@@ -86,11 +86,11 @@ describe('session', () => {
     expect(useStore.getState().prefs).toEqual({
       loaded: true,
       expandedGroups: ['Workloads'],
-      mcpAutoStart: false,
+      mcpStdioEnabled: false,
     })
     ingest(uiConfigSaved)
     expect(useStore.getState().ui).toEqual(SAVED_UI)
-    expect(useStore.getState().prefs.mcpAutoStart).toBe(true)
+    expect(useStore.getState().prefs.mcpStdioEnabled).toBe(true)
   })
 
   it('an error notification is surfaced verbatim', () => {

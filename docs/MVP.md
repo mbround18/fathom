@@ -485,6 +485,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 * HTTPS toggle
 * Path prefix
 * Hidden metrics
+* **Available Agents** *(✅ shipped, `015-mcp-agent-exposure`)* — the stdio MCP server's on/off toggle (off by default), its live running/not-running state, the connection command an external MCP client should launch, a read-only Anthropic/Ollama auth summary reused from `AuthSetup.tsx`, and the "Launch example chat" affordance with honest not-detected/server-off states. See §14 Tier A.
 
 ### Node Shell
 
@@ -577,8 +578,17 @@ A "download and inspect layers" affordance on a container's image reference, wit
 Carried over from roadmap discussion, in priority order:
 
 ### Tier A — Live/SDK-auth features
+
+*Status: 🚧 Partial — port-forwarding and the MCP server shipped; SDK-based login and Ollama-backed inference not started.*
+
 * Port-forwarding — ✅ already shipped (`src/backend/portforward.rs`)
-* MCP server — ✅ already shipped (`rmcp`/`axum`)
+* **✅ MCP server (`015-mcp-agent-exposure`) — local stdio, off by default, RBAC-scoped.** Exposes the cluster context Fathom is already connected to to an external MCP client (Claude Code, Claude Desktop, any MCP-speaking agent) over **stdio on the local machine** — `rmcp` 0.12's `serve_server_with_ct` over `rmcp::transport::io::stdio()`, no network listener and no HTTP surface. This *replaced* the earlier prototype rather than extending it: the `axum` server on port 18288 and its ungated `restart_deployment` tool were deleted outright (`src/mcp_server.rs`, `src/app/views/mcp_integration.rs`, three superseded `docs/mcp/*.md`), so there is no second MCP surface left to reason about.
+  * **Off by default, and off means nothing exists** (FR-002). `McpState::start` is reachable from exactly two places — the `SetMcpServerEnabled { enabled: true }` handler and the startup gate — and no context switch, status read or app launch can spawn a server the operator has not enabled. Turning the toggle off cancels the `CancellationToken` and awaits the task, so no listener survives the command that disabled it (FR-013).
+  * **Five read tools** (`get_resource`, `list_resources`, `get_pod_logs`, `get_events`, `describe_pod`) and **three mutation tools** (`scale_workload`, `apply_resource_yaml`, `delete_resource`). Every call is scoped through `rbac_access::resolve_namespace_access` first: a denial names the identity, verb, resource and namespace and reads nothing from the cluster, rather than returning a generic error (FR-005). Resolution failure denies — fail-closed, never fail-open.
+  * **Mutation tools are new callers of the existing guarded write path, not a new one.** Each takes a mandatory (non-`Option`) `expected_resource_version` in its JSON schema, which the backend re-fetches and re-validates against the live object before delegating to the exact `apply::apply_resource`/scale/delete functions the UI's own confirmation flow calls. A successful agent-initiated mutation emits the same `BackendEvent` a UI-initiated one does, so the operator's own window reflects it live (Principle I applies to agent-initiated actions exactly as to operator-initiated ones).
+  * **Settings → Cluster Settings → "Available Agents"** (§10) holds the whole surface: the on/off toggle, a running/not-running indicator that reads the manager rather than inferring health from `enabled`, the copyable connection command, and a read-only reuse of the Anthropic/Ollama auth summary `AuthSetup.tsx` already populates (no duplicate credential detection). The preference persists in `~/.fathom/config.json`'s `auto_start.mcp_stdio` (renamed from `mcp_http`, with a `serde` alias so older files still load) and is honoured at startup, so an enabled server comes back up across a restart.
+  * **The connection command is the real entry point**: an external client launches `fathom --only-mcp`, which runs the backend headless with the process's own stdin/stdout *as* the MCP channel, connects to the kubeconfig's current context, serves its client, and exits when the client disconnects — no orphaned process. With the toggle off the same command refuses on stderr with a stated reason instead of hanging. `tracing` writes to stderr so a log line can never corrupt the JSON-RPC framing.
+  * **"Launch example chat"** spawns a real local `claude` CLI subprocess pre-wired to this Fathom's MCP server via ephemeral `--mcp-config`/`--strict-mcp-config` (nothing is written into the operator's own Claude Code config). Detection is a fresh `PATH` scan on every call with no cache; when there is no `claude`, or the server is off, the panel says so and shows setup instructions. There is no simulated or mocked chat window in any state (FR-009/FR-011).
 * SDK-based login (GitHub / Claude / OpenAI SDKs) — ⬜
 * Local LLM inference via Ollama for the MCP/AI-assist surface — ⬜
 

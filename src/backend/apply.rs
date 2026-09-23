@@ -192,6 +192,33 @@ pub async fn create_resource(
     }
 }
 
+/// Announce a successful apply/create to every client: the one `StreamEvent::ResourceApplied`
+/// emission in the backend.
+///
+/// Extracted (015-mcp-agent-exposure, T037) so the UI-driven `ApplyResourceYaml` /
+/// `CreateResourceYaml` handlers in `crate::backend::cmd` and the MCP `apply_resource_yaml` tool
+/// in `crate::backend::mcp::tools_mutate` emit the *same* event through the *same* call, rather
+/// than each constructing its own. An operator watching Fathom's own UI therefore sees an
+/// external agent's apply exactly as they see their own.
+pub(super) fn emit_resource_applied(
+    seq: &std::sync::atomic::AtomicU64,
+    sender: &crossbeam_channel::Sender<crate::protocol::BackendEventEnvelope>,
+    resource_version: String,
+) {
+    use crate::protocol::{BackendEvent, Correlation, Route, StreamEvent, section_keys};
+
+    crate::backend::events::emit(
+        seq,
+        sender,
+        Route::global(section_keys::system()),
+        Correlation::None,
+        BackendEvent::Stream(StreamEvent::ResourceApplied {
+            request_id: crate::backend::events::current_request_id_string(),
+            resource_version,
+        }),
+    );
+}
+
 /// Split `"apps/v1"` into `("apps", "v1")`, and `"v1"` into `("", "v1")` (the core group).
 fn split_api_version(api_version: &str) -> (String, String) {
     match api_version.split_once('/') {

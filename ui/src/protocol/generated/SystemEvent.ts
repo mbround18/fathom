@@ -22,7 +22,12 @@ export type SystemEvent = { "type": "BackendStarted" } | { "type": "Notification
 /**
  * Verbatim backend error (Principle I), present only when `status == Error`.
  */
-error: string | null, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "McpServerStatus", "data": { running: boolean, message: string, } } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, mcp_auto_start: boolean, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "ClusterSettingsLoaded", "data": { context: string, settings: ClusterSettings, } } | { "type": "ClusterSettingsError", "data": { context: string, reason: string, } } | { "type": "TeamStoreStatusUpdated", "data": TeamStoreStatus } | { "type": "ConnectionProfilesUpdated", "data": { 
+error: string | null, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, 
+/**
+ * `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
+ * (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
+ */
+mcp_stdio_enabled: boolean, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "ClusterSettingsLoaded", "data": { context: string, settings: ClusterSettings, } } | { "type": "ClusterSettingsError", "data": { context: string, reason: string, } } | { "type": "TeamStoreStatusUpdated", "data": TeamStoreStatus } | { "type": "ConnectionProfilesUpdated", "data": { 
 /**
  * Profiles this operator has adopted locally (still-shared or not).
  */
@@ -31,4 +36,9 @@ adopted: Array<AdoptedConnectionProfile>,
  * Profiles published by teammates that this operator has not adopted yet.
  * Empty when the shared store is unreachable or unconfigured (FR-005).
  */
-available: Array<ConnectionProfile>, } } | { "type": "OrgClusterSettingsAvailable", "data": { context: string, settings: OrgClusterSettings, } } | { "type": "TeamPublishRejected", "data": { rejection: TeamPublishRejection, } };
+available: Array<ConnectionProfile>, } } | { "type": "OrgClusterSettingsAvailable", "data": { context: string, settings: OrgClusterSettings, } } | { "type": "TeamPublishRejected", "data": { rejection: TeamPublishRejection, } } | { "type": "McpServerStatusChanged", "data": { enabled: boolean, running: boolean, 
+/**
+ * The literal command an external MCP client should launch to attach to this
+ * Fathom installation over stdio (FR-007).
+ */
+connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } };
