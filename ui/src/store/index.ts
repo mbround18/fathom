@@ -11,6 +11,7 @@ import { resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type {
+  AgentAuthMode,
   AgentConversation,
   BackendCmd,
   CrdCatalogEntry,
@@ -387,6 +388,17 @@ export interface StoreData {
    */
   agentConversations: Record<string, AgentConversation>
   /**
+   * 013-agent-sdk-ops (US2/P1): the operator's global assistant auth mode, plus a key the
+   * operator explicitly revealed via `AgentRevealKey`. Global (not keyed), same as
+   * `flux`/`hubble`/`helmMutation` — there is exactly one auth mode for the whole app, not one
+   * per object. `mode` is `undefined` until the first `AgentGetAuthMode`/`AgentSetAuthMode`
+   * reply arrives (`store/handlers/system.ts`'s `AgentAuthModeUpdated` case).
+   * `revealedKey` is set only by an explicit `AgentKeyRevealed` reply and is never populated by
+   * anything else — `AuthSetup.tsx` never dispatches `AgentRevealKey` on mount/mode-select, only
+   * on an explicit operator click (FR-004, Principle VI).
+   */
+  agentAuth: { mode?: AgentAuthMode; revealedKey?: string }
+  /**
    * 006-helm-mutate: the in-flight/last rollback-upgrade-uninstall preview→apply flow. Global
    * (not keyed), same as `flux`/`hubble` — only one Helm mutate flow can be open at a time
    * (research.md R2/R9). `system.ts` advances it as `HelmMutationPreviewReady/Applied/Failed`
@@ -676,6 +688,7 @@ export function initialData(): StoreData {
     nodeActions: {},
     imageInspections: {},
     agentConversations: {},
+    agentAuth: {},
     helmUninstalls: {},
     helmMutations: {},
     layout: {

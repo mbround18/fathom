@@ -245,6 +245,20 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
 
+    // 013-agent-sdk-ops (US2/P1): the global assistant auth mode, replied to
+    // `AgentGetAuthMode`/`AgentSetAuthMode`. Never carries the raw key (`AuthSetup.tsx`).
+    case 'AgentAuthModeUpdated': {
+      d.edit('agentAuth').mode = event.data.mode
+      return
+    }
+
+    // The raw key, sent only in direct reply to an explicit operator `AgentRevealKey` click
+    // (FR-004, Principle VI) — never stored anywhere else, never auto-populated.
+    case 'AgentKeyRevealed': {
+      d.edit('agentAuth').revealedKey = event.data.key
+      return
+    }
+
     case 'HelmMutationFailed': {
       d.put(
         'helmMutation',

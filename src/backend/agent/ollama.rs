@@ -98,3 +98,48 @@ impl AgentClient for OllamaClient {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Principle I: a 404 (model not found) must reach the caller verbatim, with the
+    /// model-specific hint, not a generic failure string.
+    #[tokio::test]
+    async fn surfaces_404_verbatim() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/chat"))
+            .respond_with(
+                ResponseTemplate::new(404).set_body_string(r#"{"error":"model \"ghost\" not found"}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client = OllamaClient::new(server.uri(), "ghost".to_owned());
+        let err = client
+            .send_turn("system prompt", &[])
+            .await
+            .expect_err("404 must be an error");
+        let msg = err.to_string();
+        assert!(msg.contains("Ollama model \"ghost\" not found"), "{msg}");
+        assert!(msg.contains("404"), "{msg}");
+        assert!(msg.contains("model \\\"ghost\\\" not found"), "{msg}");
+    }
+
+    /// An unreachable local endpoint must produce a distinct "could not reach" message
+    /// naming the configured endpoint, not a generic error.
+    #[tokio::test]
+    async fn surfaces_unreachable_endpoint_error() {
+        let client = OllamaClient::new("http://127.0.0.1:1".to_owned(), "llama3.1".to_owned());
+        let err = client
+            .send_turn("system prompt", &[])
+            .await
+            .expect_err("unreachable endpoint must be an error");
+        let msg = err.to_string();
+        assert!(msg.contains("Could not reach local Ollama endpoint"), "{msg}");
+        assert!(msg.contains("127.0.0.1:1"), "{msg}");
+    }
+}

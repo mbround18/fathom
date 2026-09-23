@@ -22,6 +22,8 @@ import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 import { agentConversationKey } from '@/store/handlers/agent'
 
+import { AuthSetup } from './AuthSetup'
+
 export function AgentPanel({ object }: { object: AgentObjectRef }) {
   const request = useStore((s) => s.request)
   const key = agentConversationKey(object.kind, object.namespace, object.name)
@@ -31,6 +33,10 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
+  // 013-agent-sdk-ops (US2/P1): the assistant's auth mode is a global setting, not per-object —
+  // this app has no standalone global-settings surface yet, so `AuthSetup` is mounted here,
+  // behind an explicit toggle, rather than always shown above the conversation.
+  const [showAuthSetup, setShowAuthSetup] = useState(false)
 
   // Load (or create) this object's conversation once per object, on mount — mirrors
   // `ImageInspectPanel`'s "send only on mount/target-change" contract.
@@ -71,6 +77,23 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3">
+      <div className="flex shrink-0 justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="agent-ops-auth-toggle"
+          aria-expanded={showAuthSetup}
+          onClick={() => setShowAuthSetup((v) => !v)}
+        >
+          {showAuthSetup ? 'Close auth settings' : 'Auth settings'}
+        </Button>
+      </div>
+      {showAuthSetup && (
+        <div className="shrink-0 border-b border-border pb-3">
+          <AuthSetup />
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto" data-testid="agent-ops-messages">
         {messages.length === 0 && !asking && (
           <p data-testid="agent-ops-empty" className="text-xs text-muted-foreground">
