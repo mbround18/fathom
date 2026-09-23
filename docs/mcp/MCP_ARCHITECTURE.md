@@ -1,347 +1,158 @@
-# Fathom MCP Integration - Architecture Overview
+# MCP Architecture
 
-## Directory Structure
+Fathom exposes cluster context to external, same-machine MCP clients (Claude Code, Claude
+Desktop, or any other MCP-compatible agent) over local **stdio** — no network listener.
 
-```
-fathom/
-├── src/
-│   ├── main.rs (modified)
-│   │   └── Added: mod mcp_server;
-│   │
-│   ├── backend.rs (modified)
-│   │   └── Added: MCP server initialization in init()
-│   │
-│   ├── mcp_server.rs (NEW)
-│   │   ├── McpAppState struct
-│   │   │   ├── status_messages: Arc<RwLock<Vec<String>>>
-│   │   │   ├── error_messages: Arc<RwLock<Vec<String>>>
-│   │   │   ├── current_context: Arc<RwLock<Option<String>>>
-│   │   │   └── namespaces: Arc<RwLock<Vec<String>>>
-│   │   │
-│   │   ├── Functions:
-│   │   │   ├── mcp_dir() → ~/.fathom/mcp
-│   │   │   ├── mcp_socket_path() → ~/.fathom/mcp/socket
-│   │   │   ├── mcp_info_path() → ~/.fathom/mcp/fathom.json
-│   │   │   ├── start_mcp_server(state) → Initializes server
-│   │   │   └── Tests (unit tests for MCP functionality)
-│   │   │
-│   │   └── Tool Definitions:
-│   │       ├── get_status - Recent status messages
-│   │       ├── get_logs - Combined logs
-│   │       ├── get_app_state - Cluster state
-│   │       └── health_check - Responsiveness check
-│   │
-│   ├── app/
-│   │   └── (UI rendering and state)
-│   │
-│   ├── backend/
-│   │   ├── state.rs
-│   │   ├── kube.rs
-│   │   ├── pods.rs
-│   │   ├── deployments.rs
-│   │   ├── events.rs (event broadcasting)
-│   │   ├── integrations.rs
-│   │   ├── metrics.rs
-│   │   └── ... (other backend modules)
-│   │
-│   └── protocol/
-│       └── (Communication types)
-│
-├── Cargo.toml (modified)
-│   └── Added: rmcp = { version = "0.12.0", features = ["server"] }
-│
-├── Documentation (NEW)
-│   ├── MCP_INTEGRATION.md - Full technical documentation
-│   ├── MCP_QUICK_START.md - Quick reference guide
-│   └── MCP_IMPLEMENTATION_SUMMARY.md - This file
-│
-└── ~/.fathom/mcp/ (Runtime, auto-created)
-    └── fathom.json (Configuration file with tool definitions)
-```
+## Transport
 
-## Runtime MCP Directory
+- Built on `rmcp` 0.12 (`server`/`macros` features), `rmcp::transport::io::stdio()`.
+- One MCP server per running Fathom process, spawned as a background tokio task.
+- Off by default. The operator turns it on from Settings → Cluster Settings → "Available
+  Agents" (`SetMcpServerEnabled { enabled: true }`), which persists the preference
+  (`~/.fathom/config.json`, `AutoStartConfig.mcp_stdio`) and starts the stdio task
+  synchronously in the same command handler. Turning it off cancels the task synchronously;
+  no process/listener runs while disabled. `LoadMcpServerStatus` reads back the current
+  enabled/running state plus the client connection snippet.
+- `--disable-mcp` (set by shells like `fathom-devbridge` that must never expose an MCP
+  surface) refuses to start the server regardless of the persisted preference.
 
-When Fathom starts, it creates:
+## How a client actually attaches: `fathom --only-mcp`
+
+Stdio means the MCP channel *is* a process's stdin/stdout, so the client has to be the one that
+launches the server. The connection snippet Settings shows is therefore a command, not an address:
 
 ```
-~/.fathom/mcp/
-├── fathom.json
-│   ├── Server metadata
-│   ├── Version: 0.1.0
-│   ├── Description
-│   ├── MCP socket path
-│   └── Available tools + schemas
-│
-└── socket (future)
-    └── MCP communication endpoint
+/path/to/fathom --only-mcp
 ```
 
-## Data Flow
+`--only-mcp` runs the backend headless (no window) and hands that process's own stdio to the
+client. `backend::mcp::bootstrap` decides what such a process does, and there are only three
+outcomes:
 
-### Initialization Flow
-```
-main.rs
-  └→ backend.rs::init()
-      └→ Runtime::new()
-          └→ MCP server spawned
-              └→ mcp_server.rs::start_mcp_server()
-                  ├→ Create ~/.fathom/mcp/
-                  ├→ Write fathom.json
-                  └→ Log initialization
-```
+| `--only-mcp` | server enabled | behaviour |
+| --- | --- | --- |
+| no | no | normal windowed startup, nothing spawned (the default for a stock install) |
+| no | yes | server task spawned at startup, then the usual command loop — an enabled server survives a restart |
+| yes | no | **refuses on stderr with a stated reason and exits.** A headless process whose only job is a switched-off endpoint would otherwise block forever, which a client can only observe as an unexplained hang |
+| yes | yes | connect to the kubeconfig's current context, serve the client, exit when it disconnects |
 
-### Message Flow (Planned)
-```
-Backend Operations
-  ├→ Kubernetes API calls
-  ├→ Pod/Deployment updates
-  └→ Integration status changes
-      ↓
-  Events broadcast via events::notify_*()
-      ↓
-  McpAppState buffers updated
-      ↓
-  Claude queries via MCP tools
-      ↓
-  Real-time debugging & assistance
-```
+Three consequences worth knowing:
 
-## Thread Model
+- **The gate is not bypassable from the command line.** The snippet is `--only-mcp` alone and
+  deliberately *not* `--only-mcp --mcp-stdio`: if it forced the server on, any local process could
+  attach to the operator's cluster while the Settings toggle said off. `--mcp-stdio`
+  (`FATHOM_MCP_STDIO_ENABLED`) exists as a force-on for tests and scripted use, not for the
+  snippet.
+- **The headless process connects itself.** It has no UI to issue `SwitchContext`, so
+  `bootstrap` reads the kubeconfig's current context and connects before starting the server. A
+  failure there is not fatal: `tools/list` still answers and each call reports the missing
+  connection instead of inventing data.
+- **The process exits when its client does.** `McpState::wait` awaits the server task, which ends
+  on stdin EOF, so a disconnected client leaves no orphan behind.
+- **`tracing` writes to stderr, never stdout** (`startup::init_tracing`). One log line on stdout
+  is an unrecoverable JSON-RPC framing error for the attached client.
 
-```
-┌─────────────────────────────────────┐
-│   Main Thread (UI/eframe)           │
-│   - Renders UI                      │
-│   - Polls mailbox (non-blocking)    │
-│   - Dispatches commands             │
-└─────────────────────────────────────┘
-          ↑                    ↓
-    Channels (crossbeam)
-          ↓                    ↑
-┌─────────────────────────────────────┐
-│   Backend Thread (tokio runtime)    │
-│   - Kubernetes operations           │
-│   - Async tasks                     │
-│   - Event broadcasting              │
-│   - MCP Server                      │
-│     ├─ McpAppState (Arc<RwLock>)   │
-│     ├─ Status/Error buffers        │
-│     └─ Tool definitions            │
-└─────────────────────────────────────┘
-```
+## Tool surface
 
-## Event Broadcasting (Integration Point)
+### Read tools (RBAC-gated, no approval required)
 
-When events are broadcast via `events::notify_*()`:
+`get_resource`, `list_resources`, `get_pod_logs`, `get_events`, `describe_pod` (the last reuses
+`backend::agent::grounding::collect_pod_grounding`, the same grounding Fathom's in-app agent
+panel uses).
+
+### Mutation tools (RBAC-gated *and* resource-version-guarded)
+
+`backend::mcp::tools_mutate` exposes three:
+
+| Tool | Kinds | Verb checked |
+|---|---|---|
+| `scale_workload` | `Deployment`, `StatefulSet` | `update` |
+| `apply_resource_yaml` | any kind the cluster can discover, including CRDs | `update` |
+| `delete_resource` | `Pod`, `Deployment`, `StatefulSet` | `delete` |
+
+The kind lists for scale and delete are closed on purpose: they are exactly the kinds that
+already have an event-emitting backend mutation function to reuse. An unsupported kind is
+refused rather than handled by new bespoke write code.
+
+#### Guard sequence
+
+Every mutation tool handler runs the same four steps, in this order, and no branch reaches a
+write without all of them passing:
 
 ```
-events::emit(...)
-  ├→ Sends to UI (across channel)
-  └→ Updates MCP state (future)
-      └→ Pushes to status_messages or error_messages buffer
+tool call arrives
+  0. schema            expected_resource_version is a mandatory, non-Option String with no
+                       default, so a call that omits it fails deserialization and no handler
+                       body ever runs
+  1. RBAC              rbac_guard::resolve_current_access (SelfSubjectReview + the same
+                       resolve_namespace_access resolver 011 uses) then rbac_guard::check with
+                       the *mutating* verb
+                         -> refuse: McpToolDenial{ RbacDenied }, "Nothing was read from the
+                            cluster" — the target is never even re-read
+  2. version guard     re-GET the live target; compare metadata.resourceVersion (and uid, when
+                       the caller pinned one) against what the agent presented
+                         -> refuse: McpToolDenial{ MutationGuardRejected }, "Nothing was written
+                            to the cluster"
+  3. event bus         the backend's event sender must be attached, so the mutation can be
+                       reported; checked before the write, never after
+  4. write             an existing backend mutation function, which also emits the event
 ```
 
-This ensures Claude always has access to:
-- Recent application status
-- Any errors or warnings
-- Current Kubernetes context
-- Available namespaces
+Step 2 is what makes the feature safe: the `expected_resource_version` an MCP client sends is
+treated as *evidence it read the object*, not as authorization. It is re-validated server side,
+against the live cluster object, immediately before the write. Client-side approval UX in Claude
+Code / Claude Desktop is an additional layer, never a substitute — Fathom would refuse a stale
+call that a client had happily approved. A value that is empty, stale, or belongs to a
+since-recreated object (different `uid`) is refused, and a target that can no longer be read is
+refused too rather than written blind.
 
-## API Boundaries
+#### One write path, shared with the UI
 
-### Public API (mcp_server.rs)
+Step 4 never contains write logic of its own. It calls the same function the equivalent
+`BackendCmdV1` handler calls:
 
-```rust
-pub struct McpAppState {
-    pub status_messages: Arc<RwLock<Vec<String>>>,
-    pub error_messages: Arc<RwLock<Vec<String>>>,
-    pub current_context: Arc<RwLock<Option<String>>>,
-    pub namespaces: Arc<RwLock<Vec<String>>>,
-}
+| Tool | Function called |
+|---|---|
+| `apply_resource_yaml` | `backend::apply::apply_resource(..., expected_resource_version)` — the exact function `ApplyResourceYaml` uses, then `apply::emit_resource_applied` |
+| `scale_workload` | `backend::deployments::scale_deployment_with_client` / `backend::statefulsets::scale_statefulset_with_client` |
+| `delete_resource` | `backend::pods::delete_pod_with_client` / `backend::deployments::delete_deployment_with_client` / `backend::statefulsets::delete_statefulset_with_client` |
 
-impl McpAppState {
-    pub async fn push_status(&self, msg: String)
-    pub async fn push_error(&self, msg: String)
-    pub async fn set_context(&self, context: String)
-    pub async fn set_namespaces(&self, namespaces: Vec<String>)
-    pub async fn get_status(&self, limit: usize) -> Vec<String>
-    pub async fn get_errors(&self, limit: usize) -> Vec<String>
-    pub async fn get_all_logs(&self, limit: usize) -> JsonValue
-}
+The `*_with_client` functions are the bodies of the pre-existing `scale_deployment`,
+`delete_pod`, … handlers, with the `kube::Client` and event bus passed in explicitly instead of
+borrowed from `BackendState` (which a spawned MCP task cannot hold). The UI-facing functions are
+now thin wrappers over them, so there is one write path and one emission per action, not two.
 
-pub fn mcp_dir() -> Result<PathBuf>
-pub fn mcp_socket_path() -> Result<PathBuf>
-pub fn mcp_info_path() -> Result<PathBuf>
-pub async fn start_mcp_server(state: McpAppState) -> Result<()>
-```
+#### The operator's own UI sees it
 
-## Integration Points (For Future Enhancement)
+Because the write and its event emission live together in those shared functions, a successful
+MCP mutation emits exactly the `BackendEvent` a UI-driven one does — the same
+`SystemEvent::Notification` for scale/delete ("Scaled deployment payments/api to 10"), the same
+`StreamEvent::ResourceApplied` for apply. `SetMcpServerEnabled { enabled: true }` publishes the
+backend's event sender into the MCP server's cluster handle alongside the `kube::Client`, which
+is what lets the spawned task emit at all. An operator watching Fathom therefore sees an
+external agent's change live, as required by Constitution Principle I.
 
-### 1. Event Broadcasting
-Location: `src/backend/events.rs`
+Tool metadata also tells compliant clients to ask first: each mutation tool's description states
+"This action modifies the cluster. Confirm with the operator before calling." and carries
+`read_only_hint: false` / `destructive_hint: true` annotations.
 
-```rust
-// Route notifications to MCP state
-events::notify_info(...) 
-  └→ mcp_state.push_status(...)
-events::notify_error(...)
-  └→ mcp_state.push_error(...)
-```
+## Authorization
 
-### 2. Context/Namespace Updates
-Location: `src/backend/kube.rs`
+Every tool call is scoped by a `SelfSubjectAccessReview` issued against the same kubeconfig
+identity Fathom itself authenticates as (`backend::mcp::rbac_guard`), mirroring the check
+`RefreshRbacSelfAccess` already performs elsewhere in the app. A call against a namespace/verb
+the connected cluster identity cannot itself perform is denied before any cluster read/write is
+attempted.
 
-```rust
-// After loading contexts
-mcp_state.set_context(context.clone()).await;
+## Demo chat
 
-// After loading namespaces
-mcp_state.set_namespaces(namespaces).await;
-```
+The Available Agents section can detect a local `claude` CLI on `PATH` and launch it as a
+subprocess pre-configured to attach to Fathom's own MCP server, so the operator can immediately
+try an example conversation grounded in the live cluster. If no compatible CLI is detected, the
+section says so plainly and never fabricates a chat session.
 
-### 3. Tool Request Handlers
-Location: `src/mcp_server.rs` (when transport available)
+## What was removed
 
-```rust
-async fn handle_tool_request(
-    tool_name: &str,
-    args: JsonValue,
-    state: &McpAppState,
-) -> Result<JsonValue> {
-    match tool_name {
-        "get_status" => { /* implementation */ },
-        "get_logs" => { /* implementation */ },
-        "get_app_state" => { /* implementation */ },
-        "health_check" => { /* implementation */ },
-        _ => Err("Unknown tool"),
-    }
-}
-```
-
-## Configuration (fathom.json)
-
-```json
-{
-  "name": "fathom",
-  "version": "0.1.0",
-  "description": "Kubernetes dashboard with MCP integration for AI debugging",
-  "mcp_socket": "~/.fathom/mcp/socket",
-  "tools": [
-    {
-      "name": "get_status",
-      "description": "Get recent application status messages from Fathom"
-    },
-    {
-      "name": "get_logs",
-      "description": "Get recent logs from Fathom (status and errors)"
-    },
-    {
-      "name": "get_app_state",
-      "description": "Get current application state (context, namespaces)"
-    },
-    {
-      "name": "health_check",
-      "description": "Check if Fathom is running and responsive"
-    }
-  ],
-  "capabilities": {
-    "tools": true,
-    "resources": true,
-    "sampling": false
-  }
-}
-```
-
-## Performance Characteristics
-
-- **Memory**: Bounded buffers (1000 status + 500 error messages max)
-- **CPU**: Minimal overhead (log buffering only)
-- **Concurrency**: Lock-free reads, short write locks
-- **Scalability**: No impact on UI/Kubernetes operations
-
-## Security Model
-
-```
-┌──────────────────┐
-│   Fathom App     │
-│  (No changes)    │
-└──────────────────┘
-         ↓
-┌──────────────────────────────────────┐
-│   MCP State (Read-Only)              │
-│   - Status/Error logs only           │
-│   - No API keys or secrets           │
-│   - No sensitive data                │
-└──────────────────────────────────────┘
-         ↓
-┌──────────────────┐
-│   Claude/MCP     │
-│   (Queries only) │
-└──────────────────┘
-```
-
-## Testing Strategy
-
-### Unit Tests
-- `tests/mcp_socket_path` - Path construction
-- `tests/mcp_dir` - Directory path
-- `tests/app_state` - State mutations
-- `tests/message_buffer_limit` - Buffer management
-- `tests/get_status` - Log retrieval
-
-Run: `cargo test mcp_server`
-
-### Integration Tests (Future)
-- Connect MCP client and verify tool availability
-- Validate response formats
-- Test concurrent state updates
-- Verify buffer limits under load
-
-## Development Workflow
-
-### Phase 1: Foundation (✅ Complete)
-1. Create MCP server infrastructure
-2. Define tool schemas
-3. Set up directory/config file
-4. Write documentation
-
-### Phase 2: Transport (🔄 In Progress)
-1. Implement rmcp stdio transport
-2. Add tool request handlers
-3. Hook up event routing
-4. Test with MCP client
-
-### Phase 3: Features (📅 Planned)
-1. Expose Kubernetes resources
-2. Add metrics queries
-3. Implement write safeguards
-4. Create operation audit trail
-
-### Phase 4: Production (📅 Future)
-1. Performance optimization
-2. Security hardening
-3. Rate limiting for tools
-4. Audit logging
-
-## Troubleshooting
-
-### MCP directory not created
-- Check filesystem permissions in ~/.fathom/
-- Verify Fathom runs with proper privileges
-- Check logs for errors
-
-### fathom.json empty
-- Wait for Fathom to fully initialize
-- Check backend thread is running
-- Verify tokio runtime created successfully
-
-### Tool schema validation fails
-- Ensure serde_json serialization works
-- Check tool parameter types
-- Verify JSON schema compliance
-
----
-
-**Last Updated**: December 30, 2025
-**Status**: Foundation Phase Complete ✅
-
+This design replaces an earlier HTTP-based MCP prototype (`src/mcp_server.rs`, port 18288, no
+authentication, an ungated `restart_deployment` mutation tool) that predated this repo's
+mutation-gating conventions. It has been fully retired, not kept alongside the new server.
