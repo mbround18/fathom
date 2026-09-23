@@ -10,7 +10,17 @@ export function readKind(type: ResourceReadEvent['type']): string {
   return type.replace(/(Details)?Updated$/, '')
 }
 
-export function readKeyOf(env: BackendEventEnvelope, event: ResourceReadEvent): string {
+/**
+ * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones, which
+ * `ingest.ts` routes to `handleImageInspect` before this is ever reached (their payload has no
+ * `name` field for the generic `details` keying below to key on).
+ */
+type GenericReadEvent = Exclude<
+  ResourceReadEvent,
+  { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' }
+>
+
+export function readKeyOf(env: BackendEventEnvelope, event: GenericReadEvent): string {
   const data = event.data
   const ns = 'namespace' in data ? data.namespace : null
   // Applications: `ApplicationDetails.name` is a display name that can differ from `instance`
@@ -31,7 +41,7 @@ export function readKeyOf(env: BackendEventEnvelope, event: ResourceReadEvent): 
   return detailKey(env.route.context, kind, ns, name)
 }
 
-export function handleRead(d: Draft, env: BackendEventEnvelope, event: ResourceReadEvent): void {
+export function handleRead(d: Draft, env: BackendEventEnvelope, event: GenericReadEvent): void {
   const key = readKeyOf(env, event)
   const prev = d.read('details')[key]
   const latest = env.correlation.type === 'Request' ? env.correlation.data : prev?.latestRequest

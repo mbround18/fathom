@@ -20,6 +20,7 @@ import type { StoreApi } from 'zustand'
 import { PROTOCOL_VERSION, type BackendEventEnvelope, type EventBatch } from '@/protocol/types'
 
 import { Draft } from './draft'
+import { handleImageInspect } from './handlers/imageInspect'
 import { handleList } from './handlers/list'
 import { handleRead, readKeyOf } from './handlers/read'
 import { handleStream } from './handlers/stream'
@@ -82,6 +83,15 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
       return
     }
     case 'ResourceRead': {
+      // 010-container-image-inspection: keyed by namespace/pod/container, not the generic
+      // `details` keying (`readKeyOf` assumes a `name` field this payload doesn't carry).
+      if (
+        event.data.type === 'ContainerImageInspected' ||
+        event.data.type === 'ContainerImageInspectFailed'
+      ) {
+        handleImageInspect(d, event.data)
+        return
+      }
       const latest = d.read('details')[readKeyOf(env, event.data)]?.latestRequest
       if (isSuperseded(env, latest)) return
       handleRead(d, env, event.data)
