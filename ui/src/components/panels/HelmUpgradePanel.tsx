@@ -11,6 +11,7 @@ import { useId, useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import type { HelmReleaseDetails } from '@/protocol/types'
 import { useStore } from '@/store'
@@ -154,15 +155,11 @@ export function HelmUpgradePanel({
             Diff preview
           </h3>
           {preview.gitops_warning && (
-            <p
-              data-testid="helm-upgrade-gitops-warning"
-              className="flex items-center gap-2 border border-status-warn/50 bg-status-warn/10 px-2 py-1.5 text-xs text-status-warn"
-            >
-              This release is managed by {preview.gitops_warning.controller} (
-              {preview.gitops_warning.kind} {preview.gitops_warning.namespace}/
-              {preview.gitops_warning.name}). A manual upgrade may be reverted or conflict with the
-              next GitOps reconciliation.
-            </p>
+            <GitOpsWarningBanner
+              origin={preview.gitops_warning}
+              testId="helm-upgrade-gitops-warning"
+              consequence="A manual upgrade may be reverted or conflict with the next GitOps reconciliation."
+            />
           )}
           <YamlDiffView
             currentManifest={preview.current_manifest}

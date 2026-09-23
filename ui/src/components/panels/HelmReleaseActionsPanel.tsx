@@ -5,60 +5,27 @@
  * per spec.md's US3 rationale): the button goes straight to the GitOps-warning-aware
  * `ConfirmDialog` and, on confirm, dispatches `UninstallHelmRelease`.
  *
- * The GitOps-warning banner below is a self-contained implementation of the pattern
- * contracts/protocol.md assigns to US1's T019 (reusing 005's origin-link rendering from
- * `helm.tsx`). Once US1 lands, this banner should be consolidated into one shared component
- * with T019's rollback/upgrade version rather than kept as a second copy.
+ * The GitOps-warning banner reuses the shared `GitOpsWarningBanner` component (contracts/
+ * protocol.md's T019 banner: "reusing 005's origin-link rendering from `helm.tsx`") rather than
+ * a second copy — same pattern as rollback (`resources/helm.tsx`) and upgrade
+ * (`HelmUpgradePanel.tsx`).
  *
  * Outcome comes from `HelmMutationApplied`/`HelmMutationFailed` (`store/handlers/system.ts`),
  * not the generic `CommandFinished` ack — those are the events that carry the actual mutate-flow
  * result, and a success also closes this Inspector (the release is gone), which is why this
  * panel does not itself navigate away on success.
  */
-import { TrashIcon, WarningIcon } from '@phosphor-icons/react'
+import { TrashIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
-import { StatusBadge } from '@/components/StatusBadge'
+import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import type { GitOpsOriginRef } from '@/protocol/types'
 import { useStore } from '@/store'
 
 const ACTION_TOAST_TEST_ID = 'helm-uninstall-toast'
-
-function GitOpsWarningBanner({ origin }: { origin: GitOpsOriginRef }) {
-  const openInspector = useStore((s) => s.openInspector)
-  return (
-    <div
-      data-testid="helm-uninstall-gitops-warning"
-      className="flex flex-col gap-1 border border-status-warn/60 bg-status-warn/10 p-2 text-xs"
-    >
-      <p className="flex items-center gap-1.5 font-semibold text-status-warn">
-        <WarningIcon aria-hidden="true" className="size-4 shrink-0" weight="bold" />
-        Managed by GitOps
-      </p>
-      <p className="text-muted-foreground">
-        This release is reconciled by{' '}
-        <button
-          type="button"
-          className="text-foreground hover:text-accent-neon hover:underline"
-          onClick={() => {
-            openInspector(
-              { section: origin.section, kind: origin.kind, namespace: origin.namespace, name: origin.name },
-              undefined,
-              true,
-            )
-          }}
-        >
-          {origin.kind} {origin.namespace}/{origin.name}
-        </button>
-        . Uninstalling here does not stop that controller from re-creating it, unless the source
-        is also removed. <StatusBadge status={origin.ready} />
-      </p>
-    </div>
-  )
-}
 
 export function HelmReleaseActionsPanel({
   namespace,
@@ -150,7 +117,13 @@ export function HelmReleaseActionsPanel({
               This uninstalls the release and deletes the resources it installed. This cannot be
               undone.
             </span>
-            {origin && <GitOpsWarningBanner origin={origin} />}
+            {origin && (
+              <GitOpsWarningBanner
+                origin={origin}
+                testId="helm-uninstall-gitops-warning"
+                consequence="Uninstalling here does not stop that controller from re-creating it, unless the source is also removed."
+              />
+            )}
           </div>
         }
         destructive

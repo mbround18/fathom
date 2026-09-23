@@ -14,6 +14,7 @@
 import { useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -129,14 +130,11 @@ function RollbackAction({
       {(session.status === 'preview_ready' || session.status === 'applying') && (
         <>
           {preview.gitops_warning && (
-            <p
-              data-testid="helm-rollback-gitops-warning"
-              className="flex items-center gap-2 border border-status-warn/50 bg-status-warn/10 px-2 py-1.5 text-xs text-status-warn"
-            >
-              Managed by {preview.gitops_warning.controller} ({preview.gitops_warning.namespace}/
-              {preview.gitops_warning.name}). A rollback may be reverted by the next
-              reconciliation.
-            </p>
+            <GitOpsWarningBanner
+              origin={preview.gitops_warning}
+              testId="helm-rollback-gitops-warning"
+              consequence="A rollback may be reverted by the next reconciliation."
+            />
           )}
           <YamlDiffView
             currentManifest={preview.current_manifest}
