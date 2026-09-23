@@ -28,7 +28,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | **Rich interlinking / drill-down** (chart → pod, resource → resource) | ✅ | 004-applications-interlinking, extended in 005 |
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ⬜ | planned, later |
 | Pod lifecycle hooks / probes / init-container detail | ⬜ | gap identified, see §7 |
-| Port-forward rich UI (backend already shipped, no frontend panel yet) | ⬜ | gap identified, see §10 |
+| Port-forward rich UI (backend already shipped, no frontend panel yet) | ✅ | 009-port-forward-ui |
 | Container image layer inspection | ⬜ | future — see §9a |
 | Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
 | In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | ⬜ | future — see §14 Tier D |
@@ -489,7 +489,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 
 ### Port Forward Interface
 
-*Status: 🚧 Backend shipped, frontend is a stub — `src/backend/portforward.rs`'s `PortForwardManager` already does the real work (used internally by the Prometheus and Hubble integrations), and there's a `Port Forwards` nav entry (`network/portforwards`) with protocol types (`PortForward`, `PortForwardStatus`, `TunnelStatus`) and store wiring already generated, but no panel component renders them — the tool pane falls back to the generic empty state today. This is the same shape of gap Flux/Hubble were in before their panels landed, and the cheapest of the ideas in this section to ship.*
+*Status: ✅ Shipped (`009-port-forward-ui`) — one-click "Forward" action from Pod and Service inspectors; a live forwards list (desktop nav `network/portforwards` and the phone/tablet `Forwards` stack tab) showing local port, target namespace/pod (and originating service, when launched from one), target/remote port, and live tunnel status, with stop/restart controls per row; local port picker with debounced conflict detection (`CheckPortAvailability`/`PortAvailability`) that blocks confirming on an unresolved conflict; copy-address action (`localhost:<port>`, disabled until the tunnel is `Active`). Cluster-context-scoped teardown was already true at the backend level (`PortForwardManager`) — the UI renders that state as-is.*
 
 * One-click "Forward" action from a Service or Pod inspector (mirrors the existing per-resource action affordances), not just a standalone form requiring the operator to already know the target port.
 * A live list of active forwards (this cluster context) showing local port, target namespace/pod-or-service/port, and live tunnel status (`TunnelStatus`), with stop/restart controls per row.
