@@ -17,6 +17,13 @@ export const SECTION = {
   applications: 'applications',
   services: 'network/services',
   portForwards: 'network/portforwards',
+  // 011-rbac-oidc-administration
+  roles: 'access/roles',
+  roleBindings: 'access/rolebindings',
+  clusterRoles: 'access/clusterroles',
+  clusterRoleBindings: 'access/clusterrolebindings',
+  namespaceAccess: 'access/namespace-access',
+  oidcConfig: 'access/oidc-config',
 } as const satisfies Record<string, SectionKey>
 
 /** Commands sent once the event subscription is up (mirrors egui's startup in src/app/mod.rs). */
@@ -39,6 +46,12 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.applications]: { type: 'RefreshApplications' },
   [SECTION.services]: { type: 'RefreshServices' },
   [SECTION.portForwards]: { type: 'RefreshPortForwards' },
+  // 011-rbac-oidc-administration: list-section refreshes (namespace-access/oidc-config are
+  // lookup/generator panels, not list sections, so they have no entry here).
+  [SECTION.roles]: { type: 'RefreshRoles' },
+  [SECTION.roleBindings]: { type: 'RefreshRoleBindings' },
+  [SECTION.clusterRoles]: { type: 'RefreshClusterRoles' },
+  [SECTION.clusterRoleBindings]: { type: 'RefreshClusterRoleBindings' },
 }
 
 /** The refresh command for a list section, if the UI knows one yet. */
@@ -61,6 +74,17 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectNode', data: { name } }
     case 'Service':
       return { type: 'SelectService', data: { namespace, name } }
+    // 011-rbac-oidc-administration: cross-link support (e.g. an Event's involvedObject) for
+    // the four RBAC kinds; the descriptors themselves build these same commands directly in
+    // their own `read()` (see `resources/roles.tsx` etc.), this is only the generic fallback.
+    case 'Role':
+      return { type: 'SelectRole', data: { namespace, name } }
+    case 'RoleBinding':
+      return { type: 'SelectRoleBinding', data: { namespace, name } }
+    case 'ClusterRole':
+      return { type: 'SelectClusterRole', data: { name } }
+    case 'ClusterRoleBinding':
+      return { type: 'SelectClusterRoleBinding', data: { name } }
     default:
       return undefined
   }

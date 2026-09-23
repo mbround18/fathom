@@ -9,12 +9,17 @@ import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
+import { RoleBindingCreateLauncher } from '@/components/rbac/RoleBindingCreateLauncher'
+import { RoleBindingEditLauncher } from '@/components/rbac/RoleBindingEditLauncher'
 import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
 import { SECTION } from '@/protocol/commands'
+import type { ClusterRoleBindingDetails, RoleBindingDetails } from '@/protocol/types'
 import { descriptorFor } from '@/resources'
+import { NamespaceAccessView } from '@/resources/namespaceAccess'
+import { OidcConfigView } from '@/resources/oidcConfig'
 import { cn } from '@/lib/utils'
-import { listKey, useStore, type PaneId, type PaneState } from '@/store'
+import { detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
 
 import { paneTitle, TOOL_LABEL } from './labels'
 import {
@@ -102,6 +107,7 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
             {...(pane.source !== undefined ? { source: pane.source } : {})}
           />
         )}
+        {pane.kind === 'inspector' && pane.target && <RoleBindingEditLauncherSlot target={pane.target} />}
       </header>
       {pane.kind === 'list' && <PaneSearch pane={pane} />}
       {selfScrolling ? (
@@ -115,6 +121,32 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       )}
     </section>
   )
+}
+
+/**
+ * 011-rbac-oidc-administration US3 (T032): the "Edit" entry point for an already-open
+ * RoleBinding/ClusterRoleBinding inspector, seeded from the same detail payload the inspector
+ * itself renders (`s.details[detailKey(...)]`) — no extra read issued here.
+ */
+function RoleBindingEditLauncherSlot({ target }: { target: NonNullable<PaneState['target']> }) {
+  const ctx = useStore((s) => s.session.activeContext)
+  const detail = useStore(
+    (s) => s.details[detailKey(ctx, target.kind, target.namespace, target.name)],
+  )
+  if (target.kind === 'RoleBinding' && detail?.eventType === 'RoleBindingDetailsUpdated') {
+    return (
+      <RoleBindingEditLauncher kind="RoleBinding" existing={detail.data as RoleBindingDetails} />
+    )
+  }
+  if (target.kind === 'ClusterRoleBinding' && detail?.eventType === 'ClusterRoleBindingDetailsUpdated') {
+    return (
+      <RoleBindingEditLauncher
+        kind="ClusterRoleBinding"
+        existing={detail.data as ClusterRoleBindingDetails}
+      />
+    )
+  }
+  return null
 }
 
 function PaneSearch({ pane }: { pane: PaneState }) {
@@ -191,6 +223,14 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.portForwards) {
     return <PortForwardsPanel />
   }
+  // 011-rbac-oidc-administration US4/US5: read-only lookup / frontend-only generator panels,
+  // neither backed by a `ResourceDescriptor` (no list-refresh, no detail split).
+  if (section === SECTION.namespaceAccess) {
+    return <NamespaceAccessView />
+  }
+  if (section === SECTION.oidcConfig) {
+    return <OidcConfigView />
+  }
   if (!descriptor) {
     return (
       <Empty
@@ -229,6 +269,17 @@ function ListBody({ pane }: { pane: PaneState }) {
           <span aria-hidden="true">✖ </span>
           {list.error}
         </p>
+      )}
+      {/* 011-rbac-oidc-administration US2 (T029): "New RoleBinding"/"New ClusterRoleBinding". */}
+      {section === SECTION.roleBindings && (
+        <div className="flex shrink-0 justify-end border-b border-border px-2 py-1">
+          <RoleBindingCreateLauncher kind="RoleBinding" />
+        </div>
+      )}
+      {section === SECTION.clusterRoleBindings && (
+        <div className="flex shrink-0 justify-end border-b border-border px-2 py-1">
+          <RoleBindingCreateLauncher kind="ClusterRoleBinding" />
+        </div>
       )}
       <SelectionBar pane={pane} descriptor={descriptor} rows={list.rows} />
       <div className="min-h-0 flex-1">

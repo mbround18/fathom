@@ -73,6 +73,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ['access/rolebindings', 'RoleBindings'],
     ['access/clusterroles', 'ClusterRoles'],
     ['access/clusterrolebindings', 'ClusterRoleBindings'],
+    ['access/namespace-access', 'Namespace Access'],
+    ['access/oidc-config', 'OIDC Config'],
   ]),
   g('Custom Resources', '拡', [['custom-resources', 'Custom Resources']]),
   g('Integrations', '連', [
