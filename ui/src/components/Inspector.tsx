@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 
 import { DetailSections } from './DetailSections'
 import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
+import { HelmUpgradePanel } from './panels/HelmUpgradePanel'
 import { NodeActionsPanel } from './panels/NodeActionsPanel'
 import { PodLogsTab } from './panels/PodLogsTab'
 import { PodTerminalTab } from './panels/PodTerminalTab'
@@ -179,6 +180,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
               Actions
             </TabsTrigger>
           )}
+          {target.kind === 'HelmRelease' && (
+            <TabsTrigger
+              value="helm-upgrade"
+              data-testid="helm-upgrade-tab"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Upgrade
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="details" className="min-h-0 overflow-y-auto text-sm">
           <DetailSections
@@ -233,6 +243,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
                 />
               )
             })()}
+          </TabsContent>
+        )}
+        {target.kind === 'HelmRelease' && target.namespace && (
+          <TabsContent value="helm-upgrade" className="min-h-0 flex-1 overflow-y-auto">
+            <HelmUpgradePanel
+              namespace={target.namespace}
+              release={target.name}
+              detail={detail as HelmReleaseDetails | undefined}
+            />
           </TabsContent>
         )}
       </Tabs>

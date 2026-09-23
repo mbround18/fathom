@@ -125,20 +125,13 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       d.put('hubble', { summary: event.data })
       return
 
-    case 'HelmMutationPreviewReady':
+    case 'HelmMutationPreviewReady': {
       d.put('helmMutation', helmMutationPreviewReady(event.data))
+      const helmMutations = d.edit('helmMutations')
+      const mutKey = `${event.data.namespace}/${event.data.release}`
+      helmMutations[mutKey] = helmMutationPreviewReady(event.data)
       return
-    case 'HelmMutationApplied':
-      d.put('helmMutation', helmMutationApplied(d.read('helmMutation')))
-      return
-    case 'HelmMutationFailed':
-      d.put(
-        'helmMutation',
-        event.data.stage === 'preview'
-          ? helmMutationPreviewFailed(event.data.message)
-          : helmMutationApplyFailed(d.read('helmMutation'), event.data.message),
-      )
-      return
+    }
 
     case 'CrdCatalogUpdated': {
       const crds = d.edit('crds')
@@ -205,7 +198,16 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
 
+    // 006-helm-mutate: preview/apply results for the release the Inspector's Upgrade tab (or
+    // rollback/uninstall counterparts) is open on. Keyed like `nodeActions` — by the target's
+    // own identity, not `Correlation::Request` — since a session outlives any one command.
     case 'HelmMutationApplied': {
+      d.put('helmMutation', helmMutationApplied(d.read('helmMutation')))
+      const helmMutations = d.edit('helmMutations')
+      const mutKey = `${event.data.namespace}/${event.data.release}`
+      const prevApplied = helmMutations[mutKey]
+      if (prevApplied) helmMutations[mutKey] = helmMutationApplied(prevApplied)
+
       if (event.data.action !== 'uninstall') return
       const { namespace, release } = event.data
       const key = helmUninstallKey(namespace, release)
@@ -244,6 +246,20 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     }
 
     case 'HelmMutationFailed': {
+      d.put(
+        'helmMutation',
+        event.data.stage === 'preview'
+          ? helmMutationPreviewFailed(event.data.message)
+          : helmMutationApplyFailed(d.read('helmMutation'), event.data.message),
+      )
+      const helmMutations = d.edit('helmMutations')
+      const mutKey = `${event.data.namespace}/${event.data.release}`
+      const prev = helmMutations[mutKey]
+      helmMutations[mutKey] =
+        event.data.stage === 'apply' && prev
+          ? helmMutationApplyFailed(prev, event.data.message)
+          : helmMutationPreviewFailed(event.data.message)
+
       if (event.data.action !== 'uninstall') return
       const key = helmUninstallKey(event.data.namespace, event.data.release)
       d.edit('helmUninstalls')[key] = { status: 'failed', error: event.data.message }

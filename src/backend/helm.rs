@@ -573,8 +573,6 @@ pub async fn helm_binary_available() -> bool {
         .is_ok_and(|out| out.status.success())
 }
 
-// --- US1: Rollback ---------------------------------------------------------------------
-
 fn helm_storage_object_name(release: &str, revision: i64) -> String {
     format!("sh.helm.release.v1.{release}.v{revision}")
 }
@@ -1070,6 +1068,438 @@ pub(super) async fn uninstall_helm_release(
     })
 }
 
+fn mutation_failed(
+    namespace: &str,
+    release: &str,
+    action: HelmMutationAction,
+    stage: HelmMutationStage,
+    message: impl Into<String>,
+) -> HelmMutationFailed {
+    HelmMutationFailed {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        stage,
+        message: message.into(),
+    }
+}
+
+/// FR-012's "missing `helm` binary" guard, shared by preview and apply. Takes the already-
+/// evaluated `helm_available` flag (rather than calling `helm_binary_available()` itself) so it
+/// stays a pure, synchronous, directly unit-testable function (T020): with `helm_available:
+/// false` it returns `Err` without anything upstream ever spawning a subprocess.
+fn guard_helm_available(
+    namespace: &str,
+    release: &str,
+    action: HelmMutationAction,
+    stage: HelmMutationStage,
+    helm_available: bool,
+) -> Result<(), HelmMutationFailed> {
+    if helm_available {
+        return Ok(());
+    }
+    Err(mutation_failed(
+        namespace,
+        release,
+        action,
+        stage,
+        "The `helm` binary was not found on PATH. Upgrade requires helm to be installed and reachable.",
+    ))
+}
+
+/// The stale-`base_revision` guard shared by rollback/upgrade/uninstall apply (FR-012): the
+/// release must still be at the revision the preview/confirm dialog was computed against. Pure
+/// and synchronous (T022) so it is unit-testable without a cluster or a `helm` subprocess.
+fn check_base_revision_fresh(
+    namespace: &str,
+    release: &str,
+    action: HelmMutationAction,
+    live_revision: i64,
+    base_revision: i64,
+) -> Result<(), HelmMutationFailed> {
+    if live_revision == base_revision {
+        return Ok(());
+    }
+    Err(mutation_failed(
+        namespace,
+        release,
+        action,
+        HelmMutationStage::Apply,
+        format!(
+            "The release has changed since this was previewed (was revision {base_revision}, is now revision {live_revision}). Preview again before applying."
+        ),
+    ))
+}
+
+/// Snapshot of a release's current live state, read directly from release storage (no `helm`
+/// shellout — same read path as `get_release_details`): supplies `base_revision`/
+/// `current_manifest`/`gitops_warning` for the upgrade preview, and the chart payload to
+/// materialize for rendering.
+struct CurrentReleaseState {
+    revision: i64,
+    manifest: String,
+    chart_payload: Option<Value>,
+    origin: Option<GitOpsOriginRef>,
+}
+
+async fn current_release_state(
+    state: &BackendState,
+    namespace: &str,
+    release: &str,
+) -> anyhow::Result<Option<CurrentReleaseState>> {
+    let client = state.cluster.client_or_err()?;
+    let objects = list_storage_objects(&client, Some(namespace)).await?;
+    let mut matching: Vec<&StorageObject> =
+        objects.iter().filter(|o| o.release_name == release).collect();
+    matching.sort_by_key(|o| std::cmp::Reverse(o.revision));
+    let Some(current) = matching.first() else {
+        return Ok(None);
+    };
+
+    let manifest = current
+        .payload
+        .as_ref()
+        .and_then(|p| payload_str(p, "/manifest"))
+        .unwrap_or_default();
+    let chart_payload = current.payload.as_ref().and_then(|p| p.pointer("/chart")).cloned();
+
+    let workloads = super::applications::list_owned_workloads(state).await?;
+    let owned = owned_workloads_for_release(&workloads, namespace, release);
+    let origin = resolve_release_origin(&client, &owned, namespace).await;
+
+    Ok(Some(CurrentReleaseState {
+        revision: current.revision,
+        manifest,
+        chart_payload,
+        origin,
+    }))
+}
+
+/// FR-004's "different chart version" edge case: Fathom has no chart-repository integration, so
+/// only the release's own currently-installed chart (materialized from its stored payload) can
+/// be re-rendered locally — a requested version that differs from what's stored is rejected
+/// with a clear error (research.md R4) rather than silently rendering the wrong chart.
+fn check_chart_version(
+    namespace: &str,
+    release: &str,
+    action: HelmMutationAction,
+    stage: HelmMutationStage,
+    chart_payload: &Value,
+    requested: Option<&str>,
+) -> Result<(), HelmMutationFailed> {
+    let Some(requested) = requested else {
+        return Ok(());
+    };
+    let current_chart_version = chart_payload
+        .pointer("/metadata/version")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if requested == current_chart_version {
+        return Ok(());
+    }
+    Err(mutation_failed(
+        namespace,
+        release,
+        action,
+        stage,
+        format!(
+            "Cannot upgrade to chart version {requested}: Fathom has no configured chart repository to resolve it from (only the release's currently-installed chart, version {current_chart_version}, can be re-rendered locally). Use the helm CLI directly for a chart-version change."
+        ),
+    ))
+}
+
+/// Writes a release's stored chart (metadata/values/templates/files, decoded from its own
+/// release-storage payload — the same payload `get_release_details` already reads
+/// `/chart/metadata`, `/chart/values` from) to a temp directory so `helm upgrade [--dry-run]`
+/// can render it without needing network access to a chart repository (FR-004, research.md R4).
+fn materialize_chart(chart_payload: &Value) -> anyhow::Result<tempfile::TempDir> {
+    let dir = tempfile::Builder::new().prefix("fathom-helm-upgrade-").tempdir()?;
+    let root = dir.path();
+
+    let metadata = chart_payload.get("metadata").cloned().unwrap_or(Value::Null);
+    std::fs::write(root.join("Chart.yaml"), to_yaml(&metadata))?;
+
+    let values = chart_payload.get("values").cloned().unwrap_or(Value::Null);
+    std::fs::write(root.join("values.yaml"), to_yaml(&values))?;
+
+    if let Some(templates) = chart_payload.get("templates").and_then(Value::as_array) {
+        for file in templates {
+            write_chart_file(root, file)?;
+        }
+    }
+    if let Some(files) = chart_payload.get("files").and_then(Value::as_array) {
+        for file in files {
+            write_chart_file(root, file)?;
+        }
+    }
+
+    Ok(dir)
+}
+
+fn write_chart_file(root: &std::path::Path, file: &Value) -> anyhow::Result<()> {
+    let name = file
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("chart file entry missing a name"))?;
+    let data_b64 = file.get("data").and_then(Value::as_str).unwrap_or_default();
+    let bytes = BASE64.decode(data_b64.as_bytes()).unwrap_or_default();
+    let path = root.join(name);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+/// Runs `helm upgrade <release> <chart_dir> -n <namespace> [--dry-run] -f -`, piping
+/// `values_yaml` via stdin (integrations.rs:352-style async subprocess shellout — spawn, no
+/// blocking calls). `dry_run` selects preview vs. real apply.
+async fn run_helm_upgrade(
+    release: &str,
+    chart_dir: &std::path::Path,
+    namespace: &str,
+    values_yaml: &str,
+    dry_run: bool,
+) -> anyhow::Result<std::process::Output> {
+    use tokio::io::AsyncWriteExt;
+
+    let mut cmd = tokio::process::Command::new("helm");
+    cmd.arg("upgrade")
+        .arg(release)
+        .arg(chart_dir)
+        .arg("-n")
+        .arg(namespace)
+        .arg("-f")
+        .arg("-");
+    if dry_run {
+        cmd.arg("--dry-run");
+    }
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(values_yaml.as_bytes()).await?;
+    }
+    Ok(child.wait_with_output().await?)
+}
+
+/// `helm`'s own stderr, verbatim (Constitution Principle I); falls back to stdout for the rare
+/// case a `helm` failure writes nothing to stderr.
+fn helm_error_message(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+        stderr.trim().to_owned()
+    } else {
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+}
+
+/// Extracts the `MANIFEST:` section from `helm upgrade [--dry-run]`'s stdout (everything after
+/// the `MANIFEST:` line, up to the next top-level `NOTES:` section or end of output).
+fn extract_manifest_section(stdout: &str) -> String {
+    let Some(start) = stdout.find("MANIFEST:") else {
+        return stdout.trim().to_owned();
+    };
+    let after = &stdout[start + "MANIFEST:".len()..];
+    let manifest = match after.find("\nNOTES:") {
+        Some(end) => &after[..end],
+        None => after,
+    };
+    manifest.trim().to_owned()
+}
+
+/// Extracts the new revision number from `helm upgrade`'s stdout (`REVISION: <n>` line).
+fn extract_revision(stdout: &str) -> Option<i64> {
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("REVISION:")?.trim().parse().ok())
+}
+
+/// T024: compute an upgrade diff-preview via `helm upgrade --dry-run` against an already-known
+/// current release state, without mutating anything (FR-004). Split from `preview_helm_upgrade`
+/// so the shellout/render logic is unit-testable (T021) without a live cluster.
+async fn render_upgrade_preview(
+    namespace: &str,
+    release: &str,
+    current: CurrentReleaseState,
+    values_yaml: &str,
+    chart_version: Option<&str>,
+) -> Result<HelmMutationPreviewReady, HelmMutationFailed> {
+    let action = HelmMutationAction::Upgrade;
+    let stage = HelmMutationStage::Preview;
+
+    let Some(chart_payload) = &current.chart_payload else {
+        return Err(mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            "The release's stored chart payload is corrupted or unreadable; cannot render an upgrade preview.",
+        ));
+    };
+    check_chart_version(namespace, release, action, stage, chart_payload, chart_version)?;
+
+    let chart_dir = materialize_chart(chart_payload).map_err(|e| {
+        mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            format!("Failed to materialize the release's chart for rendering: {e}"),
+        )
+    })?;
+
+    let output = run_helm_upgrade(release, chart_dir.path(), namespace, values_yaml, true)
+        .await
+        .map_err(|e| mutation_failed(namespace, release, action, stage, format!("Failed to run helm: {e}")))?;
+
+    if !output.status.success() {
+        return Err(mutation_failed(namespace, release, action, stage, helm_error_message(&output)));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let target_manifest = extract_manifest_section(&stdout);
+    if target_manifest.is_empty() {
+        return Err(mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            "helm upgrade --dry-run produced an empty rendered manifest.",
+        ));
+    }
+
+    Ok(HelmMutationPreviewReady {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        base_revision: current.revision,
+        current_manifest: current.manifest,
+        target_manifest,
+        target_revision: None,
+        target_chart_version: chart_version.map(str::to_owned),
+        gitops_warning: current.origin,
+    })
+}
+
+/// `PreviewHelmUpgrade` command handler: guards on `helm_binary_available()` (T001/FR-012),
+/// reads the release's current state, then renders the preview.
+pub(super) async fn preview_helm_upgrade(
+    state: &BackendState,
+    namespace: &str,
+    release: &str,
+    values_yaml: &str,
+    chart_version: Option<&str>,
+) -> Result<HelmMutationPreviewReady, HelmMutationFailed> {
+    let action = HelmMutationAction::Upgrade;
+    let stage = HelmMutationStage::Preview;
+    guard_helm_available(namespace, release, action, stage, helm_binary_available().await)?;
+
+    let current = current_release_state(state, namespace, release)
+        .await
+        .map_err(|e| {
+            mutation_failed(namespace, release, action, stage, format!("Failed to read release state: {e}"))
+        })?
+        .ok_or_else(|| {
+            mutation_failed(
+                namespace,
+                release,
+                action,
+                stage,
+                format!("Release {release} not found in namespace {namespace}."),
+            )
+        })?;
+
+    render_upgrade_preview(namespace, release, current, values_yaml, chart_version).await
+}
+
+/// T025: apply a previously previewed upgrade for real (no `--dry-run`) against an already-known
+/// current release state. Split out like `render_upgrade_preview` for the same testability
+/// reason.
+async fn apply_upgrade_with_state(
+    namespace: &str,
+    release: &str,
+    current: CurrentReleaseState,
+    values_yaml: &str,
+    chart_version: Option<&str>,
+) -> Result<HelmMutationApplied, HelmMutationFailed> {
+    let action = HelmMutationAction::Upgrade;
+    let stage = HelmMutationStage::Apply;
+
+    let Some(chart_payload) = &current.chart_payload else {
+        return Err(mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            "The release's stored chart payload is corrupted or unreadable; cannot apply the upgrade.",
+        ));
+    };
+    check_chart_version(namespace, release, action, stage, chart_payload, chart_version)?;
+
+    let chart_dir = materialize_chart(chart_payload).map_err(|e| {
+        mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            format!("Failed to materialize the release's chart for the upgrade: {e}"),
+        )
+    })?;
+
+    let output = run_helm_upgrade(release, chart_dir.path(), namespace, values_yaml, false)
+        .await
+        .map_err(|e| mutation_failed(namespace, release, action, stage, format!("Failed to run helm: {e}")))?;
+
+    if !output.status.success() {
+        return Err(mutation_failed(namespace, release, action, stage, helm_error_message(&output)));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(HelmMutationApplied {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        action,
+        new_revision: extract_revision(&stdout),
+    })
+}
+
+/// `ApplyHelmUpgrade` command handler: guards on `helm_binary_available()`, re-checks
+/// `base_revision` (stale-preview guard, FR-012), then applies.
+pub(super) async fn apply_helm_upgrade(
+    state: &BackendState,
+    namespace: &str,
+    release: &str,
+    values_yaml: &str,
+    chart_version: Option<&str>,
+    base_revision: i64,
+) -> Result<HelmMutationApplied, HelmMutationFailed> {
+    let action = HelmMutationAction::Upgrade;
+    let stage = HelmMutationStage::Apply;
+    guard_helm_available(namespace, release, action, stage, helm_binary_available().await)?;
+
+    let current = current_release_state(state, namespace, release)
+        .await
+        .map_err(|e| {
+            mutation_failed(namespace, release, action, stage, format!("Failed to read release state: {e}"))
+        })?
+        .ok_or_else(|| {
+            mutation_failed(
+                namespace,
+                release,
+                action,
+                stage,
+                format!("Release {release} not found in namespace {namespace}."),
+            )
+        })?;
+
+    check_base_revision_fresh(namespace, release, action, current.revision, base_revision)?;
+
+    apply_upgrade_with_state(namespace, release, current, values_yaml, chart_version).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1243,6 +1673,217 @@ mod tests {
         assert_eq!(r.status_hint.as_deref(), Some("Ready"));
     }
 
+
+    // --- US2: Upgrade -----------------------------------------------------------------
+
+
+    // ---- 006-helm-mutate US2 (upgrade): T020, T021, T022 ----
+
+    /// T020: `helm_available: false` short-circuits with a clear `HelmMutationFailed` — and
+    /// since `guard_helm_available` is a pure, synchronous function that never calls
+    /// `tokio::process::Command`, no subprocess is spawned to produce that flag.
+    #[test]
+    fn guard_helm_available_short_circuits_when_helm_missing() {
+        let err = guard_helm_available(
+            "default",
+            "redis",
+            HelmMutationAction::Upgrade,
+            HelmMutationStage::Preview,
+            false,
+        )
+        .expect_err("missing helm must fail");
+        assert_eq!(err.namespace, "default");
+        assert_eq!(err.release, "redis");
+        assert_eq!(err.stage, HelmMutationStage::Preview);
+        assert!(err.message.contains("helm"), "message: {}", err.message);
+    }
+
+    #[test]
+    fn guard_helm_available_passes_when_helm_present() {
+        assert!(
+            guard_helm_available(
+                "default",
+                "redis",
+                HelmMutationAction::Upgrade,
+                HelmMutationStage::Preview,
+                true,
+            )
+            .is_ok()
+        );
+    }
+
+    /// T022: a `base_revision` that no longer matches the release's live revision fails at the
+    /// `Apply` stage — this must be checked (and must fail) before any `helm upgrade` is ever
+    /// invoked, so it is asserted here as a pure function with no subprocess involved at all.
+    #[test]
+    fn check_base_revision_fresh_rejects_stale_base_revision() {
+        let err = check_base_revision_fresh("default", "redis", HelmMutationAction::Upgrade, 5, 4)
+            .expect_err("stale base_revision must fail");
+        assert_eq!(err.stage, HelmMutationStage::Apply);
+        assert!(err.message.contains('4') && err.message.contains('5'), "message: {}", err.message);
+    }
+
+    #[test]
+    fn check_base_revision_fresh_passes_when_matching() {
+        assert!(check_base_revision_fresh("default", "redis", HelmMutationAction::Upgrade, 5, 5).is_ok());
+    }
+
+    /// Guards the parallel PATH-manipulating tests in this module against interleaving on a
+    /// multi-threaded test runner (`cargo test` runs `#[test]`s in parallel by default).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Installs a fake `helm` shell script that always fails, prepends its directory to `PATH`,
+    /// and returns a guard that restores the original `PATH` (and releases `ENV_LOCK`) on drop.
+    struct FakeHelmGuard {
+        _dir: tempfile::TempDir,
+        original_path: Option<std::ffi::OsString>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for FakeHelmGuard {
+        fn drop(&mut self) {
+            // SAFETY: serialized by `ENV_LOCK`, held for the guard's whole lifetime.
+            unsafe {
+                match &self.original_path {
+                    Some(p) => std::env::set_var("PATH", p),
+                    None => std::env::remove_var("PATH"),
+                }
+            }
+        }
+    }
+
+    fn install_failing_fake_helm(stderr_message: &str) -> FakeHelmGuard {
+        let lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = tempfile::Builder::new().prefix("fathom-fake-helm-").tempdir().unwrap();
+        let script_path = dir.path().join("helm");
+        std::fs::write(
+            &script_path,
+            format!("#!/bin/sh\necho '{stderr_message}' 1>&2\nexit 1\n"),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script_path, perms).unwrap();
+        }
+
+        let original_path = std::env::var_os("PATH");
+        let mut new_path = std::ffi::OsString::from(dir.path());
+        if let Some(existing) = &original_path {
+            new_path.push(":");
+            new_path.push(existing);
+        }
+        // SAFETY: serialized by `ENV_LOCK`, held for the guard's whole lifetime (restored on drop).
+        unsafe {
+            std::env::set_var("PATH", &new_path);
+        }
+
+        FakeHelmGuard {
+            _dir: dir,
+            original_path,
+            _lock: lock,
+        }
+    }
+
+    /// T021: an invalid values YAML (surfaced by `helm upgrade --dry-run` failing) produces a
+    /// `HelmMutationFailed { stage: Preview, .. }` whose `message` is the failing `helm`
+    /// invocation's stderr verbatim (Constitution Principle I) — exercised through
+    /// `render_upgrade_preview` with a fake `helm` binary on `PATH`, so no live cluster is
+    /// needed (only the already-fetched `CurrentReleaseState` fixture below).
+    #[tokio::test]
+    async fn render_upgrade_preview_surfaces_helm_dry_run_error_verbatim() {
+        let _guard = install_failing_fake_helm("Error: YAML parse error on values.yaml");
+
+        let current = CurrentReleaseState {
+            revision: 3,
+            manifest: "apiVersion: v1\nkind: Service".to_owned(),
+            chart_payload: Some(serde_json::json!({
+                "metadata": {"name": "redis", "version": "1.2.3"},
+                "values": {"replicas": 1},
+                "templates": [],
+                "files": [],
+            })),
+            origin: None,
+        };
+
+        let err = render_upgrade_preview("default", "redis", current, "not: [valid", None)
+            .await
+            .expect_err("invalid values must fail preview");
+
+        assert_eq!(err.namespace, "default");
+        assert_eq!(err.release, "redis");
+        assert_eq!(err.stage, HelmMutationStage::Preview);
+        assert!(
+            err.message.contains("YAML parse error"),
+            "expected helm's stderr verbatim, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_chart_version_rejects_a_different_version() {
+        let chart_payload = serde_json::json!({"metadata": {"version": "1.2.3"}});
+        let err = check_chart_version(
+            "default",
+            "redis",
+            HelmMutationAction::Upgrade,
+            HelmMutationStage::Preview,
+            &chart_payload,
+            Some("2.0.0"),
+        )
+        .expect_err("different chart version must fail");
+        assert!(err.message.contains("1.2.3"), "message: {}", err.message);
+        assert!(err.message.contains("2.0.0"), "message: {}", err.message);
+    }
+
+    #[test]
+    fn check_chart_version_allows_same_version_or_none_requested() {
+        let chart_payload = serde_json::json!({"metadata": {"version": "1.2.3"}});
+        assert!(
+            check_chart_version(
+                "default",
+                "redis",
+                HelmMutationAction::Upgrade,
+                HelmMutationStage::Preview,
+                &chart_payload,
+                Some("1.2.3"),
+            )
+            .is_ok()
+        );
+        assert!(
+            check_chart_version(
+                "default",
+                "redis",
+                HelmMutationAction::Upgrade,
+                HelmMutationStage::Preview,
+                &chart_payload,
+                None,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn extract_manifest_section_pulls_manifest_between_markers() {
+        let stdout = "NAME: redis\n\nMANIFEST:\n---\napiVersion: v1\nkind: Service\n\nNOTES:\nsome notes here\n";
+        assert_eq!(
+            extract_manifest_section(stdout),
+            "---\napiVersion: v1\nkind: Service"
+        );
+    }
+
+    #[test]
+    fn extract_revision_reads_the_revision_line() {
+        let stdout = "NAME: redis\nREVISION: 7\nSTATUS: deployed\n";
+        assert_eq!(extract_revision(stdout), Some(7));
+    }
+
+    #[test]
+    fn extract_revision_none_when_absent() {
+        assert_eq!(extract_revision("NAME: redis\n"), None);
+    }
     // --- US1: Rollback (T010-T012) ---------------------------------------------------
 
     fn storage_object_fixture(revision: i64, manifest: &str) -> StorageObject {

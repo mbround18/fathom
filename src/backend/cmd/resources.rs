@@ -40,7 +40,90 @@ pub(super) async fn handle(
     let Some(cmd) = handle_crd_cmd(cmd, state, sender).await? else {
         return Ok(None);
     };
+    let Some(cmd) = handle_helm_cmd(cmd, state, sender).await? else {
+        return Ok(None);
+    };
     handle_applications_cmd(cmd, state, sender).await
+}
+
+/// Helm release read/mutate commands (005 read-only view + 006-helm-mutate rollback/upgrade/
+/// uninstall) — split out of `handle_applications_cmd` to keep that function under clippy's
+/// `too_many_lines` threshold now that all three 006 user stories' command arms live here.
+async fn handle_helm_cmd(
+    cmd: BackendCmd,
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) -> anyhow::Result<Option<BackendCmd>> {
+    match cmd {
+        BackendCmd::RefreshHelmReleases => {
+            helm::list_releases(state, sender).await?;
+        }
+        BackendCmd::SelectHelmRelease { namespace, name } => {
+            helm::get_release_details(state, sender, &namespace, &name).await?;
+        }
+        BackendCmd::PreviewHelmRollback {
+            namespace,
+            release,
+            target_revision,
+        } => {
+            let result =
+                helm::preview_helm_rollback(state, &namespace, &release, target_revision).await;
+            emit_helm_mutation_preview(state, sender, &namespace, result);
+        }
+        BackendCmd::ApplyHelmRollback {
+            namespace,
+            release,
+            target_revision,
+            base_revision,
+        } => {
+            let result = helm::apply_helm_rollback(
+                state,
+                &namespace,
+                &release,
+                target_revision,
+                base_revision,
+            )
+            .await;
+            emit_helm_mutation_applied(state, sender, &namespace, result);
+        }
+        BackendCmd::UninstallHelmRelease {
+            namespace,
+            release,
+            base_revision,
+        } => {
+            handle_uninstall_helm_release(state, sender, namespace, release, base_revision)
+                .await?;
+        }
+        BackendCmd::PreviewHelmUpgrade {
+            namespace,
+            release,
+            values_yaml,
+            chart_version,
+        } => {
+            handle_preview_helm_upgrade(state, sender, namespace, release, values_yaml, chart_version)
+                .await?;
+        }
+        BackendCmd::ApplyHelmUpgrade {
+            namespace,
+            release,
+            values_yaml,
+            chart_version,
+            base_revision,
+        } => {
+            handle_apply_helm_upgrade(
+                state,
+                sender,
+                namespace,
+                release,
+                values_yaml,
+                chart_version,
+                base_revision,
+            )
+            .await?;
+        }
+        other => return Ok(Some(other)),
+    }
+    Ok(None)
 }
 
 /// Applications view (US1/US2) and the generic related-resources resolver (US3) — both
@@ -89,45 +172,6 @@ async fn handle_applications_cmd(
                 ),
             );
         }
-        BackendCmd::RefreshHelmReleases => {
-            helm::list_releases(state, sender).await?;
-        }
-        BackendCmd::SelectHelmRelease { namespace, name } => {
-            helm::get_release_details(state, sender, &namespace, &name).await?;
-        }
-        BackendCmd::PreviewHelmRollback {
-            namespace,
-            release,
-            target_revision,
-        } => {
-            let result =
-                helm::preview_helm_rollback(state, &namespace, &release, target_revision).await;
-            emit_helm_mutation_preview(state, sender, &namespace, result);
-        }
-        BackendCmd::ApplyHelmRollback {
-            namespace,
-            release,
-            target_revision,
-            base_revision,
-        } => {
-            let result = helm::apply_helm_rollback(
-                state,
-                &namespace,
-                &release,
-                target_revision,
-                base_revision,
-            )
-            .await;
-            emit_helm_mutation_applied(state, sender, &namespace, result);
-        }
-        BackendCmd::UninstallHelmRelease {
-            namespace,
-            release,
-            base_revision,
-        } => {
-            handle_uninstall_helm_release(state, sender, namespace, release, base_revision)
-                .await?;
-        }
         BackendCmd::SelectFluxResource {
             kind,
             namespace,
@@ -138,6 +182,83 @@ async fn handle_applications_cmd(
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+/// `PreviewHelmUpgrade` (006-helm-mutate T026): renders the diff via `helm upgrade --dry-run`
+/// (backend/helm.rs) without mutating anything, and reports the result (or failure) as a
+/// `SystemEvent` on the release's own namespaced route.
+async fn handle_preview_helm_upgrade(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: String,
+    release: String,
+    values_yaml: String,
+    chart_version: Option<String>,
+) -> anyhow::Result<()> {
+    let event = match helm::preview_helm_upgrade(
+        state,
+        &namespace,
+        &release,
+        &values_yaml,
+        chart_version.as_deref(),
+    )
+    .await
+    {
+        Ok(preview) => crate::protocol::SystemEvent::HelmMutationPreviewReady(preview),
+        Err(failed) => crate::protocol::SystemEvent::HelmMutationFailed(failed),
+    };
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        crate::protocol::Route::namespaced(
+            crate::protocol::section_keys::helm_releases(),
+            state.cluster.current_context.clone(),
+            Some(namespace),
+        ),
+        crate::protocol::Correlation::None,
+        crate::protocol::BackendEvent::System(event),
+    );
+    Ok(())
+}
+
+/// `ApplyHelmUpgrade` (006-helm-mutate T026): re-checks `base_revision`, applies the real
+/// `helm upgrade`, reports the result as a `SystemEvent`, and refreshes the release's details so
+/// the Inspector reflects the new revision without a separate manual refresh.
+async fn handle_apply_helm_upgrade(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: String,
+    release: String,
+    values_yaml: String,
+    chart_version: Option<String>,
+    base_revision: i64,
+) -> anyhow::Result<()> {
+    let event = match helm::apply_helm_upgrade(
+        state,
+        &namespace,
+        &release,
+        &values_yaml,
+        chart_version.as_deref(),
+        base_revision,
+    )
+    .await
+    {
+        Ok(applied) => crate::protocol::SystemEvent::HelmMutationApplied(applied),
+        Err(failed) => crate::protocol::SystemEvent::HelmMutationFailed(failed),
+    };
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        crate::protocol::Route::namespaced(
+            crate::protocol::section_keys::helm_releases(),
+            state.cluster.current_context.clone(),
+            Some(namespace.clone()),
+        ),
+        crate::protocol::Correlation::None,
+        crate::protocol::BackendEvent::System(event),
+    );
+    helm::get_release_details(state, sender, &namespace, &release).await?;
+    Ok(())
 }
 
 /// `SelectFluxResource`: re-runs the existing Flux discovery/summarize functions (no new poll
