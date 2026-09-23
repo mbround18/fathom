@@ -7,6 +7,7 @@ import { FluxPanel } from '@/components/panels/FluxPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
+import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
 import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
 import { SECTION } from '@/protocol/commands'
@@ -147,6 +148,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       if (pane.tool === 'flux') return <FluxPanel />
       if (pane.tool === 'hubble') return <HubblePanel />
+      if (pane.tool === 'portforwards') return <PortForwardsPanel />
       return (
         <Empty
           title={pane.tool ? TOOL_LABEL[pane.tool] : 'Tool'}
@@ -180,6 +182,12 @@ function ListBody({ pane }: { pane: PaneState }) {
   // built-in-kind descriptor registry (which is a closed, compile-time set of kinds).
   if (section === SECTION.customResources) {
     return <CustomResourcesSection />
+  }
+  // 009 US2: the forwards list is a computed merge (PortForward + tunnel status + origin tag),
+  // not a plain descriptor table, so it renders itself directly here (desktop nav entry point;
+  // phone/tablet's `FORWARDS_TAB` reaches the same component via the `'tool'` pane branch above).
+  if (section === SECTION.portForwards) {
+    return <PortForwardsPanel />
   }
   if (!descriptor) {
     return (
