@@ -184,6 +184,60 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
       'The Terminal tab opens a genuine interactive `kube exec` session in the selected container — resizable, ANSI-aware, no separate window.',
     scale: 2,
   },
+  'wide-topology': {
+    title: 'See how it all connects',
+    caption:
+      'A force-directed graph of namespaces, applications, workloads, and nodes — pan, zoom, and click any node to inspect it.',
+    scale: 2,
+  },
+  'wide-pod-lifecycle': {
+    title: 'Know why a pod is unhealthy, fast',
+    caption:
+      'Init containers, probe results, restart history, and lifecycle hooks — correlated with the pod’s own events, right in the inspector.',
+    scale: 2,
+  },
+  'wide-port-forward': {
+    title: 'Forward a port without leaving the app',
+    caption:
+      'Pick a declared container port and Fathom checks local availability before you start — no more guessing which `kubectl port-forward` is still running.',
+    scale: 2,
+  },
+  'wide-image-inspect': {
+    title: 'Know what you’re actually running',
+    caption:
+      'Registry, digest, size, base image, and every layer for a container’s image — read straight from the registry, no separate `docker` or `crane` call.',
+    scale: 2,
+  },
+  'wide-rbac-rolebindings': {
+    title: 'RBAC, browsable',
+    caption:
+      'Every RoleBinding in the cluster — subjects, role ref, and namespace — in one searchable list.',
+    scale: 2,
+  },
+  'wide-federation-context': {
+    title: 'Every cluster, one glance',
+    caption:
+      'A live connection strip across every kubeconfig context — switch clusters without losing your place.',
+    scale: 2,
+  },
+  'wide-agent-ops': {
+    title: 'Ask AI about any resource',
+    caption:
+      'An in-app assistant scoped to the object you’re looking at, with suggested actions reviewed and confirmed before anything runs.',
+    scale: 2,
+  },
+  'wide-cluster-settings': {
+    title: 'Cluster-wide settings, in one place',
+    caption:
+      'Metrics source, Prometheus path, and organization defaults for this cluster — with an explicit accept/dismiss for anything pushed from an org-level default.',
+    scale: 2,
+  },
+  'wide-team-profiles': {
+    title: 'Share cluster connections with your team',
+    caption:
+      'Publish a non-secret connection profile — context alias, API server, default namespace — so teammates can adopt it instead of re-typing kubeconfig by hand.',
+    scale: 2,
+  },
 }
 
 /** Narrative order: wide feature shots first, then ultra, then down to phone. Matches the

@@ -31,8 +31,13 @@ const WRITE_CMD =
 
 /** Opens a tool pane by injecting a client-only `UiConfigLoaded` frame; sends no command. */
 export interface ToolPaneInjector {
-  /** Swap the wide layout's second list slot for a `tool` slot and wait for it to render. */
-  open(page: Page, tool: ToolKind): Promise<void>
+  /**
+   * Swap the wide layout's second list slot for a `tool` slot and wait for it to render.
+   * `ready`, when given, replaces the default "wait for the panel's own `<h3>` title" check
+   * (only true of `IntegrationSummary`-based panels like Flux/Hubble) with a caller-supplied
+   * wait for that panel's own real-data signal (e.g. Topology's canvas).
+   */
+  open(page: Page, tool: ToolKind, ready?: (page: Page) => Promise<void>): Promise<void>
 }
 
 /** Route the bridge socket, dropping writes; capture the client-side `ws` for injection. */
@@ -59,7 +64,7 @@ async function readOnlyBridge(
   })
   return {
     injector: {
-      async open(pg, tool) {
+      async open(pg, tool, ready) {
         if (!clientWs) throw new Error('bridge socket not connected yet')
         const envelope: BackendEventEnvelope = {
           version: 1,
@@ -98,11 +103,15 @@ async function readOnlyBridge(
         }
         clientWs.send(JSON.stringify(msg))
         await expect(pg.getByRole('region', { name: TOOL_LABEL[tool] })).toBeVisible()
-        // The region renders immediately in a "waiting for data" state; wait for the panel's
-        // own h3 (only rendered once real overview/summary data has arrived) before shooting.
-        await expect(
-          pg.getByRole('heading', { name: TOOL_LABEL[tool], level: 3 }),
-        ).toBeVisible({ timeout: 15_000 })
+        if (ready) {
+          await ready(pg)
+        } else {
+          // The region renders immediately in a "waiting for data" state; wait for the panel's
+          // own h3 (only rendered once real overview/summary data has arrived) before shooting.
+          await expect(
+            pg.getByRole('heading', { name: TOOL_LABEL[tool], level: 3 }),
+          ).toBeVisible({ timeout: 15_000 })
+        }
       },
     },
   }

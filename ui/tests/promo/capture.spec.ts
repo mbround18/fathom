@@ -217,6 +217,141 @@ test.describe('wide', () => {
     await expect(fluxInsp.getByText(/succeeded/)).toBeVisible()
     await shoot(page, 'wide-helm-origin-link', pairs)
   })
+
+  test('topology graph view', async ({ app, page, toolPane }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    // The canvas is hand-drawn (data-model.md: thousands of pods must stay responsive), so
+    // "real data rendered" isn't a DOM assertion — sample its own pixels for drawn (non-
+    // transparent) content instead of trusting a fixed settle time.
+    await toolPane.open(page, 'topology', async (pg) => {
+      const canvas = pg.getByTestId('topology-canvas')
+      await expect(canvas).toBeVisible()
+      await expect
+        .poll(
+          () =>
+            pg.evaluate(() => {
+              const el = document.querySelector<HTMLCanvasElement>(
+                '[data-testid="topology-canvas"]',
+              )
+              const ctx = el?.getContext('2d')
+              if (!el || !ctx) return 0
+              const { data } = ctx.getImageData(0, 0, el.width, el.height)
+              let drawn = 0
+              for (let i = 3; i < data.length; i += 400) if ((data[i] ?? 0) > 0) drawn++
+              return drawn
+            }),
+          { timeout: 20_000, message: 'topology graph nodes to render' },
+        )
+        .toBeGreaterThan(0)
+    })
+    await shoot(page, 'wide-topology', pairs)
+  })
+
+  test('pod lifecycle diagnostics', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    // `crashloop` has real restart history and a failing probe (dev/sandbox/workloads.yaml), so
+    // the diagnostics sections have genuine content instead of an all-empty panel.
+    await openInspector(page, podOf('crashloop'))
+    const insp = inspector(page)
+    const lifecycle = insp.getByTestId('pod-lifecycle-restarts')
+    await lifecycle.scrollIntoViewIfNeeded()
+    await expect(lifecycle).toBeVisible()
+    await expect(insp.getByTestId('pod-lifecycle-events-timeline')).toBeVisible()
+    await shoot(page, 'wide-pod-lifecycle', pairs)
+  })
+
+  test('port-forward start dialog', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    // `StartPortForward` is not on helpers.ts's blocked-write list (it isn't a cluster mutation
+    // in the same sense as Delete/Scale/…), but actually starting one here would leave a real
+    // tunnel process running past the end of this read-only scene with nothing to tear it down.
+    // So: open the real dialog, with the real target port filled in, and dismiss without
+    // confirming — the same "open, photograph, cancel" pattern as the scale/bulk-delete scenes.
+    await openInspector(page, podOf('web'))
+    const insp = inspector(page)
+    await insp.getByRole('tab', { name: 'Forward' }).click()
+    await insp.getByTestId(/^port-forward-action-/).first().click()
+    const dialog = page.getByTestId('confirm-dialog')
+    const detail = page.getByTestId('port-forward-start-dialog')
+    await expect(detail).toBeVisible()
+    await expect(detail.getByLabel('Local port')).not.toHaveValue('')
+    await shoot(page, 'wide-port-forward', pairs)
+    await dialog.getByTestId('confirm-cancel').click()
+  })
+
+  test('container image inspection', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await openInspector(page, podOf('web'))
+    const insp = inspector(page)
+    await insp.getByTestId('image-inspect-tab').click()
+    const panel = insp.getByTestId('image-inspect-panel')
+    await expect(panel).toBeVisible()
+    // A real registry pull/inspect can take a while; wait for either the real result or its
+    // honest error state, never the loading skeleton.
+    await expect(panel.getByTestId('image-inspect-ref').or(panel.getByTestId(/^image-inspect-error-/))).toBeVisible({
+      timeout: 30_000,
+    })
+    await shoot(page, 'wide-image-inspect', pairs)
+  })
+
+  test('rbac role bindings list', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Role Bindings', 'Access Control')
+    await expect
+      .poll(async () => Number(await table(page, 'access/rolebindings').getAttribute('data-row-count')), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThanOrEqual(1)
+    await shoot(page, 'wide-rbac-rolebindings', pairs)
+  })
+
+  test('federation context switcher', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await openInspector(page, podOf('web'))
+    const switcher = page.getByTestId('federation-context-switcher')
+    await expect(switcher).toBeVisible()
+    await expect(page.getByTestId('federation-context-item').filter({ hasText: app.context })).toHaveAttribute(
+      'data-context-status',
+      'connected',
+    )
+    await shoot(page, 'wide-federation-context', pairs)
+  })
+
+  test('agent ops panel', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await openInspector(page, podOf('web'))
+    const insp = inspector(page)
+    await insp.getByTestId('agent-ops-tab').click()
+    // No LLM/Ollama is configured in this sandbox, so there is no real conversation to show —
+    // the honest state here is the panel's own empty prompt, not a fabricated exchange.
+    await expect(insp.getByTestId('agent-ops-empty')).toBeVisible()
+    await shoot(page, 'wide-agent-ops', pairs)
+  })
+
+  test('cluster settings panel', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Cluster Settings', 'Team')
+    const panel = page.getByTestId('teams-cluster-settings-panel')
+    await expect(panel).toBeVisible()
+    await shoot(page, 'wide-cluster-settings', pairs)
+  })
+
+  test('team connection profiles panel', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Connection Profiles', 'Team')
+    const panel = page.getByTestId('teams-profiles-panel')
+    await expect(panel).toBeVisible()
+    await shoot(page, 'wide-team-profiles', pairs)
+  })
 })
 
 test.describe('ultra', () => {
