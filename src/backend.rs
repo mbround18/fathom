@@ -46,6 +46,7 @@ mod services;
 mod state;
 mod statefulsets;
 mod sync;
+mod team_store;
 mod workload_common;
 
 mod clusterrolebindings;

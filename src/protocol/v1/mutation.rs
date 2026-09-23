@@ -4,9 +4,9 @@
 //! Both matches below are exhaustive with no wildcard arm on purpose: adding a
 //! `BackendCmdV1` variant must force a decision here at compile time.
 
-use super::{BackendCmdV1, SectionKey, section_keys};
 #[cfg(test)]
 use super::{ActionOutcome, AgentAuthModeInput, AgentObjectRef};
+use super::{BackendCmdV1, SectionKey, section_keys};
 
 /// What executing a command can modify.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,7 +158,11 @@ impl BackendCmdV1 {
             | C::AgentRevealKey
             | C::AgentOpenConversation { .. }
             | C::AgentAsk { .. }
-            | C::AgentReviewSuggestedAction { .. } => MutationTarget::ReadOnly,
+            | C::AgentReviewSuggestedAction { .. }
+            // 014-teams-organizations: reads of local/shared team state only.
+            | C::LoadClusterSettings { .. }
+            | C::RefreshTeamStoreStatus
+            | C::RefreshConnectionProfiles => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -173,6 +177,16 @@ impl BackendCmdV1 {
             | C::OpenMcpConfigDir
             | C::SaveUiConfig { .. }
             | C::SetMcpAutoStart { .. }
+            // 014-teams-organizations: writes `cluster-settings.json`/`team.json`, or
+            // the self-hosted shared config store — never the cluster itself.
+            | C::SaveClusterSettings { .. }
+            | C::SetTeamStorePath { .. }
+            | C::PublishConnectionProfile { .. }
+            | C::AdoptConnectionProfile { .. }
+            | C::RemoveConnectionProfile { .. }
+            | C::PublishOrgClusterSettings { .. }
+            | C::AcceptOrgClusterSettings { .. }
+            | C::DismissOrgClusterSettings { .. }
             // Agent SDK Ops (013): writes `credentials.json`'s `agent` section or
             // `agent_conversations.json` only — never the cluster. See the
             // `agent_commands_never_write_cluster` test below.
@@ -365,6 +379,17 @@ impl BackendCmdV1 {
             C::RefreshIntegrations
             | C::ConfigurePrometheus { .. }
             | C::TestPrometheusConnection { .. } => section_keys::integrations_metrics(),
+            C::LoadClusterSettings { .. }
+            | C::SaveClusterSettings { .. }
+            | C::PublishOrgClusterSettings { .. }
+            | C::AcceptOrgClusterSettings { .. }
+            | C::DismissOrgClusterSettings { .. } => section_keys::cluster_settings(),
+            C::SetTeamStorePath { .. }
+            | C::RefreshTeamStoreStatus
+            | C::RefreshConnectionProfiles
+            | C::PublishConnectionProfile { .. }
+            | C::AdoptConnectionProfile { .. }
+            | C::RemoveConnectionProfile { .. } => section_keys::team_profiles(),
             C::ConfigureGrafana { .. } | C::TestGrafanaConnection { .. } => {
                 section_keys::integrations_grafana()
             }
@@ -672,10 +697,7 @@ mod tests {
         ] {
             let target = cmd.mutation_target();
             assert!(
-                matches!(
-                    target,
-                    MutationTarget::ReadOnly | MutationTarget::Local
-                ),
+                matches!(target, MutationTarget::ReadOnly | MutationTarget::Local),
                 "Agent* command must never write the cluster, got {target:?} for {cmd:?}"
             );
             assert!(!target.writes_cluster(), "{cmd:?}");

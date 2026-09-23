@@ -286,4 +286,15 @@ pub mod section_keys {
     pub fn agent() -> SectionKey {
         SectionKey::new("agent")
     }
+
+    /// 014-teams-organizations: cluster settings (local + org-synced) and shared
+    /// team connection profiles.
+    pub fn cluster_settings() -> SectionKey {
+        SectionKey::new("integrations/cluster-settings")
+    }
+
+    /// 014-teams-organizations: shared connection-profile list and team-store status.
+    pub fn team_profiles() -> SectionKey {
+        SectionKey::new("team/profiles")
+    }
 }

@@ -120,8 +120,18 @@ impl FathomApp {
                     | SystemEvent::CrdInstancesUpdated { .. } => {
                         // Custom Resources browsing (React bridge) handles this in on_event; no egui view yet.
                     }
-                    SystemEvent::AgentAuthModeUpdated { .. } | SystemEvent::AgentKeyRevealed { .. } => {
+                    SystemEvent::AgentAuthModeUpdated { .. }
+                    | SystemEvent::AgentKeyRevealed { .. } => {
                         // Agent SDK Ops (React bridge) handles this in on_event; no egui view yet.
+                    }
+                    SystemEvent::ClusterSettingsLoaded { .. }
+                    | SystemEvent::ClusterSettingsError { .. }
+                    | SystemEvent::TeamStoreStatusUpdated(_)
+                    | SystemEvent::ConnectionProfilesUpdated { .. }
+                    | SystemEvent::OrgClusterSettingsAvailable { .. }
+                    | SystemEvent::TeamPublishRejected { .. } => {
+                        // Teams & Organizations (014, React bridge) handles this in on_event;
+                        // no egui view yet.
                     }
                 },
 

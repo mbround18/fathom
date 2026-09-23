@@ -1880,6 +1880,38 @@ fn all_cmds() -> Vec<BackendCmd> {
             command_summary: "s".to_owned(),
             outcome: ActionOutcome::Success,
         },
+        BackendCmd::LoadClusterSettings {
+            context: "ctx".to_owned(),
+        },
+        BackendCmd::SaveClusterSettings {
+            context: "ctx".to_owned(),
+            settings: ClusterSettings::default(),
+        },
+        BackendCmd::SetTeamStorePath {
+            path: Some("/srv/team".to_owned()),
+        },
+        BackendCmd::RefreshTeamStoreStatus,
+        BackendCmd::RefreshConnectionProfiles,
+        BackendCmd::PublishConnectionProfile {
+            context_alias: "prod".to_owned(),
+            api_server: "https://cluster.example.com:6443".to_owned(),
+            default_namespace: Some("default".to_owned()),
+        },
+        BackendCmd::AdoptConnectionProfile {
+            profile_id: "p1".to_owned(),
+        },
+        BackendCmd::RemoveConnectionProfile {
+            profile_id: "p1".to_owned(),
+        },
+        BackendCmd::PublishOrgClusterSettings {
+            context: "ctx".to_owned(),
+        },
+        BackendCmd::AcceptOrgClusterSettings {
+            context: "ctx".to_owned(),
+        },
+        BackendCmd::DismissOrgClusterSettings {
+            context: "ctx".to_owned(),
+        },
     ]
 }
 
@@ -2071,10 +2103,22 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::AgentReviewSuggestedAction { .. } => {}
         BackendCmd::AgentDeclineSuggestedAction { .. } => {}
         BackendCmd::AgentRecordExecutedAction { .. } => {}
+        BackendCmd::LoadClusterSettings { .. } => {}
+        BackendCmd::SaveClusterSettings { .. } => {}
+        BackendCmd::SetTeamStorePath { .. } => {}
+        BackendCmd::RefreshTeamStoreStatus => {}
+        BackendCmd::RefreshConnectionProfiles => {}
+        BackendCmd::PublishConnectionProfile { .. } => {}
+        BackendCmd::AdoptConnectionProfile { .. } => {}
+        BackendCmd::RemoveConnectionProfile { .. } => {}
+        BackendCmd::PublishOrgClusterSettings { .. } => {}
+        BackendCmd::AcceptOrgClusterSettings { .. } => {}
+        BackendCmd::DismissOrgClusterSettings { .. } => {}
     }
 }
 
 /// Every `SystemEvent` variant. The match in `all_system_events_is_exhaustive` fails to compile when a variant is added.
+#[allow(clippy::too_many_lines)] // a single exhaustive sample list is the point; it cannot be split
 fn all_system_events() -> Vec<SystemEvent> {
     vec![
         SystemEvent::BackendStarted,
@@ -2143,7 +2187,61 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::AgentKeyRevealed {
             key: "sk-ant-test".to_owned(),
         },
+        SystemEvent::ClusterSettingsLoaded {
+            context: "ctx".to_owned(),
+            settings: ClusterSettings::default(),
+        },
+        SystemEvent::ClusterSettingsError {
+            context: "ctx".to_owned(),
+            reason: "s".to_owned(),
+        },
+        SystemEvent::TeamStoreStatusUpdated(TeamStoreStatus {
+            store_path: Some("/srv/team".to_owned()),
+            reachable: true,
+            error: None,
+        }),
+        SystemEvent::ConnectionProfilesUpdated {
+            adopted: vec![AdoptedConnectionProfile {
+                profile: sample_connection_profile(),
+                adopted_at: "2025-01-01T00:00:00Z".to_owned(),
+                still_shared: true,
+            }],
+            available: vec![sample_connection_profile()],
+        },
+        SystemEvent::OrgClusterSettingsAvailable {
+            context: "ctx".to_owned(),
+            settings: OrgClusterSettings {
+                context: "ctx".to_owned(),
+                rev: 1,
+                published_by: "alice".to_owned(),
+                published_at: "2025-01-01T00:00:00Z".to_owned(),
+                metrics_source: MetricsSource::Prometheus,
+                prometheus_path: "/metrics".to_owned(),
+                https: true,
+                path_prefix: String::new(),
+                hidden_metrics: Vec::new(),
+            },
+        },
+        SystemEvent::TeamPublishRejected {
+            rejection: TeamPublishRejection::Conflict {
+                expected_rev: 1,
+                current_rev: 2,
+            },
+        },
     ]
+}
+
+fn sample_connection_profile() -> ConnectionProfile {
+    ConnectionProfile {
+        id: "p1".to_owned(),
+        context_alias: "prod".to_owned(),
+        api_server: "https://cluster.example.com:6443".to_owned(),
+        default_namespace: Some("default".to_owned()),
+        rev: 1,
+        shared_by: "alice".to_owned(),
+        updated_at: "2025-01-01T00:00:00Z".to_owned(),
+        removed: false,
+    }
 }
 
 fn sample_helm_mutation_preview_ready() -> HelmMutationPreviewReady {
@@ -2215,6 +2313,12 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::CrdInstancesUpdated { .. } => {}
         SystemEvent::AgentAuthModeUpdated { .. } => {}
         SystemEvent::AgentKeyRevealed { .. } => {}
+        SystemEvent::ClusterSettingsLoaded { .. } => {}
+        SystemEvent::ClusterSettingsError { .. } => {}
+        SystemEvent::TeamStoreStatusUpdated(_) => {}
+        SystemEvent::ConnectionProfilesUpdated { .. } => {}
+        SystemEvent::OrgClusterSettingsAvailable { .. } => {}
+        SystemEvent::TeamPublishRejected { .. } => {}
     }
 }
 
