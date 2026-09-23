@@ -22,6 +22,7 @@ function podDetails(containers: string[]): PodDetails {
     labels: {},
     annotations: {},
     containers,
+    containers_lifecycle: [],
     ports: [],
     resource_specs: [],
     owner: null,

@@ -27,7 +27,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | **Helm** — mutate (rollback/upgrade/uninstall) | ✅ | 006-helm-mutate |
 | **Rich interlinking / drill-down** (chart → pod, resource → resource) | ✅ | 004-applications-interlinking, extended in 005 |
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ⬜ | planned, later |
-| Pod lifecycle hooks / probes / init-container detail | ⬜ | gap identified, see §7 |
+| Pod lifecycle hooks / probes / init-container detail | ✅ | 008-pod-lifecycle-diagnostics |
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ⬜ | gap identified, see §10 |
 | Container image layer inspection | ✅ | see §9a |
 | Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
