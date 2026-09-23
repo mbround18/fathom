@@ -1,26 +1,27 @@
 use super::{
-    ApplicationDetails, ApplicationSummary, ClusterRoleBindingDetails, ClusterRoleBindingSummary,
-    ClusterRoleDetails, ClusterRoleSummary, ConfigMapDetails, ConfigMapSummary, Correlation,
-    CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails,
-    DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary, FluxOverview,
-    FluxResourceSummary, HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady,
-    HelmReleaseDetails, HelmReleaseSummary, HorizontalPodAutoscalerDetails,
-    HorizontalPodAutoscalerSummary, HubbleTrafficSummary, IngressClassDetails, IngressClassSummary,
-    IngressDetails, IngressSummary, JobDetails, JobSummary, LeaseDetails, LeaseSummary,
-    LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
-    MutatingWebhookConfigurationSummary, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
-    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
-    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RelatedResourceRef,
-    ReplicaSetSummary, ReplicationControllerDetails, ReplicationControllerSummary,
-    ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary,
-    RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary, SecretDetails,
-    SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
+    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, ClusterRoleBindingDetails,
+    ClusterRoleBindingSummary, ClusterRoleDetails, ClusterRoleSummary, ClusterSettings,
+    ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation, CronJobDetails,
+    CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
+    EndpointDetails, EndpointSummary, EventsSummary, FluxOverview, FluxResourceSummary,
+    HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails,
+    HelmReleaseSummary, HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary,
+    HubbleTrafficSummary, IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary,
+    JobDetails, JobSummary, LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
+    MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary, NamespaceDetails,
+    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
+    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
+    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
+    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
+    PrometheusMetrics, RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
+    ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
+    RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
+    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
     StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
     ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
     WorkloadMetricsAggregate,
 };
+use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -178,6 +179,42 @@ pub enum SystemEvent {
     /// Principle VI).
     AgentKeyRevealed {
         key: String,
+    },
+
+    /// 014-teams-organizations: reply to `LoadClusterSettings`, and broadcast after
+    /// `SaveClusterSettings`/`AcceptOrgClusterSettings`/`DismissOrgClusterSettings`.
+    ClusterSettingsLoaded {
+        context: String,
+        settings: ClusterSettings,
+    },
+    /// `SaveClusterSettings`/`AcceptOrgClusterSettings` failed local validation or the
+    /// config write itself; the caller's prior local settings are left untouched
+    /// (FR-009, Constitution Principle VI).
+    ClusterSettingsError {
+        context: String,
+        reason: String,
+    },
+    /// Reply to `RefreshTeamStoreStatus`, and broadcast whenever reachability changes
+    /// (FR-005).
+    TeamStoreStatusUpdated(TeamStoreStatus),
+    /// Reply to `RefreshConnectionProfiles`, and broadcast after publish/adopt/remove.
+    ConnectionProfilesUpdated {
+        /// Profiles this operator has adopted locally (still-shared or not).
+        adopted: Vec<AdoptedConnectionProfile>,
+        /// Profiles published by teammates that this operator has not adopted yet.
+        /// Empty when the shared store is unreachable or unconfigured (FR-005).
+        available: Vec<ConnectionProfile>,
+    },
+    /// A newer org-level Cluster Settings default is available for `context` and has
+    /// not yet been accepted or dismissed by this operator (FR-007).
+    OrgClusterSettingsAvailable {
+        context: String,
+        settings: OrgClusterSettings,
+    },
+    /// `PublishConnectionProfile`/`PublishOrgClusterSettings` was refused: a suspected
+    /// secret, a store-write conflict, or an unreachable store (FR-002, FR-012).
+    TeamPublishRejected {
+        rejection: TeamPublishRejection,
     },
 }
 
@@ -592,6 +629,53 @@ mod tests {
             context: "prod".to_owned(),
             status: ContextConnectionStatus::Error,
             error: Some("connection refused".to_owned()),
+        });
+    }
+
+    #[test]
+    fn team_events_roundtrip() {
+        system_roundtrip(SystemEvent::ClusterSettingsLoaded {
+            context: "prod".to_owned(),
+            settings: super::super::ClusterSettings::default(),
+        });
+        system_roundtrip(SystemEvent::ClusterSettingsError {
+            context: "prod".to_owned(),
+            reason: "unsupported clusterSettings.schema 2 (expected 1)".to_owned(),
+        });
+        system_roundtrip(SystemEvent::TeamStoreStatusUpdated(TeamStoreStatus {
+            store_path: Some("/mnt/team-fathom".to_owned()),
+            reachable: true,
+            error: None,
+        }));
+        system_roundtrip(SystemEvent::ConnectionProfilesUpdated {
+            adopted: vec![],
+            available: vec![],
+        });
+        system_roundtrip(SystemEvent::OrgClusterSettingsAvailable {
+            context: "prod".to_owned(),
+            settings: OrgClusterSettings {
+                context: "prod".to_owned(),
+                rev: 2,
+                published_by: "alice".to_owned(),
+                published_at: "2026-09-23T00:00:00Z".to_owned(),
+                metrics_source: super::super::MetricsSource::Prometheus,
+                prometheus_path: "/metrics".to_owned(),
+                https: true,
+                path_prefix: String::new(),
+                hidden_metrics: vec![],
+            },
+        });
+        system_roundtrip(SystemEvent::TeamPublishRejected {
+            rejection: TeamPublishRejection::SuspectedSecret {
+                field: "apiServer".to_owned(),
+                reason: "looks like it contains credential/secret material".to_owned(),
+            },
+        });
+        system_roundtrip(SystemEvent::TeamPublishRejected {
+            rejection: TeamPublishRejection::Conflict {
+                expected_rev: 1,
+                current_rev: 2,
+            },
         });
     }
 }

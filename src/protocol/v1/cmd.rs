@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{ActionOutcome, AgentAuthModeInput, AgentObjectRef, RequestId, SectionKey, UiConfig};
+use super::{
+    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ClusterSettings, RequestId, SectionKey,
+    UiConfig,
+};
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
 ///
@@ -530,6 +533,41 @@ pub enum BackendCmdV1 {
         enabled: bool,
     },
 
+    // 014-teams-organizations: Cluster Settings (§10, local per-operator) + org sync
+    // and shared team connection profiles.
+    LoadClusterSettings {
+        context: String,
+    },
+    SaveClusterSettings {
+        context: String,
+        settings: ClusterSettings,
+    },
+    SetTeamStorePath {
+        path: Option<String>,
+    },
+    RefreshTeamStoreStatus,
+    RefreshConnectionProfiles,
+    PublishConnectionProfile {
+        context_alias: String,
+        api_server: String,
+        default_namespace: Option<String>,
+    },
+    AdoptConnectionProfile {
+        profile_id: String,
+    },
+    RemoveConnectionProfile {
+        profile_id: String,
+    },
+    PublishOrgClusterSettings {
+        context: String,
+    },
+    AcceptOrgClusterSettings {
+        context: String,
+    },
+    DismissOrgClusterSettings {
+        context: String,
+    },
+
     // Resource YAML edit + apply (any kind; identity fields validated pre-cluster-write).
     ApplyResourceYaml {
         api_version: String,
@@ -975,6 +1013,43 @@ mod tests {
             outcome: ActionOutcome::Error {
                 message: "deployments.apps \"api\" not found".to_owned(),
             },
+        });
+    }
+
+    #[test]
+    fn team_cmd_roundtrips() {
+        roundtrip(BackendCmdV1::LoadClusterSettings {
+            context: "prod".to_owned(),
+        });
+        roundtrip(BackendCmdV1::SaveClusterSettings {
+            context: "prod".to_owned(),
+            settings: ClusterSettings::default(),
+        });
+        roundtrip(BackendCmdV1::SetTeamStorePath {
+            path: Some("/mnt/team-fathom".to_owned()),
+        });
+        roundtrip(BackendCmdV1::SetTeamStorePath { path: None });
+        roundtrip(BackendCmdV1::RefreshTeamStoreStatus);
+        roundtrip(BackendCmdV1::RefreshConnectionProfiles);
+        roundtrip(BackendCmdV1::PublishConnectionProfile {
+            context_alias: "prod-cluster".to_owned(),
+            api_server: "https://cluster.example.com:6443".to_owned(),
+            default_namespace: Some("default".to_owned()),
+        });
+        roundtrip(BackendCmdV1::AdoptConnectionProfile {
+            profile_id: "abc123".to_owned(),
+        });
+        roundtrip(BackendCmdV1::RemoveConnectionProfile {
+            profile_id: "abc123".to_owned(),
+        });
+        roundtrip(BackendCmdV1::PublishOrgClusterSettings {
+            context: "prod".to_owned(),
+        });
+        roundtrip(BackendCmdV1::AcceptOrgClusterSettings {
+            context: "prod".to_owned(),
+        });
+        roundtrip(BackendCmdV1::DismissOrgClusterSettings {
+            context: "prod".to_owned(),
         });
     }
 }

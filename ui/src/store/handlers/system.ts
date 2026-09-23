@@ -274,6 +274,56 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
 
+    // 014-teams-organizations: local §10 Cluster Settings, reply to `LoadClusterSettings` and
+    // broadcast after `SaveClusterSettings`/`AcceptOrgClusterSettings`/`DismissOrgClusterSettings`.
+    // Accepting/dismissing an org default also clears `orgAvailable` for that context (the
+    // backend only re-emits `OrgClusterSettingsAvailable` if a *newer* rev shows up later).
+    case 'ClusterSettingsLoaded': {
+      const team = d.edit('team')
+      team.clusterSettings = event.data.settings
+      team.clusterSettingsContext = event.data.context
+      team.clusterSettingsError = undefined
+      if (team.orgAvailable?.context === event.data.context) team.orgAvailable = undefined
+      return
+    }
+
+    // `SaveClusterSettings`/`AcceptOrgClusterSettings` failed local validation or the config
+    // write itself; prior local settings are left untouched (FR-009, Constitution Principle VI).
+    case 'ClusterSettingsError': {
+      const team = d.edit('team')
+      team.clusterSettingsContext = event.data.context
+      team.clusterSettingsError = event.data.reason
+      return
+    }
+
+    // Reply to `RefreshTeamStoreStatus`, and broadcast whenever reachability changes (FR-005).
+    case 'TeamStoreStatusUpdated': {
+      d.edit('team').storeStatus = event.data
+      return
+    }
+
+    // Reply to `RefreshConnectionProfiles`, and broadcast after publish/adopt/remove.
+    case 'ConnectionProfilesUpdated': {
+      const team = d.edit('team')
+      team.adopted = event.data.adopted
+      team.available = event.data.available
+      return
+    }
+
+    // A newer org-level Cluster Settings default is available for `context` and has not yet
+    // been accepted or dismissed by this operator (FR-007).
+    case 'OrgClusterSettingsAvailable': {
+      d.edit('team').orgAvailable = event.data.settings
+      return
+    }
+
+    // `PublishConnectionProfile`/`PublishOrgClusterSettings` was refused: a suspected secret, a
+    // store-write conflict, or an unreachable store (FR-002, FR-012).
+    case 'TeamPublishRejected': {
+      d.edit('team').rejection = event.data.rejection
+      return
+    }
+
     case 'HelmMutationFailed': {
       d.put(
         'helmMutation',

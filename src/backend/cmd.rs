@@ -13,6 +13,7 @@ mod cluster;
 mod integrations;
 mod port_forwards;
 mod resources;
+mod team;
 mod workloads;
 
 /// Top-level command dispatcher.
@@ -74,6 +75,9 @@ pub async fn dispatch_cmd(
         return Ok(false);
     };
     let Some(cmd) = agent::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    let Some(cmd) = team::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
     // Any command left over after the integrations family is intentionally a no-op.

@@ -17,6 +17,10 @@ export const SECTION = {
   applications: 'applications',
   services: 'network/services',
   portForwards: 'network/portforwards',
+  /** 014-teams-organizations: local §10 Cluster Settings + org-level sync affordances. */
+  clusterSettings: 'integrations/cluster-settings',
+  /** 014-teams-organizations: shared, non-secret connection profiles + team-store status. */
+  teamProfiles: 'team/profiles',
 } as const satisfies Record<string, SectionKey>
 
 /** Commands sent once the event subscription is up (mirrors egui's startup in src/app/mod.rs). */

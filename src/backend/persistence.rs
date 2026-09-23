@@ -2,11 +2,12 @@
 //!
 //! Manages loading/saving configuration to ~/.fathom/ directory.
 
-use crate::protocol::UiConfig;
+use crate::protocol::{AdoptedConnectionProfile, ClusterSettings, UiConfig};
 use crate::sections::network::PortForward;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -344,6 +345,108 @@ pub fn save_all_ports(ports: &[PortForward]) -> Result<()> {
     let content = serde_json::to_string_pretty(ports)?;
     fs::write(&path, content)?;
     tracing::info!("Saved {} port forwards to {}", ports.len(), path.display());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------
+// 014-teams-organizations: local Cluster Settings (§10) and team (shared-store) state.
+// ---------------------------------------------------------------------------------------
+
+/// Get the path to `cluster-settings.json` (local, per-operator, keyed by context name).
+pub fn cluster_settings_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("cluster-settings.json"))
+}
+
+/// Get the path to `team.json` (shared-store pointer, adopted profiles, org-sync state).
+pub fn team_config_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("team.json"))
+}
+
+/// Load the local Cluster Settings for `context`. An unreadable or invalid file yields
+/// this context's defaults and leaves the file untouched (FR-009, Constitution Principle VI).
+pub fn load_cluster_settings(context: &str) -> ClusterSettings {
+    let path = match cluster_settings_path() {
+        Ok(p) => p,
+        Err(_) => return ClusterSettings::default(),
+    };
+    let Ok(content) = fs::read_to_string(&path) else {
+        return ClusterSettings::default();
+    };
+    let Ok(all) = serde_json::from_str::<BTreeMap<String, serde_json::Value>>(&content) else {
+        tracing::warn!("cluster-settings.json is not valid JSON; using defaults for {context}");
+        return ClusterSettings::default();
+    };
+    match all.get(context) {
+        Some(raw) => match serde_json::from_value::<ClusterSettings>(raw.clone()) {
+            Ok(settings) if settings.validate().is_ok() => settings,
+            Ok(_) | Err(_) => {
+                tracing::warn!(
+                    "cluster-settings.json entry for {context} is invalid; using defaults"
+                );
+                ClusterSettings::default()
+            }
+        },
+        None => ClusterSettings::default(),
+    }
+}
+
+/// Save the local Cluster Settings for `context`, leaving every other context's entry
+/// untouched. Refuses to write invalid settings.
+pub fn save_cluster_settings(context: &str, settings: &ClusterSettings) -> Result<()> {
+    settings
+        .validate()
+        .map_err(|e| anyhow!("Refusing to save invalid cluster settings: {}", e))?;
+    let path = cluster_settings_path()?;
+    ensure_config_dir()?;
+    let mut all: BTreeMap<String, serde_json::Value> = if path.exists() {
+        let content = fs::read_to_string(&path)?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        BTreeMap::new()
+    };
+    all.insert(context.to_owned(), serde_json::to_value(settings)?);
+    let content = serde_json::to_string_pretty(&all)?;
+    fs::write(&path, content)?;
+    Ok(())
+}
+
+/// `team.json`'s on-disk shape.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TeamConfig {
+    #[serde(default)]
+    pub store_path: Option<String>,
+    /// Adopted connection profiles, keyed by profile id. Never deleted just because the
+    /// shared store becomes unreachable or the upstream profile disappears — see
+    /// `AdoptedConnectionProfile::still_shared` (Constitution Principle VI).
+    #[serde(default)]
+    pub adopted: BTreeMap<String, AdoptedConnectionProfile>,
+    /// Highest org-settings `rev` per context this operator has already been shown
+    /// (accepted or dismissed), so a dismissed publish doesn't re-prompt forever.
+    #[serde(default)]
+    pub org_settings_rev_seen: BTreeMap<String, u64>,
+}
+
+/// Load `team.json`. Unreadable/invalid yields defaults and leaves the file untouched.
+pub fn load_team_config() -> TeamConfig {
+    let path = match team_config_path() {
+        Ok(p) => p,
+        Err(_) => return TeamConfig::default(),
+    };
+    let Ok(content) = fs::read_to_string(&path) else {
+        return TeamConfig::default();
+    };
+    serde_json::from_str(&content).unwrap_or_else(|e| {
+        tracing::warn!("team.json is invalid; using defaults: {e}");
+        TeamConfig::default()
+    })
+}
+
+/// Save `team.json` in full (it's small and entirely owned by this feature).
+pub fn save_team_config(config: &TeamConfig) -> Result<()> {
+    let path = team_config_path()?;
+    ensure_config_dir()?;
+    let content = serde_json::to_string_pretty(config)?;
+    fs::write(&path, content)?;
     Ok(())
 }
 
