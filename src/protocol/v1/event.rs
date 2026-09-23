@@ -9,19 +9,17 @@ use super::{
     IngressDetails, IngressSummary, JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails,
     LeaseSummary, LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
     MutatingWebhookConfigurationSummary, NamespaceAccessResolved, NamespaceDetails,
-    NamespaceSummary, NetworkPolicyDetails,
-    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
-    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
-    RelatedResourceRef,
-    ReplicaSetSummary, ReplicationControllerDetails, ReplicationControllerSummary,
-    ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary,
-    RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary, SecretDetails,
-    SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
-    StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
-    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
-    WorkloadMetricsAggregate,
+    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
+    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
+    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
+    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
+    PrometheusMetrics, RbacAccessResult, RelatedResourceRef, ReplicaSetSummary,
+    ReplicationControllerDetails, ReplicationControllerSummary, ResourceQuotaDetails,
+    ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
+    RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, SectionKey,
+    ServiceDetails, ServiceSummary, StatefulSetDetails, StatefulSetSummary, StorageClassDetails,
+    StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
+    ValidatingWebhookConfigurationSummary, WorkloadMetricsAggregate,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -306,7 +304,9 @@ pub enum ResourceReadEvent {
         error: super::ImageInspectError,
     },
     /// Reply for `RefreshRbacSelfAccess` (011-rbac-oidc-administration, FR-007 gating).
-    RbacSelfAccessUpdated { results: Vec<RbacAccessResult> },
+    RbacSelfAccessUpdated {
+        results: Vec<RbacAccessResult>,
+    },
     /// Reply for `ResolveNamespaceAccess` (011-rbac-oidc-administration, Story 4). Read-only.
     NamespaceAccessResolved(NamespaceAccessResolved),
     /// Reply for `RefreshKubeadmDetection` (011-rbac-oidc-administration, Story 5). Never an

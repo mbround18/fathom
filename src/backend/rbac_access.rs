@@ -16,9 +16,9 @@ use kube::{
 };
 
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, Correlation, KubeadmDetectionResult,
-    NamespaceAccessEntry, NamespaceAccessResolved, RbacAccessCheck, RbacAccessResult,
-    ResourceReadEvent, Route, section_keys,
+    BackendEvent, BackendEventEnvelope, Correlation, KubeadmDetectionResult, NamespaceAccessEntry,
+    NamespaceAccessResolved, RbacAccessCheck, RbacAccessResult, ResourceReadEvent, Route,
+    section_keys,
 };
 
 use super::{events, state::BackendState};
@@ -216,7 +216,9 @@ fn subject_matches(
         .as_ref()
         .map(|subjects| {
             subjects.iter().any(|s| {
-                s.kind == query.kind && s.name == query.name && s.namespace.as_deref() == query.namespace
+                s.kind == query.kind
+                    && s.name == query.name
+                    && s.namespace.as_deref() == query.namespace
             })
         })
         .unwrap_or(false)
@@ -500,7 +502,11 @@ mod tests {
         }
     }
 
-    fn cluster_role_binding(name: &str, role_ref_name: &str, subjects: Vec<Subject>) -> ClusterRoleBinding {
+    fn cluster_role_binding(
+        name: &str,
+        role_ref_name: &str,
+        subjects: Vec<Subject>,
+    ) -> ClusterRoleBinding {
         ClusterRoleBinding {
             metadata: ObjectMeta {
                 name: Some(name.to_owned()),
@@ -526,15 +532,8 @@ mod tests {
             vec![group_subject("oidc:readers")],
         )];
 
-        let resolved = resolve_namespace_access(
-            &roles,
-            &[],
-            &bindings,
-            &[],
-            "Group",
-            "oidc:readers",
-            None,
-        );
+        let resolved =
+            resolve_namespace_access(&roles, &[], &bindings, &[], "Group", "oidc:readers", None);
 
         assert!(resolved.found_any);
         assert!(resolved.cluster_wide.is_empty());
@@ -568,7 +567,10 @@ mod tests {
         assert!(resolved.found_any);
         assert!(resolved.per_namespace.is_empty());
         assert_eq!(resolved.cluster_wide.len(), 1);
-        assert_eq!(resolved.cluster_wide[0].via, vec!["ClusterRoleBinding/org-viewers".to_owned()]);
+        assert_eq!(
+            resolved.cluster_wide[0].via,
+            vec!["ClusterRoleBinding/org-viewers".to_owned()]
+        );
     }
 
     #[test]
@@ -599,17 +601,13 @@ mod tests {
             ),
         ];
 
-        let resolved = resolve_namespace_access(
-            &roles,
-            &[],
-            &bindings,
-            &[],
-            "Group",
-            "oidc:readers",
-            None,
-        );
+        let resolved =
+            resolve_namespace_access(&roles, &[], &bindings, &[], "Group", "oidc:readers", None);
 
-        assert_eq!(resolved.dangling_bindings, vec!["RoleBinding/team-a/broken".to_owned()]);
+        assert_eq!(
+            resolved.dangling_bindings,
+            vec!["RoleBinding/team-a/broken".to_owned()]
+        );
         assert_eq!(resolved.per_namespace.len(), 1);
         assert!(resolved.per_namespace[0].verbs.contains(&"get".to_owned()));
     }

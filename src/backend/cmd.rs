@@ -251,8 +251,7 @@ async fn handle_create_resource_yaml(
         }
     };
 
-    match apply::create_resource(&client, &api_version, &kind, namespace.as_deref(), object).await
-    {
+    match apply::create_resource(&client, &api_version, &kind, namespace.as_deref(), object).await {
         Ok(resource_version) => {
             events::emit(
                 seq,
