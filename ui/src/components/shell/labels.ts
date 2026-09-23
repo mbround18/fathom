@@ -10,6 +10,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   logs: 'Logs',
   events: 'Events',
   portforwards: 'Forwards',
+  topology: 'Topology',
 }
 
 export function paneTitle(pane: PaneState): string {

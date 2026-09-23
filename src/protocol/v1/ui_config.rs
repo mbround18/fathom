@@ -199,6 +199,8 @@ pub enum ToolKind {
     Logs,
     Events,
     Portforwards,
+    /// 007-topology-graph-view: the cluster topology graph tool pane.
+    Topology,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

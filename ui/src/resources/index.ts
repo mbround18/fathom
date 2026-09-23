@@ -4,11 +4,13 @@
 import type { SectionKey } from '@/protocol/types'
 
 import { applications } from './applications'
+import { daemonsets } from './daemonsets'
 import { deployments } from './deployments'
 import { fluxResource } from './flux-resource'
 import { helm } from './helm'
 import { nodes } from './nodes'
 import { pods } from './pods'
+import { statefulsets } from './statefulsets'
 import type { AnyDescriptor } from './types'
 
 export type * from './types'
@@ -16,6 +18,8 @@ export type * from './types'
 export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [
   pods,
   deployments,
+  statefulsets,
+  daemonsets,
   nodes,
   applications,
   helm,

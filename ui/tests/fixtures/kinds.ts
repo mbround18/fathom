@@ -62,6 +62,8 @@ const HELM_RELEASES: HelmReleaseSummary[] = [
 export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/pods': { type: 'PodsUpdated', data: PODS_500 },
   'workloads/deployments': { type: 'DeploymentsUpdated', data: genDeployments('kind-a') },
+  'workloads/statefulsets': { type: 'StatefulSetsUpdated', data: genDeployments('kind-a') },
+  'workloads/daemonsets': { type: 'DaemonSetsUpdated', data: genDeployments('kind-a') },
   nodes: { type: 'NodesUpdated', data: NODES },
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
   'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
