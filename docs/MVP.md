@@ -30,7 +30,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Pod lifecycle hooks / probes / init-container detail | ✅ | 008-pod-lifecycle-diagnostics |
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ✅ | 009-port-forward-ui |
 | Container image layer inspection | ✅ | see §9a |
-| Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ⬜ | future — enterprise-auth tier, see §14 Tier C |
+| Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ✅ | 011-rbac-oidc-administration (cluster-admin RBAC browse/create/edit/delete + namespace-access lookup + OIDC issuer config generator; see §14 Tier C) |
 | In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | ⬜ | future — see §14 Tier D |
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ⬜ | future — see §14 Tier E |
 | Teams & organizations (self-hosted multi-user) | ⬜ | future — see §14 Tier F |
@@ -590,7 +590,7 @@ Carried over from roadmap discussion, in priority order:
 
 ### Tier C — Cluster-admin RBAC / OIDC-OAuth administration
 
-*Status: ⬜ Not started. This is a UI/workflow layer over Kubernetes' own OIDC-auth and RBAC primitives, not a parallel auth system — the API server already supports OIDC token auth and `Role`/`ClusterRole`/`RoleBinding` objects; Fathom's job is to make configuring and auditing them tractable through a GUI instead of hand-written YAML, gated behind the operator already having cluster-admin (or the specific RBAC-edit permissions) themselves.*
+*Status: ✅ Shipped (011-rbac-oidc-administration). This is a UI/workflow layer over Kubernetes' own OIDC-auth and RBAC primitives, not a parallel auth system — the API server already supports OIDC token auth and `Role`/`ClusterRole`/`RoleBinding` objects; Fathom's job is to make configuring and auditing them tractable through a GUI instead of hand-written YAML, gated behind the operator already having cluster-admin (or the specific RBAC-edit permissions) themselves.*
 
 * A cluster-admin-only settings surface for wiring up the API server's OIDC issuer/audience/claim-mapping (where the operator manages the API server config directly, e.g. via kubeadm/managed-cluster provider settings) — or, where the platform doesn't expose that, a guided "here's what to add to your cluster's OIDC config" doc-generation flow rather than a live edit (many managed clusters don't let a client mutate API-server flags).
 * A role-assignment UI: browse existing `Role`/`ClusterRole`s, create/edit `RoleBinding`/`ClusterRoleBinding`s mapping OIDC groups/claims (or service accounts) to roles, namespace-scoped or cluster-scoped — reusing the existing YAML-apply diff-preview/confirmation pattern (Principle I) rather than a bespoke mutation path.
