@@ -2,19 +2,17 @@
  * Helm release "Upgrade" tab (006-helm-mutate US2, T027/T028): edit values, preview the diff
  * via `PreviewHelmUpgrade` (backend `helm upgrade --dry-run`, no mutation), then confirm-gate
  * the real `ApplyHelmUpgrade`. Mirrors `NodeActionsPanel`'s `ConfirmDialog` gate (constitution
- * I: every mutating action is explicit, diff-previewed, and confirmation-gated) and
- * `YamlDiffView`'s `diffLines()` rendering, since T017 (generalizing `YamlDiffView` to two
- * arbitrary manifest strings) has not landed in this worktree at the time this was written —
- * once it does, this panel's inline diff block should be replaced with `<YamlDiffView>`.
+ * I: every mutating action is explicit, diff-previewed, and confirmation-gated) and reuses
+ * `YamlDiffView`'s generalized two-manifest mode (T017), same as the rollback flow in
+ * `resources/helm.tsx`.
  */
-import { diffLines } from 'diff'
 import { useId, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import type { HelmReleaseDetails } from '@/protocol/types'
-import { cn } from '@/lib/utils'
 import { useStore } from '@/store'
 import { reset as resetSession, startApply, startPreview } from '@/store/helmMutation'
 
@@ -84,8 +82,6 @@ export function HelmUpgradePanel({
   }
 
   const preview = session?.preview
-  const diffParts = preview ? diffLines(preview.current_manifest, preview.target_manifest) : []
-  const unchanged = preview !== undefined && diffParts.every((p) => !p.added && !p.removed)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-3">
@@ -168,36 +164,10 @@ export function HelmUpgradePanel({
               next GitOps reconciliation.
             </p>
           )}
-          {unchanged ? (
-            <p className="text-xs text-muted-foreground">No changes.</p>
-          ) : (
-            <pre
-              data-testid="helm-upgrade-diff"
-              className="min-w-0 flex-1 overflow-auto border border-border p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap"
-            >
-              {diffParts.map((part, i) => (
-                <span
-                  key={i}
-                  data-testid={part.added ? 'diff-added' : part.removed ? 'diff-removed' : undefined}
-                  className={cn(
-                    'block',
-                    part.added && 'bg-status-ok/15 text-status-ok',
-                    part.removed && 'bg-destructive/15 text-destructive line-through',
-                  )}
-                >
-                  {part.value
-                    .replace(/\n$/, '')
-                    .split('\n')
-                    .map((line, j) => (
-                      <span key={j} className="block">
-                        {part.added ? '+ ' : part.removed ? '- ' : '  '}
-                        {line}
-                      </span>
-                    ))}
-                </span>
-              ))}
-            </pre>
-          )}
+          <YamlDiffView
+            currentManifest={preview.current_manifest}
+            targetManifest={preview.target_manifest}
+          />
           <Button
             type="button"
             data-testid="helm-upgrade-apply"

@@ -136,7 +136,7 @@ test.describe('US2 Helm upgrade', () => {
       ]),
     )
 
-    const diff = insp.getByTestId('helm-upgrade-diff')
+    const diff = insp.getByTestId('yaml-diff')
     await expect(diff).toBeVisible()
     await expect(diff.getByTestId('diff-added')).toContainText('replicas: 5')
 
