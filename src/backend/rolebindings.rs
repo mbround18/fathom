@@ -116,6 +116,7 @@ fn role_binding_to_details(binding: RoleBinding) -> RoleBindingDetails {
         })
         .unwrap_or_default();
 
+    let resource_version = binding.resource_version().unwrap_or_default();
     let raw_json = serde_json::to_string_pretty(&binding).unwrap_or_default();
 
     RoleBindingDetails {
@@ -127,6 +128,7 @@ fn role_binding_to_details(binding: RoleBinding) -> RoleBindingDetails {
         role_ref,
         subjects,
         raw_json,
+        resource_version,
     }
 }
 

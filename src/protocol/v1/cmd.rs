@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{RequestId, SectionKey, UiConfig};
+use super::{RbacAccessCheck, RequestId, SectionKey, UiConfig};
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
 ///
@@ -406,6 +406,24 @@ pub enum BackendCmdV1 {
     DeleteClusterRoleBinding {
         name: String,
     },
+
+    // access_rolebindings / access_clusterrolebindings: live self-permission gating for
+    // create/edit/delete actions (FR-007). Read-only; never mutates the cluster.
+    RefreshRbacSelfAccess {
+        checks: Vec<RbacAccessCheck>,
+    },
+
+    // access/namespace-access (read-only, derived from already-fetched RBAC objects)
+    ResolveNamespaceAccess {
+        subject_kind: String,
+        subject_name: String,
+        subject_namespace: Option<String>,
+    },
+
+    // access/oidc-config: best-effort read-only detection only, never a live config edit
+    // (FR-008). The OIDC flag/instruction generation itself is frontend-only and has no
+    // protocol command at all.
+    RefreshKubeadmDetection,
 
     // config_configmaps
     RefreshConfigMaps,

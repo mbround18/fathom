@@ -27,4 +27,8 @@ pub struct RoleBindingDetails {
     pub role_ref: String,
     pub subjects: Vec<SubjectSummary>,
     pub raw_json: String,
+    /// The live object's `metadata.resourceVersion`, used as
+    /// `ApplyResourceYaml.expected_resource_version` when editing this binding, so a
+    /// stale/concurrent edit is rejected as a conflict rather than silently overwritten.
+    pub resource_version: String,
 }

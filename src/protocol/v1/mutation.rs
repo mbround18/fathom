@@ -146,7 +146,10 @@ impl BackendCmdV1 {
             | C::RefreshRelatedResources { .. }
             | C::RefreshHelmReleases
             | C::SelectHelmRelease { .. }
-            | C::SelectFluxResource { .. } => MutationTarget::ReadOnly,
+            | C::SelectFluxResource { .. }
+            | C::RefreshRbacSelfAccess { .. }
+            | C::ResolveNamespaceAccess { .. }
+            | C::RefreshKubeadmDetection => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -363,6 +366,11 @@ impl BackendCmdV1 {
             C::RefreshClusterRoleBindings
             | C::SelectClusterRoleBinding { .. }
             | C::DeleteClusterRoleBinding { .. } => section_keys::access_clusterrolebindings(),
+            // Gates whichever binding kind the caller is checking; the section is advisory
+            // (used for correlation/routing only, not for scoping the review itself).
+            C::RefreshRbacSelfAccess { .. } => section_keys::access_rolebindings(),
+            C::ResolveNamespaceAccess { .. } => section_keys::access_namespace_access(),
+            C::RefreshKubeadmDetection => section_keys::access_oidc_config(),
             C::RefreshConfigMaps | C::SelectConfigMap { .. } | C::DeleteConfigMap { .. } => {
                 section_keys::config_configmaps()
             }
