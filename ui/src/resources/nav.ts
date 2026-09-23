@@ -82,6 +82,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ['integrations/flux', 'Flux'],
     ['integrations/mcp', 'MCP Server'],
   ]),
+  // 014-teams-organizations: local §10 Cluster Settings (+ org-level sync affordances) and
+  // shared, non-secret connection profiles.
+  g('Team', '団', [
+    ['integrations/cluster-settings', 'Cluster Settings'],
+    ['team/profiles', 'Connection Profiles'],
+  ]),
 ]
 
 /** Groups open on first run, before `UiConfigLoaded` says otherwise. */

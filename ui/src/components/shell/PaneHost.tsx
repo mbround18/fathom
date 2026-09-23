@@ -8,7 +8,9 @@ import { HubblePanel } from '@/components/panels/HubblePanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
+import { ClusterSettingsPanel } from '@/components/panels/ClusterSettingsPanel'
 import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
+import { TeamProfilesPanel } from '@/components/panels/TeamProfilesPanel'
 import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
 import { SECTION } from '@/protocol/commands'
@@ -190,6 +192,15 @@ function ListBody({ pane }: { pane: PaneState }) {
   // phone/tablet's `FORWARDS_TAB` reaches the same component via the `'tool'` pane branch above).
   if (section === SECTION.portForwards) {
     return <PortForwardsPanel />
+  }
+  // 014-teams-organizations: local §10 Cluster Settings (+ org sync) and shared connection
+  // profiles are settings forms, not resource tables — same "render itself directly" pattern
+  // as `portForwards` above, no descriptor.
+  if (section === SECTION.clusterSettings) {
+    return <ClusterSettingsPanel />
+  }
+  if (section === SECTION.teamProfiles) {
+    return <TeamProfilesPanel />
   }
   if (!descriptor) {
     return (

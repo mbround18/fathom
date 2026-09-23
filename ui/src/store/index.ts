@@ -11,9 +11,12 @@ import { resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type {
+  AdoptedConnectionProfile,
   AgentAuthMode,
   AgentConversation,
   BackendCmd,
+  ClusterSettings,
+  ConnectionProfile,
   ContextConnectionStatus,
   CrdCatalogEntry,
   DiskUsage,
@@ -24,11 +27,14 @@ import type {
   KubernetesEvent,
   LayoutProfile,
   MetricsStackScanResult,
+  OrgClusterSettings,
   ResourceListEvent,
   ResourceReadEvent,
   Route,
   SectionKey,
   SlotConfig,
+  TeamPublishRejection,
+  TeamStoreStatus,
   ThemePrefs,
   ToolKind,
   TunnelStatus,
@@ -320,6 +326,27 @@ export interface IntegrationsState {
 }
 
 /**
+ * 014-teams-organizations. `clusterSettings`/`clusterSettingsContext`/`clusterSettingsError`
+ * reflect the most recent `LoadClusterSettings`/`SaveClusterSettings` round-trip for whichever
+ * context requested it — `ClusterSettingsPanel` re-requests on context switch, so stale
+ * cross-context reads are never shown. `orgAvailable` is the pending org-level default the
+ * operator has not yet accepted/dismissed for `clusterSettingsContext`, if any (FR-007).
+ * `rejection` is the last `TeamPublishRejected` reason (suspected secret, conflict, or
+ * unreachable store), surfaced by both the settings and profiles panels then cleared locally
+ * once shown.
+ */
+export interface TeamState {
+  clusterSettings?: ClusterSettings
+  clusterSettingsContext?: string
+  clusterSettingsError?: string
+  orgAvailable?: OrgClusterSettings
+  storeStatus?: TeamStoreStatus
+  adopted: AdoptedConnectionProfile[]
+  available: ConnectionProfile[]
+  rejection?: TeamPublishRejection
+}
+
+/**
  * One CRD kind's last-fetched instance list (US3, data-model.md "Custom Resource Instance").
  * `items` are raw JSON strings, one per instance — the same `raw_json`-as-`String` convention
  * every built-in kind's details carry, parsed on demand for display.
@@ -418,6 +445,16 @@ export interface StoreData {
    * events arrive. Used by `helm.tsx`'s per-row rollback action.
    */
   helmMutation: HelmMutationSession
+  /**
+   * 014-teams-organizations: local §10 Cluster Settings (+ org-sync affordances) and shared,
+   * non-secret connection profiles. Global (not per-context) for the profile/store-status
+   * fields — mirrors `flux`/`hubble` — but `clusterSettings`/`clusterSettingsContext` track
+   * which context the last `LoadClusterSettings`/`ClusterSettingsLoaded` round-trip was for,
+   * since §10 settings are themselves per-context (`store/handlers/system.ts`'s
+   * `ClusterSettingsLoaded`/`ClusterSettingsError`/`TeamStoreStatusUpdated`/
+   * `ConnectionProfilesUpdated`/`OrgClusterSettingsAvailable`/`TeamPublishRejected` cases).
+   */
+  team: TeamState
   /** Helm release uninstalls (006 US3), by `namespace/release`. */
   helmUninstalls: Record<string, HelmUninstallState>
   /**
@@ -703,6 +740,7 @@ export function initialData(): StoreData {
     imageInspections: {},
     agentConversations: {},
     agentAuth: {},
+    team: { adopted: [], available: [] },
     helmUninstalls: {},
     helmMutations: {},
     layout: {
