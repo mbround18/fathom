@@ -15,8 +15,11 @@ use std::path::{Path, PathBuf};
 /// Allows extensible gating of features that should start automatically on app initialization.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AutoStartConfig {
-    /// Whether to auto-start the MCP (Model Context Protocol) server
-    pub mcp_http: bool,
+    /// Whether the stdio MCP (Model Context Protocol) server is enabled. Off by default
+    /// (FR-002). Renamed from `mcp_http` when the HTTP MCP prototype was replaced with the
+    /// stdio server; `alias` keeps older `config.json` files loading their prior value.
+    #[serde(alias = "mcp_http")]
+    pub mcp_stdio: bool,
 }
 
 impl AutoStartConfig {
@@ -188,18 +191,18 @@ pub fn save_config(value: &serde_json::Value) -> Result<()> {
     save_json_file(&path, value)
 }
 
-/// Load MCP auto-start preference (legacy function for backward compatibility)
+/// Load the persisted MCP server enabled/disabled preference.
 pub fn load_mcp_auto_start() -> Result<bool> {
     let auto_start = AutoStartConfig::load()?;
-    Ok(auto_start.mcp_http)
+    Ok(auto_start.mcp_stdio)
 }
 
-/// Save MCP auto-start preference (legacy function for backward compatibility)
+/// Persist the MCP server enabled/disabled preference.
 pub fn save_mcp_auto_start(enabled: bool) -> Result<()> {
     let mut config = AutoStartConfig::load()?;
-    config.mcp_http = enabled;
+    config.mcp_stdio = enabled;
     config.save()?;
-    tracing::info!("Saved MCP auto-start preference: {}", enabled);
+    tracing::info!("Saved MCP server enabled preference: {}", enabled);
     Ok(())
 }
 
@@ -213,8 +216,8 @@ pub struct LoadedUiConfig {
     pub ui: Option<UiConfig>,
     /// `config.json → navigation.expanded_groups`.
     pub expanded_groups: Vec<String>,
-    /// `config.json → auto_start.mcp_http`.
-    pub mcp_auto_start: bool,
+    /// `config.json → auto_start.mcp_stdio`.
+    pub mcp_stdio_enabled: bool,
 }
 
 impl Default for LoadedUiConfig {
@@ -222,7 +225,7 @@ impl Default for LoadedUiConfig {
         Self {
             ui: None,
             expanded_groups: DEFAULT_EXPANDED_GROUPS.map(str::to_owned).to_vec(),
-            mcp_auto_start: false,
+            mcp_stdio_enabled: false,
         }
     }
 }
@@ -242,9 +245,9 @@ pub fn load_ui_config() -> LoadedUiConfig {
     };
 
     let mut loaded = LoadedUiConfig {
-        mcp_auto_start: config
+        mcp_stdio_enabled: config
             .get("auto_start")
-            .and_then(|a| a.get("mcp_http"))
+            .and_then(|a| a.get("mcp_stdio").or_else(|| a.get("mcp_http")))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false),
         ..LoadedUiConfig::default()
@@ -453,6 +456,33 @@ pub fn save_team_config(config: &TeamConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 015-mcp-agent-exposure (T039), the half of the default that needs no filesystem: an
+    /// `AutoStartConfig` that nothing has ever written is *off*. `AutoStartConfig::load()`
+    /// returns exactly this value when `~/.fathom/config.json` has no `auto_start` object, so
+    /// "off by default" (FR-002) holds for a fresh install. The on-disk half of T039 —
+    /// `load()` with no file at all, and a `save(true)` round-trip — lives in
+    /// `tests/ui_config_persistence.rs`, which owns the `$HOME` temp-dir harness (`$HOME` is
+    /// process-global, so it cannot be moved from inside the lib test binary).
+    #[test]
+    fn auto_start_defaults_to_the_mcp_server_off() {
+        assert!(
+            !AutoStartConfig::default().mcp_stdio,
+            "the stdio MCP server must be off until an operator turns it on (FR-002)"
+        );
+    }
+
+    /// The pre-015 `mcp_http` key is still read (the field was renamed in place, not
+    /// re-introduced), but everything written from now on uses `mcp_stdio`.
+    #[test]
+    fn auto_start_reads_the_pre_015_key_and_writes_the_new_one() {
+        let legacy: AutoStartConfig =
+            serde_json::from_value(serde_json::json!({ "mcp_http": true })).expect("legacy shape");
+        assert!(legacy.mcp_stdio);
+
+        let written = serde_json::to_value(AutoStartConfig { mcp_stdio: true }).expect("serialize");
+        assert_eq!(written, serde_json::json!({ "mcp_stdio": true }));
+    }
 
     #[test]
     fn test_fathom_config_dir() {

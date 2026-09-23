@@ -32,6 +32,7 @@ mod interactions;
 mod jobs;
 mod kube;
 mod longhorn;
+mod mcp;
 mod metrics;
 mod metrics_provider;
 mod networkpolicies;
@@ -83,23 +84,15 @@ where
 
     let mut state = BackendState::new();
     state.agent_conversations = agent::persistence::load_agent_conversations();
+    // 015-mcp-agent-exposure: shells that must never expose an MCP endpoint (`fathom-devbridge`)
+    // set `Args::disable_mcp`, and `McpState::start` then refuses before spawning anything. The
+    // server is off regardless — this only makes it un-enableable for this process.
+    state.mcp.disabled = args.disable_mcp;
 
     // Clear metrics history on startup to begin fresh collection
     if let Err(e) = persistence::clear_metrics_history() {
         tracing::warn!("Failed to clear metrics history on startup: {}", e);
     }
-
-    // Create MCP state and persist port
-    let mcp_state = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
-    state.mcp.state = Some(mcp_state.clone());
-    state.mcp.port = args.mcp_port;
-    state.mcp.disabled = args.disable_mcp;
-
-    // Load auto-start configuration
-    let auto_start_config = persistence::AutoStartConfig::load().unwrap_or_default();
-
-    let initial_mcp_http_handle =
-        spawn_initial_mcp_server(&rt, &args, &mcp_state, auto_start_config.mcp_http);
 
     events::emit(
         state.cluster.seq.as_ref(),
@@ -114,15 +107,13 @@ where
         "Backend thread started (tokio runtime ready).".to_owned(),
     );
 
-    // Wrap state in Arc<Mutex> and store initial MCP handle if present
-    let state = Arc::new(tokio::sync::Mutex::new(state));
-    if let Some(handle) = initial_mcp_http_handle {
-        let state_clone = state.clone();
-        rt.block_on(async move {
-            let mut s = state_clone.lock().await;
-            s.mcp.http_task = Some(handle);
-        });
+    // 015-mcp-agent-exposure: bring the stdio MCP server up if the operator has enabled it, and
+    // in `--only-mcp` mode run it *as* this process. `Done` means the whole backend is finished.
+    if mcp::bootstrap(&rt, &mut state, &sender, &args) == mcp::Bootstrap::Done {
+        return;
     }
+
+    let state = Arc::new(tokio::sync::Mutex::new(state));
 
     // Use a channel to coordinate task completions for shutdown
     let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -163,15 +154,6 @@ where
         }
     });
 
-    // Cleanup: abort MCP HTTP server if running
-    {
-        let state_arc = state.clone();
-        rt.block_on(async move {
-            let mut s = state_arc.lock().await;
-            state::abort_task(&mut s.mcp.http_task);
-        });
-    }
-
     // Final cleanup on exit
     rt.block_on(async {
         let mut final_state = state.lock().await;
@@ -182,30 +164,6 @@ where
             "Backend thread stopped.".to_owned(),
         );
     });
-}
-
-/// Spawn the MCP HTTP server if enabled via CLI args, only_mcp mode, or auto-start config.
-/// Port 18288: 1.8288 meters ≈ 1 fathom (unit of depth measurement)
-fn spawn_initial_mcp_server(
-    rt: &Runtime,
-    args: &Args,
-    mcp_state: &Arc<crate::mcp_server::McpAppState>,
-    auto_start_mcp_http: bool,
-) -> Option<tokio::task::JoinHandle<()>> {
-    if args.disable_mcp || !(args.mcp_http || args.only_mcp || auto_start_mcp_http) {
-        return None;
-    }
-    tracing::info!(
-        "Starting MCP HTTP server on http://127.0.0.1:{} (18288 = 1.8288m ≈ 1 fathom)",
-        args.mcp_port
-    );
-    Some(rt.spawn({
-        let s = mcp_state.clone();
-        let p = args.mcp_port;
-        async move {
-            let _ = crate::mcp_server::run_http_mcp_server(s, p).await;
-        }
-    }))
 }
 
 /// Dispatch one command under the state lock, then emit its `CommandFinished`.

@@ -148,9 +148,6 @@ async fn initialize(
     if state.cluster.current_context.is_none() {
         state.cluster.current_context = kube::read_kubeconfig_current_context();
     }
-    if let (Some(mcp), Some(ctx)) = (&state.mcp.state, &state.cluster.current_context) {
-        mcp.set_context(ctx.clone()).await;
-    }
     emit_context_changed(state, sender);
 
     if let Ok((contexts, current)) = &contexts_result {
@@ -197,9 +194,6 @@ async fn set_context(
 
     state.cluster.current_context = Some(context.clone());
     state.metrics.reset_probe();
-    if let Some(mcp) = &state.mcp.state {
-        mcp.set_context(context.clone()).await;
-    }
 
     // Context switch invalidates namespace filters; reset to "all" on the backend.
     state.cluster.namespace_filter.clear();
@@ -272,15 +266,17 @@ async fn set_context(
     Ok(())
 }
 
-/// Connect for the current context and share the client with the MCP server
-/// for direct K8s tool calls.
+/// Connect for the current context and store the client on the backend state.
 async fn connect_and_share_client(state: &mut BackendState) -> anyhow::Result<()> {
     let client = kube::connect_client_for_current_context(state).await?;
-    state.cluster.client = Some(client.clone());
-
-    if let Some(mcp) = &state.mcp.state {
-        *mcp.kube_client.write().await = Some(client);
-    }
+    state.cluster.client = Some(client);
+    // 015-mcp-agent-exposure: keep whatever stdio MCP server is running pointed at the cluster
+    // Fathom itself is on. Published unconditionally — the handle exists whether or not the
+    // server is enabled, so this never starts anything (FR-002).
+    state.mcp.cluster.publish(
+        state.cluster.client.clone(),
+        state.cluster.current_context.clone(),
+    );
     Ok(())
 }
 

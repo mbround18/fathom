@@ -324,11 +324,6 @@ pub enum BackendCmdV1 {
     },
     RefreshFlux,
     RefreshHubble,
-    // MCP Server integration
-    StartMcpServer,
-    StopMcpServer,
-    RefreshMcpStatus,
-    OpenMcpConfigDir,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
     // Bulk operations
@@ -547,10 +542,6 @@ pub enum BackendCmdV1 {
         ui: UiConfig,
         expanded_groups: Vec<String>,
     },
-    SetMcpAutoStart {
-        enabled: bool,
-    },
-
     // 014-teams-organizations: Cluster Settings (§10, local per-operator) + org sync
     // and shared team connection profiles.
     LoadClusterSettings {
@@ -584,6 +575,41 @@ pub enum BackendCmdV1 {
     },
     DismissOrgClusterSettings {
         context: String,
+    },
+
+    // 015-mcp-agent-exposure: the stdio MCP server's operator toggle and status, surfaced in
+    // Cluster Settings' "Available Agents" section. Both answered with
+    // `SystemEvent::McpServerStatusChanged`.
+    /// Read the current enabled/running state and the connection snippet an external MCP
+    /// client should use. Reads nothing from the cluster.
+    LoadMcpServerStatus,
+    /// Turn the stdio MCP server on or off. Persists `auto_start.mcp_stdio` and starts/stops
+    /// the server task in the same handler, so no listener ever exists while off (FR-002,
+    /// FR-013).
+    SetMcpServerEnabled {
+        enabled: bool,
+    },
+
+    // 015-mcp-agent-exposure US4: the "Launch example chat" affordance. All `Local` — they
+    // drive a subprocess on the operator's own machine (`claude` from `PATH`), never the
+    // cluster. The session is a singleton, like the pod-exec session, so none of these carry
+    // a target: `StopMcpDemoChat`/`SendMcpDemoChatInput`/`ResizeMcpDemoChat` address whatever
+    // session is live and are a no-op when none is.
+    /// Spawn the locally-detected `claude` CLI, pre-configured to attach to this Fathom's own
+    /// stdio MCP server. Refused while the MCP server is off (FR-010), and answered with
+    /// `McpDemoChatNotDetected` — never a spawn — when no `claude` is on `PATH` (FR-011).
+    StartMcpDemoChat,
+    /// Stop the live demo-chat subprocess, if any.
+    StopMcpDemoChat,
+    /// Base64-encoded keystrokes for the demo chat's stdin — same encoding convention as
+    /// `SendPodExecInput`.
+    SendMcpDemoChatInput {
+        data: String,
+    },
+    /// The terminal's current size, so the subprocess can wrap its output to it.
+    ResizeMcpDemoChat {
+        cols: u16,
+        rows: u16,
     },
 
     // Resource YAML edit + apply (any kind; identity fields validated pre-cluster-write).
@@ -1100,5 +1126,12 @@ mod tests {
         roundtrip(BackendCmdV1::DismissOrgClusterSettings {
             context: "prod".to_owned(),
         });
+    }
+
+    #[test]
+    fn mcp_server_cmd_roundtrips() {
+        roundtrip(BackendCmdV1::LoadMcpServerStatus);
+        roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: true });
+        roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: false });
     }
 }

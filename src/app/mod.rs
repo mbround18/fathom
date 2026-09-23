@@ -9,13 +9,12 @@ use views::{
     BoxedView, ClusterRoleBindingsView, ClusterRolesView, ConfigMapsView, ContextView,
     CronJobsView, EndpointsView, EventsView, FluxView, HorizontalPodAutoscalersView,
     IngressClassesView, IngressesView, IntegrationsView, JobsView, LeasesView, LimitRangesView,
-    McpIntegrationView, ModalView, MutatingWebhooksView, NamespacesView, NavigationView,
-    NetworkPoliciesView, NodesView, OverviewView, PersistentVolumeClaimsView,
-    PersistentVolumesView, PlaceholderView, PodDisruptionBudgetsView, PodsView, PortForwardsView,
-    PriorityClassesView, ResourceQuotasView, RoleBindingsView, RolesView, RuntimeClassesView,
-    SecretsView, ServicesView, StatusView, StorageClassesView, ValidatingWebhooksView, ViewAction,
-    ViewComponent, daemonset_view, deployment_view, replicaset_view, replicationcontroller_view,
-    statefulset_view,
+    ModalView, MutatingWebhooksView, NamespacesView, NavigationView, NetworkPoliciesView,
+    NodesView, OverviewView, PersistentVolumeClaimsView, PersistentVolumesView, PlaceholderView,
+    PodDisruptionBudgetsView, PodsView, PortForwardsView, PriorityClassesView, ResourceQuotasView,
+    RoleBindingsView, RolesView, RuntimeClassesView, SecretsView, ServicesView, StatusView,
+    StorageClassesView, ValidatingWebhooksView, ViewAction, ViewComponent, daemonset_view,
+    deployment_view, replicaset_view, replicationcontroller_view, statefulset_view,
 };
 
 pub mod components;
@@ -222,8 +221,6 @@ impl FathomApp {
                 Box::new(IntegrationsView::new("ArgoCD"))
             } else if section_key == &section_keys::integrations_flux() {
                 Box::new(FluxView::new())
-            } else if section_key == &section_keys::integrations_mcp() {
-                Box::new(McpIntegrationView::new())
             } else if section_key == &section_keys::overview() {
                 Box::new(OverviewView::new())
             } else if section_key == &section_keys::nodes() {

@@ -4,13 +4,13 @@ use super::apply;
 use super::state::BackendState;
 use super::{events, persistence};
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, StreamEvent, SystemEvent,
-    section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
 };
 
 mod agent;
 mod cluster;
 mod integrations;
+mod mcp;
 mod port_forwards;
 mod resources;
 mod team;
@@ -32,9 +32,7 @@ pub async fn dispatch_cmd(
             shutdown(state, sender);
             return Ok(true); // Signal to exit loop
         }
-        cmd @ (BackendCmd::LoadUiConfig
-        | BackendCmd::SaveUiConfig { .. }
-        | BackendCmd::SetMcpAutoStart { .. }) => {
+        cmd @ (BackendCmd::LoadUiConfig | BackendCmd::SaveUiConfig { .. }) => {
             handle_ui_config_cmd(cmd, state, sender);
             return Ok(false);
         }
@@ -91,6 +89,10 @@ pub async fn dispatch_cmd(
     let Some(cmd) = team::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
+    // 015-mcp-agent-exposure: the stdio MCP server's toggle/status.
+    let Some(cmd) = mcp::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
     // Any command left over after the integrations family is intentionally a no-op.
     let _unhandled = integrations::handle(cmd, state, sender).await?;
     Ok(false)
@@ -125,7 +127,7 @@ fn handle_ui_config_cmd(
                 BackendEvent::System(SystemEvent::UiConfigLoaded {
                     ui: loaded.ui,
                     expanded_groups: loaded.expanded_groups,
-                    mcp_auto_start: loaded.mcp_auto_start,
+                    mcp_stdio_enabled: loaded.mcp_stdio_enabled,
                 }),
             );
         }
@@ -135,15 +137,6 @@ fn handle_ui_config_cmd(
         } => {
             if let Err(e) = persistence::save_ui_config(&ui, &expanded_groups) {
                 events::notify_error(seq, sender, format!("Failed to save UI settings: {}", e));
-            }
-        }
-        BackendCmd::SetMcpAutoStart { enabled } => {
-            if let Err(e) = persistence::save_mcp_auto_start(enabled) {
-                events::notify_error(
-                    seq,
-                    sender,
-                    format!("Failed to save MCP auto-start preference: {}", e),
-                );
             }
         }
         other => unreachable!("not a UI config command: {other:?}"),
@@ -204,16 +197,7 @@ async fn handle_apply_resource_yaml(
     .await
     {
         Ok(resource_version) => {
-            events::emit(
-                seq,
-                sender,
-                Route::global(section_keys::system()),
-                Correlation::None,
-                BackendEvent::Stream(StreamEvent::ResourceApplied {
-                    request_id: events::current_request_id_string(),
-                    resource_version,
-                }),
-            );
+            apply::emit_resource_applied(seq, sender, resource_version);
         }
         Err(err) => {
             events::notify_error(seq, sender, err.to_string());
@@ -261,16 +245,7 @@ async fn handle_create_resource_yaml(
 
     match apply::create_resource(&client, &api_version, &kind, namespace.as_deref(), object).await {
         Ok(resource_version) => {
-            events::emit(
-                seq,
-                sender,
-                Route::global(section_keys::system()),
-                Correlation::None,
-                BackendEvent::Stream(StreamEvent::ResourceApplied {
-                    request_id: events::current_request_id_string(),
-                    resource_version,
-                }),
-            );
+            apply::emit_resource_applied(seq, sender, resource_version);
         }
         Err(err) => {
             events::notify_error(seq, sender, err.to_string());

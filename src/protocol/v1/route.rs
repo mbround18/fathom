@@ -281,10 +281,6 @@ pub mod section_keys {
         SectionKey::new("integrations/hubble")
     }
 
-    pub fn integrations_mcp() -> SectionKey {
-        SectionKey::new("integrations/mcp")
-    }
-
     pub fn network_portforwards() -> SectionKey {
         SectionKey::new("network/portforwards")
     }

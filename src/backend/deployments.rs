@@ -24,11 +24,6 @@ pub(super) async fn refresh_deployments(
     let deployments = api.list(&ListParams::default()).await?;
     let summaries = deployments_to_summaries(deployments.items, &state.cluster.namespace_filter);
 
-    // Update MCP state cache so list_deployments tool has fresh data
-    if let Some(mcp) = &state.mcp.state {
-        *mcp.deployments.write().await = summaries.clone();
-    }
-
     events::emit(
         state.cluster.seq.as_ref(),
         sender,
@@ -126,10 +121,29 @@ pub(super) async fn delete_deployment(
     name: &str,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<Deployment> = Api::namespaced(client, namespace);
+    delete_deployment_with_client(&client, state.cluster.seq.as_ref(), sender, namespace, name)
+        .await
+}
+
+/// The delete itself, against an explicitly supplied client rather than whatever
+/// `BackendState` currently holds.
+///
+/// Split out for 015-mcp-agent-exposure's `delete_resource` MCP tool
+/// (`crate::backend::mcp::tools_mutate`), which serves external MCP clients from a spawned task
+/// that has a `kube::Client` but no `&BackendState` borrow. The write *and* its
+/// `Notification` emission both live here, so a UI-driven delete and an MCP-driven one are the
+/// same code path and produce the same event — not two parallel implementations.
+pub(super) async fn delete_deployment_with_client(
+    client: &kube::Client,
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(
-        state.cluster.seq.as_ref(),
+        seq,
         sender,
         format!("Deleted deployment {}/{}", namespace, name),
     );
@@ -144,12 +158,33 @@ pub(super) async fn scale_deployment(
     replicas: i32,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<Deployment> = Api::namespaced(client, namespace);
+    scale_deployment_with_client(
+        &client,
+        state.cluster.seq.as_ref(),
+        sender,
+        namespace,
+        name,
+        replicas,
+    )
+    .await
+}
+
+/// Client-explicit sibling of [`scale_deployment`]; see
+/// [`delete_deployment_with_client`] for why it exists.
+pub(super) async fn scale_deployment_with_client(
+    client: &kube::Client,
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: &str,
+    name: &str,
+    replicas: i32,
+) -> anyhow::Result<()> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
     let patch = json!({"spec": {"replicas": replicas }});
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await?;
     events::notify_info(
-        state.cluster.seq.as_ref(),
+        seq,
         sender,
         format!("Scaled deployment {}/{} to {}", namespace, name, replicas),
     );

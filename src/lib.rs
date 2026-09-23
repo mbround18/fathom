@@ -4,7 +4,6 @@ pub mod app;
 pub mod backend;
 pub mod bridge;
 pub mod config;
-pub mod mcp_server;
 pub mod protocol;
 pub mod sections;
 pub mod startup;

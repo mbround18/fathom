@@ -2,7 +2,7 @@
 //!
 //! See `specs/001-tauri-shadcn-frontend/data-model.md` §2. The blob is owned by the UI
 //! client but stored by the backend; `navigation.expanded_groups` and
-//! `auto_start.mcp_http` stay at their existing keys and travel alongside it in
+//! `auto_start.mcp_stdio` stay at their existing keys and travel alongside it in
 //! `BackendCmd::SaveUiConfig` / `SystemEvent::UiConfigLoaded`.
 
 use serde::{Deserialize, Serialize};

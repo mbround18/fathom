@@ -4,7 +4,8 @@
 //! `$HOME` is process-global, so the tests serialize on `HOME_LOCK`.
 
 use fathom::backend::persistence::{
-    DEFAULT_EXPANDED_GROUPS, LoadedUiConfig, load_ui_config, save_mcp_auto_start, save_ui_config,
+    AutoStartConfig, DEFAULT_EXPANDED_GROUPS, LoadedUiConfig, load_mcp_auto_start, load_ui_config,
+    save_mcp_auto_start, save_ui_config,
 };
 use fathom::protocol::{Density, ThemeAccent, UiConfig};
 use serde_json::{Value, json};
@@ -78,7 +79,7 @@ fn save_then_load_round_trips() {
     let loaded = load_ui_config();
     assert_eq!(loaded.ui, Some(ui));
     assert_eq!(loaded.expanded_groups, groups(&["Network", "Storage"]));
-    assert!(!loaded.mcp_auto_start);
+    assert!(!loaded.mcp_stdio_enabled);
 }
 
 #[test]
@@ -107,19 +108,50 @@ fn save_preserves_unrelated_keys() {
 
     let loaded = load_ui_config();
     assert!(
-        loaded.mcp_auto_start,
-        "auto_start.mcp_http is read from its existing key"
+        loaded.mcp_stdio_enabled,
+        "auto_start.mcp_http is still read from the pre-015 key"
     );
 }
 
+/// 015-mcp-agent-exposure (T039/US3 acceptance scenario 1 & 2): the stdio MCP server's
+/// persisted preference is *off* on a fresh install — no `config.json` at all — and a
+/// `save(true)` survives to the next `load()`, which is what makes "toggle it on, restart
+/// Fathom, it is still on" true without the operator re-entering anything.
 #[test]
-fn mcp_auto_start_keeps_ui() {
+fn mcp_stdio_defaults_off_and_round_trips_true() {
+    let home = TempHome::new();
+
+    let fresh = AutoStartConfig::load().expect("a missing config.json is not an error");
+    assert!(!fresh.mcp_stdio, "off by default (FR-002)");
+    assert!(!load_mcp_auto_start().unwrap());
+    assert!(
+        !home.config_path().exists(),
+        "reading the preference must not create config.json"
+    );
+
+    AutoStartConfig { mcp_stdio: true }
+        .save()
+        .expect("save the operator's choice");
+
+    assert!(
+        AutoStartConfig::load().unwrap().mcp_stdio,
+        "the preference must survive a restart (FR-014)"
+    );
+    assert!(load_mcp_auto_start().unwrap());
+    assert_eq!(home.read_config()["auto_start"]["mcp_stdio"], json!(true));
+
+    save_mcp_auto_start(false).unwrap();
+    assert!(!AutoStartConfig::load().unwrap().mcp_stdio);
+}
+
+#[test]
+fn mcp_stdio_enabled_keeps_ui() {
     let _home = TempHome::new();
     save_ui_config(&custom_ui(), &groups(&["Overview"])).unwrap();
     save_mcp_auto_start(true).unwrap();
 
     let loaded = load_ui_config();
-    assert!(loaded.mcp_auto_start);
+    assert!(loaded.mcp_stdio_enabled);
     assert_eq!(loaded.ui, Some(custom_ui()));
 }
 
@@ -137,7 +169,7 @@ fn invalid_ui_is_moved_to_ui_invalid() {
     let loaded = load_ui_config();
     assert_eq!(loaded.ui, None);
     assert_eq!(loaded.expanded_groups, groups(&["Config"]));
-    assert!(loaded.mcp_auto_start);
+    assert!(loaded.mcp_stdio_enabled);
 
     let after = home.read_config();
     assert!(after.get("ui").is_none());

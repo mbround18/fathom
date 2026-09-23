@@ -1611,10 +1611,6 @@ fn all_cmds() -> Vec<BackendCmd> {
         },
         BackendCmd::RefreshFlux,
         BackendCmd::RefreshHubble,
-        BackendCmd::StartMcpServer,
-        BackendCmd::StopMcpServer,
-        BackendCmd::RefreshMcpStatus,
-        BackendCmd::OpenMcpConfigDir,
         BackendCmd::SimulateSlowCall,
         BackendCmd::BulkDelete {
             items: vec![("s".to_owned(), "s".to_owned())],
@@ -1782,7 +1778,6 @@ fn all_cmds() -> Vec<BackendCmd> {
             ui: sample_ui_config(),
             expanded_groups: vec!["s".to_owned()],
         },
-        BackendCmd::SetMcpAutoStart { enabled: true },
         BackendCmd::ApplyResourceYaml {
             api_version: "apps/v1".to_owned(),
             kind: "Deployment".to_owned(),
@@ -1927,6 +1922,17 @@ fn all_cmds() -> Vec<BackendCmd> {
         BackendCmd::AcceptOrgClusterSettings {
             context: "ctx".to_owned(),
         },
+        BackendCmd::LoadMcpServerStatus,
+        BackendCmd::SetMcpServerEnabled { enabled: true },
+        BackendCmd::StartMcpDemoChat,
+        BackendCmd::StopMcpDemoChat,
+        BackendCmd::SendMcpDemoChatInput {
+            data: "aGVsbG8=".to_owned(),
+        },
+        BackendCmd::ResizeMcpDemoChat {
+            cols: 100,
+            rows: 30,
+        },
         BackendCmd::DismissOrgClusterSettings {
             context: "ctx".to_owned(),
         },
@@ -2032,10 +2038,6 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::TestGrafanaConnection { .. } => {}
         BackendCmd::RefreshFlux => {}
         BackendCmd::RefreshHubble => {}
-        BackendCmd::StartMcpServer => {}
-        BackendCmd::StopMcpServer => {}
-        BackendCmd::RefreshMcpStatus => {}
-        BackendCmd::OpenMcpConfigDir => {}
         BackendCmd::SimulateSlowCall => {}
         BackendCmd::BulkDelete { .. } => {}
         BackendCmd::SetActiveSection { .. } => {}
@@ -2098,7 +2100,6 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::DeleteValidatingWebhookConfiguration { .. } => {}
         BackendCmd::LoadUiConfig => {}
         BackendCmd::SaveUiConfig { .. } => {}
-        BackendCmd::SetMcpAutoStart { .. } => {}
         BackendCmd::ApplyResourceYaml { .. } => {}
         BackendCmd::CreateResourceYaml { .. } => {}
         BackendCmd::RefreshCrds => {}
@@ -2136,6 +2137,12 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::PublishOrgClusterSettings { .. } => {}
         BackendCmd::AcceptOrgClusterSettings { .. } => {}
         BackendCmd::DismissOrgClusterSettings { .. } => {}
+        BackendCmd::LoadMcpServerStatus => {}
+        BackendCmd::SetMcpServerEnabled { .. } => {}
+        BackendCmd::StartMcpDemoChat => {}
+        BackendCmd::StopMcpDemoChat => {}
+        BackendCmd::SendMcpDemoChatInput { .. } => {}
+        BackendCmd::ResizeMcpDemoChat { .. } => {}
     }
 }
 
@@ -2172,10 +2179,6 @@ fn all_system_events() -> Vec<SystemEvent> {
             message: "s".to_owned(),
         },
         SystemEvent::MetricsStackScanned(sample_metrics_stack_scan_result()),
-        SystemEvent::McpServerStatus {
-            running: true,
-            message: "s".to_owned(),
-        },
         SystemEvent::PortAvailability {
             port: 7,
             available: true,
@@ -2189,7 +2192,7 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::UiConfigLoaded {
             ui: Some(sample_ui_config()),
             expanded_groups: vec!["s".to_owned()],
-            mcp_auto_start: true,
+            mcp_stdio_enabled: true,
         },
         SystemEvent::CrdCatalogUpdated {
             entries: vec![sample_crd_catalog_entry()],
@@ -2249,6 +2252,23 @@ fn all_system_events() -> Vec<SystemEvent> {
                 expected_rev: 1,
                 current_rev: 2,
             },
+        },
+        SystemEvent::McpServerStatusChanged {
+            enabled: true,
+            running: true,
+            connection_command: "/usr/local/bin/fathom --only-mcp".to_owned(),
+        },
+        SystemEvent::McpDemoChatReady { session_id: 1 },
+        SystemEvent::McpDemoChatOutputChunk {
+            session_id: 1,
+            data: "aGVsbG8=".to_owned(),
+        },
+        SystemEvent::McpDemoChatEnded {
+            session_id: 1,
+            reason: "exit".to_owned(),
+        },
+        SystemEvent::McpDemoChatNotDetected {
+            instructions: "Install Claude Code.".to_owned(),
         },
     ]
 }
@@ -2322,7 +2342,6 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::PrometheusConnectionTest { .. } => {}
         SystemEvent::GrafanaConnectionTest { .. } => {}
         SystemEvent::MetricsStackScanned(..) => {}
-        SystemEvent::McpServerStatus { .. } => {}
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
@@ -2341,6 +2360,11 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::ConnectionProfilesUpdated { .. } => {}
         SystemEvent::OrgClusterSettingsAvailable { .. } => {}
         SystemEvent::TeamPublishRejected { .. } => {}
+        SystemEvent::McpServerStatusChanged { .. } => {}
+        SystemEvent::McpDemoChatReady { .. } => {}
+        SystemEvent::McpDemoChatOutputChunk { .. } => {}
+        SystemEvent::McpDemoChatEnded { .. } => {}
+        SystemEvent::McpDemoChatNotDetected { .. } => {}
     }
 }
 
@@ -3116,4 +3140,146 @@ fn counters_serialize_as_plain_numbers() {
         .clone();
     assert!(seq_max.is_u64());
     assert!(seq_max.as_f64().unwrap() as u64 == MAX_SAFE_INTEGER);
+}
+
+/// 015-mcp-agent-exposure (T016): the MCP-server toggle/status protocol surface round-trips and
+/// is classified as documented in `specs/015-mcp-agent-exposure/contracts/protocol.md` —
+/// `LoadMcpServerStatus` is `ReadOnly`, `SetMcpServerEnabled` is `Local` (it writes
+/// `config.json` and the local server task, never the cluster).
+#[test]
+fn mcp_server_status_protocol_round_trips() {
+    for cmd in [
+        BackendCmd::LoadMcpServerStatus,
+        BackendCmd::SetMcpServerEnabled { enabled: true },
+        BackendCmd::SetMcpServerEnabled { enabled: false },
+    ] {
+        let value = assert_round_trip(&cmd);
+        assert_adjacently_tagged(&value);
+    }
+
+    assert_eq!(
+        serde_json::to_value(BackendCmd::LoadMcpServerStatus).unwrap(),
+        json!({ "type": "LoadMcpServerStatus" })
+    );
+    assert_eq!(
+        serde_json::to_value(BackendCmd::SetMcpServerEnabled { enabled: true }).unwrap(),
+        json!({ "type": "SetMcpServerEnabled", "data": { "enabled": true } })
+    );
+
+    assert_eq!(
+        BackendCmd::LoadMcpServerStatus.mutation_target(),
+        MutationTarget::ReadOnly
+    );
+    assert_eq!(
+        BackendCmd::SetMcpServerEnabled { enabled: true }.mutation_target(),
+        MutationTarget::Local
+    );
+
+    for event in [
+        SystemEvent::McpServerStatusChanged {
+            enabled: false,
+            running: false,
+            connection_command: "/usr/local/bin/fathom --only-mcp".to_owned(),
+        },
+        SystemEvent::McpServerStatusChanged {
+            enabled: true,
+            running: true,
+            connection_command: "/usr/local/bin/fathom --only-mcp".to_owned(),
+        },
+    ] {
+        let value = assert_round_trip(&event);
+        assert_adjacently_tagged(&value);
+        assert_eq!(value["type"], json!("McpServerStatusChanged"));
+        assert!(value["data"]["connection_command"].is_string());
+    }
+}
+
+/// 015-mcp-agent-exposure (T049): the US4 demo-chat protocol surface round-trips and is
+/// classified as `contracts/protocol.md` documents — all four commands are `Local`, because a
+/// demo chat is a subprocess on the operator's own machine, not a cluster write. Every one of
+/// them routes to Cluster Settings, where the "Available Agents" section lives.
+#[test]
+fn mcp_demo_chat_protocol_round_trips() {
+    let cmds = [
+        BackendCmd::StartMcpDemoChat,
+        BackendCmd::StopMcpDemoChat,
+        BackendCmd::SendMcpDemoChatInput {
+            data: "aGVsbG8=".to_owned(),
+        },
+        BackendCmd::ResizeMcpDemoChat {
+            cols: 100,
+            rows: 30,
+        },
+    ];
+    for cmd in &cmds {
+        let value = assert_round_trip(cmd);
+        assert_adjacently_tagged(&value);
+        assert_eq!(
+            cmd.mutation_target(),
+            MutationTarget::Local,
+            "the demo chat never touches the cluster: {cmd:?}"
+        );
+        assert_eq!(
+            cmd.section(),
+            Some(fathom::protocol::section_keys::cluster_settings())
+        );
+    }
+
+    assert_eq!(
+        serde_json::to_value(BackendCmd::StartMcpDemoChat).unwrap(),
+        json!({ "type": "StartMcpDemoChat" })
+    );
+    assert_eq!(
+        serde_json::to_value(BackendCmd::SendMcpDemoChatInput {
+            data: "aGVsbG8=".to_owned(),
+        })
+        .unwrap(),
+        json!({ "type": "SendMcpDemoChatInput", "data": { "data": "aGVsbG8=" } })
+    );
+    assert_eq!(
+        serde_json::to_value(BackendCmd::ResizeMcpDemoChat {
+            cols: 100,
+            rows: 30
+        })
+        .unwrap(),
+        json!({ "type": "ResizeMcpDemoChat", "data": { "cols": 100, "rows": 30 } })
+    );
+
+    for event in [
+        SystemEvent::McpDemoChatReady { session_id: 7 },
+        SystemEvent::McpDemoChatOutputChunk {
+            session_id: 7,
+            data: "aGVsbG8=".to_owned(),
+        },
+        SystemEvent::McpDemoChatEnded {
+            session_id: 7,
+            reason: "exit".to_owned(),
+        },
+        SystemEvent::McpDemoChatNotDetected {
+            instructions: "Install Claude Code.".to_owned(),
+        },
+    ] {
+        let value = assert_round_trip(&event);
+        assert_adjacently_tagged(&value);
+    }
+
+    // The session id is what lets a terminal view tell its own output from a previous
+    // session's trailing chunks, so it must survive the wire as a number, not a string.
+    let chunk = serde_json::to_value(SystemEvent::McpDemoChatOutputChunk {
+        session_id: 7,
+        data: "aGVsbG8=".to_owned(),
+    })
+    .unwrap();
+    assert_eq!(chunk["data"]["session_id"], json!(7));
+    assert!(
+        chunk["data"]["data"].is_string(),
+        "base64, like PodExecOutputChunk"
+    );
+
+    let not_detected = serde_json::to_value(SystemEvent::McpDemoChatNotDetected {
+        instructions: "Install Claude Code.".to_owned(),
+    })
+    .unwrap();
+    assert_eq!(not_detected["type"], json!("McpDemoChatNotDetected"));
+    assert!(not_detected["data"]["instructions"].is_string());
 }

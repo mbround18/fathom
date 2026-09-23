@@ -83,12 +83,6 @@ impl FathomApp {
                             self.push_status(format!("Grafana connection failed: {}", message));
                         }
                     }
-                    SystemEvent::McpServerStatus {
-                        running: _,
-                        message: _,
-                    } => {
-                        // McpIntegrationView handles this in on_event
-                    }
                     SystemEvent::PortAvailability {
                         port: _,
                         available: _,
@@ -132,6 +126,14 @@ impl FathomApp {
                     | SystemEvent::TeamPublishRejected { .. } => {
                         // Teams & Organizations (014, React bridge) handles this in on_event;
                         // no egui view yet.
+                    }
+                    SystemEvent::McpServerStatusChanged { .. }
+                    | SystemEvent::McpDemoChatReady { .. }
+                    | SystemEvent::McpDemoChatOutputChunk { .. }
+                    | SystemEvent::McpDemoChatEnded { .. }
+                    | SystemEvent::McpDemoChatNotDetected { .. } => {
+                        // The stdio MCP server's toggle and its demo chat live in the Tauri UI's
+                        // Cluster Settings (015); the egui UI has no Available Agents section.
                     }
                 },
 

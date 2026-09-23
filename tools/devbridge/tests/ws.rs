@@ -180,7 +180,9 @@ async fn guarded_commands_are_forbidden_and_never_reach_the_backend() {
         json!({"type":"BulkDelete","data":{"items":[["fathom-dev","a"],["kube-system","b"]]}}),
         json!({"type":"DeletePersistentVolume","data":{"name":"pv"}}),
         json!({"type":"SetContext","data":{"context":"prod"}}),
-        json!({"type":"StartMcpServer"}),
+        // 015-mcp-agent-exposure: a dev bridge must never expose an MCP endpoint, even though
+        // the toggle is a `Local` (preference-only) mutation.
+        json!({"type":"SetMcpServerEnabled","data":{"enabled":true}}),
     ] {
         send_json(&mut ws, json!({"op":"send","cmd":cmd})).await;
         let reply = recv_json(&mut ws).await;

@@ -1,9 +1,9 @@
-//! Integration commands: Prometheus, Grafana, metrics-stack/Flux scans and the MCP server.
+//! Integration commands: Prometheus, Grafana, metrics-stack/Flux scans.
 
 use crossbeam_channel::Sender;
 
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
-use crate::backend::state::{self, BackendState};
+use crate::backend::state::BackendState;
 use crate::backend::{events, flux, hubble, integrations, metrics_provider};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SectionKey, SystemEvent,
@@ -44,43 +44,6 @@ pub(super) async fn handle(
         BackendCmd::RefreshIntegrations => refresh_integrations(state, sender).await,
         BackendCmd::RefreshFlux => refresh_flux(state, sender).await,
         BackendCmd::RefreshHubble => refresh_hubble(state, sender).await,
-        other => return handle_mcp_cmd(other, state, sender).await,
-    }
-    Ok(None)
-}
-
-async fn handle_mcp_cmd(
-    cmd: BackendCmd,
-    state: &mut BackendState,
-    sender: &Sender<BackendEventEnvelope>,
-) -> anyhow::Result<Option<BackendCmd>> {
-    match cmd {
-        BackendCmd::OpenMcpConfigDir => open_mcp_config_dir(state, sender).await,
-        BackendCmd::StartMcpServer => start_mcp_server(state, sender).await,
-        BackendCmd::RefreshMcpStatus => {
-            let running = match &state.mcp.state {
-                Some(mcp_state) => mcp_state.is_running_status().await,
-                None => false,
-            };
-            let message = if running {
-                "MCP server is running".to_owned()
-            } else {
-                "MCP server is stopped".to_owned()
-            };
-            emit_mcp_status(state, sender, running, message);
-        }
-        BackendCmd::StopMcpServer => {
-            // Abort HTTP task if running
-            state::abort_task(&mut state.mcp.http_task);
-
-            // Emit MCP server stopped event
-            emit_mcp_status(state, sender, false, "MCP server stopped".to_owned());
-            events::notify_info(
-                state.cluster.seq.as_ref(),
-                sender,
-                "MCP server stopped".to_owned(),
-            );
-        }
         other => return Ok(Some(other)),
     }
     Ok(None)
@@ -325,122 +288,6 @@ async fn refresh_hubble(state: &BackendState, sender: &Sender<BackendEventEnvelo
             format!("Failed to fetch Hubble traffic summary: {}", e),
         ),
     }
-}
-
-async fn open_mcp_config_dir(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
-    let seq = state.cluster.seq.as_ref();
-    let path = match crate::mcp_server::mcp_dir() {
-        Ok(path) => path,
-        Err(e) => {
-            events::notify_error(seq, sender, format!("Failed to resolve MCP dir: {}", e));
-            return;
-        }
-    };
-    if let Err(e) = std::fs::create_dir_all(&path) {
-        events::notify_error(seq, sender, format!("Failed to create MCP dir: {}", e));
-        return;
-    }
-
-    let cmd = if cfg!(target_os = "windows") {
-        "explorer"
-    } else if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-
-    match tokio::process::Command::new(cmd).arg(&path).spawn() {
-        Ok(_) => events::notify_info(
-            seq,
-            sender,
-            format!("Opening MCP config directory: {}", path.display()),
-        ),
-        Err(e) => events::notify_error(seq, sender, format!("Failed to open MCP directory: {}", e)),
-    }
-}
-
-async fn start_mcp_server(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
-    if state.mcp.disabled {
-        events::notify_error(
-            state.cluster.seq.as_ref(),
-            sender,
-            "The MCP server is disabled in this process.".to_owned(),
-        );
-        return;
-    }
-    // If already running, correct the UI rather than silently no-op'ing -
-    // if it thought the server was stopped (e.g. after a missed status
-    // update), a click here should still leave it showing "Running".
-    if state.mcp.http_task.is_some() {
-        emit_mcp_status(state, sender, true, "MCP server already running".to_owned());
-        return;
-    }
-
-    // Ensure state exists
-    let mcp_state = match &state.mcp.state {
-        Some(s) => s.clone(),
-        None => {
-            let s = std::sync::Arc::new(crate::mcp_server::McpAppState::new());
-            state.mcp.state = Some(s.clone());
-            s
-        }
-    };
-
-    // Initialize config files (best-effort)
-    tokio::spawn(async move {
-        let _ = crate::mcp_server::initialize_mcp_server().await;
-    });
-
-    // Bind first, *then* announce - a failed bind (e.g. port already
-    // in use by something else) must not leave the UI stuck claiming
-    // the server is running when nothing is actually listening.
-    let port = state.mcp.port;
-    match crate::mcp_server::bind_mcp_listener(port).await {
-        Ok(listener) => {
-            let handle = tokio::spawn({
-                let s = mcp_state.clone();
-                async move {
-                    let _ = crate::mcp_server::serve_mcp_http(s, listener).await;
-                }
-            });
-            state.mcp.http_task = Some(handle);
-
-            emit_mcp_status(
-                state,
-                sender,
-                true,
-                format!("MCP HTTP server starting on http://127.0.0.1:{}", port),
-            );
-            events::notify_info(
-                state.cluster.seq.as_ref(),
-                sender,
-                format!(
-                    "MCP HTTP server starting on http://127.0.0.1:{} (1 fathom ≈ 1.8288m)",
-                    port
-                ),
-            );
-        }
-        Err(e) => emit_mcp_status(
-            state,
-            sender,
-            false,
-            format!("Failed to start MCP server on port {}: {}", port, e),
-        ),
-    }
-}
-
-fn emit_mcp_status(
-    state: &BackendState,
-    sender: &Sender<BackendEventEnvelope>,
-    running: bool,
-    message: String,
-) {
-    emit_system(
-        state,
-        sender,
-        section_keys::integrations_mcp(),
-        SystemEvent::McpServerStatus { running, message },
-    );
 }
 
 fn emit_system(
