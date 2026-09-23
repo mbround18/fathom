@@ -22,6 +22,7 @@ mod exec;
 mod flux;
 mod helm;
 mod hubble;
+mod images;
 mod ingressclasses;
 mod ingresses;
 pub mod integrations;
