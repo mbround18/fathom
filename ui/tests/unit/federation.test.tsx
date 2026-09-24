@@ -178,6 +178,7 @@ describe('FleetContextCard tier indicator', () => {
     restricted: [],
     last_updated: '',
     live,
+    plugin_error: null,
   })
   it.each([
     [true, 'live', 'Live'],

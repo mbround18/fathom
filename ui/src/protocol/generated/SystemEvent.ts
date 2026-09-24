@@ -4,6 +4,7 @@ import type { AgentAuthMode } from "./AgentAuthMode";
 import type { CapabilityQuery } from "./CapabilityQuery";
 import type { CapabilityResult } from "./CapabilityResult";
 import type { CapabilitySet } from "./CapabilitySet";
+import type { CloudAuthInfo } from "./CloudAuthInfo";
 import type { ClusterSettings } from "./ClusterSettings";
 import type { ConnectionProfile } from "./ConnectionProfile";
 import type { ContextConnectionStatus } from "./ContextConnectionStatus";
@@ -32,6 +33,7 @@ import type { OllamaState } from "./OllamaState";
 import type { OrgClusterSettings } from "./OrgClusterSettings";
 import type { OrphanedNodeShellPod } from "./OrphanedNodeShellPod";
 import type { OrphanedSubject } from "./OrphanedSubject";
+import type { PluginError } from "./PluginError";
 import type { Provider } from "./Provider";
 import type { ProviderStatus } from "./ProviderStatus";
 import type { TeamLink } from "./TeamLink";
@@ -43,7 +45,11 @@ export type SystemEvent = { "type": "BackendStarted" } | { "type": "Notification
 /**
  * Verbatim backend error (Principle I), present only when `status == Error`.
  */
-error: string | null, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, 
+error: string | null, 
+/**
+ * 035: typed cloud-auth plugin failure behind `error`, when that is what failed.
+ */
+plugin_error: PluginError | null, } } | { "type": "CloudAuthDetected", "data": { infos: Array<CloudAuthInfo>, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, 
 /**
  * `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
  * (015-mcp-agent-exposure) is enabled. Off by default (FR-002).

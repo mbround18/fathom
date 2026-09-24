@@ -379,6 +379,98 @@ pub fn save_oidc_config(oidc: &OidcConfig) -> Result<()> {
     Ok(())
 }
 
+/// Per-context exec policies parsed from a `config.json` value (035). Absent or invalid yields
+/// an empty map (every context is `allowKnownOnly`); an invalid blob is moved to
+/// `cloud_auth_invalid` so the original is preserved (Principle VI). Returns whether `config`
+/// was modified and must be saved.
+pub fn exec_policies_from_config(
+    config: &mut serde_json::Value,
+) -> (
+    std::collections::HashMap<String, crate::protocol::ExecPolicy>,
+    bool,
+) {
+    let Some(raw) = config.get("cloud_auth").cloned() else {
+        return (Default::default(), false);
+    };
+    let parsed = raw
+        .get("exec_policies")
+        .cloned()
+        .map_or(Ok(Default::default()), serde_json::from_value);
+    match parsed {
+        Ok(policies) => (policies, false),
+        Err(e) => {
+            tracing::warn!(
+                "Invalid cloud_auth config; moving it to cloud_auth_invalid: {}",
+                e
+            );
+            if let Some(obj) = config.as_object_mut() {
+                obj.remove("cloud_auth");
+                obj.insert("cloud_auth_invalid".to_owned(), raw);
+            }
+            (Default::default(), true)
+        }
+    }
+}
+
+/// Set (or, for the default policy, remove) one context's policy in a `config.json` value.
+pub fn set_exec_policy_in_config(
+    config: &mut serde_json::Value,
+    context: &str,
+    policy: crate::protocol::ExecPolicy,
+) -> Result<()> {
+    let obj = config
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("config.json is not a JSON object"))?;
+    let section = obj
+        .entry("cloud_auth")
+        .or_insert_with(|| serde_json::json!({}));
+    if !section.is_object() {
+        *section = serde_json::json!({});
+    }
+    let policies = section
+        .as_object_mut()
+        .expect("just ensured object")
+        .entry("exec_policies")
+        .or_insert_with(|| serde_json::json!({}));
+    if !policies.is_object() {
+        *policies = serde_json::json!({});
+    }
+    let map = policies.as_object_mut().expect("just ensured object");
+    if policy == crate::protocol::ExecPolicy::default() {
+        map.remove(context);
+    } else {
+        map.insert(context.to_owned(), serde_json::to_value(policy)?);
+    }
+    Ok(())
+}
+
+/// Load `config.json -> cloud_auth.exec_policies` (035); defaults on any problem.
+pub fn load_exec_policies() -> std::collections::HashMap<String, crate::protocol::ExecPolicy> {
+    let mut config = match load_config() {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to read config.json; using exec policy defaults: {}",
+                e
+            );
+            return Default::default();
+        }
+    };
+    let (policies, changed) = exec_policies_from_config(&mut config);
+    if changed && let Err(e) = save_config(&config) {
+        tracing::warn!("Failed to move invalid cloud_auth config aside: {}", e);
+    }
+    policies
+}
+
+/// Persist one context's exec policy, leaving every other key untouched. Refuses to write over
+/// an unparseable `config.json`.
+pub fn save_exec_policy(context: &str, policy: crate::protocol::ExecPolicy) -> Result<()> {
+    let mut config = load_config()?;
+    set_exec_policy_in_config(&mut config, context, policy)?;
+    save_config(&config)
+}
+
 /// Load saved port forwards from ports.json
 pub fn load_all_ports() -> Result<Vec<PortForward>> {
     let path = ports_config_path()?;
@@ -912,5 +1004,40 @@ mod federation_tests {
         let f = load_federation_from(&path);
         assert_eq!(f.contexts, vec!["x".to_owned()]);
         assert_eq!(f.soft_cap, 8);
+    }
+}
+
+#[cfg(test)]
+mod exec_policy_tests {
+    use super::*;
+    use crate::protocol::ExecPolicy;
+    use serde_json::json;
+
+    #[test]
+    fn absent_config_defaults_and_is_unchanged() {
+        let mut c = json!({"ui": {"a": 1}});
+        let (p, changed) = exec_policies_from_config(&mut c);
+        assert!(p.is_empty() && !changed);
+    }
+
+    #[test]
+    fn set_is_additive_and_default_removes_entry() {
+        let mut c = json!({"ui": {"a": 1}});
+        set_exec_policy_in_config(&mut c, "dev", ExecPolicy::AllowAll).unwrap();
+        assert_eq!(c["ui"]["a"], 1);
+        assert_eq!(c["cloud_auth"]["exec_policies"]["dev"], "allowAll");
+        let (p, _) = exec_policies_from_config(&mut c);
+        assert_eq!(p.get("dev"), Some(&ExecPolicy::AllowAll));
+        set_exec_policy_in_config(&mut c, "dev", ExecPolicy::AllowKnownOnly).unwrap();
+        assert!(exec_policies_from_config(&mut c).0.is_empty());
+    }
+
+    #[test]
+    fn invalid_blob_yields_defaults_and_is_preserved() {
+        let mut c = json!({"cloud_auth": {"exec_policies": {"dev": "bogus"}}});
+        let (p, changed) = exec_policies_from_config(&mut c);
+        assert!(p.is_empty() && changed);
+        assert!(c.get("cloud_auth").is_none());
+        assert_eq!(c["cloud_auth_invalid"]["exec_policies"]["dev"], "bogus");
     }
 }

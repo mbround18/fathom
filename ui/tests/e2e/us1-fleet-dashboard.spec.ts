@@ -20,6 +20,7 @@ test('fleet dashboard shows both contexts without switching the active one', asy
 
   const base = {
     error: null,
+    plugin_error: null,
     flux: null,
     restricted: [],
     last_updated: '2026-09-23T00:00:00Z',
@@ -83,6 +84,7 @@ test('restricted group shows "no access"; clicking a card switches and closes th
           context: 'dev',
           health: 'Healthy',
           error: null,
+          plugin_error: null,
           flux: null,
           restricted: ['pods'],
           last_updated: new Date().toISOString(),

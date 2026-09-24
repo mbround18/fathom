@@ -38,6 +38,7 @@ export function FederationContextSwitcher() {
   const contexts = useStore((s) => s.session.contexts)
   const active = useStore((s) => s.session.activeContext)
   const statuses = useStore((s) => s.session.contextStatuses)
+  const cloudAuth = useStore((s) => s.session.cloudAuth)
   const selectContext = useStore((s) => s.selectContext)
 
   if (contexts.length === 0) return null
@@ -52,7 +53,13 @@ export function FederationContextSwitcher() {
         const entry = statuses[name]
         const statusAttr = entry ? STATUS_ATTR[entry.status] : 'not_connected'
         const isActive = name === active
-        const title = entry?.error ?? STATUS_LABEL[statusAttr]
+        const pe = entry?.pluginError
+        const cloud = cloudAuth[name]
+        const provider =
+          cloud && cloud.provider !== 'none' ? ` [${cloud.provider}${cloud.installed === false ? ', plugin missing' : ''}]` : ''
+        const title = pe
+          ? `${pe.message}${pe.hint ? ` — ${pe.hint}` : ''}`
+          : (entry?.error ?? STATUS_LABEL[statusAttr])
         return (
           <button
             key={name}
@@ -61,7 +68,7 @@ export function FederationContextSwitcher() {
             data-context-name={name}
             data-context-status={statusAttr}
             aria-pressed={isActive}
-            title={`${name}: ${title}`}
+            title={`${name}: ${title}${provider}`}
             onClick={() => selectContext(name)}
             className={cn(
               'flex min-h-[var(--touch-target)] shrink-0 items-center gap-1.5 rounded-md border px-2.5 font-mono text-xs whitespace-nowrap',
@@ -79,6 +86,7 @@ export function FederationContextSwitcher() {
             {statusAttr === 'error' && (
               <span data-testid="federation-context-error" className="sr-only">
                 {entry?.error}
+                {pe?.hint ? ` ${pe.hint}` : ''}
               </span>
             )}
           </button>

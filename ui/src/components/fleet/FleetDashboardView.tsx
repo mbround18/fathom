@@ -12,6 +12,7 @@ function pending(context: string): FleetContextSummary {
     context,
     health: 'Pending',
     error: null,
+    plugin_error: null,
     node_ready_count: null,
     node_total_count: null,
     unhealthy_pod_count: null,

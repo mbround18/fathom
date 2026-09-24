@@ -61,6 +61,8 @@ pub struct FleetContextSummary {
     /// the 027 poller. Additive; absent in older payloads.
     #[serde(default)]
     pub live: bool,
+    /// 035: typed exec-plugin failure behind `error` (distinct from an API 401/403).
+    pub plugin_error: Option<super::PluginError>,
 }
 
 /// Reduce a `FluxOverview` into the fleet card's single-value rollup status.

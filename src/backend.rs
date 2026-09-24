@@ -13,6 +13,7 @@ mod agent;
 mod ai;
 mod applications;
 mod apply;
+pub mod cloud_auth;
 mod cmd;
 mod context_status;
 mod crds;

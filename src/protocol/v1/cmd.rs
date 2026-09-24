@@ -82,6 +82,12 @@ pub enum BackendCmdV1 {
     SetNodeShellSettings {
         settings: NodeShellSettings,
     },
+    /// 035-cloud-auth-plugins: allow (or stop allowing) non-allowlisted exec commands for one
+    /// context. Persisted additively; re-emits `CloudAuthDetected`.
+    SetExecPolicy {
+        context: String,
+        policy: super::ExecPolicy,
+    },
     RefreshEvents,
 
     // Workloads / Pods section

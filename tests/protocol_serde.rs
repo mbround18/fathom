@@ -1994,6 +1994,10 @@ fn all_cmds() -> Vec<BackendCmd> {
             }],
         },
         BackendCmd::GetNodeShellSettings,
+        BackendCmd::SetExecPolicy {
+            context: "s".to_owned(),
+            policy: fathom::protocol::ExecPolicy::AllowAll,
+        },
         BackendCmd::SetNodeShellSettings {
             settings: NodeShellSettings::default(),
         },
@@ -2057,6 +2061,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::DeleteNodeShellOrphans { .. } => {}
         BackendCmd::GetNodeShellSettings => {}
         BackendCmd::SetNodeShellSettings { .. } => {}
+        BackendCmd::SetExecPolicy { .. } => {}
         BackendCmd::SendPodExecInput { .. } => {}
         BackendCmd::ResizePodExec { .. } => {}
         BackendCmd::StopPodExec => {}
@@ -2266,6 +2271,19 @@ fn all_system_events() -> Vec<SystemEvent> {
             context: "s".to_owned(),
             status: fathom::protocol::ContextConnectionStatus::Error,
             error: Some("s".to_owned()),
+            plugin_error: Some(sample_plugin_error()),
+        },
+        SystemEvent::CloudAuthDetected {
+            infos: vec![fathom::protocol::CloudAuthInfo {
+                context: "s".to_owned(),
+                provider: fathom::protocol::CloudProvider::Eks,
+                command: Some("aws".to_owned()),
+                installed: Some(true),
+                resolved_path: Some("/usr/bin/aws".to_owned()),
+                exec_policy_allowed: true,
+                exec_policy: fathom::protocol::ExecPolicy::AllowKnownOnly,
+                install_hint: None,
+            }],
         },
         SystemEvent::NamespaceFilterChanged {
             namespaces: vec!["s".to_owned()],
@@ -2462,6 +2480,17 @@ fn all_system_events() -> Vec<SystemEvent> {
     ]
 }
 
+fn sample_plugin_error() -> fathom::protocol::PluginError {
+    fathom::protocol::PluginError {
+        kind: fathom::protocol::PluginErrorKind::PluginMissing,
+        context: "s".to_owned(),
+        provider: fathom::protocol::CloudProvider::Gke,
+        command: "gke-gcloud-auth-plugin".to_owned(),
+        message: "s".to_owned(),
+        hint: Some("s".to_owned()),
+    }
+}
+
 fn sample_fleet_context_summary() -> fathom::protocol::FleetContextSummary {
     fathom::protocol::FleetContextSummary {
         context: "prod-east".to_owned(),
@@ -2475,6 +2504,7 @@ fn sample_fleet_context_summary() -> fathom::protocol::FleetContextSummary {
         restricted: vec!["pods".to_owned()],
         last_updated: "2026-09-23T18:04:12Z".to_owned(),
         live: true,
+        plugin_error: None,
     }
 }
 
@@ -2611,6 +2641,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::ContextsUpdated { .. } => {}
         SystemEvent::ContextChanged { .. } => {}
         SystemEvent::ContextStatusUpdated { .. } => {}
+        SystemEvent::CloudAuthDetected { .. } => {}
         SystemEvent::NamespaceFilterChanged { .. } => {}
         SystemEvent::PrometheusConnectionTest { .. } => {}
         SystemEvent::GrafanaConnectionTest { .. } => {}

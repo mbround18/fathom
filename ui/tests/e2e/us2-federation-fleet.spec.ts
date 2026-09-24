@@ -30,11 +30,11 @@ test('live card and polled card, fallback on un-federate without duplicates', as
     batch([
       system(2, {
         type: 'FleetSummaryUpdated',
-        data: { ...base, context: 'prod', last_updated: '2026-09-24T00:00:00Z', live: true },
+        data: { ...base, context: 'prod', last_updated: '2026-09-24T00:00:00Z', live: true, plugin_error: null },
       }),
       system(3, {
         type: 'FleetSummaryUpdated',
-        data: { ...base, context: 'dev', last_updated: '2026-09-24T00:00:00Z', live: false },
+        data: { ...base, context: 'dev', last_updated: '2026-09-24T00:00:00Z', live: false, plugin_error: null },
       }),
     ]),
   )
@@ -50,7 +50,7 @@ test('live card and polled card, fallback on un-federate without duplicates', as
     batch([
       system(4, {
         type: 'FleetSummaryUpdated',
-        data: { ...base, context: 'prod', last_updated: '2026-09-24T00:00:30Z', live: false },
+        data: { ...base, context: 'prod', last_updated: '2026-09-24T00:00:30Z', live: false, plugin_error: null },
       }),
     ]),
   )

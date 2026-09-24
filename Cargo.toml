@@ -18,6 +18,11 @@ name = "fathom"
 path = "src/main.rs"
 required-features = ["egui-ui"]
 
+# 035-cloud-auth-plugins: fake ExecCredential plugin used only by integration tests.
+[[bin]]
+name = "fake-exec-plugin"
+path = "tests/support/fake_plugin.rs"
+
 [dependencies]
 # UI (legacy egui; optional, see `egui-ui` feature)
 egui = { version = "0.33.3", optional = true }

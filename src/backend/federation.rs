@@ -372,6 +372,7 @@ fn fleet_summary(r: &FederationContextRollup) -> FleetContextSummary {
         restricted,
         last_updated: r.last_updated.clone(),
         live: true,
+        plugin_error: None,
     }
 }
 

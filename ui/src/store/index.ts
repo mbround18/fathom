@@ -49,6 +49,8 @@ import type {
   ThemePrefs,
   ToolKind,
   FleetContextSummary,
+  CloudAuthInfo,
+  PluginError,
   TunnelStatus,
   UiConfig,
 } from '@/protocol/types'
@@ -147,6 +149,8 @@ export interface ContextStatusEntry {
   status: ContextConnectionStatus
   /** Present only when `status === 'Error'` (012-incluster-daemon-federation P1). */
   error?: string
+  /** 035: typed cloud-auth plugin failure (present when the error came from an exec plugin). */
+  pluginError?: PluginError
 }
 
 export interface SessionState {
@@ -163,6 +167,8 @@ export interface SessionState {
    * write per context wins — the backend never double-writes the same context (data-model.md
    * §"Frontend"). */
   contextStatuses: Record<string, ContextStatusEntry>
+  /** 035: detected exec-plugin (cloud auth) info per context; refreshed by `CloudAuthDetected`. */
+  cloudAuth: Record<string, CloudAuthInfo>
   /** 027-fleet-rollup-dashboard: latest poll summary per context; runtime-only, populated only
    * while the Fleet Dashboard is open. Last write per context wins. */
   fleetSummaries: Record<string, FleetContextSummary>
@@ -856,6 +862,7 @@ export function initialData(): StoreData {
       activeNamespace: null,
       namespaceFilter: [],
       contextStatuses: {},
+      cloudAuth: {},
       fleetSummaries: {},
       federation: initialFederation(),
     },

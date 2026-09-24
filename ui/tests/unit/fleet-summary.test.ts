@@ -17,6 +17,7 @@ const summary = (context: string, over: Partial<FleetContextSummary> = {}): Flee
   context,
   health: 'Healthy',
   error: null,
+  plugin_error: null,
   node_ready_count: 3,
   node_total_count: 3,
   unhealthy_pod_count: 0,
