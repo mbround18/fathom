@@ -5,7 +5,7 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 
-import { batch, clusterRoute, envelope, globalRoute, list } from '../fixtures/builders'
+import { batch, clusterRoute, envelope, globalRoute, list, system } from '../fixtures/builders'
 import type { NodeShellPhase, NodeShellAccessCheck, SystemEvent } from '../../src/protocol/types'
 import {
   clearSent,
@@ -16,6 +16,7 @@ import {
   sent,
   sentTypes,
   expectNoHorizontalScroll,
+  navigateTo,
 } from './helpers'
 
 const NODE = {
@@ -304,5 +305,192 @@ test.describe('037 node shell', () => {
           data: { pods: [{ namespace: 'default', name: 'fathom-node-shell-old-11111' }] },
         },
       ])
+  })
+
+  test('a session override applies to one start without changing the saved defaults', async ({
+    page,
+  }) => {
+    const insp = await openShellTab(page)
+    await insp.getByText('Session options').click()
+    await insp.getByTestId('node-shell-image').fill('alpine:3.20')
+    await insp.getByTestId('node-shell-deadline').fill('10')
+    await clearSent(page)
+    await insp.getByTestId('node-shell-start').click()
+    await expect(confirmDialog(page)).toContainText('alpine:3.20')
+    await confirmDialog(page).getByTestId('confirm-submit').click()
+    await expect
+      .poll(() => sent(page))
+      .toEqual([
+        {
+          type: 'StartNodeShell',
+          data: {
+            node: NODE.name,
+            namespace: 'default',
+            image: 'alpine:3.20',
+            image_pull_secret: null,
+            deadline_seconds: 600,
+          },
+        },
+      ])
+    expect(await sentTypes(page)).not.toContain('SetNodeShellSettings')
+  })
+
+  test('keyboard: the start action opens the dialog with Enter and Escape cancels', async ({
+    page,
+  }) => {
+    const insp = await openShellTab(page)
+    await clearSent(page)
+    const start = insp.getByTestId('node-shell-start')
+    await start.focus()
+    await expect(start).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(confirmDialog(page)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(confirmDialog(page)).toHaveCount(0)
+    expect(await sent(page)).toEqual([])
+    // Session options are a native disclosure, operable from the keyboard.
+    const summary = insp.getByText('Session options')
+    await summary.focus()
+    await page.keyboard.press('Enter')
+    await expect(insp.getByTestId('node-shell-image')).toBeVisible()
+    await expectNoHorizontalScroll(page)
+  })
+
+  test('status and denial regions are announced, controls are labelled, reduced motion holds', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    const insp = await openShellTab(page, [
+      allowed('create', 'pods'),
+      {
+        verb: 'create',
+        resource: 'pods',
+        subresource: 'exec',
+        namespace: 'default',
+        outcome: { type: 'Denied', data: { reason: 'exec is forbidden' } },
+      },
+    ])
+    await expect(insp.getByRole('alert').filter({ hasText: 'missing permissions' })).toBeVisible()
+    await expect(insp.getByTestId('node-shell-start')).toHaveAccessibleName(/open node shell/i)
+    await insp.getByText('Session options').click()
+    await expect(insp.getByLabel('Image', { exact: true })).toBeVisible()
+    await expect(insp.getByLabel('Auto-delete after (minutes)')).toBeVisible()
+    // No running CSS animation or transition on the panel under reduced motion.
+    const animated = await insp.getByTestId('node-shell-panel').evaluate(
+      (el) =>
+        [el, ...el.querySelectorAll('*')].filter((n) => {
+          const cs = getComputedStyle(n)
+          return cs.animationName !== 'none' && parseFloat(cs.animationDuration) > 0.01
+        }).length,
+    )
+    expect(animated).toBe(0)
+    await expectNoHorizontalScroll(page)
+  })
+})
+
+const SETTINGS_CTX = 'kind-a'
+const BASE_CLUSTER_SETTINGS = {
+  schema: 1 as const,
+  metricsSource: 'none' as const,
+  prometheusPath: '/api/v1',
+  https: false,
+  pathPrefix: '',
+  hiddenMetrics: [],
+  orgRevKnown: null,
+  fieldOrigin: {
+    metricsSource: 'local' as const,
+    prometheusPath: 'local' as const,
+    https: 'local' as const,
+    pathPrefix: 'local' as const,
+    hiddenMetrics: 'local' as const,
+  },
+}
+
+async function goToNodeShellSettings(page: Page) {
+  await open(page)
+  await navigateTo(page, 'Cluster Settings', 'Team')
+  await expect.poll(() => sentTypes(page)).toContain('LoadClusterSettings')
+  await emit(
+    page,
+    batch([
+      system(1, {
+        type: 'ClusterSettingsLoaded',
+        data: { context: SETTINGS_CTX, settings: BASE_CLUSTER_SETTINGS },
+      }),
+    ]),
+  )
+  await expect.poll(() => sentTypes(page)).toContain('GetNodeShellSettings')
+  await emit(page, batch([settingsEvent()]))
+  return page.getByTestId('node-shell-settings')
+}
+
+test.describe('037 node shell settings persistence', () => {
+  test('saved defaults are sent, normalized values shown, and survive a restart', async ({
+    page,
+  }) => {
+    const section = await goToNodeShellSettings(page)
+    await expect(section.getByTestId('node-shell-settings-image')).toHaveValue('busybox:stable')
+    await expect(section.getByTestId('node-shell-settings-deadline')).toHaveValue('240')
+
+    await section.getByTestId('node-shell-settings-image').fill('ghcr.io/acme/debug:1')
+    await section.getByTestId('node-shell-settings-namespace').fill('ops')
+    await section.getByTestId('node-shell-settings-deadline').fill('30')
+    await clearSent(page)
+    await section.getByTestId('node-shell-settings-save').click()
+    await expect
+      .poll(() => sent(page))
+      .toEqual([
+        {
+          type: 'SetNodeShellSettings',
+          data: {
+            settings: {
+              image: 'ghcr.io/acme/debug:1',
+              namespace: 'ops',
+              image_pull_secret: null,
+              deadline_seconds: 1800,
+            },
+          },
+        },
+      ])
+
+    // The backend replies with the normalized values it persisted.
+    const saved = {
+      image: 'ghcr.io/acme/debug:1',
+      namespace: 'ops',
+      image_pull_secret: null,
+      deadline_seconds: 1800,
+    }
+    const loaded = (n: number) =>
+      system(n, {
+        type: 'NodeShellSettingsLoaded',
+        data: { context: SETTINGS_CTX, settings: saved },
+      })
+    await emit(page, batch([loaded(60)]))
+    await expect(section.getByTestId('node-shell-settings-namespace')).toHaveValue('ops')
+
+    // Restart: fresh page and store; the backend replays what it read from node-shell.json.
+    await open(page)
+    await navigateTo(page, 'Cluster Settings', 'Team')
+    await emit(
+      page,
+      batch([
+        system(1, {
+          type: 'ClusterSettingsLoaded',
+          data: { context: SETTINGS_CTX, settings: BASE_CLUSTER_SETTINGS },
+        }),
+        loaded(61),
+      ]),
+    )
+    const again = page.getByTestId('node-shell-settings')
+    await expect(again.getByTestId('node-shell-settings-image')).toHaveValue('ghcr.io/acme/debug:1')
+    await expect(again.getByTestId('node-shell-settings-deadline')).toHaveValue('30')
+    await expectNoHorizontalScroll(page)
+  })
+
+  test('an invalid deadline blocks saving', async ({ page }) => {
+    const section = await goToNodeShellSettings(page)
+    await section.getByTestId('node-shell-settings-deadline').fill('2')
+    await expect(section.getByTestId('node-shell-settings-save')).toBeDisabled()
+    await expect(section.getByRole('alert')).toContainText('at least 5 minutes')
   })
 })

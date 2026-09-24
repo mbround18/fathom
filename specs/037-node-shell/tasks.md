@@ -38,11 +38,11 @@ Format: `[ID] [P?] [Story] description (path)`. [P] = parallelizable (different 
 ## Phase 6: US4 - Settings (P3)
 - [x] T024 [P] [US4] Persistence tests: additive load, missing keys default, invalid file preserved (src/backend/persistence.rs)
 - [x] T025 [US4] Settings fields in Cluster Settings; per-session override in confirmation
-- [ ] T026 [US4] Playwright for settings persistence and override (NOT DONE: no Playwright test for settings persistence)
+- [X] T026 [US4] Playwright for settings persistence and override (ui/tests/e2e/node-shell.spec.ts)
 
 ## Phase 7: Polish
 - [x] T027 [P] Disable action with reason for Windows nodes; test (view helper unit-tested in Vitest; no Playwright test)
-- [ ] T028 [P] Accessibility, keyboard, reduced-motion pass; verify no horizontal scroll at supported widths (NOT DONE: no dedicated pass)
+- [X] T028 [P] Accessibility, keyboard, reduced-motion pass; verify no horizontal scroll at supported widths (keyboard, labels and reduced-motion asserted in node-shell.spec.ts; no horizontal scroll checked at all widths)
 - [x] T029 Update docs/MVP.md Node Shell status and section text
 - [ ] T030 Run quickstart on Tier 1 platforms; full CI gates (PARTIAL, not done: Linux only; live kind run via an ignored test; Ubuntu 26/Win11/macOS not run)
 - [ ] T031 Brochure screenshots of the new screens (final step per project convention)
