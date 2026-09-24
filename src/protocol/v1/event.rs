@@ -24,8 +24,8 @@ use super::{
 };
 use super::{
     CapabilityQuery, CapabilityResult, CapabilitySet, IdpDirectorySnapshot, OidcConfig,
-    OidcIdentity, OidcSignInStage, OrgClusterSettings, OrphanedSubject, TeamPublishRejection,
-    TeamStoreStatus,
+    OidcIdentity, OidcSignInStage, OrgClusterSettings, OrphanedSubject, TeamLink,
+    TeamPublishRejection, TeamStoreStatus,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -233,6 +233,10 @@ pub enum SystemEvent {
         present: bool,
     },
     IdpDirectoryUpdated(IdpDirectorySnapshot),
+    /// Advisory group -> shared-profile links from the team store (033 US3, R8).
+    TeamLinksUpdated {
+        links: Vec<TeamLink>,
+    },
     CapabilitiesResolved(CapabilitySet),
     CapabilityChecked {
         query: CapabilityQuery,

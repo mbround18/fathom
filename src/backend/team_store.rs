@@ -12,7 +12,7 @@
 //! overwritten. Writes are atomic (write to a sibling temp file, then rename) so a crash
 //! mid-write can never corrupt the shared file for other teammates.
 
-use crate::protocol::{ConnectionProfile, OrgClusterSettings};
+use crate::protocol::{ConnectionProfile, OrgClusterSettings, TeamLink, scan_fields_for_secrets};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,6 +46,9 @@ struct ProfilesFile {
     rev: u64,
     #[serde(default)]
     profiles: BTreeMap<String, ConnectionProfile>,
+    /// 033 US3 (R8): advisory group -> profile links. Additive: older readers ignore the key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    team_links: Vec<TeamLink>,
 }
 
 fn profiles_file_path(store_root: &Path) -> PathBuf {
@@ -182,6 +185,54 @@ pub fn remove_profile(
         serde_json::to_string_pretty(&file).map_err(|e| StoreError::Invalid(e.to_string()))?;
     write_atomic(&profiles_file_path(store_root), &content)?;
     Ok(file.rev)
+}
+
+/// Non-secret check for link fields (same heuristic as profile publishing).
+pub fn validate_link(link: &TeamLink) -> Result<(), StoreError> {
+    if link.group.trim().is_empty() || link.profile_id.trim().is_empty() {
+        return Err(StoreError::Invalid(
+            "a team link needs a group and a profile".into(),
+        ));
+    }
+    scan_fields_for_secrets(&[("group", &link.group), ("profileId", &link.profile_id)])
+        .map_err(|(field, reason)| StoreError::Invalid(format!("{field} {reason}")))
+}
+
+/// All advisory team links in the store (empty when none were ever written).
+pub fn read_links(store_root: &Path) -> Result<Vec<TeamLink>, StoreError> {
+    check_reachable(store_root)?;
+    Ok(read_profiles_file(store_root)?.team_links)
+}
+
+fn write_profiles_file(store_root: &Path, file: &ProfilesFile) -> Result<(), StoreError> {
+    let content =
+        serde_json::to_string_pretty(file).map_err(|e| StoreError::Invalid(e.to_string()))?;
+    write_atomic(&profiles_file_path(store_root), &content)
+}
+
+/// Adds a link (idempotent). Links are advisory visibility hints, not authority, so they do
+/// not bump the profile `rev` (which guards profile content).
+pub fn link_team(store_root: &Path, link: TeamLink) -> Result<Vec<TeamLink>, StoreError> {
+    validate_link(&link)?;
+    check_reachable(store_root)?;
+    let mut file = read_profiles_file(store_root)?;
+    if !file.team_links.contains(&link) {
+        file.team_links.push(link);
+        write_profiles_file(store_root, &file)?;
+    }
+    Ok(file.team_links)
+}
+
+/// Removes a link (idempotent).
+pub fn unlink_team(store_root: &Path, link: &TeamLink) -> Result<Vec<TeamLink>, StoreError> {
+    check_reachable(store_root)?;
+    let mut file = read_profiles_file(store_root)?;
+    let before = file.team_links.len();
+    file.team_links.retain(|l| l != link);
+    if file.team_links.len() != before {
+        write_profiles_file(store_root, &file)?;
+    }
+    Ok(file.team_links)
 }
 
 /// Reads the org-level Cluster Settings default for `context`, if any has been published.
@@ -331,5 +382,66 @@ mod tests {
                 current_rev: 1
             }
         );
+    }
+
+    fn link(group: &str, profile: &str) -> TeamLink {
+        TeamLink {
+            group: group.into(),
+            profile_id: profile.into(),
+        }
+    }
+
+    #[test]
+    fn links_round_trip_and_are_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_links(dir.path()).unwrap().is_empty());
+        link_team(dir.path(), link("fathom-editors", "p1")).unwrap();
+        let links = link_team(dir.path(), link("fathom-editors", "p1")).unwrap();
+        assert_eq!(links.len(), 1);
+        link_team(dir.path(), link("fathom-viewers", "p1")).unwrap();
+        assert_eq!(read_links(dir.path()).unwrap().len(), 2);
+        let links = unlink_team(dir.path(), &link("fathom-editors", "p1")).unwrap();
+        assert_eq!(links, vec![link("fathom-viewers", "p1")]);
+    }
+
+    #[test]
+    fn publishing_a_profile_preserves_links() {
+        let dir = tempfile::tempdir().unwrap();
+        link_team(dir.path(), link("g", "p1")).unwrap();
+        publish_profile(dir.path(), sample_profile("p1"), 0).unwrap();
+        assert_eq!(read_links(dir.path()).unwrap(), vec![link("g", "p1")]);
+    }
+
+    /// An older reader's view of the file: no links field, unknown keys ignored.
+    #[derive(serde::Deserialize)]
+    struct OldProfilesFile {
+        #[serde(default)]
+        rev: u64,
+        #[serde(default)]
+        profiles: BTreeMap<String, ConnectionProfile>,
+    }
+
+    #[test]
+    fn older_readers_ignore_the_links_field() {
+        let dir = tempfile::tempdir().unwrap();
+        publish_profile(dir.path(), sample_profile("p1"), 0).unwrap();
+        link_team(dir.path(), link("g", "p1")).unwrap();
+        let raw = fs::read_to_string(profiles_file_path(dir.path())).unwrap();
+        assert!(raw.contains("team_links"));
+        let old: OldProfilesFile = serde_json::from_str(&raw).unwrap();
+        assert_eq!(old.rev, 1);
+        assert!(old.profiles.contains_key("p1"));
+    }
+
+    #[test]
+    fn links_never_carry_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(link_team(dir.path(), link("token=abc", "p1")).is_err());
+        assert!(link_team(dir.path(), link("g", "Bearer xyz")).is_err());
+        assert!(link_team(dir.path(), link("", "p1")).is_err());
+        assert!(read_links(dir.path()).unwrap().is_empty());
+        link_team(dir.path(), link("fathom-editors", "kind-abc123")).unwrap();
+        let raw = fs::read_to_string(profiles_file_path(dir.path())).unwrap();
+        assert!(scan_fields_for_secrets(&[("file", &raw)]).is_ok());
     }
 }

@@ -49,7 +49,11 @@ export function ImageInspectPanel({ target }: { target: ObjectRef }) {
 
   const [selected, setSelected] = useState<string | undefined>(undefined)
   const container =
-    containers.length > 0 ? (selected && containers.includes(selected) ? selected : containers[0]) : undefined
+    containers.length > 0
+      ? selected && containers.includes(selected)
+        ? selected
+        : containers[0]
+      : undefined
 
   const key = container ? imageInspectKey(namespace, pod, container) : undefined
   const state = useStore((s) => (key ? s.imageInspections[key] : undefined))
@@ -172,9 +176,7 @@ function ImageDetails({ inspection }: { inspection: ImageInspection }) {
                   <span className="truncate text-muted-foreground">{layer.digest}</span>
                   <span className="shrink-0">{formatBytes(layer.size_bytes)}</span>
                 </div>
-                {layer.command && (
-                  <p className="truncate text-foreground/80">{layer.command}</p>
-                )}
+                {layer.command && <p className="truncate text-foreground/80">{layer.command}</p>}
               </li>
             ))}
           </ol>

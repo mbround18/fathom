@@ -9,6 +9,7 @@ use crate::protocol::{
 
 mod agent;
 mod cluster;
+mod idp;
 mod integrations;
 mod mcp;
 mod oidc;
@@ -92,6 +93,10 @@ pub async fn dispatch_cmd(
     };
     // 033-rauthy-oidc-teams-users: OIDC identity and per-context auth mode.
     let Some(cmd) = oidc::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 033 US3: read-only IdP directory and admin API key.
+    let Some(cmd) = idp::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
     // 015-mcp-agent-exposure: the stdio MCP server's toggle/status.

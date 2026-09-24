@@ -160,7 +160,7 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
                   {stream?.lines.truncated === 1 ? '' : 's'} truncated
                 </p>
               )}
-              <pre className="min-w-0 whitespace-pre-wrap break-words text-foreground/90">
+              <pre className="min-w-0 break-words whitespace-pre-wrap text-foreground/90">
                 {lines.join('\n')}
               </pre>
             </>

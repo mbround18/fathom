@@ -51,13 +51,13 @@
 
 ## Phase 6: US3 Teams and users (P2)
 
-- [ ] T032 [US3] Tests first with mocked Rauthy admin API (paging, 401/403, unreachable, stale cache)
-- [ ] T033 [US3] Implement `src/backend/idp_directory.rs` (read-only) and `IdpSetAdminKey`, `IdpRefreshDirectory`
-- [ ] T034 [P] [US3] UI Teams view: own groups for all, users/groups list for admins (virtualized, priority columns) in `ui/src/features/teams/`
-- [ ] T035 [US3] `TeamLink` additive field in `src/backend/team_store.rs` + `LinkTeamProfile/UnlinkTeamProfile`; secret-scan and old-reader compatibility tests
-- [ ] T036 [US3] UI filter of shared profiles by group membership, labelled advisory
-- [ ] T037 [US3] Fathom-level role map (viewers/editors/admins) gating team publish and settings sync; tests
-- [ ] T038 [US3] E2E: alice/bob/carol Story 3 independent test; IdP-unavailable banner
+- [x] T032 [US3] Tests first with mocked Rauthy admin API (paging, 401/403, unreachable, stale cache)
+- [x] T033 [US3] Implement `src/backend/idp_directory.rs` (read-only) and `IdpSetAdminKey`, `IdpRefreshDirectory`
+- [x] T034 [P] [US3] UI Teams view: own groups for all, users/groups list for admins (virtualized, priority columns) in `ui/src/features/teams/`
+- [x] T035 [US3] `TeamLink` additive field in `src/backend/team_store.rs` + `LinkTeamProfile/UnlinkTeamProfile`; secret-scan and old-reader compatibility tests
+- [x] T036 [US3] UI filter of shared profiles by group membership, labelled advisory
+- [x] T037 [US3] Fathom-level role map (viewers/editors/admins) gating team publish and settings sync; tests
+- [x] T038 [US3] E2E: alice/bob/carol Story 3 independent test; IdP-unavailable banner
 
 ## Phase 7: US4 Role assignment UI (P2)
 

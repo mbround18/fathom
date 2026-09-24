@@ -5,4 +5,4 @@
  * field looked like it contained credential/secret material, or because of a
  * rev conflict with a concurrent edit (FR-002, FR-012).
  */
-export type TeamPublishRejection = { "kind": "suspectedSecret", field: string, reason: string, } | { "kind": "conflict", expected_rev: number, current_rev: number, } | { "kind": "storeUnreachable", reason: string, };
+export type TeamPublishRejection = { "kind": "suspectedSecret", field: string, reason: string, } | { "kind": "conflict", expected_rev: number, current_rev: number, } | { "kind": "storeUnreachable", reason: string, } | { "kind": "roleForbidden", reason: string, };

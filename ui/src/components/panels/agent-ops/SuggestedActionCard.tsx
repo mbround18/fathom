@@ -125,7 +125,10 @@ export function SuggestedActionCard({
         </p>
       )}
       {!resolved && (
-        <p data-testid="agent-ops-suggested-action-unmatched" className="pt-1 text-muted-foreground">
+        <p
+          data-testid="agent-ops-suggested-action-unmatched"
+          className="pt-1 text-muted-foreground"
+        >
           This suggested action type isn't directly executable from this view.
         </p>
       )}

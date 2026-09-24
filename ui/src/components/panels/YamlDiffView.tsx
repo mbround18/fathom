@@ -28,7 +28,12 @@ export interface YamlDiffViewProps {
   stale?: boolean
 }
 
-export function YamlDiffView({ session, currentManifest, targetManifest, stale }: YamlDiffViewProps) {
+export function YamlDiffView({
+  session,
+  currentManifest,
+  targetManifest,
+  stale,
+}: YamlDiffViewProps) {
   const liveYaml = session ? session.liveYaml : (currentManifest ?? '')
   const editedYaml = session ? session.editedYaml : (targetManifest ?? '')
   const changedSinceReview = session ? session.liveYamlChangedSinceReview : (stale ?? false)

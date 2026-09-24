@@ -202,6 +202,7 @@ export type * from "./SuggestedAction";
 export type * from "./SuggestedActionStatus";
 export type * from "./SystemEvent";
 export type * from "./TaintOp";
+export type * from "./TeamLink";
 export type * from "./TeamPublishRejection";
 export type * from "./TeamStoreStatus";
 export type * from "./ThemeAccent";

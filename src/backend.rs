@@ -25,6 +25,7 @@ mod fleet;
 mod flux;
 mod helm;
 mod hubble;
+mod idp_directory;
 mod images;
 mod ingressclasses;
 mod ingresses;

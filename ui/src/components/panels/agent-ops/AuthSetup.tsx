@@ -143,7 +143,12 @@ export function AuthSetup() {
         Assistant auth
       </h3>
 
-      <div className="flex gap-1" data-testid="agent-ops-mode-selector" role="radiogroup" aria-label="Assistant auth mode">
+      <div
+        className="flex gap-1"
+        data-testid="agent-ops-mode-selector"
+        role="radiogroup"
+        aria-label="Assistant auth mode"
+      >
         <ModeButton
           testId="agent-ops-mode-anthropic"
           label="Anthropic (BYOK)"
@@ -225,7 +230,10 @@ export function AuthSetup() {
       {choice === 'ollama' && (
         <div className="flex flex-col gap-2">
           <div className="flex flex-col gap-1">
-            <label htmlFor="agent-ops-ollama-endpoint-input" className="text-xs text-muted-foreground">
+            <label
+              htmlFor="agent-ops-ollama-endpoint-input"
+              className="text-xs text-muted-foreground"
+            >
               Endpoint
             </label>
             <Input

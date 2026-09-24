@@ -73,10 +73,31 @@ impl CapabilityCache {
     }
 }
 
-/// Identity `sub` the current connection authenticates as. Empty for kubeconfig identities;
-/// the OIDC session (US1/US2) supplies the real value.
-fn identity_sub(_state: &BackendState) -> String {
-    String::new()
+/// Pure: the `sub` of the signed-in identity for `issuer_id`; empty when the context is not an
+/// OIDC context or that issuer has no live session (kubeconfig identity).
+pub(super) fn sub_for_issuer(
+    issuer_id: Option<&str>,
+    identities: &[crate::protocol::v1::OidcIdentity],
+) -> String {
+    let Some(issuer_id) = issuer_id else {
+        return String::new();
+    };
+    identities
+        .iter()
+        .find(|i| i.issuer_id == issuer_id)
+        .map(|i| i.sub.clone())
+        .unwrap_or_default()
+}
+
+/// Identity `sub` the current connection authenticates as: the OIDC session of the active
+/// context's issuer, or empty for kubeconfig identities.
+fn identity_sub(state: &BackendState) -> String {
+    let issuer = state
+        .cluster
+        .current_context
+        .as_deref()
+        .and_then(super::kube::oidc_issuer_for_context);
+    sub_for_issuer(issuer.as_deref(), &state.oidc.identities())
 }
 
 fn unix_now() -> u64 {
@@ -497,5 +518,38 @@ mod tests {
         );
         cache.invalidate_all();
         assert!(cache.get("c", "", Some("dev"), t0).is_none());
+    }
+
+    #[test]
+    fn two_identities_get_separate_cache_entries() {
+        use crate::protocol::v1::{OidcIdentity, OidcIdentityState};
+        let ident = |issuer: &str, sub: &str| OidcIdentity {
+            issuer_id: issuer.into(),
+            sub: sub.into(),
+            username: sub.into(),
+            email: None,
+            groups: vec![],
+            expires_at: 0,
+            state: OidcIdentityState::SignedIn,
+        };
+        let ids = [ident("rauthy", "alice-sub"), ident("other", "bob-sub")];
+        assert_eq!(sub_for_issuer(Some("rauthy"), &ids), "alice-sub");
+        assert_eq!(sub_for_issuer(Some("other"), &ids), "bob-sub");
+        assert_eq!(sub_for_issuer(Some("gone"), &ids), "");
+        assert_eq!(sub_for_issuer(None, &ids), "");
+
+        let cache = CapabilityCache::default();
+        let now = Instant::now();
+        for sub in ["alice-sub", "bob-sub"] {
+            let mut s = set(vec![rule(&["get"], &[""], &["pods"])], false);
+            s.identity_sub = sub.into();
+            s.rules[0].resources = vec![sub.into()];
+            cache.put(s, now);
+        }
+        let a = cache.get("c", "alice-sub", Some("dev"), now).unwrap();
+        let b = cache.get("c", "bob-sub", Some("dev"), now).unwrap();
+        assert_eq!(a.rules[0].resources, vec!["alice-sub"]);
+        assert_eq!(b.rules[0].resources, vec!["bob-sub"]);
+        assert!(cache.get("c", "", Some("dev"), now).is_none());
     }
 }

@@ -132,6 +132,7 @@ impl FathomApp {
                     | SystemEvent::OidcError { .. }
                     | SystemEvent::IdpAdminKeyStatus { .. }
                     | SystemEvent::IdpDirectoryUpdated(_)
+                    | SystemEvent::TeamLinksUpdated { .. }
                     | SystemEvent::CapabilitiesResolved(_)
                     | SystemEvent::CapabilityChecked { .. }
                     | SystemEvent::RoleAssignmentPreview { .. }
