@@ -5,6 +5,7 @@ import { InspectorActions, ListActions, SelectionBar } from '@/components/Action
 import { Inspector } from '@/components/Inspector'
 import { FluxPanel } from '@/components/panels/FluxPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
+import { KedaPanel } from '@/components/panels/KedaPanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
@@ -183,6 +184,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       if (pane.tool === 'flux') return <FluxPanel />
       if (pane.tool === 'hubble') return <HubblePanel />
+      if (pane.tool === 'keda') return <KedaPanel />
       if (pane.tool === 'topology') return <TopologyPanel paneId={pane.id} />
       if (pane.tool === 'portforwards') return <PortForwardsPanel />
       return (

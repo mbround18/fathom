@@ -7,6 +7,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   metrics: 'Metrics',
   flux: 'Flux',
   hubble: 'Hubble',
+  keda: 'Autoscalers',
   logs: 'Logs',
   events: 'Events',
   portforwards: 'Forwards',

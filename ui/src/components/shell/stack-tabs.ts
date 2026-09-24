@@ -1,5 +1,6 @@
 import {
   PlugsIcon,
+  GaugeIcon,
   PulseIcon,
   ShareNetworkIcon,
   StackIcon,
@@ -36,6 +37,12 @@ export const TOPOLOGY_TAB: StackTab = {
   icon: ShareNetworkIcon,
   kind: 'tool',
   tool: 'topology',
+}
+export const KEDA_TAB: StackTab = {
+  label: 'Autoscalers',
+  icon: GaugeIcon,
+  kind: 'tool',
+  tool: 'keda',
 }
 
 /** Which tab the stack root belongs to: tool panes by tool, everything else is Resources. */

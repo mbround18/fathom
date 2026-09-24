@@ -21,6 +21,8 @@ import type {
   CrdCatalogEntry,
   DiskUsage,
   FluxOverview,
+  KedaOverview,
+  KedaResourceDetails,
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
@@ -137,6 +139,11 @@ export interface ContextStatusEntry {
   /** Present only when `status === 'Error'` (012-incluster-daemon-federation P1). */
   error?: string
 }
+
+/** Autoscalers Inspector state: the selected ScaledObject/ScaledJob's detail, or a not-found reply. */
+export type KedaSelection =
+  | { state: 'ready'; details: KedaResourceDetails }
+  | { state: 'gone'; kind: string; namespace: string; name: string }
 
 export interface SessionState {
   /** Kubeconfig context names. Empty with `contextsLoaded` means no kubeconfig. */
@@ -461,6 +468,7 @@ export interface StoreData {
   metrics: MetricsState
   flux: { overview?: FluxOverview }
   hubble: { summary?: HubbleTrafficSummary }
+  keda: { overview?: KedaOverview; selected?: KedaSelection }
   crds: CrdState
   integrations: IntegrationsState
   /** Node actions (US2), by node name. */
@@ -587,6 +595,10 @@ export interface StoreState extends StoreData {
   refreshEvents: () => void
   /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
   refreshFlux: () => void
+  /** Sends `RefreshKeda` (rescans KEDA ScaledObjects/ScaledJobs; also polled every 20s). */
+  refreshKeda: () => void
+  /** Sends `SelectScaledObject`/`SelectScaledJob` for the Autoscalers Inspector. */
+  selectKedaResource: (kind: string, namespace: string, name: string) => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -807,6 +819,7 @@ export function initialData(): StoreData {
     metrics: { diskUsage: [] },
     flux: {},
     hubble: {},
+    keda: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
     nodeActions: {},
@@ -1018,6 +1031,14 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+
+  refreshKeda: () => get().send({ type: 'RefreshKeda' }),
+
+  selectKedaResource: (kind, namespace, name) =>
+    get().send({
+      type: kind === 'ScaledJob' ? 'SelectScaledJob' : 'SelectScaledObject',
+      data: { namespace, name },
+    }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 

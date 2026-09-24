@@ -21,6 +21,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Node actions (cordon/uncordon/drain/taint) | ✅ | 003-yaml-node-crd-parity |
 | Custom Resources — generic CRD discovery/browsing | ✅ | 003-yaml-node-crd-parity |
 | GitOps (Flux) integration panel | ✅ | promo-brochure-v2 work |
+| KEDA autoscaler pane (ScaledObjects/ScaledJobs, triggers, scale reasoning) | ✅ | 029-keda-autoscaler-pane |
 | Hubble/Cilium traffic panel | ✅ | promo-brochure-v2 work |
 | **Applications view** | ✅ | 004-applications-interlinking |
 | **Helm** — read (list/inspector/origin-link) | ✅ | 005-helm-release-origin-linking |

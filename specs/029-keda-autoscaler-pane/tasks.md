@@ -22,13 +22,13 @@ implementation and testing of each story.
 
 ## Phase 1: Setup
 
-- [ ] T001 Confirm `keda.sh` group name constants and default values to use in
+- [x] T001 Confirm `keda.sh` group name constants and default values to use in
   `src/backend/keda.rs`: CRD names `scaledobjects.keda.sh`, `scaledjobs.keda.sh`,
   `triggerauthentications.keda.sh`, `clustertriggerauthentications.keda.sh`; KEDA defaults
   `minReplicaCount: 0`, `maxReplicaCount: 100` (data-model.md `KedaResourceSummary`). No code
   yet — write these as doc-comment constants scaffolding in a new empty
   `src/backend/keda.rs` file with the module doc comment from research.md R1.
-- [ ] T002 Register the new module in `src/backend/mod.rs` (`mod keda;`), matching how `flux`
+- [x] T002 Register the new module in `src/backend/mod.rs` (`mod keda;`), matching how `flux`
   is registered, so it compiles as an empty stub.
 
 **Checkpoint**: Project compiles with the new empty module registered.
@@ -41,28 +41,28 @@ implementation and testing of each story.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 [P] Add `src/protocol/v1/keda.rs` with `KedaOverview`, `KedaResourceSummary`,
+- [x] T003 [P] Add `src/protocol/v1/keda.rs` with `KedaOverview`, `KedaResourceSummary`,
   `KedaResourceDetails`, `KedaTrigger`, `TriggerAuthRef`, `ScaleReasoning`,
   `ScaleReasoningState` per data-model.md's field tables exactly (field names, types,
   `#[derive(Debug, Clone, Serialize, Deserialize, TS)]` matching `flux.rs`'s pattern). Export
   the module from `src/protocol/v1/mod.rs` and re-export the new types from
   `src/protocol/mod.rs` alongside `FluxOverview`'s existing re-export.
-- [ ] T004 Add `BackendCmdV1::RefreshKeda`, `SelectScaledObject { namespace: String, name:
+- [x] T004 Add `BackendCmdV1::RefreshKeda`, `SelectScaledObject { namespace: String, name:
   String }`, `SelectScaledJob { namespace: String, name: String }` to `src/protocol/v1/cmd.rs`
   per contracts/protocol.md, placed near the existing `RefreshFlux`/`SelectFluxResource`
   variants; add serde round-trip tests for all three mirroring the existing
   `roundtrip(BackendCmdV1::SelectFluxResource {...})` test in the same file.
-- [ ] T005 Add `SystemEvent::KedaOverviewUpdated(KedaOverview)`,
+- [x] T005 Add `SystemEvent::KedaOverviewUpdated(KedaOverview)`,
   `KedaResourceDetailsUpdated(KedaResourceDetails)`, `KedaResourceNotFound { kind: String,
   namespace: String, name: String }` to `src/protocol/v1/event.rs` per contracts/protocol.md,
   placed near `FluxOverviewUpdated`/`FluxResourceDetailsUpdated`/`FluxResourceNotFound`; add
   serde round-trip tests for all three mirroring the existing Flux event tests in the same
   file.
-- [ ] T006 Add a `section_keys::autoscalers()` (or equivalent) route key in
+- [x] T006 Add a `section_keys::autoscalers()` (or equivalent) route key in
   `src/protocol/v1/mod.rs`'s `section_keys` module, mirroring `section_keys::gitops()` (or
   whatever the Flux route key is named), for use by `Route::global(...)` in the new backend
   handlers.
-- [ ] T007 Run `cargo build --workspace --all-targets` to confirm the protocol additions
+- [x] T007 Run `cargo build --workspace --all-targets` to confirm the protocol additions
   compile and the `ts-rs` bindings regenerate without conflicts (no code depends on the new
   types yet, so this is a pure scaffolding checkpoint).
 
@@ -83,32 +83,32 @@ out.
 
 ### Tests for User Story 1
 
-- [ ] T008 [P] [US1] Rust unit test in `src/backend/keda.rs` for CRD detection: given a fake
+- [x] T008 [P] [US1] Rust unit test in `src/backend/keda.rs` for CRD detection: given a fake
   `CustomResourceDefinition` list containing `scaledobjects.keda.sh` served, `installed` is
   `true`; given none of the four KEDA CRD names present, `installed` is `false` (mirrors
   `flux.rs::find_served` test conventions).
-- [ ] T009 [P] [US1] Rust unit test in `src/backend/keda.rs` for `KedaResourceSummary`
+- [x] T009 [P] [US1] Rust unit test in `src/backend/keda.rs` for `KedaResourceSummary`
   min/max defaulting: a `ScaledObject` spec with no `minReplicaCount`/`maxReplicaCount` field
   set produces `min_replicas: 0`, `max_replicas: 100` (data-model.md's documented KEDA
   defaults).
-- [ ] T010 [P] [US1] Playwright e2e scaffold in `ui/tests/e2e/keda-autoscaler-pane.spec.ts`:
+- [x] T010 [P] [US1] Playwright e2e scaffold in `ui/tests/e2e/keda-autoscaler-pane.spec.ts`:
   navigate to "Autoscalers", assert `RefreshKeda` is sent (mirrors
   `us1-applications-list.spec.ts`'s `goToApplications` helper pattern), per quickstart.md step
   1–2. This is the first test in the file; later US tasks append to it.
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement CRD discovery in `src/backend/keda.rs`: `find_served` helper
+- [x] T011 [US1] Implement CRD discovery in `src/backend/keda.rs`: `find_served` helper
   (mirrors `flux.rs`) for the four `keda.sh` CRD names from T001; `installed` is `true` iff
   `scaledobjects.keda.sh` OR `scaledjobs.keda.sh` is served (research.md R1).
   Depends on: T001.
-- [ ] T012 [US1] Implement `list_scaled_objects`/`list_scaled_jobs` in
+- [x] T012 [US1] Implement `list_scaled_objects`/`list_scaled_jobs` in
   `src/backend/keda.rs`: list `ScaledObject`/`ScaledJob` instances as `DynamicObject` via
   `Api::<DynamicObject>::all_with`/`namespaced_with` scoped by the discovered
   `ApiResource`/`GroupVersionKind` (mirrors `flux.rs::list_instances`), respecting the current
   namespace filter the same way every other resource list command does.
   Depends on: T011.
-- [ ] T013 [US1] Implement `summarize_scaled_object`/`summarize_scaled_job` in
+- [x] T013 [US1] Implement `summarize_scaled_object`/`summarize_scaled_job` in
   `src/backend/keda.rs`, producing `KedaResourceSummary` per data-model.md's field table:
   `target_kind`/`target_name` from `spec.scaleTargetRef` (default `target_kind: "Deployment"`
   for ScaledObject when unset, per KEDA's own default); `current_replicas` from
@@ -117,26 +117,26 @@ out.
   `autoscaling.keda.sh/paused` annotation; `ready` from `status.conditions`; `target_found` by
   attempting to fetch the target workload and recording whether it exists (FR-014).
   Depends on: T012.
-- [ ] T014 [US1] Implement `scan_keda(client) -> KedaOverview` top-level entry point in
+- [x] T014 [US1] Implement `scan_keda(client) -> KedaOverview` top-level entry point in
   `src/backend/keda.rs`, mirroring `flux.rs::scan_flux`, aggregating `installed` +
   `scaled_objects` + `scaled_jobs`.
   Depends on: T013.
-- [ ] T015 [US1] Wire `BackendCmd::RefreshKeda` handler `refresh_keda` in
+- [x] T015 [US1] Wire `BackendCmd::RefreshKeda` handler `refresh_keda` in
   `src/backend/cmd/integrations.rs` (mirrors `refresh_flux`), calling `scan_keda` and emitting
   `SystemEvent::KedaOverviewUpdated` via `Route::global(section_keys::autoscalers())` from T006.
   Depends on: T014, T006.
-- [ ] T016 [US1] Add a 20s background poller `ensure_keda_poll`/`poll_keda_overview` in
+- [x] T016 [US1] Add a 20s background poller `ensure_keda_poll`/`poll_keda_overview` in
   `src/backend/sync.rs`, mirroring `ensure_flux_poll`/`poll_flux_overview` exactly (same
   cadence, same emit path as T015).
   Depends on: T015.
-- [ ] T017 [P] [US1] Add `keda: { overview?: KedaOverview }` slice + `refreshKeda()` action
+- [x] T017 [P] [US1] Add `keda: { overview?: KedaOverview }` slice + `refreshKeda()` action
   (sends `RefreshKeda`) in `ui/src/store/index.ts`, mirroring the existing `flux` slice +
   `refreshFlux()`.
   Depends on: T004.
-- [ ] T018 [P] [US1] Handle `KedaOverviewUpdated` in `ui/src/store/handlers/system.ts`
+- [x] T018 [P] [US1] Handle `KedaOverviewUpdated` in `ui/src/store/handlers/system.ts`
   (updates the `keda` slice), mirroring the existing `FluxOverviewUpdated` handler.
   Depends on: T005, T017.
-- [ ] T019 [US1] Create `ui/src/components/panels/KedaPanel.tsx`: list pane rendering
+- [x] T019 [US1] Create `ui/src/components/panels/KedaPanel.tsx`: list pane rendering
   `scaled_objects`/`scaled_jobs` rows (name, namespace, kind, target workload, current
   replicas, min/max bounds), respecting the active namespace filter; when `!overview.installed`
   render the "KEDA not detected" honest-empty-state (FR-003); when `installed` and both arrays
@@ -144,12 +144,12 @@ out.
   `FluxPanel.tsx`'s structure using `IntegrationSummary` or the plain resource-list pattern,
   whichever `FluxPanel.tsx` actually uses.
   Depends on: T018.
-- [ ] T020 [US1] Register the new "Autoscalers" section in the app's navigation/section
+- [x] T020 [US1] Register the new "Autoscalers" section in the app's navigation/section
   registry (wherever `FluxPanel`/`Applications` are registered, e.g.
   `ui/src/components/shell/*` or `ui/src/resources/*` section list), so it is reachable from
   the nav per FR-002.
   Depends on: T019.
-- [ ] T021 [US1] Complete the Playwright e2e scaffold from T010 with the "KEDA not installed"
+- [x] T021 [US1] Complete the Playwright e2e scaffold from T010 with the "KEDA not installed"
   scenario (emit `KedaOverviewUpdated` with `installed: false`, assert the empty-state text and
   zero rows) and the happy-path list scenario (emit one `ScaledObject` fixture per
   quickstart.md step 4, assert the row's namespace/current-replicas/min-max render).
@@ -171,14 +171,14 @@ reasoning message; repeat for at-floor and at-ceiling fixtures.
 
 ### Tests for User Story 2
 
-- [ ] T022 [P] [US2] Rust unit tests in `src/backend/keda.rs` for `ScaleReasoning` derivation,
+- [x] T022 [P] [US2] Rust unit tests in `src/backend/keda.rs` for `ScaleReasoning` derivation,
   one per rule in data-model.md's "Derivation rules" list: `TargetNotFound` (when
   `target_found == false`), `Paused` (when `paused == true`), `ScaledToZero` (when
   `min_replicas == 0 && current_replicas == 0`), `AtFloor` (when `current_replicas <=
   min_replicas`), `AtCeiling` (when `current_replicas >= max_replicas`), `MidRange`
   (otherwise) — verify rule precedence order matches data-model.md exactly (TargetNotFound
   checked before Paused, before ScaledToZero, before AtFloor/AtCeiling).
-- [ ] T023 [P] [US2] Playwright e2e addition to `ui/tests/e2e/keda-autoscaler-pane.spec.ts`
+- [x] T023 [P] [US2] Playwright e2e addition to `ui/tests/e2e/keda-autoscaler-pane.spec.ts`
   per quickstart.md step 5: select the "queue-worker" row, emit `KedaResourceDetailsUpdated`
   with a `prometheus` trigger (`threshold: "50"`, no `current_value` yet — US3 covers that) and
   `reasoning: { state: "MidRange", message: "..." }`; assert the Inspector shows the trigger
@@ -186,7 +186,7 @@ reasoning message; repeat for at-floor and at-ceiling fixtures.
 
 ### Implementation for User Story 2
 
-- [ ] T024 [US2] Implement trigger extraction in `src/backend/keda.rs`: parse
+- [x] T024 [US2] Implement trigger extraction in `src/backend/keda.rs`: parse
   `spec.triggers[]` from the `DynamicObject` into `Vec<KedaTrigger>` per data-model.md's field
   table — `trigger_type` from `type` verbatim, `metadata` as a `BTreeMap<String, String>` from
   `metadata` verbatim (generic, no per-type parsing beyond what T027 adds), `auth_ref` from
@@ -195,34 +195,34 @@ reasoning message; repeat for at-floor and at-ceiling fixtures.
   secret — constitution VI, research.md R6), `threshold` copied from
   `metadata["threshold"]`/`metadata["value"]` when present.
   Depends on: T012.
-- [ ] T025 [US2] Implement `derive_scale_reasoning` in `src/backend/keda.rs` per
+- [x] T025 [US2] Implement `derive_scale_reasoning` in `src/backend/keda.rs` per
   data-model.md's six ordered derivation rules exactly, returning `ScaleReasoning { state,
   message }` with a human-readable `message` per rule (e.g. "At floor (1) — no trigger
   currently reports active demand.", "At ceiling (10) — demand may exceed what the configured
   maximum allows.", "Paused via the autoscaling.keda.sh/paused annotation.", "Scaled to zero —
   idle, no active demand.", "Target workload no longer exists.").
   Depends on: T013.
-- [ ] T026 [US2] Assemble `KedaResourceDetails { summary, triggers, reasoning }` and wire
+- [x] T026 [US2] Assemble `KedaResourceDetails { summary, triggers, reasoning }` and wire
   `BackendCmd::SelectScaledObject`/`SelectScaledJob` handlers in
   `src/backend/cmd/integrations.rs` (mirrors `select_flux_resource`): fetch the single
   resource, call T024/T025, emit `KedaResourceDetailsUpdated`; emit `KedaResourceNotFound` when
   the named resource no longer exists.
   Depends on: T024, T025, T004, T005.
-- [ ] T027 [P] [US2] Add `selectKedaResource(kind, namespace, name)` action to
+- [x] T027 [P] [US2] Add `selectKedaResource(kind, namespace, name)` action to
   `ui/src/store/index.ts` (sends `SelectScaledObject` or `SelectScaledJob` based on `kind`) and
   handle `KedaResourceDetailsUpdated`/`KedaResourceNotFound` in
   `ui/src/store/handlers/system.ts`, mirroring the existing Flux single-resource select/handle
   pair.
   Depends on: T026.
-- [ ] T028 [US2] Create `ui/src/resources/keda.tsx` Inspector: render each trigger's type,
+- [x] T028 [US2] Create `ui/src/resources/keda.tsx` Inspector: render each trigger's type,
   its metadata as a generic key/value table (FR-008, FR-020 — no per-type custom widgets),
   `auth_ref.name` when present (never any secret value), and `reasoning.message`.
   Depends on: T027.
-- [ ] T029 [US2] Wire row-selection in `KedaPanel.tsx` to call `selectKedaResource` and open
+- [x] T029 [US2] Wire row-selection in `KedaPanel.tsx` to call `selectKedaResource` and open
   the `keda.tsx` Inspector in place (no navigation away from the list), matching the existing
   Applications/Flux inspector-in-place UX.
   Depends on: T028, T019.
-- [ ] T030 [US2] Complete the e2e assertions from T023 with a second fixture at
+- [x] T030 [US2] Complete the e2e assertions from T023 with a second fixture at
   `current_replicas === min_replicas` asserting the "AtFloor" reasoning message text renders
   distinctly (quickstart.md step 6 — kept to one boundary case in e2e; the full rule matrix is
   covered by T022's Rust unit tests).
@@ -246,13 +246,13 @@ error.
 
 ### Tests for User Story 3
 
-- [ ] T031 [P] [US3] Rust unit test in `src/backend/keda.rs` for the Prometheus-trigger query
+- [x] T031 [P] [US3] Rust unit test in `src/backend/keda.rs` for the Prometheus-trigger query
   path: given a `prometheus` trigger with `metadata.serverAddress` and `metadata.query` set,
   and a mocked/injectable `MetricsProviderTrait` returning a value, `current_value` is
   populated; given the metrics stack unreachable (provider returns an error) or a non-`
   prometheus` trigger type, `current_value` is `None` and no error propagates out of trigger
   extraction (FR-012/FR-013 — a fetch failure must not affect already-built trigger data).
-- [ ] T032 [P] [US3] Playwright e2e addition to `ui/tests/e2e/keda-autoscaler-pane.spec.ts`
+- [x] T032 [P] [US3] Playwright e2e addition to `ui/tests/e2e/keda-autoscaler-pane.spec.ts`
   per quickstart.md step 5: extend the `prometheus` trigger fixture from T023 with
   `current_value: 73`, assert the Inspector shows "current: 73 / threshold: 50" (or equivalent
   live-value-next-to-threshold rendering); add a second assertion with `current_value:
@@ -261,7 +261,7 @@ error.
 
 ### Implementation for User Story 3
 
-- [ ] T033 [US3] Extend trigger extraction (T024) in `src/backend/keda.rs`: when
+- [x] T033 [US3] Extend trigger extraction (T024) in `src/backend/keda.rs`: when
   `trigger_type == "prometheus"` and Fathom's metrics integration
   (`src/backend/integrations.rs`'s existing Prometheus-reachability check) reports Prometheus
   configured and reachable, call `PrometheusClient::query_instant` (from
@@ -272,12 +272,12 @@ error.
   type, leave `current_value: None` and do not propagate the error to the overall
   `SelectScaledObject`/`SelectScaledJob` response (FR-012/FR-013).
   Depends on: T024.
-- [ ] T034 [US3] Update `ui/src/resources/keda.tsx`'s trigger rendering (from T028) to show
+- [x] T034 [US3] Update `ui/src/resources/keda.tsx`'s trigger rendering (from T028) to show
   `current_value` alongside `threshold` when `current_value` is present, and to render nothing
   extra (just the existing type + metadata display) when it is absent — no loading spinner that
   can hang forever, no error banner for a missing/failed metric value (FR-012/FR-013).
   Depends on: T028, T033.
-- [ ] T035 [US3] Complete the e2e assertions from T032.
+- [x] T035 [US3] Complete the e2e assertions from T032.
   Depends on: T034, T032.
 
 **Checkpoint**: User Stories 1–3 all work independently — the pane degrades gracefully when
@@ -297,37 +297,37 @@ confirm its related resources include the target workload's running pods.
 
 ### Tests for User Story 4
 
-- [ ] T036 [P] [US4] Rust unit test in `src/backend/related.rs` for the new `"ScaledObject"`/
+- [x] T036 [P] [US4] Rust unit test in `src/backend/related.rs` for the new `"ScaledObject"`/
   `"ScaledJob"` match arms: given a `ScaledObject` targeting a Deployment with 2 running pods,
   `related_resources` returns a `scales` ref to the Deployment and `owns` refs to both pods.
-- [ ] T037 [P] [US4] Rust unit test in `src/backend/related.rs` for the extended `"Pod"` arm:
+- [x] T037 [P] [US4] Rust unit test in `src/backend/related.rs` for the extended `"Pod"` arm:
   given a pod owned by a Deployment that is the `scaleTargetRef` of a `ScaledObject` in the
   same namespace, `related_resources` for that pod includes a `scaledBy` ref to the
   `ScaledObject`.
-- [ ] T038 [P] [US4] Playwright e2e addition to `ui/tests/e2e/keda-autoscaler-pane.spec.ts`:
+- [x] T038 [P] [US4] Playwright e2e addition to `ui/tests/e2e/keda-autoscaler-pane.spec.ts`:
   open the "queue-worker" `ScaledObject`'s related-resources section, assert its target
   workload's pod(s) appear as clickable related-resource links (reuses the existing generic
   related-resource renderer — no new UI component to test beyond data wiring).
 
 ### Implementation for User Story 4
 
-- [ ] T039 [US4] Add `"ScaledObject" | "ScaledJob"` match arm to
+- [x] T039 [US4] Add `"ScaledObject" | "ScaledJob"` match arm to
   `src/backend/related.rs::related_resources`, resolving the target workload via
   `spec.scaleTargetRef` (reusing `keda.rs`'s target-resolution logic from T013) and, for the
   target workload, the currently running Pods via the same pod-selector logic
   `related_for_workload` already uses.
   Depends on: T013, T039 tests T036.
-- [ ] T040 [US4] Extend the existing `"Pod"` arm (`related_for_pod`) in
+- [x] T040 [US4] Extend the existing `"Pod"` arm (`related_for_pod`) in
   `src/backend/related.rs` to additionally look up any `ScaledObject`/`ScaledJob` in the pod's
   namespace whose `spec.scaleTargetRef` resolves to the pod's owning workload, adding a
   `scaledBy` `RelatedResourceRef` when found.
   Depends on: T039.
-- [ ] T041 [US4] Add a `scaledBy`-relationship reference in the pod-lifecycle diagnostics view
+- [x] T041 [US4] Add a `scaledBy`-relationship reference in the pod-lifecycle diagnostics view
   (`ui/src/resources/podLifecycle.ts`, spec 008): when the pod's related resources (already
   fetched generically) include a `scaledBy` entry, surface it as a link/label in the lifecycle
   timeline header, per research.md R5 (thin reference only, no new scale-history data model).
   Depends on: T040.
-- [ ] T042 [US4] Complete the e2e assertion from T038, and add one assertion opening a pod
+- [x] T042 [US4] Complete the e2e assertion from T038, and add one assertion opening a pod
   belonging to "queue-worker"'s target workload and confirming the `scaledBy` related-resource
   link to "queue-worker" appears in the pod Inspector.
   Depends on: T041, T038.
@@ -339,17 +339,17 @@ integrated with Fathom's existing interlinking and pod-lifecycle features.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T043 [P] Run `cargo clippy --all-targets -- -D warnings` and fix any lint findings
+- [x] T043 [P] Run `cargo clippy --all-targets -- -D warnings` and fix any lint findings
   introduced by `src/backend/keda.rs`, `src/backend/related.rs`, and the protocol additions.
-- [ ] T044 [P] Run `pnpm -C ui lint` and `pnpm -C ui typecheck`, fixing any findings in the new
+- [x] T044 [P] Run `pnpm -C ui lint` and `pnpm -C ui typecheck`, fixing any findings in the new
   `KedaPanel.tsx`/`keda.tsx`/store changes.
-- [ ] T045 Verify the Autoscalers list remains scrollable/usable with 200+ fixture rows
+- [x] T045 Verify the Autoscalers list remains scrollable/usable with 200+ fixture rows
   (FR-018/SC-... large-list requirement), matching the pattern already used by other large
   resource lists (virtualization or equivalent) — add a targeted check only if the shared list
   component doesn't already guarantee this generically.
-- [ ] T046 Run the full quickstart.md validation sequence end to end (`cargo test`, `pnpm -C
+- [x] T046 Run the full quickstart.md validation sequence end to end (`cargo test`, `pnpm -C
   ui typecheck`, `pnpm -C ui lint`, `pnpm -C ui test`, the new e2e spec) and record results.
-- [ ] T047 Update `docs/MVP.md`'s integration/feature table to mark the KEDA autoscaler pane as
+- [x] T047 Update `docs/MVP.md`'s integration/feature table to mark the KEDA autoscaler pane as
   shipped, mirroring the existing Flux/Hubble rows' format.
 
 ---
