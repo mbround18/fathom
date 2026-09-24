@@ -158,3 +158,11 @@ health data — rejected per the spec's own framing (that switcher's job is a qu
 affordance across the whole app chrome; overloading it with rollup data would violate its
 existing, tested "narrow strip" layout and its "augment don't replace" precedent from spec
 012's research.md R4).
+
+## Clarification update (2026-09-24)
+
+- **Fan-out (FR-012)**: one poller per context still, but each poll holds a permit from a shared 8-permit semaphore and the first poll is offset by `index x 250 ms` (cap 5 s) to avoid a start burst.
+- **Partial RBAC (FR-013)**: nodes, pods and Flux are fetched independently; a kube 403 on nodes/pods marks that group `restricted` instead of failing the poll. Auth classification matches typed `kube::Error` (`Api` 401/403, `Auth`) instead of message substrings.
+- **Unhealthy pods (FR-014)**: extended to stuck-waiting containers and Pending > 5 min (see data-model.md).
+- **Open risk**: a fresh kube client is still built every poll (exec-plugin cost); revisit with client caching if it shows up in practice.
+- **Known behavior change**: a plain-text "401 Unauthorized" error that is not a typed kube error now maps to `Unreachable`.

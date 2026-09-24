@@ -93,7 +93,7 @@ correct health, without changing the active context.
   Constitution I); assert the invariant "`error` MUST be `None` unless `health` is
   `Unreachable`/`AuthError`" holds for every constructed `FleetContextSummary` in these cases
   (data-model.md validation rule).
-- [ ] T015 [P] [US1] Unit test in `src/backend/fleet.rs`: `start_polling` is idempotent — calling
+- [x] T015 [P] [US1] Unit test in `src/backend/fleet.rs`: `start_polling` is idempotent — calling
   it twice for the same connected-context set does not spawn a second poller task for a context
   that already has one running (assert `FleetState.pollers.len()` unchanged on the second call).
 - [x] T016 [P] [US1] Vitest unit test in `ui/src/store/handlers/fleet.test.ts` (new file): a
@@ -223,7 +223,7 @@ confirm the card list updates automatically.
 
 ### Tests for User Story 3
 
-- [ ] T034 [P] [US3] Unit test in `src/backend/fleet.rs`: a context newly transitioning to
+- [x] T034 [P] [US3] Unit test in `src/backend/fleet.rs`: a context newly transitioning to
   `Connected` while pollers are already running (simulate by calling `start_polling` again
   after adding a context) gets its own new poller started, without disturbing existing
   pollers' handles (`FleetState.pollers` keeps prior entries, gains exactly one).
@@ -260,7 +260,7 @@ confirm the card list updates automatically.
   components/store files.
 - [x] T040 Run `cargo test`, `pnpm -C ui test`, and `ui/tests/e2e/us1-fleet-dashboard.spec.ts`;
   fix any failures.
-- [ ] T041 Walk through `quickstart.md` manually (or via the e2e harness) end to end, confirming
+- [x] T041 Walk through `quickstart.md` manually (or via the e2e harness) end to end, confirming _Closed via automated coverage: chromium e2e (14 pass) + `stop_polling_emits_no_further_events`. Interactive GUI walk-through against a kind cluster is not run in this environment._
   Constitution V: after closing the Fleet Dashboard view, no further `FleetSummaryUpdated`
   events are emitted (pollers actually stopped) — verify via logs/test assertion, not just code
   inspection.
@@ -268,6 +268,21 @@ confirm the card list updates automatically.
   commits, e.g. spec 015) is to mark shipped features there.
 
 ---
+
+## Phase 7: Gap closure (added 2026-09-24 after spec clarification; see spec.md Clarifications)
+
+**Purpose**: Close the differences between the shipped implementation and the clarified spec (FR-012 – FR-016). T015, T034 and T041 above remain open and are folded in here.
+
+- [x] T043 [P] [US1] Finish T015 and T034 together in `src/backend/fleet.rs` tests: `start_polling` twice for the same context set leaves `FleetState.pollers` unchanged; calling `sync_pollers` after a context is added gains exactly one poller and keeps prior handles. Needs a seam so the kubeconfig context list can be injected (extract `all_kubeconfig_contexts` behind a parameter to `sync_pollers`) since these tests must not read the real kubeconfig.
+- [x] T044 [US1] FR-014: extend `pod_is_unhealthy` in `src/backend/fleet.rs` to also count containers waiting with reason `ImagePullBackOff`, `ErrImagePull`, `CrashLoopBackOff`, `CreateContainerError`, and pods in phase `Pending` whose `creationTimestamp` is more than 5 minutes old; keep young `Pending` not-unhealthy. Add unit tests for each reason, old vs. young Pending (inject "now" for testability), and update the doc comment that currently says "No prior unhealthy pod concept ... Pending is not unhealthy".
+- [x] T045 [US1] FR-013: additive protocol change. Add `restricted: Vec<String>` to `FleetContextSummary` in `src/protocol/v1/fleet.rs` (names of resource groups the credentials could not read, e.g. `"nodes"`, `"pods"`; empty when none), update the serde/round-trip tests in `tests/protocol_serde.rs`, regenerate bindings (`cargo test --test export_bindings`) and update `pending_summary`/`failure_summary`/`poll_once` constructors and the UI fixtures in `ui/tests/unit/fleet-summary.test.ts` / `ui/tests/e2e/us1-fleet-dashboard.spec.ts`.
+- [x] T046 [US1] FR-013: in `poll_inner` (`src/backend/fleet.rs`) treat a 403 from the node list or pod list as "restricted" rather than a whole-poll failure: fetch nodes, pods and flux independently, record denied groups in `restricted`, leave the corresponding counts `None`, derive health only from what was readable, and reserve `AuthError` for a 401/403 on the version call or client construction. Replace the message-substring `is_auth_error` heuristic with matching `kube::Error::Api` status codes (401/403) where the error type is available. Unit tests: nodes denied + pods ok, pods denied + nodes ok, version 401 -> AuthError.
+- [x] T047 [US1] FR-013 UI: in `ui/src/components/fleet/FleetContextCard.tsx` render "no access" in place of a count when its group is in `summary.restricted`, and render the counts grid when at least one count or the version is present (today it is gated on `node_total_count !== null`, which would hide the version for a pods-only-denied cluster). Extend `us1-fleet-dashboard.spec.ts` with a restricted card.
+- [x] T048 [US1] FR-012: bound the fan-out in `src/backend/fleet.rs`: share one `Arc<tokio::sync::Semaphore>` (8 permits, stored on `FleetState`) across pollers, acquire a permit around each `poll_once`, and add a small deterministic per-context start offset (index x 250 ms, capped at 5 s) before a poller's first poll. Unit test that with 20 contexts no more than 8 polls run concurrently (use an injected async poll fn / paused tokio time).
+- [x] T049 [US1] FR-015: show data recency on the card: in `FleetContextCard.tsx` render `updated Ns ago` from `summary.last_updated` (omit for the Pending placeholder whose `last_updated` is empty), re-rendered on a 5 s UI tick that exists only while the dashboard is mounted. Note the backend `pending_summary` currently sets a real timestamp; make the UI treat `health === 'Pending'` as "no data" regardless. Vitest for the relative-time formatter.
+- [x] T050 [US1] FR-016: in `ui/src/components/shell/TopBar.tsx` pass an `onSelected` callback (or read a store action) so activating a `FleetContextCard` closes the dialog (`setFleetOpen(false)`) after `selectContext`; clicking the already-active card also closes it without sending `SetContext`. Update `FleetDashboardView.tsx` props accordingly. Add an e2e assertion in `ui/tests/e2e/us1-fleet-dashboard.spec.ts`.
+- [x] T051 Re-run the full gate (T038-T040 commands) and complete T041: the quickstart walk-through including a test that after `StopFleetPolling` no further `FleetSummaryUpdated` events are emitted. _Gate green; WebKit e2e projects cannot run here (`playwright install webkit` needs host packages via sudo) — run in CI or on a dev machine._
+- [x] T052 Reconcile `plan.md`, `research.md`, `data-model.md` and `contracts/fleet-protocol.md` with the clarified spec (new `restricted` field, semaphore/stagger, unhealthy-pod definition, dialog-close behavior); bump their "clarified" date.
 
 ## Dependencies & Execution Order
 

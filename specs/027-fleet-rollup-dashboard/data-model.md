@@ -126,3 +126,10 @@ type FleetSummaries = Record<string, FleetContextSummary>  // keyed by context n
 - **Context Summary** (spec.md) == `FleetContextSummary` above.
 - **Fleet Dashboard View** (spec.md) == `FleetDashboardView.tsx`, composed from
   `fleetSummaries` filtered/ordered by `session.contexts`.
+
+## Clarification update (2026-09-24)
+
+- `FleetContextSummary` gains `restricted: Vec<String>` (TS `string[]`): resource groups (`"nodes"`, `"pods"`) the credentials could not list (HTTP 403). The matching count is `None` and the card shows "no access". Always empty for `Pending`/`Unreachable`/`AuthError`. For `Healthy`/`Degraded`, a count is `None` only when its group is in `restricted`, so the earlier "counts all-null or all-set" invariant applies to `Pending`/`Unreachable`/`AuthError` only.
+- `Healthy`/`Degraded` are derived from the readable data only (all groups denied plus a good version call => `Healthy`). `AuthError` is reserved for 401/403 on client construction or the version call.
+- "Unhealthy pod" = phase `Failed`/`Unknown`; `Running` with an unready container; any container or init container waiting with `ImagePullBackOff`/`ErrImagePull`/`CrashLoopBackOff`/`CreateContainerError`; or `Pending` for more than 5 minutes.
+- `FleetState` also holds a shared semaphore (8 permits).

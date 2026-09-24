@@ -83,3 +83,7 @@ without a new explicit command, and disconnecting stops it the same way.)*
 - Purely additive: two new `BackendCmd` variants, one new `SystemEvent` variant, one new
   protocol module (`fleet.rs`). No existing variant's shape changes. Per Constitution II, this
   does not require a protocol major-version bump (additive, non-breaking).
+
+## Clarification update (2026-09-24)
+
+`FleetContextSummary` adds `restricted: string[]` (additive, protocol version unchanged): e.g. `["pods"]` when the credentials cannot list pods; empty otherwise. Example: `{"health":"Healthy","node_ready_count":3,"node_total_count":3,"unhealthy_pod_count":null,"restricted":["pods"],"cluster_version":"v1.31",...}`. UI renders "no access" for restricted counts.
