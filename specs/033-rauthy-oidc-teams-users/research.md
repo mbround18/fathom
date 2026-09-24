@@ -47,9 +47,45 @@ Groups `fathom-viewers|editors|admins` (configurable) gate Fathom-only features 
 ### R10. Helper manifests
 `./k8s` does not exist on `main` (only `dev/sandbox/`). The plan creates `k8s/` with kustomize bases: `rauthy-clients` (adds `fathom-desktop` and a read-only API key), `rauthy-ldap-lab` (OpenLDAP + Dex), `kind-oidc-apiserver` (kubeadm patch and notes). Apply with `kubectl --context kind-fathom-oidc-rauthy apply -k k8s/<base>`. RustFS is the only object store considered (not needed).
 
+## T004 lab spike results (kind-fathom-oidc-rauthy, Rauthy 0.36.2, k8s v1.32.2, run 2026-09-24)
+
+Method: registered `fathom-desktop` (k8s/rauthy-clients), drove a real login as alice/bob/carol with headless Chromium against a 127.0.0.1 ephemeral-port listener (PKCE S256), exchanged the code, decoded tokens, refreshed, then presented the ID token to the kind API server.
+
+### R1 loopback redirect matching: VERIFIED, with constraints
+- Rauthy matches redirect URIs by exact string, except that a **trailing `*` is a prefix wildcard** (only at the end; `http://127.0.0.1:*/callback` is rejected as "Invalid redirect uri"). Registered `http://127.0.0.1:*` and `http://localhost:*`: any port and path on those hosts is accepted (tested ports 53211, 60000, arbitrary paths). `http://127.0.0.1` without a port requires `http://127.0.0.1*`, so the client uses the explicit-port form only.
+- `http://[::1]:port` is **rejected by Rauthy input validation** (redirect_uri regex forbids brackets): the listener MUST bind IPv4 127.0.0.1 only. `localhost` works as a host but Fathom uses the literal 127.0.0.1 (RFC 8252 s8.3).
+- Residual risk: the prefix match cannot pin the path, and `http://127.0.0.1:` + attacker-controlled suffix is a prefix match. Mitigated because the client is public with PKCE S256 (a stolen code is useless without the verifier, which never leaves the process); Fathom also checks `state` and only ever builds the redirect itself. Recorded in the plan risks.
+- No fixed-port fallback needed. Device code remains the fallback when the loopback bind fails.
+- Full flow result: callback with `code` + `state`, token exchange without a client secret succeeds.
+
+### Tokens and R6 refresh
+- ID token: RS256 (client set to RS256; the default for new Rauthy clients is **EdDSA, which kube-apiserver does not support**, so the bootstrap pins RS256). `iss` = discovery issuer (with trailing slash), `aud` = `fathom-desktop`, `azp` = `fathom-desktop`, `nonce` echoed, `sub` is an opaque id, `preferred_username`, `email`, `roles`, `groups` present. Lifetime 60 s (`exp - iat`).
+- Access token is also a JWT with `aud` = `fathom-desktop`; not used for the API server (ID token is, R3).
+- Refresh: returns a new ID token (same aud), new access token and a **rotated refresh token**. Re-presenting the previous refresh token immediately after rotation still returned 200 (short reuse grace window in Rauthy), so Fathom must always persist the newest token but cannot rely on Rauthy to reject a stale one.
+- carol (no group): ID token `groups: []`, but the **access token has `groups: [""]`** (an empty-string group). Fathom must drop empty group names when reading any token/claim and never render or map `""`.
+- Device flow: `POST /oidc/device` for the public client returns `user_code`, `verification_uri`, `verification_uri_complete`, `expires_in` 300, `interval` 5. Works without a client secret.
+- Discovery `end_session_endpoint` = `.../oidc/logout`; `id_token_signing_alg_values_supported` = RS256/RS384/RS512/EdDSA.
+
+### R3 API server aud handling: VERIFIED
+- With the legacy flags (`--oidc-client-id=fathom`) the API server rejects a `fathom-desktop` ID token: `oidc: verify token: oidc: expected audience "fathom" got ["fathom-desktop"]` (surfaced to kubectl as Unauthorized). So `aud` must match exactly.
+- Fix verified: structured `AuthenticationConfiguration` (`apiserver.config.k8s.io/v1beta1`, enabled by default on 1.32) with `audiences: [fathom-desktop, fathom]`, `audienceMatchPolicy: MatchAny`, per-issuer `certificateAuthority`, claim mappings username `preferred_username` prefix `oidc:`, groups `groups` prefix `oidc:`. `kubectl auth whoami` with alice's ID token: `oidc:alice`, groups `[oidc:fathom-viewers system:authenticated]`; carol: `oidc:carol`, `[system:authenticated]` (no `""` group leaks because the ID token is used). alice can list pods (existing RBAC); carol is Forbidden. `kubectl auth can-i --list` (SelfSubjectRulesReview) works with the OIDC identity, which R7 relies on.
+- `--oidc-*` flags and `--authentication-config` are mutually exclusive: `k8s/kind-oidc-apiserver/apply.sh` removes the flags and adds the file. The file lives under `/etc/kubernetes/pki/` on the node because `/etc/fathom-oidc` is a read-only bind mount.
+- Decision: use `fathom-desktop` as the audience; no dedicated `kube-apiserver` client is required.
+- Gap found: the operator's 011 generator still emits the legacy `--oidc-*` flag form. Task T022 prefill must offer the AuthenticationConfiguration form (needed to accept two audiences); keep flags for clusters < 1.30.
+
+### R4 upstream group mapping: NOT SUPPORTED (schema evidence; live confirmation deferred to T045)
+- Rauthy 0.36.2 `auth_providers` (upstream OIDC) columns carry only `admin_claim_path/admin_claim_value` and `mfa_claim_path/mfa_claim_value`; there is no group-mapping field, and no LDAP client. So Dex `groups` cannot be mapped into Rauthy groups by configuration.
+- Consequence for Phase 8: T045 takes the documented fallback: an IdP-side reconciler (a CronJob in `k8s/rauthy-ldap-lab/` calling the Rauthy admin API with a group-write key to mirror LDAP group membership from Dex/LDAP into Rauthy groups). No Fathom code. The binary also references `application/scim+json`; a SCIM push into Rauthy may be a better reconciler target and should be probed in T045 before writing the job.
+- Probe limitation: the lab `e2e` API key lacks `AuthProviders` permission, so the provider API could not be exercised live.
+
+### Lab bootstrap findings (affect T001 and every E2E)
+- Rauthy bootstrap files are read only on a fresh data dir and are all-or-nothing: an invalid file panics the server at start (crash loop). Two mistakes hit here: grant names must be URNs (`urn:ietf:params:oauth:grant-type:device_code`, not `device_code`), and API key secrets must be >= 64 characters. Recreate the pod (`delete pod`, not `rollout restart`, which keeps the emptyDir) after changing the ConfigMap.
+- After the fix, `users.json` (alice/bob/carol with the repo's known dev password) and `clients.json` seed correctly, including `fathom-admins` and the read-only `fathom-read` key (HTTP 200 on `GET /users`, `Users:read` + `Groups:read` only).
+- Applying the kustomization over the existing ConfigMap works (kubectl merges keys); `users.json` is preserved.
+
 ## Open risks
-1. Loopback redirect matching in Rauthy (R1).
-2. LDAP group mapping Dex to Rauthy (R4).
-3. Kind API server reaching the issuer (R3).
+1. ~~Loopback redirect matching in Rauthy (R1)~~ verified in T004 (IPv4 only, trailing-wildcard registration).
+2. LDAP group mapping Dex to Rauthy (R4): confirmed unsupported; reconciler needed (T045).
+3. ~~Kind API server reaching the issuer (R3)~~ resolved; aud must match, use AuthenticationConfiguration.
 4. Keyring absent on some Linux setups (R2).
 5. `emptyDir` Rauthy state in the lab.

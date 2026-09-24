@@ -1,0 +1,20 @@
+[
+  {
+    "name": "e2e",
+    "secret": { "Plain": "fathome2eapikeysecretfathome2eapikeysecretfathome2eapikeysecretf" },
+    "access": [
+      { "group": "Users", "access_rights": ["read", "create", "update", "delete"] },
+      { "group": "Sessions", "access_rights": ["read", "create", "update", "delete"] },
+      { "group": "Clients", "access_rights": ["read", "create", "update", "delete"] },
+      { "group": "Groups", "access_rights": ["read", "create", "update", "delete"] }
+    ]
+  },
+  {
+    "name": "fathom-read",
+    "secret": { "Plain": "fathomreadonlykeysecretfathomreadonlykeysecretfathomreadonlykeysecret" },
+    "access": [
+      { "group": "Users", "access_rights": ["read"] },
+      { "group": "Groups", "access_rights": ["read"] }
+    ]
+  }
+]

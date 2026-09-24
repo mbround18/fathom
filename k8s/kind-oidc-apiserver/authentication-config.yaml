@@ -1,0 +1,38 @@
+# Structured authentication (kube-apiserver --authentication-config). Preferred over the
+# legacy --oidc-* flags: multiple audiences, CEL claim mapping, per-issuer CA.
+# `fathom-desktop` is the ONLY audience Fathom mints tokens for; the legacy `fathom` client id
+# is kept as a second audience so the 011 web flow keeps working (audienceMatchPolicy).
+apiVersion: apiserver.config.k8s.io/v1beta1
+kind: AuthenticationConfiguration
+jwt:
+  - issuer:
+      url: https://auth.localtest.me/auth/v1/
+      audiences: [fathom-desktop, fathom]
+      audienceMatchPolicy: MatchAny
+      certificateAuthority: |
+        -----BEGIN CERTIFICATE-----
+        MIIDETCCAfmgAwIBAgIUGCqPvyKzhv+p9C5p0TZYyeffuQkwDQYJKoZIhvcNAQEL
+        BQAwGDEWMBQGA1UEAwwNZmF0aG9tLWRldi1jYTAeFw0yNjA5MjQwNDE0MjFaFw0y
+        NjEwMjQwNDE0MjFaMBgxFjAUBgNVBAMMDWZhdGhvbS1kZXYtY2EwggEiMA0GCSqG
+        SIb3DQEBAQUAA4IBDwAwggEKAoIBAQCwz/02J+269F/CzA51v1YbBAYnbkQqngik
+        +QKGuQc3PMkZQ5TJnlxhMK9QVfRxC9dQCr4PcQrF8TAhH31fuhgDHXb1Jpa8BJQE
+        PteC377eWhWx/FPMJNILobM15RSS349hFQkwoxNQ0Q/twVsUY+YX/wXo0TB3Vcvg
+        tVVl2YwdC3s0/En88XqE3wc02CpDDNBdppaeh8mUJWYegVzzQfxOqv+uNi6JXwjW
+        ArrUBNpO/TmUF31Ytt2uJFEve36hHgymFvvbFE5S7+ZL2v93IsmYBPa7lGg23MGR
+        LOd2XYuZ4U6j0IHMQs1Ozos8Vrun1Mf/Wr3KoUlvdS2wiHHfU+7JAgMBAAGjUzBR
+        MB0GA1UdDgQWBBRSIjiLkJRkFQfgsAvg/TMtV9WVtTAfBgNVHSMEGDAWgBRSIjiL
+        kJRkFQfgsAvg/TMtV9WVtTAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA
+        A4IBAQCrxDxWsTWnZi7SX7qTVWmOah9Qo4tASIvrGho07ctOR0I/0+5fNcnugyiu
+        MTpSunTpGZaoY3fz2kJkNQMDtTpHZnax87de2MoORdbq4TLLql88mqCONGgaWPOi
+        miZzxSr8XUspkybTvLvB2rhdAB9PlR7oAUnDmJvh8Fl19TY87Z1WvTFaWwYATzGT
+        0HSdTDXddd/g5WSpPnt7aVqmLmpIynnBknwyltOSXU+WHyDTrGXYoNhucojL/6cr
+        s3JpDmCYfQssfx/GRZ+JehQRG6IuG0PCpBltkQ0ylu5ji5oOYMHYUadbiYprPI+a
+        5ghjS6lzXAR0C71/ShXf+6gh2O5Q
+        -----END CERTIFICATE-----
+    claimMappings:
+      username:
+        claim: preferred_username
+        prefix: "oidc:"
+      groups:
+        claim: groups
+        prefix: "oidc:"

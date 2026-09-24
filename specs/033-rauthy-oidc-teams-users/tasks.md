@@ -5,24 +5,24 @@
 
 ## Phase 1: Setup and lab validation
 
-- [ ] T001 Create `k8s/rauthy-clients/` kustomize: patch `rauthy-bootstrap` adding public client `fathom-desktop` (PKCE S256, loopback redirects, refresh_token + device_code, scopes incl. groups) and a read-only API key (Users:read, Groups:read); add `fathom-admins` group
-- [ ] T002 [P] Create `k8s/kind-oidc-apiserver/` (kubeadm patch or AuthenticationConfiguration, node hosts entry, CA file, prefixes `oidc:`) and notes
-- [ ] T003 [P] Add dependencies `openidconnect`, `keyring`, `arc-swap` to Cargo.toml with justification in research R2; confirm stable releases
-- [ ] T004 Lab spike against kind Rauthy: verify loopback redirect matching (R1), `aud` handling for API server (R3), Rauthy upstream group mapping (R4); record outcomes in research.md and pick fallbacks
+- [x] T001 Create `k8s/rauthy-clients/` kustomize: patch `rauthy-bootstrap` adding public client `fathom-desktop` (PKCE S256, loopback redirects, refresh_token + device_code, scopes incl. groups) and a read-only API key (Users:read, Groups:read); add `fathom-admins` group
+- [x] T002 [P] Create `k8s/kind-oidc-apiserver/` (kubeadm patch or AuthenticationConfiguration, node hosts entry, CA file, prefixes `oidc:`) and notes
+- [x] T003 [P] Add dependencies `openidconnect`, `keyring`, `arc-swap` to Cargo.toml with justification in research R2; confirm stable releases
+- [x] T004 Lab spike against kind Rauthy: verify loopback redirect matching (R1), `aud` handling for API server (R3), Rauthy upstream group mapping (R4); record outcomes in research.md and pick fallbacks
 
 ## Phase 2: Foundational
 
-- [ ] T005 Add protocol types in `src/protocol/v1/oidc.rs`, `idp.rs`, `capabilities.rs` (contracts/protocol.md) and register variants in cmd/event enums
-- [ ] T006 Round-trip serialization tests for every new variant; regenerate ts bindings; CI drift check passes
-- [ ] T007 [P] Additive config: `oidc` key (issuer configs, context auth modes, role map) in `src/config.rs` with defaults-on-invalid and original-preserved tests
-- [ ] T008 [P] Keyring wrapper `src/backend/oidc/store.rs` with in-memory fallback and tests (fake backend)
-- [ ] T009 [P] Mock OIDC provider test harness (discovery, authorize, token, device, jwks, rotating keys) under `tests/support/`
-- [ ] T010 Redaction test: assert no token/secret string can appear in logs, protocol JSON or config (property test over all new types)
+- [x] T005 Add protocol types in `src/protocol/v1/oidc.rs`, `idp.rs`, `capabilities.rs` (contracts/protocol.md) and register variants in cmd/event enums
+- [x] T006 Round-trip serialization tests for every new variant; regenerate ts bindings; CI drift check passes
+- [x] T007 [P] Additive config: `oidc` key (issuer configs, context auth modes, role map) in `src/config.rs` with defaults-on-invalid and original-preserved tests
+- [x] T008 [P] Keyring wrapper `src/backend/oidc/store.rs` with in-memory fallback and tests (fake backend)
+- [x] T009 [P] Mock OIDC provider test harness (discovery, authorize, token, device, jwks, rotating keys) under `tests/support/`
+- [x] T010 Redaction test: assert no token/secret string can appear in logs, protocol JSON or config (property test over all new types)
 
 ## Phase 3: US1 Sign in to Fathom (P1)
 
 - [ ] T011 [US1] Tests first: discovery, PKCE flow, ID token validation failures (bad sig, iss, aud, exp, nonce, skew) in `src/backend/oidc/`
-- [ ] T012 [US1] Implement `flow.rs` (browser + loopback listener, 120 s timeout, cancel) and `validate.rs` (JWKS cache/rotation)
+- [ ] T012 [US1] Implement `flow.rs` (browser + IPv4-only loopback listener on `127.0.0.1` (Rauthy does not match `[::1]`), 120 s timeout, cancel; drop empty `groups` claims, Rauthy omits/empties them) and `validate.rs` (JWKS cache/rotation)
 - [ ] T013 [US1] Implement device-code flow and fallback selection
 - [ ] T014 [US1] Implement `session.rs`: per-issuer refresh task off `exp`, ArcSwap token, rotating refresh token, `OidcSessionEnded`
 - [ ] T015 [US1] Wire commands `OidcSaveIssuer/SignIn/CancelSignIn/SignOut` and events in `src/backend/cmd/`
@@ -35,7 +35,7 @@
 - [ ] T019 [US2] Tests first: kube client uses current token, refreshes mid-session, never falls back after OIDC failure
 - [ ] T020 [US2] Implement bearer layer in `src/backend/kube.rs` for OIDC-opted contexts; `SetContextAuthMode` command
 - [ ] T021 [P] [US2] UI: per-context "authenticate with OIDC" control and verbatim-error panel linking to the 011 generator
-- [ ] T022 [US2] Prefill 011 OIDC generator from discovery document (issuer, client id, claims, prefixes) + test
+- [ ] T022 [US2] Prefill 011 OIDC generator from discovery document (issuer, client id, claims, prefixes) + test; offer the kube-apiserver `AuthenticationConfiguration` (v1beta1) form as well as the legacy flags (T004: it is what the lab uses; supports multiple audiences)
 - [ ] T023 [US2] Live validation per quickstart section 2 on kind (manual, record result)
 
 ## Phase 5: US5 RBAC-scoped UI (P2, before US3/US4)
@@ -70,7 +70,7 @@
 ## Phase 8: US6 LDAP federation (P3)
 
 - [ ] T044 [US6] `k8s/rauthy-ldap-lab/` kustomize: OpenLDAP with seed users/groups + Dex LDAP connector, ingress, no object storage
-- [ ] T045 [US6] Document and script Rauthy upstream-provider registration and group mapping; if mapping is unsupported, add IdP-side reconciler job manifest (no Fathom code)
+- [ ] T045 [US6] Document and script Rauthy upstream-provider registration and group mapping; reconciler job manifest is the default path unless a live probe shows Rauthy upstream mapping/SCIM covers it (no Fathom code)
 - [ ] T046 [US6] CI guard: `cargo tree` must contain no LDAP crate; live validation per quickstart section 5
 
 ## Phase 9: Polish
