@@ -42,11 +42,11 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 - [X] T018 [US1] Implement stream consumer with cursor resume, batching (200 / 250 ms), session tagging and stale-session discard, truncation handling — `src/backend/daemon_client.rs`
 - [X] T019 [US2] Hook into connect/refresh/context-switch paths without blocking connection; verify existing behavior unchanged with feature off — `src/backend/kube.rs`, `src/backend/cmd.rs`
 - [X] T020 [US2] Command handlers for `SetDaemonPreference`/`RefreshDaemon`/`RequestDaemonTimeline` persisting via T008 — `src/backend/cmd/`
-- [ ] T021 [P] [US1] UI store slice and timeline merge/dedupe/staleness Vitest tests — `ui/src/store/`, `ui/src/**/__tests__/`
-- [ ] T022 [US1] UI: "While you were away" timeline pane (derived vs raw badge, verbatim reason/message, truncation banner, responsive per Principle IV) — `ui/src/`
-- [ ] T023 [P] [US2] UI: per-context daemon status chip with inspectable detail, "Use in-cluster daemon if present" toggle, install-command hint (copy only, no action) — `ui/src/`
-- [ ] T024 [US1] Playwright vs scripted fake backend covering all six states, timeline, truncation banner — `ui/tests/`
-- [ ] T025 [US2] Regression test: existing e2e suite passes unchanged with preference `off`; add explicit assertion that no daemon commands/requests are emitted — `ui/tests/`, backend test
+- [X] T021 [P] [US1] UI store slice and timeline merge/dedupe/staleness Vitest tests — `ui/src/store/`, `ui/src/**/__tests__/`
+- [X] T022 [US1] UI: "While you were away" timeline pane (derived vs raw badge, verbatim reason/message, truncation banner, responsive per Principle IV) — `ui/src/`
+- [X] T023 [P] [US2] UI: per-context daemon status chip with inspectable detail, "Use in-cluster daemon if present" toggle, install-command hint (copy only, no action) — `ui/src/`
+- [X] T024 [US1] Playwright vs scripted fake backend covering all six states, timeline, truncation banner — `ui/tests/`
+- [X] T025 [US2] Regression test: existing e2e suite passes unchanged with preference `off`; add explicit assertion that no daemon commands/requests are emitted — `ui/tests/`, backend test
 
 ## Phase 5: US3 — packaging and kind (P2)
 
@@ -73,7 +73,7 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 - [ ] T048 [US5] Implement `series_store.rs` (trait) and `metrics_ring.rs` (15 s sampling of metrics.k8s.io, ~1 h, bounded bytes); `/v1/metrics` filtered per caller — `daemon/src/`
 - [X] T049 [P] [US5] Protocol: `RequestDaemonTopology`, `RequestDaemonMetrics`, `DaemonTopologyUpdated`, `DaemonMetricsUpdated`, new frames/types with round-trip tests; regenerate bindings — `src/protocol/v1/`
 - [X] T050 [US5] Client: topology/metrics stream consumption with session tagging and batching — `src/backend/daemon_client.rs`
-- [ ] T051 [US5] UI: topology pane fed by the daemon (falls back to the existing client-built topology when off/absent) and per-object trend sparkline with truncation marker; Playwright vs fake backend at all widths — `ui/src/`, `ui/tests/`
+- [X] T051 [US5] UI: topology pane fed by the daemon (falls back to the existing client-built topology when off/absent) and per-object trend sparkline with truncation marker; Playwright vs fake backend at all widths — `ui/src/`, `ui/tests/`
 - [ ] T052 [US5] kind test with two users: only in-scope nodes/edges visible; topology change in <= 5 s (SC-007) — `k8s/test-daemon.sh`
 
 ## Phase 7: Polish
