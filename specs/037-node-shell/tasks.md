@@ -45,7 +45,7 @@ Format: `[ID] [P?] [Story] description (path)`. [P] = parallelizable (different 
 - [X] T028 [P] Accessibility, keyboard, reduced-motion pass; verify no horizontal scroll at supported widths (keyboard, labels and reduced-motion asserted in node-shell.spec.ts; no horizontal scroll checked at all widths)
 - [x] T029 Update docs/MVP.md Node Shell status and section text
 - [ ] T030 Run quickstart on Tier 1 platforms; full CI gates (PARTIAL, not done: Linux only; live kind run via an ignored test; Ubuntu 26/Win11/macOS not run)
-- [ ] T031 Brochure screenshots of the new screens (final step per project convention)
+- [x] T031 Brochure screenshots of the new screens (final step per project convention) (Done: node-shell panel + confirmation dialog, real; no live session is started by the read-only promo run.)
 
 ## Dependencies
 Phase 1 -> 2 -> 3. Phases 5 and 6 can run in parallel after T012 (shared node_shell.rs); 4 depends on 3. Polish last. Suggested fan-out: agent A (protocol T003-T006), agent B (backend T007-T009, T012, T017, T018, T022, T023), agent C (UI T013, T016, T021, T025), then integration.

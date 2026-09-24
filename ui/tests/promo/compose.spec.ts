@@ -238,6 +238,60 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
       'Publish a non-secret connection profile — context alias, API server, default namespace — so teammates can adopt it instead of re-typing kubeconfig by hand.',
     scale: 2,
   },
+  'wide-identity': {
+    title: 'Sign in with your team identity',
+    caption:
+      'Register an OIDC issuer (Rauthy or any standards-compliant IdP) and sign in per cluster — no shared kubeconfig credentials, and kubeconfig-only use is unchanged.',
+    scale: 2,
+  },
+  'wide-teams': {
+    title: 'Teams and users, from your IdP',
+    caption:
+      'Once signed in, see your own groups and, with an admin key, the directory of teams and users — linked to shared connection profiles.',
+    scale: 2,
+  },
+  'wide-federation-fleet': {
+    title: 'Many clusters, live at once',
+    caption:
+      'Keep several kubeconfig contexts connected simultaneously: per-cluster live status plus a combined header — nodes, running and unhealthy pods, warnings — across the fleet.',
+    scale: 2,
+  },
+  'wide-daemon-chip': {
+    title: 'An optional in-cluster daemon',
+    caption:
+      'Opt in per context: a small read-only helper streams controller events, topology and metric trends. Its status, version, scope and retention are always inspectable.',
+    scale: 2,
+  },
+  'wide-daemon-timeline': {
+    title: 'While you were away',
+    caption:
+      'Events that happened while Fathom was closed, replayed from the daemon. Each entry is badged Derived (a controller condition) or Raw (a Kubernetes Event), with the message verbatim; a banner flags any gap in history.',
+    scale: 2,
+  },
+  'wide-daemon-topology': {
+    title: 'Cluster topology and trends',
+    caption:
+      'A daemon-fed relationship graph with health per object, and a CPU and memory sparkline for the selected node from the cluster’s metrics API.',
+    scale: 2,
+  },
+  'wide-node-shell-panel': {
+    title: 'Node Shell',
+    caption:
+      'Open a shell on a node from its inspector, with the image and time limit visible before anything starts.',
+    scale: 2,
+  },
+  'wide-node-shell-confirm': {
+    title: 'Privileged access, spelled out',
+    caption:
+      'The confirmation lists the node, the throwaway pod and exactly what it can do — privileged, host namespaces, node filesystem at /host — and that it is deleted when you leave.',
+    scale: 2,
+  },
+  'wide-ai-assist': {
+    title: 'Bring your own AI, or keep it local',
+    caption:
+      'Sign in with GitHub, add a Claude or OpenAI key, or use a local Ollama model; offline mode blocks every outbound request.',
+    scale: 2,
+  },
 }
 
 /** Narrative order: wide feature shots first, then ultra, then down to phone. Matches the

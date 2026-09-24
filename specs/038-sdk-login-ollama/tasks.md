@@ -48,7 +48,7 @@ Format: `[ID] [P?] [Story] Description`
 ## Phase 8: Polish
 - [x] T029 [P] Update `docs/MVP.md` Tier A/E statuses and `docs/mcp/MCP_ARCHITECTURE.md` provider section.
 - [x] T030 Run quickstart.md end to end on Ubuntu, Windows, macOS; `cargo clippy`, `cargo test`, `pnpm test`. (NOT run on Windows/macOS; Ubuntu gate run here; real keyring, GitHub, Claude, OpenAI and a live Ollama were not exercised -- mocks and an in-memory keyring double only)
-- [ ] T031 Brochure screenshots of new screens (final step of the batch).
+- [ ] T031 Brochure screenshots of new screens (final step of the batch). (Partial: wide-ai-assist captured for real, showing GitHub sign-in, Claude/OpenAI key entry and Ollama "not running"; the GitHub device-code and connected states are not captured because they need live provider credentials.)
 
 ## Dependencies
 Phase 2 blocks all. US2 (Phase 3) precedes US1 (needs the store). US3 and US4 depend on T006 and can run in parallel with US1 after Phase 3. UI (Phase 7) after protocol (T004). T031 last.

@@ -62,7 +62,7 @@ description: "Task list for Simultaneous Multi-Context Federation"
 - [ ] T031 [P] Reachability recovery test (SC-004) against a stopped/started kind control plane
 - [X] T032 Update `docs/MVP.md` §14 Tier D and the status table (P2 shipped) and note federation in the fleet docs
 - [X] T033 Run quickstart.md end to end (gates only; not exercised against a live cluster); `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `pnpm -C ui lint typecheck test`, Playwright
-- [ ] T034 Brochure/marketing screenshots of the Federation view (final step of the batch)
+- [x] T034 Brochure/marketing screenshots of the Federation view (final step of the batch) (Done: wide-federation-fleet, real two-context capture.)
 
 ## Dependencies
 

@@ -81,7 +81,7 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 - [ ] T037 [P] Perf/budget check (150 MiB incl. topology and ring): daemon RSS and idle CPU at 5,000 objects (SC-004); client idle CPU with stream open
 - [ ] T038 [P] Update `docs/MVP.md` §14 Tier D P4 status and add a short section to `k8s/README.md`
 - [ ] T039 Run `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, UI lint/typecheck/Vitest/Playwright; execute quickstart end to end
-- [ ] T040 Marketing-PDF screenshots of the timeline and status chip (final step, per project convention)
+- [x] T040 Marketing-PDF screenshots of the timeline and status chip (final step, per project convention) (Done: wide-daemon-chip, wide-daemon-timeline, wide-daemon-topology, captured against a real kind daemon.)
 
 ## Dependencies
 
