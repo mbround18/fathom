@@ -777,6 +777,18 @@ pub enum BackendCmdV1 {
         command_summary: String,
         outcome: ActionOutcome,
     },
+
+    // 027-fleet-rollup-dashboard: view-scoped multi-context health rollup. Both are idempotent
+    // and never touch `ClusterContext.client`/`current_context` (the active context) — the
+    // fleet pollers hold their own independent short-lived-per-attempt `kube::Client`s, one per
+    // context returned by the same kubeconfig listing `Initialize`/`RefreshContexts` already
+    // use. See `src/backend/fleet.rs`.
+    /// Sent when the Fleet Dashboard view mounts. Spawns a poller for every kubeconfig context
+    /// that does not already have one running; a no-op per-context if already running.
+    StartFleetPolling,
+    /// Sent when the Fleet Dashboard view unmounts. Aborts every running fleet poller and
+    /// clears the summary cache (also invoked from `cleanup_all_tasks()` on shutdown).
+    StopFleetPolling,
 }
 
 /// Direction of a `TaintNode` mutation.
@@ -1133,5 +1145,11 @@ mod tests {
         roundtrip(BackendCmdV1::LoadMcpServerStatus);
         roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: true });
         roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: false });
+    }
+
+    #[test]
+    fn fleet_cmd_roundtrips() {
+        roundtrip(BackendCmdV1::StartFleetPolling);
+        roundtrip(BackendCmdV1::StopFleetPolling);
     }
 }

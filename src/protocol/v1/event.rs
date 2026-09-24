@@ -251,6 +251,12 @@ pub enum SystemEvent {
     McpDemoChatNotDetected {
         instructions: String,
     },
+
+    /// 027-fleet-rollup-dashboard: one context's fleet summary card, emitted once per poll
+    /// attempt (success or failure) while that context's fleet poller is running. Routed
+    /// globally, matching `ContextStatusUpdated`'s pattern — the frontend keys its own map by
+    /// `.context` on receipt.
+    FleetSummaryUpdated(crate::protocol::v1::FleetContextSummary),
 }
 
 /// One installed CustomResourceDefinition, discovered via `kube::discovery`. See

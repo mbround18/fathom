@@ -104,6 +104,8 @@ tonic-prost-build = "0.14.6"
 protobuf-src = "2.1.1"
 
 [dev-dependencies]
+# Paused-time tokio tests (027 fleet poller fan-out)
+tokio = { version = "1.49.0", features = ["full", "test-util"] }
 # Headless GUI test harness (AccessKit-based; no window/GPU required)
 egui_kittest = { version = "0.33.3", features = ["eframe"] }
 accesskit = "0.21"

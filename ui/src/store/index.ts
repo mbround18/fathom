@@ -40,6 +40,7 @@ import type {
   TeamStoreStatus,
   ThemePrefs,
   ToolKind,
+  FleetContextSummary,
   TunnelStatus,
   UiConfig,
 } from '@/protocol/types'
@@ -152,6 +153,9 @@ export interface SessionState {
    * write per context wins — the backend never double-writes the same context (data-model.md
    * §"Frontend"). */
   contextStatuses: Record<string, ContextStatusEntry>
+  /** 027-fleet-rollup-dashboard: latest poll summary per context; runtime-only, populated only
+   * while the Fleet Dashboard is open. Last write per context wins. */
+  fleetSummaries: Record<string, FleetContextSummary>
 }
 
 type RowOf<T> = T extends readonly (infer R)[] ? R : T extends { events: (infer E)[] } ? E : never
@@ -577,6 +581,9 @@ export interface StoreState extends StoreData {
   notify: (level: Notice['level'], message: string) => void
   /** Switch kubeconfig context: sends `SetContext`; results for other contexts are then dropped. */
   selectContext: (name: string) => void
+  /** 027: start/stop the backend's view-scoped fleet pollers (Fleet Dashboard mount/unmount). */
+  startFleetPolling: () => void
+  stopFleetPolling: () => void
   /** Sends `SetNamespaceFilter` (`null` = all namespaces). */
   selectNamespace: (ns: string | null) => void
   /** Sends the section's `Refresh*` command and marks its list loading. */
@@ -797,6 +804,7 @@ export function initialData(): StoreData {
       activeNamespace: null,
       namespaceFilter: [],
       contextStatuses: {},
+      fleetSummaries: {},
     },
     lists: {},
     details: {},
@@ -969,6 +977,14 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   notify: (level, message) =>
     set((s) => ({ conn: { ...s.conn, lastNotice: { level, message, at: Date.now() } } })),
+
+  startFleetPolling: () => get().send({ type: 'StartFleetPolling' }),
+
+  stopFleetPolling: () => {
+    const s = get()
+    s.send({ type: 'StopFleetPolling' })
+    set({ session: { ...s.session, fleetSummaries: {} } })
+  },
 
   selectContext: (name) => {
     const s = get()
