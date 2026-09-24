@@ -98,10 +98,10 @@ description: "Task list for the Knative pane feature"
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T029 [P] Add `ui/tests/e2e/knative-pane.spec.ts`: a focused Playwright spec against the project's scripted fake backend (per constitution Principle III) covering exactly: (a) open the Knative pane against a fixture `KnativeOverviewUpdated` with one Service/Revision/Route set and confirm the lists render; (b) confirm an 80/20 (or similar) traffic split renders both percentages correctly; (c) confirm a scaled-to-zero Revision fixture shows the correct "why" text; (d) confirm an `installed: false` fixture shows the "Knative not installed" empty state with no lists/graph rendered. Keep this spec tight — 4 scenarios, no more.
-- [ ] T030 Run `cargo build --workspace --all-targets`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` (full workspace); fix any warnings/failures.
-- [ ] T031 Run `pnpm -C ui typecheck`, `pnpm -C ui lint`, `pnpm -C ui test`, and the new e2e spec (`pnpm -C ui test:e2e -- knative-pane` or the repo's equivalent invocation); fix any failures.
-- [ ] T032 Re-read `specs/028-knative-pane/spec.md` FR-001 through FR-014 and confirm each is met by the shipped code; update `specs/028-knative-pane/checklists/requirements.md` notes if any gap is found and fixed.
+- [x] T029 [P] Add `ui/tests/e2e/knative-pane.spec.ts`: a focused Playwright spec against the project's scripted fake backend (per constitution Principle III) covering exactly: (a) open the Knative pane against a fixture `KnativeOverviewUpdated` with one Service/Revision/Route set and confirm the lists render; (b) confirm an 80/20 (or similar) traffic split renders both percentages correctly; (c) confirm a scaled-to-zero Revision fixture shows the correct "why" text; (d) confirm an `installed: false` fixture shows the "Knative not installed" empty state with no lists/graph rendered. Keep this spec tight — 4 scenarios, no more.
+- [x] T030 Run `cargo build --workspace --all-targets`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` (full workspace); fix any warnings/failures.
+- [x] T031 Run `pnpm -C ui typecheck`, `pnpm -C ui lint`, `pnpm -C ui test`, and the new e2e spec (`pnpm -C ui test:e2e -- knative-pane` or the repo's equivalent invocation); fix any failures.
+- [x] T032 Re-read `specs/028-knative-pane/spec.md` FR-001 through FR-014 and confirm each is met by the shipped code; update `specs/028-knative-pane/checklists/requirements.md` notes if any gap is found and fixed.
 
 ## Dependencies
 
