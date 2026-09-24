@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { DaemonChip } from '@/features/daemon/DaemonChip'
 import { IdentityChip } from '@/features/identity/IdentityChip'
 import { ContextPicker } from '@/components/ContextPicker'
 import { NamespacePicker } from '@/components/NamespacePicker'
@@ -59,6 +60,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
           <FederationView />
         </DialogContent>
       </Dialog>
+      <DaemonChip compact={narrow} />
       <IdentityChip compact={narrow} />
       <div className="flex min-w-0 items-center gap-2">
         <ContextPicker className="max-w-[40vw] sm:max-w-64" />

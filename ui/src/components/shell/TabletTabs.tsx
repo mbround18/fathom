@@ -32,12 +32,17 @@ export function TabletTabs() {
   const popPane = useStore((s) => s.popPane)
   const closeInspector = useStore((s) => s.closeInspector)
   const top = stack.at(-1)
+  // A tool root outside the tab strip (e.g. the daemon timeline) still takes the full width.
+  const rootIsTool = useStore((s) => {
+    const root = s.layout.stack[0]
+    return root ? s.panes[root]?.kind === 'tool' : false
+  })
   const topIsInspector = useStore((s) => (top ? s.panes[top]?.kind === 'inspector' : false))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StackTabs tabs={TABLET_TABS} className="border-b" />
-      {active?.kind === 'tool' && top ? (
+      {(active?.kind === 'tool' || rootIsTool) && top ? (
         <div className="flex min-h-0 flex-1 flex-col">
           {stack.length > 1 && (
             <Button

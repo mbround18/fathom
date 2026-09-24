@@ -16,6 +16,7 @@ import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/c
 import type { AiSlice } from '@/features/ai-assist/types'
 import type {
   AdoptedConnectionProfile,
+  DaemonStatus,
   AgentAuthMode,
   AgentConversation,
   BackendCmd,
@@ -57,6 +58,7 @@ import type {
 
 import { descriptorFor } from '@/resources'
 
+import { initialDaemon, type DaemonSlice } from './handlers/daemon'
 import { initialFederation, type FederationSlice } from './handlers/federation'
 import type { ObjectRef } from '@/resources/types'
 
@@ -493,6 +495,8 @@ export interface LayoutState {
 export interface StoreData {
   conn: ConnState
   session: SessionState
+  /** 036-incluster-daemon: per-context daemon status, timeline, topology, metrics. */
+  daemon: DaemonSlice
   lists: Record<ListKey, ListState>
   details: Record<DetailKey, DetailState>
   /** Log and exec streams by `StreamId`. */
@@ -642,6 +646,11 @@ export interface StoreState extends StoreData {
   federateContext: (context: string) => void
   unfederateContext: (context: string) => void
   requestFederationSnapshot: () => void
+  /** 036: opt a context in/out of the in-cluster daemon; manual re-probe; metrics on demand. */
+  setDaemonPreference: (context: string, mode: 'off' | 'auto') => void
+  refreshDaemon: (context: string) => void
+  requestDaemonTopology: (context: string) => void
+  requestDaemonMetrics: (context: string, uid: string, metric: 'cpu' | 'memory') => void
   /** Sends `SetNamespaceFilter` (`null` = all namespaces). */
   selectNamespace: (ns: string | null) => void
   /** Sends the section's `Refresh*` command and marks its list loading. */
@@ -855,6 +864,7 @@ export function initialData(): StoreData {
   const { slotPanes, dockPanes, panes } = assignPanes(profile, {})
   return {
     conn: { status: 'starting', dropped: 0 },
+    daemon: initialDaemon(),
     session: {
       contexts: [],
       contextsLoaded: false,
@@ -1054,6 +1064,43 @@ export const useStore = create<StoreState>()((set, get) => ({
   federateContext: (context) => get().send({ type: 'FederateContext', data: { context } }),
   unfederateContext: (context) => get().send({ type: 'UnfederateContext', data: { context } }),
   requestFederationSnapshot: () => get().send({ type: 'RequestFederationSnapshot' }),
+
+  setDaemonPreference: (context, mode) => {
+    const s = get()
+    // Optimistic: the toggle reflects the click at once; the backend's status replaces it.
+    const prev = s.daemon[context]
+    const status: DaemonStatus = {
+      context,
+      state: mode === 'off' ? 'off' : 'probing',
+      detail: null,
+      capabilities: null,
+      lastEventAt: null,
+      nextRetryAt: null,
+    }
+    set({
+      daemon: {
+        ...s.daemon,
+        [context]: {
+          session: 0,
+          timeline: [],
+          truncated: null,
+          topology: { seq: 0, nodes: {}, edges: [] },
+          metrics: {},
+          ...prev,
+          status,
+        },
+      },
+    })
+    s.send({ type: 'SetDaemonPreference', data: { context, mode } })
+  },
+  refreshDaemon: (context) => get().send({ type: 'RefreshDaemon', data: { context } }),
+  requestDaemonTopology: (context) =>
+    get().send({ type: 'RequestDaemonTopology', data: { context } }),
+  requestDaemonMetrics: (context, uid, metric) =>
+    get().send({
+      type: 'RequestDaemonMetrics',
+      data: { context, uid, metric, range_secs: 3600 },
+    }),
 
   selectContext: (name) => {
     const s = get()
