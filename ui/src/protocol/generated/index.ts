@@ -21,6 +21,7 @@ export type * from "./ClusterRoleDetails";
 export type * from "./ClusterRoleSummary";
 export type * from "./ClusterSettings";
 export type * from "./ClusterSettingsFieldOrigin";
+export type * from "./ClusterVersionSummary";
 export type * from "./ConfigMapDetails";
 export type * from "./ConfigMapSummary";
 export type * from "./ConnectionProfile";

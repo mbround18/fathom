@@ -309,3 +309,31 @@ export const podsError: EventBatch = batch([
 
 /** Backpressure: the pump dropped envelopes before this batch. */
 export const droppedWarning: EventBatch = batch([], 3)
+
+/** 019: healthy cluster version — server and every kubelet match (no skew). */
+export const clusterVersionHealthy: EventBatch = batch([
+  system(20, {
+    type: 'ClusterVersionUpdated',
+    data: { server_version: 'v1.29.4', node_kubelet_versions: ['v1.29.4'], skew_detected: false },
+  }),
+])
+
+/** 019: a node's kubelet lags the control plane (skew). */
+export const clusterVersionSkewed: EventBatch = batch([
+  system(21, {
+    type: 'ClusterVersionUpdated',
+    data: {
+      server_version: 'v1.29.4',
+      node_kubelet_versions: ['v1.28.9', 'v1.29.4'],
+      skew_detected: true,
+    },
+  }),
+])
+
+/** 019: version discovery failed — neutral unknown state. */
+export const clusterVersionUnknown: EventBatch = batch([
+  system(22, {
+    type: 'ClusterVersionUpdated',
+    data: { server_version: null, node_kubelet_versions: [], skew_detected: false },
+  }),
+])

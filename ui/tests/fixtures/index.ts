@@ -5,6 +5,9 @@
 import type { EventBatch } from '../../src/protocol/types'
 import {
   backendStarted,
+  clusterVersionHealthy,
+  clusterVersionSkewed,
+  clusterVersionUnknown,
   contextChanged,
   deployments,
   deploymentsKindA,
@@ -36,6 +39,9 @@ export const FIXTURES = {
   'empty-contexts': emptyContexts,
   'no-kubeconfig': noKubeconfig,
   'context-changed-kind-b': contextChanged('kind-b'),
+  'cluster-version-healthy': clusterVersionHealthy,
+  'cluster-version-skewed': clusterVersionSkewed,
+  'cluster-version-unknown': clusterVersionUnknown,
   'federation-contexts': federationContexts,
   'federation-statuses': federationStatuses,
   'namespaces-kind-a': namespaces('kind-a'),

@@ -20,6 +20,7 @@ import type {
   ContextConnectionStatus,
   CrdCatalogEntry,
   DiskUsage,
+  ClusterVersionSummary,
   FluxOverview,
   HubbleTrafficSummary,
   ImageInspectError,
@@ -460,6 +461,8 @@ export interface StoreData {
   pendingPortForwardOrigins: PendingPortForwardOrigins
   metrics: MetricsState
   flux: { overview?: FluxOverview }
+  /** 019: `undefined` until the first `ClusterVersionUpdated` arrives. */
+  clusterVersion: ClusterVersionSummary | undefined
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -806,6 +809,7 @@ export function initialData(): StoreData {
     pendingPortForwardOrigins: {},
     metrics: { diskUsage: [] },
     flux: {},
+    clusterVersion: undefined,
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
