@@ -67,7 +67,7 @@ async fn list_instances(client: &Client, crd: &DiscoveredCrd) -> Result<Vec<Dyna
     }
 }
 
-fn get_str<'a>(value: Option<&'a Value>, key: &str) -> String {
+fn get_str(value: Option<&Value>, key: &str) -> String {
     value
         .and_then(|v| v.get(key))
         .and_then(|v| v.as_str())
