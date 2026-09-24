@@ -17,6 +17,8 @@ export const SECTION = {
   applications: 'applications',
   services: 'network/services',
   portForwards: 'network/portforwards',
+  /** 020-gatekeeper-policy-pane: read-only OPA Gatekeeper constraint compliance view. */
+  gatekeeper: 'integrations/gatekeeper',
   /** 014-teams-organizations: local §10 Cluster Settings + org-level sync affordances. */
   clusterSettings: 'integrations/cluster-settings',
   /** 014-teams-organizations: shared, non-secret connection profiles + team-store status. */

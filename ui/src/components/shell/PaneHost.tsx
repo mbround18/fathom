@@ -4,6 +4,7 @@ import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
 import { Inspector } from '@/components/Inspector'
 import { FluxPanel } from '@/components/panels/FluxPanel'
+import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
@@ -228,6 +229,10 @@ function ListBody({ pane }: { pane: PaneState }) {
   // 014-teams-organizations: local §10 Cluster Settings (+ org sync) and shared connection
   // profiles are settings forms, not resource tables — same "render itself directly" pattern
   // as `portForwards` above, no descriptor.
+  // 020-gatekeeper-policy-pane: read-only constraint compliance view, no descriptor.
+  if (section === SECTION.gatekeeper) {
+    return <GatekeeperPanel />
+  }
   if (section === SECTION.clusterSettings) {
     return <ClusterSettingsPanel />
   }

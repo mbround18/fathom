@@ -82,6 +82,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ['integrations/metrics', 'Metrics'],
     ['integrations/grafana', 'Grafana'],
     ['integrations/flux', 'Flux'],
+    ['integrations/gatekeeper', 'Gatekeeper'],
   ]),
   // 014-teams-organizations: local §10 Cluster Settings (+ org-level sync affordances) and
   // shared, non-secret connection profiles.

@@ -131,23 +131,23 @@ steps 1-3 and 8-9).
       that calls `ensure_gatekeeper_poll` (idempotent start) and then immediately runs one
       `scan_gatekeeper` + event emit, decoupled from the 20s ticker (mirrors `refresh_flux`'s
       existing shape 1:1).
-- [ ] T018 [US1] In `ui/src/store/index.ts`: add the `gatekeeper: { overview: GatekeeperOverview |
+- [x] T018 [US1] In `ui/src/store/index.ts`: add the `gatekeeper: { overview: GatekeeperOverview |
       null }` slice (initial `overview: null`), the `refreshGatekeeper()` action sending
       `BackendCmd::RefreshGatekeeper`, and the `SystemEvent::GatekeeperOverviewUpdated` case in the
       event reducer setting `gatekeeper.overview` to the payload verbatim — all three mirroring
       the existing `flux`/`refreshFlux`/`FluxOverviewUpdated` code paths.
-- [ ] T019 [US1] Create `ui/src/components/panels/GatekeeperPanel.tsx`: on mount, call
+- [x] T019 [US1] Create `ui/src/components/panels/GatekeeperPanel.tsx`: on mount, call
       `refreshGatekeeper()` (mirrors `FluxPanel.tsx`'s `useEffect`); render
       `MetricsUnavailable` while `overview` is `null`; for `state === 'Active'`, render summary
       tiles via `IntegrationSummary` (e.g. total constraints, constraints with violations, total
       violation count) and a constraint list (name, kind, enforcement action, violation count —
       showing a distinct "awaiting status" label when `total_violations` is `null`, and "0
       violations"/compliant tone when it is `0`) — no click/drill-down wiring yet (that's US2).
-- [ ] T020 [P] [US1] Add a unit test (Vitest) for the `gatekeeper` store slice in
+- [x] T020 [P] [US1] Add a unit test (Vitest) for the `gatekeeper` store slice in
       `ui/src/store/__tests__/` (or the existing store test location — match repo convention)
       covering: initial `overview: null`, `refreshGatekeeper()` sends the right command, and the
       event reducer updates `overview` on `GatekeeperOverviewUpdated`.
-- [ ] T021 [P] [US1] Add a unit test (Vitest/RTL) for `GatekeeperPanel.tsx` covering: waiting
+- [x] T021 [P] [US1] Add a unit test (Vitest/RTL) for `GatekeeperPanel.tsx` covering: waiting
       state, `InstalledNoConstraints` empty state (distinct message), a constraint with
       `total_violations: null` rendering the "awaiting status" indicator (not "0 violations"), and
       a constraint with a real count rendering correctly.
@@ -179,24 +179,24 @@ Scenario 1, steps 4-7).
       mapping, its `custom_resources()` fallback for an unrecognized kind, and the
       `template_missing: true` case when a constraint's template CRD is absent from the fixture
       CRD list.
-- [ ] T025 [US2] In `ui/src/components/panels/GatekeeperPanel.tsx`, add the drill-down: local
+- [x] T025 [US2] In `ui/src/components/panels/GatekeeperPanel.tsx`, add the drill-down: local
       `useState<string | null>` for the selected constraint (keyed by `kind`+`name`); clicking a
       constraint row selects it; when selected, render its `violations` list below (namespace,
       kind, name, message, enforcement action per entry); when `violations_truncated` is true,
       render "showing N of M violations" using `violations.length` and `total_violations` (FR-007
       — must not present the list as complete); when `template_missing` is true, show a small
       "references a missing ConstraintTemplate" flag on the constraint row.
-- [ ] T026 [US2] In `GatekeeperPanel.tsx`, wire each violation row to
+- [x] T026 [US2] In `GatekeeperPanel.tsx`, wire each violation row to
       `openInspector({ section: violation.section, kind: violation.kind, namespace: violation.namespace || null, name: violation.name }, paneId, true)`
       (contracts/protocol.md's UI navigation contract — normalize `""` namespace to `null` for
       cluster-scoped resources before calling `openInspector`, matching existing normalization
       convention), obtaining `paneId` and `openInspector` from the store the same way
       `GitOpsWarningBanner.tsx` does.
-- [ ] T027 [P] [US2] Extend the `GatekeeperPanel.tsx` Vitest/RTL tests (T021's file) to cover:
+- [x] T027 [P] [US2] Extend the `GatekeeperPanel.tsx` Vitest/RTL tests (T021's file) to cover:
       selecting a constraint reveals its violation list with correct fields, the truncation notice
       appears exactly when `violations_truncated` is true, and clicking a violation row calls
       `openInspector` with the expected `ObjectRef`.
-- [ ] T028 [US2] Write the Playwright e2e spec `ui/tests/e2e/gatekeeper-panel.spec.ts` (per the
+- [x] T028 [US2] Write the Playwright e2e spec `ui/tests/e2e/gatekeeper-panel.spec.ts` (per the
       task brief: "hyper-focused ... two scenarios total") against a scripted fake backend
       (existing e2e harness convention — mirror the setup used by another recent panel's e2e spec,
       e.g. Flux's or Hubble's if one exists, or the harness pattern documented in `ui/tests/e2e/`):
@@ -223,14 +223,14 @@ zero-constraints and permission-denied states are visually distinct from it and 
 function — the scan function returns one unified `GatekeeperOverview` regardless of which state
 applies, so there is no separate backend task here; this phase is UI-only.)*
 
-- [ ] T029 [US3] In `GatekeeperPanel.tsx`, branch on `overview.state`: `NotInstalled` →
+- [x] T029 [US3] In `GatekeeperPanel.tsx`, branch on `overview.state`: `NotInstalled` →
       `MetricsUnavailable` (or equivalent) with the exact copy "OPA Gatekeeper is not installed on
       this cluster"; `InstalledNoConstraints` → a distinct message, e.g. "Gatekeeper is installed
       but no constraints are defined"; `PermissionDenied` → a distinct message surfacing
       `overview.error` verbatim (Principle I — never replace backend errors with generic text);
       `Active` → the T019/T025 list view. Each state must be visually and textually
       distinguishable from the others (FR-002).
-- [ ] T030 [P] [US3] Add Vitest/RTL coverage (extending T021/T027's file) asserting each of the
+- [x] T030 [P] [US3] Add Vitest/RTL coverage (extending T021/T027's file) asserting each of the
       four `overview.state` values renders its own distinct message/view, with explicit
       assertions that `NotInstalled` text differs from `InstalledNoConstraints` text and that
       `PermissionDenied` renders the injected `error` string verbatim.
@@ -240,7 +240,7 @@ already exercises the `NotInstalled` path end-to-end.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T031 [P] Update any panel-registry/routing file that lists available integration panes
+- [x] T031 [P] Update any panel-registry/routing file that lists available integration panes
       (wherever `FluxPanel`/`HubblePanel` are registered into the pane shell, e.g.
       `ui/src/components/shell/PaneHost.tsx` or a panes/registry module) to add
       `GatekeeperPanel` under `integrations/gatekeeper`, and add the corresponding nav entry
