@@ -11,6 +11,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { useWidthClass } from '@/layout/use-width-class'
 import { useStore } from '@/store'
 
+import { CommandPaletteHost } from './CommandPaletteHost'
 import { FederationContextSwitcher } from './FederationContextSwitcher'
 import { PhoneStack } from './PhoneStack'
 import { SlotGrid } from './SlotGrid'
@@ -60,6 +61,7 @@ export function AppShell() {
         </Sheet>
       )}
       <ActionDialogHost />
+      <CommandPaletteHost />
       {/* Narrow: toasts drop below the 44px top bar; error toasts stay until dismissed and must
           never cover the context/namespace pickers. */}
       <Toaster
