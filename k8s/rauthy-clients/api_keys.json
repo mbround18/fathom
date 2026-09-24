@@ -10,6 +10,15 @@
     ]
   },
   {
+    "name": "ldap-lab",
+    "secret": { "Plain": "ldaplabgroupwriterkeysecretldaplabgroupwriterkeysecretldaplabgroupw" },
+    "access": [
+      { "group": "Users", "access_rights": ["read", "create", "update", "delete"] },
+      { "group": "Groups", "access_rights": ["read", "create", "update", "delete"] },
+      { "group": "AuthProviders", "access_rights": ["read", "create", "update", "delete"] }
+    ]
+  },
+  {
     "name": "fathom-read",
     "secret": { "Plain": "fathomreadonlykeysecretfathomreadonlykeysecretfathomreadonlykeysecret" },
     "access": [

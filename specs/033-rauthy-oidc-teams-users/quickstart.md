@@ -27,7 +27,7 @@ Roles -> Assign: pick group `fathom-editors`, ClusterRole `edit`, ns `fathom-dev
 
 ## 5. Story 6 (LDAP)
 
-`kubectl --context kind-fathom-oidc-rauthy apply -k k8s/rauthy-ldap-lab`. Register Dex as an upstream provider in Rauthy (documented steps). Sign in as the LDAP user through Rauthy: Fathom shows the mapped groups. Confirm `cargo tree | grep -i ldap` is empty.
+`kubectl --context kind-fathom-oidc-rauthy apply -k k8s/rauthy-ldap-lab`. Then `kubectl --context kind-fathom-oidc-rauthy apply -k k8s/rauthy-clients && kubectl --context kind-fathom-oidc-rauthy -n rauthy delete pod --all` (seeds the `ldap-lab` API key) and run `k8s/rauthy-ldap-lab/register-provider.sh` to register Dex as an upstream provider in Rauthy. After the first LDAP login run `kubectl -n ldap-lab create job --from=cronjob/group-reconciler r1` to mirror LDAP groups into Rauthy (Rauthy has no upstream group mapping). Browser login needs `127.0.0.1 dex.ldap-lab.svc.cluster.local` in /etc/hosts (see the script header). Status: see research.md T044-T046 (registration/reconciler not yet live-verified). Sign in as the LDAP user through Rauthy: Fathom shows the mapped groups. Confirm `scripts/check-no-ldap.sh` passes (also a CI step).
 
 ## 6. Regression
 

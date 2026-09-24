@@ -83,6 +83,14 @@ Method: registered `fathom-desktop` (k8s/rauthy-clients), drove a real login as 
 - After the fix, `users.json` (alice/bob/carol with the repo's known dev password) and `clients.json` seed correctly, including `fathom-admins` and the read-only `fathom-read` key (HTTP 200 on `GET /users`, `Users:read` + `Groups:read` only).
 - Applying the kustomization over the existing ConfigMap works (kubectl merges keys); `users.json` is preserved.
 
+## T044-T046 LDAP lab results (kind-fathom-oidc-rauthy, run 2026-09-24)
+
+- `kubectl apply -k k8s/rauthy-ldap-lab` deploys OpenLDAP 1.5.0, Dex v2.41.1 (LDAP connector, static client `rauthy`), a `ldap-seed` Job and the `group-reconciler` CronJob (ns `ldap-lab`). VERIFIED live: OpenLDAP seeded (users dave/erin/frank; groups fathom-editors {dave}, fathom-viewers {erin, dave}); Dex serves discovery at `http://dex.ldap-lab.svc.cluster.local:5556/dex`.
+- The osixia image's custom-ldif hook exits with status 68 on this seed (crash loop), so seeding is a `ldapadd -c` Job instead.
+- `scripts/check-no-ldap.sh` (wired into CI `check`) passes: `cargo tree` has no LDAP crate.
+- NOT VERIFIED live: Rauthy upstream-provider registration and the reconciler run. They need the `ldap-lab` API key (AuthProviders/Users/Groups, added to `k8s/rauthy-clients/api_keys.json`), which is bootstrap-only and needs a Rauthy pod recreate; that step was blocked in this session. `register-provider.sh` and `reconciler.sh` are written against the Rauthy 0.36.2 REST shape (`/auth/v1/providers`, `/auth/v1/groups`, `/auth/v1/users/{id}`) and their request bodies are unprobed; expect field adjustments on first run.
+- Decision stands: reconciler is the group path (no upstream group mapping in Rauthy).
+
 ## Open risks
 1. ~~Loopback redirect matching in Rauthy (R1)~~ verified in T004 (IPv4 only, trailing-wildcard registration).
 2. LDAP group mapping Dex to Rauthy (R4): confirmed unsupported; reconciler needed (T045).

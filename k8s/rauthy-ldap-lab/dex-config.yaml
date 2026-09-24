@@ -1,0 +1,39 @@
+issuer: http://dex.ldap-lab.svc.cluster.local:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+oauth2:
+  skipApprovalScreen: true
+staticClients:
+  - id: rauthy
+    name: Rauthy upstream
+    secret: rauthy-dex-lab-secret
+    redirectURIs:
+      - https://auth.localtest.me/auth/v1/providers/callback
+enablePasswordDB: false
+connectors:
+  - type: ldap
+    id: ldap
+    name: OpenLDAP
+    config:
+      host: openldap.ldap-lab.svc.cluster.local:389
+      insecureNoSSL: true
+      bindDN: cn=admin,dc=fathom,dc=test
+      bindPW: adminpw-lab
+      usernamePrompt: Username
+      userSearch:
+        baseDN: ou=people,dc=fathom,dc=test
+        filter: "(objectClass=inetOrgPerson)"
+        username: uid
+        idAttr: uid
+        emailAttr: mail
+        nameAttr: cn
+        preferredUsernameAttr: uid
+      groupSearch:
+        baseDN: ou=groups,dc=fathom,dc=test
+        filter: "(objectClass=groupOfNames)"
+        userMatchers:
+          - userAttr: DN
+            groupAttr: member
+        nameAttr: cn

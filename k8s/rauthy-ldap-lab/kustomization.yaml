@@ -1,0 +1,21 @@
+# Lab only (non-production). OpenLDAP + Dex (LDAP connector) + IdP-side group reconciler CronJob.
+# Fathom only ever sees Rauthy; there is no LDAP code in Fathom. No object storage.
+#   kubectl --context kind-fathom-oidc-rauthy apply -k k8s/rauthy-ldap-lab
+#   k8s/rauthy-ldap-lab/register-provider.sh   # registers Dex in Rauthy as an upstream provider
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ldap-lab
+generatorOptions:
+  disableNameSuffixHash: true
+resources:
+  - namespace.yaml
+  - openldap.yaml
+  - dex.yaml
+  - reconciler.yaml
+configMapGenerator:
+  - name: ldap-seed
+    files: [seed.ldif]
+  - name: dex-config
+    files: [config.yaml=dex-config.yaml]
+  - name: reconciler-script
+    files: [reconciler.sh]
