@@ -44,7 +44,7 @@ export function NavTree() {
               onClick={() => toggle(group.label)}
               className={cn(
                 'group/g flex h-[var(--row-height)] shrink-0 items-center gap-2 px-2 text-left outline-none',
-                'font-display text-xs font-semibold tracking-[0.12em] uppercase',
+                'font-display text-xs font-semibold tracking-[0.04em] uppercase',
                 'text-muted-foreground hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
               )}
             >
