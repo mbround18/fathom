@@ -24,5 +24,5 @@ Feature dir: `specs/018-rbac-aware-mutation-ui`. Dependency-ordered; complete in
 
 ## Phase 4: Tests and polish
 
-- [ ] T012 Playwright e2e `ui/tests/e2e/us1-mutation-access-gating.spec.ts` (node cordon denied vs allowed; Chromium).
-- [ ] T013 Full validation: `cargo test`, `cargo clippy -- -D warnings`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, e2e; fix failures.
+- [x] T012 Playwright e2e `ui/tests/e2e/us1-mutation-access-gating.spec.ts` (node cordon denied vs allowed; Chromium).
+- [x] T013 Full validation: `cargo test`, `cargo clippy -- -D warnings`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, e2e; fix failures.
