@@ -15,6 +15,7 @@ import { Terminal } from 'xterm'
 import 'xterm/css/xterm.css'
 
 import { Button } from '@/components/ui/button'
+import { useCapability } from '@/lib/capabilities'
 import type { PodDetails } from '@/protocol/types'
 import type { ObjectRef } from '@/resources'
 import { detailKey, useStore, type ExecStreamState } from '@/store'
@@ -51,7 +52,14 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
   // FR-008: with more than one container, the operator picks one before the session starts.
   const [picked, setPicked] = useState<string | undefined>(undefined)
   const chosen = containers.length > 1 ? picked : containers[0]
-  const started = chosen !== undefined
+  // 033 US5: the session only starts once the identity is verified to `create pods/exec`.
+  const canExec = useCapability({
+    verb: 'create',
+    resource: 'pods',
+    subresource: 'exec',
+    namespace,
+  })
+  const started = chosen !== undefined && canExec.status === 'allowed'
 
   const containerEl = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -153,6 +161,15 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {canExec.status !== 'allowed' && (
+        <p
+          data-testid="terminal-capability-gate"
+          data-capability={canExec.status}
+          className="shrink-0 border-b border-border px-3 py-2 text-xs text-muted-foreground"
+        >
+          {canExec.reason}
+        </p>
+      )}
       {containers.length > 1 && !started && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1.5">
           <Picker

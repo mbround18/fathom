@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { SECTION } from '@/protocol/commands'
@@ -132,7 +133,13 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
         void runSimple('taint-add', () =>
           request({
             type: 'TaintNode',
-            data: { name: nodeName, op: 'Add', key: c.key, value: c.value || null, effect: c.effect },
+            data: {
+              name: nodeName,
+              op: 'Add',
+              key: c.key,
+              value: c.value || null,
+              effect: c.effect,
+            },
           }),
         )
         return
@@ -205,26 +212,30 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
           Scheduling
         </h3>
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            data-testid="node-action-cordon"
-            onClick={() => setConfirm({ kind: 'cordon' })}
-          >
-            <ProhibitIcon data-icon="inline-start" /> Cordon
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            data-testid="node-action-uncordon"
-            onClick={() => setConfirm({ kind: 'uncordon' })}
-          >
-            <StopIcon data-icon="inline-start" /> Uncordon
-          </Button>
+          <Gated verb="patch" resource="nodes">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              data-testid="node-action-cordon"
+              onClick={() => setConfirm({ kind: 'cordon' })}
+            >
+              <ProhibitIcon data-icon="inline-start" /> Cordon
+            </Button>
+          </Gated>
+          <Gated verb="patch" resource="nodes">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              data-testid="node-action-uncordon"
+              onClick={() => setConfirm({ kind: 'uncordon' })}
+            >
+              <StopIcon data-icon="inline-start" /> Uncordon
+            </Button>
+          </Gated>
         </div>
       </section>
 
@@ -253,16 +264,18 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
           </label>
         </div>
         <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            data-testid="node-action-drain"
-            onClick={() => setConfirm({ kind: 'drain', ignoreDaemonsets, forceDeleteEmptyDir })}
-          >
-            <TrashIcon data-icon="inline-start" /> Drain
-          </Button>
+          <Gated verb="create" resource="pods" subresource="eviction">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              data-testid="node-action-drain"
+              onClick={() => setConfirm({ kind: 'drain', ignoreDaemonsets, forceDeleteEmptyDir })}
+            >
+              <TrashIcon data-icon="inline-start" /> Drain
+            </Button>
+          </Gated>
           {draining && (
             <Button
               type="button"
@@ -316,35 +329,44 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
               </option>
             ))}
           </select>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy || !taintKey}
-            data-testid="node-action-taint-add"
-            onClick={() =>
-              setConfirm({ kind: 'taint-add', key: taintKey, value: taintValue, effect: taintEffect })
-            }
-          >
-            <TagIcon data-icon="inline-start" /> Add taint
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy || !taintKey}
-            data-testid="node-action-taint-remove"
-            onClick={() =>
-              setConfirm({
-                kind: 'taint-remove',
-                key: taintKey,
-                value: taintValue,
-                effect: taintEffect,
-              })
-            }
-          >
-            Remove taint
-          </Button>
+          <Gated verb="patch" resource="nodes">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || !taintKey}
+              data-testid="node-action-taint-add"
+              onClick={() =>
+                setConfirm({
+                  kind: 'taint-add',
+                  key: taintKey,
+                  value: taintValue,
+                  effect: taintEffect,
+                })
+              }
+            >
+              <TagIcon data-icon="inline-start" /> Add taint
+            </Button>
+          </Gated>
+          <Gated verb="patch" resource="nodes">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || !taintKey}
+              data-testid="node-action-taint-remove"
+              onClick={() =>
+                setConfirm({
+                  kind: 'taint-remove',
+                  key: taintKey,
+                  value: taintValue,
+                  effect: taintEffect,
+                })
+              }
+            >
+              Remove taint
+            </Button>
+          </Gated>
         </div>
         {(action?.kind === 'taint-add' || action?.kind === 'taint-remove') &&
           action.status === 'failed' && (

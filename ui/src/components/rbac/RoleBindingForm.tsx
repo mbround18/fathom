@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
@@ -77,7 +78,8 @@ function findAccess(
   namespace: string | null,
 ): RbacAccessResult | undefined {
   return results?.find(
-    (r) => r.check.verb === verb && r.check.resource === resource && r.check.namespace === namespace,
+    (r) =>
+      r.check.verb === verb && r.check.resource === resource && r.check.namespace === namespace,
   )
 }
 
@@ -104,7 +106,11 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
     existing ? (existingNamespace(existing) ?? '') : '',
   )
   const [roleRefKind, setRoleRefKind] = useState<RoleRefKind>(
-    existing ? parseRoleRef(existing.role_ref).kind : kind === 'ClusterRoleBinding' ? 'ClusterRole' : 'Role',
+    existing
+      ? parseRoleRef(existing.role_ref).kind
+      : kind === 'ClusterRoleBinding'
+        ? 'ClusterRole'
+        : 'Role',
   )
   const [roleRefName, setRoleRefName] = useState<string>(
     existing ? parseRoleRef(existing.role_ref).name : '',
@@ -116,7 +122,8 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
   // seeding effect below (react-hooks/set-state-in-effect). Create mode's key only exists once
   // `openCreateEditSession` is called from `review()`, so it stays local state.
   const editSessionKey = useMemo(
-    () => (existing ? detailKey(context, kind, existingNamespace(existing), existing.name) : undefined),
+    () =>
+      existing ? detailKey(context, kind, existingNamespace(existing), existing.name) : undefined,
     [existing, context, kind],
   )
   const [createSessionKey, setCreateSessionKey] = useState<string | undefined>(undefined)
@@ -150,7 +157,10 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
   useEffect(() => {
     if (!existing || !editSessionKey) return
     const ns = existingNamespace(existing)
-    openEditSession({ section: sectionFor(kind), kind, namespace: ns, name: existing.name }, existing.raw_json)
+    openEditSession(
+      { section: sectionFor(kind), kind, namespace: ns, name: existing.name },
+      existing.raw_json,
+    )
     return () => closeEditSession(editSessionKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
@@ -163,9 +173,7 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, roleRefKind, roleRefName, subjects])
 
-  const rolesList = useStore(
-    (s) => s.lists[listKey(context, 'access/roles', 'Namespaced', null)],
-  )
+  const rolesList = useStore((s) => s.lists[listKey(context, 'access/roles', 'Namespaced', null)])
   const clusterRolesList = useStore(
     (s) => s.lists[listKey(context, 'access/clusterroles', 'Cluster', null)],
   )
@@ -236,7 +244,8 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
           data-testid="rbac-binding-create-disabled"
           className="border border-status-warn/50 bg-status-warn/10 px-2 py-1.5 text-xs text-status-warn"
         >
-          {access?.reason ?? `You don't have permission to ${verb} ${resource}${effectiveNamespace ? ` in ${effectiveNamespace}` : ''}.`}
+          {access?.reason ??
+            `You don't have permission to ${verb} ${resource}${effectiveNamespace ? ` in ${effectiveNamespace}` : ''}.`}
         </p>
       )}
 
@@ -251,7 +260,13 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
                 </p>
               )}
               {blocked && (
-                <Button data-testid="yaml-reload" size="sm" variant="outline" className="w-fit" onClick={reload}>
+                <Button
+                  data-testid="yaml-reload"
+                  size="sm"
+                  variant="outline"
+                  className="w-fit"
+                  onClick={reload}
+                >
                   Reload latest
                 </Button>
               )}
@@ -261,14 +276,21 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
             <Button size="sm" variant="ghost" disabled={busy} onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              data-testid="yaml-apply"
-              size="sm"
-              disabled={busy || blocked || applied || !sessionKey}
-              onClick={() => setConfirmOpen(true)}
+            <Gated
+              apiGroup="rbac.authorization.k8s.io"
+              verb={verb}
+              resource={resource}
+              namespace={effectiveNamespace}
             >
-              Apply
-            </Button>
+              <Button
+                data-testid="yaml-apply"
+                size="sm"
+                disabled={busy || blocked || applied || !sessionKey}
+                onClick={() => setConfirmOpen(true)}
+              >
+                Apply
+              </Button>
+            </Gated>
           </div>
         </div>
       ) : (
@@ -312,7 +334,9 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
                   data-testid="rbac-binding-roleref-kind"
                   className="h-8 rounded-none border border-input bg-transparent px-2.5 py-1 text-xs"
                   value={roleRefKind}
-                  onChange={(e) => setRoleRefKind(e.target.value === 'ClusterRole' ? 'ClusterRole' : 'Role')}
+                  onChange={(e) =>
+                    setRoleRefKind(e.target.value === 'ClusterRole' ? 'ClusterRole' : 'Role')
+                  }
                 >
                   <option value="Role">Role</option>
                   <option value="ClusterRole">ClusterRole</option>
@@ -342,7 +366,12 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
             <Button size="sm" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button data-testid="rbac-binding-review" size="sm" disabled={!canReview} onClick={review}>
+            <Button
+              data-testid="rbac-binding-review"
+              size="sm"
+              disabled={!canReview}
+              onClick={review}
+            >
               Review
             </Button>
           </div>

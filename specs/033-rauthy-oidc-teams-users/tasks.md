@@ -40,14 +40,14 @@
 
 ## Phase 5: US5 RBAC-scoped UI (P2, before US3/US4)
 
-- [ ] T024 [US5] Tests first: resolver from RulesReview, incomplete fallback to AccessReview, fail-closed, TTL and invalidation, lazy per namespace
-- [ ] T025 [US5] Implement `src/backend/capabilities.rs` extending `rbac_access.rs`; commands `ResolveCapabilities`, `CheckCapability`
-- [ ] T026 [US5] Refactor `src/backend/mcp/rbac_guard.rs` onto the resolver; keep 015 denial-message tests green
-- [ ] T027 [P] [US5] UI `ui/src/lib/capabilities.ts`: `useCapability` hook and `<Gated>` wrapper (disabled + reason tooltip; hide only when kind unlistable)
-- [ ] T028 [US5] Enumerate and wrap all mutating controls (delete, bulk delete, scale, restart, apply YAML, Helm mutate, RoleBinding edit/delete, node shell, port-forward, team publish)
-- [ ] T029 [US5] Test that fails if a mutating control is not wrapped by `<Gated>` (SC-003)
-- [ ] T030 [US5] E2E: alice vs bob differ; API-server-stopped shows "could not verify"; API deny after UI allow shows verbatim error
-- [ ] T031 [US5] Invalidate cache after successful RBAC apply and on identity/context change; stale-event discard test
+- [x] T024 [US5] Tests first: resolver from RulesReview, incomplete fallback to AccessReview, fail-closed, TTL and invalidation, lazy per namespace
+- [x] T025 [US5] Implement `src/backend/capabilities.rs` extending `rbac_access.rs`; commands `ResolveCapabilities`, `CheckCapability`
+- [x] T026 [US5] Refactor `src/backend/mcp/rbac_guard.rs` onto the resolver; keep 015 denial-message tests green
+- [x] T027 [P] [US5] UI `ui/src/lib/capabilities.ts`: `useCapability` hook and `<Gated>` wrapper (disabled + reason tooltip; hide only when kind unlistable)
+- [x] T028 [US5] Enumerate and wrap all mutating controls (delete, bulk delete, scale, restart, apply YAML, Helm mutate, RoleBinding edit/delete, node shell, port-forward, team publish)
+- [x] T029 [US5] Test that fails if a mutating control is not wrapped by `<Gated>` (SC-003)
+- [x] T030 [US5] E2E: alice vs bob differ; API-server-stopped shows "could not verify"; API deny after UI allow shows verbatim error
+- [x] T031 [US5] Invalidate cache after successful RBAC apply and on identity/context change; stale-event discard test
 
 ## Phase 6: US3 Teams and users (P2)
 

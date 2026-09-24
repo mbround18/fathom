@@ -197,6 +197,7 @@ async fn set_context(
     state.node_actions.abort_all();
 
     state.cluster.current_context = Some(context.clone());
+    state.capabilities.invalidate_all();
     state.metrics.reset_probe();
 
     // Context switch invalidates namespace filters; reset to "all" on the backend.

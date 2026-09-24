@@ -13,6 +13,7 @@
 use k8s_openapi::api::rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding};
 use kube::api::{Api, ListParams, PostParams};
 
+use crate::backend::capabilities;
 use crate::protocol::{NamespaceAccessEntry, NamespaceAccessResolved};
 
 /// Why an MCP tool call was refused. Mirrors data-model.md's `McpToolDenial`.
@@ -73,19 +74,6 @@ impl McpToolDenial {
     }
 }
 
-/// Does `entry` grant `verb` on `resource`? `*` is honoured in both positions, and a
-/// `group/resource`-qualified entry matches a bare `resource` request for the core group.
-fn entry_allows(entry: &NamespaceAccessEntry, verb: &str, resource: &str) -> bool {
-    let verb_ok = entry
-        .verbs
-        .iter()
-        .any(|v| v == "*" || v.eq_ignore_ascii_case(verb));
-    let resource_ok = entry.resources.iter().any(|r| {
-        r == "*" || r == resource || r.rsplit_once('/').is_some_and(|(_, tail)| tail == resource)
-    });
-    verb_ok && resource_ok
-}
-
 /// Gate one tool call on the resolved access of whichever identity this Fathom instance
 /// connects to the cluster with.
 ///
@@ -99,21 +87,7 @@ pub(super) fn check(
     verb: &str,
     resource: &str,
 ) -> Result<(), McpToolDenial> {
-    let cluster_wide_ok = resolved
-        .cluster_wide
-        .iter()
-        .any(|e| entry_allows(e, verb, resource));
-
-    let allowed = match namespace {
-        None => cluster_wide_ok,
-        Some(ns) => {
-            cluster_wide_ok
-                || resolved
-                    .per_namespace
-                    .iter()
-                    .any(|e| e.namespace == ns && entry_allows(e, verb, resource))
-        }
-    };
+    let allowed = capabilities::access_allows(resolved, namespace, verb, resource);
 
     if allowed {
         return Ok(());

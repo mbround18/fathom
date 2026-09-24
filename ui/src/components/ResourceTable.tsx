@@ -39,7 +39,8 @@ import {
 } from 'react'
 
 import { RowActionMenu, type RowMenuState } from '@/components/ActionMenu'
-import { promptAction } from '@/components/action-utils'
+import { actionTarget, promptAction } from '@/components/action-utils'
+import { isAllowedNow } from '@/lib/capabilities'
 import { computeVisibleColumns } from '@/layout/column-budget'
 import { cn } from '@/lib/utils'
 import type { AnyDescriptor, ColumnDef } from '@/resources'
@@ -220,6 +221,8 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
         ? rows.filter((r) => checkedSet.has(descriptor.rowKey(r)))
         : rows.filter((r) => descriptor.rowKey(r) === pane.focusedRow)
     if (targets.length === 0 || (targets.length > 1 && !deleteAction.bulk)) return false
+    // The Del key bypasses the gated menu item: it must pass the same capability check.
+    if (!isAllowedNow(actionTarget(descriptor, deleteAction, targets))) return true
     promptAction(descriptor, deleteAction, targets, {
       paneId: pane.id,
       returnFocus: gridRef.current,

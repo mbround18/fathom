@@ -186,6 +186,8 @@ pub(super) struct BackendState {
     /// (010-container-image-inspection, FR-008/data-model.md). In-memory only, never
     /// persisted to `~/.fathom/` (Constitution VI) or shared across cluster connections.
     pub(super) image_inspect_cache: HashMap<String, crate::protocol::ImageInspection>,
+    /// 033 US5: capability cache (rules reviews per context/identity/namespace, 60 s TTL).
+    pub(super) capabilities: crate::backend::capabilities::CapabilityCache,
     /// 013-agent-sdk-ops: per-object assistant conversations, keyed by
     /// `"<kind>/<namespace>/<name>"`. Session-scoped for now (Phase 6/T044 adds
     /// `~/.fathom/agent_conversations.json` persistence across restarts); never
@@ -242,6 +244,7 @@ impl BackendState {
             },
             port_forward_manager: PortForwardManager::new(),
             image_inspect_cache: HashMap::new(),
+            capabilities: crate::backend::capabilities::CapabilityCache::default(),
             agent_conversations: HashMap::new(),
             mcp: crate::backend::mcp::McpState::default(),
             oidc: crate::backend::oidc::session::OidcSessions::new(
