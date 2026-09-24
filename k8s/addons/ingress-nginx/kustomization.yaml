@@ -1,0 +1,5 @@
+# ingress-nginx, kind flavour (hostPort 80/443 on the node labelled ingress-ready=true; see kind-oidc.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/kind/deploy.yaml

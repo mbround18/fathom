@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: keycloak, labels: {app: keycloak}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: keycloak}}
+  template:
+    metadata: {labels: {app: keycloak}}
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.4
+          # start-dev: embedded H2, no TLS at the pod (ingress terminates), realm imported on boot.
+          args: [start-dev, --import-realm]
+          ports: [{name: http, containerPort: 8080}, {name: mgmt, containerPort: 9000}]
+          env:
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin}
+            - {name: KC_BOOTSTRAP_ADMIN_PASSWORD, value: FathomAdmin#2026-Pw1}
+            - {name: KC_HOSTNAME, value: "https://keycloak.localtest.me"}
+            - {name: KC_HTTP_ENABLED, value: "true"}
+            - {name: KC_PROXY_HEADERS, value: xforwarded}
+            - {name: KC_HEALTH_ENABLED, value: "true"}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: mgmt}
+            periodSeconds: 5
+            failureThreshold: 60
+          resources: {requests: {memory: 768Mi}, limits: {memory: 1536Mi}}
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import, readOnly: true}
+      volumes:
+        - name: realm
+          configMap: {name: keycloak-realm}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: keycloak}
+spec:
+  selector: {app: keycloak}
+  ports: [{name: http, port: 8080, targetPort: http}]

@@ -1,0 +1,136 @@
+{
+  "realm": "fathom",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 60,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "groups": [
+    {
+      "name": "fathom-viewers"
+    },
+    {
+      "name": "fathom-editors"
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@fathom.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Alice",
+      "lastName": "Demo",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "FathomDemo#2026-Pw1",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/fathom-viewers"
+      ],
+      "requiredActions": [],
+      "realmRoles": [
+        "default-roles-fathom",
+        "offline_access"
+      ]
+    },
+    {
+      "username": "bob",
+      "email": "bob@fathom.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Bob",
+      "lastName": "Demo",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "FathomDemo#2026-Pw1",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/fathom-editors"
+      ],
+      "requiredActions": [],
+      "realmRoles": [
+        "default-roles-fathom",
+        "offline_access"
+      ]
+    },
+    {
+      "username": "carol",
+      "email": "carol@fathom.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Carol",
+      "lastName": "Demo",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "FathomDemo#2026-Pw1",
+          "temporary": false
+        }
+      ],
+      "groups": [],
+      "requiredActions": [],
+      "realmRoles": [
+        "default-roles-fathom",
+        "offline_access"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "fathom",
+      "name": "Fathom",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "fathomdevclientsecretfathomdevclientsecretfathomdevclientsecretf",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://fathom.localtest.me/auth/callback"
+      ],
+      "webOrigins": [
+        "https://fathom.localtest.me"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://fathom.localtest.me/",
+        "access.token.lifespan": "60"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "profile",
+        "email",
+        "roles",
+        "basic"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

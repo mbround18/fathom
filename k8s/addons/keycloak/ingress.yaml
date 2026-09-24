@@ -1,0 +1,12 @@
+# TLS secret `idp-tls` is created by cluster.sh up-hosted (throwaway CA, k8s/.tmp/).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: keycloak}
+spec:
+  ingressClassName: nginx
+  tls: [{hosts: [keycloak.localtest.me], secretName: idp-tls}]
+  rules:
+    - host: keycloak.localtest.me
+      http:
+        paths:
+          - {path: /, pathType: Prefix, backend: {service: {name: keycloak, port: {number: 8080}}}}
