@@ -195,6 +195,8 @@ pub(super) struct BackendState {
     /// task and no cancellation token, so a Fathom process that never receives
     /// `SetMcpServerEnabled { enabled: true }` never spawns a server (FR-002).
     pub(super) mcp: crate::backend::mcp::McpState,
+    /// 038-sdk-login-ollama: provider login, secure credentials, Ollama, offline mode.
+    pub(super) ai: crate::backend::ai::AiRuntime,
     /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
@@ -241,6 +243,7 @@ impl BackendState {
             image_inspect_cache: HashMap::new(),
             agent_conversations: HashMap::new(),
             mcp: crate::backend::mcp::McpState::default(),
+            ai: crate::backend::ai::AiRuntime::production(),
         }
     }
 

@@ -5,6 +5,7 @@ import type { ClusterSettings } from "./ClusterSettings";
 import type { ConnectionProfile } from "./ConnectionProfile";
 import type { ContextConnectionStatus } from "./ContextConnectionStatus";
 import type { CrdCatalogEntry } from "./CrdCatalogEntry";
+import type { CredentialMigrationOutcome } from "./CredentialMigrationOutcome";
 import type { DiskUsage } from "./DiskUsage";
 import type { FleetContextSummary } from "./FleetContextSummary";
 import type { FluxOverview } from "./FluxOverview";
@@ -12,9 +13,13 @@ import type { HelmMutationApplied } from "./HelmMutationApplied";
 import type { HelmMutationFailed } from "./HelmMutationFailed";
 import type { HelmMutationPreviewReady } from "./HelmMutationPreviewReady";
 import type { HubbleTrafficSummary } from "./HubbleTrafficSummary";
+import type { LoginFlow } from "./LoginFlow";
 import type { MetricsStackScanResult } from "./MetricsStackScanResult";
 import type { NotificationLevel } from "./NotificationLevel";
+import type { OllamaState } from "./OllamaState";
 import type { OrgClusterSettings } from "./OrgClusterSettings";
+import type { Provider } from "./Provider";
+import type { ProviderStatus } from "./ProviderStatus";
 import type { TeamPublishRejection } from "./TeamPublishRejection";
 import type { TeamStoreStatus } from "./TeamStoreStatus";
 import type { UiConfig } from "./UiConfig";
@@ -28,7 +33,11 @@ error: string | null, } } | { "type": "NamespaceFilterChanged", "data": { namesp
  * `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
  * (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
  */
-mcp_stdio_enabled: boolean, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "ClusterSettingsLoaded", "data": { context: string, settings: ClusterSettings, } } | { "type": "ClusterSettingsError", "data": { context: string, reason: string, } } | { "type": "TeamStoreStatusUpdated", "data": TeamStoreStatus } | { "type": "ConnectionProfilesUpdated", "data": { 
+mcp_stdio_enabled: boolean, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "AiProviderStatus", "data": { statuses: Array<ProviderStatus>, active: Provider | null, offline: boolean, 
+/**
+ * Model selected for Ollama, so consumers need no second event for the summary.
+ */
+ollama_model: string | null, } } | { "type": "AiLoginFlowUpdate", "data": { flow: LoginFlow, } } | { "type": "AiOllamaState", "data": { state: OllamaState, selected_model: string | null, } } | { "type": "AiCredentialMigration", "data": { outcome: CredentialMigrationOutcome, } } | { "type": "AiError", "data": { code: string, message_verbatim: string, hint: string, } } | { "type": "ClusterSettingsLoaded", "data": { context: string, settings: ClusterSettings, } } | { "type": "ClusterSettingsError", "data": { context: string, reason: string, } } | { "type": "TeamStoreStatusUpdated", "data": TeamStoreStatus } | { "type": "ConnectionProfilesUpdated", "data": { 
 /**
  * Profiles this operator has adopted locally (still-shared or not).
  */

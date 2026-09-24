@@ -10,6 +10,7 @@ use tokio::runtime::Runtime;
 use crate::config::Args;
 
 mod agent;
+mod ai;
 mod applications;
 mod apply;
 mod cmd;
@@ -85,6 +86,13 @@ where
 
     let mut state = BackendState::new();
     state.agent_conversations = agent::persistence::load_agent_conversations();
+    // 038: load AI-assist settings, migrate any legacy plaintext credential into the OS
+    // credential store (never losing it), and learn which providers are connected.
+    rt.block_on(
+        state
+            .ai
+            .bootstrap(&ai::Emitter::new(state.cluster.seq.clone(), sender.clone())),
+    );
     // 015-mcp-agent-exposure: shells that must never expose an MCP endpoint (`fathom-devbridge`)
     // set `Args::disable_mcp`, and `McpState::start` then refuses before spawning anything. The
     // server is off regardless — this only makes it un-enableable for this process.

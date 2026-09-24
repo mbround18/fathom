@@ -2,26 +2,30 @@
 //! `credentials.json` at request time only and is never stored on this struct beyond
 //! the single request that needs it (Principle VI) — never logged.
 
-use super::{AgentClient, Turn, TurnResult};
+use super::{AgentClient, Turn, TurnFailure, TurnResult};
+use crate::backend::ai::http::AiHttp;
 use crate::protocol::v1::AgentTurnAuthor;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MODEL: &str = "claude-3-5-sonnet-latest";
 
 pub(crate) struct AnthropicClient {
+    http: Arc<AiHttp>,
     api_key: String,
     model: String,
     base_url: String,
 }
 
 impl AnthropicClient {
-    pub(crate) fn new(api_key: String) -> Self {
+    /// Point the client at a specific messages URL (endpoint override).
+    pub(crate) fn new_with_url(http: Arc<AiHttp>, api_key: String, url: String) -> Self {
         Self {
+            http,
             api_key,
             model: DEFAULT_MODEL.to_owned(),
-            base_url: ANTHROPIC_API_URL.to_owned(),
+            base_url: url,
         }
     }
 
@@ -31,6 +35,7 @@ impl AnthropicClient {
     #[cfg(test)]
     pub(crate) fn new_with_base_url(api_key: String, base_url: String) -> Self {
         Self {
+            http: Arc::new(AiHttp::new()),
             api_key,
             model: DEFAULT_MODEL.to_owned(),
             base_url,
@@ -87,9 +92,10 @@ impl AgentClient for AnthropicClient {
                 .collect(),
         };
 
-        let client = reqwest::Client::new();
-        let resp = client
+        let resp = self
+            .http
             .post(&self.base_url)
+            .map_err(|e| anyhow::anyhow!("Could not reach Anthropic API: {e}"))?
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("content-type", "application/json")
@@ -110,7 +116,14 @@ impl AgentClient for AnthropicClient {
                 404 => "Anthropic model not found. ",
                 _ => "",
             };
-            anyhow::bail!("{hint}Anthropic API error {status}: {text}");
+            let message = format!("{hint}Anthropic API error {status}: {text}");
+            if status.as_u16() == 401 {
+                return Err(anyhow::Error::new(TurnFailure::AuthRejected {
+                    provider: crate::protocol::v1::Provider::Claude,
+                    message,
+                }));
+            }
+            anyhow::bail!("{message}");
         }
 
         let parsed: AnthropicResponse = resp

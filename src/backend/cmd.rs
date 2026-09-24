@@ -8,6 +8,7 @@ use crate::protocol::{
 };
 
 mod agent;
+mod ai;
 mod cluster;
 mod integrations;
 mod mcp;
@@ -84,6 +85,9 @@ pub async fn dispatch_cmd(
         return Ok(false);
     };
     let Some(cmd) = agent::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    let Some(cmd) = ai::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
     let Some(cmd) = team::handle(cmd, state, sender).await? else {

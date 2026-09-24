@@ -115,7 +115,12 @@ impl FathomApp {
                         // Custom Resources browsing (React bridge) handles this in on_event; no egui view yet.
                     }
                     SystemEvent::AgentAuthModeUpdated { .. }
-                    | SystemEvent::AgentKeyRevealed { .. } => {
+                    | SystemEvent::AgentKeyRevealed { .. }
+                    | SystemEvent::AiProviderStatus { .. }
+                    | SystemEvent::AiLoginFlowUpdate { .. }
+                    | SystemEvent::AiOllamaState { .. }
+                    | SystemEvent::AiCredentialMigration { .. }
+                    | SystemEvent::AiError { .. } => {
                         // Agent SDK Ops (React bridge) handles this in on_event; no egui view yet.
                     }
                     SystemEvent::ClusterSettingsLoaded { .. }

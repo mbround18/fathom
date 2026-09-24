@@ -179,6 +179,32 @@ pub enum SystemEvent {
         key: String,
     },
 
+    // 038-sdk-login-ollama. None of these carry a secret.
+    /// Single shared provider-status stream (also consumed by Available Agents).
+    AiProviderStatus {
+        statuses: Vec<super::ProviderStatus>,
+        active: Option<super::Provider>,
+        offline: bool,
+        /// Model selected for Ollama, so consumers need no second event for the summary.
+        ollama_model: Option<String>,
+    },
+    AiLoginFlowUpdate {
+        flow: super::LoginFlow,
+    },
+    AiOllamaState {
+        state: super::OllamaState,
+        selected_model: Option<String>,
+    },
+    AiCredentialMigration {
+        outcome: super::CredentialMigrationOutcome,
+    },
+    /// `message_verbatim` is the provider/OS error text unmodified (Principle I).
+    AiError {
+        code: String,
+        message_verbatim: String,
+        hint: String,
+    },
+
     /// 014-teams-organizations: reply to `LoadClusterSettings`, and broadcast after
     /// `SaveClusterSettings`/`AcceptOrgClusterSettings`/`DismissOrgClusterSettings`.
     ClusterSettingsLoaded {
@@ -637,6 +663,63 @@ mod tests {
     fn agent_key_revealed_roundtrip() {
         system_roundtrip(SystemEvent::AgentKeyRevealed {
             key: "sk-ant-test".to_owned(),
+        });
+    }
+
+    #[test]
+    fn ai_events_roundtrip() {
+        use super::super::*;
+        let status = ProviderStatus {
+            provider: Provider::Github,
+            state: ProviderState::Connected,
+            account_label: Some("octocat".to_owned()),
+            last_checked_at: Some("2026-01-01T00:00:00Z".to_owned()),
+        };
+        let ev = SystemEvent::AiProviderStatus {
+            statuses: vec![status],
+            active: Some(Provider::Github),
+            offline: false,
+            ollama_model: None,
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(json.contains("\"AiProviderStatus\""), "{json}");
+        system_roundtrip(ev);
+        system_roundtrip(SystemEvent::AiLoginFlowUpdate {
+            flow: LoginFlow {
+                provider: Provider::Github,
+                kind: LoginFlowKind::DeviceCode,
+                user_code: Some("ABCD-1234".to_owned()),
+                verification_uri: Some("https://github.com/login/device".to_owned()),
+                expires_at: None,
+                interval_s: Some(5),
+                phase: LoginPhase::Pending,
+            },
+        });
+        system_roundtrip(SystemEvent::AiOllamaState {
+            state: OllamaState {
+                endpoint: DEFAULT_OLLAMA_ENDPOINT.to_owned(),
+                reachable: false,
+                version: None,
+                installed_hint: InstalledHint::NotFound,
+                models: Vec::new(),
+                checked_at: "2026-01-01T00:00:00Z".to_owned(),
+                error: Some("connection refused".to_owned()),
+            },
+            selected_model: Some("llama3.2".to_owned()),
+        });
+        for outcome in [
+            CredentialMigrationOutcome::Migrated,
+            CredentialMigrationOutcome::NothingToMigrate,
+            CredentialMigrationOutcome::Failed {
+                message: "locked".to_owned(),
+            },
+        ] {
+            system_roundtrip(SystemEvent::AiCredentialMigration { outcome });
+        }
+        system_roundtrip(SystemEvent::AiError {
+            code: "offline_blocked".to_owned(),
+            message_verbatim: "x".to_owned(),
+            hint: "y".to_owned(),
         });
     }
 

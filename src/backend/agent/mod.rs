@@ -20,6 +20,7 @@ pub(crate) mod anthropic;
 pub(crate) mod credentials;
 pub(crate) mod grounding;
 pub(crate) mod ollama;
+pub(crate) mod openai_compat;
 pub(crate) mod persistence;
 pub(crate) mod state_machine;
 
@@ -68,6 +69,32 @@ pub(crate) struct TurnResult {
 pub(crate) trait AgentClient: Send + Sync {
     async fn send_turn(&self, system: &str, messages: &[Turn]) -> anyhow::Result<TurnResult>;
 }
+
+/// Typed provider failures that the command layer reacts to (038): a rejected credential
+/// flips the provider to NeedsReauth, a missing Ollama model clears the selection. The
+/// `Display` text is the verbatim message the operator sees (Principle I).
+#[derive(Debug)]
+pub(crate) enum TurnFailure {
+    AuthRejected {
+        provider: crate::protocol::v1::Provider,
+        message: String,
+    },
+    OllamaModelMissing {
+        model: String,
+        message: String,
+    },
+}
+
+impl std::fmt::Display for TurnFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TurnFailure::AuthRejected { message, .. }
+            | TurnFailure::OllamaModelMissing { message, .. } => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for TurnFailure {}
 
 /// Generates a locally-unique id for messages/suggestions/executed actions. No `uuid`
 /// crate dependency exists in this workspace; a monotonic-enough id is sufficient

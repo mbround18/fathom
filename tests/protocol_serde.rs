@@ -1862,6 +1862,33 @@ fn all_cmds() -> Vec<BackendCmd> {
             release: "s".to_owned(),
             base_revision: 2,
         },
+        BackendCmd::AiProviderLoginStart {
+            provider: Provider::Github,
+        },
+        BackendCmd::AiProviderSubmitApiKey {
+            provider: Provider::Claude,
+            key: ApiKeyInput("sk-ant-test".to_owned()),
+        },
+        BackendCmd::AiProviderLoginCancel,
+        BackendCmd::AiProviderSignOut {
+            provider: Provider::Openai,
+        },
+        BackendCmd::AiSetActiveProvider {
+            provider: Some(Provider::Ollama),
+        },
+        BackendCmd::AiSetOfflineMode { enabled: true },
+        BackendCmd::AiOllamaProbe {
+            endpoint: Some("s".to_owned()),
+        },
+        BackendCmd::AiOllamaSelectModel {
+            model: "s".to_owned(),
+        },
+        BackendCmd::AiSetOllamaEndpoint {
+            endpoint: "s".to_owned(),
+            allow_lan: false,
+        },
+        BackendCmd::AiEnableFileStore { confirm: true },
+        BackendCmd::AiGetStatus,
         BackendCmd::AgentGetAuthMode,
         BackendCmd::AgentSetAuthMode {
             mode: AgentAuthModeInput::Anthropic {
@@ -2119,6 +2146,17 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::PreviewHelmUpgrade { .. } => {}
         BackendCmd::ApplyHelmUpgrade { .. } => {}
         BackendCmd::UninstallHelmRelease { .. } => {}
+        BackendCmd::AiProviderLoginStart { .. } => {}
+        BackendCmd::AiProviderSubmitApiKey { .. } => {}
+        BackendCmd::AiProviderLoginCancel => {}
+        BackendCmd::AiProviderSignOut { .. } => {}
+        BackendCmd::AiSetActiveProvider { .. } => {}
+        BackendCmd::AiSetOfflineMode { .. } => {}
+        BackendCmd::AiOllamaProbe { .. } => {}
+        BackendCmd::AiOllamaSelectModel { .. } => {}
+        BackendCmd::AiSetOllamaEndpoint { .. } => {}
+        BackendCmd::AiEnableFileStore { .. } => {}
+        BackendCmd::AiGetStatus => {}
         BackendCmd::AgentGetAuthMode => {}
         BackendCmd::AgentSetAuthMode { .. } => {}
         BackendCmd::AgentRevealKey => {}
@@ -2215,6 +2253,56 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::AgentKeyRevealed {
             key: "sk-ant-test".to_owned(),
+        },
+        SystemEvent::AiProviderStatus {
+            statuses: vec![ProviderStatus {
+                provider: Provider::Github,
+                state: ProviderState::Connected,
+                account_label: Some("s".to_owned()),
+                last_checked_at: None,
+            }],
+            active: Some(Provider::Github),
+            offline: false,
+            ollama_model: None,
+        },
+        SystemEvent::AiLoginFlowUpdate {
+            flow: LoginFlow {
+                provider: Provider::Github,
+                kind: LoginFlowKind::DeviceCode,
+                user_code: Some("s".to_owned()),
+                verification_uri: Some("s".to_owned()),
+                expires_at: None,
+                interval_s: Some(5),
+                phase: LoginPhase::Failed {
+                    message: "s".to_owned(),
+                },
+            },
+        },
+        SystemEvent::AiOllamaState {
+            state: OllamaState {
+                endpoint: "s".to_owned(),
+                reachable: true,
+                version: Some("s".to_owned()),
+                installed_hint: InstalledHint::Found,
+                models: vec![OllamaModel {
+                    name: "s".to_owned(),
+                    size_bytes: 1,
+                    family: None,
+                    parameter_size: None,
+                    modified_at: "s".to_owned(),
+                }],
+                checked_at: "s".to_owned(),
+                error: None,
+            },
+            selected_model: None,
+        },
+        SystemEvent::AiCredentialMigration {
+            outcome: CredentialMigrationOutcome::Migrated,
+        },
+        SystemEvent::AiError {
+            code: "s".to_owned(),
+            message_verbatim: "s".to_owned(),
+            hint: "s".to_owned(),
         },
         SystemEvent::ClusterSettingsLoaded {
             context: "ctx".to_owned(),
@@ -2374,6 +2462,11 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::CrdInstancesUpdated { .. } => {}
         SystemEvent::AgentAuthModeUpdated { .. } => {}
         SystemEvent::AgentKeyRevealed { .. } => {}
+        SystemEvent::AiProviderStatus { .. } => {}
+        SystemEvent::AiLoginFlowUpdate { .. } => {}
+        SystemEvent::AiOllamaState { .. } => {}
+        SystemEvent::AiCredentialMigration { .. } => {}
+        SystemEvent::AiError { .. } => {}
         SystemEvent::ClusterSettingsLoaded { .. } => {}
         SystemEvent::ClusterSettingsError { .. } => {}
         SystemEvent::TeamStoreStatusUpdated(_) => {}

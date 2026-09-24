@@ -2,18 +2,25 @@
 //! any hosted LLM API are made (FR-003, SC-007) — this client only ever talks to the
 //! operator-provided local `endpoint`.
 
-use super::{AgentClient, Turn, TurnResult};
+use super::{AgentClient, Turn, TurnFailure, TurnResult};
+use crate::backend::ai::http::AiHttp;
 use crate::protocol::v1::AgentTurnAuthor;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub(crate) struct OllamaClient {
+    http: Arc<AiHttp>,
     endpoint: String,
     model: String,
 }
 
 impl OllamaClient {
-    pub(crate) fn new(endpoint: String, model: String) -> Self {
-        Self { endpoint, model }
+    pub(crate) fn new(http: Arc<AiHttp>, endpoint: String, model: String) -> Self {
+        Self {
+            http,
+            endpoint,
+            model,
+        }
     }
 }
 
@@ -68,13 +75,24 @@ impl AgentClient for OllamaClient {
         };
 
         let url = format!("{}/api/chat", self.endpoint.trim_end_matches('/'));
-        let client = reqwest::Client::new();
-        let resp = client.post(&url).json(&body).send().await.map_err(|e| {
-            anyhow::anyhow!(
-                "Could not reach local Ollama endpoint {}: {e}",
-                self.endpoint
-            )
-        })?;
+        let resp = self
+            .http
+            .post(&url)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Could not reach local Ollama endpoint {}: {e}",
+                    self.endpoint
+                )
+            })?
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Could not reach local Ollama endpoint {}: {e}",
+                    self.endpoint
+                )
+            })?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -84,7 +102,14 @@ impl AgentClient for OllamaClient {
             } else {
                 String::new()
             };
-            anyhow::bail!("{hint}Ollama API error {status}: {text}");
+            let message = format!("{hint}Ollama API error {status}: {text}");
+            if status.as_u16() == 404 {
+                return Err(anyhow::Error::new(TurnFailure::OllamaModelMissing {
+                    model: self.model.clone(),
+                    message,
+                }));
+            }
+            anyhow::bail!("{message}");
         }
 
         let parsed: OllamaResponse = resp
@@ -119,7 +144,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OllamaClient::new(server.uri(), "ghost".to_owned());
+        let client = OllamaClient::new(Arc::new(AiHttp::new()), server.uri(), "ghost".to_owned());
         let err = client
             .send_turn("system prompt", &[])
             .await
@@ -134,7 +159,11 @@ mod tests {
     /// naming the configured endpoint, not a generic error.
     #[tokio::test]
     async fn surfaces_unreachable_endpoint_error() {
-        let client = OllamaClient::new("http://127.0.0.1:1".to_owned(), "llama3.1".to_owned());
+        let client = OllamaClient::new(
+            Arc::new(AiHttp::new()),
+            "http://127.0.0.1:1".to_owned(),
+            "llama3.1".to_owned(),
+        );
         let err = client
             .send_turn("system prompt", &[])
             .await

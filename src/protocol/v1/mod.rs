@@ -1,4 +1,5 @@
 mod agent;
+mod ai;
 mod applications;
 mod bridge_types;
 mod clusterrolebindings;
@@ -52,6 +53,7 @@ mod validatingwebhooks;
 mod workloads;
 
 pub use agent::*;
+pub use ai::*;
 pub use applications::*;
 pub use bridge_types::*;
 pub use clusterrolebindings::*;
