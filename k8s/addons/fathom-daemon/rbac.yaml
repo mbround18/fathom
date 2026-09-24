@@ -73,3 +73,16 @@ subjects:
   - kind: ServiceAccount
     name: fathom-daemon
     namespace: fathom-daemon
+---
+# Lets a subject reach the daemon's aggregated API at all (the kube-apiserver authorizes the path as `get` on
+# resource `v1` in group daemon.fathom.dev before proxying). It is NOT bound to anyone by default: the operator
+# chooses who may call the daemon (e.g. bind it to system:authenticated). It grants no cluster data by itself:
+# what the caller then sees is still filtered per user by SubjectAccessReview (constitution Principle VI).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fathom-daemon-reader
+rules:
+  - apiGroups: [daemon.fathom.dev]
+    resources: ["*"]
+    verbs: [get]

@@ -9,6 +9,8 @@ D=$(mktemp -d); trap 'rm -rf "$D"' EXIT
 if [ "${1:-}" != "--patch" ]; then
   $KUBECTL create namespace "$NS" --dry-run=client -o yaml | $KUBECTL apply -f - >/dev/null
   $KUBECTL label namespace "$NS" app.kubernetes.io/name=fathom-daemon --overwrite >/dev/null
+  # idempotent: a running pod keeps the cert it mounted, so never rotate one out from under it
+  if $KUBECTL -n "$NS" get secret fathom-daemon-tls >/dev/null 2>&1; then echo "secret fathom-daemon-tls exists; reusing"; exit 0; fi
   openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=fathom-daemon-ca" -keyout "$D/ca.key" -out "$D/ca.crt" 2>/dev/null
   openssl req -newkey rsa:2048 -nodes -subj "/CN=$SVC.$NS.svc" -keyout "$D/tls.key" -out "$D/tls.csr" 2>/dev/null
   printf 'subjectAltName=DNS:%s,DNS:%s.%s,DNS:%s.%s.svc\n' "$SVC" "$SVC" "$NS" "$SVC" "$NS" > "$D/ext"

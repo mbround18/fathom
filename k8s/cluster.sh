@@ -97,6 +97,8 @@ daemon_up() {  # $1 = overlay (daemon | daemon-namespaced)
   fi
   kind load docker-image "$DAEMON_IMAGE" --name "$CLUSTER"
   KUBECTL="${K[*]}" addons/fathom-daemon/gen-certs.sh
+  # idempotent re-run: a previously patched APIService (caBundle set) rejects the base manifest's insecureSkipTLSVerify
+  "${K[@]}" delete apiservice v1.daemon.fathom.dev --ignore-not-found
   build_apply "overlays/${1:-daemon}"
   KUBECTL="${K[*]}" addons/fathom-daemon/gen-certs.sh --patch   # re-applied after every apply (apply resets it)
   "${K[@]}" apply -f samples/daemon-events.yaml
