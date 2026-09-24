@@ -6,11 +6,10 @@ import type { DockConfig, LayoutProfile, SlotConfig, ToolKind } from '@/protocol
 
 import { hasDock, visibleSlots, type WidthClass } from './width-class'
 
-const DOCK: DockConfig = { open: true, heightPct: 30, tabs: ['logs', 'events', 'topology', 'velero'] }
 const DOCK: DockConfig = {
   open: true,
   heightPct: 30,
-  tabs: ['logs', 'events', 'topology', 'certManager'],
+  tabs: ['logs', 'events', 'topology', 'velero', 'certManager'],
 }
 
 const PROFILES: Readonly<Record<WidthClass, readonly SlotConfig[]>> = {

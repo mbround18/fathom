@@ -597,6 +597,10 @@ impl BackendCmdV1 {
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
             | C::RefreshHubble
+            | C::RefreshGatekeeper
+            | C::RefreshVelero
+            | C::RefreshCertManager
+            | C::SelectCertificateChain { .. }
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
             | C::RefreshPersistentVolumes
