@@ -500,18 +500,32 @@ pub(super) async fn handle_refresh_kubeadm_detection(
 /// `RefreshRbacSelfAccess` review path, so it is a read-only `SelfSubjectAccessReview` batch.
 #[must_use]
 pub fn hosted_probe_checks() -> Vec<RbacAccessCheck> {
-    let check = |group: &str, resource: &str| RbacAccessCheck {
+    hosted_probe_checks_in(&["default".to_owned()])
+}
+
+/// The probe: cluster-wide `list` checks plus `list pods`/`deployments` in each of
+/// `namespaces` (the namespaces a namespace-scoped user can be expected to hold access in, e.g.
+/// the server's own and `default`). Without the namespaced checks a user bound only by a
+/// `RoleBinding` would be reported as having no access (a false positive).
+#[must_use]
+pub fn hosted_probe_checks_in(namespaces: &[String]) -> Vec<RbacAccessCheck> {
+    let check = |group: &str, resource: &str, namespace: Option<&str>| RbacAccessCheck {
         verb: "list".to_owned(),
         resource: resource.to_owned(),
-        namespace: None,
+        namespace: namespace.map(str::to_owned),
         group: Some(group.to_owned()),
     };
-    vec![
-        check("", "namespaces"),
-        check("", "pods"),
-        check("apps", "deployments"),
-        check("", "nodes"),
-    ]
+    let mut checks = vec![
+        check("", "namespaces", None),
+        check("", "pods", None),
+        check("apps", "deployments", None),
+        check("", "nodes", None),
+    ];
+    for ns in namespaces {
+        checks.push(check("", "pods", Some(ns)));
+        checks.push(check("apps", "deployments", Some(ns)));
+    }
+    checks
 }
 
 /// Interpret an `RbacSelfAccessUpdated` batch. `None` when it is not the hosted probe's answer
@@ -519,7 +533,15 @@ pub fn hosted_probe_checks() -> Vec<RbacAccessCheck> {
 /// has no usable permissions (the "no access" state, SC-008).
 #[must_use]
 pub fn hosted_probe_verdict(results: &[RbacAccessResult]) -> Option<bool> {
-    let probe = hosted_probe_checks();
+    // The namespaces probed are read back from the batch itself, then the whole batch must
+    // match the probe built for them exactly.
+    let mut namespaces: Vec<String> = Vec::new();
+    for ns in results.iter().filter_map(|r| r.check.namespace.clone()) {
+        if !namespaces.contains(&ns) {
+            namespaces.push(ns);
+        }
+    }
+    let probe = hosted_probe_checks_in(&namespaces);
     let is_probe = results.len() == probe.len()
         && results.iter().zip(&probe).all(|(r, p)| {
             r.check.verb == p.verb
@@ -754,19 +776,47 @@ mod tests {
 
     #[test]
     fn probe_verdict_all_denied_is_zero_permission() {
-        let r = probe_results(&[false; 4]);
+        let r = probe_results(&[false; 6]);
         assert_eq!(hosted_probe_verdict(&r), Some(true));
     }
 
     #[test]
     fn probe_verdict_any_allowed_is_access() {
-        let r = probe_results(&[false, true, false, false]);
+        let r = probe_results(&[false, true, false, false, false, false]);
         assert_eq!(hosted_probe_verdict(&r), Some(false));
     }
 
     #[test]
+    fn namespace_only_user_is_not_zero_permission() {
+        // Denied everywhere cluster-wide, allowed to list pods in `default` only.
+        let r = probe_results(&[false, false, false, false, true, false]);
+        assert_eq!(hosted_probe_verdict(&r), Some(false));
+    }
+
+    #[test]
+    fn probe_covers_every_supplied_namespace() {
+        let ns = ["default".to_owned(), "fathom".to_owned()];
+        let checks = hosted_probe_checks_in(&ns);
+        assert_eq!(checks.len(), 8);
+        assert!(
+            checks
+                .iter()
+                .any(|c| c.namespace.as_deref() == Some("fathom"))
+        );
+        let r: Vec<_> = checks
+            .into_iter()
+            .map(|check| RbacAccessResult {
+                check,
+                allowed: false,
+                reason: None,
+            })
+            .collect();
+        assert_eq!(hosted_probe_verdict(&r), Some(true));
+    }
+
+    #[test]
     fn non_probe_batches_are_ignored() {
-        let mut r = probe_results(&[false; 4]);
+        let mut r = probe_results(&[false; 6]);
         r[0].check.resource = "secrets".to_owned();
         assert_eq!(hosted_probe_verdict(&r), None);
         assert_eq!(hosted_probe_verdict(&[]), None);
