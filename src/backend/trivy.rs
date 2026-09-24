@@ -293,7 +293,6 @@ async fn list_vulnerability_reports(
     let Some((_, Some(crd))) = discovered
         .into_iter()
         .find(|(name, _)| *name == VULNERABILITY_REPORT_CRD)
-        .map(|(name, crd)| (name, crd))
     else {
         return Ok(Ok(None));
     };
