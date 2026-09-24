@@ -37,11 +37,11 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 
 ## Phase 4: US1 + US2 client — timeline and graceful absence (P1)
 
-- [ ] T016 [P] [US2] Tests: probe classification (404/503 notInstalled, 403 noAccess, timeout unavailable, major mismatch), zero requests when preference `off`, probe timeout 5 s, backoff 5 s to 5 min — `src/backend/daemon_client.rs` test module
-- [ ] T017 [US2] Implement probe + backoff via `kube` client raw requests to `/apis/daemon.fathom.dev/v1` (never sends tokens to the daemon); emit `DaemonStatusUpdated` — `src/backend/daemon_client.rs`
-- [ ] T018 [US1] Implement stream consumer with cursor resume, batching (200 / 250 ms), session tagging and stale-session discard, truncation handling — `src/backend/daemon_client.rs`
-- [ ] T019 [US2] Hook into connect/refresh/context-switch paths without blocking connection; verify existing behavior unchanged with feature off — `src/backend/kube.rs`, `src/backend/cmd.rs`
-- [ ] T020 [US2] Command handlers for `SetDaemonPreference`/`RefreshDaemon`/`RequestDaemonTimeline` persisting via T008 — `src/backend/cmd/`
+- [X] T016 [P] [US2] Tests: probe classification (404/503 notInstalled, 403 noAccess, timeout unavailable, major mismatch), zero requests when preference `off`, probe timeout 5 s, backoff 5 s to 5 min — `src/backend/daemon_client.rs` test module
+- [X] T017 [US2] Implement probe + backoff via `kube` client raw requests to `/apis/daemon.fathom.dev/v1` (never sends tokens to the daemon); emit `DaemonStatusUpdated` — `src/backend/daemon_client.rs`
+- [X] T018 [US1] Implement stream consumer with cursor resume, batching (200 / 250 ms), session tagging and stale-session discard, truncation handling — `src/backend/daemon_client.rs`
+- [X] T019 [US2] Hook into connect/refresh/context-switch paths without blocking connection; verify existing behavior unchanged with feature off — `src/backend/kube.rs`, `src/backend/cmd.rs`
+- [X] T020 [US2] Command handlers for `SetDaemonPreference`/`RefreshDaemon`/`RequestDaemonTimeline` persisting via T008 — `src/backend/cmd/`
 - [ ] T021 [P] [US1] UI store slice and timeline merge/dedupe/staleness Vitest tests — `ui/src/store/`, `ui/src/**/__tests__/`
 - [ ] T022 [US1] UI: "While you were away" timeline pane (derived vs raw badge, verbatim reason/message, truncation banner, responsive per Principle IV) — `ui/src/`
 - [ ] T023 [P] [US2] UI: per-context daemon status chip with inspectable detail, "Use in-cluster daemon if present" toggle, install-command hint (copy only, no action) — `ui/src/`
@@ -72,7 +72,7 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 - [ ] T047 [P] [US5] Tests: `SeriesStore` trait contract, ring bound and truncation marker, `metricsUnavailable` when metrics API absent — `daemon/tests/metrics_tests.rs`
 - [ ] T048 [US5] Implement `series_store.rs` (trait) and `metrics_ring.rs` (15 s sampling of metrics.k8s.io, ~1 h, bounded bytes); `/v1/metrics` filtered per caller — `daemon/src/`
 - [X] T049 [P] [US5] Protocol: `RequestDaemonTopology`, `RequestDaemonMetrics`, `DaemonTopologyUpdated`, `DaemonMetricsUpdated`, new frames/types with round-trip tests; regenerate bindings — `src/protocol/v1/`
-- [ ] T050 [US5] Client: topology/metrics stream consumption with session tagging and batching — `src/backend/daemon_client.rs`
+- [X] T050 [US5] Client: topology/metrics stream consumption with session tagging and batching — `src/backend/daemon_client.rs`
 - [ ] T051 [US5] UI: topology pane fed by the daemon (falls back to the existing client-built topology when off/absent) and per-object trend sparkline with truncation marker; Playwright vs fake backend at all widths — `ui/src/`, `ui/tests/`
 - [ ] T052 [US5] kind test with two users: only in-scope nodes/edges visible; topology change in <= 5 s (SC-007) — `k8s/test-daemon.sh`
 

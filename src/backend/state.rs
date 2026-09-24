@@ -217,6 +217,7 @@ pub(super) struct BackendState {
     pub(super) node_actions: NodeActionState,
     pub(super) fleet: FleetState,
     pub(super) federation: FederationState,
+    pub(super) daemon: super::daemon_ctl::DaemonRuntime,
     pub(super) metrics: MetricsState,
     pub(super) port_forward_manager: PortForwardManager,
     /// Session-scoped image-inspection cache, keyed by resolved manifest digest
@@ -276,6 +277,7 @@ impl BackendState {
             node_actions: NodeActionState::default(),
             fleet: FleetState::default(),
             federation: FederationState::default(),
+            daemon: super::daemon_ctl::DaemonRuntime::default(),
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,
                 unavailable_notified: false,
@@ -340,6 +342,7 @@ fn abort_background_tasks(state: &mut BackendState) {
     state.node_actions.abort_all();
     state.fleet.abort_all();
     state.federation.abort_all();
+    state.daemon.abort_all();
     tracing::debug!("Aborting metrics poll tasks");
     state.metrics.abort_tasks();
     tracing::debug!("Aborting MCP stdio server");
