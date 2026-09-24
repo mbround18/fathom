@@ -37,6 +37,8 @@ const POD_DETAILS = {
 
 test.describe('US1 linter findings', () => {
   test('lists a finding for a naked pod without limits and opens the inspector on click', async ({ page }, info) => {
+    // Same as Topology: the laptop class has no dock and no stack tabs, so tool panes are unreachable there.
+    test.skip(info.project.name.endsWith('-laptop'), 'tool panes are not reachable at laptop width')
     await open(page)
     await openLinter(page, info)
     await expect(page.getByTestId('linter-panel')).toBeVisible()
