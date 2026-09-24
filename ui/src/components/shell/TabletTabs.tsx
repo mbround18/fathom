@@ -11,11 +11,12 @@ import {
   LOGS_TAB,
   RESOURCES_TAB,
   TOPOLOGY_TAB,
+  LINTER_TAB,
   useActiveTab,
 } from './stack-tabs'
 import { StackTabs } from './StackTabs'
 
-const TABLET_TABS = [RESOURCES_TAB, LOGS_TAB, EVENTS_TAB, FORWARDS_TAB, TOPOLOGY_TAB] as const
+const TABLET_TABS = [RESOURCES_TAB, LOGS_TAB, EVENTS_TAB, FORWARDS_TAB, TOPOLOGY_TAB, LINTER_TAB] as const
 
 /**
  * Tablet: a tab strip on top. Resources shows the list | inspector split; the tool tabs take the

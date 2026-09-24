@@ -201,6 +201,8 @@ pub enum ToolKind {
     Portforwards,
     /// 007-topology-graph-view: the cluster topology graph tool pane.
     Topology,
+    /// 017-cluster-linter: the read-only cluster sanitizer/linter tool pane.
+    Linter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
