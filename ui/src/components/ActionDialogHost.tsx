@@ -4,11 +4,13 @@
  * Focus goes back where the action came from (the row's grid or the menu trigger) on close.
  */
 import { descriptorFor, type AnyDescriptor } from '@/resources'
-import type { ActionDescriptor } from '@/resources'
+import type { ActionDescriptor, ActionInput } from '@/resources'
 import { runAction, summarize } from '@/store/actions'
-import { useStore, type ActionPrompt, type ListRow } from '@/store'
+import { selectDetail, useStore, type ActionPrompt, type ListRow } from '@/store'
+import type { PodDetails } from '@/protocol/types'
 
 import { ConfirmDialog } from './ConfirmDialog'
+import { DebugContainerDialog } from './DebugContainerDialog'
 import { ScaleDialog } from './ScaleDialog'
 
 function restoreFocus(prompt: ActionPrompt): void {
@@ -39,6 +41,29 @@ function detailFor(
   return undefined
 }
 
+function DebugPromptDialog(props: {
+  item: { namespace: string | null; name: string }
+  onConfirm: (input: ActionInput) => void
+  onCancel: () => void
+  onCloseAutoFocus: (e: Event) => void
+}) {
+  const { item, onConfirm, ...rest } = props
+  const detail = useStore((s) => selectDetail(s, 'Pod', item.namespace, item.name))
+  const data = detail?.data as PodDetails | undefined
+  const containers = data
+    ? data.containers_lifecycle.filter((c) => !c.is_init && !c.is_ephemeral).map((c) => c.name)
+    : []
+  return (
+    <DebugContainerDialog
+      open
+      item={item}
+      containers={containers}
+      onConfirm={(v) => onConfirm({ image: v.image, targetContainer: v.targetContainer })}
+      {...rest}
+    />
+  )
+}
+
 export function ActionDialogHost() {
   const prompt = useStore((s) => s.actionPrompt)
   const closeAction = useStore((s) => s.closeAction)
@@ -55,11 +80,11 @@ export function ActionDialogHost() {
     e.preventDefault()
     restoreFocus(prompt)
   }
-  const run = (replicas?: number) => {
+  const run = (input: ActionInput = {}) => {
     closeAction()
     void runAction(descriptor, action, rows, {
       ...(prompt.paneId !== undefined ? { paneId: prompt.paneId } : {}),
-      input: replicas === undefined ? {} : { replicas },
+      input,
     })
   }
 
@@ -73,7 +98,19 @@ export function ActionDialogHost() {
         kind={descriptor.kind}
         item={item}
         current={action.current?.(only) ?? 0}
-        onConfirm={(n) => run(n)}
+        onConfirm={(n) => run({ replicas: n })}
+        onCancel={closeAction}
+        onCloseAutoFocus={onCloseAutoFocus}
+      />
+    )
+  }
+
+  if (action.prompt === 'debug' && item !== undefined) {
+    return (
+      <DebugPromptDialog
+        key={items.map((i) => i.name).join(',')}
+        item={item}
+        onConfirm={(input) => run(input)}
         onCancel={closeAction}
         onCloseAutoFocus={onCloseAutoFocus}
       />

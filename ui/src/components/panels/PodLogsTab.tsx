@@ -43,6 +43,8 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
     ? [
         ...detail.containers_lifecycle.filter((c) => c.is_init).map((c) => c.name),
         ...detail.containers,
+        // 025-ephemeral-debug-containers: debug containers stream logs like any other container.
+        ...detail.containers_lifecycle.filter((c) => c.is_ephemeral).map((c) => c.name),
       ]
     : []
 

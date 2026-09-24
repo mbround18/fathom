@@ -78,6 +78,9 @@ export interface DetailSection<R, D = unknown> {
 /** What an action's dialog collected (the scale dialog's replica count). */
 export interface ActionInput {
   replicas?: number
+  /** Debug dialog (025): image and the container whose process namespace is shared. */
+  image?: string
+  targetContainer?: string
 }
 
 /** One command an action sends, and the rows it covers (for per-object error reporting). */
@@ -91,14 +94,14 @@ export interface ActionStep<R> {
  * (constitution I): `confirm` → `ConfirmDialog`, `scale` → `ScaleDialog`.
  */
 export interface ActionDescriptor<R> {
-  id: 'delete' | 'scale' | 'restart'
+  id: 'delete' | 'scale' | 'restart' | 'debug'
   /** Menu and button label, e.g. `Delete`. */
   label: string
   /** Past tense for the result toast, e.g. `Deleted`. */
   done: string
   /** Present participle for the in-flight toast, e.g. `Deleting`. */
   doing: string
-  prompt: 'confirm' | 'scale'
+  prompt: 'confirm' | 'scale' | 'debug'
   destructive?: boolean
   /** Allowed on more than one row at once. */
   bulk?: boolean

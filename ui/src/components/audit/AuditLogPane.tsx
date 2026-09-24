@@ -32,6 +32,7 @@ const ACTION_LABELS: Record<AuditActionKind, string> = {
   teamStoreChange: 'Team Store Change',
   agentAction: 'Agent Action',
   mcpToggle: 'MCP Server Toggle',
+  ephemeralContainer: 'Debug Container',
 }
 
 const SELECT_CLASS =

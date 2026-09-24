@@ -106,6 +106,11 @@ pub struct ContainerLifecycle {
     pub last_state: Option<ContainerState>,
     pub probes: Vec<ProbeSpec>,
     pub hooks: Vec<LifecycleHookSpec>,
+    /// 025-ephemeral-debug-containers: `true` for an entry sourced from
+    /// `status.ephemeralContainerStatuses[]` (added via `AddEphemeralContainer`). Always
+    /// `false` for regular app/init containers. Ephemeral containers are never init
+    /// containers, so `is_init` is always `false` when this is `true`.
+    pub is_ephemeral: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

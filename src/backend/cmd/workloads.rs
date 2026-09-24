@@ -39,6 +39,25 @@ async fn handle_pod_cmd(
             pods::delete_pod(state, sender, &namespace, &name).await?;
             pods::refresh_pods(state, sender).await?;
         }
+        BackendCmd::AddEphemeralContainer {
+            namespace,
+            pod,
+            target_container,
+            image,
+            ephemeral_container_name,
+        } => {
+            pods::add_ephemeral_container(
+                state,
+                sender,
+                &namespace,
+                &pod,
+                target_container.as_deref(),
+                &image,
+                ephemeral_container_name.as_deref(),
+            )
+            .await?;
+            pods::fetch_pod_details(state, sender, &namespace, &pod).await?;
+        }
         BackendCmd::SelectPod { namespace, name } => {
             pods::fetch_pod_details(state, sender, &namespace, &name).await?;
         }

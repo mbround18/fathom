@@ -692,6 +692,7 @@ fn sample_container_lifecycle() -> ContainerLifecycle {
         last_state: Some(sample_container_state()),
         probes: vec![sample_probe_spec()],
         hooks: vec![sample_lifecycle_hook_spec()],
+        is_ephemeral: false,
     }
 }
 
@@ -1471,6 +1472,13 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::AddEphemeralContainer {
+            namespace: "s".to_owned(),
+            pod: "s".to_owned(),
+            target_container: Some("s".to_owned()),
+            image: "s".to_owned(),
+            ephemeral_container_name: Some("s".to_owned()),
+        },
         BackendCmd::InspectContainerImage {
             namespace: "s".to_owned(),
             pod: "s".to_owned(),
@@ -2071,6 +2079,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshPods => {}
         BackendCmd::SelectPod { .. } => {}
         BackendCmd::DeletePod { .. } => {}
+        BackendCmd::AddEphemeralContainer { .. } => {}
         BackendCmd::InspectContainerImage { .. } => {}
         BackendCmd::StartPodLogs { .. } => {}
         BackendCmd::StopPodLogs => {}
