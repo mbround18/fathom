@@ -12,6 +12,7 @@ import {
   RESOURCES_TAB,
   TOPOLOGY_TAB,
   CERTIFICATES_TAB,
+  KNATIVE_TAB,
   useActiveTab,
 } from './stack-tabs'
 import { StackTabs } from './StackTabs'
@@ -23,6 +24,7 @@ const TABLET_TABS = [
   FORWARDS_TAB,
   TOPOLOGY_TAB,
   CERTIFICATES_TAB,
+  KNATIVE_TAB,
 ] as const
 
 /**

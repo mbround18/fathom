@@ -195,6 +195,8 @@ pub enum ToolKind {
     Overview,
     Metrics,
     Flux,
+    /// 028-knative-pane: Knative Serving tool pane.
+    Knative,
     Hubble,
     Logs,
     Events,

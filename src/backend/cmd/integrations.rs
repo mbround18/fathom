@@ -5,7 +5,8 @@ use crossbeam_channel::Sender;
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
 use crate::backend::state::BackendState;
 use crate::backend::{
-    cert_manager, events, flux, gatekeeper, hubble, integrations, metrics_provider, trivy, velero,
+    cert_manager, events, flux, gatekeeper, hubble, integrations, knative, metrics_provider, trivy,
+    velero,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SectionKey, SystemEvent,
@@ -46,6 +47,7 @@ pub(super) async fn handle(
         BackendCmd::RefreshTrivyOverview => refresh_trivy(state, sender).await,
         BackendCmd::RefreshIntegrations => refresh_integrations(state, sender).await,
         BackendCmd::RefreshFlux => refresh_flux(state, sender).await,
+        BackendCmd::RefreshKnative => refresh_knative(state, sender).await,
         BackendCmd::RefreshGatekeeper => refresh_gatekeeper(state, sender).await,
         BackendCmd::RefreshVelero => refresh_velero(state, sender).await,
         BackendCmd::RefreshHubble => refresh_hubble(state, sender).await,
@@ -365,6 +367,32 @@ async fn refresh_trivy(state: &BackendState, sender: &Sender<BackendEventEnvelop
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for Trivy reports: {}", e),
+        ),
+    }
+}
+
+async fn refresh_knative(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match knative::scan_knative(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_knative(),
+            context,
+            SystemEvent::KnativeOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for Knative resources: {}", e),
         ),
     }
 }

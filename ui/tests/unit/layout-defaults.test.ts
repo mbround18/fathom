@@ -24,7 +24,7 @@ describe('defaultProfile', () => {
     expect(defaultProfile('laptop').dock).toBeUndefined()
     expect(defaultProfile('desktop').dock).toMatchObject({
       open: true,
-      tabs: ['logs', 'events', 'topology', 'velero', 'certManager'],
+      tabs: ['logs', 'events', 'topology', 'velero', 'certManager', 'knative'],
     })
   })
 })

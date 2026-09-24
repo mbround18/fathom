@@ -157,6 +157,9 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'TrivyOverviewUpdated':
       d.put('trivy', { overview: event.data })
       return
+    case 'KnativeOverviewUpdated':
+      d.put('knative', { overview: event.data })
+      return
     case 'HubbleTrafficUpdated':
       d.put('hubble', { summary: event.data })
       return

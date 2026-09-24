@@ -9,20 +9,20 @@ use super::{
     HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails, HelmReleaseSummary,
     HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
     IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
-    JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
-    LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
-    NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
-    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
-    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
-    RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
-    ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
-    RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
-    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
-    StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
-    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary, VeleroOverview,
-    WorkloadMetricsAggregate,
+    JobSummary, KnativeOverview, KubeadmDetectionResult, LeaseDetails, LeaseSummary,
+    LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
+    MutatingWebhookConfigurationSummary, NamespaceAccessResolved, NamespaceDetails,
+    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
+    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
+    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
+    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
+    PrometheusMetrics, RbacAccessResult, RelatedResourceRef, ReplicaSetSummary,
+    ReplicationControllerDetails, ReplicationControllerSummary, ResourceQuotaDetails,
+    ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
+    RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, SectionKey,
+    ServiceDetails, ServiceSummary, StatefulSetDetails, StatefulSetSummary, StorageClassDetails,
+    StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
+    ValidatingWebhookConfigurationSummary, VeleroOverview, WorkloadMetricsAggregate,
 };
 use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
 use serde::{Deserialize, Serialize};
@@ -132,6 +132,9 @@ pub enum SystemEvent {
 
     /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
     FluxOverviewUpdated(FluxOverview),
+
+    /// Knative Serving state (Services, Revisions, Routes) — 028-knative-pane.
+    KnativeOverviewUpdated(KnativeOverview),
 
     /// Cluster + node Kubernetes version snapshot, refreshed periodically (019).
     ClusterVersionUpdated(ClusterVersionSummary),
@@ -809,6 +812,48 @@ mod tests {
             state: GatekeeperInstallState::NotInstalled,
             error: String::new(),
             constraints: Vec::new(),
+        }));
+    }
+
+    #[test]
+    fn knative_overview_updated_roundtrip() {
+        system_roundtrip(SystemEvent::KnativeOverviewUpdated(
+            KnativeOverview::default(),
+        ));
+        system_roundtrip(SystemEvent::KnativeOverviewUpdated(KnativeOverview {
+            installed: true,
+            services: vec![super::super::KnativeServiceSummary {
+                name: "hello".to_owned(),
+                namespace: "default".to_owned(),
+                ready: super::super::KnativeReadyState::Ready,
+                latest_ready_revision: Some("hello-00001".to_owned()),
+                latest_created_revision: Some("hello-00001".to_owned()),
+            }],
+            revisions: vec![super::super::KnativeRevisionSummary {
+                name: "hello-00001".to_owned(),
+                namespace: "default".to_owned(),
+                service_name: "hello".to_owned(),
+                ready: super::super::KnativeReadyState::Ready,
+                actual_replicas: 0,
+                desired_replicas: 0,
+                scale_reason: super::super::KnativeScaleReason::ScaledToZero {
+                    idle_since: Some("2026-09-23T00:00:00Z".to_owned()),
+                },
+                traffic_percent: 100,
+            }],
+            routes: vec![super::super::KnativeRouteSummary {
+                name: "hello".to_owned(),
+                namespace: "default".to_owned(),
+                service_name: "hello".to_owned(),
+                ready: super::super::KnativeReadyState::Ready,
+                url: Some("http://hello.default.example.com".to_owned()),
+                traffic: vec![super::super::KnativeRouteTrafficTarget {
+                    revision_name: "hello-00001".to_owned(),
+                    percent: 100,
+                    tag: None,
+                    revision_missing: false,
+                }],
+            }],
         }));
     }
 }

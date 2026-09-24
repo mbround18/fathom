@@ -33,6 +33,7 @@ import type {
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
+  KnativeOverview,
   KubeadmDetectionResult,
   KubernetesEvent,
   LayoutProfile,
@@ -490,6 +491,7 @@ export interface StoreData {
   pendingPortForwardOrigins: PendingPortForwardOrigins
   metrics: MetricsState
   flux: { overview?: FluxOverview }
+  knative: { overview?: KnativeOverview }
   /** 019: `undefined` until the first `ClusterVersionUpdated` arrives. */
   clusterVersion: ClusterVersionSummary | undefined
   gatekeeper: { overview?: GatekeeperOverview }
@@ -631,6 +633,8 @@ export interface StoreState extends StoreData {
   refreshEvents: () => void
   /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
   refreshFlux: () => void
+  /** Sends `RefreshKnative` (rescans Knative Serving resources; also polled every 20s). */
+  refreshKnative: () => void
   /** Sends `RefreshGatekeeper` (rescans OPA Gatekeeper constraints; also polled every 20s). */
   refreshGatekeeper: () => void
   /** Sends `RefreshVelero` (rescans Velero backup resources; also polled every 20s). */
@@ -862,6 +866,7 @@ export function initialData(): StoreData {
     pendingPortForwardOrigins: {},
     metrics: { diskUsage: [] },
     flux: {},
+    knative: {},
     clusterVersion: undefined,
     gatekeeper: {},
     velero: {},
@@ -1087,6 +1092,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+
+  refreshKnative: () => get().send({ type: 'RefreshKnative' }),
   refreshGatekeeper: () => get().send({ type: 'RefreshGatekeeper' }),
   refreshVelero: () => get().send({ type: 'RefreshVelero' }),
   refreshCertManager: () => get().send({ type: 'RefreshCertManager' }),

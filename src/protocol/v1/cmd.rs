@@ -330,6 +330,7 @@ pub enum BackendCmdV1 {
         api_key: String,
     },
     RefreshFlux,
+    RefreshKnative,
     /// 022-velero-backup-pane: immediate re-scan, so opening the pane doesn't wait out the
     /// background poll interval.
     RefreshVelero,
@@ -1032,6 +1033,11 @@ mod tests {
             namespace: "default".to_owned(),
             name: "example-com-tls".to_owned(),
         });
+    }
+
+    #[test]
+    fn refresh_knative_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKnative);
     }
 
     #[test]

@@ -5,6 +5,7 @@ import { InspectorActions, ListActions, SelectionBar } from '@/components/Action
 import { Inspector } from '@/components/Inspector'
 import { CertManagerPanel } from '@/components/panels/CertManagerPanel'
 import { FluxPanel } from '@/components/panels/FluxPanel'
+import { KnativePanel } from '@/components/panels/KnativePanel'
 import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
 import { VeleroPanel } from '@/components/panels/VeleroPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
@@ -192,6 +193,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
     case 'tool':
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       if (pane.tool === 'flux') return <FluxPanel />
+      if (pane.tool === 'knative') return <KnativePanel />
       if (pane.tool === 'velero') return <VeleroPanel />
       if (pane.tool === 'certManager') return <CertManagerPanel />
       if (pane.tool === 'hubble') return <HubblePanel />

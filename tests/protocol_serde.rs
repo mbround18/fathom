@@ -1704,6 +1704,7 @@ fn all_cmds() -> Vec<BackendCmd> {
             api_key: "s".to_owned(),
         },
         BackendCmd::RefreshFlux,
+        BackendCmd::RefreshKnative,
         BackendCmd::RefreshGatekeeper,
         BackendCmd::RefreshVelero,
         BackendCmd::RefreshCertManager,
@@ -2141,6 +2142,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::ConfigureGrafana { .. } => {}
         BackendCmd::TestGrafanaConnection { .. } => {}
         BackendCmd::RefreshFlux => {}
+        BackendCmd::RefreshKnative => {}
         BackendCmd::RefreshGatekeeper => {}
         BackendCmd::RefreshVelero => {}
         BackendCmd::RefreshCertManager => {}
@@ -2294,6 +2296,7 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
+        SystemEvent::KnativeOverviewUpdated(KnativeOverview::default()),
         SystemEvent::TrivyOverviewUpdated(sample_trivy_overview()),
         SystemEvent::ClusterVersionUpdated(sample_cluster_version_summary()),
         SystemEvent::GatekeeperOverviewUpdated(Default::default()),
@@ -2483,6 +2486,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
+        SystemEvent::KnativeOverviewUpdated(..) => {}
         SystemEvent::TrivyOverviewUpdated(..) => {}
         SystemEvent::ClusterVersionUpdated(..) => {}
         SystemEvent::GatekeeperOverviewUpdated(..) => {}

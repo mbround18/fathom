@@ -154,6 +154,7 @@ impl BackendCmdV1 {
             | C::RefreshHelmReleases
             | C::SelectHelmRelease { .. }
             | C::SelectFluxResource { .. }
+            | C::RefreshKnative
             // Agent SDK Ops (013): `AgentAsk` calls an external model provider but
             // writes no cluster/persisted state beyond the in-memory/on-disk
             // conversation (classified `Local` below is where persistence writes
@@ -434,6 +435,7 @@ impl BackendCmdV1 {
                 section_keys::integrations_grafana()
             }
             C::RefreshFlux => section_keys::integrations_flux(),
+            C::RefreshKnative => section_keys::integrations_knative(),
             C::RefreshVelero => section_keys::integrations_velero(),
             C::RefreshTrivyOverview => section_keys::integrations_vulnerabilities(),
             C::RefreshHubble => section_keys::integrations_hubble(),
@@ -600,6 +602,7 @@ impl BackendCmdV1 {
             | C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
+            | C::RefreshKnative
             | C::RefreshHubble
             | C::RefreshGatekeeper
             | C::RefreshVelero

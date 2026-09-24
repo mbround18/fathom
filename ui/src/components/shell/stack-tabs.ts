@@ -2,6 +2,7 @@ import {
   CertificateIcon,
   PlugsIcon,
   PulseIcon,
+  RocketLaunchIcon,
   ShareNetworkIcon,
   StackIcon,
   TerminalIcon,
@@ -37,6 +38,12 @@ export const TOPOLOGY_TAB: StackTab = {
   icon: ShareNetworkIcon,
   kind: 'tool',
   tool: 'topology',
+}
+export const KNATIVE_TAB: StackTab = {
+  label: 'Knative',
+  icon: RocketLaunchIcon,
+  kind: 'tool',
+  tool: 'knative',
 }
 
 export const CERTIFICATES_TAB: StackTab = {

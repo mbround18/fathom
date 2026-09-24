@@ -322,6 +322,7 @@ async fn refresh_core_resources(
     deployments::refresh_deployments(state, sender).await?;
     sync::ensure_background_sync(state, sender).await?;
     sync::ensure_flux_poll(state, sender).await;
+    sync::ensure_knative_poll(state, sender).await;
     sync::ensure_cluster_version_poll(state, sender).await;
     sync::ensure_trivy_poll(state, sender).await;
     sync::ensure_hubble_poll(state, sender).await;

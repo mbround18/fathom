@@ -118,6 +118,9 @@ impl FathomApp {
                     SystemEvent::VeleroOverviewUpdated(_) => {
                         // React-only pane (022-velero-backup-pane); no egui view.
                     }
+                    SystemEvent::KnativeOverviewUpdated(_) => {
+                        // KnativePanel (React bridge) handles this; no egui view.
+                    }
                     SystemEvent::HelmMutationPreviewReady(_)
                     | SystemEvent::HelmMutationApplied(_)
                     | SystemEvent::HelmMutationFailed(_) => {

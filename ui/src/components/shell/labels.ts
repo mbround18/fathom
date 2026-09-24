@@ -12,6 +12,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   portforwards: 'Forwards',
   topology: 'Topology',
   velero: 'Velero',
+  knative: 'Knative',
   certManager: 'Certificates',
   vulnerabilities: 'Vulnerabilities',
 }

@@ -231,6 +231,15 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
       g.moveTo(from.x, from.y)
       g.lineTo(to.x, to.y)
       g.stroke()
+      if (e.label) {
+        const fg = style.getPropertyValue('--foreground').trim()
+        g.globalAlpha = 1
+        g.fillStyle = fg ? `oklch(${fg})` : '#eee'
+        g.font = '10px sans-serif'
+        g.textAlign = 'center'
+        g.fillText(e.label, (from.x + to.x) / 2, (from.y + to.y) / 2 - 4)
+        g.globalAlpha = 0.5
+      }
     }
     g.globalAlpha = 1
 
