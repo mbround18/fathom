@@ -1275,7 +1275,12 @@ export const useStore = create<StoreState>()((set, get) => ({
       // the off-screen Resources-tab inspector slot) — so on tablet the fast path only applies
       // when the click genuinely came from a pane that's part of that visible row.
       const rowAlwaysVisible = s.layout.profile.dock !== undefined
-      const fromVisibleSlot = from !== undefined && s.layout.slotPanes.includes(from)
+      // A drill-down (`push`, no `from`) is triggered from links rendered *inside* the inspector
+      // itself, so the slotted inspector is on screen by definition. Without this, tablet/laptop
+      // (no dock) fell through to the phone stack path and the visible inspector never retargeted.
+      const fromVisibleSlot =
+        (from !== undefined && s.layout.slotPanes.includes(from)) ||
+        (push === true && from === undefined)
       if (slottedPane && s.layout.widthClass !== 'phone' && (rowAlwaysVisible || fromVisibleSlot)) {
         panes[slottedPane.id] = {
           ...slottedPane,
