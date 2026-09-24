@@ -4,7 +4,7 @@ use crossbeam_channel::Sender;
 
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
 use crate::backend::state::BackendState;
-use crate::backend::{events, flux, hubble, integrations, metrics_provider};
+use crate::backend::{events, flux, hubble, integrations, metrics_provider, velero};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SectionKey, SystemEvent,
     section_keys,
@@ -43,6 +43,7 @@ pub(super) async fn handle(
         }
         BackendCmd::RefreshIntegrations => refresh_integrations(state, sender).await,
         BackendCmd::RefreshFlux => refresh_flux(state, sender).await,
+        BackendCmd::RefreshVelero => refresh_velero(state, sender).await,
         BackendCmd::RefreshHubble => refresh_hubble(state, sender).await,
         other => return Ok(Some(other)),
     }
@@ -250,6 +251,32 @@ async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for Flux resources: {}", e),
+        ),
+    }
+}
+
+async fn refresh_velero(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match velero::scan_velero(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_velero(),
+            context,
+            SystemEvent::VeleroOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for Velero resources: {}", e),
         ),
     }
 }

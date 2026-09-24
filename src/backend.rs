@@ -69,6 +69,7 @@ mod runtimeclasses;
 mod secrets;
 mod storageclasses;
 mod validatingwebhooks;
+mod velero;
 
 use state::BackendState;
 

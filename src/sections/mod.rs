@@ -352,6 +352,12 @@ fn integration_sections() -> Vec<SectionDef> {
             group,
             ScopeKind::Namespaced,
         ),
+        section(
+            section_keys::integrations_velero(),
+            "Velero",
+            group,
+            ScopeKind::Namespaced,
+        ),
     ]
 }
 pub fn find_section<'a>(sections: &'a [SectionDef], key: &SectionKey) -> Option<&'a SectionDef> {

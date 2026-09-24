@@ -312,6 +312,7 @@ async fn refresh_core_resources(
     sync::ensure_background_sync(state, sender).await?;
     sync::ensure_flux_poll(state, sender).await;
     sync::ensure_hubble_poll(state, sender).await;
+    sync::ensure_velero_poll(state, sender).await;
     Ok(())
 }
 

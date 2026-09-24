@@ -98,6 +98,7 @@ impl BackendCmdV1 {
             | C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
+            | C::RefreshVelero
             | C::RefreshHubble
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
@@ -424,6 +425,7 @@ impl BackendCmdV1 {
                 section_keys::integrations_grafana()
             }
             C::RefreshFlux => section_keys::integrations_flux(),
+            C::RefreshVelero => section_keys::integrations_velero(),
             C::RefreshHubble => section_keys::integrations_hubble(),
             C::RefreshPersistentVolumes
             | C::SelectPersistentVolume { .. }
@@ -529,6 +531,7 @@ mod tests {
         for cmd in [
             BackendCmdV1::Initialize,
             BackendCmdV1::RefreshPods,
+            BackendCmdV1::RefreshVelero,
             BackendCmdV1::SelectDeployment {
                 namespace: s("kube-system"),
                 name: s("coredns"),

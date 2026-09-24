@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use super::state::BackendState;
-use super::{deployments, events, flux, hubble, pods};
+use super::{deployments, events, flux, hubble, pods, velero};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -111,6 +111,60 @@ pub(super) async fn ensure_flux_poll(
         sender.clone(),
         state.cluster.current_context.clone(),
     )));
+}
+
+/// Best-effort: start (or keep running) a background scan of Velero backup resources every
+/// 20s, emitting `VeleroOverviewUpdated`. Does nothing if a poll task is already running;
+/// `scan_velero` itself reports `installed: false` when Velero's CRDs are absent, so there is no
+/// separate detection gate here (mirrors `ensure_flux_poll`).
+pub(super) async fn ensure_velero_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.velero_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.velero_poll_task = Some(tokio::spawn(poll_velero_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan Velero resources every 20s and emit the aggregated overview.
+async fn poll_velero_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match velero::scan_velero(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_velero(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::VeleroOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Velero scan failed: {}", e),
+                );
+            }
+        }
+    }
 }
 
 /// Background task: rescan Flux resources every 20s and emit the aggregated overview.

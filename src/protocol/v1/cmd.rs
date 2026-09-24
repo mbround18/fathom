@@ -323,6 +323,9 @@ pub enum BackendCmdV1 {
         api_key: String,
     },
     RefreshFlux,
+    /// 022-velero-backup-pane: immediate re-scan, so opening the pane doesn't wait out the
+    /// background poll interval.
+    RefreshVelero,
     RefreshHubble,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
@@ -935,6 +938,11 @@ mod tests {
             value: None,
             effect: "NoSchedule".to_owned(),
         });
+    }
+
+    #[test]
+    fn refresh_velero_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshVelero);
     }
 
     #[test]

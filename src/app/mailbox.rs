@@ -102,6 +102,9 @@ impl FathomApp {
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }
+                    SystemEvent::VeleroOverviewUpdated(_) => {
+                        // React-only pane (022-velero-backup-pane); no egui view.
+                    }
                     SystemEvent::HelmMutationPreviewReady(_)
                     | SystemEvent::HelmMutationApplied(_)
                     | SystemEvent::HelmMutationFailed(_) => {
