@@ -9,12 +9,14 @@ ENV VITE_TRANSPORT=hosted
 RUN pnpm exec vite build
 
 FROM rust:1-alpine AS server
-RUN apk add --no-cache musl-dev protoc perl make
+# g++/cmake: the root build.rs builds libprotobuf via protobuf-src (no system protoc needed)
+RUN apk add --no-cache musl-dev g++ cmake perl make linux-headers
 WORKDIR /src
 COPY . .
 ENV CARGO_BUILD_JOBS=2 RUSTFLAGS="-C target-feature=+crt-static"
-RUN cargo build --release -p fathom-server \
-    && cp target/release/fathom-server /fathom-server
+# explicit --target keeps crt-static off the host (proc-macro/build-script) artifacts
+RUN cargo build --release -p fathom-server --target x86_64-unknown-linux-musl \
+    && cp target/x86_64-unknown-linux-musl/release/fathom-server /fathom-server
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=server /fathom-server /fathom-server
