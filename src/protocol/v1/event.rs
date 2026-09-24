@@ -82,6 +82,18 @@ pub enum ContextConnectionStatus {
 #[serde(tag = "type", content = "data")]
 pub enum SystemEvent {
     BackendStarted,
+
+    /// The hosted session ended; the UI shows a sign-in prompt (031-hosted-server-mode).
+    SessionEnded {
+        reason: super::SessionEndReason,
+    },
+
+    /// A per-user limit refused the request (031-hosted-server-mode).
+    LimitReached {
+        kind: super::LimitKind,
+        max: u32,
+    },
+
     Notification {
         level: NotificationLevel,
         message: String,

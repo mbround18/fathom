@@ -45,6 +45,10 @@ impl FathomApp {
                     SystemEvent::BackendStarted => {
                         self.push_status("Backend started.".to_owned());
                     }
+                    SystemEvent::SessionEnded { .. } | SystemEvent::LimitReached { .. } => {
+                        // 031-hosted-server-mode: hosted-only events; the desktop shell never
+                        // receives them.
+                    }
                     SystemEvent::Notification { level, message } => match level {
                         NotificationLevel::Info => self.push_status(message.clone()),
                         NotificationLevel::Warn => self.push_status(format!("WARN: {}", message)),

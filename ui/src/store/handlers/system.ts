@@ -57,6 +57,11 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'BackendStarted':
       return
 
+    // 031-hosted-server-mode: state handling lands with the hosted UI (T031).
+    case 'SessionEnded':
+    case 'LimitReached':
+      return
+
     case 'Notification': {
       const level = LEVEL[event.data.level]
       const conn = d.edit('conn')

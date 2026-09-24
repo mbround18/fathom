@@ -10,7 +10,42 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::persistence;
-use crate::protocol::{AUDIT_LOG_RETENTION, AuditActionSummary, AuditLogEntry, AuditOutcome};
+use crate::protocol::{
+    AUDIT_LOG_RETENTION, AuditActionSummary, AuditActor, AuditLogEntry, AuditOutcome,
+};
+
+/// Where completed mutating commands are recorded (031-hosted-server-mode). The default is
+/// [`LocalFileSink`] (the desktop `~/.fathom/audit-log.json`); the hosted server supplies a
+/// shared, attributed sink. Implementations must never fail the caller.
+pub trait AuditSink: Send + Sync {
+    fn record(
+        &self,
+        summary: AuditActionSummary,
+        context: String,
+        request_id: String,
+        ok: bool,
+        error: Option<&str>,
+        actor: Option<AuditActor>,
+    );
+}
+
+/// Today's behavior: append to the local audit-log file.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LocalFileSink;
+
+impl AuditSink for LocalFileSink {
+    fn record(
+        &self,
+        summary: AuditActionSummary,
+        context: String,
+        request_id: String,
+        ok: bool,
+        error: Option<&str>,
+        actor: Option<AuditActor>,
+    ) {
+        record(summary, context, request_id, ok, error, actor);
+    }
+}
 
 #[derive(Default, Serialize, Deserialize)]
 struct AuditLogStore {
@@ -80,6 +115,7 @@ pub fn record(
     request_id: String,
     ok: bool,
     error: Option<&str>,
+    actor: Option<AuditActor>,
 ) {
     let entry = AuditLogEntry {
         id: next_id(),
@@ -92,6 +128,7 @@ pub fn record(
         target_name: summary.target_name,
         outcome: AuditOutcome::from_result(ok, error),
         request_id: (!request_id.is_empty()).then_some(request_id),
+        actor,
     };
     let result = persistence::audit_log_path().and_then(|p| append_entry_to(&p, entry));
     if let Err(e) = result {
@@ -116,6 +153,7 @@ mod tests {
             target_name: Some(format!("n{i}")),
             outcome: AuditOutcome::Success,
             request_id: None,
+            actor: None,
         }
     }
 
@@ -143,6 +181,29 @@ mod tests {
         assert!(append_entry_to(&path, entry(1)).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json");
         assert!(load_entries_from(&dir.join("missing.json")).is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn legacy_file_without_actor_loads() {
+        let dir = std::env::temp_dir().join(format!("fathom-audit-{}", next_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit-log.json");
+        std::fs::write(
+            &path,
+            r#"{"entries":[{"id":"a","timestamp":"t","action":"nodeCordon","actionLabel":"Node Cordon","context":"c","targetKind":null,"targetNamespace":null,"targetName":null,"outcome":{"type":"Success"},"requestId":null}]}"#,
+        )
+        .unwrap();
+        let got = load_entries_from(&path);
+        assert_eq!(got.len(), 1);
+        assert!(got[0].actor.is_none());
+        let mut with_actor = entry(2);
+        with_actor.actor = Some(AuditActor {
+            sub: "s".into(),
+            username: "alice".into(),
+        });
+        append_entry_to(&path, with_actor.clone()).unwrap();
+        assert_eq!(load_entries_from(&path)[1], with_actor);
         std::fs::remove_dir_all(dir).ok();
     }
 

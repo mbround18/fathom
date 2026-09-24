@@ -27,14 +27,14 @@
 
 **CRITICAL**: no user-story task starts until this phase merges.
 
-- [ ] T007 Protocol additions in `src/protocol/v1/bridge_types.rs` (`ShellMode`, `PublicIdentity`, `PublicLimits`, optional fields on `SubscriptionInfo`) and `src/protocol/v1/event.rs` (`SystemEvent::SessionEnded`, `LimitReached`); re-export from `src/protocol/v1/mod.rs`; regenerate ts-rs bindings under `ui/src/protocol/generated/`.
-- [ ] T008 Serde round-trip tests for every new/changed type (incl. a legacy `SubscriptionInfo` without new fields deserializing), in the existing protocol test module.
-- [ ] T009 `ClusterAccess` seam: `src/backend/access.rs` with trait (`build_client(&self, context) -> Client`, `home_context()`, `allows_local_features()`, `state_root()`), default `KubeconfigAccess` reproducing today's `connect_client_for_current_context`; route `src/backend/kube.rs` through it; `BackendState` holds `Arc<dyn ClusterAccess>`. Existing tests must pass unchanged.
-- [ ] T010 [P] `AuditSink` seam in `src/backend/audit_log.rs` (`LocalFileSink` default = current behavior, `record(..., actor)` signature with `Option<AuditActor>`); `BackendState.identity: Option<Identity>`; update the call at `src/backend.rs:212`. Add `actor` (serde default/skip-if-none) to `AuditLogEntry` in `src/protocol/v1/audit.rs`; regenerate binding; legacy-file load test.
-- [ ] T011 [P] Injectable state root in `src/backend/persistence.rs` (default `~/.fathom`; override via `ClusterAccess::state_root`); test that default paths are unchanged.
-- [ ] T012 `spawn_backend_with(access, sink, args)` in `src/bridge/mod.rs` (existing `spawn_backend` delegates with defaults); skip `clear_metrics_history` when access is hosted.
-- [ ] T013 Audit backend statics for cross-user leakage (`events::take_cmd_errors`, counters, any `static`/`lazy` state) via grep across `src/backend`; make thread-local or per-state where needed; add a test running two backends concurrently asserting error/`ok` isolation.
-- [ ] T014 Verify FR-018: run the existing `cargo test`, `cargo clippy -- -D warnings`, devbridge and `ui/src-tauri` builds unchanged.
+- [x] T007 Protocol additions in `src/protocol/v1/bridge_types.rs` (`ShellMode`, `PublicIdentity`, `PublicLimits`, optional fields on `SubscriptionInfo`) and `src/protocol/v1/event.rs` (`SystemEvent::SessionEnded`, `LimitReached`); re-export from `src/protocol/v1/mod.rs`; regenerate ts-rs bindings under `ui/src/protocol/generated/`.
+- [x] T008 Serde round-trip tests for every new/changed type (incl. a legacy `SubscriptionInfo` without new fields deserializing), in the existing protocol test module.
+- [x] T009 `ClusterAccess` seam: `src/backend/access.rs` with trait (`build_client(&self, context) -> Client`, `home_context()`, `allows_local_features()`, `state_root()`), default `KubeconfigAccess` reproducing today's `connect_client_for_current_context`; route `src/backend/kube.rs` through it; `BackendState` holds `Arc<dyn ClusterAccess>`. Existing tests must pass unchanged.
+- [x] T010 [P] `AuditSink` seam in `src/backend/audit_log.rs` (`LocalFileSink` default = current behavior, `record(..., actor)` signature with `Option<AuditActor>`); `BackendState.identity: Option<Identity>`; update the call at `src/backend.rs:212`. Add `actor` (serde default/skip-if-none) to `AuditLogEntry` in `src/protocol/v1/audit.rs`; regenerate binding; legacy-file load test.
+- [x] T011 [P] Injectable state root in `src/backend/persistence.rs` (default `~/.fathom`; override via `ClusterAccess::state_root`); test that default paths are unchanged.
+- [x] T012 `spawn_backend_with(access, sink, args)` in `src/bridge/mod.rs` (existing `spawn_backend` delegates with defaults); skip `clear_metrics_history` when access is hosted.
+- [x] T013 Audit backend statics for cross-user leakage (`events::take_cmd_errors`, counters, any `static`/`lazy` state) via grep across `src/backend`; make thread-local or per-state where needed; add a test running two backends concurrently asserting error/`ok` isolation.
+- [x] T014 Verify FR-018: run the existing `cargo test`, `cargo clippy -- -D warnings`, devbridge and `ui/src-tauri` builds unchanged.
 
 **Checkpoint**: seams merged with default behavior identical; desktop and devbridge green.
 

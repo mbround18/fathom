@@ -1,3 +1,5 @@
+use crate::backend::access::{ClusterAccess, Identity};
+use crate::backend::audit_log::AuditSink;
 use crate::backend::metrics_provider::PrometheusClient;
 use crate::backend::portforward::PortForwardManager;
 use crate::protocol::CrdCatalogEntry;
@@ -204,11 +206,31 @@ pub(super) struct BackendState {
     /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
+    /// 031-hosted-server-mode: where clients come from (default: kubeconfig, as before).
+    pub(super) access: Arc<dyn ClusterAccess>,
+    /// 031: where completed mutations are recorded (default: the local audit-log file).
+    pub(super) audit: Arc<dyn AuditSink>,
+    /// 031: the signed-in user behind this backend (hosted only; `None` on desktop).
+    pub(super) identity: Option<Identity>,
 }
 
 impl BackendState {
+    #[cfg(test)]
     pub(super) fn new() -> Self {
+        use crate::backend::access::KubeconfigAccess;
+        use crate::backend::audit_log::LocalFileSink;
+        Self::with_seams(Arc::new(KubeconfigAccess), Arc::new(LocalFileSink), None)
+    }
+
+    pub(super) fn with_seams(
+        access: Arc<dyn ClusterAccess>,
+        audit: Arc<dyn AuditSink>,
+        identity: Option<Identity>,
+    ) -> Self {
         Self {
+            access,
+            audit,
+            identity,
             cluster: ClusterContext {
                 client: None,
                 current_context: None,

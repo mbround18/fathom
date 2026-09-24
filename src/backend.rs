@@ -9,10 +9,11 @@ use tokio::runtime::Runtime;
 
 use crate::config::Args;
 
+pub mod access;
 mod agent;
 mod applications;
 mod apply;
-mod audit_log;
+pub mod audit_log;
 mod cert_manager;
 mod cluster_version;
 mod cmd;
@@ -90,17 +91,51 @@ pub fn init<C>(receiver: Receiver<C>, sender: Sender<BackendEventEnvelope>, args
 where
     C: Into<CmdRequest>,
 {
-    let rt = Runtime::new().expect("Failed to create Tokio runtime");
+    init_with(
+        receiver,
+        sender,
+        args,
+        Arc::new(access::KubeconfigAccess),
+        Arc::new(audit_log::LocalFileSink),
+        None,
+        None,
+    );
+}
 
-    let mut state = BackendState::new();
+/// [`init`] with explicit seams (031-hosted-server-mode): where clients come from, where
+/// audit entries go, the signed-in identity, and an optional Tokio runtime (the hosted
+/// server gives each user a small runtime; `None` builds the default multi-thread one).
+pub fn init_with<C>(
+    receiver: Receiver<C>,
+    sender: Sender<BackendEventEnvelope>,
+    args: Args,
+    access: Arc<dyn access::ClusterAccess>,
+    audit: Arc<dyn audit_log::AuditSink>,
+    identity: Option<access::Identity>,
+    runtime: Option<Runtime>,
+) where
+    C: Into<CmdRequest>,
+{
+    let rt = runtime.unwrap_or_else(|| Runtime::new().expect("Failed to create Tokio runtime"));
+
+    if let Some(root) = access.state_root() {
+        persistence::set_state_root(root);
+    }
+    let local_features = access.allows_local_features();
+    let home_context = access.home_context();
+
+    let mut state = BackendState::with_seams(access, audit, identity);
+    state.cluster.current_context = home_context;
     state.agent_conversations = agent::persistence::load_agent_conversations();
     // 015-mcp-agent-exposure: shells that must never expose an MCP endpoint (`fathom-devbridge`)
     // set `Args::disable_mcp`, and `McpState::start` then refuses before spawning anything. The
     // server is off regardless — this only makes it un-enableable for this process.
-    state.mcp.disabled = args.disable_mcp;
+    state.mcp.disabled = args.disable_mcp || !local_features;
 
-    // Clear metrics history on startup to begin fresh collection
-    if let Err(e) = persistence::clear_metrics_history() {
+    // Clear metrics history on startup to begin fresh collection. Skipped for hosted access:
+    // the state directory is shared by every user's backend, so one user signing in must not
+    // wipe another's history.
+    if local_features && let Err(e) = persistence::clear_metrics_history() {
         tracing::warn!("Failed to clear metrics history on startup: {}", e);
     }
 
@@ -209,7 +244,10 @@ async fn run_cmd(
         };
         if let Some(summary) = audit_summary {
             let context = state.cluster.current_context.clone().unwrap_or_default();
-            audit_log::record(summary, context, request_id, ok, error.as_deref());
+            let actor = state.identity.as_ref().map(access::Identity::audit_actor);
+            state
+                .audit
+                .record(summary, context, request_id, ok, error.as_deref(), actor);
         }
         events::emit(
             state.cluster.seq.as_ref(),

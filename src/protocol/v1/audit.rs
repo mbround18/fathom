@@ -144,4 +144,18 @@ pub struct AuditLogEntry {
     pub outcome: AuditOutcome,
     /// The originating command's correlation id, best-effort, for cross-referencing.
     pub request_id: Option<String>,
+    /// Who performed the action (hosted server only; 031-hosted-server-mode). Absent for
+    /// desktop entries and for files written before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub actor: Option<AuditActor>,
+}
+
+/// The signed-in user an audit entry is attributed to (hosted server, 031).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditActor {
+    /// Stable OIDC subject.
+    pub sub: String,
+    pub username: String,
 }
