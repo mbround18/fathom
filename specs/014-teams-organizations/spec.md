@@ -54,6 +54,8 @@ An operator who has already tuned the team's shared Prometheus wiring (metrics s
 
 ### User Story 3 - See only what my role allows, per teammate (Priority: P3, gated on Tier C)
 
+> **Status note (2026-09-24):** The Tier C gate is lifted. 011 is in `main` and 033-rauthy-oidc-teams-users supplies the OIDC identity and per-namespace capability resolution this story consumes. Covered by automated tests only; the two-teammates-on-one-cluster live check (033 quickstart sections 2-3, task T023) has not been run.
+
 A signed-in operator on a shared team wants Fathom's UI to reflect exactly what their own Kubernetes identity can and cannot do in a given cluster — with each teammate seeing a view scoped to their own resolved role, not a single shared view for the whole install.
 
 **Why this priority**: Highest ceiling of value for larger teams with differentiated access, but it is the most complex and the only story with an external dependency: it requires an OIDC-authenticated per-operator identity and resolved role/verb/namespace data, which do not exist yet in Fathom. This story cannot ship before that identity and role-resolution layer (tracked separately as Tier C, "Cluster-admin RBAC / OIDC-OAuth administration") exists.

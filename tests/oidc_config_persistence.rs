@@ -125,3 +125,37 @@ fn invalid_config_is_refused_on_save() {
     assert!(save_oidc_config(&bad).is_err());
     assert_eq!(home.read_config(), json!({"keep": true}));
 }
+
+/// SC-006: a pre-033 `~/.fathom/` (config, ports, integrations) loads unchanged through the
+/// 033 code paths, and nothing is written, so the files stay byte-identical.
+#[test]
+fn pre_033_fathom_dir_loads_unchanged_and_is_not_rewritten() {
+    let home = TempHome::new();
+    let dir = home.config_path().parent().unwrap().to_path_buf();
+    let config = json!({
+        "auto_start": {"mcp_stdio": true},
+        "ui": {"schema": 1},
+        "navigation": {"expanded_groups": ["workloads"]}
+    });
+    home.write_config(&config);
+    std::fs::write(dir.join("ports.json"), "[]").unwrap();
+    std::fs::write(dir.join("integrations.json"), r#"{"prometheus":{}}"#).unwrap();
+    let files = ["config.json", "ports.json", "integrations.json"];
+    let snapshot = || -> Vec<Vec<u8>> {
+        files
+            .iter()
+            .map(|f| std::fs::read(dir.join(f)).unwrap())
+            .collect()
+    };
+    let before = snapshot();
+
+    // Kubeconfig-only: no OIDC issuers, no context opted in.
+    let oidc = load_oidc_config();
+    assert_eq!(oidc, OidcConfig::default());
+    assert!(oidc.issuers.is_empty() && oidc.contexts.is_empty());
+    assert_eq!(fathom::backend::persistence::load_config().unwrap(), config);
+    assert!(fathom::backend::persistence::load_ports().is_ok());
+    assert!(fathom::backend::persistence::load_integrations().is_ok());
+
+    assert_eq!(before, snapshot());
+}

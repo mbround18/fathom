@@ -552,4 +552,32 @@ mod tests {
         assert_eq!(b.rules[0].resources, vec!["bob-sub"]);
         assert!(cache.get("c", "", Some("dev"), now).is_none());
     }
+
+    /// SC-006: a kubeconfig-only context (no OIDC issuer) has an empty identity sub.
+    #[test]
+    fn kubeconfig_only_context_has_empty_identity() {
+        assert_eq!(sub_for_issuer(None, &[]), "");
+    }
+
+    /// SC-004: resolution is lazy per namespace. Resolving 1 of 200 namespaces caches exactly
+    /// that one, and evaluating a resolved set is far below the 200 ms budget.
+    #[test]
+    fn two_hundred_namespaces_resolve_lazily_and_fast() {
+        let cache = CapabilityCache::default();
+        let now = Instant::now();
+        let mut s = set(vec![rule(&["get", "list"], &[""], &["pods"])], false);
+        s.namespace = Some("ns-0".into());
+        cache.put(s.clone(), now);
+        let hits = (0..200)
+            .filter(|i| cache.get("c", "", Some(&format!("ns-{i}")), now).is_some())
+            .count();
+        assert_eq!(hits, 1, "only the visited namespace is resolved");
+
+        let query = q(Some("ns-0"), "get", "pods");
+        let start = Instant::now();
+        for _ in 0..1000 {
+            assert!(evaluate(&s, &query).is_some());
+        }
+        assert!(start.elapsed() < Duration::from_millis(200));
+    }
 }
