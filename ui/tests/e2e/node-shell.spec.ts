@@ -100,7 +100,7 @@ async function openShellTab(page: Page, checks: NodeShellAccessCheck[] = ALL_ALL
   await page.locator(`[role="row"][data-row-key="${NODE.name}"]`).click()
   const insp = inspector(page)
   await expect(insp).toBeVisible()
-  await expect.poll(() => sentTypes(page)).toContain('SaveUiConfig')
+  await expect.poll(() => sentTypes(page, true)).toContain('SaveUiConfig')
   await clearSent(page)
   await insp.getByRole('tab', { name: 'Shell' }).click()
   await expect

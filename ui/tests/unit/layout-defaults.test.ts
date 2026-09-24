@@ -20,8 +20,9 @@ describe('defaultProfile', () => {
     expect(p.slots.at(-1)).toMatchObject({ kind: 'tool', tool: 'flux' })
   })
 
-  it('has a dock from desktop up only', () => {
-    expect(defaultProfile('laptop').dock).toBeUndefined()
+  it('has a dock from laptop up only', () => {
+    expect(defaultProfile('tablet').dock).toBeUndefined()
+    expect(defaultProfile('laptop').dock).toBeDefined()
     expect(defaultProfile('desktop').dock).toMatchObject({
       open: true,
       tabs: ['logs', 'events', 'topology', 'daemon'],

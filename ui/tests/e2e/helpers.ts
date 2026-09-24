@@ -24,11 +24,19 @@ export async function emit(page: Page, batch: EventBatch): Promise<void> {
   await page.evaluate((b) => window.__fathomFake?.emit(b), batch)
 }
 
-export async function sent(page: Page): Promise<BackendCmd[]> {
+export async function sent(page: Page, includePersistence = false): Promise<BackendCmd[]> {
   // Capability lookups (033 US5) are read-only background traffic, not part of any story's
-  // command assertions.
+  // command assertions. Neither is the debounced (500ms) `SaveUiConfig` layout/nav persistence,
+  // which lands at an arbitrary point after nav-group expansion or a layout change and would
+  // otherwise race every exact-match command assertion. Specs that assert persistence itself
+  // opt in with `includePersistence`.
   const all = await page.evaluate(() => window.__fathomFake?.sent() ?? [])
-  return all.filter((c) => c.type !== 'ResolveCapabilities' && c.type !== 'CheckCapability')
+  return all.filter(
+    (c) =>
+      c.type !== 'ResolveCapabilities' &&
+      c.type !== 'CheckCapability' &&
+      (includePersistence || c.type !== 'SaveUiConfig'),
+  )
 }
 
 export async function clearSent(page: Page): Promise<void> {
@@ -36,8 +44,8 @@ export async function clearSent(page: Page): Promise<void> {
 }
 
 /** Command `type`s sent since the last `clearSent`. */
-export async function sentTypes(page: Page): Promise<string[]> {
-  return (await sent(page)).map((c) => c.type)
+export async function sentTypes(page: Page, includePersistence = false): Promise<string[]> {
+  return (await sent(page, includePersistence)).map((c) => c.type)
 }
 
 /** The resource table showing `section` (the first, if several panes show it). */
@@ -101,6 +109,21 @@ export async function nextRequestId(page: Page): Promise<number> {
   return page.evaluate(() => window.__fathomFake?.nextRequestId() ?? -1)
 }
 
+/**
+ * The `RequestId` the fake actually assigned to the latest sent command of `type`. Poll it after
+ * the click that sends the command; predicting via `nextRequestId` races background commands.
+ */
+export async function requestIdOf(page: Page, type: BackendCmd['type']): Promise<number> {
+  let id: number | undefined
+  await expect
+    .poll(async () => {
+      id = await page.evaluate((t) => window.__fathomFake?.requestIdOf(t), type)
+      return id
+    })
+    .toBeDefined()
+  return id ?? -1
+}
+
 /** Deliver `CommandFinished` for `requestId`, as the backend does when the command completes. */
 export async function finish(
   page: Page,
@@ -135,3 +158,15 @@ export function actionToast(page: Page, type: 'success' | 'error' | 'loading'): 
 
 export const confirmDialog = (page: Page): Locator => page.getByTestId('confirm-dialog')
 export const scaleDialog = (page: Page): Locator => page.getByTestId('scale-dialog')
+
+/**
+ * Press Delete on the focused row/selection and wait for the confirm dialog. The key bypasses the
+ * gated menu item and is refused (while the capability check is requested) until the backend's
+ * verified "allowed" answer has landed, so a press right after selecting can be a no-op; retry.
+ */
+export async function pressDelete(page: Page): Promise<void> {
+  await expect(async () => {
+    await page.keyboard.press('Delete')
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible({ timeout: 500 })
+  }).toPass({ timeout: 10_000 })
+}

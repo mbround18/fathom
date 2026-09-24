@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test'
 
 import { DETAIL_POD, PODS_500 } from '../fixtures'
 import { batch, nsRoute, stream } from '../fixtures/builders'
-import { clearSent, emit, inspector, open, row, sent, sentTypes } from './helpers'
+import { clearSent, emit, inspector, isPhone, open, row, sent, sentTypes } from './helpers'
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
 const SECOND_POD = PODS_500[3]
@@ -21,7 +21,7 @@ function encodeChunk(text: string): string {
 test.describe('US2 Terminal tab', () => {
   test('opening Terminal starts a session, input/output round-trip, switching pods stops the first', async ({
     page,
-  }) => {
+  }, testInfo) => {
     await open(page)
     await row(page, key(DETAIL_POD)).click()
 
@@ -71,6 +71,9 @@ test.describe('US2 Terminal tab', () => {
     // FR-012: switching to a different pod's Terminal stops the first session before starting
     // the second (the Inspector remounts on target change, unmount-before-mount).
     await clearSent(page)
+    // Phone drills in: the list is hidden beneath the inspector, so go Back to reach the row.
+    // (Going back unmounts the first inspector, so its StopPodExec is sent here.)
+    if (isPhone(testInfo)) await page.getByRole('button', { name: /Back/ }).click()
     await row(page, key(SECOND_POD)).click()
 
     const insp2 = inspector(page)

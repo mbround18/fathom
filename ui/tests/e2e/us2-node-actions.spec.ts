@@ -50,7 +50,7 @@ async function goToNode(page: Page): Promise<void> {
   await insp.getByRole('tab', { name: 'Actions' }).click()
   // Expanding the nav group persists a debounced `SaveUiConfig`; let it settle before the
   // test starts asserting on `sent()`, or it pollutes the very next assertion.
-  await expect.poll(() => sentTypes(page)).toContain('SaveUiConfig')
+  await expect.poll(() => sentTypes(page, true)).toContain('SaveUiConfig')
 }
 
 test.describe('US2 node actions', () => {

@@ -7,7 +7,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, system } from '../fixtures/builders'
-import { emit, finish, navigateTo, nextRequestId, open, sentTypes } from './helpers'
+import { emit, finish, navigateTo, open, requestIdOf, sentTypes } from './helpers'
 
 const ACTIVE_CONTEXT = 'kind-a'
 
@@ -63,7 +63,6 @@ test.describe('US2 teams: cluster settings + org sync', () => {
       'cpu_throttled',
     )
 
-    const requestId = await nextRequestId(page)
     await panel(page).getByTestId('teams-save-cluster-settings').click()
     await expect.poll(() => sentTypes(page)).toContain('SaveClusterSettings')
     const cmds = await page.evaluate(() => window.__fathomFake?.sent() ?? [])
@@ -90,14 +89,13 @@ test.describe('US2 teams: cluster settings + org sync', () => {
         },
       },
     })
-    await finish(page, requestId, true)
+    await finish(page, await requestIdOf(page, 'SaveClusterSettings'), true)
     await expect(panel(page).getByTestId('teams-cluster-settings-saved')).toBeVisible()
   })
 
   test('publishes as org default', async ({ page }) => {
     await goToSettings(page)
 
-    const requestId = await nextRequestId(page)
     await panel(page).getByTestId('teams-publish-org-default').click()
     await expect.poll(() => sentTypes(page)).toContain('PublishOrgClusterSettings')
     const cmds = await page.evaluate(() => window.__fathomFake?.sent() ?? [])
@@ -106,7 +104,7 @@ test.describe('US2 teams: cluster settings + org sync', () => {
       type: 'PublishOrgClusterSettings',
       data: { context: ACTIVE_CONTEXT },
     })
-    await finish(page, requestId, true)
+    await finish(page, await requestIdOf(page, 'PublishOrgClusterSettings'), true)
   })
 
   test('org-default banner: accept and dismiss both clear it and dispatch the right command', async ({
@@ -208,10 +206,9 @@ test.describe('US2 teams: cluster settings + org sync', () => {
   test('a publish conflict is surfaced with both revisions', async ({ page }) => {
     await goToSettings(page)
 
-    const requestId = await nextRequestId(page)
     await panel(page).getByTestId('teams-publish-org-default').click()
     await expect.poll(() => sentTypes(page)).toContain('PublishOrgClusterSettings')
-    await finish(page, requestId, true)
+    await finish(page, await requestIdOf(page, 'PublishOrgClusterSettings'), true)
 
     await emit(
       page,

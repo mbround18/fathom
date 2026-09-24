@@ -35,6 +35,10 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ width: 800, height: 600 })
+  // The layout must be centered on the real canvas box, not the 800x600 placeholder used until
+  // the ResizeObserver first reports (on ultra-wide docks the graph otherwise sits far from the
+  // canvas center, so zooming around the center pushes it off screen).
+  const [measured, setMeasured] = useState(false)
 
   const pane = useStore((s) => s.panes[paneId])
   const updatePane = useStore((s) => s.updatePane)
@@ -66,7 +70,10 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     if (!el) return
     const ro = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect
-      if (box) setSize({ width: Math.max(1, box.width), height: Math.max(1, box.height) })
+      if (box) {
+        setSize({ width: Math.max(1, box.width), height: Math.max(1, box.height) })
+        setMeasured(true)
+      }
     })
     ro.observe(el)
     return () => {
@@ -145,9 +152,9 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     priorPositions.current = snapshotPositions(out)
     setLaidOut(out)
     // `size` intentionally excluded: a resize alone should not re-run the (expensive-ish)
-    // simulation, only a graph change should.
+    // simulation, only a graph change (or the first real measurement) should.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph])
+  }, [graph, measured])
 
   // ---- lazy fetch on entering focus (T032): namespace focus -> RefreshRelatedResources per
   // Application in that namespace (for the Application -> workload edge); workload focus ->

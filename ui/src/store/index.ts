@@ -1227,7 +1227,17 @@ export const useStore = create<StoreState>()((set, get) => ({
       // when the click genuinely came from a pane that's part of that visible row.
       const rowAlwaysVisible = s.layout.profile.dock !== undefined
       const fromVisibleSlot = from !== undefined && s.layout.slotPanes.includes(from)
-      if (slottedPane && s.layout.widthClass !== 'phone' && (rowAlwaysVisible || fromVisibleSlot)) {
+      // A drill-down link (push) is clicked inside an inspector; when that inspector is the
+      // slotted one (no inspector on the stack), retargeting it is what the user sees.
+      const drillFromSlotted =
+        push === true &&
+        slottedPane?.target !== undefined &&
+        !s.layout.stack.some((id) => panes[id]?.kind === 'inspector')
+      if (
+        slottedPane &&
+        s.layout.widthClass !== 'phone' &&
+        (rowAlwaysVisible || fromVisibleSlot || drillFromSlotted)
+      ) {
         panes[slottedPane.id] = {
           ...slottedPane,
           target: ref,
