@@ -10,6 +10,7 @@ import type { ConnectionProfile } from "./ConnectionProfile";
 import type { ContextConnectionStatus } from "./ContextConnectionStatus";
 import type { CrdCatalogEntry } from "./CrdCatalogEntry";
 import type { DiskUsage } from "./DiskUsage";
+import type { FleetContextSummary } from "./FleetContextSummary";
 import type { FluxOverview } from "./FluxOverview";
 import type { GatekeeperOverview } from "./GatekeeperOverview";
 import type { HelmMutationApplied } from "./HelmMutationApplied";
@@ -49,4 +50,4 @@ available: Array<ConnectionProfile>, } } | { "type": "OrgClusterSettingsAvailabl
  * The literal command an external MCP client should launch to attach to this
  * Fathom installation over stdio (FR-007).
  */
-connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } };
+connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } } | { "type": "FleetSummaryUpdated", "data": FleetContextSummary };

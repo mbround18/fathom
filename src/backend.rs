@@ -24,6 +24,7 @@ mod deployments;
 mod endpoints;
 mod events;
 mod exec;
+mod fleet;
 mod flux;
 mod gatekeeper;
 mod helm;

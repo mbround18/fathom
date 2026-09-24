@@ -2047,6 +2047,8 @@ fn all_cmds() -> Vec<BackendCmd> {
         BackendCmd::DismissOrgClusterSettings {
             context: "ctx".to_owned(),
         },
+        BackendCmd::StartFleetPolling,
+        BackendCmd::StopFleetPolling,
     ]
 }
 
@@ -2263,6 +2265,8 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::StopMcpDemoChat => {}
         BackendCmd::SendMcpDemoChatInput { .. } => {}
         BackendCmd::ResizeMcpDemoChat { .. } => {}
+        BackendCmd::StartFleetPolling => {}
+        BackendCmd::StopFleetPolling => {}
     }
 }
 
@@ -2420,7 +2424,22 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::McpDemoChatNotDetected {
             instructions: "Install Claude Code.".to_owned(),
         },
+        SystemEvent::FleetSummaryUpdated(sample_fleet_context_summary()),
     ]
+}
+
+fn sample_fleet_context_summary() -> fathom::protocol::FleetContextSummary {
+    fathom::protocol::FleetContextSummary {
+        context: "prod-east".to_owned(),
+        health: fathom::protocol::FleetHealthState::Degraded,
+        error: None,
+        node_ready_count: Some(5),
+        node_total_count: Some(6),
+        unhealthy_pod_count: Some(2),
+        cluster_version: Some("v1.31.2".to_owned()),
+        flux: Some(fathom::protocol::FluxRollupStatus::OutOfSync),
+        last_updated: "2026-09-23T18:04:12Z".to_owned(),
+    }
 }
 
 fn sample_connection_profile() -> ConnectionProfile {
@@ -2523,6 +2542,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::McpDemoChatOutputChunk { .. } => {}
         SystemEvent::McpDemoChatEnded { .. } => {}
         SystemEvent::McpDemoChatNotDetected { .. } => {}
+        SystemEvent::FleetSummaryUpdated(..) => {}
     }
 }
 

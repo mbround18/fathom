@@ -217,7 +217,10 @@ impl BackendCmdV1 {
             | C::StartMcpDemoChat
             | C::StopMcpDemoChat
             | C::SendMcpDemoChatInput { .. }
-            | C::ResizeMcpDemoChat { .. } => MutationTarget::Local,
+            | C::ResizeMcpDemoChat { .. }
+            // 027-fleet-rollup-dashboard: view-only polling, never mutates a cluster.
+            | C::StartFleetPolling
+            | C::StopFleetPolling => MutationTarget::Local,
 
             C::SetContext { context } => MutationTarget::ContextSwitch {
                 context: context.clone(),
@@ -315,6 +318,8 @@ impl BackendCmdV1 {
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
             | C::LoadUiConfig
+            | C::StartFleetPolling
+            | C::StopFleetPolling
             | C::SaveUiConfig { .. }
             | C::ApplyResourceYaml { .. }
             // Agent SDK Ops (013): not tied to one existing UI section (a conversation
@@ -606,6 +611,8 @@ impl BackendCmdV1 {
             | C::RefreshFlux
             | C::RefreshKnative
             | C::RefreshHubble
+            | C::StartFleetPolling
+            | C::StopFleetPolling
             | C::RefreshGatekeeper
             | C::RefreshVelero
             | C::RefreshCertManager

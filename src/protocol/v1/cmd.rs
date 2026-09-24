@@ -822,6 +822,18 @@ pub enum BackendCmdV1 {
     // 026-mutation-audit-log-viewer: read-only reload of the local, bounded mutation
     // history from `~/.fathom/audit-log.json`. Never mutates anything itself.
     RefreshAuditLog,
+
+    // 027-fleet-rollup-dashboard: view-scoped multi-context health rollup. Both are idempotent
+    // and never touch `ClusterContext.client`/`current_context` (the active context) — the
+    // fleet pollers hold their own independent short-lived-per-attempt `kube::Client`s, one per
+    // context returned by the same kubeconfig listing `Initialize`/`RefreshContexts` already
+    // use. See `src/backend/fleet.rs`.
+    /// Sent when the Fleet Dashboard view mounts. Spawns a poller for every kubeconfig context
+    /// that does not already have one running; a no-op per-context if already running.
+    StartFleetPolling,
+    /// Sent when the Fleet Dashboard view unmounts. Aborts every running fleet poller and
+    /// clears the summary cache (also invoked from `cleanup_all_tasks()` on shutdown).
+    StopFleetPolling,
 }
 
 /// Direction of a `TaintNode` mutation.
@@ -1224,5 +1236,11 @@ mod tests {
     #[test]
     fn refresh_gatekeeper_roundtrip() {
         roundtrip(BackendCmdV1::RefreshGatekeeper);
+    }
+
+    #[test]
+    fn fleet_cmd_roundtrips() {
+        roundtrip(BackendCmdV1::StartFleetPolling);
+        roundtrip(BackendCmdV1::StopFleetPolling);
     }
 }

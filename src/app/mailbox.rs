@@ -153,7 +153,8 @@ impl FathomApp {
                     | SystemEvent::McpDemoChatReady { .. }
                     | SystemEvent::McpDemoChatOutputChunk { .. }
                     | SystemEvent::McpDemoChatEnded { .. }
-                    | SystemEvent::McpDemoChatNotDetected { .. } => {
+                    | SystemEvent::McpDemoChatNotDetected { .. }
+                    | SystemEvent::FleetSummaryUpdated(..) => {
                         // The stdio MCP server's toggle and its demo chat live in the Tauri UI's
                         // Cluster Settings (015); the egui UI has no Available Agents section.
                     }

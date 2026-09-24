@@ -132,6 +132,23 @@ impl NodeActionState {
     }
 }
 
+/// 027-fleet-rollup-dashboard: per-context fleet pollers, alive only while the Fleet Dashboard
+/// view is open (`active`).
+#[derive(Default)]
+pub(super) struct FleetState {
+    pub(super) active: bool,
+    pub(super) pollers: HashMap<String, tokio::task::JoinHandle<()>>,
+}
+
+impl FleetState {
+    pub(super) fn abort_all(&mut self) {
+        self.active = false;
+        for (_, handle) in self.pollers.drain() {
+            handle.abort();
+        }
+    }
+}
+
 /// Metrics probe state and background polling tasks.
 pub(super) struct MetricsState {
     pub(super) availability: MetricsAvailability,
@@ -162,6 +179,7 @@ pub(super) struct BackendState {
     pub(super) exec_session: ExecSessionState,
     pub(super) watch_tasks: WatchTasks,
     pub(super) node_actions: NodeActionState,
+    pub(super) fleet: FleetState,
     pub(super) metrics: MetricsState,
     pub(super) port_forward_manager: PortForwardManager,
     /// Session-scoped image-inspection cache, keyed by resolved manifest digest
@@ -217,6 +235,7 @@ impl BackendState {
                 trivy_poll_task: None,
             },
             node_actions: NodeActionState::default(),
+            fleet: FleetState::default(),
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,
                 unavailable_notified: false,
@@ -270,6 +289,7 @@ fn abort_background_tasks(state: &mut BackendState) {
     state.watch_tasks.abort_all();
     tracing::debug!("Aborting node action tasks");
     state.node_actions.abort_all();
+    state.fleet.abort_all();
     tracing::debug!("Aborting metrics poll tasks");
     state.metrics.abort_tasks();
     tracing::debug!("Aborting MCP stdio server");
