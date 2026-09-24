@@ -88,6 +88,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   g('Team', '団', [
     ['integrations/cluster-settings', 'Cluster Settings'],
     ['team/profiles', 'Connection Profiles'],
+    // 026-mutation-audit-log-viewer
+    ['audit-log', 'Audit Log'],
   ]),
 ]
 

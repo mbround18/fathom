@@ -154,7 +154,7 @@ confirm the action appears with target resource, cluster context, timestamp, and
 
 ### Tests for User Story 1
 
-- [ ] T015 [P] [US1] Playwright E2E spec `ui/tests/e2e/audit-log.spec.ts`: scripted-fake-backend
+- [x] T015 [P] [US1] Playwright E2E spec `ui/tests/e2e/audit-log.spec.ts`: scripted-fake-backend
       scenario that (a) triggers one mutating action (e.g. a node cordon command dispatched
       through the existing fake-backend harness used by other E2E specs — follow the pattern in
       an existing mutation-flow spec, e.g. from spec 006/008), (b) opens the Audit Log viewer
@@ -162,17 +162,17 @@ confirm the action appears with target resource, cluster context, timestamp, and
       (success), and a timestamp, per Constitution Principle III (drives the UI by injecting
       events and asserting rendered state, not by hitting a real cluster). This is Part 1 of the
       "hyper-focused" spec required by the task brief; Part 2 (filter check) is T023 in Phase 4.
-- [ ] T016 [P] [US1] Frontend unit test for the `AuditLogLoaded`/list-response store handler
+- [x] T016 [P] [US1] Frontend unit test for the `AuditLogLoaded`/list-response store handler
       (`ui/src/store/handlers/`, new or existing test file) asserting entries are stored
       reverse-chronologically and re-render on refresh.
 
 ### Implementation for User Story 1
 
-- [ ] T017 [US1] Add a Zustand store slice for audit-log entries (`ui/src/store/`, new file or
+- [x] T017 [US1] Add a Zustand store slice for audit-log entries (`ui/src/store/`, new file or
       extension of an existing list-store pattern) holding `AuditLogEntry[]`, a `loading` flag,
       and a `refresh()` action that dispatches `RefreshAuditLog` and applies the response via the
       handler from T016.
-- [ ] T018 [US1] Create `ui/src/components/audit/AuditLogPane.tsx`: a read-only list/table view
+- [x] T018 [US1] Create `ui/src/components/audit/AuditLogPane.tsx`: a read-only list/table view
       (reverse-chronological) rendering, per entry, `action_label`, `target_kind`/
       `target_namespace`/`target_name` (formatted as a resource descriptor), `context`,
       `timestamp` (localized, human-readable), and `outcome` (visually distinguishable
@@ -180,12 +180,12 @@ confirm the action appears with target resource, cluster context, timestamp, and
       outcome"). Follow the existing mobile-first, column-priority pattern (Constitution
       Principle IV): on narrow widths, drop `context`/`request_id`-equivalent columns first, keep
       `action_label`/target/outcome/timestamp.
-- [ ] T019 [US1] Add empty states to `AuditLogPane.tsx`: "no actions recorded yet" (empty
+- [x] T019 [US1] Add empty states to `AuditLogPane.tsx`: "no actions recorded yet" (empty
       history) distinct from later "no matching entries" (Phase 4) per spec.md Edge Cases.
-- [ ] T020 [US1] Wire a new navigation entry (`ui/src/components/nav/` or `ui/src/layout/`,
+- [x] T020 [US1] Wire a new navigation entry (`ui/src/components/nav/` or `ui/src/layout/`,
       following the existing nav-entry pattern) to open `AuditLogPane` as a new pane in the
       three-pane shell, calling `refresh()` (T017) on mount.
-- [ ] T021 [US1] On completion of any mutating command (existing `CommandFinished` handling in
+- [x] T021 [US1] On completion of any mutating command (existing `CommandFinished` handling in
       the frontend bridge/store, `ui/src/store/handlers/`), trigger `refresh()` (T017) for the
       audit-log slice if the Audit Log pane is mounted/visible, so a newly completed mutation
       appears without a manual refresh (spec.md SC-001: within 2 seconds).
@@ -205,7 +205,7 @@ and confirm only matching entries remain; clear it and confirm the full list ret
 
 ### Tests for User Story 2
 
-- [ ] T022 [P] [US2] Frontend unit tests for the filter/search reducer/selector (new file, e.g.
+- [x] T022 [P] [US2] Frontend unit tests for the filter/search reducer/selector (new file, e.g.
       `ui/src/store/auditLogFilter.test.ts`): action-type filter, outcome filter, context filter,
       time-range filter, and case-insensitive free-text search against `target_name` each
       narrow the visible set correctly in isolation and in combination; clearing all filters
@@ -213,7 +213,7 @@ and confirm only matching entries remain; clear it and confirm the full list ret
       specified in `data-model.md` (`actionKinds: AuditActionKind[]`, `outcome: "all" | "success"
       | "failure"` default `"all"`, `context: string | null` default `null`, `timeRange: { from,
       to }` default unset, `searchText: string`).
-- [ ] T023 [US2] Extend `ui/tests/e2e/audit-log.spec.ts` (from T015) with the required second
+- [x] T023 [US2] Extend `ui/tests/e2e/audit-log.spec.ts` (from T015) with the required second
       scenario: with at least two distinct entries present (from the T015 setup plus one
       additional differing action/outcome), apply one filter or search term and assert the
       visible entry count/content narrows correctly, then clear it and assert the full list
@@ -222,20 +222,20 @@ and confirm only matching entries remain; clear it and confirm the full list ret
 
 ### Implementation for User Story 2
 
-- [ ] T024 [P] [US2] Add the `AuditLogFilter` state shape (data-model.md) to the audit-log store
+- [x] T024 [P] [US2] Add the `AuditLogFilter` state shape (data-model.md) to the audit-log store
       slice (T017): `actionKinds`, `outcome`, `context`, `timeRange`, `searchText`, all
       transient/session-only (never persisted to disk or `localStorage`, per spec.md's Key
       Entity note that filter/search state is not persisted).
-- [ ] T025 [US2] Implement filter/search application logic (pure function, unit-tested by T022)
+- [x] T025 [US2] Implement filter/search application logic (pure function, unit-tested by T022)
       that derives the visible entry list from the full store slice + `AuditLogFilter`, applied
       entirely client-side (research.md R4: 500 entries is small enough for in-memory filtering).
-- [ ] T026 [US2] Add filter controls to `AuditLogPane.tsx` (T018): action-type multi-select,
+- [x] T026 [US2] Add filter controls to `AuditLogPane.tsx` (T018): action-type multi-select,
       outcome toggle (all/success/failure), context select, time-range picker, and a text search
       input, using existing shadcn/ui form components consistent with other filter UIs in the
       app (check `ui/src/components/panels/` for an existing filter-bar pattern to match).
-- [ ] T027 [US2] Add the "no matching entries" empty state (distinct from "no history exists",
+- [x] T027 [US2] Add the "no matching entries" empty state (distinct from "no history exists",
       T019) to `AuditLogPane.tsx` when filters/search yield zero results, per spec.md Edge Cases.
-- [ ] T028 [US2] Add a visible "clear filters" control that resets `AuditLogFilter` to defaults.
+- [x] T028 [US2] Add a visible "clear filters" control that resets `AuditLogFilter` to defaults.
 
 **Checkpoint**: User Stories 1 and 2 both work independently; filtering/search is fully
 client-side and does not affect persisted data.
@@ -252,12 +252,12 @@ entry corresponds to a Kubernetes-API-server-originated event Fathom didn't init
 
 ### Tests for User Story 3
 
-- [ ] T029 [P] [US3] Extend `tests/audit_log_persistence.rs` (T014) if not already fully covered:
+- [x] T029 [P] [US3] Extend `tests/audit_log_persistence.rs` (T014) if not already fully covered:
       explicit assertion that after exceeding 500 entries, the oldest entries are gone and the
       newest 500 remain in order (already covered by T014; this task is a checkpoint to confirm
       coverage rather than new code if T014 already asserts it — otherwise add the missing
       assertion here).
-- [ ] T030 [P] [US3] Frontend unit/E2E-level check (extend `AuditLogPane` tests or the E2E spec)
+- [x] T030 [P] [US3] Frontend unit/E2E-level check (extend `AuditLogPane` tests or the E2E spec)
       that the viewer never renders a "source: cluster audit log" or equivalent — i.e., there is
       no code path that fetches or displays Kubernetes API server audit events (a negative/
       structural check: no such command exists in the protocol, and no such data source is wired
@@ -265,7 +265,7 @@ entry corresponds to a Kubernetes-API-server-originated event Fathom didn't init
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Add a short, permanent explanatory note/tooltip in `AuditLogPane.tsx` (e.g. near
+- [x] T031 [US3] Add a short, permanent explanatory note/tooltip in `AuditLogPane.tsx` (e.g. near
       the pane header) stating the history is local-only, bounded to the most recent 500 actions,
       and is not Kubernetes' own audit log — satisfying spec.md User Story 3's "so I don't mistake
       it for a complete or cluster-wide compliance record."
@@ -280,15 +280,15 @@ entry corresponds to a Kubernetes-API-server-originated event Fathom didn't init
 
 - [x] T032 [P] Run `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`; fix any
       warnings introduced by T003-T014.
-- [ ] T033 [P] Run `pnpm -C ui lint` and `pnpm -C ui typecheck`; fix any issues introduced by
+- [x] T033 [P] Run `pnpm -C ui lint` and `pnpm -C ui typecheck`; fix any issues introduced by
       T012, T017-T028, T031.
-- [ ] T034 Run `cargo build --workspace --all-targets` and `cargo test`; confirm all new and
+- [x] T034 Run `cargo build --workspace --all-targets` and `cargo test`; confirm all new and
       existing tests pass.
 - [ ] T035 Run `pnpm -C ui test` (Vitest) and the full Playwright suite including
       `ui/tests/e2e/audit-log.spec.ts`; confirm all pass.
 - [ ] T036 Execute the manual validation steps in `quickstart.md` end-to-end at least once against
       a real dev cluster to confirm the automated tests match observed behavior.
-- [ ] T037 Update any relevant top-level docs that enumerate shipped features (e.g.
+- [x] T037 Update any relevant top-level docs that enumerate shipped features (e.g.
       `docs/MVP.md` if it exists and is the convention used by prior specs 001-015) to mark
       026-mutation-audit-log-viewer as shipped, following the same pattern as the
       015-mcp-agent-exposure commit history (`docs(026-mutation-audit-log-viewer): mark ... shipped`).

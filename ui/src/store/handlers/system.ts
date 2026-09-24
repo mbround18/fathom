@@ -10,7 +10,7 @@ import {
   previewFailed as helmMutationPreviewFailed,
   previewReady as helmMutationPreviewReady,
 } from '../helmMutation'
-import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
+import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice, useStore } from '../index'
 import { RingBuffer } from '../ring-buffer'
 import { rowId } from './list'
 
@@ -41,8 +41,13 @@ export function handleCommandFinished(
   if (env.correlation.type !== 'Request') return
   const id = env.correlation.data
   const { ok, error } = result
+  // 026: a finished command may have appended an audit entry; refresh the viewer if it is open
+  // (never for the audit refresh's own completion, which would loop).
+  const audit = d.read('audit')
+  const refreshAudit = audit.visible && audit.lastLoadedRequest !== id
   d.effects.push(() => {
     commandFinished(id, { ok, error })
+    if (refreshAudit) useStore.getState().refreshAuditLog()
   })
 }
 
@@ -186,6 +191,15 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
           updatedAt: Date.now(),
         },
       }
+      return
+    }
+
+    // 026: reply to `RefreshAuditLog`; the backend sends oldest first, the viewer shows newest first.
+    case 'AuditLogLoaded': {
+      const audit = d.edit('audit')
+      audit.entries = [...event.data.entries].reverse()
+      audit.loaded = true
+      if (env.correlation.type === 'Request') audit.lastLoadedRequest = env.correlation.data
       return
     }
 

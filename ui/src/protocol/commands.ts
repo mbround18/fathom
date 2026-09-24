@@ -21,6 +21,8 @@ export const SECTION = {
   clusterSettings: 'integrations/cluster-settings',
   /** 014-teams-organizations: shared, non-secret connection profiles + team-store status. */
   teamProfiles: 'team/profiles',
+  /** 026-mutation-audit-log-viewer: local mutation history viewer. */
+  auditLog: 'audit-log',
   // 011-rbac-oidc-administration
   roles: 'access/roles',
   roleBindings: 'access/rolebindings',
@@ -50,6 +52,7 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.applications]: { type: 'RefreshApplications' },
   [SECTION.services]: { type: 'RefreshServices' },
   [SECTION.portForwards]: { type: 'RefreshPortForwards' },
+  [SECTION.auditLog]: { type: 'RefreshAuditLog' },
   // 011-rbac-oidc-administration: list-section refreshes (namespace-access/oidc-config are
   // lookup/generator panels, not list sections, so they have no entry here).
   [SECTION.roles]: { type: 'RefreshRoles' },

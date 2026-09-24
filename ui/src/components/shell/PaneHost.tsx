@@ -9,6 +9,7 @@ import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { ClusterSettingsPanel } from '@/components/panels/ClusterSettingsPanel'
+import { AuditLogPane } from '@/components/audit/AuditLogPane'
 import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
 import { TeamProfilesPanel } from '@/components/panels/TeamProfilesPanel'
 import { RoleBindingCreateLauncher } from '@/components/rbac/RoleBindingCreateLauncher'
@@ -109,7 +110,9 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
             {...(pane.source !== undefined ? { source: pane.source } : {})}
           />
         )}
-        {pane.kind === 'inspector' && pane.target && <RoleBindingEditLauncherSlot target={pane.target} />}
+        {pane.kind === 'inspector' && pane.target && (
+          <RoleBindingEditLauncherSlot target={pane.target} />
+        )}
       </header>
       {pane.kind === 'list' && <PaneSearch pane={pane} />}
       {selfScrolling ? (
@@ -140,7 +143,10 @@ function RoleBindingEditLauncherSlot({ target }: { target: NonNullable<PaneState
       <RoleBindingEditLauncher kind="RoleBinding" existing={detail.data as RoleBindingDetails} />
     )
   }
-  if (target.kind === 'ClusterRoleBinding' && detail?.eventType === 'ClusterRoleBindingDetailsUpdated') {
+  if (
+    target.kind === 'ClusterRoleBinding' &&
+    detail?.eventType === 'ClusterRoleBindingDetailsUpdated'
+  ) {
     return (
       <RoleBindingEditLauncher
         kind="ClusterRoleBinding"
@@ -230,6 +236,9 @@ function ListBody({ pane }: { pane: PaneState }) {
   // as `portForwards` above, no descriptor.
   if (section === SECTION.clusterSettings) {
     return <ClusterSettingsPanel />
+  }
+  if (section === SECTION.auditLog) {
+    return <AuditLogPane />
   }
   if (section === SECTION.teamProfiles) {
     return <TeamProfilesPanel />
