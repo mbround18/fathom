@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fathom-daemon
+  namespace: fathom-daemon
+automountServiceAccountToken: true
+---
+# Read-only over an enumerated set of kinds. Deliberately NO secrets, NO configmaps, no write verbs.
+# The single non-read rule is `create` on subjectaccessreviews (research R10, FR-017): a non-mutating
+# authorization check the daemon uses to filter every response to what the calling user may list.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fathom-daemon
+rules:
+  - apiGroups: [""]
+    resources: [pods, events, services, endpoints, nodes, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods, nodes]
+    verbs: [get, list]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fathom-daemon
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fathom-daemon
+subjects:
+  - kind: ServiceAccount
+    name: fathom-daemon
+    namespace: fathom-daemon
+---
+# Front-proxy CA discovery (research R1): read exactly one configmap in kube-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fathom-daemon-auth-reader
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [extension-apiserver-authentication]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fathom-daemon-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fathom-daemon-auth-reader
+subjects:
+  - kind: ServiceAccount
+    name: fathom-daemon
+    namespace: fathom-daemon

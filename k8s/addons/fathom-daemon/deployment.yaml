@@ -1,0 +1,76 @@
+# Single replica by design (spec 036): the event buffer is in memory, so replicas would diverge.
+# Contract with the daemon binary: FATHOM_DAEMON_LISTEN serves TLS from FATHOM_DAEMON_TLS_DIR
+# (tls.crt/tls.key from Secret fathom-daemon-tls); FATHOM_DAEMON_HEALTH_LISTEN serves plain-HTTP /healthz + /readyz.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fathom-daemon
+  namespace: fathom-daemon
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fathom-daemon
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fathom-daemon
+        app.kubernetes.io/part-of: fathom
+    spec:
+      serviceAccountName: fathom-daemon
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fathom-daemon
+          image: fathom-daemon:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FATHOM_DAEMON_LISTEN
+              value: 0.0.0.0:8443
+            - name: FATHOM_DAEMON_HEALTH_LISTEN
+              value: 0.0.0.0:8081
+            - name: FATHOM_DAEMON_TLS_DIR
+              value: /tls
+            - name: FATHOM_DAEMON_NAMESPACES
+              value: ""
+            - name: RUST_LOG
+              value: info
+          ports:
+            - name: api
+              containerPort: 8443
+            - name: health
+              containerPort: 8081
+          startupProbe:
+            httpGet: {path: /healthz, port: health}
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tls
+          secret:
+            secretName: fathom-daemon-tls
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
