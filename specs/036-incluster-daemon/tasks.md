@@ -23,17 +23,17 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 
 ## Phase 3: US1 daemon side — replayable controller events (P1)
 
-- [ ] T009 [P] [US1] Tests: `EventLog` append/eviction by count and age, contiguous seq, cursor replay, epoch mismatch and too-old cursor yield `truncated` — `daemon/tests/replay_tests.rs`
-- [ ] T010 [US1] Implement `EventLog` + bounded broadcast fan-out with slow-subscriber drop — `daemon/src/eventlog.rs`
-- [ ] T011 [P] [US1] Tests: derivation table (Deployment rollout/ProgressDeadlineExceeded, StatefulSet/DaemonSet, Job Complete/Failed, CronJob, HPA scaling, Pod CrashLoop/OOMKilled/Ready) and coalescing with `repeat` — `daemon/tests/derive_tests.rs`
-- [ ] T012 [US1] Implement status-diff derivation and coalescing, messages verbatim and capped — `daemon/src/derive.rs`
-- [ ] T013 [US1] Watchers via `kube::runtime` reflectors for kinds in FR-003 plus raw Events forwarding, namespace allowlist support — `daemon/src/watchers.rs`
-- [ ] T014 [P] [US1] Tests (mock kube + axum test client): `/healthz`, `/readyz`, `/v1/capabilities`, `/v1/stream` resume/truncation/heartbeat, 429 over stream cap, JSON errors — `daemon/tests/http_tests.rs`
-- [ ] T041 [P] [US1] Tests first: verify on kind that the plain service proxy forwards no identity and that an `APIService` delivers verified `X-Remote-User`/groups (research R1); record the result in research.md — `k8s/test-daemon.sh`
-- [ ] T042 [P] [US1] Tests: identity parsing only from verified front-proxy client cert (reject unverified/spoofed headers, query params); missing identity yields empty scope — `daemon/tests/identity_tests.rs`
-- [ ] T043 [P] [US1] Tests: `VisibleScope` via mocked `SubjectAccessReview` (two users, different namespaces, 60 s cache, error fails closed, revoked access emits `scopeChanged`, cluster-scoped kinds need cluster list) — `daemon/tests/authz_tests.rs`
-- [ ] T044 [US1] Implement `identity.rs` and `authz.rs` (SAR batching, bounded cache) and apply the filter to replay and live frames before any endpoint returns data — `daemon/src/{identity.rs,authz.rs}`
-- [ ] T015 [US1] Implement HTTP surface and `main.rs` config from env (DaemonConfig), graceful shutdown, secret-free logging — `daemon/src/{http.rs,config.rs,main.rs}`
+- [X] T009 [P] [US1] Tests: `EventLog` append/eviction by count and age, contiguous seq, cursor replay, epoch mismatch and too-old cursor yield `truncated` — `daemon/tests/replay_tests.rs`
+- [X] T010 [US1] Implement `EventLog` + bounded broadcast fan-out with slow-subscriber drop — `daemon/src/eventlog.rs`
+- [X] T011 [P] [US1] Tests: derivation table (Deployment rollout/ProgressDeadlineExceeded, StatefulSet/DaemonSet, Job Complete/Failed, CronJob, HPA scaling, Pod CrashLoop/OOMKilled/Ready) and coalescing with `repeat` — `daemon/tests/derive_tests.rs`
+- [X] T012 [US1] Implement status-diff derivation and coalescing, messages verbatim and capped — `daemon/src/derive.rs`
+- [X] T013 [US1] Watchers via `kube::runtime` reflectors for kinds in FR-003 plus raw Events forwarding, namespace allowlist support — `daemon/src/watchers.rs`
+- [X] T014 [P] [US1] Tests (mock kube + axum test client): `/healthz`, `/readyz`, `/v1/capabilities`, `/v1/stream` resume/truncation/heartbeat, 429 over stream cap, JSON errors — `daemon/tests/http_tests.rs`
+- [X] T041 [P] [US1] Tests first: verify on kind that the plain service proxy forwards no identity and that an `APIService` delivers verified `X-Remote-User`/groups (research R1); record the result in research.md — `k8s/test-daemon.sh`
+- [X] T042 [P] [US1] Tests: identity parsing only from verified front-proxy client cert (reject unverified/spoofed headers, query params); missing identity yields empty scope — `daemon/tests/identity_tests.rs`
+- [X] T043 [P] [US1] Tests: `VisibleScope` via mocked `SubjectAccessReview` (two users, different namespaces, 60 s cache, error fails closed, revoked access emits `scopeChanged`, cluster-scoped kinds need cluster list) — `daemon/tests/authz_tests.rs`
+- [X] T044 [US1] Implement `identity.rs` and `authz.rs` (SAR batching, bounded cache) and apply the filter to replay and live frames before any endpoint returns data — `daemon/src/{identity.rs,authz.rs}`
+- [X] T015 [US1] Implement HTTP surface and `main.rs` config from env (DaemonConfig), graceful shutdown, secret-free logging — `daemon/src/{http.rs,config.rs,main.rs}`
 
 ## Phase 4: US1 + US2 client — timeline and graceful absence (P1)
 
@@ -67,10 +67,10 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 
 ## Phase 6b: US5 — near-real-time topology and short metrics history (P3)
 
-- [ ] T045 [P] [US5] Tests: topology derivation (owner refs, selectors, pod-to-node, HPA target), deltas with shared seq, per-user edge dropping (no placeholders) — `daemon/tests/topology_tests.rs`
-- [ ] T046 [US5] Implement `topology.rs` from existing reflectors plus Nodes and Services; `/v1/topology` and `topologyDelta` frames — `daemon/src/topology.rs`, `daemon/src/http.rs`
-- [ ] T047 [P] [US5] Tests: `SeriesStore` trait contract, ring bound and truncation marker, `metricsUnavailable` when metrics API absent — `daemon/tests/metrics_tests.rs`
-- [ ] T048 [US5] Implement `series_store.rs` (trait) and `metrics_ring.rs` (15 s sampling of metrics.k8s.io, ~1 h, bounded bytes); `/v1/metrics` filtered per caller — `daemon/src/`
+- [X] T045 [P] [US5] Tests: topology derivation (owner refs, selectors, pod-to-node, HPA target), deltas with shared seq, per-user edge dropping (no placeholders) — `daemon/tests/topology_tests.rs`
+- [X] T046 [US5] Implement `topology.rs` from existing reflectors plus Nodes and Services; `/v1/topology` and `topologyDelta` frames — `daemon/src/topology.rs`, `daemon/src/http.rs`
+- [X] T047 [P] [US5] Tests: `SeriesStore` trait contract, ring bound and truncation marker, `metricsUnavailable` when metrics API absent — `daemon/tests/metrics_tests.rs`
+- [X] T048 [US5] Implement `series_store.rs` (trait) and `metrics_ring.rs` (15 s sampling of metrics.k8s.io, ~1 h, bounded bytes); `/v1/metrics` filtered per caller — `daemon/src/`
 - [X] T049 [P] [US5] Protocol: `RequestDaemonTopology`, `RequestDaemonMetrics`, `DaemonTopologyUpdated`, `DaemonMetricsUpdated`, new frames/types with round-trip tests; regenerate bindings — `src/protocol/v1/`
 - [ ] T050 [US5] Client: topology/metrics stream consumption with session tagging and batching — `src/backend/daemon_client.rs`
 - [ ] T051 [US5] UI: topology pane fed by the daemon (falls back to the existing client-built topology when off/absent) and per-object trend sparkline with truncation marker; Playwright vs fake backend at all widths — `ui/src/`, `ui/tests/`
