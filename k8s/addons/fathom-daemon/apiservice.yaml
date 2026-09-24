@@ -1,0 +1,21 @@
+# The kube-apiserver verifies the daemon's serving certificate against spec.caBundle. Decision: use a
+# generated CA (gen-certs.sh creates the CA + serving cert + Secret and patches caBundle, and
+# `cluster.sh up-daemon` runs it), NOT permanent insecureSkipTLSVerify, because skipping verification lets any
+# in-cluster workload that can capture the Service IP impersonate the daemon to the API server.
+# The static manifest ships insecureSkipTLSVerify:true ONLY so that a bare `kubectl apply -k` is valid
+# (an APIService needs one of the two); gen-certs.sh flips it to false and sets caBundle right after.
+# Unavailable until the Deployment is Ready; that is expected and harmless.
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1.daemon.fathom.dev
+spec:
+  group: daemon.fathom.dev
+  version: v1
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  insecureSkipTLSVerify: true
+  service:
+    name: fathom-daemon
+    namespace: fathom-daemon
+    port: 443

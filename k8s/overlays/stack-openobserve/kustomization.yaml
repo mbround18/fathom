@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# OpenObserve single binary, fed by vmagent remote_write. PromQL: http://openobserve:5080/api/default/prometheus/api/v1/query
+# Uninstall: k8s/cluster.sh down-metrics openobserve (label part-of=fathom-metrics).
+namespace: fathom-metrics-openobserve
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: fathom-metrics
+      fathom.dev/metrics-stack: openobserve
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - ../../addons/openobserve
+  - ../../addons/vmagent
+patches:
+  - target: {kind: Deployment, name: vmagent}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: http://openobserve:5080/api/default/prometheus/api/v1/write

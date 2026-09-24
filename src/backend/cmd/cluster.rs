@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    context_status, deployments, events, federation, fleet, integrations, kube, metrics, nodes,
-    pods, sync,
+    context_status, daemon_ctl, deployments, events, federation, fleet, integrations, kube,
+    metrics, nodes, pods, sync,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, ContextConnectionStatus, Correlation,
@@ -39,6 +39,23 @@ pub(super) async fn handle(
             federation::unfederate(state, sender, &context);
         }
         BackendCmd::RequestFederationSnapshot => federation::snapshot(state, sender),
+        // 036-incluster-daemon: optional daemon client (off by default; no requests when off).
+        BackendCmd::SetDaemonPreference { context, mode } => {
+            daemon_ctl::set_preference(state, sender, &context, mode);
+        }
+        BackendCmd::RefreshDaemon { context } => daemon_ctl::refresh(state, sender, &context),
+        BackendCmd::RequestDaemonTimeline { context, limit } => {
+            daemon_ctl::request_timeline(state, sender, &context, limit);
+        }
+        BackendCmd::RequestDaemonTopology { context } => {
+            daemon_ctl::request_topology(state, sender, &context);
+        }
+        BackendCmd::RequestDaemonMetrics {
+            context,
+            uid,
+            metric,
+            range_secs,
+        } => daemon_ctl::request_metrics(state, sender, &context, uid, metric, range_secs),
         BackendCmd::SetContext { context } => set_context(state, sender, context).await?,
         BackendCmd::RefreshNamespaces => sync::refresh_namespaces(state, sender).await?,
         BackendCmd::RefreshNodes => nodes::refresh_nodes(state, sender).await,
@@ -155,6 +172,7 @@ async fn initialize(
         state.cluster.current_context = kube::read_kubeconfig_current_context();
     }
     emit_context_changed(state, sender);
+    daemon_ctl::sync_active(state, sender);
 
     if let Ok((contexts, current)) = &contexts_result {
         context_status::spawn_status_probes(state, sender, contexts, current.as_deref());
@@ -248,6 +266,7 @@ async fn set_context(
     }
     connect_result?;
     emit_context_changed(state, sender);
+    daemon_ctl::sync_active(state, sender);
 
     // Re-load contexts so UI reflects the selected one, and re-probe every other context's
     // status now that the active one has changed.

@@ -33,11 +33,12 @@ import {
   expectRowCount,
   finish,
   navigateTo,
-  nextRequestId,
+  requestIdOf,
   open,
   row,
   sent,
   sentTypes,
+  pressDelete,
 } from './helpers'
 
 const ROLE_BINDINGS = 'access/rolebindings'
@@ -140,7 +141,6 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await expect(diff).toContainText('team: platform')
 
     await clearSent(page)
-    const id = await nextRequestId(page)
     await form.getByTestId('yaml-apply').click()
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
@@ -159,6 +159,8 @@ test.describe('US3 edit/delete RoleBinding', () => {
         expected_resource_version: BINDING_DETAILS.resource_version,
       },
     })
+
+    const id = await requestIdOf(page, 'ApplyResourceYaml')
 
     // The session only reaches `applied` once the `ResourceApplied` stream event lands (the same
     // event `CommandFinished` accompanies for every apply — mirrors `us1-apply-yaml.spec.ts`).
@@ -183,9 +185,9 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await form.getByTestId('rbac-binding-review').click()
     await expect(form.getByTestId('yaml-diff')).toBeVisible()
 
-    const id = await nextRequestId(page)
     await form.getByTestId('yaml-apply').click()
     await confirmDialog(page).getByTestId('confirm-submit').click()
+    const id = await requestIdOf(page, 'ApplyResourceYaml')
 
     await finish(page, id, false, 'conflict: Operation cannot be fulfilled: the object has been modified')
 
@@ -208,13 +210,12 @@ test.describe('US3 edit/delete RoleBinding', () => {
     const key = `${BINDING_ROW.namespace}/${BINDING_ROW.name}`
     await check(page, key, ROLE_BINDINGS)
     await clearSent(page)
-    await page.keyboard.press('Delete')
+    await pressDelete(page)
 
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('confirm-item')).toHaveText([`✖${key}`])
 
-    const id = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
       .poll(() => sent(page))
@@ -222,7 +223,7 @@ test.describe('US3 edit/delete RoleBinding', () => {
 
     // No optimistic removal.
     await expectRowCount(page, 1, ROLE_BINDINGS)
-    await finish(page, id, true)
+    await finish(page, await requestIdOf(page, 'DeleteRoleBinding'), true)
     await emit(page, batch([list(2, nsRoute('kind-a', ROLE_BINDINGS), { type: 'RoleBindingsUpdated', data: [] })]))
     await expectRowCount(page, 0, ROLE_BINDINGS)
   })
@@ -248,7 +249,7 @@ test.describe('US3 edit/delete RoleBinding', () => {
 
     await check(page, binding.name, CLUSTER_ROLE_BINDINGS)
     await clearSent(page)
-    await page.keyboard.press('Delete')
+    await pressDelete(page)
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
     await dialog.getByTestId('confirm-submit').click()

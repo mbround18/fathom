@@ -26,6 +26,11 @@ function canvasHost(page: Page) {
 }
 
 async function seedOverview(page: Page): Promise<void> {
+  // The panel's mount-time refresh is answered by the fake on a later macrotask with the default
+  // scenario's data; seeding before that reply lands gets the seed overwritten (seen at ultra-plus,
+  // where the busier shell delays the mount). Wait for the refresh, then let its reply flush.
+  await expect.poll(() => sentTypes(page)).toContain('RefreshDeployments')
+  await page.evaluate(() => new Promise<void>((r) => setTimeout(r, 50)))
   await emit(
     page,
     batch([

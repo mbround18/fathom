@@ -1041,3 +1041,104 @@ mod exec_policy_tests {
         assert_eq!(c["cloud_auth_invalid"]["exec_policies"]["dev"], "bogus");
     }
 }
+
+/// 036-incluster-daemon: `~/.fathom/daemon.json` (additive). Per-context preference and the
+/// last event cursor so the timeline resumes across restarts. No tokens or secrets.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DaemonFile {
+    /// Missing entry means `DaemonMode::Off`.
+    #[serde(default)]
+    pub preferences: BTreeMap<String, crate::protocol::DaemonMode>,
+    #[serde(default)]
+    pub cursors: BTreeMap<String, crate::protocol::EventCursor>,
+}
+
+impl DaemonFile {
+    #[must_use]
+    pub fn mode_for(&self, context: &str) -> crate::protocol::DaemonMode {
+        self.preferences.get(context).copied().unwrap_or_default()
+    }
+}
+
+/// Path of `daemon.json`.
+pub fn daemon_config_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("daemon.json"))
+}
+
+/// Load `daemon.json` from `path`. Absent or unparseable yields defaults; an unparseable file
+/// is left untouched (copied to `.corrupt`, never deleted or overwritten here) — Principle VI.
+pub fn load_daemon_from(path: &Path) -> DaemonFile {
+    let Ok(content) = fs::read_to_string(path) else {
+        return DaemonFile::default();
+    };
+    serde_json::from_str::<DaemonFile>(&content).unwrap_or_else(|e| {
+        tracing::warn!("Failed to parse {}: {}; using defaults", path.display(), e);
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".corrupt");
+        if let Err(e) = fs::copy(path, PathBuf::from(backup)) {
+            tracing::warn!("Failed to preserve corrupt daemon file: {}", e);
+        }
+        DaemonFile::default()
+    })
+}
+
+/// Atomically write `daemon.json` (temp file + rename).
+pub fn save_daemon_to(path: &Path, file: &DaemonFile) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, serde_json::to_string_pretty(file)?)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod daemon_file_tests {
+    use super::*;
+    use crate::protocol::{DaemonMode, EventCursor};
+
+    #[test]
+    fn roundtrip_and_default_mode_is_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.json");
+        assert_eq!(load_daemon_from(&path), DaemonFile::default());
+        let mut f = DaemonFile::default();
+        f.preferences.insert("a".into(), DaemonMode::Auto);
+        f.cursors.insert(
+            "a".into(),
+            EventCursor {
+                epoch: "e".into(),
+                seq: 7,
+            },
+        );
+        save_daemon_to(&path, &f).unwrap();
+        let back = load_daemon_from(&path);
+        assert_eq!(back, f);
+        assert_eq!(back.mode_for("a"), DaemonMode::Auto);
+        assert_eq!(back.mode_for("missing"), DaemonMode::Off);
+    }
+
+    #[test]
+    fn unknown_and_missing_fields_tolerated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.json");
+        fs::write(&path, r#"{"future":1,"preferences":{"a":"auto"}}"#).unwrap();
+        let f = load_daemon_from(&path);
+        assert_eq!(f.mode_for("a"), DaemonMode::Auto);
+        assert!(f.cursors.is_empty());
+    }
+
+    #[test]
+    fn corrupt_file_falls_back_without_deleting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.json");
+        fs::write(&path, "{not json").unwrap();
+        assert_eq!(load_daemon_from(&path), DaemonFile::default());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
+        assert!(dir.path().join("daemon.json.corrupt").exists());
+    }
+}

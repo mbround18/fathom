@@ -37,6 +37,12 @@ export interface FathomFake {
   /** The `RequestId` the next `send` resolves to (ids increment from 1). */
   nextRequestId(): number
   /**
+   * The `RequestId` actually assigned to the most recent sent command of `type` (since the last
+   * `clearSent`), or `undefined`. Unlike predicting with `nextRequestId`, this cannot be stolen
+   * by background commands sent between the prediction and the click.
+   */
+  requestIdOf(type: BackendCmd['type']): number | undefined
+  /**
    * Deliver the `CommandFinished` for `requestId` (correlated with it, system route), as
    * the real backend does once the command's handler completes.
    */
@@ -69,6 +75,7 @@ export class FakeTransport implements Transport {
   #scenario: Scenario
   #state: FakeBackendState
   #sent: BackendCmd[] = []
+  #ids = new WeakMap<BackendCmd, number>()
   #onBatch: ((batch: EventBatch) => void) | undefined
   #gone = false
   #latencyMs: number
@@ -88,6 +95,7 @@ export class FakeTransport implements Transport {
     this.#sent.push(cmd)
     if (this.#gone) return Promise.reject(new BackendGoneError())
     const id = this.#nextRequestId++
+    this.#ids.set(cmd, id)
     if (cmd.type === 'ResolveCapabilities' || cmd.type === 'CheckCapability') {
       this.#deliverLater([this.#capabilityReply(cmd)])
       return Promise.resolve(id)
@@ -144,6 +152,11 @@ export class FakeTransport implements Transport {
         },
       }),
     ])
+  }
+
+  requestIdOf(type: BackendCmd['type']): number | undefined {
+    const cmd = this.#sent.findLast((c) => c.type === type)
+    return cmd ? this.#ids.get(cmd) : undefined
   }
 
   get nextRequestId(): number {
@@ -247,6 +260,7 @@ export function installFakeTransport(): FakeTransport {
     setBackendGone: (gone) => fake.setBackendGone(gone),
     setLatency: (ms) => fake.setLatency(ms),
     nextRequestId: () => fake.nextRequestId,
+    requestIdOf: (type) => fake.requestIdOf(type),
     finish: (requestId, ok, error) => fake.finish(requestId, ok, error),
     setCapabilities: (config) => fake.setCapabilities(config),
   }

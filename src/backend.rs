@@ -18,6 +18,8 @@ mod cmd;
 mod context_status;
 mod crds;
 mod cronjobs;
+mod daemon_client;
+mod daemon_ctl;
 mod daemonsets;
 mod deployments;
 mod endpoints;

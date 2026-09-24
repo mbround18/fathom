@@ -14,7 +14,7 @@ const changed = (a: number, b: number) => Math.abs(a - b) >= 0.5
 
 /**
  * Laptop and up (and the tablet split): one resizable row of slots, plus the logs/events dock
- * underneath from desktop up. Sizes persist to the class's profile on drag end.
+ * underneath from laptop up. Sizes persist to the class's profile on drag end.
  */
 export function SlotGrid({ slotCount }: { slotCount?: number }) {
   const widthClass = useStore((s) => s.layout.widthClass)
@@ -89,7 +89,7 @@ function DockedRow({ profile, children }: { profile: LayoutProfile; children: Re
   )
 }
 
-/** Bottom dock: logs/events tool panes as tabs (desktop+). */
+/** Bottom dock: logs/events tool panes as tabs (laptop+). */
 function Dock() {
   const tabs = useStore((s) => s.layout.profile.dock?.tabs ?? [])
   const dockPanes = useStore((s) => s.layout.dockPanes)

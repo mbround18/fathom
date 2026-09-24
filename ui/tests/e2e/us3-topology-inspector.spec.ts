@@ -7,7 +7,7 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, clusterRoute } from '../fixtures/builders'
-import { emit, inspector, open } from './helpers'
+import { emit, inspector, open, sentTypes } from './helpers'
 
 const NODES = 'nodes'
 
@@ -41,6 +41,10 @@ async function clickNear(page: Page, canvas: Locator): Promise<void> {
 }
 
 async function seedSoloNode(page: Page): Promise<void> {
+  // Let the panel's mount-time refresh be sent and its default-scenario reply flush first, or it
+  // can land after (and overwrite) the seed on a busy shell.
+  await expect.poll(() => sentTypes(page)).toContain('RefreshNodes')
+  await page.evaluate(() => new Promise<void>((r) => setTimeout(r, 50)))
   await emit(
     page,
     batch([

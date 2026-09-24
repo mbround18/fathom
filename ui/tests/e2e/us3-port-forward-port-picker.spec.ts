@@ -17,7 +17,7 @@ import {
   finish,
   inspector,
   navigateTo,
-  nextRequestId,
+  requestIdOf,
   row,
   sentTypes,
   open as openApp,
@@ -145,10 +145,9 @@ test.describe('US3 port forward port picker', () => {
     await expect(dialog.getByTestId('port-forward-confirm-blocked')).toBeHidden()
 
     await clearSent(page)
-    const requestId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect.poll(() => sentTypes(page)).toContain('StartPortForward')
-    await finish(page, requestId, true)
+    await finish(page, await requestIdOf(page, 'StartPortForward'), true)
     await expect(dialog).toBeHidden()
   })
 
@@ -157,10 +156,9 @@ test.describe('US3 port forward port picker', () => {
   }) => {
     const dialog = await openPodForwardDialog(page)
     await clearSent(page)
-    const requestId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect.poll(() => sentTypes(page)).toContain('StartPortForward')
-    await finish(page, requestId, false, 'bind: address already in use')
+    await finish(page, await requestIdOf(page, 'StartPortForward'), false, 'bind: address already in use')
     await expect(dialog.getByTestId('port-forward-start-error')).toContainText('address already in use')
     await expect(dialog).toBeVisible()
   })

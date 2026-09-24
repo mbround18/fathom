@@ -16,6 +16,7 @@ import {
   open,
   row,
   sentTypes,
+  pressDelete,
 } from './helpers'
 
 const P = PODS_500[0]
@@ -30,7 +31,7 @@ test('an error result shows the verbatim message and leaves the rows unchanged',
   await expectRowCount(page, 500)
   await check(page, KEY)
   await clearSent(page)
-  await page.keyboard.press('Delete')
+  await pressDelete(page)
   const dialog = confirmDialog(page)
   await expect(dialog.getByTestId('confirm-item')).toHaveText([`✖${KEY}`])
   const id = await nextRequestId(page)
@@ -55,7 +56,7 @@ test('no result within the timeout is reported, not left hanging', async ({ page
   await open(page)
   await expectRowCount(page, 500)
   await check(page, KEY)
-  await page.keyboard.press('Delete')
+  await pressDelete(page)
   await confirmDialog(page).getByTestId('confirm-submit').click()
   await expect(page.getByTestId('pending-actions')).toBeVisible()
   await page.clock.runFor(31_000)

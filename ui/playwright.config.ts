@@ -34,7 +34,7 @@ const VIEWPORTS: {
   {
     name: 'laptop',
     viewport: { width: 1280, height: 800 },
-    expect: { widthClass: 'laptop', slots: 3, dock: false },
+    expect: { widthClass: 'laptop', slots: 3, dock: true },
   },
   {
     name: 'desktop',

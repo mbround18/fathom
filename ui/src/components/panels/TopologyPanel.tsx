@@ -7,6 +7,9 @@
  */
 import { useEffect } from 'react'
 
+import { DaemonTopologyView } from '@/features/daemon/DaemonTopologyView'
+import { daemonState, useActiveDaemon } from '@/features/daemon/state'
+
 import { applications } from '@/resources/applications'
 import { daemonsets } from '@/resources/daemonsets'
 import { deployments } from '@/resources/deployments'
@@ -28,17 +31,29 @@ export function TopologyPanel({ paneId }: { paneId: PaneId }) {
   const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
   const notice = useStore((s) => s.conn.lastNotice?.message)
   const refreshSection = useStore((s) => s.refreshSection)
+  const { context, daemon } = useActiveDaemon()
+  const requestDaemonTopology = useStore((s) => s.requestDaemonTopology)
+  // 036: fed by the daemon while it is available and has sent a graph; otherwise the existing
+  // client-built topology below is used unchanged.
+  const fromDaemon =
+    daemonState(daemon) === 'available' && Object.keys(daemon.topology.nodes).length > 0
 
   useEffect(() => {
+    if (fromDaemon) return
     for (const section of SECTIONS) refreshSection(section)
-  }, [refreshSection])
+  }, [refreshSection, fromDaemon])
+
+  useEffect(() => {
+    if (context && daemonState(daemon) === 'available') requestDaemonTopology(context)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one snapshot request per (re)availability
+  }, [context, daemonState(daemon), requestDaemonTopology])
 
   if (disconnected) return <Disconnected detail={fatal} />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col" data-testid="topology-panel">
-      <TopologyCanvas paneId={paneId} />
+      {fromDaemon ? <DaemonTopologyView /> : <TopologyCanvas paneId={paneId} />}
     </div>
   )
 }

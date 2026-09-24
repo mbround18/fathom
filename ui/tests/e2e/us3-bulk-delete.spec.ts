@@ -23,6 +23,7 @@ import {
   sentTypes,
   showList,
   table,
+  pressDelete,
 } from './helpers'
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
@@ -43,7 +44,7 @@ test.describe('US3 bulk delete', () => {
     await expect(page.getByTestId('selection-count')).toContainText('3 selected')
     await clearSent(page)
 
-    await page.keyboard.press('Delete')
+    await pressDelete(page)
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('confirm-item')).toHaveText(THREE.map((p) => `✖${key(p)}`))
@@ -53,7 +54,7 @@ test.describe('US3 bulk delete', () => {
     await expect(table(page).getByRole('grid')).toBeFocused()
     expect(await sent(page)).toEqual([])
 
-    await page.keyboard.press('Delete')
+    await pressDelete(page)
     await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()

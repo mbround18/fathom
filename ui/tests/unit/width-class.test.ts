@@ -72,7 +72,7 @@ describe('visibleSlots (FR-006)', () => {
   })
 
   it('adds the dock from desktop up', () => {
-    expect(WIDTH_CLASSES.map(hasDock)).toEqual([false, false, false, true, true, true])
+    expect(WIDTH_CLASSES.map(hasDock)).toEqual([false, false, true, true, true, true])
   })
 })
 

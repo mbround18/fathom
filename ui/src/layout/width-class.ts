@@ -55,9 +55,12 @@ export function visibleSlots(cls: WidthClass, px?: number): number {
   return cls === 'ultra' && px !== undefined && px >= ULTRA_PLUS_MIN_WIDTH ? base + 1 : base
 }
 
-/** The bottom logs/events dock exists from desktop up. */
+/**
+ * The bottom tools dock (logs/events/topology/daemon) exists from laptop up. Principle IV: a class
+ * wider than tablet, whose tool tabs the dock replaces, must not lose access to the tools.
+ */
 export function hasDock(cls: WidthClass): boolean {
-  return MIN_WIDTH[cls] >= MIN_WIDTH.desktop
+  return MIN_WIDTH[cls] >= MIN_WIDTH.laptop
 }
 
 export interface Density {

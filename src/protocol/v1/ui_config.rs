@@ -201,6 +201,8 @@ pub enum ToolKind {
     Portforwards,
     /// 007-topology-graph-view: the cluster topology graph tool pane.
     Topology,
+    /// 036-incluster-daemon: the "While you were away" timeline tool pane.
+    Daemon,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
