@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { IdentityChip } from '@/features/identity/IdentityChip'
 import { ContextPicker } from '@/components/ContextPicker'
 import { NamespacePicker } from '@/components/NamespacePicker'
 import type { WidthClass } from '@/layout/width-class'
@@ -56,6 +57,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
           <FleetDashboardView onSelected={() => setFleetOpen(false)} />
         </DialogContent>
       </Dialog>
+      <IdentityChip compact={narrow} />
       <div className="flex min-w-0 items-center gap-2">
         <ContextPicker className="max-w-[40vw] sm:max-w-64" />
         <NamespacePicker className="max-w-[36vw] sm:max-w-56" />

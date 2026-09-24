@@ -18,6 +18,7 @@ describe('connectBackend', () => {
     expect(fake.sent().map((c) => c.type)).toEqual([
       'LoadUiConfig',
       'RefreshContexts',
+      'LoadOidcConfig',
       'Initialize',
     ])
     await vi.runAllTimersAsync()

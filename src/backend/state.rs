@@ -195,6 +195,9 @@ pub(super) struct BackendState {
     /// task and no cancellation token, so a Fathom process that never receives
     /// `SetMcpServerEnabled { enabled: true }` never spawns a server (FR-002).
     pub(super) mcp: crate::backend::mcp::McpState,
+    /// 033-rauthy-oidc-teams-users: OIDC sessions (tokens live here and in the OS keyring only).
+    /// The event sink is bound on first use by the OIDC command family.
+    pub(super) oidc: crate::backend::oidc::session::OidcSessions,
     /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
@@ -241,6 +244,10 @@ impl BackendState {
             image_inspect_cache: HashMap::new(),
             agent_conversations: HashMap::new(),
             mcp: crate::backend::mcp::McpState::default(),
+            oidc: crate::backend::oidc::session::OidcSessions::new(
+                std::sync::Arc::new(crate::backend::oidc::store::CredentialStore::os()),
+                std::sync::Arc::new(|_| {}),
+            ),
         }
     }
 

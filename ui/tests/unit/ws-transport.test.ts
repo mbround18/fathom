@@ -179,7 +179,7 @@ describe('connectBackend over WsTransport', () => {
     ctx.socket.reply({ op: 'subscribed', info: INFO })
     await done
     // Acknowledge the bootstrap sends.
-    for (let id = 1; id <= 3; id++) ctx.socket.reply({ op: 'sent', request_id: id })
+    for (let id = 1; id <= 4; id++) ctx.socket.reply({ op: 'sent', request_id: id })
     await Promise.resolve()
     return ctx
   }
