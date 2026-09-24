@@ -110,24 +110,24 @@ appear in the pod's container list with a live status.
 
 ### Frontend for User Story 1
 
-- [ ] T012 [US1] Add `addEphemeralContainerAction()` in `ui/src/resources/pods.tsx`, alongside
+- [x] T012 [US1] Add `addEphemeralContainerAction()` in `ui/src/resources/pods.tsx`, alongside
       the existing `deleteAction<PodSummary>()` (~line 227), producing an `ActionDescriptor` with
       `destructive: true` and fields for `image` (required, non-empty) and `target_container`
       (required unless the pod has exactly one container, in which case auto-select it — per
       data-model.md validation rules).
-- [ ] T013 [US1] Wire the new action's confirm copy in `ui/src/components/ActionDialogHost.tsx`:
+- [x] T013 [US1] Wire the new action's confirm copy in `ui/src/components/ActionDialogHost.tsx`:
       extend `detailFor()` (or add a sibling branch) to render the target pod name, chosen target
       container, and image, plus the fixed warning sentence: "Ephemeral containers cannot be
       removed once added and will persist for the life of the pod." Reuse the existing
       `ConfirmDialog.tsx` component as-is — no new dialog component.
-- [ ] T014 [US1] Add the "Add debug container" entry point (button/menu item) to the pod detail
+- [x] T014 [US1] Add the "Add debug container" entry point (button/menu item) to the pod detail
       view where other pod actions (e.g. delete) are already exposed — locate via
       `grep -rn "deleteAction" ui/src/` to find the pod actions toolbar/menu.
-- [ ] T015 [US1] Ensure the pod container list component (the one rendering
+- [x] T015 [US1] Ensure the pod container list component (the one rendering
       `containers_lifecycle`) displays `is_ephemeral: true` entries using its existing
       status/state rendering, with no special-casing required beyond confirming the field is
       simply included — verify via `grep -rn "containers_lifecycle" ui/src/`.
-- [ ] T016 [US1] [P] Add a Playwright e2e spec at `ui/tests/e2e/ephemeral-debug-container.spec.ts`
+- [x] T016 [US1] [P] Add a Playwright e2e spec at `ui/tests/e2e/ephemeral-debug-container.spec.ts`
       against the project's existing scripted fake-backend harness (see an existing spec under
       `ui/tests/e2e/` for the harness pattern), covering exactly this single scenario: load a
       fixture pod with one container → open "Add debug container" → fill image → submit → assert
@@ -150,17 +150,17 @@ sees a clear status (not an error) if it hasn't started yet.
 **Independent Test**: Add an ephemeral container to a pod, select it in the container list, open
 its logs via the existing viewer, confirm log output streams the same as for a regular container.
 
-- [ ] T017 [US2] Verify `PodLogsTab.tsx` and the `StartPodLogs`/`StopPodLogs` command path require
+- [x] T017 [US2] Verify `PodLogsTab.tsx` and the `StartPodLogs`/`StopPodLogs` command path require
       no code changes to accept an ephemeral container's name (per research.md decision) — do
       this by exercising the flow manually per quickstart.md step 5, and fix any place that
       filters container-picker options to `is_ephemeral: false` only (there should be none, but
       confirm via `grep -rn "is_ephemeral\|is_init" ui/src/` once T015 lands).
-- [ ] T018 [US2] If the container-picker feeding `PodLogsTab.tsx` explicitly enumerates container
+- [x] T018 [US2] If the container-picker feeding `PodLogsTab.tsx` explicitly enumerates container
       names from a source other than `containers_lifecycle` (e.g. `PodDetails.containers: Vec<String>`,
       which per pods.rs does NOT currently include ephemeral containers), extend that enumeration
       to include ephemeral container names too, in whichever UI file builds the log-viewer's
       container selector — locate via `grep -rn "container:" ui/src/components/panels/PodLogsTab.tsx`.
-- [ ] T019 [US2] Confirm the UI shows the ephemeral container's current status (e.g. "waiting:
+- [x] T019 [US2] Confirm the UI shows the ephemeral container's current status (e.g. "waiting:
       pulling image") instead of a log-fetch error when logs are requested before the container
       starts running — reuse whatever existing waiting-state messaging the regular container
       log/status UI already has (check `PodLifecyclePanels.tsx`); add it only if genuinely
@@ -179,11 +179,11 @@ irreversibility warning before the confirm control is enabled.
 **Independent Test**: Open "Add debug container," verify the summary and warning are both visible
 before confirm can be pressed.
 
-- [ ] T020 [US3] Ensure the confirm control in the T013 dialog wiring is disabled until `image` is
+- [x] T020 [US3] Ensure the confirm control in the T013 dialog wiring is disabled until `image` is
       non-empty and `target_container` is resolved (set or auto-selected), per spec FR-013 — this
       should already follow from T012/T013's field validation; add an explicit UI test/assertion
       if not already covered by T016's e2e spec.
-- [ ] T021 [US3] [P] Add a focused UI unit test (Vitest, alongside existing component tests under
+- [x] T021 [US3] [P] Add a focused UI unit test (Vitest, alongside existing component tests under
       `ui/src/components/` or `ui/src/resources/`) asserting the action descriptor's `detail`
       text contains the pod name, target container name, image name, and the exact irreversibility
       sentence, without needing a full Playwright run for this narrower check.
@@ -194,15 +194,15 @@ before confirm can be pressed.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T022 [P] Run `cargo clippy --all-targets -- -D warnings` and fix any new lint findings from
+- [x] T022 [P] Run `cargo clippy --all-targets -- -D warnings` and fix any new lint findings from
       T002–T011.
-- [ ] T023 [P] Run `pnpm -C ui typecheck` and `pnpm -C ui lint` and fix any new findings from
+- [x] T023 [P] Run `pnpm -C ui typecheck` and `pnpm -C ui lint` and fix any new findings from
       T012–T021.
-- [ ] T024 Update `docs/FEATURE_BACKLOG.md` (if it tracks this feature) or any MVP/status doc the
+- [x] T024 Update `docs/FEATURE_BACKLOG.md` (if it tracks this feature) or any MVP/status doc the
       project maintains (see how spec 015 recorded its shipped status, e.g.
       `docs/MVP.md`/similar) to note ephemeral debug containers as shipped, matching the pattern
       used for prior specs.
-- [ ] T025 Full verification pass: `cargo build --workspace --all-targets`,
+- [x] T025 Full verification pass: `cargo build --workspace --all-targets`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `pnpm -C ui typecheck`,
       `pnpm -C ui lint`, `pnpm -C ui test`, and the new e2e spec
       (`ui/tests/e2e/ephemeral-debug-container.spec.ts`) all green.

@@ -17,6 +17,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Metrics & Observability (Prometheus) | ✅ | 001-tauri-shadcn-frontend |
 | Pod logs streaming | ✅ | 002-pod-logs-terminal |
 | Interactive pod exec / terminal | ✅ | 002-pod-logs-terminal |
+| Ephemeral debug containers on a running pod (add-only, confirm-gated; logs via existing viewer) | ✅ | 025-ephemeral-debug-containers |
 | YAML edit + diff + apply (any resource) | ✅ | 003-yaml-node-crd-parity |
 | Node actions (cordon/uncordon/drain/taint) | ✅ | 003-yaml-node-crd-parity |
 | Custom Resources — generic CRD discovery/browsing | ✅ | 003-yaml-node-crd-parity |
