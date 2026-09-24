@@ -149,6 +149,8 @@ pub(super) struct BackendState {
     pub(super) exec_session: ExecSessionState,
     pub(super) watch_tasks: WatchTasks,
     pub(super) node_actions: NodeActionState,
+    /// 030-kind-cluster-provisioning: in-flight kind create/delete operations.
+    pub(super) kind_actions: crate::backend::kind::KindActionRegistry,
     pub(super) metrics: MetricsState,
     pub(super) port_forward_manager: PortForwardManager,
     /// Session-scoped image-inspection cache, keyed by resolved manifest digest
@@ -196,6 +198,7 @@ impl BackendState {
                 flux_poll_task: None,
             },
             node_actions: NodeActionState::default(),
+            kind_actions: crate::backend::kind::KindActionRegistry::default(),
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,
                 unavailable_notified: false,

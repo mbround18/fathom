@@ -1365,6 +1365,21 @@ fn all_cmds() -> Vec<BackendCmd> {
             name: "s".to_owned(),
             request_id: "s".to_owned(),
         },
+        BackendCmd::RefreshKindPrerequisites,
+        BackendCmd::RefreshKindClusters,
+        BackendCmd::CreateKindCluster {
+            request_id: "s".to_owned(),
+            name: "s".to_owned(),
+            profile: fathom::protocol::KindClusterProfileId::Bare,
+            custom_yaml: None,
+        },
+        BackendCmd::CancelCreateKindCluster {
+            request_id: "s".to_owned(),
+        },
+        BackendCmd::DeleteKindCluster {
+            request_id: "s".to_owned(),
+            name: "s".to_owned(),
+        },
         BackendCmd::TaintNode {
             name: "s".to_owned(),
             op: fathom::protocol::TaintOp::Add,
@@ -1963,6 +1978,11 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::UncordonNode { .. } => {}
         BackendCmd::DrainNode { .. } => {}
         BackendCmd::CancelDrainNode { .. } => {}
+        BackendCmd::RefreshKindPrerequisites => {}
+        BackendCmd::RefreshKindClusters => {}
+        BackendCmd::CreateKindCluster { .. } => {}
+        BackendCmd::CancelCreateKindCluster { .. } => {}
+        BackendCmd::DeleteKindCluster { .. } => {}
         BackendCmd::TaintNode { .. } => {}
         BackendCmd::RefreshEvents => {}
         BackendCmd::RefreshPods => {}
@@ -2744,6 +2764,33 @@ fn all_stream_events() -> Vec<StreamEvent> {
             ok: true,
             error: None,
         },
+        StreamEvent::KindPrerequisitesUpdated {
+            prerequisites: fathom::protocol::KindPrerequisites {
+                kind_installed: true,
+                kind_version: Some("s".to_owned()),
+                runtime_installed: true,
+                runtime_kind: Some(fathom::protocol::KindRuntimeKind::Docker),
+                runtime_running: true,
+                ready: true,
+            },
+        },
+        StreamEvent::KindClustersUpdated {
+            clusters: vec![fathom::protocol::KindClusterSummary {
+                name: "s".to_owned(),
+                status: fathom::protocol::KindClusterStatus::Ready,
+                profile: None,
+                context_name: "s".to_owned(),
+            }],
+        },
+        StreamEvent::KindProvisionProgress {
+            request_id: "s".to_owned(),
+            stage: "s".to_owned(),
+        },
+        StreamEvent::KindClusterActionFinished {
+            request_id: "s".to_owned(),
+            ok: true,
+            error: None,
+        },
     ]
 }
 
@@ -2758,6 +2805,10 @@ fn all_stream_events_is_exhaustive(v: &StreamEvent) {
         StreamEvent::ResourceApplied { .. } => {}
         StreamEvent::DrainProgress { .. } => {}
         StreamEvent::NodeActionFinished { .. } => {}
+        StreamEvent::KindPrerequisitesUpdated { .. } => {}
+        StreamEvent::KindClustersUpdated { .. } => {}
+        StreamEvent::KindProvisionProgress { .. } => {}
+        StreamEvent::KindClusterActionFinished { .. } => {}
     }
 }
 

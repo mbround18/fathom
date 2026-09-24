@@ -10,6 +10,7 @@ use crate::protocol::{
 mod agent;
 mod cluster;
 mod integrations;
+mod kind_cluster;
 mod mcp;
 mod port_forwards;
 mod resources;
@@ -72,6 +73,10 @@ pub async fn dispatch_cmd(
     };
 
     let Some(cmd) = port_forwards::handle(cmd, state, sender).await else {
+        return Ok(false);
+    };
+    // 030-kind-cluster-provisioning: local kind cluster lifecycle.
+    let Some(cmd) = kind_cluster::handle(cmd, state, sender).await else {
         return Ok(false);
     };
     let Some(cmd) = cluster::handle(cmd, state, sender).await? else {

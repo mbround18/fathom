@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
-    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ClusterSettings, RbacAccessCheck, RequestId,
-    SectionKey, UiConfig,
+    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ClusterSettings, KindClusterProfileId,
+    RbacAccessCheck, RequestId, SectionKey, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -42,6 +42,22 @@ pub enum BackendCmdV1 {
     CancelDrainNode {
         name: String,
         request_id: String,
+    },
+    // 030-kind-cluster-provisioning
+    RefreshKindPrerequisites,
+    RefreshKindClusters,
+    CreateKindCluster {
+        request_id: String,
+        name: String,
+        profile: KindClusterProfileId,
+        custom_yaml: Option<String>,
+    },
+    CancelCreateKindCluster {
+        request_id: String,
+    },
+    DeleteKindCluster {
+        request_id: String,
+        name: String,
     },
     TaintNode {
         name: String,
@@ -916,6 +932,25 @@ mod tests {
         roundtrip(BackendCmdV1::CancelDrainNode {
             name: "node-1".to_owned(),
             request_id: "req-1".to_owned(),
+        });
+    }
+
+    #[test]
+    fn kind_cluster_cmds_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKindPrerequisites);
+        roundtrip(BackendCmdV1::RefreshKindClusters);
+        roundtrip(BackendCmdV1::CreateKindCluster {
+            request_id: "r".to_owned(),
+            name: "dev".to_owned(),
+            profile: KindClusterProfileId::CustomYaml,
+            custom_yaml: Some("kind: Cluster".to_owned()),
+        });
+        roundtrip(BackendCmdV1::CancelCreateKindCluster {
+            request_id: "r".to_owned(),
+        });
+        roundtrip(BackendCmdV1::DeleteKindCluster {
+            request_id: "r".to_owned(),
+            name: "dev".to_owned(),
         });
     }
 
