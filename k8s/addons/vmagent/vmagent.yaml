@@ -1,0 +1,38 @@
+# vmagent v1.122.0 (Apache-2.0): Prometheus-format scraper + remote_write. Shared by the victoriametrics,
+# lgtm-lite (Mimir) and openobserve stacks; each overlay patches env RW_URL (and optionally the basic-auth secret).
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: vmagent}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: vmagent}}
+  template:
+    metadata: {labels: {app: vmagent}}
+    spec:
+      serviceAccountName: scraper
+      containers:
+        - name: vmagent
+          image: victoriametrics/vmagent:v1.122.0
+          args:
+            - -promscrape.config=/etc/vmagent/scrape.yml
+            - -remoteWrite.url=$(RW_URL)
+            - -remoteWrite.basicAuth.username=$(RW_USER)
+            - -remoteWrite.basicAuth.password=$(RW_PASS)
+            - -remoteWrite.tmpDataPath=/tmp/vmagent
+            - -remoteWrite.forcePromProto=true
+          env:
+            - {name: RW_URL, value: "http://overridden-by-overlay"}
+            - name: RW_USER
+              valueFrom: {secretKeyRef: {name: remote-write-auth, key: user, optional: true}}
+            - name: RW_PASS
+              valueFrom: {secretKeyRef: {name: remote-write-auth, key: password, optional: true}}
+          ports: [{name: http, containerPort: 8429}]
+          readinessProbe: {httpGet: {path: /health, port: http}}
+          resources: {requests: {cpu: 50m, memory: 96Mi}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/vmagent}
+            - {name: tmp, mountPath: /tmp/vmagent}
+      volumes:
+        - name: config
+          configMap: {name: vmagent-config}
+        - {name: tmp, emptyDir: {}}
