@@ -5,6 +5,8 @@ import { batch, system } from '../fixtures/builders'
 import { clearSent, emit, open, sent } from './helpers'
 
 async function openCertificates(page: Page, info: TestInfo): Promise<void> {
+  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
+  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
     await page

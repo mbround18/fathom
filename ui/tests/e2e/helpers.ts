@@ -28,6 +28,23 @@ export async function sent(page: Page): Promise<BackendCmd[]> {
   return page.evaluate(() => window.__fathomFake?.sent() ?? [])
 }
 
+/**
+ * Commands sent excluding `SaveUiConfig`: the nav-group expand persist is debounced, so it can land
+ * after a test's `clearSent` and is unrelated to the mutation flows under assertion.
+ */
+export async function sentMutations(page: Page): Promise<BackendCmd[]> {
+  return (await sent(page)).filter((c) => c.type !== 'SaveUiConfig')
+}
+
+/**
+ * Wait for the fake scenario's own async replies (queued by `setTimeout` at `send` time) to be
+ * delivered. Timers with equal delay fire FIFO, so a page-side `setTimeout(0)` queued now lands
+ * after them; without this an injected `emit` can be overwritten by a late canned reply.
+ */
+export async function settleFakeReplies(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
+}
+
 export async function clearSent(page: Page): Promise<void> {
   await page.evaluate(() => window.__fathomFake?.clearSent())
 }

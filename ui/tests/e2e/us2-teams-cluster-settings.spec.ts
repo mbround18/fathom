@@ -63,6 +63,9 @@ test.describe('US2 teams: cluster settings + org sync', () => {
       'cpu_throttled',
     )
 
+    // Navigating expanded a nav group, whose debounced SaveUiConfig consumes a request id: let it
+    // land before reading `nextRequestId`, or the injected CommandFinished targets the wrong one.
+    await expect.poll(() => sentTypes(page)).toContain('SaveUiConfig')
     const requestId = await nextRequestId(page)
     await panel(page).getByTestId('teams-save-cluster-settings').click()
     await expect.poll(() => sentTypes(page)).toContain('SaveClusterSettings')

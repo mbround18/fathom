@@ -37,6 +37,7 @@ import {
   open,
   row,
   sent,
+  sentMutations,
   sentTypes,
 } from './helpers'
 
@@ -145,10 +146,11 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await expect(diff).toContainText('team: platform')
 
     await clearSent(page)
-    const id = await nextRequestId(page)
     await form.getByTestId('yaml-apply').click()
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
+    // Read the id as late as possible: a debounced SaveUiConfig also consumes request ids.
+    const id = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
 
     await expect
@@ -188,8 +190,9 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await form.getByTestId('rbac-binding-review').click()
     await expect(form.getByTestId('yaml-diff')).toBeVisible()
 
-    const id = await nextRequestId(page)
     await form.getByTestId('yaml-apply').click()
+    await expect(confirmDialog(page)).toBeVisible()
+    const id = await nextRequestId(page)
     await confirmDialog(page).getByTestId('confirm-submit').click()
 
     await finish(page, id, false, 'conflict: Operation cannot be fulfilled: the object has been modified')
@@ -222,7 +225,7 @@ test.describe('US3 edit/delete RoleBinding', () => {
     const id = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentMutations(page))
       .toEqual([{ type: 'DeleteRoleBinding', data: { namespace: BINDING_ROW.namespace, name: BINDING_ROW.name } }])
 
     // No optimistic removal.
@@ -259,7 +262,7 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await dialog.getByTestId('confirm-submit').click()
 
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentMutations(page))
       .toEqual([{ type: 'DeleteClusterRoleBinding', data: { name: binding.name } }])
 
     await expectRowCount(page, 1, CLUSTER_ROLE_BINDINGS)

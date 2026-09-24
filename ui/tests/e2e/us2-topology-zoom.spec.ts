@@ -13,6 +13,8 @@ const NAMESPACE = 'workloads-ns'
 const POD_COUNT = 120
 
 async function openTopology(page: Page, info: TestInfo): Promise<void> {
+  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
+  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
     await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Topology' }).click()
@@ -46,6 +48,17 @@ async function zoomCanvas(page: Page, deltaY: number): Promise<void> {
   await page.mouse.wheel(0, deltaY)
 }
 
+/**
+ * Zoom in until the workload focus fires `SelectDeployment`. A single wheel step can land before
+ * the previous camera update is applied on very wide canvases under parallel load, so retry.
+ */
+async function zoomUntilSelectDeployment(page: Page): Promise<void> {
+  await expect(async () => {
+    await zoomCanvas(page, -900)
+    expect(await sentTypes(page)).toContain('SelectDeployment')
+  }).toPass({ timeout: 15_000 })
+}
+
 test.describe('US2 topology zoom', () => {
   test('T034: overview -> workload tier appears once zoomed into a namespace', async ({
     page,
@@ -68,8 +81,7 @@ test.describe('US2 topology zoom', () => {
 
     // Zoom in further past WORKLOAD_FOCUS_SCALE (5): the pod tier for the now-focused Deployment
     // is fetched via the workload descriptor's own `select` command (T032).
-    await zoomCanvas(page, -900)
-    await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['SelectDeployment']))
+    await zoomUntilSelectDeployment(page)
   })
 
   test('T034/FR-012: a large pod count stays responsive to a subsequent click', async ({
@@ -80,8 +92,7 @@ test.describe('US2 topology zoom', () => {
     await seedOverview(page)
 
     await zoomCanvas(page, -900) // namespace focus
-    await zoomCanvas(page, -900) // workload focus -> triggers SelectDeployment
-    await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['SelectDeployment']))
+    await zoomUntilSelectDeployment(page) // workload focus -> triggers SelectDeployment
 
     const pods = Array.from({ length: POD_COUNT }, (_, i) => ({
       name: `web-${String(i)}`,
@@ -119,7 +130,9 @@ test.describe('US2 topology zoom', () => {
     const canvas = page.getByTestId('topology-canvas')
     const before = await canvasHost(page).textContent()
     await canvas.click({ position: { x: 5, y: 5 } }) // empty space: click-to-inspect is a no-op
-    await zoomCanvas(page, -100)
+    // Zoom out: the retrying zoom-in above may already sit at the max scale, where zooming in
+    // further would not change the readout.
+    await zoomCanvas(page, 100)
     await expect(canvasHost(page)).toBeVisible()
     await expect
       .poll(async () => canvasHost(page).textContent())

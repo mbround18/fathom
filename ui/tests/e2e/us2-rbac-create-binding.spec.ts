@@ -28,6 +28,7 @@ import {
   open,
   row,
   sent,
+  sentMutations,
   sentTypes,
   table,
 } from './helpers'
@@ -94,11 +95,12 @@ test.describe('US2 create RoleBinding', () => {
     await expect(diff).toContainText('alice')
 
     await clearSent(page)
-    const id = await nextRequestId(page)
     await form.getByTestId('yaml-apply').click()
 
-    const dialog = confirmDialog(page);
+    const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
+    // Read the id as late as possible: a debounced SaveUiConfig also consumes request ids.
+    const id = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
 
     await expect
@@ -156,7 +158,7 @@ test.describe('US2 create RoleBinding', () => {
     await clearSent(page)
     await form.getByRole('button', { name: 'Cancel' }).click()
     await expect(page.getByTestId('rbac-binding-form')).toBeHidden()
-    expect(await sent(page)).toEqual([])
+    expect(await sentMutations(page)).toEqual([])
   })
 
   test('create entry point is disabled with an explanation when self-access denies it', async ({
@@ -171,6 +173,6 @@ test.describe('US2 create RoleBinding', () => {
 
     await clearSent(page)
     await form.getByTestId('rbac-binding-review').click({ force: true })
-    expect(await sent(page)).toEqual([])
+    expect(await sentMutations(page)).toEqual([])
   })
 })

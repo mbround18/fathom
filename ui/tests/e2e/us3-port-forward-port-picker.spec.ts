@@ -19,6 +19,7 @@ import {
   navigateTo,
   nextRequestId,
   row,
+  sent,
   sentTypes,
   open as openApp,
 } from './helpers'
@@ -129,6 +130,11 @@ test.describe('US3 port forward port picker', () => {
 
     // Switching to a free port clears the warning and unblocks confirm.
     await field.fill('9998')
+    // The debounced availability check for 9998 also consumes a request id: let it land before
+    // reading `nextRequestId` below, or the injected CommandFinished targets the wrong request.
+    await expect
+      .poll(async () => (await sent(page)).some((c) => c.type === 'CheckPortAvailability' && c.data.port === 9998))
+      .toBe(true)
     await emit(
       page,
       batch([

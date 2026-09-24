@@ -87,6 +87,10 @@ test.describe('US2 Terminal tab', () => {
     // FR-012: switching to a different pod's Terminal stops the first session before starting
     // the second (the Inspector remounts on target change, unmount-before-mount).
     await clearSent(page)
+    // Phone shows one pane at a time: the list is hidden behind the inspector until Back.
+    if (test.info().project.metadata.widthClass === 'phone') {
+      await page.getByRole('button', { name: 'Back' }).click()
+    }
     await row(page, key(SECOND_POD)).click()
 
     const insp2 = inspector(page)

@@ -14,6 +14,8 @@ const NODES = 'nodes'
 
 /** Reach the Topology tool pane the way each width class exposes it (FR-016). */
 async function openTopology(page: Page, info: TestInfo): Promise<void> {
+  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
+  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
     await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Topology' }).click()
