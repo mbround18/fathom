@@ -107,7 +107,11 @@ pub struct SessionStore {
 impl SessionStore {
     pub fn new(cfg: SessionConfig) -> Self {
         let (ended, _) = broadcast::channel(256);
-        Self { cfg: Arc::new(cfg), inner: Default::default(), ended }
+        Self {
+            cfg: Arc::new(cfg),
+            inner: Default::default(),
+            ended,
+        }
     }
 
     /// Subscribe to session-end notifications (used to tear down backends / close sockets).
@@ -124,7 +128,12 @@ impl SessionStore {
     }
 
     pub fn count_for_user(&self, user_key: &str) -> usize {
-        self.inner.lock().unwrap().values().filter(|s| s.user_key == user_key).count()
+        self.inner
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|s| s.user_key == user_key)
+            .count()
     }
 
     /// Create a session. Over the per-user cap the oldest of that user's sessions is evicted;
@@ -144,7 +153,11 @@ impl SessionStore {
             let overflow = (mine.len() + 1).saturating_sub(self.cfg.max_sessions_per_user.max(1));
             for (_, id) in mine.into_iter().take(overflow) {
                 map.remove(&id);
-                evicted.push(Ended { id, user_key: user_key.clone(), reason: EndReason::LimitEvicted });
+                evicted.push(Ended {
+                    id,
+                    user_key: user_key.clone(),
+                    reason: EndReason::LimitEvicted,
+                });
             }
             if map.len() >= self.cfg.max_sessions {
                 return Err(SessionError::GlobalLimit(self.cfg.max_sessions));
@@ -186,7 +199,11 @@ impl SessionStore {
                 None => None,
                 Some(s) => {
                     if let Some(reason) = self.expiry(s, now) {
-                        ended = Some(Ended { id: s.id.clone(), user_key: s.user_key.clone(), reason });
+                        ended = Some(Ended {
+                            id: s.id.clone(),
+                            user_key: s.user_key.clone(),
+                            reason,
+                        });
                         None
                     } else {
                         s.last_seen = now;
@@ -217,7 +234,11 @@ impl SessionStore {
     pub fn end(&self, id: &str, reason: EndReason) -> Option<Session> {
         let removed = self.inner.lock().unwrap().remove(id);
         if let Some(s) = &removed {
-            let _ = self.ended.send(Ended { id: s.id.clone(), user_key: s.user_key.clone(), reason });
+            let _ = self.ended.send(Ended {
+                id: s.id.clone(),
+                user_key: s.user_key.clone(),
+                reason,
+            });
         }
         removed
     }
@@ -234,7 +255,11 @@ impl SessionStore {
                 .collect();
             for (id, reason) in dead {
                 if let Some(s) = map.remove(&id) {
-                    out.push(Ended { id, user_key: s.user_key, reason });
+                    out.push(Ended {
+                        id,
+                        user_key: s.user_key,
+                        reason,
+                    });
                 }
             }
         }
@@ -381,7 +406,10 @@ mod tests {
         for u in ["a", "b", "c"] {
             s.create(ident(u), toks()).unwrap();
         }
-        assert_eq!(s.create(ident("d"), toks()).unwrap_err(), SessionError::GlobalLimit(3));
+        assert_eq!(
+            s.create(ident("d"), toks()).unwrap_err(),
+            SessionError::GlobalLimit(3)
+        );
     }
 
     #[test]
@@ -391,6 +419,9 @@ mod tests {
         let mut t = toks();
         t.id_token = SecretString::from("new");
         assert!(s.update_tokens(&x.id, t));
-        assert_eq!(s.touch(&x.id).unwrap().tokens.id_token.expose_secret(), "new");
+        assert_eq!(
+            s.touch(&x.id).unwrap().tokens.id_token.expose_secret(),
+            "new"
+        );
     }
 }

@@ -14,8 +14,8 @@ use openidconnect::{EndSessionUrl, ProviderMetadataWithLogout};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::time::Instant;
 use std::time::Duration;
+use tokio::time::Instant;
 
 use crate::config::{ClaimsConfig, HostedConfig};
 use crate::session::{Identity, Tokens};
@@ -73,7 +73,8 @@ pub fn build_http_client(ca_file: Option<&std::path::Path>) -> Result<reqwest::C
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15));
     if let Some(p) = ca_file {
-        let pem = std::fs::read(p).map_err(|e| OidcError::Setup(format!("{}: {e}", p.display())))?;
+        let pem =
+            std::fs::read(p).map_err(|e| OidcError::Setup(format!("{}: {e}", p.display())))?;
         let cert = reqwest::Certificate::from_pem(&pem)
             .map_err(|e| OidcError::Setup(format!("{}: {e}", p.display())))?;
         b = b.add_root_certificate(cert);
@@ -111,9 +112,18 @@ impl OidcClient {
         Self::discover_with(cfg, http).await
     }
 
-    pub async fn discover_with(cfg: &HostedConfig, http: reqwest::Client) -> Result<Self, OidcError> {
-        let issuer = IssuerUrl::new(cfg.oidc.issuer.to_string().trim_end_matches('/').to_string())
-            .map_err(|e| OidcError::Discovery(e.to_string()))?;
+    pub async fn discover_with(
+        cfg: &HostedConfig,
+        http: reqwest::Client,
+    ) -> Result<Self, OidcError> {
+        let issuer = IssuerUrl::new(
+            cfg.oidc
+                .issuer
+                .to_string()
+                .trim_end_matches('/')
+                .to_string(),
+        )
+        .map_err(|e| OidcError::Discovery(e.to_string()))?;
         let h = http.clone();
         let meta = ProviderMetadataWithLogout::discover_async(issuer, &move |r: HttpRequest| {
             let h = h.clone();
@@ -121,11 +131,9 @@ impl OidcClient {
         })
         .await
         .map_err(|e| OidcError::Discovery(format!("{} ({e})", cfg.oidc.issuer)))?;
-        let end_session = meta
-            .additional_metadata()
-            .end_session_endpoint
-            .clone();
-        let redirect = RedirectUrl::new(cfg.redirect_uri()).map_err(|e| OidcError::Setup(e.to_string()))?;
+        let end_session = meta.additional_metadata().end_session_endpoint.clone();
+        let redirect =
+            RedirectUrl::new(cfg.redirect_uri()).map_err(|e| OidcError::Setup(e.to_string()))?;
         let mut post_logout = cfg.external_url.clone();
         post_logout.set_path("/");
         Ok(Self {
@@ -164,8 +172,11 @@ impl OidcClient {
 
     fn http_fn(
         &self,
-    ) -> impl Fn(HttpRequest) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<HttpResponse, HttpError>> + Send>> + '_
-    {
+    ) -> impl Fn(
+        HttpRequest,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<HttpResponse, HttpError>> + Send>,
+    > + '_ {
         move |r| {
             let h = self.http.clone();
             Box::pin(async move { call(&h, r).await })
@@ -245,7 +256,8 @@ impl OidcClient {
         let bytes = URL_SAFE_NO_PAD
             .decode(payload)
             .map_err(|e| OidcError::IdToken(e.to_string()))?;
-        let claims: Value = serde_json::from_slice(&bytes).map_err(|e| OidcError::IdToken(e.to_string()))?;
+        let claims: Value =
+            serde_json::from_slice(&bytes).map_err(|e| OidcError::IdToken(e.to_string()))?;
         map_identity(&self.issuer, &claims, &self.claims)
     }
 
@@ -255,14 +267,19 @@ impl OidcClient {
         let client = self.client();
         let http = self.http_fn();
         let resp = client
-            .exchange_refresh_token(&RefreshToken::new(refresh_token.expose_secret().to_string()))
+            .exchange_refresh_token(&RefreshToken::new(
+                refresh_token.expose_secret().to_string(),
+            ))
             .map_err(|e| OidcError::Exchange(e.to_string()))?
             .request_async(&http)
             .await
             .map_err(|e| match e {
                 openidconnect::RequestTokenError::ServerResponse(r) => {
                     let code = r.error().to_string();
-                    if code.contains("invalid_grant") || code.contains("invalid_client") || code.contains("unauthorized_client") {
+                    if code.contains("invalid_grant")
+                        || code.contains("invalid_client")
+                        || code.contains("unauthorized_client")
+                    {
                         OidcError::RefreshRejected(code)
                     } else {
                         OidcError::RefreshTransient(code)
@@ -334,7 +351,11 @@ fn tokens_from<T: OAuth2TokenResponse>(
 }
 
 /// Map validated ID-token claims to an `Identity` (pure; unit tested).
-pub fn map_identity(issuer: &str, claims: &Value, cfg: &ClaimsConfig) -> Result<Identity, OidcError> {
+pub fn map_identity(
+    issuer: &str,
+    claims: &Value,
+    cfg: &ClaimsConfig,
+) -> Result<Identity, OidcError> {
     let sub = claims
         .get("sub")
         .and_then(Value::as_str)
@@ -346,7 +367,11 @@ pub fn map_identity(issuer: &str, claims: &Value, cfg: &ClaimsConfig) -> Result<
         .filter(|s| !s.is_empty())
         .ok_or_else(|| OidcError::MissingUsername(cfg.username.clone()))?;
     let groups = match claims.get(&cfg.groups) {
-        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
         Some(Value::String(s)) => vec![s.clone()],
         _ => return Err(OidcError::MissingGroups(cfg.groups.clone())),
     };
@@ -354,8 +379,14 @@ pub fn map_identity(issuer: &str, claims: &Value, cfg: &ClaimsConfig) -> Result<
         issuer: issuer.to_string(),
         sub,
         username: format!("{}{}", cfg.username_prefix, username),
-        groups: groups.into_iter().map(|g| format!("{}{}", cfg.groups_prefix, g)).collect(),
-        email: claims.get("email").and_then(Value::as_str).map(str::to_string),
+        groups: groups
+            .into_iter()
+            .map(|g| format!("{}{}", cfg.groups_prefix, g))
+            .collect(),
+        email: claims
+            .get("email")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -399,17 +430,31 @@ mod tests {
     #[test]
     fn missing_groups_is_an_error_but_empty_is_fine() {
         let c = json!({"sub":"s","preferred_username":"a"});
-        assert!(matches!(map_identity("i", &c, &cc("", "")), Err(OidcError::MissingGroups(_))));
+        assert!(matches!(
+            map_identity("i", &c, &cc("", "")),
+            Err(OidcError::MissingGroups(_))
+        ));
         let c = json!({"sub":"s","preferred_username":"a","groups":[]});
-        assert!(map_identity("i", &c, &cc("", "")).unwrap().groups.is_empty());
+        assert!(
+            map_identity("i", &c, &cc("", ""))
+                .unwrap()
+                .groups
+                .is_empty()
+        );
     }
 
     #[test]
     fn missing_username_or_sub_is_an_error() {
         let c = json!({"sub":"s","groups":[]});
-        assert!(matches!(map_identity("i", &c, &cc("", "")), Err(OidcError::MissingUsername(_))));
+        assert!(matches!(
+            map_identity("i", &c, &cc("", "")),
+            Err(OidcError::MissingUsername(_))
+        ));
         let c = json!({"preferred_username":"a","groups":[]});
-        assert!(matches!(map_identity("i", &c, &cc("", "")), Err(OidcError::IdToken(_))));
+        assert!(matches!(
+            map_identity("i", &c, &cc("", "")),
+            Err(OidcError::IdToken(_))
+        ));
     }
 
     #[test]

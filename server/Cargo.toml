@@ -36,7 +36,11 @@ sha2 = "0.10"
 tower = { version = "0.5", features = ["util"] }
 http = "1"
 async-trait = "0.1"
+crossbeam-channel = "0.5.15"
 futures = "0.3.31"
+hyper = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
 
 [dev-dependencies]
+rsa = "0.9"
 tokio = { version = "1.49.0", features = ["full", "test-util"] }

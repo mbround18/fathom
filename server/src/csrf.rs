@@ -65,7 +65,10 @@ mod tests {
     fn origin_exact_match() {
         assert!(origin_allowed(O, Some(O)));
         assert!(!origin_allowed(O, None));
-        assert!(!origin_allowed(O, Some("https://fathom.example.com.evil.io")));
+        assert!(!origin_allowed(
+            O,
+            Some("https://fathom.example.com.evil.io")
+        ));
         assert!(!origin_allowed(O, Some("http://fathom.example.com")));
         assert!(!origin_allowed(O, Some("https://fathom.example.com:8443")));
         assert!(!origin_allowed(O, Some("null")));
@@ -99,8 +102,20 @@ mod tests {
 
     #[test]
     fn mutation_combined() {
-        assert!(check_mutation(O, Some(O), Some("same-origin"), "t", Some("t")));
-        assert!(!check_mutation(O, Some(O), Some("cross-site"), "t", Some("t")));
+        assert!(check_mutation(
+            O,
+            Some(O),
+            Some("same-origin"),
+            "t",
+            Some("t")
+        ));
+        assert!(!check_mutation(
+            O,
+            Some(O),
+            Some("cross-site"),
+            "t",
+            Some("t")
+        ));
         assert!(!check_mutation(O, None, None, "t", Some("t")));
         assert!(!check_mutation(O, Some(O), None, "t", Some("x")));
     }
@@ -110,8 +125,15 @@ mod tests {
         assert_eq!(safe_return_path(Some("/clusters?a=1")), "/clusters?a=1");
         assert_eq!(safe_return_path(None), "/");
         for bad in [
-            "//evil.io", "https://evil.io", "/\\evil.io", "evil.io", "/a\\b",
-            "/x\r\nSet-Cookie: a=b", "/redir?u=http://evil.io", "javascript:alert(1)", "",
+            "//evil.io",
+            "https://evil.io",
+            "/\\evil.io",
+            "evil.io",
+            "/a\\b",
+            "/x\r\nSet-Cookie: a=b",
+            "/redir?u=http://evil.io",
+            "javascript:alert(1)",
+            "",
         ] {
             assert_eq!(safe_return_path(Some(bad)), "/", "{bad}");
         }
