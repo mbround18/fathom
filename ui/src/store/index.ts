@@ -24,6 +24,7 @@ import type {
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
+  KnativeOverview,
   KubeadmDetectionResult,
   KubernetesEvent,
   LayoutProfile,
@@ -460,6 +461,7 @@ export interface StoreData {
   pendingPortForwardOrigins: PendingPortForwardOrigins
   metrics: MetricsState
   flux: { overview?: FluxOverview }
+  knative: { overview?: KnativeOverview }
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -587,6 +589,8 @@ export interface StoreState extends StoreData {
   refreshEvents: () => void
   /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
   refreshFlux: () => void
+  /** Sends `RefreshKnative` (rescans Knative Serving resources; also polled every 20s). */
+  refreshKnative: () => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -806,6 +810,7 @@ export function initialData(): StoreData {
     pendingPortForwardOrigins: {},
     metrics: { diskUsage: [] },
     flux: {},
+    knative: {},
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
@@ -1018,6 +1023,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+
+  refreshKnative: () => get().send({ type: 'RefreshKnative' }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 

@@ -277,6 +277,10 @@ pub mod section_keys {
         SectionKey::new("integrations/flux")
     }
 
+    pub fn integrations_knative() -> SectionKey {
+        SectionKey::new("integrations/knative")
+    }
+
     pub fn integrations_hubble() -> SectionKey {
         SectionKey::new("integrations/hubble")
     }

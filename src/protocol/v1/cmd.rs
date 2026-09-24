@@ -323,6 +323,7 @@ pub enum BackendCmdV1 {
         api_key: String,
     },
     RefreshFlux,
+    RefreshKnative,
     RefreshHubble,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
@@ -985,6 +986,11 @@ mod tests {
             namespace: "flux-system".to_owned(),
             name: "redis".to_owned(),
         });
+    }
+
+    #[test]
+    fn refresh_knative_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKnative);
     }
 
     #[test]

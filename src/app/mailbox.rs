@@ -102,6 +102,9 @@ impl FathomApp {
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }
+                    SystemEvent::KnativeOverviewUpdated(_) => {
+                        // KnativePanel (React bridge) handles this; no egui view.
+                    }
                     SystemEvent::HelmMutationPreviewReady(_)
                     | SystemEvent::HelmMutationApplied(_)
                     | SystemEvent::HelmMutationFailed(_) => {

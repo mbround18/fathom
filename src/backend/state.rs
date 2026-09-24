@@ -80,6 +80,7 @@ pub(super) struct WatchTasks {
     pub(super) namespace_sync_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) hubble_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) flux_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) knative_poll_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
@@ -89,6 +90,7 @@ impl WatchTasks {
         abort_task(&mut self.namespace_sync_task);
         abort_task(&mut self.hubble_poll_task);
         abort_task(&mut self.flux_poll_task);
+        abort_task(&mut self.knative_poll_task);
     }
 }
 
@@ -194,6 +196,7 @@ impl BackendState {
                 namespace_sync_task: None,
                 hubble_poll_task: None,
                 flux_poll_task: None,
+                knative_poll_task: None,
             },
             node_actions: NodeActionState::default(),
             metrics: MetricsState {
