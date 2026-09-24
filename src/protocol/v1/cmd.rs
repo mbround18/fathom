@@ -62,6 +62,21 @@ pub enum BackendCmdV1 {
         namespace: String,
         name: String,
     },
+    /// Add an ephemeral debug container to a running pod (025-ephemeral-debug-containers),
+    /// equivalent to `kubectl debug`'s `AddEphemeralContainer`. This is a one-way mutation:
+    /// the Kubernetes API has no way to remove an ephemeral container once added, so there is
+    /// no corresponding `RemoveEphemeralContainer` command.
+    AddEphemeralContainer {
+        namespace: String,
+        pod: String,
+        /// Existing container whose process namespace the new container will share.
+        /// `None` is only valid when the pod has exactly one container (auto-selected).
+        target_container: Option<String>,
+        /// Debug image reference (e.g. `busybox`, `nicolaka/netshoot`), free text (no catalog).
+        image: String,
+        /// Name for the new ephemeral container. `None` = backend generates one.
+        ephemeral_container_name: Option<String>,
+    },
     /// Fetch one container's OCI image manifest/config metadata (010-container-image-inspection).
     /// Sent only when the operator opens that container's "Image" tab (FR-003) — never eagerly.
     InspectContainerImage {
@@ -852,6 +867,24 @@ mod tests {
     #[test]
     fn stop_pod_exec_roundtrip() {
         roundtrip(BackendCmdV1::StopPodExec);
+    }
+
+    #[test]
+    fn add_ephemeral_container_roundtrip() {
+        roundtrip(BackendCmdV1::AddEphemeralContainer {
+            namespace: "default".to_owned(),
+            pod: "web-0".to_owned(),
+            target_container: Some("app".to_owned()),
+            image: "nicolaka/netshoot:latest".to_owned(),
+            ephemeral_container_name: None,
+        });
+        roundtrip(BackendCmdV1::AddEphemeralContainer {
+            namespace: "default".to_owned(),
+            pod: "web-0".to_owned(),
+            target_container: None,
+            image: "busybox".to_owned(),
+            ephemeral_container_name: Some("debugger-1".to_owned()),
+        });
     }
 
     #[test]

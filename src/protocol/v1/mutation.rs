@@ -214,7 +214,8 @@ impl BackendCmdV1 {
             },
 
             // Namespaced cluster writes.
-            C::DeletePod { namespace, .. }
+            C::AddEphemeralContainer { namespace, .. }
+            | C::DeletePod { namespace, .. }
             | C::ScaleDeployment { namespace, .. }
             | C::RestartDeployment { namespace, .. }
             | C::DeleteDeployment { namespace, .. }
@@ -332,6 +333,7 @@ impl BackendCmdV1 {
             C::RefreshPods
             | C::SelectPod { .. }
             | C::DeletePod { .. }
+            | C::AddEphemeralContainer { .. }
             | C::InspectContainerImage { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
@@ -623,6 +625,19 @@ mod tests {
             assert_eq!(cmd.mutation_target(), nsn("fathom-dev"), "{cmd:?}");
             assert!(cmd.mutation_target().writes_cluster());
         }
+    }
+
+    #[test]
+    fn add_ephemeral_container_is_namespaced_write() {
+        let cmd = BackendCmdV1::AddEphemeralContainer {
+            namespace: s("fathom-dev"),
+            pod: s("web-0"),
+            target_container: Some(s("app")),
+            image: s("busybox"),
+            ephemeral_container_name: None,
+        };
+        assert_eq!(cmd.mutation_target(), nsn("fathom-dev"));
+        assert!(cmd.mutation_target().writes_cluster());
     }
 
     #[test]

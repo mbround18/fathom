@@ -32,7 +32,7 @@ Playwright e2e in `ui/tests/e2e/`.
 
 **Purpose**: No new project scaffolding needed — this feature extends existing modules only.
 
-- [ ] T001 Confirm `kube` crate version in `Cargo.toml` exposes an ephemeral-containers
+- [x] T001 Confirm `kube` crate version in `Cargo.toml` exposes an ephemeral-containers
       subresource patch method (or confirm the JSON/strategic merge patch fallback path), and
       note the exact call shape to use in `src/backend/pods.rs` (or the module that owns pod
       cluster access — verify the exact file via `grep -rn "Api::<Pod>" src/backend/`).
@@ -45,29 +45,29 @@ Playwright e2e in `ui/tests/e2e/`.
 
 **⚠️ CRITICAL**: Must complete before any User Story phase begins.
 
-- [ ] T002 Add `BackendCmdV1::AddEphemeralContainer { namespace: String, pod: String,
+- [x] T002 Add `BackendCmdV1::AddEphemeralContainer { namespace: String, pod: String,
       target_container: Option<String>, image: String, ephemeral_container_name: Option<String> }`
       variant to `src/protocol/v1/cmd.rs`, per contracts/add-ephemeral-container.md. Follow the
       existing field-shape conventions used by `DeletePod`/`StartPodExec` in the same file.
-- [ ] T003 Add a `roundtrip(BackendCmdV1::AddEphemeralContainer { .. })` serialization test in
+- [x] T003 Add a `roundtrip(BackendCmdV1::AddEphemeralContainer { .. })` serialization test in
       `src/protocol/v1/cmd.rs`'s existing test module, mirroring the `StartPodExec` roundtrip
       tests already present there.
-- [ ] T004 Classify `AddEphemeralContainer` in `src/protocol/v1/mutation.rs`'s
+- [x] T004 Classify `AddEphemeralContainer` in `src/protocol/v1/mutation.rs`'s
       `mutation_target()` match as `MutationTarget::Namespaced { namespaces: vec![namespace] }`,
       in the same arm group as `DeletePod`/`ScaleDeployment` (around the "Namespaced cluster
       writes" comment block). The match is exhaustive with no wildcard arm — the compiler will
       force this addition.
-- [ ] T005 [P] Add a unit test in `src/protocol/v1/mutation.rs` asserting
+- [x] T005 [P] Add a unit test in `src/protocol/v1/mutation.rs` asserting
       `AddEphemeralContainer { namespace: "ns".into(), .. }.mutation_target()` returns
       `MutationTarget::Namespaced { namespaces: vec!["ns".to_string()] }` and that
       `.writes_cluster()` is `true`.
-- [ ] T006 Add `is_ephemeral: bool` field to `ContainerLifecycle` in `src/protocol/v1/pods.rs`
+- [x] T006 Add `is_ephemeral: bool` field to `ContainerLifecycle` in `src/protocol/v1/pods.rs`
       (per data-model.md); default `false` for all existing (non-ephemeral) construction sites —
       grep for `ContainerLifecycle {` constructors in `src/backend/` and update each to set
       `is_ephemeral: false` explicitly (no `Default` derive currently exists on this struct, per
       the file — verify and add explicit fields at each call site rather than relying on
       `..Default::default()`).
-- [ ] T007 Run `cargo build --workspace --all-targets` after T002–T006 to confirm the exhaustive
+- [x] T007 Run `cargo build --workspace --all-targets` after T002–T006 to confirm the exhaustive
       `mutation.rs` match and all `ContainerLifecycle` construction sites compile before starting
       user-story work.
 
@@ -87,22 +87,22 @@ appear in the pod's container list with a live status.
 
 ### Backend for User Story 1
 
-- [ ] T008 [US1] Implement the Kubernetes API call in `src/backend/pods.rs` (or the module
+- [x] T008 [US1] Implement the Kubernetes API call in `src/backend/pods.rs` (or the module
       identified in T001): given namespace/pod/target_container/image/optional name, patch the
       pod's `ephemeralcontainers` subresource to append one `EphemeralContainer` entry (name
       auto-generated as `debugger-<short-random>` when not supplied, per research.md). Return a
       typed error (not a panic) on API failure so it can flow through `CommandFinished`.
-- [ ] T009 [US1] Dispatch `BackendCmdV1::AddEphemeralContainer` from
+- [x] T009 [US1] Dispatch `BackendCmdV1::AddEphemeralContainer` from
       `src/backend/cmd/workloads.rs` to the T008 function, following the existing dispatch
       pattern used for `DeletePod`/`StartPodExec` in the same file, and report the result via the
       existing `CommandFinished` event path (no new event variant, per contracts/).
-- [ ] T010 [US1] Populate ephemeral entries in `PodDetails.containers_lifecycle` from
+- [x] T010 [US1] Populate ephemeral entries in `PodDetails.containers_lifecycle` from
       `status.ephemeralContainerStatuses[]` wherever `containers_lifecycle` is currently built
       (locate via `grep -rn "containers_lifecycle" src/backend/`), setting `is_ephemeral: true`,
       `is_init: false`, and mapping `state`/`ready`/`restart_count` the same way regular
       container statuses are already mapped; `probes`/`hooks` are empty vectors for these
       entries.
-- [ ] T011 [US1] Add a backend unit/integration test (using the project's existing kube-rs
+- [x] T011 [US1] Add a backend unit/integration test (using the project's existing kube-rs
       test/fixture pattern — check `src/backend/pods.rs` or its test module for existing fixture
       helpers) asserting: (a) the ephemeral-containers patch call is constructed with the correct
       `targetContainerName`/`image`/`name`; (b) a duplicate-name API error surfaces as a typed

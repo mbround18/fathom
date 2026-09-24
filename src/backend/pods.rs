@@ -11,7 +11,7 @@ use k8s_openapi::api::core::v1::{
 };
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams, LogParams},
+    api::{Api, DeleteParams, ListParams, LogParams, Patch, PatchParams},
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -84,6 +84,90 @@ pub(super) async fn delete_pod_with_client(
     api.delete(name, &DeleteParams::default()).await?;
     events::notify_info(seq, sender, format!("Deleted pod {}/{}", namespace, name));
     Ok(())
+}
+
+/// 025-ephemeral-debug-containers: add an ephemeral debug container to a running pod via the
+/// `ephemeralcontainers` subresource (equivalent to `kubectl debug`'s `AddEphemeralContainer`).
+/// This is a one-way mutation — the Kubernetes API has no way to remove an ephemeral container
+/// once added, and this function does not attempt to work around that.
+///
+/// `target_container` must be `Some` unless the pod has exactly one existing container, in
+/// which case that container is used. `ephemeral_container_name` defaults to a generated
+/// `debugger-<suffix>` name (mirroring `kubectl debug`'s default naming) when not supplied.
+pub(super) async fn add_ephemeral_container(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: &str,
+    pod_name: &str,
+    target_container: Option<&str>,
+    image: &str,
+    ephemeral_container_name: Option<&str>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!image.trim().is_empty(), "Debug image must not be empty");
+
+    let client = state.cluster.client_or_err()?;
+    let api: Api<Pod> = Api::namespaced(client, namespace);
+
+    let target_container = match target_container {
+        Some(name) => name.to_owned(),
+        None => {
+            let pod = api.get(pod_name).await?;
+            let containers = pod
+                .spec
+                .as_ref()
+                .map(|s| s.containers.as_slice())
+                .unwrap_or(&[]);
+            match containers {
+                [only] => only.name.clone(),
+                [] => anyhow::bail!(
+                    "Pod {}/{} has no containers to share a process namespace with",
+                    namespace,
+                    pod_name
+                ),
+                _ => anyhow::bail!(
+                    "Pod {}/{} has multiple containers; a target container must be specified",
+                    namespace,
+                    pod_name
+                ),
+            }
+        }
+    };
+
+    let name = ephemeral_container_name
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            let suffix = k8s_openapi::chrono::Utc::now()
+                .timestamp_nanos_opt()
+                .unwrap_or(0) as u64;
+            format!("debugger-{:x}", suffix & 0xffff_ff)
+        });
+
+    let patch = ephemeral_container_patch(&name, image, &target_container);
+
+    api.patch_ephemeral_containers(pod_name, &PatchParams::default(), &Patch::Strategic(patch))
+        .await?;
+
+    events::notify_info(
+        state.cluster.seq.as_ref(),
+        sender,
+        format!(
+            "Added ephemeral container {name} ({image}) to {namespace}/{pod_name}, sharing {target_container}'s process namespace. It cannot be removed."
+        ),
+    );
+    Ok(())
+}
+
+/// Strategic-merge patch body appending one ephemeral container to a pod.
+fn ephemeral_container_patch(name: &str, image: &str, target: &str) -> serde_json::Value {
+    serde_json::json!({
+        "spec": {
+            "ephemeralContainers": [{
+                "name": name,
+                "image": image,
+                "targetContainerName": target,
+            }]
+        }
+    })
 }
 
 pub(super) fn pods_to_summaries(pods: Vec<Pod>, filter: &[String]) -> Vec<PodSummary> {
@@ -461,6 +545,8 @@ pub(super) fn build_container_lifecycle(pod: &Pod) -> Vec<ContainerLifecycle> {
     let init_statuses = status.and_then(|s| s.init_container_statuses.as_ref());
     let app_statuses = status.and_then(|s| s.container_statuses.as_ref());
 
+    let ephemeral_statuses = status.and_then(|s| s.ephemeral_container_statuses.as_ref());
+
     let init_containers = spec
         .init_containers
         .iter()
@@ -470,8 +556,16 @@ pub(super) fn build_container_lifecycle(pod: &Pod) -> Vec<ContainerLifecycle> {
         .containers
         .iter()
         .map(|c| container_lifecycle(c, false, find_status(app_statuses, &c.name)));
+    let ephemeral_containers = spec
+        .ephemeral_containers
+        .iter()
+        .flatten()
+        .map(|c| ephemeral_container_lifecycle(c, find_status(ephemeral_statuses, &c.name)));
 
-    init_containers.chain(app_containers).collect()
+    init_containers
+        .chain(app_containers)
+        .chain(ephemeral_containers)
+        .collect()
 }
 
 fn find_status<'a>(
@@ -532,6 +626,43 @@ fn container_lifecycle(
         last_state,
         probes,
         hooks,
+        is_ephemeral: false,
+    }
+}
+
+/// 025-ephemeral-debug-containers: build a `ContainerLifecycle` entry for one
+/// `status.ephemeralContainerStatuses[]` item. Ephemeral containers have no probes/hooks in
+/// their spec, so those are always empty; `is_init` is always `false`.
+fn ephemeral_container_lifecycle(
+    spec: &k8s_openapi::api::core::v1::EphemeralContainer,
+    status: Option<&ContainerStatus>,
+) -> ContainerLifecycle {
+    let state = status
+        .and_then(|s| s.state.as_ref())
+        .map(convert_state)
+        .unwrap_or(ContainerState {
+            phase: "waiting".to_owned(),
+            reason: None,
+            exit_code: None,
+            started_at: None,
+            finished_at: None,
+        });
+    let last_state = status
+        .and_then(|s| s.last_state.as_ref())
+        .filter(|ls| ls.running.is_some() || ls.terminated.is_some() || ls.waiting.is_some())
+        .map(convert_state);
+
+    ContainerLifecycle {
+        name: spec.name.clone(),
+        is_init: false,
+        image: spec.image.clone().unwrap_or_default(),
+        ready: status.map(|s| s.ready).unwrap_or(false),
+        state,
+        restart_count: status.map(|s| s.restart_count).unwrap_or(0),
+        last_state,
+        probes: Vec::new(),
+        hooks: Vec::new(),
+        is_ephemeral: true,
     }
 }
 
@@ -918,5 +1049,35 @@ mod lifecycle_tests {
 
         let sidecar = out.iter().find(|c| c.name == "sidecar").unwrap();
         assert!(sidecar.hooks.is_empty());
+    }
+
+    #[test]
+    fn ephemeral_patch_has_expected_fields() {
+        let p = ephemeral_container_patch("debugger-1", "busybox", "app");
+        let c = &p["spec"]["ephemeralContainers"][0];
+        assert_eq!(c["name"], "debugger-1");
+        assert_eq!(c["image"], "busybox");
+        assert_eq!(c["targetContainerName"], "app");
+    }
+
+    #[test]
+    fn ephemeral_container_statuses_are_listed() {
+        let mut pod = pod_with(
+            vec![],
+            vec![container("app")],
+            vec![],
+            vec![status("app", true, 0, running())],
+        );
+        pod.spec.as_mut().unwrap().ephemeral_containers =
+            Some(vec![k8s_openapi::api::core::v1::EphemeralContainer {
+                name: "debugger-1".to_owned(),
+                image: Some("busybox".to_owned()),
+                ..Default::default()
+            }]);
+        let out = build_container_lifecycle(&pod);
+        let e = out.iter().find(|c| c.name == "debugger-1").unwrap();
+        assert!(e.is_ephemeral && !e.is_init);
+        assert_eq!(e.state.phase, "waiting");
+        assert!(!out.iter().find(|c| c.name == "app").unwrap().is_ephemeral);
     }
 }
