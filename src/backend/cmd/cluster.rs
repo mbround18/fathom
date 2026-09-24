@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    context_status, deployments, events, integrations, kube, metrics, nodes, pods, sync,
+    context_status, deployments, events, fleet, integrations, kube, metrics, nodes, pods, sync,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, ContextConnectionStatus, Correlation,
@@ -28,8 +28,11 @@ pub(super) async fn handle(
                 sender,
             ) {
                 context_status::spawn_status_probes(state, sender, &contexts, current.as_deref());
+                fleet::sync_pollers(state, sender);
             }
         }
+        BackendCmd::StartFleetPolling => fleet::start_polling(state, sender),
+        BackendCmd::StopFleetPolling => fleet::stop_polling(state),
         BackendCmd::SetContext { context } => set_context(state, sender, context).await?,
         BackendCmd::RefreshNamespaces => sync::refresh_namespaces(state, sender).await?,
         BackendCmd::RefreshNodes => nodes::refresh_nodes(state, sender).await,
@@ -152,6 +155,7 @@ async fn initialize(
 
     if let Ok((contexts, current)) = &contexts_result {
         context_status::spawn_status_probes(state, sender, contexts, current.as_deref());
+        fleet::sync_pollers(state, sender);
     }
 
     events::notify_info(state.cluster.seq.as_ref(), sender, "Connected.".to_owned());
@@ -251,6 +255,7 @@ async fn set_context(
         sender,
     ) {
         context_status::spawn_status_probes(state, sender, &contexts, current.as_deref());
+        fleet::sync_pollers(state, sender);
     }
 
     metrics::probe_metrics_api(state, sender).await?;
