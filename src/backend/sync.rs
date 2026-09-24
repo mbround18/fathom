@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use super::state::BackendState;
-use super::{deployments, events, flux, hubble, pods};
+use super::{deployments, events, flux, hubble, keda, pods};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -111,6 +111,58 @@ pub(super) async fn ensure_flux_poll(
         sender.clone(),
         state.cluster.current_context.clone(),
     )));
+}
+
+/// Best-effort: start (or keep running) a background KEDA scan every 20s, emitting
+/// `KedaOverviewUpdated`. `scan_keda` reports `installed: false` when KEDA is absent
+/// (mirrors `ensure_flux_poll`).
+pub(super) async fn ensure_keda_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.keda_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+    state.watch_tasks.keda_poll_task = Some(tokio::spawn(poll_keda_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan KEDA ScaledObjects/ScaledJobs every 20s.
+async fn poll_keda_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match keda::scan_keda(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::autoscalers(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::KedaOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background KEDA scan failed: {}", e),
+                );
+            }
+        }
+    }
 }
 
 /// Background task: rescan Flux resources every 20s and emit the aggregated overview.
