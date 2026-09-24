@@ -72,3 +72,12 @@
 
 **Decision**: Define an internal `SeriesStore` trait (`append`, `query_range`, `truncate_marker`) with the in-memory ring as the only 036 implementation. A follow-on spec adds durable adapters. Candidate backends to evaluate there (licences and operational fit verified from source at that time, not assumed): GreptimeDB, InfluxDB (3.x), CnosDB, QuestDB, and a remote option (Prometheus remote-write / OTLP / operator-run backend). Rule: bundled or sidecar backends must be permissively licensed (Apache-2.0, MIT, BSD); remote adapters may be any licence.
 **Rationale**: Keeps 036 shippable and avoids locking in a database before the licence and ops review; the trait makes the choice reversible.
+
+## R14. T041 verification on kind (identity forwarding)
+
+Verified 2026-09-24 on the local kind cluster (Kubernetes v1.32.2 node, kubectl v1.36.3) with an HTTP/HTTPS header-echo pod:
+
+- **Plain service proxy** (`/api/v1/namespaces/<ns>/services/<svc>:80/proxy/`): the backend received only `x-forwarded-*` headers. No `X-Remote-User`, no `X-Remote-Group`. The caller's identity is NOT forwarded.
+- **APIService** (`apiregistration.k8s.io/v1`, `insecureSkipTLSVerify` for the probe only), request via `/apis/<group>/v1/...`: the backend received `x-remote-user`, `x-remote-group` and `x-remote-extra-*` set by the aggregator, and the APIService reported `Available=True`.
+
+Conclusion: per-user filtering must use the APIService path; the daemon must never take identity from anything but front-proxy headers on a mutually-verified connection. Not covered: the requestheader client certificate itself (the probe echo server did not request one), so client-cert verification against the requestheader CA is unit/handshake tested locally but not yet exercised through a real aggregator. The probe namespace and APIService were deleted afterwards.
