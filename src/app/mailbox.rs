@@ -99,6 +99,9 @@ impl FathomApp {
                     SystemEvent::HubbleTrafficUpdated(_) => {
                         // HubblePanel (React bridge) handles this in on_event; no egui view yet.
                     }
+                    SystemEvent::ClusterVersionUpdated(_) => {
+                        // Tauri UI badge only (019); no egui view.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }

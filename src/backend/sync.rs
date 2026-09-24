@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use super::state::BackendState;
-use super::{deployments, events, flux, hubble, pods};
+use super::{cluster_version, deployments, events, flux, hubble, pods};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -427,6 +427,55 @@ fn emit_namespace_names(
         Correlation::None,
         BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
     );
+}
+
+/// Start the cluster/node Kubernetes version poll (019) if not already running.
+pub(super) async fn ensure_cluster_version_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.cluster_version_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.cluster_version_poll_task = Some(tokio::spawn(poll_cluster_version(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+    )));
+}
+
+/// Background task: fetch immediately, then every 20s, emitting `ClusterVersionUpdated`.
+async fn poll_cluster_version(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await; // first tick completes immediately
+        match cluster_version::fetch_cluster_version(&client).await {
+            Ok(summary) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::global(section_keys::system()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::ClusterVersionUpdated(summary)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background cluster version poll failed: {}", e),
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

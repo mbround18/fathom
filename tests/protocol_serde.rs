@@ -192,6 +192,14 @@ fn sample_events_summary() -> EventsSummary {
     }
 }
 
+fn sample_cluster_version_summary() -> ClusterVersionSummary {
+    ClusterVersionSummary {
+        server_version: Some("v1.29.4".to_owned()),
+        node_kubelet_versions: vec!["v1.28.9".to_owned(), "v1.29.4".to_owned()],
+        skew_detected: true,
+    }
+}
+
 fn sample_flux_overview() -> FluxOverview {
     FluxOverview {
         installed: true,
@@ -2185,6 +2193,7 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
+        SystemEvent::ClusterVersionUpdated(sample_cluster_version_summary()),
         SystemEvent::HubbleTrafficUpdated(sample_hubble_traffic_summary()),
         SystemEvent::HelmMutationPreviewReady(sample_helm_mutation_preview_ready()),
         SystemEvent::HelmMutationApplied(sample_helm_mutation_applied()),
@@ -2345,6 +2354,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
+        SystemEvent::ClusterVersionUpdated(..) => {}
         SystemEvent::HubbleTrafficUpdated(..) => {}
         SystemEvent::HelmMutationPreviewReady(..) => {}
         SystemEvent::HelmMutationApplied(..) => {}

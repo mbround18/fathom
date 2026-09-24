@@ -1,26 +1,26 @@
 use super::{
     AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, ClusterRoleBindingDetails,
     ClusterRoleBindingSummary, ClusterRoleDetails, ClusterRoleSummary, ClusterSettings,
-    ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation, CronJobDetails,
-    CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
-    EndpointDetails, EndpointSummary, EventsSummary, FluxOverview, FluxResourceSummary,
-    HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails,
-    HelmReleaseSummary, HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary,
-    HubbleTrafficSummary, IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary,
-    JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
-    LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
-    NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
-    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
-    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
-    RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
-    ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
-    RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
-    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
-    StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
-    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
-    WorkloadMetricsAggregate,
+    ClusterVersionSummary, ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation,
+    CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails,
+    DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary, FluxOverview,
+    FluxResourceSummary, HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady,
+    HelmReleaseDetails, HelmReleaseSummary, HorizontalPodAutoscalerDetails,
+    HorizontalPodAutoscalerSummary, HubbleTrafficSummary, IngressClassDetails, IngressClassSummary,
+    IngressDetails, IngressSummary, JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails,
+    LeaseSummary, LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
+    MutatingWebhookConfigurationSummary, NamespaceAccessResolved, NamespaceDetails,
+    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
+    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
+    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
+    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
+    PrometheusMetrics, RbacAccessResult, RelatedResourceRef, ReplicaSetSummary,
+    ReplicationControllerDetails, ReplicationControllerSummary, ResourceQuotaDetails,
+    ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
+    RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, SectionKey,
+    ServiceDetails, ServiceSummary, StatefulSetDetails, StatefulSetSummary, StorageClassDetails,
+    StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
+    ValidatingWebhookConfigurationSummary, WorkloadMetricsAggregate,
 };
 use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
 use serde::{Deserialize, Serialize};
@@ -130,6 +130,9 @@ pub enum SystemEvent {
 
     /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
     FluxOverviewUpdated(FluxOverview),
+
+    /// Cluster + node Kubernetes version snapshot, refreshed periodically (019).
+    ClusterVersionUpdated(ClusterVersionSummary),
 
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),
