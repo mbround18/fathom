@@ -44,7 +44,6 @@ const SEVERITY_CLASS: Record<Severity, string> = {
 
 export function LinterPanel({ paneId }: { paneId: PaneId }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const fatal = useStore((s) => s.conn.fatal)
   const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
   const notice = useStore((s) => s.conn.lastNotice?.message)
   const refreshSection = useStore((s) => s.refreshSection)
@@ -110,7 +109,7 @@ export function LinterPanel({ paneId }: { paneId: PaneId }) {
   )
   const skipped = report.rules.filter((r) => r.status === 'skipped' || r.reason !== undefined)
 
-  if (disconnected) return <Disconnected detail={fatal} />
+  if (disconnected) return <Disconnected />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
 
   return (
@@ -165,12 +164,18 @@ export function LinterPanel({ paneId }: { paneId: PaneId }) {
       </div>
 
       {report.pendingObjects > 0 && (
-        <div className="border-b border-border px-3 py-1 text-xs text-muted-foreground" data-testid="linter-progress">
+        <div
+          className="border-b border-border px-3 py-1 text-xs text-muted-foreground"
+          data-testid="linter-progress"
+        >
           Still evaluating {report.pendingObjects} objects...
         </div>
       )}
       {skipped.length > 0 && (
-        <ul className="border-b border-border px-3 py-1 text-xs text-muted-foreground" data-testid="linter-skipped">
+        <ul
+          className="border-b border-border px-3 py-1 text-xs text-muted-foreground"
+          data-testid="linter-skipped"
+        >
           {skipped.map((r) => (
             <li key={r.rule}>
               {r.status === 'skipped' ? 'Skipped' : 'Partial'}: {r.title} - {r.reason}
@@ -206,7 +211,9 @@ export function LinterPanel({ paneId }: { paneId: PaneId }) {
 }
 
 function FindingRow({ finding, onOpen }: { finding: Finding; onOpen: () => void }) {
-  const where = finding.ref.namespace ? `${finding.ref.namespace}/${finding.ref.name}` : finding.ref.name
+  const where = finding.ref.namespace
+    ? `${finding.ref.namespace}/${finding.ref.name}`
+    : finding.ref.name
   return (
     <li>
       <button
@@ -217,7 +224,9 @@ function FindingRow({ finding, onOpen }: { finding: Finding; onOpen: () => void 
         onClick={onOpen}
       >
         <span className="flex items-center gap-2">
-          <span className={`text-xs uppercase ${SEVERITY_CLASS[finding.severity]}`}>{finding.severity}</span>
+          <span className={`text-xs uppercase ${SEVERITY_CLASS[finding.severity]}`}>
+            {finding.severity}
+          </span>
           <span className="truncate font-medium">
             {finding.ref.kind} {where}
           </span>

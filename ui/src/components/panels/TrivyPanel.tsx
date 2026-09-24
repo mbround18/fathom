@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 import type { SectionKey, WorkloadVulnSummary } from '@/protocol/types'
 import { useStore } from '@/store'
 
-import { MetricsUnavailable } from '../shell/PaneStates'
+import { Empty, MetricsUnavailable } from '../shell/PaneStates'
 
 const KIND_SECTION: Record<string, SectionKey> = {
   Deployment: 'workloads/deployments',
@@ -36,15 +36,16 @@ export function TrivyPanel() {
     return <MetricsUnavailable detail="Trivy Operator CRDs were not found in this cluster." />
   }
   if (overview.forbidden) {
-    return (
-      <MetricsUnavailable detail="Permission denied reading Trivy VulnerabilityReports." />
-    )
+    return <MetricsUnavailable detail="Permission denied reading Trivy VulnerabilityReports." />
   }
   if (overview.workloads.length === 0) {
     return (
-      <p className="p-3 text-xs text-muted-foreground" data-testid="trivy-empty">
-        No workloads scanned yet.
-      </p>
+      <div data-testid="trivy-empty" className="h-full">
+        <Empty
+          title="No vulnerability reports yet"
+          detail="Trivy Operator is installed but has not scanned any workloads. Reports appear here a few minutes after workloads start."
+        />
+      </div>
     )
   }
 

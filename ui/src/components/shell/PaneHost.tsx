@@ -207,16 +207,29 @@ function PaneBody({ pane }: { pane: PaneState }) {
       return (
         <Empty
           title={pane.tool ? TOOL_LABEL[pane.tool] : 'Tool'}
-          detail="No data yet. Connect to a cluster to populate this view."
+          detail={
+            pane.tool === 'logs'
+              ? 'Select a pod to stream logs.'
+              : pane.tool === 'events'
+                ? 'Events appear here as the cluster reports them.'
+                : 'No data yet. Connect to a cluster to populate this view.'
+          }
         />
       )
   }
 }
 
+/** An API 404 on a list means the resource type (a CRD) is not installed, not that it failed. */
+function isNotInstalledError(message: string | undefined): boolean {
+  return (
+    message !== undefined &&
+    /\b404\b|not\s?found|could not find the requested resource/i.test(message)
+  )
+}
+
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
 function ListBody({ pane }: { pane: PaneState }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const fatal = useStore((s) => s.conn.fatal)
   const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
   const notice = useStore((s) => s.conn.lastNotice?.message)
   const ctx = useStore((s) => s.session.activeContext)
@@ -228,7 +241,7 @@ function ListBody({ pane }: { pane: PaneState }) {
   )
   const refreshSection = useStore((s) => s.refreshSection)
 
-  if (disconnected) return <Disconnected detail={fatal} />
+  if (disconnected) return <Disconnected />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
   if (section === undefined) {
     return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
@@ -285,6 +298,14 @@ function ListBody({ pane }: { pane: PaneState }) {
     return <Loading label={`Loading ${descriptor.label}`} />
   }
   if (list.status === 'error' && !hasRows) {
+    if (isNotInstalledError(list.error)) {
+      return (
+        <Empty
+          title={`${descriptor.label} not available`}
+          detail="This resource type is not installed on the cluster (its CRD was not found)."
+        />
+      )
+    }
     return (
       <ErrorState
         title={`Cannot list ${descriptor.label.toLowerCase()}`}

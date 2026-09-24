@@ -109,16 +109,15 @@ export function ErrorState({
   )
 }
 
-export function Disconnected({ detail }: { detail?: ReactNode }) {
+/** Never echoes backend/JS exception text: that lives in logs, not in front of the operator. */
+export function Disconnected() {
   return (
     <StateFrame
       kind="disconnected"
       icon={PlugsIcon}
       tone="warn"
       title="Disconnected"
-      detail={
-        detail ?? 'The backend stopped. Restart Fathom to reconnect; data shown may be stale.'
-      }
+      detail="The backend stopped. Restart Fathom to reconnect; data shown may be stale."
     />
   )
 }

@@ -18,11 +18,12 @@ import { useStore, type PaneId } from '@/store'
 import { TopologyCanvas } from '../topology/TopologyCanvas'
 import { Disconnected, NoKubeconfig } from '../shell/PaneStates'
 
-const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonsets].map((d) => d.section)
+const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonsets].map(
+  (d) => d.section,
+)
 
 export function TopologyPanel({ paneId }: { paneId: PaneId }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const fatal = useStore((s) => s.conn.fatal)
   const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
   const notice = useStore((s) => s.conn.lastNotice?.message)
   const refreshSection = useStore((s) => s.refreshSection)
@@ -31,11 +32,11 @@ export function TopologyPanel({ paneId }: { paneId: PaneId }) {
     for (const section of SECTIONS) refreshSection(section)
   }, [refreshSection])
 
-  if (disconnected) return <Disconnected detail={fatal} />
+  if (disconnected) return <Disconnected />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
 
   return (
-    <div className="flex h-full w-full min-h-0 min-w-0 flex-col" data-testid="topology-panel">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col" data-testid="topology-panel">
       <TopologyCanvas paneId={paneId} />
     </div>
   )

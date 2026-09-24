@@ -1,4 +1,5 @@
 import { SpinnerIcon, WarningIcon } from '@phosphor-icons/react'
+import { Popover } from 'radix-ui'
 
 import { cn } from '@/lib/utils'
 import { useStore, type ConnectionStatus } from '@/store'
@@ -38,13 +39,38 @@ export function StatusBar() {
       </span>
       {notice && (
         <span
+          data-testid="status-notice"
           className={cn(
-            'hidden min-w-0 flex-1 truncate sm:block',
+            'flex min-w-0 flex-1 items-center gap-2',
             notice.level === 'warn' && 'text-status-warn',
             notice.level === 'error' && 'text-status-err',
           )}
         >
-          {notice.message}
+          <span className="min-w-0 truncate" title={notice.message}>
+            {notice.message}
+          </span>
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                data-testid="status-notice-details"
+                className="min-h-6 shrink-0 px-1 text-accent-neon underline underline-offset-2 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                Details
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                side="top"
+                align="start"
+                sideOffset={6}
+                data-testid="status-notice-popover"
+                className="z-50 max-h-64 w-96 max-w-[calc(100vw-1.5rem)] overflow-auto border border-border bg-popover p-3 text-xs break-words whitespace-pre-wrap text-popover-foreground shadow-lg"
+              >
+                {notice.message}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
         </span>
       )}
       {pendingCount > 0 && (

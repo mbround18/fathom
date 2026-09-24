@@ -24,15 +24,15 @@ import type {
   CrdCatalogEntry,
   DiskUsage,
   ClusterVersionSummary,
-    CertManagerOverview,
-    CertificateChain,
+  CertManagerOverview,
+  CertificateChain,
   FluxOverview,
   GatekeeperOverview,
-    VeleroOverview,
-    PodVulnerabilityInspection,
-    TrivyOverview,
-    VulnInspectError,
-      KedaOverview,
+  VeleroOverview,
+  PodVulnerabilityInspection,
+  TrivyOverview,
+  VulnInspectError,
+  KedaOverview,
   KedaResourceDetails,
   HubbleTrafficSummary,
   ImageInspectError,
@@ -135,6 +135,13 @@ export interface Notice {
   level: 'info' | 'warn' | 'error'
   message: string
   at: number
+}
+
+/** Drop the status-bar notice: it described the previous context/namespace/section. */
+function withoutNotice(conn: ConnState): ConnState {
+  const rest = { ...conn }
+  delete rest.lastNotice
+  return rest
 }
 
 export interface ConnState {
@@ -1086,6 +1093,7 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   navigate: (section) => {
     set((s) => {
+      s = { ...s, conn: withoutNotice(s.conn) }
       const focused = s.layout.focusedList
       const listId =
         (focused !== undefined &&
@@ -1104,6 +1112,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         namespace: s.session.activeNamespace,
       }
       return {
+        conn: s.conn,
         panes: {
           ...s.panes,
           [pane.id]: {
@@ -1167,6 +1176,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     const s = get()
     if (s.session.activeContext === name) return
     set({
+      conn: withoutNotice(s.conn),
       session: {
         ...s.session,
         activeContext: name,
@@ -1184,6 +1194,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   selectNamespace: (ns) => {
     const s = get()
     set({
+      conn: withoutNotice(s.conn),
       session: { ...s.session, activeNamespace: ns },
       lists: markLoading(s.lists, s.session.activeContext, CONTEXT_LISTS),
     })
