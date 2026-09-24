@@ -10,6 +10,8 @@ import { useId, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/GatedButton'
+import { useMutationAccess } from '@/hooks/useMutationAccess'
 import { Input } from '@/components/ui/input'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
@@ -27,6 +29,8 @@ export function HelmUpgradePanel({
   detail: HelmReleaseDetails | undefined
 }) {
   const key = `${namespace}/${release}`
+  // 018: Helm keeps release state in Secrets (research Decision 3).
+  const access = useMutationAccess({ verb: 'update', resource: 'secrets', namespace })
   const chartVersionInputId = useId()
   const request = useStore((s) => s.request)
   const setHelmMutation = useStore((s) => s.setHelmMutation)
@@ -115,7 +119,7 @@ export function HelmUpgradePanel({
           />
         </label>
         <div className="flex gap-2">
-          <Button
+          <GatedButton access={access} what="upgrade Helm releases"
             type="button"
             variant="outline"
             size="sm"
@@ -124,7 +128,7 @@ export function HelmUpgradePanel({
             onClick={runPreview}
           >
             {session?.status === 'previewing' ? 'Previewing…' : 'Preview upgrade'}
-          </Button>
+          </GatedButton>
           {session && session.status !== 'idle' && (
             <Button type="button" variant="ghost" size="sm" onClick={startOver} disabled={busy}>
               Start over
@@ -165,14 +169,14 @@ export function HelmUpgradePanel({
             currentManifest={preview.current_manifest}
             targetManifest={preview.target_manifest}
           />
-          <Button
+          <GatedButton access={access} what="upgrade Helm releases"
             type="button"
             data-testid="helm-upgrade-apply"
             disabled={busy}
             onClick={() => setConfirming(true)}
           >
             {applying ? 'Applying…' : 'Confirm upgrade'}
-          </Button>
+          </GatedButton>
         </section>
       )}
 

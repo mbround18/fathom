@@ -20,7 +20,8 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/GatedButton'
+import { useMutationAccess } from '@/hooks/useMutationAccess'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import type { GitOpsOriginRef } from '@/protocol/types'
 import { useStore } from '@/store'
@@ -41,6 +42,7 @@ export function HelmReleaseActionsPanel({
   const request = useStore((s) => s.request)
   const setHelmUninstall = useStore((s) => s.setHelmUninstall)
   const key = `${namespace}/${release}`
+  const access = useMutationAccess({ verb: 'delete', resource: 'secrets', namespace })
   const uninstall = useStore((s) => s.helmUninstalls[key])
   const [confirming, setConfirming] = useState(false)
 
@@ -89,7 +91,7 @@ export function HelmReleaseActionsPanel({
           This cannot be undone.
         </p>
         <div>
-          <Button
+          <GatedButton access={access} what="uninstall Helm releases"
             type="button"
             variant="destructive"
             size="sm"
@@ -98,7 +100,7 @@ export function HelmReleaseActionsPanel({
             onClick={() => setConfirming(true)}
           >
             <TrashIcon data-icon="inline-start" /> Uninstall release
-          </Button>
+          </GatedButton>
         </div>
         {uninstall?.status === 'failed' && (
           <p data-testid="helm-uninstall-error" className="text-xs text-status-err">

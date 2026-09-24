@@ -990,6 +990,8 @@ export const useStore = create<StoreState>()((set, get) => ({
         namespaces: [],
       },
       lists: markLoading(s.lists, name, CONTEXT_LISTS),
+      // 018: cached permission answers belong to the previous context's identity.
+      rbacAccess: {},
     })
     s.send({ type: 'SetContext', data: { context: name } })
   },

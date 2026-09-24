@@ -15,6 +15,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/GatedButton'
+import { useResourceMutationAccess } from '@/hooks/useMutationAccess'
 import { Textarea } from '@/components/ui/textarea'
 import type { ObjectRef } from '@/resources'
 import { detailKey, useStore } from '@/store'
@@ -40,6 +42,17 @@ export function YamlEditTab({ target, raw }: { target: ObjectRef; raw: string | 
   const inspect = useStore((s) => s.inspect)
 
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // 018: the backend resolves the real plural/group by discovery; edits are `update`s.
+  const access = useResourceMutationAccess(
+    session
+      ? {
+          apiVersion: session.target.apiVersion,
+          kind: session.target.kind,
+          namespace: session.target.namespace,
+          verb: session.mode === 'create' ? 'create' : 'update',
+        }
+      : undefined,
+  )
   const pendingReload = useRef(false)
 
   // Seed (or refresh, after an explicit Reload) the session once `raw` is available.
@@ -133,23 +146,23 @@ export function YamlEditTab({ target, raw }: { target: ObjectRef; raw: string | 
           </Button>
         )}
         {showDiff ? (
-          <Button
+          <GatedButton access={access} what="apply changes to this resource"
             data-testid="yaml-apply"
             size="sm"
             disabled={busy || blocked || !session.dirty}
             onClick={() => setConfirmOpen(true)}
           >
             Apply
-          </Button>
+          </GatedButton>
         ) : (
-          <Button
+          <GatedButton access={access} what="apply changes to this resource"
             data-testid="yaml-review"
             size="sm"
             disabled={!canReview}
             onClick={() => reviewEditDiff(key)}
           >
             Review changes
-          </Button>
+          </GatedButton>
         )}
       </div>
 

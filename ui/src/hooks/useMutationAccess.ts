@@ -47,6 +47,9 @@ function normalize(c: AccessCheckInput): RbacAccessCheck {
   }
 }
 
+/** Checks already dispatched this session (per context), so N rows mounting at once send one. */
+const inFlight = new Set<string>()
+
 export function useMutationAccess(input: AccessCheckInput | undefined): MutationAccess {
   const send = useStore((s) => s.send)
   const connected = useStore((s) => s.session.activeContext)
@@ -61,7 +64,10 @@ export function useMutationAccess(input: AccessCheckInput | undefined): Mutation
 
   useEffect(() => {
     // Re-check when the context changes; skip when the answer is already cached.
-    if (!check || known) return
+    if (!check || known || key === undefined) return
+    const flightKey = `${connected ?? ''}|${key}`
+    if (inFlight.has(flightKey)) return
+    inFlight.add(flightKey)
     send({ type: 'RefreshRbacSelfAccess', data: { checks: [check] } })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, connected, known])

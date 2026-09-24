@@ -93,6 +93,12 @@ const deleteClusterRoleBinding: ActionDescriptor<ClusterRoleBindingSummary> = {
   prompt: 'confirm',
   destructive: true,
   bulk: true,
+  accessCheck: () => ({
+    verb: 'delete',
+    group: 'rbac.authorization.k8s.io',
+    resource: 'clusterrolebindings',
+    namespace: null,
+  }),
   plan: (rows) =>
     rows.map((r) => ({
       cmd: { type: 'DeleteClusterRoleBinding', data: { name: r.name } },

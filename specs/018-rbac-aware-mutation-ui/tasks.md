@@ -17,10 +17,10 @@ Feature dir: `specs/018-rbac-aware-mutation-ui`. Dependency-ordered; complete in
 
 ## Phase 3: Wire surfaces
 
-- [ ] T008 Node actions: gate cordon/uncordon/drain/taint in `NodeActionsPanel.tsx` (`update` on `nodes`, core group).
-- [ ] T009 Helm: gate upgrade (`HelmUpgradePanel.tsx`), rollback (`resources/helm.tsx`), uninstall (`HelmReleaseActionsPanel.tsx`) via secrets update/delete in the release namespace.
-- [ ] T010 YAML apply: gate the Apply button in `YamlEditTab.tsx` using `CheckResourceMutationAccess`.
-- [ ] T011 RBAC admin delete: add optional `ActionDescriptor.accessCheck` (`resources/types.ts`), make `ActionMenu.tsx` consult it (disabled + tooltip), set it on `resources/rolebindings.tsx` and `resources/clusterrolebindings.tsx` delete.
+- [x] T008 Node actions: gate cordon/uncordon/drain/taint in `NodeActionsPanel.tsx` (`update` on `nodes`, core group).
+- [x] T009 Helm: gate upgrade (`HelmUpgradePanel.tsx`), rollback (`resources/helm.tsx`), uninstall (`HelmReleaseActionsPanel.tsx`) via secrets update/delete in the release namespace.
+- [x] T010 YAML apply: gate the Apply button in `YamlEditTab.tsx` using `CheckResourceMutationAccess`.
+- [x] T011 RBAC admin delete: add optional `ActionDescriptor.accessCheck` (`resources/types.ts`), make `ActionMenu.tsx` consult it (disabled + tooltip), set it on `resources/rolebindings.tsx` and `resources/clusterrolebindings.tsx` delete.
 
 ## Phase 4: Tests and polish
 
