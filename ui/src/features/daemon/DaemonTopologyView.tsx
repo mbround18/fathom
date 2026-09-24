@@ -3,7 +3,7 @@
  * relations and per-object trend lines (mobile-first, keyboard/touch friendly); the topology
  * pane uses the existing client-built graph whenever the daemon is off/absent.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
 import { cn } from '@/lib/utils'
 import type { TopologyHealth, TopologyNode } from '@/protocol/types'
@@ -27,12 +27,30 @@ const REL: Record<string, string> = {
   scales: 'scales',
 }
 
+const CytoscapeGraph = lazy(() => import('./CytoscapeGraph'))
+const WIDE = '(min-width: 768px)'
+function useWide(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      if (typeof matchMedia !== 'function') return () => undefined
+      const m = matchMedia(WIDE)
+      m.addEventListener('change', cb)
+      return () => {
+        m.removeEventListener('change', cb)
+      }
+    },
+    () => typeof matchMedia === 'function' && matchMedia(WIDE).matches,
+    () => false,
+  )
+}
+
 const nodeLabel = (n: TopologyNode): string => `${n.namespace ? `${n.namespace}/` : ''}${n.name}`
 
 export function DaemonTopologyView() {
   const { context, daemon } = useActiveDaemon()
   const requestMetrics = useStore((s) => s.requestDaemonMetrics)
   const [selected, setSelected] = useState<string | null>(null)
+  const wide = useWide()
   const nodes = daemon.topology.nodes
   const caps = daemon.status?.capabilities
   const metricsOk = caps?.metrics === 'available'
@@ -81,6 +99,20 @@ export function DaemonTopologyView() {
       data-testid="daemon-topology"
       data-source="daemon"
     >
+      {wide && Object.keys(nodes).length > 0 && (
+        <div className="min-h-0 min-w-0 md:flex-[2]">
+          <Suspense
+            fallback={<p className="p-3 text-xs text-muted-foreground">Loading graph...</p>}
+          >
+            <CytoscapeGraph
+              nodes={nodes}
+              edges={daemon.topology.edges}
+              selected={selected}
+              onSelect={setSelected}
+            />
+          </Suspense>
+        </div>
+      )}
       <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <p className="border-b border-border px-3 py-1 text-xs text-muted-foreground">
           Live topology from the in-cluster daemon ({Object.keys(nodes).length} objects)

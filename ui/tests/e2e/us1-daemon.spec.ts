@@ -176,4 +176,29 @@ test.describe('daemon topology and trends', () => {
     await expect(page.getByTestId('daemon-topology')).toHaveCount(0)
     await expect(page.getByTestId('topology-canvas')).toBeVisible()
   })
+  test('draws the cytoscape graph at wide widths and keeps the list as the alternative', async ({
+    page,
+  }, info) => {
+    test.skip(noToolPanes(info), 'no tool-pane surface at laptop width')
+    await openTopology(page, info)
+    const graph = page.getByTestId('daemon-topology-graph')
+    if (stacked(info)) {
+      await expect(graph).toHaveCount(0)
+    } else {
+      await expect(graph).toHaveAttribute('data-node-count', '3')
+      expect((await graph.boundingBox())?.height).toBeGreaterThan(100)
+    }
+    await expect(page.getByTestId('daemon-topology-node')).toHaveCount(3)
+    await emit(
+      page,
+      topologyBatch(1, {
+        seq: 2,
+        added: [{ uid: 'pod2', kind: 'Pod', namespace: 'shop', name: 'web-def', health: 'error' }],
+        removed: [],
+        edges: { added: [{ from: 'dep1', to: 'pod2', relation: 'owns' }], removed: [] },
+      }),
+    )
+    await expect(page.getByTestId('daemon-topology-node')).toHaveCount(4)
+    if (!stacked(info)) await expect(graph).toHaveAttribute('data-node-count', '4')
+  })
 })
