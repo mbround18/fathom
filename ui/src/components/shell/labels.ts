@@ -12,6 +12,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   portforwards: 'Forwards',
   topology: 'Topology',
   velero: 'Velero',
+  certManager: 'Certificates',
 }
 
 export function paneTitle(pane: PaneState): string {

@@ -141,6 +141,11 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       d.put('clusterVersion', event.data)
     case 'GatekeeperOverviewUpdated':
       d.put('gatekeeper', { overview: event.data })
+    case 'CertManagerOverviewUpdated':
+      d.edit('certManager').overview = event.data
+      return
+    case 'CertificateChainUpdated':
+      d.edit('certManager').chain = event.data
       return
     case 'HubbleTrafficUpdated':
       d.put('hubble', { summary: event.data })

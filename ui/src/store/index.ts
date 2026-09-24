@@ -21,6 +21,8 @@ import type {
   CrdCatalogEntry,
   DiskUsage,
   ClusterVersionSummary,
+    CertManagerOverview,
+    CertificateChain,
   FluxOverview,
   GatekeeperOverview,
     VeleroOverview,
@@ -467,6 +469,7 @@ export interface StoreData {
   clusterVersion: ClusterVersionSummary | undefined
   gatekeeper: { overview?: GatekeeperOverview }
   velero: { overview?: VeleroOverview }
+  certManager: { overview?: CertManagerOverview; chain?: CertificateChain }
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -598,6 +601,10 @@ export interface StoreState extends StoreData {
   refreshGatekeeper: () => void
   /** Sends `RefreshVelero` (rescans Velero backup resources; also polled every 20s). */
   refreshVelero: () => void
+  /** Sends `RefreshCertManager` (rescans Certificates; also polled every 20s). */
+  refreshCertManager: () => void
+  /** Sends `SelectCertificateChain` (resolves one Certificate's lifecycle chain). */
+  selectCertificateChain: (namespace: string, name: string) => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -820,6 +827,7 @@ export function initialData(): StoreData {
     clusterVersion: undefined,
     gatekeeper: {},
     velero: {},
+    certManager: {},
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
@@ -1034,6 +1042,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
   refreshGatekeeper: () => get().send({ type: 'RefreshGatekeeper' }),
   refreshVelero: () => get().send({ type: 'RefreshVelero' }),
+  refreshCertManager: () => get().send({ type: 'RefreshCertManager' }),
+  selectCertificateChain: (namespace, name) =>
+    get().send({ type: 'SelectCertificateChain', data: { namespace, name } }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 
@@ -1257,7 +1268,10 @@ export const useStore = create<StoreState>()((set, get) => ({
       return {
         editSessions: {
           ...s.editSessions,
-          [key]: markFailed(current, result.error ?? 'The backend reported a failure with no message.'),
+          [key]: markFailed(
+            current,
+            result.error ?? 'The backend reported a failure with no message.',
+          ),
         },
       }
     })

@@ -12,6 +12,7 @@ use crate::config::Args;
 mod agent;
 mod applications;
 mod apply;
+mod cert_manager;
 mod cluster_version;
 mod cmd;
 mod context_status;

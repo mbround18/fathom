@@ -83,6 +83,8 @@ pub(super) struct WatchTasks {
     pub(super) cluster_version_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) gatekeeper_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) velero_poll_task: Option<tokio::task::JoinHandle<()>>,
+    /// 023-cert-manager-certificates-pane: background poll of the Certificates overview.
+    pub(super) cert_manager_poll_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
@@ -95,6 +97,7 @@ impl WatchTasks {
         abort_task(&mut self.cluster_version_poll_task);
         abort_task(&mut self.gatekeeper_poll_task);
         abort_task(&mut self.velero_poll_task);
+        abort_task(&mut self.cert_manager_poll_task);
     }
 }
 
@@ -203,6 +206,7 @@ impl BackendState {
                 cluster_version_poll_task: None,
                 gatekeeper_poll_task: None,
                 velero_poll_task: None,
+                cert_manager_poll_task: None,
             },
             node_actions: NodeActionState::default(),
             metrics: MetricsState {

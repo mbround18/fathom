@@ -203,6 +203,9 @@ pub enum ToolKind {
     Topology,
     /// 022-velero-backup-pane: read-only Velero backup health tool pane.
     Velero,
+    /// 023-cert-manager-certificates-pane: the Certificates (cert-manager) tool pane.
+    #[serde(rename = "certManager")]
+    CertManager,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

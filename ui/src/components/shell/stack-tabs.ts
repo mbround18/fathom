@@ -1,4 +1,5 @@
 import {
+  CertificateIcon,
   PlugsIcon,
   PulseIcon,
   ShareNetworkIcon,
@@ -36,6 +37,13 @@ export const TOPOLOGY_TAB: StackTab = {
   icon: ShareNetworkIcon,
   kind: 'tool',
   tool: 'topology',
+}
+
+export const CERTIFICATES_TAB: StackTab = {
+  label: 'Certificates',
+  icon: CertificateIcon,
+  kind: 'tool',
+  tool: 'certManager',
 }
 
 /** Which tab the stack root belongs to: tool panes by tool, everything else is Resources. */

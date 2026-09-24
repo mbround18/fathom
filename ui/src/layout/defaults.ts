@@ -7,6 +7,11 @@ import type { DockConfig, LayoutProfile, SlotConfig, ToolKind } from '@/protocol
 import { hasDock, visibleSlots, type WidthClass } from './width-class'
 
 const DOCK: DockConfig = { open: true, heightPct: 30, tabs: ['logs', 'events', 'topology', 'velero'] }
+const DOCK: DockConfig = {
+  open: true,
+  heightPct: 30,
+  tabs: ['logs', 'events', 'topology', 'certManager'],
+}
 
 const PROFILES: Readonly<Record<WidthClass, readonly SlotConfig[]>> = {
   phone: [{ kind: 'list', sizePct: 100 }],
@@ -53,6 +58,7 @@ const TOOL_KINDS: ReadonlySet<string> = new Set<ToolKind>([
   'portforwards',
   'topology',
   'velero',
+  'certManager',
 ])
 
 /** Rescale sizePct so the slots sum to 100 (rounded to 0.01). */

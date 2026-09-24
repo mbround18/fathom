@@ -1,11 +1,11 @@
 use super::{
-    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, ClusterRoleBindingDetails,
-    ClusterRoleBindingSummary, ClusterRoleDetails, ClusterRoleSummary, ClusterSettings,
-    ClusterVersionSummary, ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation,
-    CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails,
-    DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary, FluxOverview,
-    FluxResourceSummary, GatekeeperOverview, HelmMutationApplied, HelmMutationFailed,
-    HelmMutationPreviewReady, HelmReleaseDetails, HelmReleaseSummary,
+    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, CertManagerOverview,
+    CertificateChain, ClusterRoleBindingDetails, ClusterRoleBindingSummary, ClusterRoleDetails,
+    ClusterRoleSummary, ClusterSettings, ClusterVersionSummary, ConfigMapDetails, ConfigMapSummary,
+    ConnectionProfile, Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails,
+    DaemonSetSummary, DeploymentDetails, DeploymentSummary, EndpointDetails, EndpointSummary,
+    EventsSummary, FluxOverview, FluxResourceSummary, GatekeeperOverview, HelmMutationApplied,
+    HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails, HelmReleaseSummary,
     HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
     IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
     JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
@@ -136,6 +136,11 @@ pub enum SystemEvent {
     ClusterVersionUpdated(ClusterVersionSummary),
     /// Velero backup state (Backups, Schedules, Restores, BackupStorageLocations; 022-velero-backup-pane)
     VeleroOverviewUpdated(VeleroOverview),
+    /// cert-manager CRD detection + Certificate list (dashboard aggregate).
+    CertManagerOverviewUpdated(CertManagerOverview),
+
+    /// Resolved lifecycle chain for one Certificate.
+    CertificateChainUpdated(CertificateChain),
 
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),

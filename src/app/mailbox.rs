@@ -105,6 +105,10 @@ impl FathomApp {
                     SystemEvent::GatekeeperOverviewUpdated(_) => {
                         // GatekeeperPanel (React bridge) handles this; no egui view.
                     }
+                    SystemEvent::CertManagerOverviewUpdated(_)
+                    | SystemEvent::CertificateChainUpdated(_) => {
+                        // Certificates pane (React bridge) handles this; no egui view.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }

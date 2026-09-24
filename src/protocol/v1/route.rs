@@ -291,6 +291,16 @@ pub mod section_keys {
         SectionKey::new("integrations/gatekeeper")
     }
 
+    /// 023-cert-manager-certificates-pane: Certificates dashboard aggregate.
+    pub fn integrations_cert_manager() -> SectionKey {
+        SectionKey::new("integrations/cert-manager")
+    }
+
+    /// 023-cert-manager-certificates-pane: single Certificate lifecycle-chain lookup.
+    pub fn certificate_chain() -> SectionKey {
+        SectionKey::new("integrations/certificate-chain")
+    }
+
     pub fn network_portforwards() -> SectionKey {
         SectionKey::new("network/portforwards")
     }

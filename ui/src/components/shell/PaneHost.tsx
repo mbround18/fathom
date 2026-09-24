@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
 import { Inspector } from '@/components/Inspector'
+import { CertManagerPanel } from '@/components/panels/CertManagerPanel'
 import { FluxPanel } from '@/components/panels/FluxPanel'
 import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
 import { VeleroPanel } from '@/components/panels/VeleroPanel'
@@ -111,7 +112,9 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
             {...(pane.source !== undefined ? { source: pane.source } : {})}
           />
         )}
-        {pane.kind === 'inspector' && pane.target && <RoleBindingEditLauncherSlot target={pane.target} />}
+        {pane.kind === 'inspector' && pane.target && (
+          <RoleBindingEditLauncherSlot target={pane.target} />
+        )}
       </header>
       {pane.kind === 'list' && <PaneSearch pane={pane} />}
       {selfScrolling ? (
@@ -142,7 +145,10 @@ function RoleBindingEditLauncherSlot({ target }: { target: NonNullable<PaneState
       <RoleBindingEditLauncher kind="RoleBinding" existing={detail.data as RoleBindingDetails} />
     )
   }
-  if (target.kind === 'ClusterRoleBinding' && detail?.eventType === 'ClusterRoleBindingDetailsUpdated') {
+  if (
+    target.kind === 'ClusterRoleBinding' &&
+    detail?.eventType === 'ClusterRoleBindingDetailsUpdated'
+  ) {
     return (
       <RoleBindingEditLauncher
         kind="ClusterRoleBinding"
@@ -185,6 +191,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       if (pane.tool === 'flux') return <FluxPanel />
       if (pane.tool === 'velero') return <VeleroPanel />
+      if (pane.tool === 'certManager') return <CertManagerPanel />
       if (pane.tool === 'hubble') return <HubblePanel />
       if (pane.tool === 'topology') return <TopologyPanel paneId={pane.id} />
       if (pane.tool === 'portforwards') return <PortForwardsPanel />
