@@ -5,6 +5,7 @@
 #   k8s/cluster.sh samples          apply only samples/
 #   k8s/cluster.sh down             delete the cluster (blow it away)
 #   PROVIDER=rauthy|keycloak k8s/cluster.sh up-hosted    OIDC-aware kind cluster + ingress + IdP + RBAC fixtures (spec 031)
+#   k8s/cluster.sh up-metrics <stack> / down-metrics <stack|all>   metrics stacks (see README); k8s/test-metrics.sh <stack>
 #   PROVIDER=... k8s/cluster.sh down-hosted              delete that cluster (+ generated certs when none remain)
 # Env: CLUSTER (default fathom-dev; up-hosted defaults to fathom-oidc-$PROVIDER). Every kubectl call is pinned
 # to --context kind-$CLUSTER. Hosted clusters bind host ports 80/443, so run one at a time.
@@ -112,7 +113,56 @@ daemon_down() {  # uninstall by label: leaves no fathom-daemon object (cluster-s
     -l app.kubernetes.io/name=fathom-daemon --ignore-not-found
 }
 
+# ---- metrics / observability stacks (spec 036 adapters) -----------------------------------------------
+METRICS_STACKS="metrics-server prometheus victoriametrics lgtm-lite openobserve thanos"
+SEL=app.kubernetes.io/part-of=fathom-metrics
+ensure_secret() {  # $1 ns, $2 name, rest key=value ("@gen" = random). Reused when it already exists (stable across re-runs)
+  local ns="$1" name="$2" args=() kv; shift 2
+  "${K[@]}" -n "$ns" get secret "$name" >/dev/null 2>&1 && return 0
+  for kv in "$@"; do
+    case "$kv" in *=@gen) kv="${kv%=@gen}=$(openssl rand -hex 12)" ;; esac
+    args+=(--from-literal="$kv")
+  done
+  "${K[@]}" -n "$ns" create secret generic "$name" "${args[@]}"
+  "${K[@]}" -n "$ns" label secret "$name" "$SEL" --overwrite
+}
+metrics_up() {  # $1 = stack
+  local stack="${1:-}" ns pw
+  case " $METRICS_STACKS " in *" $stack "*) ;; *) echo "stack must be one of: $METRICS_STACKS" >&2; exit 2 ;; esac
+  ns="fathom-metrics-$stack"
+  kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER"
+  if [ "$stack" = metrics-server ]; then
+    # idempotent re-run: drop our APIService first so a stale (Unavailable) one cannot block the apply
+    "${K[@]}" delete apiservice -l "$SEL" --ignore-not-found
+  else
+    "${K[@]}" create ns "$ns" --dry-run=client -o yaml | "${K[@]}" apply -f -
+    "${K[@]}" label ns "$ns" "$SEL" "fathom.dev/metrics-stack=$stack" --overwrite
+    case "$stack" in
+      lgtm-lite|thanos) ensure_secret "$ns" rustfs-root access-key=@gen secret-key=@gen ;;
+      openobserve)
+        ensure_secret "$ns" openobserve-root email=root@fathom.local password=@gen
+        pw=$("${K[@]}" -n "$ns" get secret openobserve-root -o jsonpath='{.data.password}' | base64 -d)
+        ensure_secret "$ns" remote-write-auth user=root@fathom.local password="$pw" ;;
+    esac
+  fi
+  build_apply "overlays/stack-$stack"
+  "${K[@]}" -n "$ns" wait --for=condition=Available deploy --all --timeout=300s
+  "${K[@]}" -n "$ns" get ds -o name | while read -r d; do "${K[@]}" -n "$ns" rollout status "$d" --timeout=180s; done
+  [ "$stack" != metrics-server ] || "${K[@]}" wait --for=condition=Available apiservice/v1beta1.metrics.k8s.io --timeout=120s
+  echo "metrics stack $stack ready in namespace $ns"
+}
+metrics_down() {  # $1 = stack | all; uninstall by label; leaves nothing behind
+  local sel="$SEL"
+  case "${1:-all}" in all) ;; *) sel="$SEL,fathom.dev/metrics-stack=$1" ;; esac
+  # APIService first and on its own: a stale (unavailable) aggregated group makes namespace deletion hang
+  "${K[@]}" delete apiservice -l "$sel" --ignore-not-found
+  "${K[@]}" delete clusterrole,clusterrolebinding,rolebinding -A -l "$sel" --ignore-not-found
+  "${K[@]}" delete namespace -l "$sel" --ignore-not-found
+}
+
 case "${1:-}" in
+  up-metrics) metrics_up "${2:-}" ;;
+  down-metrics) metrics_down "${2:-all}" ;;
   up-daemon) daemon_up "${2:-daemon}" ;;
   down-daemon) daemon_down ;;
   up-hosted) hosted_up ;;
@@ -123,5 +173,6 @@ case "${1:-}" in
   apply) build_apply "overlays/${2:-full}"; wait_ready; build_apply samples ;;
   samples) build_apply samples ;;
   down) kind delete cluster --name "$CLUSTER" ;;
-  *) sed -n 2,7p "$0"; echo "  up-daemon [daemon|daemon-namespaced] / down-daemon   in-cluster daemon (spec 036)"; exit 2 ;;
+  *) sed -n 2,7p "$0"; echo "  up-daemon [daemon|daemon-namespaced] / down-daemon   in-cluster daemon (spec 036)"
+     echo "  up-metrics <stack> / down-metrics <stack|all>   metrics stacks: $METRICS_STACKS"; exit 2 ;;
 esac

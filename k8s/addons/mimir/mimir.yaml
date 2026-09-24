@@ -1,0 +1,75 @@
+# Grafana Mimir 2.17.0 monolithic (-target=all), blocks in RustFS. AGPL-3.0: remote-adapter only, never bundled.
+# Prometheus-compatible query API: http://mimir:8080/prometheus/api/v1/query (single tenant, no auth).
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: mimir-config}
+data:
+  mimir.yaml: |
+    multitenancy_enabled: false
+    server: {http_listen_port: 8080, grpc_listen_port: 9095, log_level: warn}
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: rustfs:9000
+          access_key_id: ${RUSTFS_ACCESS_KEY}
+          secret_access_key: ${RUSTFS_SECRET_KEY}
+          insecure: true
+    blocks_storage:
+      s3: {bucket_name: mimir-blocks}
+      tsdb: {dir: /data/ingester}
+      bucket_store: {sync_dir: /data/tsdb-sync}
+    ruler_storage: {s3: {bucket_name: mimir-ruler}}
+    alertmanager_storage: {s3: {bucket_name: mimir-alertmanager}}
+    compactor: {data_dir: /data/compactor}
+    ingester:
+      ring: {instance_addr: 127.0.0.1, replication_factor: 1, kvstore: {store: inmemory}}
+    distributor:
+      ring: {instance_addr: 127.0.0.1, kvstore: {store: inmemory}}
+    store_gateway:
+      sharding_ring: {replication_factor: 1, kvstore: {store: inmemory}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mimir}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mimir}}
+  template:
+    metadata: {labels: {app: mimir}}
+    spec:
+      initContainers:
+        - name: buckets
+          image: curlimages/curl:8.11.1
+          command: [sh, /scripts/create-buckets.sh]
+          env: &s3env
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: rustfs-root, key: access-key}}
+            - name: RUSTFS_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: rustfs-root, key: secret-key}}
+            - {name: BUCKETS, value: "mimir-blocks mimir-ruler mimir-alertmanager"}
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+      containers:
+        - name: mimir
+          image: grafana/mimir:2.17.0
+          args: [-target=all, -config.file=/etc/mimir/mimir.yaml, -config.expand-env=true]
+          env: *s3env
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 5}
+          resources: {requests: {cpu: 200m, memory: 512Mi}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/mimir}
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: config
+          configMap: {name: mimir-config}
+        - name: scripts
+          configMap: {name: create-buckets}
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mimir}
+spec:
+  selector: {app: mimir}
+  ports: [{name: http, port: 8080}]

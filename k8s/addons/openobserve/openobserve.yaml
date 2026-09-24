@@ -1,0 +1,35 @@
+# OpenObserve v0.14.7 single binary, local-disk mode. AGPL-3.0: remote-adapter only, never bundled.
+# PromQL: http://openobserve:5080/api/default/prometheus/api/v1/query (basic auth, root user). Secret
+# openobserve-root (email, password) is generated once by cluster.sh and reused on re-run.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: openobserve}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: openobserve}}
+  template:
+    metadata: {labels: {app: openobserve}}
+    spec:
+      containers:
+        - name: openobserve
+          image: public.ecr.aws/zinclabs/openobserve:v0.14.7
+          env:
+            - name: ZO_ROOT_USER_EMAIL
+              valueFrom: {secretKeyRef: {name: openobserve-root, key: email}}
+            - name: ZO_ROOT_USER_PASSWORD
+              valueFrom: {secretKeyRef: {name: openobserve-root, key: password}}
+            - {name: ZO_DATA_DIR, value: /data}
+            - {name: ZO_TELEMETRY, value: "false"}
+          ports: [{name: http, containerPort: 5080}]
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 5}
+          resources: {requests: {cpu: 200m, memory: 512Mi}}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: openobserve}
+spec:
+  selector: {app: openobserve}
+  ports: [{name: http, port: 5080}]

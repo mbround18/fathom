@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Grafana Mimir (monolithic) over RustFS, fed by vmagent. Query: http://mimir:8080/prometheus/api/v1/query
+# Uninstall: k8s/cluster.sh down-metrics lgtm-lite (label part-of=fathom-metrics).
+namespace: fathom-metrics-lgtm-lite
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: fathom-metrics
+      fathom.dev/metrics-stack: lgtm-lite
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - ../../addons/rustfs
+  - ../../addons/mimir
+  - ../../addons/vmagent
+patches:
+  - target: {kind: Deployment, name: vmagent}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: http://mimir:8080/api/v1/push

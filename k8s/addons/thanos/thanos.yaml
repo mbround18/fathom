@@ -1,0 +1,116 @@
+# Prometheus v3.5.0 + Thanos v0.39.2 sidecar (uploads 2h blocks to RustFS) + Thanos Query (Apache-2.0 throughout).
+# Query (Prometheus API): http://thanos-query:9090/api/v1/query. An initContainer builds prometheus.yml from the
+# shared scrape.yml by adding the external label the sidecar requires, and objstore.yml from the rustfs-root Secret.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: prometheus}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prometheus}}
+  template:
+    metadata: {labels: {app: prometheus}}
+    spec:
+      serviceAccountName: scraper
+      initContainers:
+        - name: buckets
+          image: curlimages/curl:8.11.1
+          command: [sh, /scripts/create-buckets.sh]
+          env: &s3env
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: rustfs-root, key: access-key}}
+            - name: RUSTFS_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: rustfs-root, key: secret-key}}
+            - {name: BUCKETS, value: thanos}
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+        - name: render-config
+          image: curlimages/curl:8.11.1
+          command:
+            - sh
+            - -c
+            - |
+              sed 's/^global:/global:\n  external_labels: {cluster: fathom-dev}/' /in/scrape.yml > /out/prometheus.yml
+              printf 'type: S3\nconfig:\n  bucket: thanos\n  endpoint: rustfs:9000\n  insecure: true\n  access_key: %s\n  secret_key: %s\n' \
+                "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" > /out/objstore.yml
+          env: *s3env
+          volumeMounts:
+            - {name: scrape, mountPath: /in}
+            - {name: out, mountPath: /out}
+      containers:
+        - name: prometheus
+          image: quay.io/prometheus/prometheus:v3.5.0
+          args:
+            - --config.file=/out/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=6h
+            - --storage.tsdb.min-block-duration=2h
+            - --storage.tsdb.max-block-duration=2h
+            - --web.enable-lifecycle
+          ports: [{name: http, containerPort: 9090}]
+          readinessProbe: {httpGet: {path: /-/ready, port: http}}
+          resources: {requests: {cpu: 100m, memory: 256Mi}}
+          volumeMounts:
+            - {name: out, mountPath: /out}
+            - {name: data, mountPath: /prometheus}
+        - name: sidecar
+          image: quay.io/thanos/thanos:v0.39.2
+          args:
+            - sidecar
+            - --tsdb.path=/prometheus
+            - --prometheus.url=http://localhost:9090
+            - --objstore.config-file=/out/objstore.yml
+            - --grpc-address=0.0.0.0:10901
+            - --http-address=0.0.0.0:10902
+          ports: [{name: grpc, containerPort: 10901}, {name: sidecar-http, containerPort: 10902}]
+          resources: {requests: {cpu: 50m, memory: 64Mi}}
+          volumeMounts:
+            - {name: out, mountPath: /out}
+            - {name: data, mountPath: /prometheus}
+      volumes:
+        - name: scripts
+          configMap: {name: create-buckets}
+        - name: scrape
+          configMap: {name: thanos-scrape}
+        - {name: out, emptyDir: {}}
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: prometheus}
+spec:
+  selector: {app: prometheus}
+  ports: [{name: http, port: 9090}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: thanos-sidecar}
+spec:
+  selector: {app: prometheus}
+  ports: [{name: grpc, port: 10901}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: thanos-query}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: thanos-query}}
+  template:
+    metadata: {labels: {app: thanos-query}}
+    spec:
+      containers:
+        - name: query
+          image: quay.io/thanos/thanos:v0.39.2
+          args:
+            - query
+            - --http-address=0.0.0.0:9090
+            - --grpc-address=0.0.0.0:10901
+            - --endpoint=thanos-sidecar:10901
+          ports: [{name: http, containerPort: 9090}]
+          readinessProbe: {httpGet: {path: /-/ready, port: http}}
+          resources: {requests: {cpu: 50m, memory: 128Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: thanos-query}
+spec:
+  selector: {app: thanos-query}
+  ports: [{name: http, port: 9090}]

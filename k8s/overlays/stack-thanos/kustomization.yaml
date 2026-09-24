@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Prometheus + Thanos sidecar + Thanos Query over RustFS. Query: http://thanos-query:9090/api/v1/query
+# Uninstall: k8s/cluster.sh down-metrics thanos (label part-of=fathom-metrics).
+namespace: fathom-metrics-thanos
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: fathom-metrics
+      fathom.dev/metrics-stack: thanos
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - ../../addons/thanos
