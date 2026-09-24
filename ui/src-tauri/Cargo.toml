@@ -17,7 +17,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-fathom = { path = "../..", default-features = false }
+fathom = { path = "../..", default-features = false, features = ["os-keyring"] }
 tauri = { version = "2", features = [] }
 # tauri-runtime 2.11 added a required trait method that tauri-runtime-wry 2.10.1
 # does not implement; keep it on 2.10.x until a matching tauri-runtime-wry ships.

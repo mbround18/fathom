@@ -9,7 +9,9 @@ edition = "2024"
 license = "Apache-2.0"
 
 [features]
-default = ["egui-ui"]
+default = ["egui-ui", "os-keyring"]
+# Linux Secret Service backend (pulls libdbus). The headless in-cluster daemon builds without it (036).
+os-keyring = ["keyring/sync-secret-service", "keyring/crypto-rust"]
 # Legacy egui/eframe desktop UI. Kept buildable until the Tauri UI reaches parity (FR-025).
 egui-ui = ["dep:egui", "dep:egui_plot", "dep:eframe", "dep:image", "dep:rfd", "dep:arboard", "dep:open"]
 
@@ -109,7 +111,7 @@ http = "1"
 # and secret-hygiene wrappers. No plaintext fallback (FR-006).
 secrecy = "0.10"
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+keyring = { version = "3" }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 [target.'cfg(target_os = "windows")'.dependencies]
