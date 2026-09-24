@@ -59,7 +59,7 @@ export function DetailSections({
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex min-w-0 flex-col gap-2">
-      <h3 className="flex items-center gap-2 font-display text-[0.7rem] font-semibold tracking-[0.2em] text-accent-neon uppercase">
+      <h3 className="flex items-center gap-2 font-display text-xs font-semibold tracking-[0.2em] text-accent-neon uppercase">
         <span>{title}</span>
         <span
           aria-hidden="true"

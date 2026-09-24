@@ -31,7 +31,7 @@ function Row({ row, selected }: { row: KedaResourceSummary; selected: boolean })
       <span className="truncate font-mono text-xs">
         {row.kind} {row.namespace}/{row.name}
       </span>
-      <span className="text-[0.7rem] text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
         {row.target_kind}/{row.target_name} · {String(row.current_replicas)} replicas (min{' '}
         {String(row.min_replicas)}, max {String(row.max_replicas)})
         {row.paused ? ' · paused' : ''}

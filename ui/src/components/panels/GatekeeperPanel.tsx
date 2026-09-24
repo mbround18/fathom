@@ -104,7 +104,7 @@ export function GatekeeperPanel() {
       />
       {active && (
         <div data-testid="gatekeeper-violations" className="flex flex-col gap-1 p-3 pt-0">
-          <h4 className="font-display text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+          <h4 className="font-display text-xs tracking-wider text-muted-foreground uppercase">
             {active.name} violations
           </h4>
           {active.violations_truncated && active.total_violations !== null && (
@@ -138,7 +138,7 @@ export function GatekeeperPanel() {
                 {v.kind} {v.namespace ? `${v.namespace}/` : ''}
                 {v.name}
               </div>
-              <div className="text-[0.7rem] text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 {v.enforcement_action} · {v.message}
               </div>
             </button>

@@ -42,3 +42,88 @@
     mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
   }
 }
+
+/* 032-ui-shell-a11y: theme native form controls (select, datetime-local) to the active theme. */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+  select,
+  input[type='datetime-local'] {
+    background-color: var(--background);
+    color: var(--foreground);
+    border-radius: 0;
+  }
+  select option {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+  select:focus-visible,
+  input[type='datetime-local']:focus-visible {
+    outline: 1px solid var(--ring);
+    outline-offset: 0;
+  }
+  [data-slot='resizable-handle']:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+}
+
+/* Type floor: never below 12px, even at the dense 13px desktop root. */
+@theme {
+  --text-xs: max(12px, 0.75rem);
+  --text-sm: max(12px, 0.875rem);
+}
+
+/* prefers-contrast: more -> stronger borders and fully opaque secondary text. */
+@media (prefers-contrast: more) {
+  :root,
+  .dark {
+    --border: var(--foreground);
+    --input: var(--foreground);
+    --muted-foreground: var(--foreground);
+  }
+  .grain::before,
+  .grain::after {
+    display: none;
+  }
+}
+
+/* Windows High Contrast / forced colors: system colors, visible focus, real borders. */
+@media (forced-colors: active) {
+  :focus-visible,
+  [data-slot='resizable-handle']:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+  button,
+  select,
+  input,
+  textarea,
+  [role='tab'],
+  [role='separator'],
+  [data-slot='scroll-fade'] {
+    border-color: ButtonText;
+  }
+  [data-slot='resizable-handle'] {
+    background: ButtonText;
+  }
+  [aria-current='page'],
+  [role='tab'][aria-selected='true'] {
+    outline: 2px solid Highlight;
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  [data-slot='scroll-fade'] {
+    mask-image: none !important;
+  }
+  .grain::before,
+  .grain::after {
+    display: none;
+  }
+}

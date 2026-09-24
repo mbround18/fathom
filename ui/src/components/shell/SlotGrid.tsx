@@ -47,7 +47,7 @@ export function SlotGrid({ slotCount }: { slotCount?: number }) {
         const paneId = slotPanes[i]
         return (
           <Fragment key={i}>
-            {i > 0 && <ResizableHandle />}
+            {i > 0 && <ResizableHandle aria-label={`Resize section ${i} and section ${i + 1}`} />}
             <ResizablePanel id={`slot-${i}`} defaultSize={`${slot.sizePct}%`} minSize="8%">
               {paneId && <PaneHost paneId={paneId} slotIndex={i} />}
             </ResizablePanel>
@@ -81,7 +81,7 @@ function DockedRow({ profile, children }: { profile: LayoutProfile; children: Re
         <ResizablePanel id="row" defaultSize={`${100 - dock.heightPct}%`} minSize="30%">
           {children}
         </ResizablePanel>
-        <ResizableHandle />
+        <ResizableHandle aria-label="Resize tool dock height" />
         <ResizablePanel id="dock" defaultSize={`${dock.heightPct}%`} minSize="10%">
           <Dock />
         </ResizablePanel>
@@ -104,7 +104,7 @@ function Dock() {
       data-testid="dock-tabs"
     >
       <ScrollFade className="shrink-0 border-b border-border bg-card">
-        <TabsList variant="line" className="h-8 w-max min-w-full justify-start px-1">
+        <TabsList variant="line" className="h-[max(2rem,26px)] w-max min-w-full justify-start px-1">
           {tabs.map((tool, i) => {
             const id = dockPanes[i]
             return id ? (

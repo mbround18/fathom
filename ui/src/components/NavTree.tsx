@@ -44,7 +44,7 @@ export function NavTree() {
               onClick={() => toggle(group.label)}
               className={cn(
                 'group/g flex h-[var(--row-height)] shrink-0 items-center gap-2 px-2 text-left outline-none',
-                'font-display text-[0.7rem] font-semibold tracking-[0.12em] uppercase',
+                'font-display text-xs font-semibold tracking-[0.12em] uppercase',
                 'text-muted-foreground hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
               )}
             >
@@ -55,7 +55,7 @@ export function NavTree() {
               <span className="min-w-0 flex-1 truncate">{group.label}</span>
               <span
                 aria-hidden="true"
-                className="font-brand text-xs tracking-normal text-accent-neon/60 group-hover/g:text-accent-neon"
+                className="font-brand text-xs tracking-normal text-accent-neon group-hover/g:text-accent-neon"
               >
                 {group.kanji}
               </span>

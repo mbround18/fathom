@@ -157,7 +157,7 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
           ) : (
             <>
               {(stream?.lines.truncated ?? 0) > 0 && (
-                <p className="mb-1 text-[0.65rem] text-muted-foreground">
+                <p className="mb-1 text-xs text-muted-foreground">
                   … {stream?.lines.truncated} earlier line
                   {stream?.lines.truncated === 1 ? '' : 's'} truncated
                 </p>

@@ -1,5 +1,6 @@
 import { ListIcon, MagnifyingGlassIcon, SquaresFourIcon } from '@phosphor-icons/react'
 
+import { useFocusReturn } from '@/lib/use-focus-return'
 import { FleetDashboardView } from '@/components/fleet/FleetDashboardView'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +28,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
   const setShell = useStore((s) => s.setShell)
   const fleetOpen = useStore((s) => s.shell.fleetOpen)
   const setFleetOpen = (open: boolean) => setShell({ fleetOpen: open })
+  const returnFocus = useFocusReturn(fleetOpen)
   useLoadAssistantMode()
 
   return (
@@ -91,7 +93,10 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
         <OverflowMenu folded={phone} onOpenFleet={() => setFleetOpen(true)} />
       </div>
       <Dialog open={fleetOpen} onOpenChange={setFleetOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
+        <DialogContent
+          onCloseAutoFocus={returnFocus}
+          className="max-h-[85vh] overflow-y-auto sm:max-w-4xl"
+        >
           <DialogHeader>
             <DialogTitle>Fleet</DialogTitle>
             <DialogDescription>Health of every kubeconfig context.</DialogDescription>

@@ -72,7 +72,7 @@ export function KnativeTrafficGraph({
   return (
     <div data-testid="knative-traffic-graph" className="flex flex-col gap-1">
       <canvas ref={ref} width={W} height={H} className="max-w-full" aria-hidden="true" />
-      <ul className="font-mono text-[0.7rem]">
+      <ul className="font-mono text-xs">
         {graph.edges.map((e) => {
           const target = graph.nodes.find((n) => n.id === e.target)
           return (

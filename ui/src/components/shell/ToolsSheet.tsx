@@ -3,6 +3,7 @@
  * (laptop). A "Tools" menu in the top bar picks the tool; the sheet hosts its regular `PaneHost`
  * (state lives in an off-layout pane, so it survives close/reopen).
  */
+import { useFocusReturn } from '@/lib/use-focus-return'
 import { WrenchIcon } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
@@ -59,11 +60,16 @@ export function ToolsSheet() {
   const setShell = useStore((s) => s.setShell)
   const ensureToolPane = useStore((s) => s.ensureToolPane)
   const paneId = tool ? ensureToolPane(tool) : undefined
+  const returnFocus = useFocusReturn(tool !== undefined)
 
   return (
-    <Sheet open={tool !== undefined} onOpenChange={(o) => !o && setShell({ toolsSheet: undefined })}>
+    <Sheet
+      open={tool !== undefined}
+      onOpenChange={(o) => !o && setShell({ toolsSheet: undefined })}
+    >
       <SheetContent
         side="right"
+        onCloseAutoFocus={returnFocus}
         data-testid="tools-sheet"
         className="w-full max-w-full gap-0 p-0 sm:max-w-3xl"
       >

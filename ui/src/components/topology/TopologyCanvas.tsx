@@ -357,7 +357,7 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
         onPointerUp={onPointerUp}
         onClick={onClick}
       />
-      <div className="pointer-events-none absolute right-2 bottom-2 font-mono text-[0.65rem] text-muted-foreground">
+      <div className="pointer-events-none absolute right-2 bottom-2 font-mono text-xs text-muted-foreground">
         {Math.round(clampScale(camera.scale) * 100)}%
       </div>
     </div>

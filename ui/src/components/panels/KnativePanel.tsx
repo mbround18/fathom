@@ -19,7 +19,7 @@ const DOT = { ok: 'bg-status-ok', err: 'bg-status-err', muted: 'bg-muted-foregro
 function Section({ title, testId, children }: { title: string; testId: string; children: ReactNode }) {
   return (
     <section data-testid={testId} className="flex flex-col gap-1">
-      <h4 className="font-display text-[0.7rem] tracking-wider text-muted-foreground uppercase">
+      <h4 className="font-display text-xs tracking-wider text-muted-foreground uppercase">
         {title}
       </h4>
       {children}
@@ -46,7 +46,7 @@ function Row({
         <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[tone])} />
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{primary}</span>
       </div>
-      {secondary && <div className="text-[0.7rem] text-muted-foreground">{secondary}</div>}
+      {secondary && <div className="text-xs text-muted-foreground">{secondary}</div>}
       {children}
     </div>
   )
@@ -95,7 +95,7 @@ export function KnativePanel() {
             primary={`${r.namespace}/${r.name}`}
             secondary={`${r.ready} — replicas ${String(r.actual_replicas)}/${String(r.desired_replicas)} — traffic ${String(r.traffic_percent)}%`}
           >
-            <div data-testid="knative-scale-reason" className="text-[0.7rem]">
+            <div data-testid="knative-scale-reason" className="text-xs">
               {scaleReasonText(r)}
             </div>
           </Row>

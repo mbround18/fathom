@@ -4,6 +4,7 @@
  * header. With no assistant configured the button stays visible but reads as unavailable and
  * offers a "Set up assistant" popover that opens the existing `AuthSetup` form.
  */
+import { useFocusReturn } from '@/lib/use-focus-return'
 import { SparkleIcon } from '@phosphor-icons/react'
 import { Popover } from 'radix-ui'
 import { useEffect } from 'react'
@@ -76,7 +77,7 @@ export function AskAiButton({ compact = false }: { compact?: boolean }) {
           data-testid="ask-ai-open"
           aria-label="Ask AI (not set up)"
           className={cn(
-            'h-[var(--touch-target)] shrink-0 border-border/60 text-muted-foreground opacity-80',
+            'h-[var(--touch-target)] shrink-0 border-dashed border-border/60 text-muted-foreground',
             compact && 'w-[var(--touch-target)] px-0',
           )}
         >
@@ -120,6 +121,7 @@ export function AskAiSheet() {
   const configured = useAssistantConfigured()
   const { ref, chip } = useAskAiContext()
   const showSetup = setup || !configured
+  const returnFocus = useFocusReturn(open)
 
   return (
     <Sheet
@@ -128,6 +130,7 @@ export function AskAiSheet() {
     >
       <SheetContent
         side="right"
+        onCloseAutoFocus={returnFocus}
         data-testid="ask-ai-sheet"
         className="w-full max-w-full gap-0 p-0 sm:max-w-md"
       >

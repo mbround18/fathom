@@ -24,7 +24,9 @@ export function ClusterVersionBadge() {
   const skew = version !== null && cv?.skew_detected === true
   const tone: Tone = skew ? 'skew' : version ? 'ok' : 'unknown'
   const nodeVersions = cv?.node_kubelet_versions ?? []
-  const detail = skew ? `Version skew: server ${version}, nodes ${nodeVersions.join(', ')}` : undefined
+  const detail = skew
+    ? `Version skew: server ${version}, nodes ${nodeVersions.join(', ')}`
+    : undefined
 
   return (
     <div

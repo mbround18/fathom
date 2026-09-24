@@ -38,7 +38,7 @@ function TriggerCard({ trigger, index }: { trigger: KedaTrigger; index: number }
         <div className="text-xs text-muted-foreground">threshold: {trigger.threshold}</div>
       )}
       {meta.length > 0 && (
-        <dl className="mt-1 grid grid-cols-[minmax(6rem,max-content)_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-[0.7rem]">
+        <dl className="mt-1 grid grid-cols-[minmax(6rem,max-content)_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-xs">
           {meta.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-muted-foreground">{k}</dt>
@@ -48,7 +48,7 @@ function TriggerCard({ trigger, index }: { trigger: KedaTrigger; index: number }
         </dl>
       )}
       {trigger.auth_ref && (
-        <div className="mt-1 text-[0.7rem] text-muted-foreground">
+        <div className="mt-1 text-xs text-muted-foreground">
           auth: {trigger.auth_ref.name}
           {trigger.auth_ref.cluster_scoped ? ' (cluster)' : ''}
         </div>
@@ -69,12 +69,12 @@ export function KedaInspector({ details }: { details: KedaResourceDetails }) {
         (min {String(summary.min_replicas)}, max {String(summary.max_replicas)})
       </div>
       <div data-testid="keda-reasoning" className="rounded-sm border border-border/60 px-2 py-1.5">
-        <div className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">
+        <div className="text-xs tracking-wider text-muted-foreground uppercase">
           {REASON_LABEL[reasoning.state]}
         </div>
         <div className="text-xs">{reasoning.message}</div>
       </div>
-      <h5 className="font-display text-[0.7rem] tracking-wider text-muted-foreground uppercase">
+      <h5 className="font-display text-xs tracking-wider text-muted-foreground uppercase">
         Triggers
       </h5>
       {triggers.length === 0 && <p className="text-xs text-muted-foreground">No triggers.</p>}

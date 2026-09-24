@@ -38,7 +38,8 @@ function StateFrame({
 }: StateFrameProps) {
   return (
     <div
-      role="status"
+      role={tone === 'err' ? 'alert' : 'status'}
+      aria-live={tone === 'err' ? 'assertive' : 'polite'}
       data-pane-state={kind}
       className="flex h-full min-h-40 flex-col items-center justify-center gap-3 p-6 text-center"
     >

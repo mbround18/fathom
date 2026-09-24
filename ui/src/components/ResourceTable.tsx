@@ -359,7 +359,7 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
               aria-label="Select"
               className="flex items-center justify-center"
             >
-              <span aria-hidden="true" className="text-[0.6rem] text-muted-foreground">
+              <span aria-hidden="true" className="text-xs text-muted-foreground">
                 {checked.length > 0 ? String(checked.length) : ''}
               </span>
             </div>
@@ -377,7 +377,7 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
                     type="button"
                     onClick={header.column.getToggleSortingHandler()}
                     className={cn(
-                      'flex min-h-[var(--touch-target)] w-full min-w-0 items-center gap-1 px-2 font-display text-[0.68rem] font-semibold tracking-[0.06em] uppercase outline-none',
+                      'flex min-h-[var(--touch-target)] w-full min-w-0 items-center gap-1 px-2 font-display text-xs font-semibold tracking-[0.06em] uppercase outline-none',
                       'text-muted-foreground hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
                       col?.align === 'end' && 'justify-end',
                       dir && 'text-accent-neon hover:text-accent-neon',
@@ -385,7 +385,7 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
                   >
                     <span className="truncate">{col?.header ?? header.column.id}</span>
                     {dir && (
-                      <span aria-hidden="true" className="shrink-0 text-[0.6rem]">
+                      <span aria-hidden="true" className="shrink-0 text-xs">
                         {dir === 'asc' ? '▲' : '▼'}
                       </span>
                     )}
@@ -607,7 +607,7 @@ function RowCheckbox({
       <span
         aria-hidden="true"
         className={cn(
-          'flex size-3.5 items-center justify-center border text-[0.6rem] leading-none',
+          'flex size-3.5 items-center justify-center border text-xs leading-none',
           checked
             ? 'border-accent-neon bg-accent-neon text-background'
             : 'border-muted-foreground/60 group-hover/cb:border-foreground group-aria-selected/row:border-primary-foreground/70',

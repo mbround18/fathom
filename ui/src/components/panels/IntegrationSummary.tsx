@@ -69,7 +69,7 @@ export function IntegrationSummary({
               >
                 {t.value}
               </div>
-              <div className="font-display text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+              <div className="font-display text-xs tracking-wider text-muted-foreground uppercase">
                 {t.label}
               </div>
             </div>
@@ -110,7 +110,7 @@ export function IntegrationSummary({
               <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-xs">{r.primary}</div>
                 {r.secondary && (
-                  <div className="truncate text-[0.7rem] text-muted-foreground">{r.secondary}</div>
+                  <div className="truncate text-xs text-muted-foreground">{r.secondary}</div>
                 )}
               </div>
             </div>

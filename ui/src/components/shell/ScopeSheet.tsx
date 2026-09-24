@@ -32,7 +32,10 @@ export function ScopeChip() {
         /
       </span>
       <span className="min-w-0 truncate">{namespace ?? 'all'}</span>
-      <CaretDownIcon aria-hidden="true" className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+      <CaretDownIcon
+        aria-hidden="true"
+        className="ml-auto size-3.5 shrink-0 text-muted-foreground"
+      />
     </button>
   )
 }

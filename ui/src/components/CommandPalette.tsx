@@ -4,6 +4,7 @@
  * Pure presentation + selection wiring; all candidate-building/ranking logic lives in
  * `@/resources/paletteIndex` (unit-tested there per constitution III).
  */
+import { useFocusReturn } from '@/lib/use-focus-return'
 import { useMemo, useState } from 'react'
 
 import {
@@ -59,6 +60,7 @@ function groupByCategory(results: readonly PaletteResult[]) {
 }
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+  const returnFocus = useFocusReturn(open)
   const [query, setQuery] = useState('')
   const lists = useStore((s) => s.lists)
   const activeContext = useStore((s) => s.session.activeContext)
@@ -111,6 +113,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   return (
     <CommandDialog
       className="sm:max-w-[600px]"
+      onCloseAutoFocus={returnFocus}
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next)

@@ -95,7 +95,7 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
     >
       <header className="flex h-[max(2rem,var(--touch-target))] shrink-0 items-center gap-2 border-b border-border bg-card px-2">
         {slotIndex !== undefined && (
-          <span aria-hidden="true" className="text-[0.65rem] text-accent-neon">
+          <span aria-hidden="true" className="text-xs text-accent-neon">
             {String(slotIndex + 1).padStart(2, '0')}
           </span>
         )}

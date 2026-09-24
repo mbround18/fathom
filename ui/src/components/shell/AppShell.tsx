@@ -42,6 +42,13 @@ export function AppShell() {
       data-width-class={widthClass}
       className="grain flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground"
     >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-1 focus:left-1 focus:z-[100] focus:border focus:border-accent-neon focus:bg-background focus:px-3 focus:py-2 focus:text-xs focus:text-accent-neon"
+      >
+        Skip to main content
+      </a>
+      <h1 className="sr-only">Fathom</h1>
       <TopBar widthClass={widthClass} />
       <div className="flex w-full shrink-0 items-center">
         <div className="min-w-0 flex-1">
@@ -49,7 +56,7 @@ export function AppShell() {
         </div>
         <ClusterVersionBadge />
       </div>
-      <main className="flex min-h-0 flex-1 flex-col">
+      <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
         {widthClass === 'phone' ? (
           <PhoneStack />
         ) : widthClass === 'tablet' ? (

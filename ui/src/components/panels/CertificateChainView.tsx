@@ -43,7 +43,7 @@ export function CertificateChainView({ chain }: { chain: CertificateChain }) {
               {st.is_stuck && <span className="ml-2 text-status-err">STUCK</span>}
             </div>
             {st.is_stuck && (st.reason || st.message) && (
-              <div className="text-[0.7rem] text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 {[st.reason, st.message].filter(Boolean).join(': ')}
               </div>
             )}

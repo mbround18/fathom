@@ -156,7 +156,7 @@ function PortForwardRowItem({
           {service && (
             <span
               data-testid="port-forward-origin-service"
-              className="rounded-sm bg-muted px-1 py-0.5 text-[0.65rem] text-muted-foreground uppercase"
+              className="rounded-sm bg-muted px-1 py-0.5 text-xs text-muted-foreground uppercase"
             >
               via {service}
             </span>
@@ -171,7 +171,7 @@ function PortForwardRowItem({
       <div className="flex items-center gap-2">
         <label
           htmlFor={`port-forward-auto-start-${pf.id}`}
-          className="flex items-center gap-1.5 text-[0.65rem] text-muted-foreground uppercase"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground uppercase"
         >
           <Checkbox
             id={`port-forward-auto-start-${pf.id}`}
