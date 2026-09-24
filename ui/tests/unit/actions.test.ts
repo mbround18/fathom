@@ -77,8 +77,8 @@ async function pendingIds(n: number): Promise<number[]> {
 }
 
 describe('descriptor actions (T094)', () => {
-  it('pods: delete only; one row → DeletePod, several → one BulkDelete naming each', () => {
-    expect(pods.actions.map((a) => a.id)).toEqual(['delete'])
+  it('pods: delete + debug; one row → DeletePod, several → one BulkDelete naming each', () => {
+    expect(pods.actions.map((a) => a.id)).toEqual(['delete', 'debug'])
     expect(podDelete.plan([P1], {})).toEqual([
       { cmd: { type: 'DeletePod', data: { namespace: P1.namespace, name: P1.name } }, rows: [P1] },
     ])

@@ -143,6 +143,7 @@ export function podDetails(pod: Pick<PodSummary, 'namespace' | 'name' | 'node'>)
       {
         name: app,
         is_init: false,
+        is_ephemeral: false,
         image: `registry.example.com/${app}:1.4.2`,
         ready: true,
         state: { phase: 'running', reason: null, exit_code: null, started_at: null, finished_at: null },
@@ -171,6 +172,7 @@ export function podDetailsWithLifecycle(
     {
       name: 'init-migrate',
       is_init: true,
+      is_ephemeral: false,
       image: 'registry.example.com/migrate:1.0.0',
       ready: false,
       state: {
@@ -188,6 +190,7 @@ export function podDetailsWithLifecycle(
     {
       name: 'init-verify',
       is_init: true,
+      is_ephemeral: false,
       image: 'registry.example.com/verify:1.0.0',
       ready: false,
       state: {
@@ -205,6 +208,7 @@ export function podDetailsWithLifecycle(
     {
       name: app,
       is_init: false,
+      is_ephemeral: false,
       image: `registry.example.com/${app}:1.4.2`,
       ready: false,
       state: { phase: 'running', reason: null, exit_code: null, started_at: '2026-09-20T08:15:05Z', finished_at: null },
@@ -250,6 +254,7 @@ export function podDetailsWithLifecycle(
     {
       name: 'sidecar',
       is_init: false,
+      is_ephemeral: false,
       image: 'registry.example.com/sidecar:1.0.0',
       ready: true,
       state: { phase: 'running', reason: null, exit_code: null, started_at: '2026-09-20T08:15:05Z', finished_at: null },

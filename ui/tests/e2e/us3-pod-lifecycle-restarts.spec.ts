@@ -54,6 +54,7 @@ test.describe('US3 pod lifecycle: restart history', () => {
         {
           name: 'batch-job',
           is_init: false,
+          is_ephemeral: false,
           image: 'registry.example.com/batch:1.0.0',
           ready: false,
           state: {

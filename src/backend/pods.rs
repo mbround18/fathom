@@ -139,7 +139,7 @@ pub(super) async fn add_ephemeral_container(
             let suffix = k8s_openapi::chrono::Utc::now()
                 .timestamp_nanos_opt()
                 .unwrap_or(0) as u64;
-            format!("debugger-{:x}", suffix & 0xffff_ff)
+            format!("debugger-{:x}", suffix & 0x00ff_ffff)
         });
 
     let patch = ephemeral_container_patch(&name, image, &target_container);

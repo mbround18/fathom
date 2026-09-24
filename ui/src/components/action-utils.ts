@@ -26,6 +26,15 @@ export function parseReplicas(text: string): number | undefined {
   return Number.isSafeInteger(n) && n <= MAX_REPLICAS ? n : undefined
 }
 
+/** The irreversibility warning shown by the debug-container dialog (025, FR-013). */
+export const EPHEMERAL_WARNING =
+  'Ephemeral containers cannot be removed once added and will persist for the life of the pod.'
+
+/** Enabled once an image is entered and a target container is resolved. */
+export function debugInputValid(image: string, target: string | undefined): boolean {
+  return image.trim().length > 0 && (target?.trim().length ?? 0) > 0
+}
+
 const NO_KEYS: readonly string[] = []
 
 /** Rows of `rows` whose key is in the pane's multi-select, in list order. */

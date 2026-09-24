@@ -250,6 +250,40 @@ export function podLifecycleDetail(context: FixtureContext, pod: PodSummary, seq
   ])
 }
 
+/** `SelectPod` reply after a debug container was added (025): one ephemeral entry, `waiting`. */
+export function podDetailWithDebugContainer(
+  context: FixtureContext,
+  pod: PodSummary,
+  name: string,
+  image: string,
+  seq = 60,
+): EventBatch {
+  const base = podDetails(pod)
+  return batch([
+    read(seq, nsRoute(context, SECTIONS.pods, pod.namespace), {
+      type: 'PodDetailsUpdated',
+      data: {
+        ...base,
+        containers_lifecycle: [
+          ...base.containers_lifecycle,
+          {
+            name,
+            is_init: false,
+            is_ephemeral: true,
+            image,
+            ready: false,
+            state: { phase: 'waiting', reason: null, exit_code: null, started_at: null, finished_at: null },
+            restart_count: 0,
+            last_state: null,
+            probes: [],
+            hooks: [],
+          },
+        ],
+      },
+    }),
+  ])
+}
+
 /** Cluster events batch matching `podLifecycleDetail`'s probe/hook failure fixtures. */
 export function podLifecycleEvents(
   pod: PodSummary,
