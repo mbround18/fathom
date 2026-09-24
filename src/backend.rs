@@ -38,6 +38,7 @@ mod metrics;
 mod metrics_provider;
 mod networkpolicies;
 mod nodes;
+pub mod oidc;
 pub mod persistence;
 mod pods;
 mod portforward;
