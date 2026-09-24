@@ -39,6 +39,12 @@ pub(super) async fn handle(
             federation::unfederate(state, sender, &context);
         }
         BackendCmd::RequestFederationSnapshot => federation::snapshot(state, sender),
+        // 036-incluster-daemon: handlers land with the client phase (T020/T050).
+        BackendCmd::SetDaemonPreference { .. }
+        | BackendCmd::RefreshDaemon { .. }
+        | BackendCmd::RequestDaemonTimeline { .. }
+        | BackendCmd::RequestDaemonTopology { .. }
+        | BackendCmd::RequestDaemonMetrics { .. } => {}
         BackendCmd::SetContext { context } => set_context(state, sender, context).await?,
         BackendCmd::RefreshNamespaces => sync::refresh_namespaces(state, sender).await?,
         BackendCmd::RefreshNodes => nodes::refresh_nodes(state, sender).await,

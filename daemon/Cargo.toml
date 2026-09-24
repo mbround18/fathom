@@ -1,0 +1,29 @@
+[package]
+name = "fathom-daemon"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[[bin]]
+name = "fathom-daemon"
+path = "src/main.rs"
+
+[dependencies]
+# Shared protocol/backend lib WITHOUT the legacy egui UI (036 research R3).
+fathom = { path = "..", default-features = false }
+axum = "0.8"
+tokio = { version = "1.49.0", features = ["full"] }
+kube = { version = "2.0.1", features = ["runtime"] }
+k8s-openapi = { version = "0.26.1", features = ["v1_34"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+anyhow = "1.0.100"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tower-test = "0.4"
+
+[lints.clippy]
+too_many_lines = "warn"
+cognitive_complexity = "warn"

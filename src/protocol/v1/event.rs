@@ -361,6 +361,32 @@ pub enum SystemEvent {
         combined: crate::protocol::v1::FederationCombinedRollup,
     },
 
+    /// 036-incluster-daemon: per-context daemon status, routed globally like `ContextStatusUpdated`.
+    DaemonStatusUpdated {
+        context: String,
+        status: crate::protocol::v1::DaemonStatus,
+    },
+    /// 036: batched (<= 200 / 250 ms) timeline entries tagged with the stream session so
+    /// superseded sessions are discarded.
+    DaemonEventsBatch {
+        context: String,
+        session: u64,
+        events: Vec<crate::protocol::v1::DaemonTimelineEntry>,
+        truncated: Option<crate::protocol::v1::TruncationMarker>,
+    },
+    /// 036: topology snapshot/delta from the daemon.
+    DaemonTopologyUpdated {
+        context: String,
+        session: u64,
+        delta: crate::protocol::v1::TopologyDelta,
+    },
+    /// 036: metric series from the daemon.
+    DaemonMetricsUpdated {
+        context: String,
+        session: u64,
+        series: Vec<crate::protocol::v1::MetricSeries>,
+    },
+
     /// 037-node-shell: reply to `CheckNodeShellAccess`. Overall access is "every check allowed".
     NodeShellAccessChecked {
         namespace: String,

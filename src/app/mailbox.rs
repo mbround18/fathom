@@ -154,6 +154,10 @@ impl FathomApp {
                     | SystemEvent::FleetSummaryUpdated(..)
                     | SystemEvent::FederationStateUpdated { .. }
                     | SystemEvent::FederationRollupUpdated { .. }
+                    | SystemEvent::DaemonStatusUpdated { .. }
+                    | SystemEvent::DaemonEventsBatch { .. }
+                    | SystemEvent::DaemonTopologyUpdated { .. }
+                    | SystemEvent::DaemonMetricsUpdated { .. }
                     | SystemEvent::NodeShellAccessChecked { .. }
                     | SystemEvent::NodeShellStatus { .. }
                     | SystemEvent::NodeShellOrphans { .. }

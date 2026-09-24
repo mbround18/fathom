@@ -10,6 +10,8 @@ import type { ConnectionProfile } from "./ConnectionProfile";
 import type { ContextConnectionStatus } from "./ContextConnectionStatus";
 import type { CrdCatalogEntry } from "./CrdCatalogEntry";
 import type { CredentialMigrationOutcome } from "./CredentialMigrationOutcome";
+import type { DaemonStatus } from "./DaemonStatus";
+import type { DaemonTimelineEntry } from "./DaemonTimelineEntry";
 import type { DiskUsage } from "./DiskUsage";
 import type { FederationCombinedRollup } from "./FederationCombinedRollup";
 import type { FederationContextRollup } from "./FederationContextRollup";
@@ -21,6 +23,7 @@ import type { HelmMutationPreviewReady } from "./HelmMutationPreviewReady";
 import type { HubbleTrafficSummary } from "./HubbleTrafficSummary";
 import type { IdpDirectorySnapshot } from "./IdpDirectorySnapshot";
 import type { LoginFlow } from "./LoginFlow";
+import type { MetricSeries } from "./MetricSeries";
 import type { MetricsStackScanResult } from "./MetricsStackScanResult";
 import type { NodeShellAccessCheck } from "./NodeShellAccessCheck";
 import type { NodeShellPhase } from "./NodeShellPhase";
@@ -39,6 +42,8 @@ import type { ProviderStatus } from "./ProviderStatus";
 import type { TeamLink } from "./TeamLink";
 import type { TeamPublishRejection } from "./TeamPublishRejection";
 import type { TeamStoreStatus } from "./TeamStoreStatus";
+import type { TopologyDelta } from "./TopologyDelta";
+import type { TruncationMarker } from "./TruncationMarker";
 import type { UiConfig } from "./UiConfig";
 
 export type SystemEvent = { "type": "BackendStarted" } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
@@ -76,7 +81,7 @@ available: Array<ConnectionProfile>, } } | { "type": "OrgClusterSettingsAvailabl
  * The literal command an external MCP client should launch to attach to this
  * Fathom installation over stdio (FR-007).
  */
-connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } } | { "type": "FleetSummaryUpdated", "data": FleetContextSummary } | { "type": "FederationStateUpdated", "data": { federated: Array<string>, soft_cap: number, over_cap: boolean, } } | { "type": "FederationRollupUpdated", "data": { context: FederationContextRollup, combined: FederationCombinedRollup, } } | { "type": "NodeShellAccessChecked", "data": { namespace: string, checks: Array<NodeShellAccessCheck>, } } | { "type": "NodeShellStatus", "data": { session_id: number, phase: NodeShellPhase, node: string, namespace: string, pod: string, 
+connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } } | { "type": "FleetSummaryUpdated", "data": FleetContextSummary } | { "type": "FederationStateUpdated", "data": { federated: Array<string>, soft_cap: number, over_cap: boolean, } } | { "type": "FederationRollupUpdated", "data": { context: FederationContextRollup, combined: FederationCombinedRollup, } } | { "type": "DaemonStatusUpdated", "data": { context: string, status: DaemonStatus, } } | { "type": "DaemonEventsBatch", "data": { context: string, session: number, events: Array<DaemonTimelineEntry>, truncated: TruncationMarker | null, } } | { "type": "DaemonTopologyUpdated", "data": { context: string, session: number, delta: TopologyDelta, } } | { "type": "DaemonMetricsUpdated", "data": { context: string, session: number, series: Array<MetricSeries>, } } | { "type": "NodeShellAccessChecked", "data": { namespace: string, checks: Array<NodeShellAccessCheck>, } } | { "type": "NodeShellStatus", "data": { session_id: number, phase: NodeShellPhase, node: string, namespace: string, pod: string, 
 /**
  * Verbatim API error, pod condition or waiting reason.
  */

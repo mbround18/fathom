@@ -1972,6 +1972,26 @@ fn all_cmds() -> Vec<BackendCmd> {
             context: "dev".to_owned(),
         },
         BackendCmd::RequestFederationSnapshot,
+        BackendCmd::SetDaemonPreference {
+            context: "dev".to_owned(),
+            mode: DaemonMode::Auto,
+        },
+        BackendCmd::RefreshDaemon {
+            context: "dev".to_owned(),
+        },
+        BackendCmd::RequestDaemonTimeline {
+            context: "dev".to_owned(),
+            limit: 100,
+        },
+        BackendCmd::RequestDaemonTopology {
+            context: "dev".to_owned(),
+        },
+        BackendCmd::RequestDaemonMetrics {
+            context: "dev".to_owned(),
+            uid: "u1".to_owned(),
+            metric: MetricKind::Cpu,
+            range_secs: 3600,
+        },
         BackendCmd::CheckNodeShellAccess {
             namespace: "default".to_owned(),
         },
@@ -2248,6 +2268,11 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::FederateContext { .. } => {}
         BackendCmd::UnfederateContext { .. } => {}
         BackendCmd::RequestFederationSnapshot => {}
+        BackendCmd::SetDaemonPreference { .. } => {}
+        BackendCmd::RefreshDaemon { .. } => {}
+        BackendCmd::RequestDaemonTimeline { .. } => {}
+        BackendCmd::RequestDaemonTopology { .. } => {}
+        BackendCmd::RequestDaemonMetrics { .. } => {}
     }
 }
 
@@ -2443,6 +2468,81 @@ fn all_system_events() -> Vec<SystemEvent> {
             federated: vec!["dev".to_owned()],
             soft_cap: 8,
             over_cap: false,
+        },
+        SystemEvent::DaemonStatusUpdated {
+            context: "dev".to_owned(),
+            status: DaemonStatus {
+                context: "dev".to_owned(),
+                state: DaemonState::NoAccess,
+                detail: Some("forbidden".to_owned()),
+                capabilities: None,
+                last_event_at: None,
+                next_retry_at: Some("2026-09-24T00:00:00Z".to_owned()),
+            },
+        },
+        SystemEvent::DaemonEventsBatch {
+            context: "dev".to_owned(),
+            session: 3,
+            events: vec![DaemonTimelineEntry {
+                seq: 1,
+                time: "2026-09-24T00:00:00Z".to_owned(),
+                event: DerivedControllerEvent {
+                    origin: DerivedOrigin::Raw,
+                    kind: "Pod".to_owned(),
+                    namespace: Some("default".to_owned()),
+                    name: "p".to_owned(),
+                    uid: "u".to_owned(),
+                    category: DerivedCategory::Event,
+                    severity: DerivedSeverity::Warning,
+                    reason: "BackOff".to_owned(),
+                    message: "back-off".to_owned(),
+                    repeat: 1,
+                },
+            }],
+            truncated: Some(TruncationMarker {
+                oldest_seq: 1,
+                oldest_time: "2026-09-24T00:00:00Z".to_owned(),
+                dropped: 2,
+                reason: TruncationReason::CursorTooOld,
+            }),
+        },
+        SystemEvent::DaemonTopologyUpdated {
+            context: "dev".to_owned(),
+            session: 3,
+            delta: TopologyDelta {
+                seq: 4,
+                added: vec![TopologyNode {
+                    uid: "u".to_owned(),
+                    kind: "Pod".to_owned(),
+                    namespace: None,
+                    name: "p".to_owned(),
+                    health: TopologyHealth::Ok,
+                }],
+                removed: vec!["x".to_owned()],
+                edges: EdgeDelta {
+                    added: vec![TopologyEdge {
+                        from: "a".to_owned(),
+                        to: "b".to_owned(),
+                        relation: TopologyRelation::Owns,
+                    }],
+                    removed: vec![],
+                },
+            },
+        },
+        SystemEvent::DaemonMetricsUpdated {
+            context: "dev".to_owned(),
+            session: 3,
+            series: vec![MetricSeries {
+                key: SeriesKey {
+                    object_uid: "u".to_owned(),
+                    metric: MetricKind::Memory,
+                },
+                samples: vec![DaemonMetricSample {
+                    time: "2026-09-24T00:00:00Z".to_owned(),
+                    value: 1.0,
+                }],
+                truncated_oldest_time: None,
+            }],
         },
         SystemEvent::FederationRollupUpdated {
             context: sample_federation_rollup(),
@@ -2677,6 +2777,10 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::FleetSummaryUpdated(..) => {}
         SystemEvent::FederationStateUpdated { .. } => {}
         SystemEvent::FederationRollupUpdated { .. } => {}
+        SystemEvent::DaemonStatusUpdated { .. } => {}
+        SystemEvent::DaemonEventsBatch { .. } => {}
+        SystemEvent::DaemonTopologyUpdated { .. } => {}
+        SystemEvent::DaemonMetricsUpdated { .. } => {}
         SystemEvent::NodeShellAccessChecked { .. } => {}
         SystemEvent::NodeShellStatus { .. } => {}
         SystemEvent::NodeShellOrphans { .. } => {}

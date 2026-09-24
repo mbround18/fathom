@@ -951,6 +951,33 @@ pub enum BackendCmdV1 {
     },
     /// Re-emit the federated set and every current rollup (sent on UI mount).
     RequestFederationSnapshot,
+
+    // 036-incluster-daemon: optional in-cluster daemon (see `specs/036-incluster-daemon`).
+    /// Persist the per-context preference; probe when `Auto`, tear down the stream when `Off`.
+    SetDaemonPreference {
+        context: String,
+        mode: crate::protocol::v1::DaemonMode,
+    },
+    /// Manual re-probe (resets backoff).
+    RefreshDaemon {
+        context: String,
+    },
+    /// Return the already-buffered client-side timeline (no new server call).
+    RequestDaemonTimeline {
+        context: String,
+        limit: u32,
+    },
+    /// Re-emit the current topology snapshot for `context`.
+    RequestDaemonTopology {
+        context: String,
+    },
+    /// Fetch a metric series for one object over the last `range_secs`.
+    RequestDaemonMetrics {
+        context: String,
+        uid: String,
+        metric: crate::protocol::v1::MetricKind,
+        range_secs: u64,
+    },
 }
 
 /// Direction of a `TaintNode` mutation.

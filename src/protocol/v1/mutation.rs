@@ -253,6 +253,11 @@ impl BackendCmdV1 {
             | C::FederateContext { .. }
             | C::UnfederateContext { .. }
             | C::RequestFederationSnapshot
+            | C::SetDaemonPreference { .. }
+            | C::RefreshDaemon { .. }
+            | C::RequestDaemonTimeline { .. }
+            | C::RequestDaemonTopology { .. }
+            | C::RequestDaemonMetrics { .. }
             // 037-node-shell: persists per-context settings only.
             | C::SetNodeShellSettings { .. }
             // 035-cloud-auth-plugins: persists a per-context exec policy only.
@@ -370,6 +375,11 @@ impl BackendCmdV1 {
             | C::FederateContext { .. }
             | C::UnfederateContext { .. }
             | C::RequestFederationSnapshot
+            | C::SetDaemonPreference { .. }
+            | C::RefreshDaemon { .. }
+            | C::RequestDaemonTimeline { .. }
+            | C::RequestDaemonTopology { .. }
+            | C::RequestDaemonMetrics { .. }
             | C::SaveUiConfig { .. }
             | C::ApplyResourceYaml { .. }
             // Agent SDK Ops (013): not tied to one existing UI section (a conversation
