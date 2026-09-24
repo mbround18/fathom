@@ -67,6 +67,7 @@ mod poddisruptionbudgets;
 mod priorityclasses;
 mod rbac_access;
 mod resourcequotas;
+mod role_assignment;
 mod rolebindings;
 mod roles;
 mod runtimeclasses;

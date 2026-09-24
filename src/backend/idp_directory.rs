@@ -169,7 +169,6 @@ pub struct DirectoryCache {
 }
 
 impl DirectoryCache {
-    #[allow(dead_code)] // consumed by the US4 role-assignment picker
     pub fn snapshot(&self, issuer_id: &str) -> Option<IdpDirectorySnapshot> {
         self.snapshots.lock().ok()?.get(issuer_id).cloned()
     }

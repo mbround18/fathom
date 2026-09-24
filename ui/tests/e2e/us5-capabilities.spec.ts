@@ -2,7 +2,7 @@
  * T030 (033 US5): mutating controls follow the identity's real permissions. Allowed controls are
  * enabled, denied ones are disabled with the API server's reason, unverifiable checks fail closed.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { genDeployments } from '../fixtures/gen-pods'
 import { check, DEPLOYMENTS, open, row, showList } from './helpers'
@@ -15,13 +15,13 @@ interface FakeHandle {
   setCapabilities(config: unknown): void
 }
 
-async function configure(page: import('@playwright/test').Page, config: unknown) {
+async function configure(page: Page, config: unknown) {
   await page.evaluate((c) => {
     ;(window as unknown as { __fathomFake: FakeHandle }).__fathomFake.setCapabilities(c)
   }, config)
 }
 
-async function select(page: import('@playwright/test').Page) {
+async function select(page: Page) {
   await showList(page, DEPLOYMENTS, 'Deployments')
   await expect(row(page, KEY, DEPLOYMENTS)).toBeVisible()
   await check(page, KEY, DEPLOYMENTS)

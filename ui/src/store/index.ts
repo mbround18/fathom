@@ -9,6 +9,7 @@ import { create } from 'zustand'
 
 import { initialIdentityState, type IdentityState } from '@/features/identity/state'
 import { initialTeamsState, type TeamsState } from '@/features/teams/state'
+import { initialRolesState, type RolesState } from '@/features/roles/state'
 import { resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
@@ -529,6 +530,8 @@ export interface StoreData {
   identity: IdentityState
   /** 033 US3: IdP directory snapshots, admin-key presence and advisory team links. */
   teams: TeamsState
+  /** 033 US4: role-assignment preview, orphaned subjects, IdP directory cache. */
+  roles: RolesState
   /** Helm release uninstalls (006 US3), by `namespace/release`. */
   helmUninstalls: Record<string, HelmUninstallState>
   /**
@@ -830,6 +833,7 @@ export function initialData(): StoreData {
     team: { adopted: [], available: [] },
     identity: initialIdentityState(),
     teams: initialTeamsState(),
+    roles: initialRolesState(),
     rbacAccess: {},
     helmUninstalls: {},
     helmMutations: {},

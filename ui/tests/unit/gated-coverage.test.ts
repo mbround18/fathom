@@ -14,7 +14,7 @@ const SRC = join(__dirname, '../../src')
 
 /** Test hooks that name a control which mutates the cluster (or gates a mutation). */
 const MUTATING =
-  /^(action-|bulk-|node-action-(?!cancel|error)|port-forward-(action|restart)|helm-(release-uninstall|upgrade-apply)|rbac-binding-(create|edit)-open|yaml-apply(?!-status|-error)|teams-publish-profile)/
+  /^(action-|bulk-|node-action-(?!cancel|error)|port-forward-(action|restart)|helm-(release-uninstall|upgrade-apply)|rbac-binding-(create|edit)-open|role-assignment-open|yaml-apply(?!-status|-error)|teams-publish-profile)/
 
 /** Mutating-sounding hooks that touch no cluster object (with the reason). */
 const NOT_CLUSTER_MUTATING: Record<string, string> = {
@@ -36,6 +36,7 @@ const REQUIRED = [
   'helm-release-uninstall',
   'helm-upgrade-apply',
   'rbac-binding-create-open',
+  'role-assignment-open',
   'rbac-binding-edit-open',
   'yaml-apply',
   'teams-publish-profile',

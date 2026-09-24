@@ -1,6 +1,7 @@
 /** `BackendEvent::System` arm: session, notifications, integrations, persisted UI config. */
 import { reduceIdentity } from '@/features/identity/state'
 import { reduceTeams } from '@/features/teams/state'
+import { reduceRoles } from '@/features/roles/state'
 import { resolveProfile } from '@/layout/defaults'
 import { ingestCapabilityChecked, ingestCapabilitySet, resetCapabilities } from '@/lib/capabilities'
 import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
@@ -384,10 +385,20 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
 
-    case 'IdpDirectoryUpdated':
     case 'IdpAdminKeyStatus':
     case 'TeamLinksUpdated': {
       reduceTeams(d.edit('teams'), event)
+      return
+    }
+    case 'IdpDirectoryUpdated': {
+      // Feeds both the Teams directory and the role-assignment subject picker.
+      reduceTeams(d.edit('teams'), event)
+      reduceRoles(d.edit('roles'), event)
+      return
+    }
+    case 'RoleAssignmentPreview':
+    case 'OrphanedSubjectsUpdated': {
+      reduceRoles(d.edit('roles'), event)
       return
     }
 
