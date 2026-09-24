@@ -46,16 +46,16 @@
 
 ### Tests first (fail before implementation)
 
-- [ ] T015 [P] [A] [US1] `server/src/csrf.rs` tests+impl: origin exact-match, `Sec-Fetch-Site`, CSRF header compare (constant time), return-path open-redirect rejection. Files: `server/src/csrf.rs`.
-- [ ] T016 [P] [A] [US1] `server/src/session.rs` tests+impl: id generation, idle/absolute expiry (tokio paused time), sweeper, sign-out, per-user session cap. Files: `server/src/session.rs`.
+- [x] T015 [P] [A] [US1] `server/src/csrf.rs` tests+impl: origin exact-match, `Sec-Fetch-Site`, CSRF header compare (constant time), return-path open-redirect rejection. Files: `server/src/csrf.rs`.
+- [x] T016 [P] [A] [US1] `server/src/session.rs` tests+impl: id generation, idle/absolute expiry (tokio paused time), sweeper, sign-out, per-user session cap. Files: `server/src/session.rs`.
 - [ ] T017 [P] [B] [US1] `server/src/filter.rs` tests+impl: exhaustive table classifying every `BackendCmdV1` variant hosted-allowed/denied (denies kind, kubeconfig, contexts, MCP, fleet, local paths, `SetContext` != home). Files: `server/src/filter.rs`, `src/protocol/v1/mutation.rs` (helper only).
 - [ ] T018 [P] [B] [US1] `server/src/limits.rs` tests+impl: per-user/global counters, RAII guards, `LimitReached` reporting. Files: `server/src/limits.rs`.
 - [ ] T019 [P] [B] [US1] `server/src/kubeauth.rs` tests+impl: `TokenCell`, tower auth layer setting bearer per request, impersonation headers (user + groups), `Config::incluster()` builder, token never in `Debug`/logs (secrecy). Files: `server/src/kubeauth.rs`.
-- [ ] T020 [P] [A] [US1] `server/src/config.rs` tests+impl: parse/validate `HostedConfig` (https external URL, claim/prefix defaults, exit codes 2/3, no bind before discovery). Files: `server/src/config.rs`.
+- [x] T020 [P] [A] [US1] `server/src/config.rs` tests+impl: parse/validate `HostedConfig` (https external URL, claim/prefix defaults, exit codes 2/3, no bind before discovery). Files: `server/src/config.rs`.
 
 ### Implementation
 
-- [ ] T021 [A] [US1] `server/src/oidc.rs`: discovery at startup (fail closed), auth-code + PKCE `S256`, state/nonce, ID-token validation, claim -> `Identity` mapping (configurable username/groups claims, missing-groups error), refresh-token grant with rotation, RP-initiated logout URL, custom CA, reqwest-backed HTTP client. Depends on T020. Files: `server/src/oidc.rs`.
+- [x] T021 [A] [US1] `server/src/oidc.rs`: discovery at startup (fail closed), auth-code + PKCE `S256`, state/nonce, ID-token validation, claim -> `Identity` mapping (configurable username/groups claims, missing-groups error), refresh-token grant with rotation, RP-initiated logout URL, custom CA, reqwest-backed HTTP client. Depends on T020. Files: `server/src/oidc.rs`.
 - [ ] T022 [A] [US1] Mock-IdP integration tests in `server/tests/oidc_flow.rs` (local JWKS server): happy path, bad `state`, bad `nonce`, wrong `aud`, expired token, refresh success, `invalid_grant`. Depends on T021.
 - [ ] T023 [B] [US1] `server/src/tenant.rs`: `UserBackend` create/reuse by `user_key`, `HostedAccess` `ClusterAccess` impl (home `in-cluster`, refuses other contexts, no kubeconfig, no `try_default` fallback), `spawn_backend_with`, runtime `worker_threads=2`, idle park, teardown/abort on session end, fan-out hub (max tabs). Depends on T009, T012, T017-T019.
 - [ ] T024 [B] [US1] Refresh task + stream recycle in `server/src/tenant.rs` (`server/src/refresh.rs`): 75%-lifetime renewal swaps `TokenCell`; permanent failure or grace exceeded emits `SessionEnded` and aborts backend; watch/log stream recycle every `streamRecycleMinutes`; `revalidateSeconds` probe. Tests with paused time and mock IdP. Depends on T021, T023.
