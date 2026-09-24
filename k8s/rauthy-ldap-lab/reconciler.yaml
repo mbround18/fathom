@@ -1,0 +1,46 @@
+# Runs every 5 minutes; also `kubectl -n ldap-lab create job --from=cronjob/group-reconciler r1`.
+# Needs Secret rauthy-group-writer (key `api-key` = "name$secret") created by register-provider.sh.
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: group-reconciler}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: reconciler
+              image: alpine:3.20
+              command: ["/bin/sh", "-c", "apk add --no-cache -q curl jq openldap-clients && sh /scripts/reconciler.sh"]
+              env:
+                - {name: LDAP_URL, value: "ldap://openldap.ldap-lab.svc.cluster.local:389"}
+                - {name: LDAP_ADMIN_PASSWORD, value: adminpw-lab}
+                - name: RAUTHY_API_KEY
+                  valueFrom: {secretKeyRef: {name: rauthy-group-writer, key: api-key, optional: true}}
+              volumeMounts: [{name: scripts, mountPath: /scripts}]
+          volumes:
+            - name: scripts
+              configMap: {name: reconciler-script}
+---
+# Seeds users/groups with ldapadd (the image's own custom-ldif hook failed with status 68).
+# Idempotent: `-c` continues past "already exists" entries. Re-run with a new job name if needed.
+apiVersion: batch/v1
+kind: Job
+metadata: {name: ldap-seed}
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: alpine:3.20
+          command: ["/bin/sh", "-c", "apk add --no-cache -q openldap-clients && until ldapadd -c -x -H ldap://openldap.ldap-lab.svc.cluster.local:389 -D cn=admin,dc=fathom,dc=test -w adminpw-lab -f /seed/seed.ldif; rc=$?; [ $rc -eq 0 ] || [ $rc -eq 68 ]; do sleep 3; done"]
+          volumeMounts: [{name: seed, mountPath: /seed}]
+      volumes:
+        - name: seed
+          configMap: {name: ldap-seed}

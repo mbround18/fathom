@@ -64,6 +64,9 @@ jobs:
       - name: Rustfmt
         run: cargo fmt --check
 
+      - name: No LDAP crate (spec 033)
+        run: scripts/check-no-ldap.sh
+
   test:
     name: Test
     runs-on: ubuntu-latest

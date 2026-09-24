@@ -1,0 +1,46 @@
+# Lab only. Base DN dc=fathom,dc=test (created by the image). Password for all users: FathomDemo#2026-Pw1
+dn: ou=people,dc=fathom,dc=test
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=fathom,dc=test
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=dave,ou=people,dc=fathom,dc=test
+objectClass: inetOrgPerson
+uid: dave
+cn: Dave Ldap
+sn: Ldap
+givenName: Dave
+mail: dave@fathom.test
+userPassword: FathomDemo#2026-Pw1
+
+dn: uid=erin,ou=people,dc=fathom,dc=test
+objectClass: inetOrgPerson
+uid: erin
+cn: Erin Ldap
+sn: Ldap
+givenName: Erin
+mail: erin@fathom.test
+userPassword: FathomDemo#2026-Pw1
+
+dn: uid=frank,ou=people,dc=fathom,dc=test
+objectClass: inetOrgPerson
+uid: frank
+cn: Frank Ldap
+sn: Ldap
+givenName: Frank
+mail: frank@fathom.test
+userPassword: FathomDemo#2026-Pw1
+
+dn: cn=fathom-editors,ou=groups,dc=fathom,dc=test
+objectClass: groupOfNames
+cn: fathom-editors
+member: uid=dave,ou=people,dc=fathom,dc=test
+
+dn: cn=fathom-viewers,ou=groups,dc=fathom,dc=test
+objectClass: groupOfNames
+cn: fathom-viewers
+member: uid=erin,ou=people,dc=fathom,dc=test
+member: uid=dave,ou=people,dc=fathom,dc=test

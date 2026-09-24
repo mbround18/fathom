@@ -69,9 +69,9 @@
 
 ## Phase 8: US6 LDAP federation (P3)
 
-- [ ] T044 [US6] `k8s/rauthy-ldap-lab/` kustomize: OpenLDAP with seed users/groups + Dex LDAP connector, ingress, no object storage
-- [ ] T045 [US6] Document and script Rauthy upstream-provider registration and group mapping; reconciler job manifest is the default path unless a live probe shows Rauthy upstream mapping/SCIM covers it (no Fathom code)
-- [ ] T046 [US6] CI guard: `cargo tree` must contain no LDAP crate; live validation per quickstart section 5
+- [x] T044 [US6] `k8s/rauthy-ldap-lab/` kustomize: OpenLDAP with seed users/groups + Dex LDAP connector, ingress, no object storage
+- [x] T045 [US6] Document and script Rauthy upstream-provider registration and group mapping; reconciler job manifest is the default path unless a live probe shows Rauthy upstream mapping/SCIM covers it (no Fathom code)
+- [x] T046 [US6] CI guard: `cargo tree` must contain no LDAP crate; live validation per quickstart section 5
 
 ## Phase 9: Polish
 
