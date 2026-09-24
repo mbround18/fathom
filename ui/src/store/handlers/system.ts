@@ -16,6 +16,7 @@ import {
 } from '../helmMutation'
 import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice } from '../index'
 import { RingBuffer } from '../ring-buffer'
+import { applyFederationRollup, applyFederationState } from './federation'
 import { applyFleetSummary } from './fleet'
 import { rowId } from './list'
 
@@ -128,6 +129,14 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
 
     case 'FleetSummaryUpdated':
       applyFleetSummary(d, event.data)
+      return
+
+    case 'FederationStateUpdated':
+      applyFederationState(d, event.data)
+      return
+
+    case 'FederationRollupUpdated':
+      applyFederationRollup(d, event.data)
       return
 
     case 'NamespaceFilterChanged': {

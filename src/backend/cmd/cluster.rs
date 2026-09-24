@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    context_status, deployments, events, fleet, integrations, kube, metrics, nodes, pods, sync,
+    context_status, deployments, events, federation, fleet, integrations, kube, metrics, nodes,
+    pods, sync,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, ContextConnectionStatus, Correlation,
@@ -33,6 +34,11 @@ pub(super) async fn handle(
         }
         BackendCmd::StartFleetPolling => fleet::start_polling(state, sender),
         BackendCmd::StopFleetPolling => fleet::stop_polling(state),
+        BackendCmd::FederateContext { context } => federation::federate(state, sender, context),
+        BackendCmd::UnfederateContext { context } => {
+            federation::unfederate(state, sender, &context);
+        }
+        BackendCmd::RequestFederationSnapshot => federation::snapshot(state, sender),
         BackendCmd::SetContext { context } => set_context(state, sender, context).await?,
         BackendCmd::RefreshNamespaces => sync::refresh_namespaces(state, sender).await?,
         BackendCmd::RefreshNodes => nodes::refresh_nodes(state, sender).await,
@@ -99,6 +105,9 @@ async fn initialize(
         state.cluster.current_context.clone(),
         sender,
     );
+
+    // 034: reconnect the persisted federated set (no-op when empty).
+    federation::restore(state, sender);
 
     events::notify_info(
         state.cluster.seq.as_ref(),

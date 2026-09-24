@@ -57,6 +57,10 @@ pub struct FleetContextSummary {
     pub restricted: Vec<String>,
     /// ISO8601 timestamp.
     pub last_updated: String,
+    /// 034: true when this summary comes from the context's live federation tier rather than
+    /// the 027 poller. Additive; absent in older payloads.
+    #[serde(default)]
+    pub live: bool,
 }
 
 /// Reduce a `FluxOverview` into the fleet card's single-value rollup status.

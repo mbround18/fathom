@@ -19,6 +19,7 @@ function pending(context: string): FleetContextSummary {
     flux: null,
     restricted: [],
     last_updated: '',
+    live: false,
   }
 }
 

@@ -23,6 +23,7 @@ test('fleet dashboard shows both contexts without switching the active one', asy
     flux: null,
     restricted: [],
     last_updated: '2026-09-23T00:00:00Z',
+    live: false,
     cluster_version: 'v1.31',
   }
   await emit(
@@ -85,6 +86,7 @@ test('restricted group shows "no access"; clicking a card switches and closes th
           flux: null,
           restricted: ['pods'],
           last_updated: new Date().toISOString(),
+          live: false,
           cluster_version: 'v1.31',
           node_ready_count: 3,
           node_total_count: 3,

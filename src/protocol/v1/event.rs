@@ -340,6 +340,19 @@ pub enum SystemEvent {
     /// `.context` on receipt.
     FleetSummaryUpdated(crate::protocol::v1::FleetContextSummary),
 
+    /// 034-simultaneous-federation: the federated set changed (or a snapshot was requested).
+    FederationStateUpdated {
+        federated: Vec<String>,
+        soft_cap: u32,
+        over_cap: bool,
+    },
+    /// 034-simultaneous-federation: one federated context's counters changed (debounced),
+    /// with the recomputed combined rollup.
+    FederationRollupUpdated {
+        context: crate::protocol::v1::FederationContextRollup,
+        combined: crate::protocol::v1::FederationCombinedRollup,
+    },
+
     /// 037-node-shell: reply to `CheckNodeShellAccess`. Overall access is "every check allowed".
     NodeShellAccessChecked {
         namespace: String,

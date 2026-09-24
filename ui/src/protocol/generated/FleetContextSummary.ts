@@ -22,4 +22,9 @@ restricted: Array<string>,
 /**
  * ISO8601 timestamp.
  */
-last_updated: string, };
+last_updated: string, 
+/**
+ * 034: true when this summary comes from the context's live federation tier rather than
+ * the 027 poller. Additive; absent in older payloads.
+ */
+live: boolean, };

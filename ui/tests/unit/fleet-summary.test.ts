@@ -24,6 +24,7 @@ const summary = (context: string, over: Partial<FleetContextSummary> = {}): Flee
   flux: null,
   restricted: [],
   last_updated: '2026-09-23T00:00:00Z',
+  live: false,
   ...over,
 })
 

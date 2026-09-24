@@ -932,6 +932,19 @@ pub enum BackendCmdV1 {
     /// Sent when the Fleet Dashboard view unmounts. Aborts every running fleet poller and
     /// clears the summary cache (also invoked from `cleanup_all_tasks()` on shutdown).
     StopFleetPolling,
+
+    // 034-simultaneous-federation: an opt-in set of contexts held live simultaneously.
+    // Never touches the active context. See `src/backend/federation.rs`.
+    /// Add `context` to the federated set: validate it exists, persist, spawn its live tier.
+    FederateContext {
+        context: String,
+    },
+    /// Remove `context` from the federated set: abort its tasks, drop its client, persist.
+    UnfederateContext {
+        context: String,
+    },
+    /// Re-emit the federated set and every current rollup (sent on UI mount).
+    RequestFederationSnapshot,
 }
 
 /// Direction of a `TaintNode` mutation.
@@ -1475,5 +1488,16 @@ mod tests {
     fn fleet_cmd_roundtrips() {
         roundtrip(BackendCmdV1::StartFleetPolling);
         roundtrip(BackendCmdV1::StopFleetPolling);
+    }
+
+    #[test]
+    fn federation_cmd_roundtrips() {
+        roundtrip(BackendCmdV1::FederateContext {
+            context: "dev".to_owned(),
+        });
+        roundtrip(BackendCmdV1::UnfederateContext {
+            context: "dev".to_owned(),
+        });
+        roundtrip(BackendCmdV1::RequestFederationSnapshot);
     }
 }

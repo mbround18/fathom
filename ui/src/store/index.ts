@@ -54,6 +54,8 @@ import type {
 } from '@/protocol/types'
 
 import { descriptorFor } from '@/resources'
+
+import { initialFederation, type FederationSlice } from './handlers/federation'
 import type { ObjectRef } from '@/resources/types'
 
 import {
@@ -164,6 +166,8 @@ export interface SessionState {
   /** 027-fleet-rollup-dashboard: latest poll summary per context; runtime-only, populated only
    * while the Fleet Dashboard is open. Last write per context wins. */
   fleetSummaries: Record<string, FleetContextSummary>
+  /** 034-simultaneous-federation: the live federated set and its rollups (backend-owned). */
+  federation: FederationSlice
 }
 
 type RowOf<T> = T extends readonly (infer R)[] ? R : T extends { events: (infer E)[] } ? E : never
@@ -628,6 +632,10 @@ export interface StoreState extends StoreData {
   /** 027: start/stop the backend's view-scoped fleet pollers (Fleet Dashboard mount/unmount). */
   startFleetPolling: () => void
   stopFleetPolling: () => void
+  /** 034: add/remove a context to the live federated set; re-request state on mount. */
+  federateContext: (context: string) => void
+  unfederateContext: (context: string) => void
+  requestFederationSnapshot: () => void
   /** Sends `SetNamespaceFilter` (`null` = all namespaces). */
   selectNamespace: (ns: string | null) => void
   /** Sends the section's `Refresh*` command and marks its list loading. */
@@ -849,6 +857,7 @@ export function initialData(): StoreData {
       namespaceFilter: [],
       contextStatuses: {},
       fleetSummaries: {},
+      federation: initialFederation(),
     },
     lists: {},
     details: {},
@@ -1034,6 +1043,10 @@ export const useStore = create<StoreState>()((set, get) => ({
     s.send({ type: 'StopFleetPolling' })
     set({ session: { ...s.session, fleetSummaries: {} } })
   },
+
+  federateContext: (context) => get().send({ type: 'FederateContext', data: { context } }),
+  unfederateContext: (context) => get().send({ type: 'UnfederateContext', data: { context } }),
+  requestFederationSnapshot: () => get().send({ type: 'RequestFederationSnapshot' }),
 
   selectContext: (name) => {
     const s = get()

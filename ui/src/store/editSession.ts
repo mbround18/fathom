@@ -56,7 +56,10 @@ export interface ResourceEditSession {
   requestId?: number
 }
 
-function parseField<T>(raw: string, pick: (v: Record<string, unknown>) => T | undefined): T | undefined {
+function parseField<T>(
+  raw: string,
+  pick: (v: Record<string, unknown>) => T | undefined,
+): T | undefined {
   try {
     const value: unknown = JSON.parse(raw)
     if (typeof value !== 'object' || value === null) return undefined
@@ -78,9 +81,7 @@ function parseResourceVersion(raw: string): string {
 }
 
 function parseApiVersion(raw: string): string {
-  return (
-    parseField(raw, (v) => (typeof v.apiVersion === 'string' ? v.apiVersion : undefined)) ?? ''
-  )
+  return parseField(raw, (v) => (typeof v.apiVersion === 'string' ? v.apiVersion : undefined)) ?? ''
 }
 
 /** A fresh session for `ref`, seeded from the same `raw_json` the read-only YAML tab rendered. */

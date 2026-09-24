@@ -151,6 +151,8 @@ impl FathomApp {
                     | SystemEvent::McpDemoChatEnded { .. }
                     | SystemEvent::McpDemoChatNotDetected { .. }
                     | SystemEvent::FleetSummaryUpdated(..)
+                    | SystemEvent::FederationStateUpdated { .. }
+                    | SystemEvent::FederationRollupUpdated { .. }
                     | SystemEvent::NodeShellAccessChecked { .. }
                     | SystemEvent::NodeShellStatus { .. }
                     | SystemEvent::NodeShellOrphans { .. }

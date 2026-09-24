@@ -43,12 +43,7 @@ function tagPortForwardOrigins(d: Draft, rows: readonly PortForward[]): void {
   let nextOrigins: Record<string, { service: string }> | undefined
   for (const row of rows) {
     if (row.id in origins) continue
-    const key = pendingPortForwardOriginKey(
-      row.namespace,
-      row.pod,
-      row.local_port,
-      row.remote_port,
-    )
+    const key = pendingPortForwardOriginKey(row.namespace, row.pod, row.local_port, row.remote_port)
     const service = (nextPending ?? pending)[key]
     if (service === undefined) continue
     nextOrigins ??= { ...origins }
