@@ -116,14 +116,10 @@ impl OidcClient {
         cfg: &HostedConfig,
         http: reqwest::Client,
     ) -> Result<Self, OidcError> {
-        let issuer = IssuerUrl::new(
-            cfg.oidc
-                .issuer
-                .to_string()
-                .trim_end_matches('/')
-                .to_string(),
-        )
-        .map_err(|e| OidcError::Discovery(e.to_string()))?;
+        // Verbatim: the discovery document's `issuer` must equal this exactly, trailing slash
+        // included (Rauthy's has none, some IdPs' do). Never normalized.
+        let issuer = IssuerUrl::new(cfg.oidc.issuer_raw.clone())
+            .map_err(|e| OidcError::Discovery(e.to_string()))?;
         let h = http.clone();
         let meta = ProviderMetadataWithLogout::discover_async(issuer, &move |r: HttpRequest| {
             let h = h.clone();

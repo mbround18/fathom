@@ -76,6 +76,8 @@ pub struct Session {
     pub created_at: Instant,
     pub last_seen: Instant,
     pub absolute_deadline: Instant,
+    /// Successful token refreshes so far (exposed as `refreshCount` in `/api/session`).
+    pub refresh_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +173,7 @@ impl SessionStore {
                 created_at: now,
                 last_seen: now,
                 absolute_deadline: now + self.cfg.absolute,
+                refresh_count: 0,
             };
             map.insert(s.id.clone(), s.clone());
             s
@@ -224,6 +227,7 @@ impl SessionStore {
         match self.inner.lock().unwrap().get_mut(id) {
             Some(s) => {
                 s.tokens = tokens;
+                s.refresh_count += 1;
                 true
             }
             None => false,

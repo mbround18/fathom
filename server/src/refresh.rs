@@ -18,6 +18,7 @@ use fathom::protocol::SessionEndReason;
 use secrecy::SecretString;
 use tokio::time::{Instant, sleep_until};
 
+use crate::config::KubeTokenKind;
 use crate::kubeauth::TokenCell;
 use crate::oidc::{OidcClient, OidcError};
 use crate::session::{EndReason, SessionStore, Tokens};
@@ -88,6 +89,8 @@ pub struct RefreshParams {
     pub refresh_token: Option<SecretString>,
     pub expires_at: Instant,
     pub cell: TokenCell,
+    /// Which token the Kubernetes API server validates (`FATHOM_KUBE_TOKEN`).
+    pub kube_token: KubeTokenKind,
     pub store: Arc<SessionStore>,
     pub refresher: Arc<dyn TokenRefresher>,
     pub backend: Arc<dyn BackendControl>,
@@ -150,10 +153,11 @@ async fn run(mut p: RefreshParams) {
             Ok(tokens) => {
                 failing_since = None;
                 let remaining = tokens.expires_at.saturating_duration_since(Instant::now());
-                if let Err(e) = p
-                    .cell
-                    .set(&tokens.id_token, Some(SystemTime::now() + remaining))
-                {
+                let bearer = match p.kube_token {
+                    KubeTokenKind::Id => &tokens.id_token,
+                    KubeTokenKind::Access => &tokens.access_token,
+                };
+                if let Err(e) = p.cell.set(bearer, Some(SystemTime::now() + remaining)) {
                     tracing::warn!("refreshed token unusable: {e}");
                     return end(&p, EndReason::Revoked);
                 }
@@ -274,6 +278,7 @@ mod tests {
             refresh_token: t0.refresh_token,
             expires_at: t0.expires_at,
             cell: cell.clone(),
+            kube_token: KubeTokenKind::Id,
             store: Arc::clone(&store),
             refresher: fake.clone(),
             backend: backend.clone(),

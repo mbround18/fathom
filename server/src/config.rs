@@ -28,6 +28,8 @@ pub enum KubeTokenKind {
 #[derive(Debug, Clone)]
 pub struct OidcConfig {
     pub issuer: Url,
+    /// The configured issuer string, verbatim (`Url` would add a `/` to a bare host).
+    pub issuer_raw: String,
     pub client_id: String,
     pub client_secret: Option<SecretString>,
     pub scopes: Vec<String>,
@@ -42,30 +44,7 @@ pub struct ClaimsConfig {
     pub groups_prefix: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct SessionLimits {
-    pub max_sessions: usize,
-    pub max_sessions_per_user: usize,
-    pub max_watches_per_user: usize,
-    pub max_streams_per_user: usize,
-    pub max_tabs_per_user: usize,
-    pub stream_recycle_minutes: u64,
-    pub idle_park_minutes: u64,
-}
-
-impl Default for SessionLimits {
-    fn default() -> Self {
-        Self {
-            max_sessions: 50,
-            max_sessions_per_user: 3,
-            max_watches_per_user: 30,
-            max_streams_per_user: 10,
-            max_tabs_per_user: 5,
-            stream_recycle_minutes: 4,
-            idle_park_minutes: 10,
-        }
-    }
-}
+pub use crate::limits::SessionLimits;
 
 #[derive(Debug, Clone)]
 pub struct HostedConfig {
@@ -78,6 +57,10 @@ pub struct HostedConfig {
     pub limits: SessionLimits,
     pub session_absolute: Duration,
     pub session_idle: Duration,
+    /// How long an unreachable IdP is tolerated before a session ends (`refreshGraceSeconds`).
+    pub refresh_grace: Duration,
+    /// Upper bound between token refreshes, doubling as the revocation probe (`revalidateSeconds`).
+    pub revalidate: Duration,
     pub state_dir: PathBuf,
     pub ui_dir: PathBuf,
     pub listen: String,
@@ -136,15 +119,18 @@ fn parse_secs(
     }
 }
 
-fn parse_num(name: &'static str, v: Option<String>, default: usize) -> Result<usize, ConfigError> {
+fn parse_num<T>(name: &'static str, v: Option<String>, default: T) -> Result<T, ConfigError>
+where
+    T: std::str::FromStr + PartialEq + From<u8>,
+{
     match v {
         None => Ok(default),
         Some(s) => {
-            let n: usize = s
+            let n: T = s
                 .trim()
                 .parse()
                 .map_err(|_| invalid(name, "expected a number"))?;
-            if n == 0 {
+            if n == T::from(0u8) {
                 Err(invalid(name, "must be > 0"))
             } else {
                 Ok(n)
@@ -226,7 +212,7 @@ impl HostedConfig {
         let scopes = {
             let s = list(get("FATHOM_OIDC_SCOPES"));
             if s.is_empty() {
-                ["openid", "profile", "email", "offline_access", "groups"]
+                ["openid", "profile", "email", "groups"]
                     .map(String::from)
                     .to_vec()
             } else if !s.iter().any(|x| x == "openid") {
@@ -293,19 +279,20 @@ impl HostedConfig {
             stream_recycle_minutes: parse_num(
                 "FATHOM_LIMIT_STREAM_RECYCLE_MINUTES",
                 get("FATHOM_LIMIT_STREAM_RECYCLE_MINUTES"),
-                d.stream_recycle_minutes as usize,
-            )? as u64,
+                d.stream_recycle_minutes,
+            )?,
             idle_park_minutes: parse_num(
                 "FATHOM_LIMIT_IDLE_PARK_MINUTES",
                 get("FATHOM_LIMIT_IDLE_PARK_MINUTES"),
-                d.idle_park_minutes as usize,
-            )? as u64,
+                d.idle_park_minutes,
+            )?,
         };
 
         Ok(Self {
             external_url,
             oidc: OidcConfig {
                 issuer,
+                issuer_raw: issuer_raw.trim().to_owned(),
                 client_id,
                 client_secret,
                 scopes,
@@ -332,6 +319,16 @@ impl HostedConfig {
                 get("FATHOM_SESSION_IDLE"),
                 Duration::from_secs(30 * 60),
             )?,
+            refresh_grace: parse_secs(
+                "FATHOM_REFRESH_GRACE_SECONDS",
+                get("FATHOM_REFRESH_GRACE_SECONDS"),
+                Duration::from_secs(120),
+            )?,
+            revalidate: parse_secs(
+                "FATHOM_REVALIDATE_SECONDS",
+                get("FATHOM_REVALIDATE_SECONDS"),
+                Duration::from_secs(60),
+            )?,
             state_dir: get("FATHOM_STATE_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| "/var/lib/fathom".into()),
@@ -353,8 +350,8 @@ impl HostedConfig {
         SessionConfig {
             absolute: self.session_absolute,
             idle: self.session_idle,
-            max_sessions: self.limits.max_sessions,
-            max_sessions_per_user: self.limits.max_sessions_per_user,
+            max_sessions: self.limits.max_sessions as usize,
+            max_sessions_per_user: self.limits.max_sessions_per_user as usize,
         }
     }
 }
@@ -388,15 +385,58 @@ mod tests {
         assert_eq!(c.claims.groups, "groups");
         assert_eq!(c.access_model, AccessModel::PassThrough);
         assert_eq!(c.kube_token, KubeTokenKind::Id);
-        assert_eq!(
-            c.oidc.scopes,
-            ["openid", "profile", "email", "offline_access", "groups"]
-        );
+        assert_eq!(c.oidc.scopes, ["openid", "profile", "email", "groups"]);
         assert_eq!(c.session_absolute, Duration::from_secs(8 * 3600));
         assert_eq!(c.session_idle, Duration::from_secs(1800));
         assert_eq!(c.limits.max_sessions, 50);
         assert_eq!(c.listen, "0.0.0.0:8080");
         assert_eq!(c.redirect_uri(), "https://fathom.example.com/auth/callback");
+    }
+
+    #[test]
+    fn issuer_is_not_normalized() {
+        // OIDC issuer matching is exact: a trailing slash is significant.
+        for issuer in [
+            "https://idp.example.com/auth/v1",
+            "https://idp.example.com/auth/v1/",
+        ] {
+            let mut m = base();
+            m.insert("FATHOM_OIDC_ISSUER", issuer.into());
+            assert_eq!(parse(&m, false).unwrap().oidc.issuer_raw, issuer);
+        }
+    }
+
+    #[test]
+    fn offline_access_is_only_requested_when_configured() {
+        assert!(
+            !parse(&base(), false)
+                .unwrap()
+                .oidc
+                .scopes
+                .contains(&"offline_access".into())
+        );
+        let mut m = base();
+        m.insert("FATHOM_OIDC_SCOPES", "openid,groups,offline_access".into());
+        let c = parse(&m, false).unwrap();
+        assert_eq!(c.oidc.scopes, ["openid", "groups", "offline_access"]);
+    }
+
+    #[test]
+    fn refresh_settings_default_and_override() {
+        let c = parse(&base(), false).unwrap();
+        assert_eq!(c.refresh_grace, Duration::from_secs(120));
+        assert_eq!(c.revalidate, Duration::from_secs(60));
+        assert_eq!(c.limits.stream_recycle_minutes, 4);
+        let mut m = base();
+        m.insert("FATHOM_REFRESH_GRACE_SECONDS", "30".into());
+        m.insert("FATHOM_REVALIDATE_SECONDS", "15".into());
+        m.insert("FATHOM_LIMIT_STREAM_RECYCLE_MINUTES", "2".into());
+        let c = parse(&m, false).unwrap();
+        assert_eq!(c.refresh_grace, Duration::from_secs(30));
+        assert_eq!(c.revalidate, Duration::from_secs(15));
+        assert_eq!(c.limits.stream_recycle_minutes, 2);
+        m.insert("FATHOM_REFRESH_GRACE_SECONDS", "0".into());
+        assert!(parse(&m, false).is_err());
     }
 
     #[test]

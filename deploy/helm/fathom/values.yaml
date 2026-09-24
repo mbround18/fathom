@@ -25,11 +25,15 @@ limits:
   maxSessionsPerUser: 3
   maxWatchesPerUser: 30
   maxStreamsPerUser: 10
+  maxTabsPerUser: 5
+  streamRecycleMinutes: 4
 audit:
   viewerGroups: []
 session:
   absolute: ""
   idle: ""
+  refreshGraceSeconds: 120   # tolerate an unreachable IdP this long before ending sessions
+  revalidateSeconds: 60      # max interval between token refreshes (revocation probe)
 persistence:
   enabled: false
   size: 1Gi

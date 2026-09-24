@@ -10,7 +10,7 @@ in `src/protocol/v1/` (ts-rs generated). Nothing below is persisted except Audit
 | `external_url` | Url (https) | Origin for cookies/CSRF/redirect URI `<external>/auth/callback`. |
 | `oidc.issuer` | Url | Discovery must succeed at startup or the process exits non-zero (FR-014). |
 | `oidc.client_id` / `client_secret` | String / SecretString | Secret from env/mounted file, never logged. |
-| `oidc.scopes` | Vec<String> | default `openid profile email offline_access groups`. |
+| `oidc.scopes` | Vec<String> | default `openid profile email groups`. `offline_access` is NOT requested unless configured (Rauthy has no such scope but issues refresh tokens anyway; requesting it from an IdP that does not advertise it is an error). Add it explicitly for IdPs that require it (Keycloak). The issuer string is used verbatim and must match the IdP's `issuer` exactly, including any trailing slash (never normalized). |
 | `oidc.ca_file` | Option<Path> | Custom CA (kind overlay). |
 | `claims.username` / `claims.groups` | String | defaults `preferred_username` / `groups`. |
 | `claims.username_prefix` / `groups_prefix` | String | must match API server flags in pass-through. |

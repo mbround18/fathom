@@ -7,7 +7,8 @@
 `FATHOM_CLAIM_USERNAME`, `FATHOM_CLAIM_GROUPS`, `FATHOM_USERNAME_PREFIX`, `FATHOM_GROUPS_PREFIX`,
 `FATHOM_ACCESS_MODEL=passthrough|impersonation`, `FATHOM_KUBE_TOKEN=id|access`,
 `FATHOM_AUDIT_VIEWER_GROUPS`, `FATHOM_LIMIT_*`, `FATHOM_SESSION_ABSOLUTE`, `FATHOM_SESSION_IDLE`,
-`FATHOM_STATE_DIR`, `FATHOM_UI_DIR` (default `/ui`), `FATHOM_LISTEN` (default `0.0.0.0:8080`).
+`FATHOM_REFRESH_GRACE_SECONDS` (default 120), `FATHOM_REVALIDATE_SECONDS` (default 60),
+`FATHOM_LIMIT_STREAM_RECYCLE_MINUTES` (default 4), `FATHOM_STATE_DIR`, `FATHOM_UI_DIR` (default `/ui`), `FATHOM_LISTEN` (default `0.0.0.0:8080`).
 Exit codes: 2 = invalid config, 3 = OIDC discovery failed (both print an actionable message, and
 no port is bound).
 

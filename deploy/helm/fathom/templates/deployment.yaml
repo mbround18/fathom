@@ -65,6 +65,18 @@ spec:
             - {name: FATHOM_LIMIT_MAX_SESSIONS_PER_USER, value: {{ .Values.limits.maxSessionsPerUser | quote }}}
             - {name: FATHOM_LIMIT_MAX_WATCHES_PER_USER, value: {{ .Values.limits.maxWatchesPerUser | quote }}}
             - {name: FATHOM_LIMIT_MAX_STREAMS_PER_USER, value: {{ .Values.limits.maxStreamsPerUser | quote }}}
+            {{- with .Values.limits.maxTabsPerUser }}
+            - {name: FATHOM_LIMIT_MAX_TABS_PER_USER, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.limits.streamRecycleMinutes }}
+            - {name: FATHOM_LIMIT_STREAM_RECYCLE_MINUTES, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.session.refreshGraceSeconds }}
+            - {name: FATHOM_REFRESH_GRACE_SECONDS, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.session.revalidateSeconds }}
+            - {name: FATHOM_REVALIDATE_SECONDS, value: {{ . | quote }}}
+            {{- end }}
             {{- with .Values.session.absolute }}
             - {name: FATHOM_SESSION_ABSOLUTE, value: {{ . | quote }}}
             {{- end }}

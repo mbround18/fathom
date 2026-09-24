@@ -16,6 +16,10 @@ pub struct SessionLimits {
     pub max_watches_per_user: u32,
     pub max_streams_per_user: u32,
     pub max_tabs_per_user: u32,
+    /// Log/watch stream recycle interval (`streamRecycleMinutes`).
+    pub stream_recycle_minutes: u64,
+    /// Idle time with no tabs before a backend is parked (`idleParkMinutes`).
+    pub idle_park_minutes: u64,
 }
 
 impl Default for SessionLimits {
@@ -26,6 +30,8 @@ impl Default for SessionLimits {
             max_watches_per_user: 30,
             max_streams_per_user: 10,
             max_tabs_per_user: 5,
+            stream_recycle_minutes: 4,
+            idle_park_minutes: 10,
         }
     }
 }
@@ -198,6 +204,7 @@ mod tests {
             max_watches_per_user: 2,
             max_streams_per_user: 1,
             max_tabs_per_user: 2,
+            ..Default::default()
         }
     }
 

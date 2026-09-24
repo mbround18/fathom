@@ -74,6 +74,16 @@ pub struct AppState {
 impl AppState {
     pub fn new(cfg: Arc<HostedConfig>, oidc: Arc<OidcClient>, host: Arc<dyn TenantHost>) -> Self {
         let sessions = SessionStore::new(cfg.session_config());
+        Self::with_sessions(cfg, oidc, host, sessions)
+    }
+
+    /// Like [`AppState::new`] with a session store shared with the host.
+    pub fn with_sessions(
+        cfg: Arc<HostedConfig>,
+        oidc: Arc<OidcClient>,
+        host: Arc<dyn TenantHost>,
+        sessions: SessionStore,
+    ) -> Self {
         let origin: Arc<str> = csrf::origin_of(&cfg.external_url).into();
         Self {
             cfg,
@@ -329,6 +339,7 @@ async fn api_session(State(app): State<AppState>, headers: HeaderMap) -> Respons
             AccessModel::Impersonation => "impersonation",
         },
         "mode": "hosted",
+        "refreshCount": s.refresh_count,
         "limits": {
             "maxWatches": l.max_watches_per_user,
             "maxStreams": l.max_streams_per_user,
