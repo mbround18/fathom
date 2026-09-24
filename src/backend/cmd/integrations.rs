@@ -5,7 +5,7 @@ use crossbeam_channel::Sender;
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
 use crate::backend::state::BackendState;
 use crate::backend::{
-    cert_manager, events, flux, gatekeeper, hubble, integrations, metrics_provider, velero,
+    cert_manager, events, flux, gatekeeper, hubble, integrations, metrics_provider, trivy, velero,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SectionKey, SystemEvent,
@@ -43,6 +43,7 @@ pub(super) async fn handle(
         BackendCmd::TestGrafanaConnection { base_url, api_key } => {
             test_grafana_connection(state, sender, &base_url, &api_key).await;
         }
+        BackendCmd::RefreshTrivyOverview => refresh_trivy(state, sender).await,
         BackendCmd::RefreshIntegrations => refresh_integrations(state, sender).await,
         BackendCmd::RefreshFlux => refresh_flux(state, sender).await,
         BackendCmd::RefreshGatekeeper => refresh_gatekeeper(state, sender).await,
@@ -338,6 +339,32 @@ async fn refresh_cert_manager(state: &BackendState, sender: &Sender<BackendEvent
                 "Failed to scan cluster for cert-manager Certificates: {}",
                 e
             ),
+        ),
+    }
+}
+
+async fn refresh_trivy(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match trivy::scan_trivy(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_vulnerabilities(),
+            context,
+            SystemEvent::TrivyOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for Trivy reports: {}", e),
         ),
     }
 }

@@ -22,6 +22,7 @@ import { PROTOCOL_VERSION, type BackendEventEnvelope, type EventBatch } from '@/
 import { Draft } from './draft'
 import { handleAgentConversation } from './handlers/agent'
 import { handleImageInspect } from './handlers/imageInspect'
+import { handlePodVulnInspect } from './handlers/podVulnInspect'
 import { handleList } from './handlers/list'
 import { handleRbacAccess } from './handlers/rbacAccess'
 import { handleRead, readKeyOf } from './handlers/read'
@@ -92,6 +93,13 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
         event.data.type === 'ContainerImageInspectFailed'
       ) {
         handleImageInspect(d, event.data)
+        return
+      }
+      if (
+        event.data.type === 'PodVulnerabilitiesInspected' ||
+        event.data.type === 'PodVulnerabilitiesInspectFailed'
+      ) {
+        handlePodVulnInspect(d, event.data)
         return
       }
       // 013-agent-sdk-ops: same problem — `{object, conversation}` carries no top-level

@@ -27,6 +27,9 @@ import type {
   FluxOverview,
   GatekeeperOverview,
     VeleroOverview,
+    PodVulnerabilityInspection,
+    TrivyOverview,
+    VulnInspectError,
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
@@ -187,6 +190,8 @@ export interface ListState {
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
   | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
+  // 021-trivy-vulnerability-pane: keyed by namespace/pod, routed to `handlePodVulnInspect`.
+  | { type: 'PodVulnerabilitiesInspected' | 'PodVulnerabilitiesInspectFailed' }
   | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
 >
 
@@ -325,6 +330,13 @@ export interface HelmUninstallState {
  * no local setter; `ImageInspectPanel` only ever reads this and sends `InspectContainerImage`
  * on mount/container-change (never eagerly, FR-003).
  */
+/** 021-trivy-vulnerability-pane: one Pod's vulnerability inspection, keyed `${namespace}/${pod}`. */
+export interface PodVulnInspectState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  data?: PodVulnerabilityInspection
+  error?: VulnInspectError
+}
+
 export interface ImageInspectState {
   status: 'loading' | 'ready' | 'error'
   inspection?: ImageInspection
@@ -483,6 +495,8 @@ export interface StoreData {
   gatekeeper: { overview?: GatekeeperOverview }
   velero: { overview?: VeleroOverview }
   certManager: { overview?: CertManagerOverview; chain?: CertificateChain }
+  /** 021-trivy-vulnerability-pane: cluster-wide Trivy Operator summary. */
+  trivy: { overview?: TrivyOverview }
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -493,6 +507,8 @@ export interface StoreData {
    * `${namespace}/${pod}/${container}`. See `ImageInspectState`.
    */
   imageInspections: Record<string, ImageInspectState>
+  /** Pod vulnerability inspections by `${namespace}/${pod}` (021-trivy-vulnerability-pane). */
+  podVulnInspections: Record<string, PodVulnInspectState>
   /**
    * 013-agent-sdk-ops: per-object assistant conversations, keyed by
    * `${kind}/${namespace}/${name}` (matches the backend's `conversation_key`). Driven entirely
@@ -623,6 +639,10 @@ export interface StoreState extends StoreData {
   refreshCertManager: () => void
   /** Sends `SelectCertificateChain` (resolves one Certificate's lifecycle chain). */
   selectCertificateChain: (namespace: string, name: string) => void
+  /** Sends `RefreshTrivyOverview` (rescans Trivy reports; also polled every 20s). */
+  refreshTrivyOverview: () => void
+  /** Sends `InspectPodVulnerabilities` and marks the Pod's slice loading. */
+  inspectPodVulnerabilities: (namespace: string, pod: string) => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -846,11 +866,13 @@ export function initialData(): StoreData {
     gatekeeper: {},
     velero: {},
     certManager: {},
+    trivy: {},
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
     nodeActions: {},
     imageInspections: {},
+    podVulnInspections: {},
     agentConversations: {},
     agentAuth: {},
     team: { adopted: [], available: [] },
@@ -1070,6 +1092,18 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshCertManager: () => get().send({ type: 'RefreshCertManager' }),
   selectCertificateChain: (namespace, name) =>
     get().send({ type: 'SelectCertificateChain', data: { namespace, name } }),
+
+  refreshTrivyOverview: () => get().send({ type: 'RefreshTrivyOverview' }),
+
+  inspectPodVulnerabilities: (namespace, pod) => {
+    set((s) => ({
+      podVulnInspections: {
+        ...s.podVulnInspections,
+        [`${namespace}/${pod}`]: { status: 'loading' },
+      },
+    }))
+    get().send({ type: 'InspectPodVulnerabilities', data: { namespace, pod } })
+  },
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 

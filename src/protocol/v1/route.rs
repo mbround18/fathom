@@ -306,6 +306,11 @@ pub mod section_keys {
         SectionKey::new("integrations/certificate-chain")
     }
 
+    /// 021-trivy-vulnerability-pane: the cluster-wide Trivy Operator vulnerability summary.
+    pub fn integrations_vulnerabilities() -> SectionKey {
+        SectionKey::new("integrations/vulnerabilities")
+    }
+
     pub fn network_portforwards() -> SectionKey {
         SectionKey::new("network/portforwards")
     }

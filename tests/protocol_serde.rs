@@ -14,6 +14,52 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+fn sample_severity_summary() -> SeveritySummary {
+    SeveritySummary {
+        critical: 1,
+        high: 2,
+        medium: 3,
+        low: 4,
+        unknown: 5,
+    }
+}
+
+fn sample_pod_vuln_inspection() -> PodVulnerabilityInspection {
+    PodVulnerabilityInspection {
+        namespace: "s".to_owned(),
+        pod: "s".to_owned(),
+        owner_kind: "Deployment".to_owned(),
+        owner_name: "web".to_owned(),
+        summary: sample_severity_summary(),
+        top_findings: vec![VulnerabilityFinding {
+            cve_id: "CVE-2024-0001".to_owned(),
+            severity: Severity::Critical,
+            package: "openssl".to_owned(),
+            installed_version: "1.0".to_owned(),
+            fixed_version: Some("1.1".to_owned()),
+            score: Some(9.8),
+            container: "app".to_owned(),
+            image: "img:1".to_owned(),
+        }],
+        total_findings: 15,
+        generated_at: "2026-01-01T00:00:00Z".to_owned(),
+    }
+}
+
+fn sample_trivy_overview() -> TrivyOverview {
+    TrivyOverview {
+        installed: true,
+        forbidden: false,
+        workloads: vec![WorkloadVulnSummary {
+            namespace: "s".to_owned(),
+            kind: "Deployment".to_owned(),
+            name: "web".to_owned(),
+            summary: sample_severity_summary(),
+            image_count: 2,
+        }],
+    }
+}
+
 fn sample_route() -> Route {
     Route::namespaced(
         section_keys::workloads_pods(),
@@ -1610,6 +1656,11 @@ fn all_cmds() -> Vec<BackendCmd> {
         BackendCmd::SelectIngressClass {
             name: "s".to_owned(),
         },
+        BackendCmd::RefreshTrivyOverview,
+        BackendCmd::InspectPodVulnerabilities {
+            namespace: "s".to_owned(),
+            pod: "s".to_owned(),
+        },
         BackendCmd::RefreshNetworkPolicies,
         BackendCmd::SelectNetworkPolicy {
             namespace: "s".to_owned(),
@@ -2037,6 +2088,8 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RestartDaemonSet { .. } => {}
         BackendCmd::DeleteDaemonSet { .. } => {}
         BackendCmd::RefreshStatefulSets => {}
+        BackendCmd::RefreshTrivyOverview => {}
+        BackendCmd::InspectPodVulnerabilities { .. } => {}
         BackendCmd::SelectStatefulSet { .. } => {}
         BackendCmd::ScaleStatefulSet { .. } => {}
         BackendCmd::RestartStatefulSet { .. } => {}
@@ -2241,6 +2294,7 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
+        SystemEvent::TrivyOverviewUpdated(sample_trivy_overview()),
         SystemEvent::ClusterVersionUpdated(sample_cluster_version_summary()),
         SystemEvent::GatekeeperOverviewUpdated(Default::default()),
         SystemEvent::VeleroOverviewUpdated(fathom::protocol::VeleroOverview {
@@ -2429,6 +2483,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
+        SystemEvent::TrivyOverviewUpdated(..) => {}
         SystemEvent::ClusterVersionUpdated(..) => {}
         SystemEvent::GatekeeperOverviewUpdated(..) => {}
         SystemEvent::VeleroOverviewUpdated(..) => {}
@@ -2660,6 +2715,16 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
             container: "s".to_owned(),
             error: fathom::protocol::ImageInspectError::AuthenticationFailed("s".to_owned()),
         },
+        ResourceReadEvent::PodVulnerabilitiesInspected {
+            namespace: "s".to_owned(),
+            pod: "s".to_owned(),
+            inspection: sample_pod_vuln_inspection(),
+        },
+        ResourceReadEvent::PodVulnerabilitiesInspectFailed {
+            namespace: "s".to_owned(),
+            pod: "s".to_owned(),
+            error: VulnInspectError::NoReportYet("s".to_owned()),
+        },
         ResourceReadEvent::AgentConversationUpdated {
             object: sample_agent_object_ref(),
             conversation: AgentConversation {
@@ -2788,6 +2853,8 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::FluxResourceNotFound { .. } => {}
         ResourceReadEvent::ContainerImageInspected { .. } => {}
         ResourceReadEvent::ContainerImageInspectFailed { .. } => {}
+        ResourceReadEvent::PodVulnerabilitiesInspected { .. } => {}
+        ResourceReadEvent::PodVulnerabilitiesInspectFailed { .. } => {}
         ResourceReadEvent::AgentConversationUpdated { .. } => {}
         ResourceReadEvent::RbacSelfAccessUpdated { .. } => {}
         ResourceReadEvent::NamespaceAccessResolved(..) => {}
@@ -3372,4 +3439,36 @@ fn mcp_demo_chat_protocol_round_trips() {
     .unwrap();
     assert_eq!(not_detected["type"], json!("McpDemoChatNotDetected"));
     assert!(not_detected["data"]["instructions"].is_string());
+}
+
+#[test]
+fn trivy_dtos_round_trip() {
+    for e in [
+        VulnInspectError::NotInstalled("s".to_owned()),
+        VulnInspectError::NoReportYet("s".to_owned()),
+        VulnInspectError::Forbidden("s".to_owned()),
+        VulnInspectError::Other("s".to_owned()),
+    ] {
+        let v = serde_json::to_value(&e).unwrap();
+        let back: VulnInspectError = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&back).unwrap(), v);
+    }
+    assert_eq!(
+        serde_json::to_value(Severity::Critical).unwrap(),
+        json!("CRITICAL")
+    );
+    assert_eq!(sample_severity_summary().total(), 15);
+    for v in [
+        serde_json::to_value(sample_pod_vuln_inspection()).unwrap(),
+        serde_json::to_value(sample_trivy_overview()).unwrap(),
+    ] {
+        assert!(v.is_object());
+    }
+    let back: PodVulnerabilityInspection =
+        serde_json::from_value(serde_json::to_value(sample_pod_vuln_inspection()).unwrap())
+            .unwrap();
+    assert_eq!(back.total_findings, 15);
+    let back: TrivyOverview =
+        serde_json::from_value(serde_json::to_value(sample_trivy_overview()).unwrap()).unwrap();
+    assert_eq!(back.workloads.len(), 1);
 }

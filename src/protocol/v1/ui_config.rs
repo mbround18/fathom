@@ -206,6 +206,8 @@ pub enum ToolKind {
     /// 023-cert-manager-certificates-pane: the Certificates (cert-manager) tool pane.
     #[serde(rename = "certManager")]
     CertManager,
+    /// 021-trivy-vulnerability-pane: the cluster-wide Trivy Operator vulnerability summary.
+    Vulnerabilities,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

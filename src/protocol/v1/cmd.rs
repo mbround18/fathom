@@ -69,6 +69,13 @@ pub enum BackendCmdV1 {
         pod: String,
         container: String,
     },
+    /// Fetch a Pod's Aqua Trivy Operator vulnerability findings
+    /// (021-trivy-vulnerability-pane). Sent only when the operator opens that Pod's
+    /// "Vulnerabilities" tab — never eagerly.
+    InspectPodVulnerabilities {
+        namespace: String,
+        pod: String,
+    },
     StartPodLogs {
         namespace: String,
         name: String,
@@ -326,6 +333,9 @@ pub enum BackendCmdV1 {
     /// 022-velero-backup-pane: immediate re-scan, so opening the pane doesn't wait out the
     /// background poll interval.
     RefreshVelero,
+    /// Rescan Aqua Trivy Operator CRDs for the cluster-wide vulnerability summary
+    /// (021-trivy-vulnerability-pane). Also polled every 20s in the background.
+    RefreshTrivyOverview,
     RefreshHubble,
     RefreshGatekeeper,
     /// Rescan cert-manager CRDs and Certificates now (dashboard aggregate), same shape as

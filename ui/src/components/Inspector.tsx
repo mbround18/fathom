@@ -26,6 +26,7 @@ import { AgentPanel } from './panels/agent-ops/AgentPanel'
 import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
 import { HelmUpgradePanel } from './panels/HelmUpgradePanel'
 import { ImageInspectPanel } from './panels/ImageInspectPanel'
+import { VulnerabilityPanel } from './panels/VulnerabilityPanel'
 import { NodeActionsPanel } from './panels/NodeActionsPanel'
 import { PortForwardActionsPanel } from './panels/PortForwardActionsPanel'
 import { PodLogsTab } from './panels/PodLogsTab'
@@ -202,6 +203,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
               Image
             </TabsTrigger>
           )}
+          {target.kind === 'Pod' && (
+            <TabsTrigger
+              value="vulnerabilities"
+              data-testid="vulnerabilities-tab"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Vulnerabilities
+            </TabsTrigger>
+          )}
           {isRunningPod && (
             <TabsTrigger
               value="terminal"
@@ -287,6 +297,14 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
         {target.kind === 'Pod' && (
           <TabsContent value="image" className="flex min-h-0 flex-1 flex-col overflow-auto">
             <ImageInspectPanel target={target} />
+          </TabsContent>
+        )}
+        {target.kind === 'Pod' && (
+          <TabsContent
+            value="vulnerabilities"
+            className="flex min-h-0 flex-1 flex-col overflow-auto"
+          >
+            <VulnerabilityPanel target={target} />
           </TabsContent>
         )}
         {isRunningPod && (

@@ -57,6 +57,7 @@ impl BackendCmdV1 {
             | C::RefreshPods
             | C::SelectPod { .. }
             | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
@@ -99,6 +100,7 @@ impl BackendCmdV1 {
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
             | C::RefreshVelero
+            | C::RefreshTrivyOverview
             | C::RefreshHubble
             | C::RefreshGatekeeper
             | C::RefreshCertManager
@@ -340,6 +342,7 @@ impl BackendCmdV1 {
             | C::SelectPod { .. }
             | C::DeletePod { .. }
             | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
@@ -432,6 +435,7 @@ impl BackendCmdV1 {
             }
             C::RefreshFlux => section_keys::integrations_flux(),
             C::RefreshVelero => section_keys::integrations_velero(),
+            C::RefreshTrivyOverview => section_keys::integrations_vulnerabilities(),
             C::RefreshHubble => section_keys::integrations_hubble(),
             C::RefreshGatekeeper => section_keys::integrations_gatekeeper(),
             C::RefreshCertManager => section_keys::integrations_cert_manager(),
@@ -600,6 +604,8 @@ impl BackendCmdV1 {
             | C::RefreshGatekeeper
             | C::RefreshVelero
             | C::RefreshCertManager
+            | C::RefreshTrivyOverview
+            | C::InspectPodVulnerabilities { .. }
             | C::SelectCertificateChain { .. }
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }

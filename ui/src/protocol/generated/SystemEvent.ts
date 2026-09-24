@@ -21,6 +21,7 @@ import type { NotificationLevel } from "./NotificationLevel";
 import type { OrgClusterSettings } from "./OrgClusterSettings";
 import type { TeamPublishRejection } from "./TeamPublishRejection";
 import type { TeamStoreStatus } from "./TeamStoreStatus";
+import type { TrivyOverview } from "./TrivyOverview";
 import type { UiConfig } from "./UiConfig";
 import type { VeleroOverview } from "./VeleroOverview";
 
@@ -28,7 +29,7 @@ export type SystemEvent = { "type": "BackendStarted" } | { "type": "Notification
 /**
  * Verbatim backend error (Principle I), present only when `status == Error`.
  */
-error: string | null, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "ClusterVersionUpdated", "data": ClusterVersionSummary } | { "type": "VeleroOverviewUpdated", "data": VeleroOverview } | { "type": "CertManagerOverviewUpdated", "data": CertManagerOverview } | { "type": "CertificateChainUpdated", "data": CertificateChain } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "GatekeeperOverviewUpdated", "data": GatekeeperOverview } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, 
+error: string | null, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "ClusterVersionUpdated", "data": ClusterVersionSummary } | { "type": "VeleroOverviewUpdated", "data": VeleroOverview } | { "type": "CertManagerOverviewUpdated", "data": CertManagerOverview } | { "type": "CertificateChainUpdated", "data": CertificateChain } | { "type": "TrivyOverviewUpdated", "data": TrivyOverview } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "GatekeeperOverviewUpdated", "data": GatekeeperOverview } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, 
 /**
  * `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
  * (015-mcp-agent-exposure) is enabled. Off by default (FR-002).

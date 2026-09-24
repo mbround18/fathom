@@ -13,6 +13,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   topology: 'Topology',
   velero: 'Velero',
   certManager: 'Certificates',
+  vulnerabilities: 'Vulnerabilities',
 }
 
 export function paneTitle(pane: PaneState): string {

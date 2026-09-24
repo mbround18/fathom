@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use crate::backend::state::BackendState;
 use crate::backend::{
     cronjobs, daemonsets, deployments, events, exec, images, jobs, metrics, pods, replicasets,
-    replicationcontrollers, statefulsets,
+    replicationcontrollers, statefulsets, trivy,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -62,6 +62,9 @@ async fn handle_pod_cmd(
             container,
         } => {
             images::inspect_container_image(state, sender, &namespace, &pod, &container).await?;
+        }
+        BackendCmd::InspectPodVulnerabilities { namespace, pod } => {
+            trivy::handle_inspect(state, sender, &namespace, &pod).await?;
         }
         BackendCmd::FetchPodMetrics { namespace, name } => {
             metrics::fetch_metrics(state, sender, &namespace, &name).await?;

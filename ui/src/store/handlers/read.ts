@@ -20,6 +20,8 @@ export function readKind(type: ResourceReadEvent['type']): string {
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
   | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
+  // 021-trivy-vulnerability-pane: keyed by namespace/pod, routed to `handlePodVulnInspect`.
+  | { type: 'PodVulnerabilitiesInspected' | 'PodVulnerabilitiesInspectFailed' }
   // 011-rbac-oidc-administration: no `name` field; routed by `handleRbacAccess` instead.
   | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
 >

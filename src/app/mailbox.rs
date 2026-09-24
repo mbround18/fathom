@@ -109,6 +109,9 @@ impl FathomApp {
                     | SystemEvent::CertificateChainUpdated(_) => {
                         // Certificates pane (React bridge) handles this; no egui view.
                     }
+                    SystemEvent::TrivyOverviewUpdated(_) => {
+                        // React UI owns the Trivy pane; no egui view.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }
