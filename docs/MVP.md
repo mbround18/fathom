@@ -485,6 +485,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 * HTTPS toggle
 * Path prefix
 * Hidden metrics
+* **Vulnerabilities** *(✅ shipped, `021-trivy-vulnerability-pane`)* — read-only surfacing of Aqua Trivy Operator `VulnerabilityReport`s: a Pod Inspector "Vulnerabilities" tab (severity counts + top findings, honest not-installed / no-report-yet / forbidden states) and an opt-in cluster-wide tool pane ranking workloads worst-first. Fathom never triggers or configures scans.
 * **Available Agents** *(✅ shipped, `015-mcp-agent-exposure`)* — the stdio MCP server's on/off toggle (off by default), its live running/not-running state, the connection command an external MCP client should launch, a read-only Anthropic/Ollama auth summary reused from `AuthSetup.tsx`, and the "Launch example chat" affordance with honest not-detected/server-off states. See §14 Tier A.
 
 ### Node Shell
