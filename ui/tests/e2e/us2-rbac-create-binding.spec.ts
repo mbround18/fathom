@@ -63,7 +63,7 @@ async function grantAccess(
     batch([
       read(100, nsRoute('kind-a', ROLE_BINDINGS), {
         type: 'RbacSelfAccessUpdated',
-        data: { results: [{ check: { verb, resource: 'rolebindings', namespace }, allowed, reason }] },
+        data: { results: [{ check: { verb, resource: 'rolebindings', namespace, group: 'rbac.authorization.k8s.io' }, allowed, reason }] },
       }),
     ]),
   )

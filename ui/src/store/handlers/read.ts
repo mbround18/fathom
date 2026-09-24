@@ -21,7 +21,13 @@ type GenericReadEvent = Exclude<
   ResourceReadEvent,
   | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
   // 011-rbac-oidc-administration: no `name` field; routed by `handleRbacAccess` instead.
-  | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
+  | {
+      type:
+        | 'RbacSelfAccessUpdated'
+        | 'ResourceMutationAccessChecked'
+        | 'NamespaceAccessResolved'
+        | 'KubeadmDetectionUpdated'
+    }
 >
 
 export function readKeyOf(env: BackendEventEnvelope, event: GenericReadEvent): string {

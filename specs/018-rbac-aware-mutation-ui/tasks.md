@@ -11,9 +11,9 @@ Feature dir: `specs/018-rbac-aware-mutation-ui`. Dependency-ordered; complete in
 
 ## Phase 2: Frontend shared plumbing
 
-- [ ] T005 Fix `ui/src/store/handlers/rbacAccess.ts` to merge `selfAccess` by `(verb, group, resource, namespace)`; handle `ResourceMutationAccessChecked` (ingest/read/index routing where `RbacSelfAccessUpdated` is routed); Vitest coverage.
-- [ ] T006 Add `ui/src/hooks/useMutationAccess.ts` (dispatch missing checks once, return `{status: 'unknown'|'allowed'|'denied', reason}`; unknown never blocks, FR-006) plus a `DisabledReason` tooltip wrapper (`ui/src/components/GatedButton.tsx`) using the existing `Tooltip`; Vitest coverage.
-- [ ] T007 Refactor `RoleBindingForm.tsx` onto the shared hook (no behavior change; existing e2e specs must stay green).
+- [x] T005 Fix `ui/src/store/handlers/rbacAccess.ts` to merge `selfAccess` by `(verb, group, resource, namespace)`; handle `ResourceMutationAccessChecked` (ingest/read/index routing where `RbacSelfAccessUpdated` is routed); Vitest coverage.
+- [x] T006 Add `ui/src/hooks/useMutationAccess.ts` (dispatch missing checks once, return `{status: 'unknown'|'allowed'|'denied', reason}`; unknown never blocks, FR-006) plus a `DisabledReason` tooltip wrapper (`ui/src/components/GatedButton.tsx`) using the existing `Tooltip`; Vitest coverage.
+- [x] T007 Refactor `RoleBindingForm.tsx` onto the shared hook (no behavior change; existing e2e specs must stay green).
 
 ## Phase 3: Wire surfaces
 

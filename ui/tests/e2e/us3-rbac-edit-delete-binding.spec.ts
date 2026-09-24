@@ -107,7 +107,12 @@ async function openEditForm(page: Page): Promise<Locator> {
         data: {
           results: [
             {
-              check: { verb: 'update', resource: 'rolebindings', namespace: BINDING_ROW.namespace },
+              check: {
+                verb: 'update',
+                resource: 'rolebindings',
+                namespace: BINDING_ROW.namespace,
+                group: 'rbac.authorization.k8s.io',
+              },
               allowed: true,
               reason: null,
             },

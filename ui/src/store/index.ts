@@ -180,7 +180,13 @@ export interface ListState {
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
   | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
-  | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
+  | {
+      type:
+        | 'RbacSelfAccessUpdated'
+        | 'ResourceMutationAccessChecked'
+        | 'NamespaceAccessResolved'
+        | 'KubeadmDetectionUpdated'
+    }
 >
 
 export interface DetailState {
@@ -497,6 +503,8 @@ export interface StoreData {
   rbacAccess: {
     /** Latest `RbacSelfAccessUpdated` reply (US2/US3 create/edit/delete gating, FR-007). */
     selfAccess?: RbacAccessResult[]
+    /** 018: `ResourceMutationAccessChecked` replies keyed by `resourceAccessKey`. */
+    resourceAccess?: Record<string, RbacAccessResult>
     /** Latest `NamespaceAccessResolved` reply (US4). */
     namespaceAccess?: NamespaceAccessResolved
     /** Latest `KubeadmDetectionUpdated` reply (US5), never an error. */
