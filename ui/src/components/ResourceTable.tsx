@@ -569,7 +569,7 @@ const GridRow = memo(function GridRow({
             onMenu(rowKey, r.left, r.bottom)
           }}
           className={cn(
-            'absolute top-0 right-0 hidden h-full w-[max(1.5rem,var(--touch-target))] items-center justify-center bg-gradient-to-l from-background via-background/90 to-transparent text-muted-foreground outline-none hover:text-accent-neon [@media(pointer:fine)]:flex',
+            'absolute top-0 right-0 hidden h-full min-h-[24px] w-[max(24px,var(--touch-target))] items-center justify-center bg-gradient-to-l from-background via-background/90 to-transparent text-muted-foreground outline-none hover:text-accent-neon [@media(pointer:fine)]:flex',
             'opacity-0 group-hover/row:opacity-100 group-data-[focused=true]/row:opacity-100',
             open &&
               'from-primary via-primary/90 text-primary-foreground hover:text-primary-foreground',

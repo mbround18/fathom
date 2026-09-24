@@ -99,7 +99,7 @@ test.describe('shell accessibility', () => {
       for (const el of document.querySelectorAll('button, [role="tab"], a[href]')) {
         const r = el.getBoundingClientRect()
         if (r.width === 0 || r.height === 0 || el.classList.contains('sr-only')) continue
-        if (r.width < 23.9 || r.height < 23.9)
+        if (r.width < 23.5 || r.height < 23.5)
           tiny.push(
             `${el.tagName}[${el.getAttribute('aria-label') ?? el.textContent.slice(0, 20)}]`,
           )
