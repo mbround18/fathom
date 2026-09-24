@@ -354,15 +354,17 @@ mod tests {
     fn pod_running_with_unready_container_is_unhealthy() {
         use k8s_openapi::api::core::v1::{ContainerStatus, PodStatus};
 
-        let mut pod = Pod::default();
-        pod.status = Some(PodStatus {
-            phase: Some("Running".to_owned()),
-            container_statuses: Some(vec![ContainerStatus {
-                ready: false,
+        let pod = Pod {
+            status: Some(PodStatus {
+                phase: Some("Running".to_owned()),
+                container_statuses: Some(vec![ContainerStatus {
+                    ready: false,
+                    ..Default::default()
+                }]),
                 ..Default::default()
-            }]),
+            }),
             ..Default::default()
-        });
+        };
         assert!(pod_is_unhealthy(&pod));
     }
 
@@ -370,11 +372,13 @@ mod tests {
     fn pod_pending_is_not_unhealthy() {
         use k8s_openapi::api::core::v1::PodStatus;
 
-        let mut pod = Pod::default();
-        pod.status = Some(PodStatus {
-            phase: Some("Pending".to_owned()),
+        let pod = Pod {
+            status: Some(PodStatus {
+                phase: Some("Pending".to_owned()),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
         assert!(!pod_is_unhealthy(&pod));
     }
 }
