@@ -202,6 +202,8 @@ pub(super) struct BackendState {
     pub(super) oidc: crate::backend::oidc::session::OidcSessions,
     /// 033 US3: last-good IdP directory per issuer (read by the Teams view and the US4 picker).
     pub(super) idp: crate::backend::idp_directory::DirectoryCache,
+    /// 038-sdk-login-ollama: provider login, secure credentials, Ollama, offline mode.
+    pub(super) ai: crate::backend::ai::AiRuntime,
     /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
@@ -254,6 +256,7 @@ impl BackendState {
                 std::sync::Arc::new(crate::backend::oidc::store::CredentialStore::os()),
                 std::sync::Arc::new(|_| {}),
             ),
+            ai: crate::backend::ai::AiRuntime::production(),
         }
     }
 

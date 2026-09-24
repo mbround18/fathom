@@ -21,6 +21,7 @@ import { waitForCommandResult } from '@/store/actions'
 
 import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
+import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
 
 function cloneSettings(s: ClusterSettings): ClusterSettings {
@@ -273,6 +274,7 @@ export function ClusterSettingsPanel() {
 
       {/* 015-mcp-agent-exposure: which agents can reach this cluster, and how. Owns its own
           commands and store slice; nothing here feeds the §10 settings draft above. */}
+      <AiAssistSettings />
       <AvailableAgentsSection />
 
       {formError !== undefined && (

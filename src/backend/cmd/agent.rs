@@ -13,7 +13,7 @@
 
 use crossbeam_channel::Sender;
 
-use crate::backend::agent::{self, AgentClient, Turn, credentials, grounding, state_machine};
+use crate::backend::agent::{self, Turn, credentials, grounding, state_machine};
 use crate::backend::state::BackendState;
 use crate::protocol::{
     ActionOutcome, AgentAuthMode, AgentConversation, AgentMessage, AgentObjectRef, AgentTurnAuthor,
@@ -78,14 +78,17 @@ pub(super) async fn handle(
 ) -> anyhow::Result<Option<BackendCmd>> {
     match cmd {
         BackendCmd::AgentGetAuthMode => {
-            emit_auth_mode(state, sender, credentials::load_agent_auth());
+            let mode = credentials::load_agent_auth(&state.ai).await;
+            emit_auth_mode(state, sender, mode);
         }
         BackendCmd::AgentSetAuthMode { mode } => {
-            let updated = credentials::save_agent_auth(mode)?;
+            let updated = credentials::save_agent_auth(&state.ai, mode).await?;
             emit_auth_mode(state, sender, updated);
+            // The shared 038 status stream must reflect the change too.
+            state.ai.emit_status(&super::ai::emitter(state, sender));
         }
         BackendCmd::AgentRevealKey => {
-            let key = credentials::reveal_key().unwrap_or_default();
+            let key = credentials::reveal_key(&state.ai).await.unwrap_or_default();
             crate::backend::events::emit(
                 state.cluster.seq.as_ref(),
                 sender,
@@ -274,7 +277,7 @@ async fn handle_ask(
         })
         .unwrap_or_default();
 
-    let raw_reply_text = match dispatch_to_provider(&system_prompt, &history).await {
+    let raw_reply_text = match dispatch_to_provider(state, sender, &system_prompt, &history).await {
         Ok(result) => result.text,
         Err(err) => err.to_string(),
     };
@@ -316,27 +319,30 @@ async fn handle_ask(
     emit_conversation_updated(state, sender, object, conversation);
 }
 
+/// Resolve the effective provider (offline forces Ollama), send the turn, and react to
+/// typed failures: a 401 flips the provider to NeedsReauth, a missing Ollama model clears
+/// the selection. The error text stays the provider's verbatim message (Principle I).
 async fn dispatch_to_provider(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
     system_prompt: &str,
     history: &[Turn],
 ) -> anyhow::Result<agent::TurnResult> {
-    match credentials::load_for_request() {
-        credentials::AgentAuthModeForRequest::Unconfigured => {
-            anyhow::bail!(
-                "The assistant is not configured yet. Choose an auth mode (BYOK Anthropic key \
-                 or local Ollama) before asking a question."
-            )
-        }
-        credentials::AgentAuthModeForRequest::Disabled => {
-            anyhow::bail!("The assistant is disabled. Enable it to ask a question.")
-        }
-        credentials::AgentAuthModeForRequest::Anthropic { key } => {
-            let client = crate::backend::agent::anthropic::AnthropicClient::new(key);
-            client.send_turn(system_prompt, history).await
-        }
-        credentials::AgentAuthModeForRequest::Ollama { endpoint, model } => {
-            let client = crate::backend::agent::ollama::OllamaClient::new(endpoint, model);
-            client.send_turn(system_prompt, history).await
+    let client = state.ai.turn_client().await?;
+    match client.send_turn(system_prompt, history).await {
+        Ok(result) => Ok(result),
+        Err(err) => {
+            let em = super::ai::emitter(state, sender);
+            match err.downcast_ref::<agent::TurnFailure>() {
+                Some(agent::TurnFailure::AuthRejected { provider, .. }) => {
+                    state.ai.mark_needs_reauth(*provider, &em);
+                }
+                Some(agent::TurnFailure::OllamaModelMissing { model, .. }) => {
+                    state.ai.model_missing(model, &em).await;
+                }
+                None => {}
+            }
+            Err(err)
         }
     }
 }

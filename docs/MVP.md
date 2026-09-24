@@ -34,7 +34,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | 🚧 | P1 (multi-context sidebar + live status) shipped — see §14 Tier D; simultaneous federation/daemon/cloud-auth-plugins still future |
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
 | Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) delivered by 033-rauthy-oidc-teams-users (automated tests only; live multi-user validation not run) — see §14 Tier F |
-| SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
+| SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ✅ | 038-sdk-login-ollama (GitHub device flow, Claude/OpenAI keys in the OS keyring, Ollama detection and model picker, offline mode; provider calls verified against mocks only, no live credentials) |
 | Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | ⬜ | not yet planned |
 
 ---
@@ -591,7 +591,7 @@ Carried over from roadmap discussion, in priority order:
   * **"Launch example chat"** spawns a real local `claude` CLI subprocess pre-wired to this Fathom's MCP server via ephemeral `--mcp-config`/`--strict-mcp-config` (nothing is written into the operator's own Claude Code config). Detection is a fresh `PATH` scan on every call with no cache; when there is no `claude`, or the server is off, the panel says so and shows setup instructions. There is no simulated or mocked chat window in any state (FR-009/FR-011).
 * **✅ Fleet Rollup Dashboard (`027-fleet-rollup-dashboard`)** — read-only per-context health cards (nodes ready/total, unhealthy pods, version, Flux status) for every kubeconfig context at once, opened from the top bar. Backend pollers (`src/backend/fleet.rs`, 30s interval, 10s timeout) exist only while the view is open and never touch the active context.
 * SDK-based login (GitHub / Claude / OpenAI SDKs) — ⬜
-* Local LLM inference via Ollama for the MCP/AI-assist surface — ⬜
+* Local LLM inference via Ollama for the MCP/AI-assist surface — ✅ (038; detection, model picker and offline mode; verified against a mock server)
 
 ### Tier B — Enterprise auth / access
 *Status: 🚧 Implemented in 033-rauthy-oidc-teams-users; live end-to-end validation against a real cluster is only partly done (see the verification notes below).*

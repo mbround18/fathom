@@ -342,6 +342,38 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
 
+    case 'AiProviderStatus': {
+      const ai = d.edit('ai')
+      ai.loaded = true
+      ai.statuses = event.data.statuses
+      ai.active = event.data.active
+      ai.offline = event.data.offline
+      ai.ollamaModel = event.data.ollama_model
+      return
+    }
+    case 'AiLoginFlowUpdate': {
+      d.edit('ai').loginFlow = event.data.flow
+      return
+    }
+    case 'AiOllamaState': {
+      const ai = d.edit('ai')
+      ai.ollama = event.data.state
+      ai.ollamaModel = event.data.selected_model
+      return
+    }
+    case 'AiCredentialMigration': {
+      d.edit('ai').migration = event.data.outcome
+      return
+    }
+    case 'AiError': {
+      d.edit('ai').lastError = {
+        code: event.data.code,
+        message: event.data.message_verbatim,
+        hint: event.data.hint,
+      }
+      return
+    }
+
     case 'AgentAuthModeUpdated': {
       d.edit('agentAuth').mode = event.data.mode
       return

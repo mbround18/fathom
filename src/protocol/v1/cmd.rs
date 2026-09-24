@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
-    ActionOutcome, AgentAuthModeInput, AgentObjectRef, CapabilityQuery, ClusterSettings,
-    ContextAuthMode, FathomRoleMap, OidcIssuerConfig, OidcSignInMethod, RbacAccessCheck, RequestId,
-    RoleAssignmentDraft, SectionKey, UiConfig,
+    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ApiKeyInput, CapabilityQuery,
+    ClusterSettings, ContextAuthMode, FathomRoleMap, OidcIssuerConfig, OidcSignInMethod, Provider,
+    RbacAccessCheck, RequestId, RoleAssignmentDraft, SectionKey, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -801,6 +801,45 @@ pub enum BackendCmdV1 {
         base_revision: i64,
     },
 
+    // 038-sdk-login-ollama: provider login, secure credentials, Ollama, offline mode.
+    // Every command replies with an `Ai*` event (no silent success/failure).
+    /// Start a provider login: device flow (GitHub) or the key-prompt state (Claude/OpenAI).
+    AiProviderLoginStart {
+        provider: Provider,
+    },
+    /// Inbound-only API key; validated with the provider, then stored. Never echoed.
+    AiProviderSubmitApiKey {
+        provider: Provider,
+        key: ApiKeyInput,
+    },
+    AiProviderLoginCancel,
+    AiProviderSignOut {
+        provider: Provider,
+    },
+    AiSetActiveProvider {
+        provider: Option<Provider>,
+    },
+    AiSetOfflineMode {
+        enabled: bool,
+    },
+    /// Fresh probe every time (no cache). `endpoint` overrides the saved one when present.
+    AiOllamaProbe {
+        endpoint: Option<String>,
+    },
+    AiOllamaSelectModel {
+        model: String,
+    },
+    AiSetOllamaEndpoint {
+        endpoint: String,
+        allow_lan: bool,
+    },
+    /// Explicit opt-in to the labelled 0600 file store when no OS credential store exists.
+    AiEnableFileStore {
+        confirm: bool,
+    },
+    /// Read the current provider status (reply: `AiProviderStatus`).
+    AiGetStatus,
+
     // Agent SDK Ops (013): in-app troubleshooting assistant. `AgentAsk` is the only
     // variant that calls out to a model provider; it never issues a cluster-mutating
     // command itself (see `mutation.rs`'s `agent_commands_never_write_cluster` test).
@@ -1094,6 +1133,57 @@ mod tests {
             namespace: "default".to_owned(),
             name: "api-0".to_owned(),
         }
+    }
+
+    #[test]
+    fn ai_commands_roundtrip() {
+        roundtrip(BackendCmdV1::AiProviderLoginStart {
+            provider: Provider::Github,
+        });
+        roundtrip(BackendCmdV1::AiProviderLoginCancel);
+        roundtrip(BackendCmdV1::AiProviderSignOut {
+            provider: Provider::Openai,
+        });
+        roundtrip(BackendCmdV1::AiSetActiveProvider { provider: None });
+        roundtrip(BackendCmdV1::AiSetActiveProvider {
+            provider: Some(Provider::Ollama),
+        });
+        roundtrip(BackendCmdV1::AiSetOfflineMode { enabled: true });
+        roundtrip(BackendCmdV1::AiOllamaProbe { endpoint: None });
+        roundtrip(BackendCmdV1::AiOllamaProbe {
+            endpoint: Some("http://127.0.0.1:11434".to_owned()),
+        });
+        roundtrip(BackendCmdV1::AiOllamaSelectModel {
+            model: "llama3.2".to_owned(),
+        });
+        roundtrip(BackendCmdV1::AiSetOllamaEndpoint {
+            endpoint: "http://10.0.0.5:11434".to_owned(),
+            allow_lan: true,
+        });
+        roundtrip(BackendCmdV1::AiEnableFileStore { confirm: true });
+        roundtrip(BackendCmdV1::AiGetStatus);
+    }
+
+    #[test]
+    fn ai_submit_key_roundtrips_inbound_but_debug_is_redacted() {
+        let cmd = BackendCmdV1::AiProviderSubmitApiKey {
+            provider: Provider::Claude,
+            key: ApiKeyInput("sk-ant-supersecret".to_owned()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(
+            json.contains("sk-ant-supersecret"),
+            "inbound wire carries the key"
+        );
+        let back: BackendCmdV1 = serde_json::from_str(&json).unwrap();
+        match back {
+            BackendCmdV1::AiProviderSubmitApiKey { provider, key } => {
+                assert_eq!(provider, Provider::Claude);
+                assert_eq!(key.0, "sk-ant-supersecret");
+            }
+            other => panic!("wrong variant {other:?}"),
+        }
+        assert!(!format!("{cmd:?}").contains("supersecret"));
     }
 
     #[test]

@@ -545,3 +545,159 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// 038-sdk-login-ollama: non-secret AI-assist settings in `config.json` under `ai_assist`.
+// Secrets never live here (they are in the OS credential store). Older files without the
+// key load the defaults; unknown/other keys in the file are always left untouched.
+// ---------------------------------------------------------------------------------------
+
+use crate::protocol::v1::{AiAssistSettings, Provider};
+
+/// Atomic (tmp + rename) JSON write so a crash never leaves a half-written file.
+pub fn save_json_file_atomic(path: &Path, value: &serde_json::Value) -> Result<()> {
+    ensure_config_dir()?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_string_pretty(value)?)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+pub fn ai_settings_from_config(config: &serde_json::Value) -> AiAssistSettings {
+    config
+        .get("ai_assist")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Load the AI-assist settings from `path` (a `config.json`). A missing or unparsable file
+/// yields defaults and is left untouched.
+pub fn load_ai_settings_at(path: &Path) -> AiAssistSettings {
+    match load_json_file(path) {
+        Ok(config) => ai_settings_from_config(&config),
+        Err(e) => {
+            tracing::warn!(
+                "Failed to read config.json; using AI-assist defaults: {}",
+                e
+            );
+            AiAssistSettings::default()
+        }
+    }
+}
+
+/// Persist `settings` into `path`, preserving every other key. Refuses to write when the
+/// existing file cannot be parsed.
+pub fn save_ai_settings_at(path: &Path, settings: &AiAssistSettings) -> Result<()> {
+    let mut config = load_json_file(path)?;
+    let obj = config
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("config.json is not a JSON object"))?;
+    obj.insert("ai_assist".to_owned(), serde_json::to_value(settings)?);
+    save_json_file_atomic(path, &config)
+}
+
+pub fn load_ai_settings() -> AiAssistSettings {
+    main_config_path()
+        .map(|p| load_ai_settings_at(&p))
+        .unwrap_or_default()
+}
+
+pub fn save_ai_settings(settings: &AiAssistSettings) -> Result<()> {
+    save_ai_settings_at(&main_config_path()?, settings)
+}
+
+/// Non-secret account labels (e.g. the GitHub login) so a connected provider still shows
+/// its account after a restart. `config.json -> ai_assist_accounts`.
+pub fn load_ai_account_labels_at(path: &Path) -> BTreeMap<String, String> {
+    load_json_file(path)
+        .ok()
+        .and_then(|c| c.get("ai_assist_accounts").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_ai_account_label_at(
+    path: &Path,
+    provider: Provider,
+    label: Option<&str>,
+) -> Result<()> {
+    let mut config = load_json_file(path)?;
+    let obj = config
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("config.json is not a JSON object"))?;
+    let entry = obj
+        .entry("ai_assist_accounts")
+        .or_insert_with(|| serde_json::json!({}));
+    if !entry.is_object() {
+        *entry = serde_json::json!({});
+    }
+    if let Some(map) = entry.as_object_mut() {
+        match label {
+            Some(l) => {
+                map.insert(provider.as_str().to_owned(), serde_json::json!(l));
+            }
+            None => {
+                map.remove(provider.as_str());
+            }
+        }
+    }
+    save_json_file_atomic(path, &config)
+}
+
+#[cfg(test)]
+mod ai_settings_tests {
+    use super::*;
+
+    #[test]
+    fn missing_or_old_config_loads_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        assert_eq!(load_ai_settings_at(&path), AiAssistSettings::default());
+        fs::write(&path, r#"{"ui":{"theme":"x"}}"#).unwrap();
+        assert_eq!(load_ai_settings_at(&path), AiAssistSettings::default());
+    }
+
+    #[test]
+    fn save_preserves_other_keys_and_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"auto_start":{"mcp_stdio":true},"ui":{"a":1}}"#).unwrap();
+        let s = AiAssistSettings {
+            active_provider: Some(Provider::Ollama),
+            ollama_model: Some("llama3.2".into()),
+            offline_mode: true,
+            ..AiAssistSettings::default()
+        };
+        save_ai_settings_at(&path, &s).unwrap();
+        assert_eq!(load_ai_settings_at(&path), s);
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["auto_start"]["mcp_stdio"], true);
+        assert_eq!(raw["ui"]["a"], 1);
+    }
+
+    #[test]
+    fn corrupt_config_is_not_clobbered() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "{ not json").unwrap();
+        assert!(save_ai_settings_at(&path, &AiAssistSettings::default()).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+        assert_eq!(load_ai_settings_at(&path), AiAssistSettings::default());
+    }
+
+    #[test]
+    fn account_labels_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        save_ai_account_label_at(&path, Provider::Github, Some("octocat")).unwrap();
+        assert_eq!(
+            load_ai_account_labels_at(&path)
+                .get("github")
+                .map(String::as_str),
+            Some("octocat")
+        );
+        save_ai_account_label_at(&path, Provider::Github, None).unwrap();
+        assert!(load_ai_account_labels_at(&path).is_empty());
+    }
+}

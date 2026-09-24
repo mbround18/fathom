@@ -158,6 +158,10 @@ impl BackendCmdV1 {
             | C::AgentOpenConversation { .. }
             | C::AgentAsk { .. }
             | C::AgentReviewSuggestedAction { .. }
+            // 038-sdk-login-ollama: status read and the Ollama probe (a GET to the
+            // operator's Ollama endpoint) never write anything.
+            | C::AiGetStatus
+            | C::AiOllamaProbe { .. }
             // 014-teams-organizations: reads of local/shared team state only.
             | C::LoadClusterSettings { .. }
             | C::RefreshTeamStoreStatus
@@ -217,6 +221,17 @@ impl BackendCmdV1 {
             | C::AgentClearConversation { .. }
             | C::AgentDeclineSuggestedAction { .. }
             | C::AgentRecordExecutedAction { .. }
+            // 038-sdk-login-ollama: OS credential store, `config.json`'s `ai_assist`
+            // section and (opt-in) the 0600 credentials file — never the cluster.
+            | C::AiProviderLoginStart { .. }
+            | C::AiProviderSubmitApiKey { .. }
+            | C::AiProviderLoginCancel
+            | C::AiProviderSignOut { .. }
+            | C::AiSetActiveProvider { .. }
+            | C::AiSetOfflineMode { .. }
+            | C::AiOllamaSelectModel { .. }
+            | C::AiSetOllamaEndpoint { .. }
+            | C::AiEnableFileStore { .. }
             // 015-mcp-agent-exposure: writes `config.json`'s `auto_start.mcp_stdio` and
             // starts/stops the local stdio server task — never the cluster itself. (The MCP
             // server's own tools re-enter the backend's existing guarded mutation paths.)
@@ -334,6 +349,17 @@ impl BackendCmdV1 {
             // Agent SDK Ops (013): not tied to one existing UI section (a conversation
             // is scoped to an arbitrary object ref, not a section key) — global, like
             // `ApplyResourceYaml`.
+            | C::AiProviderLoginStart { .. }
+            | C::AiProviderSubmitApiKey { .. }
+            | C::AiProviderLoginCancel
+            | C::AiProviderSignOut { .. }
+            | C::AiSetActiveProvider { .. }
+            | C::AiSetOfflineMode { .. }
+            | C::AiOllamaProbe { .. }
+            | C::AiOllamaSelectModel { .. }
+            | C::AiSetOllamaEndpoint { .. }
+            | C::AiEnableFileStore { .. }
+            | C::AiGetStatus
             | C::AgentGetAuthMode
             | C::AgentSetAuthMode { .. }
             | C::AgentRevealKey
@@ -742,6 +768,12 @@ mod tests {
         }
 
         for cmd in [
+            BackendCmdV1::AiProviderLoginStart {
+                provider: crate::protocol::v1::Provider::Github,
+            },
+            BackendCmdV1::AiSetOfflineMode { enabled: true },
+            BackendCmdV1::AiOllamaProbe { endpoint: None },
+            BackendCmdV1::AiGetStatus,
             BackendCmdV1::AgentGetAuthMode,
             BackendCmdV1::AgentSetAuthMode {
                 mode: AgentAuthModeInput::Disabled,
