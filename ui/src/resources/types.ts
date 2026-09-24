@@ -107,6 +107,12 @@ export interface ActionDescriptor<R> {
   bulk?: boolean
   /** Scale: the current replica count shown as `current → new`. */
   current?(row: R): number
+  /**
+   * 018-rbac-aware-mutation-ui: the `SelfSubjectAccessReview` question this action depends on for
+   * a single row. When present and the answer is a definite "no", the menu item is disabled with
+   * the API server's reason; unknown answers leave it enabled (FR-006). Absent = ungated.
+   */
+  accessCheck?(row: R): { verb: string; resource: string; group?: string; namespace?: string | null }
   /** The commands to send for `rows` (one per row, or one `BulkDelete`). */
   plan(rows: R[], input: ActionInput): ActionStep<R>[]
 }

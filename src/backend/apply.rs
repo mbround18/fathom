@@ -220,6 +220,23 @@ pub(super) fn emit_resource_applied(
 }
 
 /// Split `"apps/v1"` into `("apps", "v1")`, and `"v1"` into `("", "v1")` (the core group).
+/// Discover the `ApiResource` (group/plural) for `api_version`/`kind`. Shared with the
+/// 018 access pre-check so the check and the real mutation agree on the resource.
+pub(super) async fn resolve_api_resource(
+    client: &Client,
+    api_version: &str,
+    kind: &str,
+) -> anyhow::Result<kube::core::ApiResource> {
+    let (group, version) = split_api_version(api_version);
+    let gvk = GroupVersionKind::gvk(&group, &version, kind);
+    let (api_resource, _caps) = discovery::oneshot::pinned_kind(client, &gvk)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!("could not discover the API for {kind} ({api_version}): {e}")
+        })?;
+    Ok(api_resource)
+}
+
 fn split_api_version(api_version: &str) -> (String, String) {
     match api_version.split_once('/') {
         Some((group, version)) => (group.to_owned(), version.to_owned()),

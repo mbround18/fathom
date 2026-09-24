@@ -90,6 +90,8 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       session.activeNamespace = null
       session.namespaceFilter = []
       d.put('lists', markLoading(d.read('lists'), current, CONTEXT_LISTS))
+      // 018: cached permission answers belong to the previous context's identity.
+      d.put('rbacAccess', {})
       return
     }
 

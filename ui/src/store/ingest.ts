@@ -117,6 +117,7 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
       // 011-rbac-oidc-administration: same reasoning, see handlers/rbacAccess.ts.
       if (
         event.data.type === 'RbacSelfAccessUpdated' ||
+        event.data.type === 'ResourceMutationAccessChecked' ||
         event.data.type === 'NamespaceAccessResolved' ||
         event.data.type === 'KubeadmDetectionUpdated'
       ) {

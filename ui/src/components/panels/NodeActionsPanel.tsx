@@ -17,6 +17,8 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/GatedButton'
+import { useMutationAccess } from '@/hooks/useMutationAccess'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { SECTION } from '@/protocol/commands'
@@ -53,6 +55,9 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
   const [taintKey, setTaintKey] = useState('')
   const [taintValue, setTaintValue] = useState('')
   const [taintEffect, setTaintEffect] = useState(TAINT_EFFECTS[0] ?? 'NoSchedule')
+
+  // 018: one advisory `update nodes` check gates every node action (FR-006: unknown = enabled).
+  const nodeAccess = useMutationAccess({ verb: 'update', resource: 'nodes', namespace: null })
 
   const busy = action?.status === 'in-progress' || action?.status === 'confirming'
 
@@ -205,7 +210,7 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
           Scheduling
         </h3>
         <div className="flex flex-wrap gap-2">
-          <Button
+          <GatedButton access={nodeAccess} what="cordon nodes"
             type="button"
             variant="outline"
             size="sm"
@@ -214,8 +219,8 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
             onClick={() => setConfirm({ kind: 'cordon' })}
           >
             <ProhibitIcon data-icon="inline-start" /> Cordon
-          </Button>
-          <Button
+          </GatedButton>
+          <GatedButton access={nodeAccess} what="uncordon nodes"
             type="button"
             variant="outline"
             size="sm"
@@ -224,7 +229,7 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
             onClick={() => setConfirm({ kind: 'uncordon' })}
           >
             <StopIcon data-icon="inline-start" /> Uncordon
-          </Button>
+          </GatedButton>
         </div>
       </section>
 
@@ -253,7 +258,7 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
           </label>
         </div>
         <div className="flex gap-2">
-          <Button
+          <GatedButton access={nodeAccess} what="drain nodes"
             type="button"
             variant="outline"
             size="sm"
@@ -262,7 +267,7 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
             onClick={() => setConfirm({ kind: 'drain', ignoreDaemonsets, forceDeleteEmptyDir })}
           >
             <TrashIcon data-icon="inline-start" /> Drain
-          </Button>
+          </GatedButton>
           {draining && (
             <Button
               type="button"
@@ -316,7 +321,7 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
               </option>
             ))}
           </select>
-          <Button
+          <GatedButton access={nodeAccess} what="add taints to nodes"
             type="button"
             variant="outline"
             size="sm"
@@ -327,8 +332,8 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
             }
           >
             <TagIcon data-icon="inline-start" /> Add taint
-          </Button>
-          <Button
+          </GatedButton>
+          <GatedButton access={nodeAccess} what="remove taints from nodes"
             type="button"
             variant="outline"
             size="sm"
@@ -344,7 +349,7 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
             }
           >
             Remove taint
-          </Button>
+          </GatedButton>
         </div>
         {(action?.kind === 'taint-add' || action?.kind === 'taint-remove') &&
           action.status === 'failed' && (

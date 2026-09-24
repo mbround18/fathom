@@ -13,6 +13,10 @@ pub struct RbacAccessCheck {
     /// `Some(namespace)` for a namespaced check (e.g. creating a `RoleBinding`), `None` for a
     /// cluster-scoped check (e.g. creating a `ClusterRoleBinding`).
     pub namespace: Option<String>,
+    /// Kubernetes API group of the resource; `None` means the core group `""`
+    /// (nodes, secrets, ...). 018-rbac-aware-mutation-ui.
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 /// The answer to one [`RbacAccessCheck`], from a live `SelfSubjectAccessReview`.

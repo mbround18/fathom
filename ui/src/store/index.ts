@@ -202,7 +202,13 @@ type GenericReadEvent = Exclude<
   | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
   // 021-trivy-vulnerability-pane: keyed by namespace/pod, routed to `handlePodVulnInspect`.
   | { type: 'PodVulnerabilitiesInspected' | 'PodVulnerabilitiesInspectFailed' }
-  | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
+  | {
+      type:
+        | 'RbacSelfAccessUpdated'
+        | 'ResourceMutationAccessChecked'
+        | 'NamespaceAccessResolved'
+        | 'KubeadmDetectionUpdated'
+    }
   // 024-pod-exec-terminal: routed by `handleExecAccess` into `execAccess`.
   | { type: 'PodExecAccessChecked' }
 >
@@ -584,6 +590,8 @@ export interface StoreData {
   rbacAccess: {
     /** Latest `RbacSelfAccessUpdated` reply (US2/US3 create/edit/delete gating, FR-007). */
     selfAccess?: RbacAccessResult[]
+    /** 018: `ResourceMutationAccessChecked` replies keyed by `resourceAccessKey`. */
+    resourceAccess?: Record<string, RbacAccessResult>
     /** Latest `NamespaceAccessResolved` reply (US4). */
     namespaceAccess?: NamespaceAccessResolved
     /** Latest `KubeadmDetectionUpdated` reply (US5), never an error. */
@@ -1111,6 +1119,8 @@ export const useStore = create<StoreState>()((set, get) => ({
         namespaces: [],
       },
       lists: markLoading(s.lists, name, CONTEXT_LISTS),
+      // 018: cached permission answers belong to the previous context's identity.
+      rbacAccess: {},
     })
     s.send({ type: 'SetContext', data: { context: name } })
   },

@@ -29,6 +29,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { deniedTitle, useMutationAccess } from '@/hooks/useMutationAccess'
 import { cn } from '@/lib/utils'
 import {
   descriptorFor,
@@ -64,14 +65,36 @@ function ActionItems({
   if (actions.length === 0) {
     return <DropdownMenuLabel>No actions for {rows.length} objects</DropdownMenuLabel>
   }
-  return actions.map((a, i) => {
-    const IconCmp = ICON[a.id]
-    return (
-      <div key={a.id} className="contents">
-        {a.destructive && i > 0 && <DropdownMenuSeparator />}
+  return actions.map((a, i) => (
+    <ActionItem key={a.id} action={a} first={i === 0} rows={rows} onPick={onPick} />
+  ))
+}
+
+function ActionItem({
+  action: a,
+  first,
+  rows,
+  onPick,
+}: {
+  action: AnyAction
+  first: boolean
+  rows: readonly ListRow[]
+  onPick: (a: AnyAction) => void
+}) {
+  const IconCmp = ICON[a.id]
+  // 018: gate single-row actions on the operator's real permissions (unknown = enabled).
+  const [only] = rows
+  const check = rows.length === 1 && only !== undefined ? a.accessCheck?.(only) : undefined
+  const access = useMutationAccess(check)
+  const denied = deniedTitle(access, `${a.label.toLowerCase()} this resource`)
+  return (
+    <div className="contents">
+      {a.destructive && !first && <DropdownMenuSeparator />}
+      <span title={denied} className="block">
         <DropdownMenuItem
           data-testid={`action-${a.id}`}
           variant={a.destructive ? 'destructive' : 'default'}
+          disabled={denied !== undefined}
           onSelect={() => onPick(a)}
           className="min-h-[max(2rem,var(--touch-target))] font-display text-xs font-semibold tracking-wider uppercase"
         >
@@ -80,9 +103,9 @@ function ActionItems({
           {rows.length > 1 ? ` ${String(rows.length)}` : ''}…
           {a.id === 'delete' && <DropdownMenuShortcut aria-hidden="true">Del</DropdownMenuShortcut>}
         </DropdownMenuItem>
-      </div>
-    )
-  })
+      </span>
+    </div>
+  )
 }
 
 function MenuHeading({

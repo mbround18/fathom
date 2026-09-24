@@ -478,6 +478,15 @@ pub enum BackendCmdV1 {
         checks: Vec<RbacAccessCheck>,
     },
 
+    // 018-rbac-aware-mutation-ui: resolve the plural/group of `api_version`/`kind` via discovery,
+    // then run one live `SelfSubjectAccessReview`. Read-only; used to gate YAML apply/create.
+    CheckResourceMutationAccess {
+        api_version: String,
+        kind: String,
+        namespace: Option<String>,
+        verb: String,
+    },
+
     // access/namespace-access (read-only, derived from already-fetched RBAC objects)
     ResolveNamespaceAccess {
         subject_kind: String,

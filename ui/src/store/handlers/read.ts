@@ -23,7 +23,13 @@ type GenericReadEvent = Exclude<
   // 021-trivy-vulnerability-pane: keyed by namespace/pod, routed to `handlePodVulnInspect`.
   | { type: 'PodVulnerabilitiesInspected' | 'PodVulnerabilitiesInspectFailed' }
   // 011-rbac-oidc-administration: no `name` field; routed by `handleRbacAccess` instead.
-  | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
+  | {
+      type:
+        | 'RbacSelfAccessUpdated'
+        | 'ResourceMutationAccessChecked'
+        | 'NamespaceAccessResolved'
+        | 'KubeadmDetectionUpdated'
+    }
   // 024-pod-exec-terminal: routed by `handleExecAccess`.
   | { type: 'PodExecAccessChecked' }
 >

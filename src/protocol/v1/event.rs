@@ -483,6 +483,12 @@ pub enum ResourceReadEvent {
     RbacSelfAccessUpdated {
         results: Vec<RbacAccessResult>,
     },
+    /// Reply for `CheckResourceMutationAccess` (018-rbac-aware-mutation-ui). Read-only.
+    ResourceMutationAccessChecked {
+        api_version: String,
+        kind: String,
+        result: RbacAccessResult,
+    },
     /// Reply for `ResolveNamespaceAccess` (011-rbac-oidc-administration, Story 4). Read-only.
     NamespaceAccessResolved(NamespaceAccessResolved),
     /// Reply for `RefreshKubeadmDetection` (011-rbac-oidc-administration, Story 5). Never an

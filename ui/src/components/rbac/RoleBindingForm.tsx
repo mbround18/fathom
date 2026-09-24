@@ -25,11 +25,11 @@ import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import type {
   ClusterRoleBindingDetails,
   ClusterRoleSummary,
-  RbacAccessResult,
   RoleBindingDetails,
   RoleSummary,
   SubjectSummary,
 } from '@/protocol/types'
+import { RBAC_GROUP, useMutationAccess } from '@/hooks/useMutationAccess'
 import { detailKey, listKey, useStore } from '@/store'
 
 import { SubjectEditor, subjectsValid } from './SubjectEditor'
@@ -69,25 +69,12 @@ function parseRoleRef(roleRef: string): { kind: RoleRefKind; name: string } {
   return { kind: kind === 'ClusterRole' ? 'ClusterRole' : 'Role', name }
 }
 
-/** Finds the reply matching this check among the latest `RbacSelfAccessUpdated` results. */
-function findAccess(
-  results: RbacAccessResult[] | undefined,
-  verb: string,
-  resource: string,
-  namespace: string | null,
-): RbacAccessResult | undefined {
-  return results?.find(
-    (r) => r.check.verb === verb && r.check.resource === resource && r.check.namespace === namespace,
-  )
-}
-
 export function RoleBindingForm(props: RoleBindingFormProps) {
   const { mode, kind, onClose } = props
   const context = useStore((s) => s.session.activeContext)
   const namespaces = useStore((s) => s.session.namespaces)
   const send = useStore((s) => s.send)
   const lists = useStore((s) => s.lists)
-  const selfAccess = useStore((s) => s.rbacAccess.selfAccess)
   const openEditSession = useStore((s) => s.openEditSession)
   const openCreateEditSession = useStore((s) => s.openCreateEditSession)
   const updateEditedYaml = useStore((s) => s.updateEditedYaml)
@@ -124,17 +111,15 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
 
   const effectiveNamespace = kind === 'RoleBinding' ? namespace || null : null
   const verb = mode === 'create' ? 'create' : 'update'
-  const access = findAccess(selfAccess, verb, resource, effectiveNamespace)
-  const allowed = access?.allowed === true
-
-  // T028/T034: dispatch (and re-dispatch on namespace change) the self-access-review check.
-  useEffect(() => {
-    send({
-      type: 'RefreshRbacSelfAccess',
-      data: { checks: [{ verb, resource, namespace: effectiveNamespace }] },
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [verb, resource, effectiveNamespace])
+  // T028/T034/018: the shared hook dispatches (and re-dispatches on namespace change) the
+  // self-access-review check. This form stays strict: it needs a positive answer to enable review.
+  const access = useMutationAccess({
+    verb,
+    resource,
+    group: RBAC_GROUP,
+    namespace: effectiveNamespace,
+  })
+  const allowed = access.status === 'allowed'
 
   // Create mode: fetch the Role/ClusterRole pickers' data once.
   useEffect(() => {
@@ -236,7 +221,7 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
           data-testid="rbac-binding-create-disabled"
           className="border border-status-warn/50 bg-status-warn/10 px-2 py-1.5 text-xs text-status-warn"
         >
-          {access?.reason ?? `You don't have permission to ${verb} ${resource}${effectiveNamespace ? ` in ${effectiveNamespace}` : ''}.`}
+          {access.reason ?? `You don't have permission to ${verb} ${resource}${effectiveNamespace ? ` in ${effectiveNamespace}` : ''}.`}
         </p>
       )}
 

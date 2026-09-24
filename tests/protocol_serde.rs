@@ -1820,6 +1820,12 @@ fn all_cmds() -> Vec<BackendCmd> {
         BackendCmd::RefreshRbacSelfAccess {
             checks: vec![sample_rbac_access_check()],
         },
+        BackendCmd::CheckResourceMutationAccess {
+            api_version: "s".to_owned(),
+            kind: "s".to_owned(),
+            namespace: Some("s".to_owned()),
+            verb: "s".to_owned(),
+        },
         BackendCmd::ResolveNamespaceAccess {
             subject_kind: "s".to_owned(),
             subject_name: "s".to_owned(),
@@ -2227,6 +2233,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SelectClusterRoleBinding { .. } => {}
         BackendCmd::DeleteClusterRoleBinding { .. } => {}
         BackendCmd::RefreshRbacSelfAccess { .. } => {}
+        BackendCmd::CheckResourceMutationAccess { .. } => {}
         BackendCmd::ResolveNamespaceAccess { .. } => {}
         BackendCmd::RefreshKubeadmDetection => {}
         BackendCmd::RefreshConfigMaps => {}
@@ -2840,6 +2847,11 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
         ResourceReadEvent::RbacSelfAccessUpdated {
             results: vec![sample_rbac_access_result()],
         },
+        ResourceReadEvent::ResourceMutationAccessChecked {
+            api_version: "s".to_owned(),
+            kind: "s".to_owned(),
+            result: sample_rbac_access_result(),
+        },
         ResourceReadEvent::NamespaceAccessResolved(sample_namespace_access_resolved()),
         ResourceReadEvent::KubeadmDetectionUpdated(sample_kubeadm_detection_result()),
         ResourceReadEvent::PodExecAccessChecked {
@@ -2857,6 +2869,7 @@ fn sample_rbac_access_check() -> fathom::protocol::RbacAccessCheck {
         verb: "s".to_owned(),
         resource: "s".to_owned(),
         namespace: Some("s".to_owned()),
+        group: Some("s".to_owned()),
     }
 }
 
@@ -2949,6 +2962,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::PodVulnerabilitiesInspectFailed { .. } => {}
         ResourceReadEvent::AgentConversationUpdated { .. } => {}
         ResourceReadEvent::RbacSelfAccessUpdated { .. } => {}
+        ResourceReadEvent::ResourceMutationAccessChecked { .. } => {}
         ResourceReadEvent::NamespaceAccessResolved(..) => {}
         ResourceReadEvent::KubeadmDetectionUpdated(..) => {}
         ResourceReadEvent::PodExecAccessChecked { .. } => {}

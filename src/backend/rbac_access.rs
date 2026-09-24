@@ -37,36 +37,7 @@ pub(super) async fn handle_refresh_rbac_self_access(
 
     let mut results = Vec::with_capacity(checks.len());
     for check in checks {
-        let review = SelfSubjectAccessReview {
-            metadata: Default::default(),
-            spec: SelfSubjectAccessReviewSpec {
-                resource_attributes: Some(ResourceAttributes {
-                    group: Some("rbac.authorization.k8s.io".to_owned()),
-                    resource: Some(check.resource.clone()),
-                    verb: Some(check.verb.clone()),
-                    namespace: check.namespace.clone(),
-                    ..Default::default()
-                }),
-                non_resource_attributes: None,
-            },
-            status: None,
-        };
-
-        let result = match api.create(&PostParams::default(), &review).await {
-            Ok(reviewed) => {
-                let status = reviewed.status.unwrap_or_default();
-                RbacAccessResult {
-                    check: check.clone(),
-                    allowed: status.allowed,
-                    reason: status.reason.or(status.evaluation_error),
-                }
-            }
-            Err(err) => RbacAccessResult {
-                check: check.clone(),
-                allowed: false,
-                reason: Some(err.to_string()),
-            },
-        };
+        let result = review_access(&api, check).await;
         results.push(result);
     }
 
@@ -79,6 +50,97 @@ pub(super) async fn handle_refresh_rbac_self_access(
         ),
         Correlation::None,
         BackendEvent::ResourceRead(ResourceReadEvent::RbacSelfAccessUpdated { results }),
+    );
+    Ok(())
+}
+
+/// Run one `SelfSubjectAccessReview` for `check`. An erroring review is reported as
+/// `allowed: false` with the verbatim error as its reason.
+async fn review_access(
+    api: &Api<SelfSubjectAccessReview>,
+    check: RbacAccessCheck,
+) -> RbacAccessResult {
+    let review = SelfSubjectAccessReview {
+        metadata: Default::default(),
+        spec: SelfSubjectAccessReviewSpec {
+            resource_attributes: Some(ResourceAttributes {
+                group: Some(check.group.clone().unwrap_or_default()),
+                resource: Some(check.resource.clone()),
+                verb: Some(check.verb.clone()),
+                namespace: check.namespace.clone(),
+                ..Default::default()
+            }),
+            non_resource_attributes: None,
+        },
+        status: None,
+    };
+    match api.create(&PostParams::default(), &review).await {
+        Ok(reviewed) => {
+            let status = reviewed.status.unwrap_or_default();
+            RbacAccessResult {
+                check,
+                allowed: status.allowed,
+                reason: status.reason.or(status.evaluation_error),
+            }
+        }
+        Err(err) => RbacAccessResult {
+            check,
+            allowed: false,
+            reason: Some(err.to_string()),
+        },
+    }
+}
+
+/// Handle `CheckResourceMutationAccess` (018): resolve the real group/plural of
+/// `api_version`/`kind` via discovery, then review it. A discovery failure is reported as
+/// `allowed: false` with the reason, never as a command error.
+pub(super) async fn handle_check_resource_mutation_access(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    api_version: String,
+    kind: String,
+    namespace: Option<String>,
+    verb: String,
+) -> anyhow::Result<()> {
+    let client = state.cluster.client_or_err()?;
+    let api: Api<SelfSubjectAccessReview> = Api::all(client.clone());
+    let result = match super::apply::resolve_api_resource(&client, &api_version, &kind).await {
+        Ok(ar) => {
+            review_access(
+                &api,
+                RbacAccessCheck {
+                    verb,
+                    resource: ar.plural,
+                    namespace,
+                    group: Some(ar.group),
+                },
+            )
+            .await
+        }
+        Err(err) => RbacAccessResult {
+            check: RbacAccessCheck {
+                verb,
+                resource: kind.clone(),
+                namespace,
+                group: None,
+            },
+            allowed: false,
+            reason: Some(err.to_string()),
+        },
+    };
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::cluster(
+            section_keys::access_rolebindings(),
+            state.cluster.current_context.clone(),
+        ),
+        Correlation::None,
+        BackendEvent::ResourceRead(ResourceReadEvent::ResourceMutationAccessChecked {
+            api_version,
+            kind,
+            result,
+        }),
     );
     Ok(())
 }
