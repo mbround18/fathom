@@ -22,6 +22,7 @@ import { waitForCommandResult } from '@/store/actions'
 import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
+import { NodeShellSettingsSection } from './NodeShellSettingsSection'
 
 function cloneSettings(s: ClusterSettings): ClusterSettings {
   return { ...s, hiddenMetrics: [...s.hiddenMetrics], fieldOrigin: { ...s.fieldOrigin } }
@@ -282,6 +283,7 @@ export function ClusterSettingsPanel() {
       {/* 015-mcp-agent-exposure: which agents can reach this cluster, and how. Owns its own
           commands and store slice; nothing here feeds the §10 settings draft above. */}
       <AvailableAgentsSection />
+      <NodeShellSettingsSection />
 
       {formError !== undefined && (
         <p role="alert" data-testid="teams-cluster-settings-error" className="text-xs text-status-err">

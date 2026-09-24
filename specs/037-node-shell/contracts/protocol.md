@@ -7,7 +7,7 @@ Location: `src/protocol/v1/cmd.rs`, `event.rs`, `mutation.rs`. Bindings regenera
 |---|---|---|
 | `CheckNodeShellAccess` | `{ namespace }` | ReadOnly |
 | `StartNodeShell` | `{ node, namespace, image, image_pull_secret?, deadline_seconds? }` | `Namespaced { namespaces: [namespace] }` (writes_cluster = true) |
-| `StopNodeShell` | `{ session_id }` | `Namespaced` (deletes a pod) |
+| `StopNodeShell` | `{ session_id, namespace }` | `Namespaced` (deletes a pod) |
 | `ListNodeShellOrphans` | `{ namespace? }` | ReadOnly |
 | `DeleteNodeShellOrphans` | `{ pods: [{ namespace, name }] }` | `Namespaced` |
 | `GetNodeShellSettings` / `SetNodeShellSettings` | settings | ReadOnly / local persistence only |

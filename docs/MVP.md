@@ -35,7 +35,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
 | Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) unblocked now that 011 has landed in `main` — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
-| Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | 📝 | spec drafted (`037-node-shell`) |
+| Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | ✅ | `037-node-shell` — privileged debug pod pinned to a node with confirm, SSAR pre-check, guaranteed cleanup and orphan sweep; validated on kind (Linux only; Tier 1 platforms and brochure pending) |
 
 ---
 
@@ -489,7 +489,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 
 ### Node Shell
 
-*Status: ⬜ Not started.* An on-demand ephemeral debug pod scheduled onto a specific node (distinct from `002`'s in-pod `kubectl exec`-equivalent terminal, which attaches to an existing container).
+*Status: ✅ Shipped (`037-node-shell`; brochure screenshots and Tier 1 platform runs pending).* An on-demand ephemeral debug pod scheduled onto a specific node (distinct from `002`'s in-pod `kubectl exec`-equivalent terminal, which attaches to an existing container).
 
 * Configurable image
 * Optional image pull secret

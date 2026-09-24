@@ -27,6 +27,7 @@ import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
 import { HelmUpgradePanel } from './panels/HelmUpgradePanel'
 import { ImageInspectPanel } from './panels/ImageInspectPanel'
 import { NodeActionsPanel } from './panels/NodeActionsPanel'
+import { NodeShellPanel } from './panels/NodeShellPanel'
 import { PortForwardActionsPanel } from './panels/PortForwardActionsPanel'
 import { PodLogsTab } from './panels/PodLogsTab'
 import { PodTerminalTab } from './panels/PodTerminalTab'
@@ -109,7 +110,12 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   const editSession = useStore((s) => s.editSessions[editKey])
   const [tab, setTab] = useState('details')
   const handleTabChange = (next: string) => {
-    if (tab === 'yaml' && next !== 'yaml' && editSession?.dirty && editSession.status !== 'applying') {
+    if (
+      tab === 'yaml' &&
+      next !== 'yaml' &&
+      editSession?.dirty &&
+      editSession.status !== 'applying'
+    ) {
       if (!window.confirm(DISCARD_EDIT_PROMPT)) return
     }
     setTab(next)
@@ -139,7 +145,8 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   if (list?.status === 'ready' && !row) return <NoLongerExists name={target.name} />
   // Flux origin click-through (spec 005 FR-013): a deleted origin resolves to an explicit
   // `FluxResourceNotFound` reply, not a blank/frozen panel.
-  if (detailState?.eventType === 'FluxResourceNotFound') return <NoLongerExists name={target.name} />
+  if (detailState?.eventType === 'FluxResourceNotFound')
+    return <NoLongerExists name={target.name} />
 
   const detail = detailState ? descriptor.selectDetail(detailState) : undefined
   const raw = detail !== undefined && descriptor.rawJson ? descriptor.rawJson(detail) : undefined
@@ -217,6 +224,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
               className="h-full flex-none px-3 font-display tracking-wider uppercase"
             >
               Actions
+            </TabsTrigger>
+          )}
+          {target.kind === 'Node' && (
+            <TabsTrigger
+              value="node-shell"
+              data-testid="node-shell-tab"
+              className="h-full flex-none px-3 font-display tracking-wider uppercase"
+            >
+              Shell
             </TabsTrigger>
           )}
           {(target.kind === 'Pod' || target.kind === 'Service') && (
@@ -299,6 +315,11 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
             <NodeActionsPanel nodeName={target.name} />
           </TabsContent>
         )}
+        {target.kind === 'Node' && (
+          <TabsContent value="node-shell" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <NodeShellPanel nodeName={target.name} />
+          </TabsContent>
+        )}
         {target.kind === 'Pod' && target.namespace && (
           <TabsContent value="port-forward" className="min-h-0 flex-1 overflow-y-auto">
             <PortForwardActionsPanel
@@ -323,7 +344,8 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
           <TabsContent value="helm-actions" className="min-h-0 flex-1 overflow-y-auto">
             {(() => {
               const helmDetail = detail as HelmReleaseDetails | undefined
-              const revision = helmDetail?.revision ?? (row as HelmReleaseSummary | undefined)?.revision
+              const revision =
+                helmDetail?.revision ?? (row as HelmReleaseSummary | undefined)?.revision
               if (revision === undefined) return <Loading rows={4} label="Loading release" />
               return (
                 <HelmReleaseActionsPanel
@@ -388,7 +410,10 @@ function Breadcrumb({
       {segments.map((seg, i) => {
         const isLast = i === segments.length - 1
         return (
-          <span key={`${seg.section}-${seg.namespace ?? ''}-${seg.name}-${String(i)}`} className="flex items-center gap-1">
+          <span
+            key={`${seg.section}-${seg.namespace ?? ''}-${seg.name}-${String(i)}`}
+            className="flex items-center gap-1"
+          >
             {i > 0 && <span aria-hidden="true">/</span>}
             {isLast ? (
               <span className="text-foreground">{seg.name}</span>

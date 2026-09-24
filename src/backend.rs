@@ -37,6 +37,7 @@ mod mcp;
 mod metrics;
 mod metrics_provider;
 mod networkpolicies;
+mod node_shell;
 mod nodes;
 pub mod persistence;
 mod pods;
@@ -158,6 +159,7 @@ where
     // Final cleanup on exit
     rt.block_on(async {
         let mut final_state = state.lock().await;
+        node_shell::end_active(&mut final_state, node_shell::APP_EXIT_BOUND).await;
         state::cleanup_all_tasks(&mut final_state);
         events::notify_info(
             final_state.cluster.seq.as_ref(),

@@ -31,3 +31,8 @@
 ## R7. Dependencies on 024/025
 - 024 supplies the SSAR pre-check pattern and the confirm-before-open UI phases; 025 supplies conventions only. Neither must merge first: the Foundational phase adds the minimal shared piece if absent and notes to dedupe on merge.
 - No new crates: `kube` (ws, already enabled), `k8s-openapi`.
+
+### R7 outcome (implementation)
+- 024 and 025 were not on main. Stand-ins: the existing `ConfirmDialog` and a new `review_resource_access` helper in `src/backend/rbac_access.rs`; the terminal surface was extracted as `TerminalView`. Dedupe against 024/025 on merge.
+- Deviations: the startup wait is a bounded 1s GET poll (90s), not a watch, so `StopNodeShell` is never blocked by the backend mutex. `StopNodeShell` carries `namespace` for mutation classification. Extra events `NodeShellAccessChecked` and `NodeShellSettingsLoaded` were added. Settings live in `node-shell.json` per context.
+- Ctrl+C in the Tauri shell allows a 500ms grace, so it cannot wait for a pod delete; the orphan sweep covers that case.

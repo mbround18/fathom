@@ -29,7 +29,11 @@ import type {
   LayoutProfile,
   MetricsStackScanResult,
   NamespaceAccessResolved,
+  NodeShellAccessCheck,
+  NodeShellPhase,
+  NodeShellSettings,
   OrgClusterSettings,
+  OrphanedNodeShellPod,
   RbacAccessResult,
   ResourceListEvent,
   ResourceReadEvent,
@@ -336,6 +340,29 @@ export interface IntegrationsState {
 }
 
 /**
+ * 037-node-shell. `session` is the singleton debug-pod session as last reported by
+ * `NodeShellStatus` (stale generations are ignored); `access` is the latest permission check;
+ * `orphans` the latest leftover-pod sweep; `settings` the per-context defaults.
+ */
+export interface NodeShellSession {
+  sessionId: number
+  phase: NodeShellPhase
+  node: string
+  namespace: string
+  pod: string
+  detail?: string
+  leftover: boolean
+}
+
+export interface NodeShellState {
+  session?: NodeShellSession
+  access?: { namespace: string; checks: NodeShellAccessCheck[] }
+  orphans?: OrphanedNodeShellPod[]
+  settings?: NodeShellSettings
+  settingsContext?: string
+}
+
+/**
  * 014-teams-organizations. `clusterSettings`/`clusterSettingsContext`/`clusterSettingsError`
  * reflect the most recent `LoadClusterSettings`/`SaveClusterSettings` round-trip for whichever
  * context requested it — `ClusterSettingsPanel` re-requests on context switch, so stale
@@ -523,6 +550,8 @@ export interface StoreData {
    * `ConnectionProfilesUpdated`/`OrgClusterSettingsAvailable`/`TeamPublishRejected` cases).
    */
   team: TeamState
+  /** 037-node-shell: debug-pod session, access check, orphan sweep and settings. */
+  nodeShell: NodeShellState
   /** Helm release uninstalls (006 US3), by `namespace/release`. */
   helmUninstalls: Record<string, HelmUninstallState>
   /**
@@ -822,6 +851,7 @@ export function initialData(): StoreData {
     agentConversations: {},
     agentAuth: {},
     team: { adopted: [], available: [] },
+    nodeShell: {},
     rbacAccess: {},
     helmUninstalls: {},
     helmMutations: {},
@@ -1257,7 +1287,10 @@ export const useStore = create<StoreState>()((set, get) => ({
       return {
         editSessions: {
           ...s.editSessions,
-          [key]: markFailed(current, result.error ?? 'The backend reported a failure with no message.'),
+          [key]: markFailed(
+            current,
+            result.error ?? 'The backend reported a failure with no message.',
+          ),
         },
       }
     })

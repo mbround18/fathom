@@ -64,6 +64,10 @@ impl BackendCmdV1 {
             | C::SendPodExecInput { .. }
             | C::ResizePodExec { .. }
             | C::StopPodExec
+            // 037-node-shell: access review, orphan listing and settings read.
+            | C::CheckNodeShellAccess { .. }
+            | C::ListNodeShellOrphans { .. }
+            | C::GetNodeShellSettings
             | C::RefreshDeployments
             | C::SelectDeployment { .. }
             | C::RefreshDaemonSets
@@ -210,7 +214,9 @@ impl BackendCmdV1 {
             | C::ResizeMcpDemoChat { .. }
             // 027-fleet-rollup-dashboard: view-only polling, never mutates a cluster.
             | C::StartFleetPolling
-            | C::StopFleetPolling => MutationTarget::Local,
+            | C::StopFleetPolling
+            // 037-node-shell: persists per-context settings only.
+            | C::SetNodeShellSettings { .. } => MutationTarget::Local,
 
             C::SetContext { context } => MutationTarget::ContextSwitch {
                 context: context.clone(),
@@ -249,6 +255,18 @@ impl BackendCmdV1 {
             | C::DeleteHorizontalPodAutoscaler { namespace, .. }
             | C::DeletePodDisruptionBudget { namespace, .. }
             | C::DeleteLease { namespace, .. } => MutationTarget::namespaced(namespace),
+
+            // 037-node-shell: creates / deletes a privileged pod in the given namespace.
+            C::StartNodeShell { namespace, .. } | C::StopNodeShell { namespace, .. } => {
+                MutationTarget::namespaced(namespace)
+            }
+            C::DeleteNodeShellOrphans { pods } => {
+                let mut namespaces: Vec<String> =
+                    pods.iter().map(|p| p.namespace.clone()).collect();
+                namespaces.sort();
+                namespaces.dedup();
+                MutationTarget::Namespaced { namespaces }
+            }
 
             C::BulkDelete { items } => {
                 let mut namespaces: Vec<String> = items.iter().map(|(ns, _)| ns.clone()).collect();
@@ -334,6 +352,14 @@ impl BackendCmdV1 {
             | C::CancelDrainNode { .. }
             | C::TaintNode { .. } => section_keys::nodes(),
             C::RefreshEvents => section_keys::events(),
+            // 037-node-shell: launched from the Node inspector.
+            C::CheckNodeShellAccess { .. }
+            | C::StartNodeShell { .. }
+            | C::StopNodeShell { .. }
+            | C::ListNodeShellOrphans { .. }
+            | C::DeleteNodeShellOrphans { .. }
+            | C::GetNodeShellSettings
+            | C::SetNodeShellSettings { .. } => section_keys::nodes(),
             C::RefreshPods
             | C::SelectPod { .. }
             | C::DeletePod { .. }
@@ -628,6 +654,61 @@ mod tests {
             assert_eq!(cmd.mutation_target(), nsn("fathom-dev"), "{cmd:?}");
             assert!(cmd.mutation_target().writes_cluster());
         }
+    }
+
+    #[test]
+    fn node_shell_classification() {
+        use crate::protocol::v1::{NodeShellPodRef, NodeShellSettings};
+        for cmd in [
+            BackendCmdV1::CheckNodeShellAccess { namespace: s("d") },
+            BackendCmdV1::ListNodeShellOrphans { namespace: None },
+            BackendCmdV1::GetNodeShellSettings,
+        ] {
+            assert_eq!(cmd.mutation_target(), MutationTarget::ReadOnly, "{cmd:?}");
+        }
+        assert_eq!(
+            BackendCmdV1::SetNodeShellSettings {
+                settings: NodeShellSettings::default()
+            }
+            .mutation_target(),
+            MutationTarget::Local
+        );
+        let start = BackendCmdV1::StartNodeShell {
+            node: s("n"),
+            namespace: s("kube-system"),
+            image: s("busybox"),
+            image_pull_secret: None,
+            deadline_seconds: None,
+        };
+        assert_eq!(start.mutation_target(), nsn("kube-system"));
+        assert!(start.mutation_target().writes_cluster());
+        let stop = BackendCmdV1::StopNodeShell {
+            session_id: 1,
+            namespace: s("kube-system"),
+        };
+        assert_eq!(stop.mutation_target(), nsn("kube-system"));
+        let orphans = BackendCmdV1::DeleteNodeShellOrphans {
+            pods: vec![
+                NodeShellPodRef {
+                    namespace: s("b"),
+                    name: s("x"),
+                },
+                NodeShellPodRef {
+                    namespace: s("a"),
+                    name: s("y"),
+                },
+                NodeShellPodRef {
+                    namespace: s("b"),
+                    name: s("z"),
+                },
+            ],
+        };
+        assert_eq!(
+            orphans.mutation_target(),
+            MutationTarget::Namespaced {
+                namespaces: vec![s("a"), s("b")]
+            }
+        );
     }
 
     #[test]
