@@ -186,6 +186,8 @@ pub(super) struct BackendState {
     /// (010-container-image-inspection, FR-008/data-model.md). In-memory only, never
     /// persisted to `~/.fathom/` (Constitution VI) or shared across cluster connections.
     pub(super) image_inspect_cache: HashMap<String, crate::protocol::ImageInspection>,
+    /// 033 US5: capability cache (rules reviews per context/identity/namespace, 60 s TTL).
+    pub(super) capabilities: crate::backend::capabilities::CapabilityCache,
     /// 013-agent-sdk-ops: per-object assistant conversations, keyed by
     /// `"<kind>/<namespace>/<name>"`. Session-scoped for now (Phase 6/T044 adds
     /// `~/.fathom/agent_conversations.json` persistence across restarts); never
@@ -195,6 +197,11 @@ pub(super) struct BackendState {
     /// task and no cancellation token, so a Fathom process that never receives
     /// `SetMcpServerEnabled { enabled: true }` never spawns a server (FR-002).
     pub(super) mcp: crate::backend::mcp::McpState,
+    /// 033-rauthy-oidc-teams-users: OIDC sessions (tokens live here and in the OS keyring only).
+    /// The event sink is bound on first use by the OIDC command family.
+    pub(super) oidc: crate::backend::oidc::session::OidcSessions,
+    /// 033 US3: last-good IdP directory per issuer (read by the Teams view and the US4 picker).
+    pub(super) idp: crate::backend::idp_directory::DirectoryCache,
     /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
@@ -239,8 +246,14 @@ impl BackendState {
             },
             port_forward_manager: PortForwardManager::new(),
             image_inspect_cache: HashMap::new(),
+            capabilities: crate::backend::capabilities::CapabilityCache::default(),
             agent_conversations: HashMap::new(),
             mcp: crate::backend::mcp::McpState::default(),
+            idp: crate::backend::idp_directory::DirectoryCache::default(),
+            oidc: crate::backend::oidc::session::OidcSessions::new(
+                std::sync::Arc::new(crate::backend::oidc::store::CredentialStore::os()),
+                std::sync::Arc::new(|_| {}),
+            ),
         }
     }
 

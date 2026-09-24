@@ -184,9 +184,21 @@ pub struct TeamStoreStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum TeamPublishRejection {
-    SuspectedSecret { field: String, reason: String },
-    Conflict { expected_rev: u64, current_rev: u64 },
-    StoreUnreachable { reason: String },
+    SuspectedSecret {
+        field: String,
+        reason: String,
+    },
+    Conflict {
+        expected_rev: u64,
+        current_rev: u64,
+    },
+    StoreUnreachable {
+        reason: String,
+    },
+    /// 033 US3: the signed-in identity's Fathom role (viewers/editors/admins group) is too low.
+    RoleForbidden {
+        reason: String,
+    },
 }
 
 // ---------------------------------------------------------------------------------------

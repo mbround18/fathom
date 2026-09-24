@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SECTION } from '@/protocol/commands'
 import type { PortForward } from '@/protocol/types'
@@ -96,8 +97,8 @@ export function PortForwardsPanel() {
         detail={
           stopTarget ? (
             <span data-testid="port-forward-stop-detail">
-              Stops forwarding local port {stopTarget.local_port} to{' '}
-              {stopTarget.namespace}/{stopTarget.pod}:{stopTarget.remote_port}.
+              Stops forwarding local port {stopTarget.local_port} to {stopTarget.namespace}/
+              {stopTarget.pod}:{stopTarget.remote_port}.
             </span>
           ) : undefined
         }
@@ -111,7 +112,11 @@ export function PortForwardsPanel() {
         }}
       />
 
-      <PortForwardStartDialog target={restartTarget} open={restartOpen} onOpenChange={setRestartOpen} />
+      <PortForwardStartDialog
+        target={restartTarget}
+        open={restartOpen}
+        onOpenChange={setRestartOpen}
+      />
     </div>
   )
 }
@@ -207,9 +212,11 @@ function PortForwardRowItem({
           </Button>
         )}
         {canRestart && (
-          <Button type="button" size="sm" data-testid="port-forward-restart" onClick={onRestart}>
-            Restart
-          </Button>
+          <Gated verb="create" resource="pods" subresource="portforward" namespace={pf.namespace}>
+            <Button type="button" size="sm" data-testid="port-forward-restart" onClick={onRestart}>
+              Restart
+            </Button>
+          </Gated>
         )}
       </div>
     </li>

@@ -2,7 +2,7 @@
 //!
 //! Manages loading/saving configuration to ~/.fathom/ directory.
 
-use crate::protocol::{AdoptedConnectionProfile, ClusterSettings, UiConfig};
+use crate::protocol::{AdoptedConnectionProfile, ClusterSettings, OidcConfig, UiConfig};
 use crate::sections::network::PortForward;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -325,6 +325,55 @@ pub fn save_ui_config(ui: &UiConfig, expanded_groups: &[String]) -> Result<()> {
 
     save_config(&config)?;
     tracing::debug!("Saved ui config");
+    Ok(())
+}
+
+/// Load `config.json -> oidc` (033). Absent, unreadable or invalid yields defaults; an invalid
+/// blob is moved to `oidc_invalid` (replacing any older one) so the original is preserved and
+/// every other key is untouched. A `config.json` that cannot be parsed at all is never rewritten.
+pub fn load_oidc_config() -> OidcConfig {
+    let mut config = match load_config() {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::warn!("Failed to read config.json; using OIDC defaults: {}", e);
+            return OidcConfig::default();
+        }
+    };
+    let Some(raw) = config.get("oidc").cloned() else {
+        return OidcConfig::default();
+    };
+    match OidcConfig::from_value(raw.clone()) {
+        Ok(oidc) => oidc,
+        Err(e) => {
+            tracing::warn!("Invalid oidc config; moving it to oidc_invalid: {}", e);
+            if let Some(obj) = config.as_object_mut() {
+                obj.remove("oidc");
+                obj.insert("oidc_invalid".to_owned(), raw);
+                if let Err(e) = save_config(&config) {
+                    tracing::warn!("Failed to move invalid oidc config aside: {}", e);
+                }
+            }
+            OidcConfig::default()
+        }
+    }
+}
+
+/// Persist `config.json -> oidc`, leaving every other key untouched. Refuses to write an
+/// invalid config or over an unparseable `config.json`.
+pub fn save_oidc_config(oidc: &OidcConfig) -> Result<()> {
+    oidc.validate()
+        .map_err(|e| anyhow!("Refusing to save invalid oidc config: {}", e))?;
+    let mut config = load_config()?;
+    let obj = config
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("config.json is not a JSON object"))?;
+    obj.insert(
+        "oidc".to_owned(),
+        serde_json::to_value(oidc)
+            .map_err(|e| anyhow!("Failed to serialize oidc config: {}", e))?,
+    );
+    save_config(&config)?;
+    tracing::debug!("Saved oidc config");
     Ok(())
 }
 

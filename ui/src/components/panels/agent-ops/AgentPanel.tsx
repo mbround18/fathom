@@ -127,11 +127,14 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
           <AuthSetup />
         </div>
       )}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto" data-testid="agent-ops-messages">
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto"
+        data-testid="agent-ops-messages"
+      >
         {messages.length === 0 && !asking && (
           <p data-testid="agent-ops-empty" className="text-xs text-muted-foreground">
-            Ask a question about {object.kind.toLowerCase()} {object.namespace}/{object.name} to
-            get started.
+            Ask a question about {object.kind.toLowerCase()} {object.namespace}/{object.name} to get
+            started.
           </p>
         )}
         {messages.map((m) => (

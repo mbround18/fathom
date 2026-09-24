@@ -7,6 +7,7 @@
  * browse + delete action.
  */
 import { DanglingRoleRefBadge } from '@/components/rbac/DanglingRoleRefBadge'
+import { OrphanedSubjectBadge } from '@/features/roles/OrphanedSubjectBadge'
 import type { RoleBindingDetails, RoleBindingSummary, SubjectSummary } from '@/protocol/types'
 
 import { deleteAction } from './actions'
@@ -92,7 +93,12 @@ export const rolebindings: ResourceDescriptor<RoleBindingSummary, RoleBindingDet
       priority: 1,
       minWidth: 150,
       grow: 3,
-      cell: (r) => r.name,
+      cell: (r) => (
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{r.name}</span>
+          <OrphanedSubjectBadge binding={`RoleBinding/${r.namespace}/${r.name}`} />
+        </span>
+      ),
       text: (r) => r.name,
       sort: (a, b) => compareText(a.name, b.name),
     },

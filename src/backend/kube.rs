@@ -9,6 +9,7 @@ use kube::{
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 
+use super::oidc::session::TokenSource;
 use super::{events, state::BackendState};
 
 /// Load kubeconfig respecting KUBECONFIG env var and ~/.kube/config default.
@@ -137,14 +138,113 @@ pub(super) async fn connect_client_for_current_context(
         && let Ok(kubeconfig) = load_kubeconfig()
     {
         let opts = KubeConfigOptions {
-            context: Some(ctx),
+            context: Some(ctx.clone()),
             ..Default::default()
         };
         let config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
+        // 033 US2: a context opted into OIDC authenticates with the signed-in ID token only.
+        if let Some(issuer_id) = oidc_issuer_for_context(&ctx) {
+            return build_oidc_client(config, state.oidc.token_source(&issuer_id));
+        }
         return Ok(Client::try_from(config)?);
     }
 
     Ok(Client::try_default().await?)
+}
+
+/// The issuer a context is opted into, or `None` for the default kubeconfig-only path.
+pub(super) fn oidc_issuer_for_context(context: &str) -> Option<String> {
+    use crate::protocol::v1::ContextAuthMode;
+    super::persistence::load_oidc_config()
+        .contexts
+        .into_iter()
+        .find(|c| c.context_name == context && c.mode == ContextAuthMode::Oidc)
+        .and_then(|c| c.issuer_id)
+}
+
+/// Tower layer that stamps `Authorization: Bearer <current ID token>` on every request.
+///
+/// The token is read per request (the refresh task swaps it under us). When there is no token
+/// the request fails with the reason; it is never sent unauthenticated and never re-signed with
+/// kubeconfig credentials (033 FR: no fallback after OIDC failure).
+#[derive(Clone)]
+pub struct OidcBearerLayer {
+    source: TokenSource,
+}
+
+impl OidcBearerLayer {
+    pub fn new(source: TokenSource) -> Self {
+        Self { source }
+    }
+}
+
+impl<S> tower::Layer<S> for OidcBearerLayer {
+    type Service = OidcBearer<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        OidcBearer {
+            inner,
+            source: self.source.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct OidcBearer<S> {
+    inner: S,
+    source: TokenSource,
+}
+
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+impl<S, B> tower::Service<http::Request<B>> for OidcBearer<S>
+where
+    S: tower::Service<http::Request<B>>,
+    S::Future: Send + 'static,
+    S::Error: Into<BoxError>,
+    S::Response: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = BoxError;
+    type Future = futures::future::BoxFuture<'static, Result<S::Response, BoxError>>;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx).map_err(Into::into)
+    }
+
+    fn call(&mut self, mut req: http::Request<B>) -> Self::Future {
+        match (self.source)() {
+            Ok(token) => {
+                match http::HeaderValue::from_str(&format!("Bearer {token}")) {
+                    Ok(mut value) => {
+                        value.set_sensitive(true);
+                        req.headers_mut().insert(http::header::AUTHORIZATION, value);
+                    }
+                    Err(_) => {
+                        return Box::pin(async {
+                            Err("the OIDC ID token is not a valid header value".into())
+                        });
+                    }
+                }
+                let fut = self.inner.call(req);
+                Box::pin(async move { fut.await.map_err(Into::into) })
+            }
+            Err(reason) => Box::pin(async move { Err(reason.into()) }),
+        }
+    }
+}
+
+/// Build a client for an OIDC-opted context: kubeconfig credentials are discarded and the
+/// bearer layer is the only authentication.
+pub fn build_oidc_client(mut config: Config, source: TokenSource) -> anyhow::Result<Client> {
+    config.auth_info = kube::config::AuthInfo::default();
+    let client = kube::client::ClientBuilder::try_from(config)?
+        .with_layer(&OidcBearerLayer::new(source))
+        .build();
+    Ok(client)
 }
 
 pub(super) fn read_kubeconfig_current_context() -> Option<String> {

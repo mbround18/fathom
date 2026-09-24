@@ -11,12 +11,10 @@
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
+import { Gated } from '@/lib/capabilities'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+
+import { useStore } from '@/store'
 
 import { RoleBindingForm, type RoleBindingKind } from './RoleBindingForm'
 
@@ -26,13 +24,21 @@ export interface RoleBindingCreateLauncherProps {
 
 export function RoleBindingCreateLauncher({ kind }: RoleBindingCreateLauncherProps) {
   const [open, setOpen] = useState(false)
+  const activeNamespace = useStore((s) => s.session.activeNamespace)
   const label = kind === 'RoleBinding' ? 'New RoleBinding' : 'New ClusterRoleBinding'
 
   return (
     <>
-      <Button data-testid="rbac-binding-create-open" size="sm" onClick={() => setOpen(true)}>
-        {label}
-      </Button>
+      <Gated
+        apiGroup="rbac.authorization.k8s.io"
+        verb="create"
+        resource={kind === 'RoleBinding' ? 'rolebindings' : 'clusterrolebindings'}
+        namespace={kind === 'RoleBinding' ? activeNamespace : null}
+      >
+        <Button data-testid="rbac-binding-create-open" size="sm" onClick={() => setOpen(true)}>
+          {label}
+        </Button>
+      </Gated>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-[calc(100vw-2rem)] sm:max-w-xl">
           <SheetHeader>

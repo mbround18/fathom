@@ -30,10 +30,10 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Pod lifecycle hooks / probes / init-container detail | ✅ | 008-pod-lifecycle-diagnostics |
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ✅ | 009-port-forward-ui |
 | Container image layer inspection | ✅ | see §9a |
-| Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ✅ | 011-rbac-oidc-administration (cluster-admin RBAC browse/create/edit/delete + namespace-access lookup + OIDC issuer config generator; see §14 Tier C) |
+| Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ✅ | 011-rbac-oidc-administration (cluster-admin RBAC browse/create/edit/delete + namespace-access lookup + OIDC issuer config generator; see §14 Tier C) plus 033-rauthy-oidc-teams-users (OIDC sign-in, per-context bearer auth, capability-scoped UI, IdP directory; live cluster validation partial, see §14 Tier B) |
 | In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | 🚧 | P1 (multi-context sidebar + live status) shipped — see §14 Tier D; simultaneous federation/daemon/cloud-auth-plugins still future |
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
-| Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) unblocked now that 011 has landed in `main` — see §14 Tier F |
+| Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) delivered by 033-rauthy-oidc-teams-users (automated tests only; live multi-user validation not run) — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
 | Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | ⬜ | not yet planned |
 
@@ -594,10 +594,12 @@ Carried over from roadmap discussion, in priority order:
 * Local LLM inference via Ollama for the MCP/AI-assist surface — ⬜
 
 ### Tier B — Enterprise auth / access
-* OAuth-based cluster login — ⬜
-* LDAP integration — ⬜
-* Role assignment UI — ⬜
-* RBAC-scoped UI (hiding/disabling actions a role can't perform, not just erroring after the fact — ties to constitution Principle VI) — ⬜
+*Status: 🚧 Implemented in 033-rauthy-oidc-teams-users; live end-to-end validation against a real cluster is only partly done (see the verification notes below).*
+
+* OAuth/OIDC-based cluster login — ✅ implemented (033: PKCE loopback + device-code sign-in, silent refresh, per-context opt-in, `Authorization: Bearer` layer with no kubeconfig fallback after an OIDC failure). Unit/integration-tested against a mock provider (`tests/oidc_*.rs`); the live kind check against Rauthy (quickstart section 2, task T023) has **not** been run.
+* LDAP integration — ✅ by design with zero Fathom LDAP code: LDAP users sign in through the IdP (Rauthy via Dex). `scripts/check-no-ldap.sh` enforces no LDAP crate in CI. The lab manifests deploy and OpenLDAP/Dex are verified live, but Rauthy upstream-provider registration and the group reconciler are **not** verified live (blocked on the bootstrap-only `ldap-lab` API key; request bodies are unprobed).
+* Role assignment UI — ✅ (033 US4 on top of 011: IdP directory picker, preview with `oidc:`-prefixed subject, orphaned-subject badge).
+* RBAC-scoped UI (hiding/disabling actions a role can't perform, not just erroring after the fact — ties to constitution Principle VI) — ✅ (033 US5: lazy per-namespace `SelfSubjectRulesReview` with `SelfSubjectAccessReview` fallback, fail closed, 60 s cache). Verified by unit and Playwright tests; not verified live with distinct teammates on a cluster.
 
 ### Tier C — Cluster-admin RBAC / OIDC-OAuth administration
 
@@ -628,10 +630,10 @@ Carried over from roadmap discussion, in priority order:
 
 ### Tier F — Teams & organizations (self-hosted)
 
-*Status: 🚧 Partial — 014-teams-organizations. Shared connection profiles and org-level §10 settings sync shipped; per-user RBAC-scoped views remain blocked on Tier C's role resolution (spec 011, not yet merged into `main`).*
+*Status: 🚧 Mostly shipped — 014-teams-organizations (shared profiles, org-level §10 sync) and 033-rauthy-oidc-teams-users (per-user RBAC-scoped views, IdP directory, Teams view). Live multi-teammate validation on a cluster is not done.*
 
 * ✅ Shared cluster-connection profiles within a team (kubeconfig/context sharing, not shared credentials) via a self-hosted shared config store the operator points at — the shared record carries no credential field, and a heuristic scan refuses any publish that looks like it contains one (`TeamPublishRejected { kind: 'suspectedSecret' }`), surfaced in the UI rather than silently dropped.
-* ⬜ Per-user RBAC-scoped views once signed in via Tier C's OIDC flow — the UI already reflects what that identity can do, per-user, not per-install. *Blocked on 011 landing in `main`.*
+* ✅ Per-user RBAC-scoped views once signed in via OIDC — controls reflect what that identity can do, per-user, not per-install (capability cache is keyed by context + identity `sub` + namespace). 011 is in `main`; delivered by 033 US3/US5. Automated tests only; the two-teammates-on-one-cluster check in quickstart sections 2-3 has not been run live.
 * ✅ Org-level settings/preferences sync (metrics source, hidden-metrics config, etc. from §10) shared across a team rather than re-configured per machine — publish-as-org-default with optimistic-concurrency conflict detection, and an accept/dismiss banner when a teammate publishes a newer default for a context you're on.
 * Explicit non-goal: a hosted multi-tenant SaaS control plane — this is about self-hosted teams who already share real clusters, not standing up a new hosted backend.
 

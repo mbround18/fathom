@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: openldap}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: openldap}}
+  template:
+    metadata: {labels: {app: openldap}}
+    spec:
+      containers:
+        - name: openldap
+          image: osixia/openldap:1.5.0
+          env:
+            - {name: LDAP_ORGANISATION, value: Fathom}
+            - {name: LDAP_DOMAIN, value: fathom.test}
+            - {name: LDAP_ADMIN_PASSWORD, value: adminpw-lab}
+            - {name: LDAP_TLS, value: "false"}
+          ports: [{containerPort: 389}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: openldap}
+spec:
+  selector: {app: openldap}
+  ports: [{port: 389}]

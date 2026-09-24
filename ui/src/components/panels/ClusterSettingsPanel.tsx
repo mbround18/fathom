@@ -32,9 +32,7 @@ export function ClusterSettingsPanel() {
   const send = useStore((s) => s.send)
   const activeContext = useStore((s) => s.session.activeContext)
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const noKubeconfig = useStore(
-    (s) => s.session.contextsLoaded && s.session.contexts.length === 0,
-  )
+  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
   const loaded = useStore((s) => s.team.clusterSettings)
   const loadedContext = useStore((s) => s.team.clusterSettingsContext)
   const loadError = useStore((s) => s.team.clusterSettingsError)
@@ -61,11 +59,7 @@ export function ClusterSettingsPanel() {
   // comparison" pattern as `AuthSetup.tsx`, so a save-in-progress edit is never clobbered by a
   // subsequent broadcast of the same settings.
   const [prefilledFor, setPrefilledFor] = useState<string | undefined>(undefined)
-  if (
-    loaded !== undefined &&
-    loadedContext === activeContext &&
-    prefilledFor !== loadedContext
-  ) {
+  if (loaded !== undefined && loadedContext === activeContext && prefilledFor !== loadedContext) {
     setPrefilledFor(loadedContext)
     setDraft(cloneSettings(loaded))
   }
@@ -198,9 +192,7 @@ export function ClusterSettingsPanel() {
           <select
             data-testid="teams-metrics-source"
             value={draft.metricsSource}
-            onChange={(e) =>
-              setDraft({ ...draft, metricsSource: e.target.value as MetricsSource })
-            }
+            onChange={(e) => setDraft({ ...draft, metricsSource: e.target.value as MetricsSource })}
             className="h-[var(--touch-target)] border border-input bg-background px-2 text-sm"
           >
             <option value="none">None</option>
@@ -284,18 +276,31 @@ export function ClusterSettingsPanel() {
       <AvailableAgentsSection />
 
       {formError !== undefined && (
-        <p role="alert" data-testid="teams-cluster-settings-error" className="text-xs text-status-err">
+        <p
+          role="alert"
+          data-testid="teams-cluster-settings-error"
+          className="text-xs text-status-err"
+        >
           {formError}
         </p>
       )}
       {savedAt !== undefined && (
-        <p role="status" data-testid="teams-cluster-settings-saved" className="text-xs text-status-ok">
+        <p
+          role="status"
+          data-testid="teams-cluster-settings-saved"
+          className="text-xs text-status-ok"
+        >
           Saved.
         </p>
       )}
 
       <div className="flex gap-2">
-        <Button type="button" data-testid="teams-save-cluster-settings" onClick={save} disabled={saving}>
+        <Button
+          type="button"
+          data-testid="teams-save-cluster-settings"
+          onClick={save}
+          disabled={saving}
+        >
           {saving ? 'Saving…' : 'Save'}
         </Button>
         <Button
@@ -326,6 +331,8 @@ function rejectionMessage(rejection: {
       return `Publish refused: someone else published rev ${rejection.current_rev} first (you had rev ${rejection.expected_rev}). Reload and retry.`
     case 'storeUnreachable':
       return `Publish refused: the shared team store is unreachable (${rejection.reason}).`
+    case 'roleForbidden':
+      return `Not permitted: ${rejection.reason}`
     default:
       return 'Publish refused.'
   }

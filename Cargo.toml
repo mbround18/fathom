@@ -96,6 +96,10 @@ tonic-prost = "0.14.6"
 prost = "0.14.4"
 prost-types = "0.14.4"
 hyper-util = "0.1.19"
+openidconnect = "4.0.1"
+keyring = "4.2.0"
+arc-swap = "1.9.2"
+http = "1"
 
 [build-dependencies]
 embed-resource = "3.0.6"
@@ -113,6 +117,11 @@ accesskit = "0.21"
 # Mock HTTP registry server for image-inspection auth-fallback/parsing unit tests
 # (010-container-image-inspection, research.md R6) — no live registry required.
 wiremock = "0.6"
+
+# Mock OIDC provider (033 T009): sign RS256 ID tokens and publish a JWKS.
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = "0.10"
+rand08 = { package = "rand", version = "0.8" }
 
 # Tests that exercise the legacy egui UI (src/app) only build with `egui-ui`.
 [[test]]

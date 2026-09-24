@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { capabilityForSection, Gated } from '@/lib/capabilities'
 import { Textarea } from '@/components/ui/textarea'
 import type { ObjectRef } from '@/resources'
 import { detailKey, useStore } from '@/store'
@@ -133,14 +134,20 @@ export function YamlEditTab({ target, raw }: { target: ObjectRef; raw: string | 
           </Button>
         )}
         {showDiff ? (
-          <Button
-            data-testid="yaml-apply"
-            size="sm"
-            disabled={busy || blocked || !session.dirty}
-            onClick={() => setConfirmOpen(true)}
+          <Gated
+            {...capabilityForSection(target.section)}
+            verb="update"
+            namespace={target.namespace ?? null}
           >
-            Apply
-          </Button>
+            <Button
+              data-testid="yaml-apply"
+              size="sm"
+              disabled={busy || blocked || !session.dirty}
+              onClick={() => setConfirmOpen(true)}
+            >
+              Apply
+            </Button>
+          </Gated>
         ) : (
           <Button
             data-testid="yaml-review"

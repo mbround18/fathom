@@ -14,12 +14,7 @@
  */
 import type { StoreApi } from 'zustand'
 
-import type {
-  ActionDescriptor,
-  ActionInput,
-  ActionStep,
-  ResourceDescriptor,
-} from '@/resources'
+import type { ActionDescriptor, ActionInput, ActionStep, ResourceDescriptor } from '@/resources'
 import { ALL_DESCRIPTORS } from '@/resources'
 import type { ActionOutcome, AgentObjectRef, SuggestedAction } from '@/protocol/types'
 import { objectName, runAction, ACTION_TIMEOUT_MS } from '@/store/actions'

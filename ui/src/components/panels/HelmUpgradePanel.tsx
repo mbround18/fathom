@@ -10,6 +10,7 @@ import { useId, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { Input } from '@/components/ui/input'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
@@ -165,14 +166,16 @@ export function HelmUpgradePanel({
             currentManifest={preview.current_manifest}
             targetManifest={preview.target_manifest}
           />
-          <Button
-            type="button"
-            data-testid="helm-upgrade-apply"
-            disabled={busy}
-            onClick={() => setConfirming(true)}
-          >
-            {applying ? 'Applying…' : 'Confirm upgrade'}
-          </Button>
+          <Gated verb="update" resource="secrets" namespace={namespace}>
+            <Button
+              type="button"
+              data-testid="helm-upgrade-apply"
+              disabled={busy}
+              onClick={() => setConfirming(true)}
+            >
+              {applying ? 'Applying…' : 'Confirm upgrade'}
+            </Button>
+          </Gated>
         </section>
       )}
 

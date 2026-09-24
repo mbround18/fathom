@@ -1,0 +1,21 @@
+# Lab only (non-production): extends the existing `rauthy-bootstrap` ConfigMap in ns `rauthy`
+# with the public desktop client `fathom-desktop`, the `fathom-admins` group and a read-only
+# admin API key. `users.json` already in the ConfigMap is preserved by apply's merge.
+# Bootstrap files are read only on a FRESH data dir (emptyDir), so recreate the pod after apply:
+#   kubectl --context kind-fathom-oidc-rauthy apply -k k8s/rauthy-clients
+#   kubectl --context kind-fathom-oidc-rauthy -n rauthy delete pod --all
+# Rauthy bootstrap is all-or-nothing and a bad file crash-loops the pod (seen in T004):
+# grant names are URNs (`urn:ietf:params:oauth:grant-type:device_code`), API key secrets need
+# >= 64 chars. A trailing `*` is the only redirect wildcard, so loopback is `http://127.0.0.1:*`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rauthy
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: rauthy-bootstrap
+    behavior: create
+    files:
+      - clients.json
+      - groups.json
+      - api_keys.json

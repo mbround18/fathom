@@ -88,6 +88,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   g('Team', '団', [
     ['integrations/cluster-settings', 'Cluster Settings'],
     ['team/profiles', 'Connection Profiles'],
+    ['team/teams', 'Teams'],
   ]),
 ]
 

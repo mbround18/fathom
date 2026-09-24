@@ -1,6 +1,7 @@
 /** Non-component helpers shared by the action menus and dialogs (US3). */
 import { useMemo } from 'react'
 
+import { capabilityForSection, type CapabilityTarget } from '@/lib/capabilities'
 import type { ActionDescriptor, AnyDescriptor } from '@/resources'
 import { useStore, type ListRow, type PaneId } from '@/store'
 
@@ -57,4 +58,31 @@ export function promptAction(
     ...(opts.paneId !== undefined ? { paneId: opts.paneId } : {}),
     returnFocus: opts.returnFocus ?? null,
   })
+}
+
+const ACTION_VERB: Record<
+  ActionDescriptor<unknown>['id'],
+  Pick<CapabilityTarget, 'verb' | 'subresource'>
+> = {
+  delete: { verb: 'delete' },
+  scale: { verb: 'update', subresource: 'scale' },
+  restart: { verb: 'patch' },
+}
+
+/**
+ * The capability an action needs on `rows`: one namespace when they all share it, else cluster
+ * scope (the stricter question), so a mixed selection never passes on one namespace's grant.
+ */
+export function actionTarget(
+  descriptor: AnyDescriptor,
+  action: ActionDescriptor<ListRow>,
+  rows: readonly ListRow[],
+): CapabilityTarget {
+  const namespaces = new Set(rows.map((r) => descriptor.ref(r).namespace ?? null))
+  const [only] = [...namespaces]
+  return {
+    ...capabilityForSection(descriptor.section),
+    ...ACTION_VERB[action.id],
+    namespace: namespaces.size === 1 && only !== undefined ? only : null,
+  }
 }

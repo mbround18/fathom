@@ -21,6 +21,8 @@ export const SECTION = {
   clusterSettings: 'integrations/cluster-settings',
   /** 014-teams-organizations: shared, non-secret connection profiles + team-store status. */
   teamProfiles: 'team/profiles',
+  /** 033 US3: IdP groups/users as teams. */
+  teams: 'team/teams',
   // 011-rbac-oidc-administration
   roles: 'access/roles',
   roleBindings: 'access/rolebindings',
@@ -34,6 +36,7 @@ export const SECTION = {
 export const BOOTSTRAP_CMDS: readonly BackendCmd[] = [
   { type: 'LoadUiConfig' },
   { type: 'RefreshContexts' },
+  { type: 'LoadOidcConfig' },
   // Connects to the current context, then emits ContextChanged, namespaces, pods, deployments.
   { type: 'Initialize' },
 ]

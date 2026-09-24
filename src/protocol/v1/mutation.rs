@@ -162,6 +162,14 @@ impl BackendCmdV1 {
             | C::LoadClusterSettings { .. }
             | C::RefreshTeamStoreStatus
             | C::RefreshConnectionProfiles
+            // 033-rauthy-oidc-teams-users: identity/directory/capability reads and YAML
+            // rendering only; the actual RBAC write is `ApplyResourceYaml`.
+            | C::LoadOidcConfig
+            | C::IdpRefreshDirectory { .. }
+            | C::ResolveCapabilities { .. }
+            | C::CheckCapability { .. }
+            | C::PreviewRoleAssignment { .. }
+            | C::RefreshOrphanedSubjects { .. }
             // 015-mcp-agent-exposure: reads the persisted toggle and the derived connection
             // snippet only; never the cluster, never a write.
             | C::LoadMcpServerStatus
@@ -190,6 +198,18 @@ impl BackendCmdV1 {
             | C::PublishOrgClusterSettings { .. }
             | C::AcceptOrgClusterSettings { .. }
             | C::DismissOrgClusterSettings { .. }
+            // 033-rauthy-oidc-teams-users: `config.json` `oidc`, the OS keyring, or the team
+            // store — never the cluster.
+            | C::OidcSaveIssuer { .. }
+            | C::OidcDeleteIssuer { .. }
+            | C::OidcSetRoleMap { .. }
+            | C::OidcSignIn { .. }
+            | C::OidcCancelSignIn { .. }
+            | C::OidcSignOut { .. }
+            | C::SetContextAuthMode { .. }
+            | C::IdpSetAdminKey { .. }
+            | C::LinkTeamProfile { .. }
+            | C::UnlinkTeamProfile { .. }
             // Agent SDK Ops (013): writes `credentials.json`'s `agent` section or
             // `agent_conversations.json` only — never the cluster. See the
             // `agent_commands_never_write_cluster` test below.
@@ -324,7 +344,23 @@ impl BackendCmdV1 {
             | C::AgentDeclineSuggestedAction { .. }
             | C::AgentRecordExecutedAction { .. }
             // 011-rbac-oidc-administration: create-pathway apply, likewise global.
-            | C::CreateResourceYaml { .. } => return None,
+            | C::CreateResourceYaml { .. }
+            // 033-rauthy-oidc-teams-users: identity is global (per issuer, not per section);
+            // capability and role-assignment routing is by the requesting context.
+            | C::LoadOidcConfig
+            | C::OidcSaveIssuer { .. }
+            | C::OidcDeleteIssuer { .. }
+            | C::OidcSetRoleMap { .. }
+            | C::OidcSignIn { .. }
+            | C::OidcCancelSignIn { .. }
+            | C::OidcSignOut { .. }
+            | C::SetContextAuthMode { .. }
+            | C::IdpSetAdminKey { .. }
+            | C::IdpRefreshDirectory { .. }
+            | C::ResolveCapabilities { .. }
+            | C::CheckCapability { .. }
+            | C::PreviewRoleAssignment { .. }
+            | C::RefreshOrphanedSubjects { .. } => return None,
             C::RefreshNamespaces => section_keys::namespaces(),
             C::RefreshNodes
             | C::SelectNode { .. }
@@ -424,7 +460,9 @@ impl BackendCmdV1 {
             | C::RefreshConnectionProfiles
             | C::PublishConnectionProfile { .. }
             | C::AdoptConnectionProfile { .. }
-            | C::RemoveConnectionProfile { .. } => section_keys::team_profiles(),
+            | C::RemoveConnectionProfile { .. }
+            | C::LinkTeamProfile { .. }
+            | C::UnlinkTeamProfile { .. } => section_keys::team_profiles(),
             C::ConfigureGrafana { .. } | C::TestGrafanaConnection { .. } => {
                 section_keys::integrations_grafana()
             }

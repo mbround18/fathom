@@ -18,7 +18,9 @@ import { useStore, type PaneId } from '@/store'
 import { TopologyCanvas } from '../topology/TopologyCanvas'
 import { Disconnected, NoKubeconfig } from '../shell/PaneStates'
 
-const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonsets].map((d) => d.section)
+const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonsets].map(
+  (d) => d.section,
+)
 
 export function TopologyPanel({ paneId }: { paneId: PaneId }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
@@ -35,7 +37,7 @@ export function TopologyPanel({ paneId }: { paneId: PaneId }) {
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
 
   return (
-    <div className="flex h-full w-full min-h-0 min-w-0 flex-col" data-testid="topology-panel">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col" data-testid="topology-panel">
       <TopologyCanvas paneId={paneId} />
     </div>
   )

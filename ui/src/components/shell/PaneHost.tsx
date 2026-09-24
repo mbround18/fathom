@@ -10,8 +10,10 @@ import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { ClusterSettingsPanel } from '@/components/panels/ClusterSettingsPanel'
 import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
+import { TeamsView } from '@/features/teams/TeamsView'
 import { TeamProfilesPanel } from '@/components/panels/TeamProfilesPanel'
 import { RoleBindingCreateLauncher } from '@/components/rbac/RoleBindingCreateLauncher'
+import { RoleAssignmentLauncher } from '@/features/roles/RoleAssignmentLauncher'
 import { RoleBindingEditLauncher } from '@/components/rbac/RoleBindingEditLauncher'
 import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
@@ -231,6 +233,9 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.clusterSettings) {
     return <ClusterSettingsPanel />
   }
+  if (section === SECTION.teams) {
+    return <TeamsView />
+  }
   if (section === SECTION.teamProfiles) {
     return <TeamProfilesPanel />
   }
@@ -283,13 +288,15 @@ function ListBody({ pane }: { pane: PaneState }) {
       )}
       {/* 011-rbac-oidc-administration US2 (T029): "New RoleBinding"/"New ClusterRoleBinding". */}
       {section === SECTION.roleBindings && (
-        <div className="flex shrink-0 justify-end border-b border-border px-2 py-1">
+        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
           <RoleBindingCreateLauncher kind="RoleBinding" />
+          <RoleAssignmentLauncher kind="RoleBinding" />
         </div>
       )}
       {section === SECTION.clusterRoleBindings && (
-        <div className="flex shrink-0 justify-end border-b border-border px-2 py-1">
+        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
           <RoleBindingCreateLauncher kind="ClusterRoleBinding" />
+          <RoleAssignmentLauncher kind="ClusterRoleBinding" />
         </div>
       )}
       <SelectionBar pane={pane} descriptor={descriptor} rows={list.rows} />

@@ -69,7 +69,10 @@ export function PortForwardStartDialog({
   // the dialog is shown — this effect only dispatches the check, it never sets local state.
   useEffect(() => {
     if (!open || !target) return
-    send({ type: 'CheckPortAvailability', data: { port: target.suggestedLocalPort ?? target.remotePort } })
+    send({
+      type: 'CheckPortAvailability',
+      data: { port: target.suggestedLocalPort ?? target.remotePort },
+    })
   }, [open, target, send])
 
   if (!target) return null
@@ -119,9 +122,12 @@ export function PortForwardStartDialog({
           service: target.service,
         })
       }
-      toast.success(`Starting forward ${target.namespace}/${target.pod}:${String(target.remotePort)}`, {
-        testId: TOAST_TEST_ID,
-      })
+      toast.success(
+        `Starting forward ${target.namespace}/${target.pod}:${String(target.remotePort)}`,
+        {
+          testId: TOAST_TEST_ID,
+        },
+      )
       setSubmitting(false)
       onOpenChange(false)
     })()
@@ -151,8 +157,8 @@ export function PortForwardStartDialog({
                 {' '}
                 (resolved from Service <span className="font-mono">{target.service}</span>)
               </>
-            )}
-            {' '}to a local port.
+            )}{' '}
+            to a local port.
           </p>
           <PortForwardPortField
             id="port-forward-local-port-input"

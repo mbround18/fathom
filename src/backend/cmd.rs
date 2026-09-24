@@ -9,10 +9,13 @@ use crate::protocol::{
 
 mod agent;
 mod cluster;
+mod idp;
 mod integrations;
 mod mcp;
+mod oidc;
 mod port_forwards;
 mod resources;
+mod roles;
 mod team;
 mod workloads;
 
@@ -87,6 +90,18 @@ pub async fn dispatch_cmd(
         return Ok(false);
     };
     let Some(cmd) = team::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 033-rauthy-oidc-teams-users: OIDC identity and per-context auth mode.
+    let Some(cmd) = oidc::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 033 US3: read-only IdP directory and admin API key.
+    let Some(cmd) = idp::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 033 US4: role assignment preview and orphaned subjects (read-only).
+    let Some(cmd) = roles::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
     // 015-mcp-agent-exposure: the stdio MCP server's toggle/status.
@@ -197,11 +212,23 @@ async fn handle_apply_resource_yaml(
     .await
     {
         Ok(resource_version) => {
+            invalidate_if_rbac_kind(state, &kind);
             apply::emit_resource_applied(seq, sender, resource_version);
         }
         Err(err) => {
             events::notify_error(seq, sender, err.to_string());
         }
+    }
+}
+
+/// A successful write to an RBAC kind can change what the identity may do: drop the
+/// capability cache so the next lookup re-reviews (033 US5, T031).
+fn invalidate_if_rbac_kind(state: &BackendState, kind: &str) {
+    if matches!(
+        kind,
+        "Role" | "RoleBinding" | "ClusterRole" | "ClusterRoleBinding"
+    ) {
+        state.capabilities.invalidate_all();
     }
 }
 
@@ -245,6 +272,7 @@ async fn handle_create_resource_yaml(
 
     match apply::create_resource(&client, &api_version, &kind, namespace.as_deref(), object).await {
         Ok(resource_version) => {
+            invalidate_if_rbac_kind(state, &kind);
             apply::emit_resource_applied(seq, sender, resource_version);
         }
         Err(err) => {
