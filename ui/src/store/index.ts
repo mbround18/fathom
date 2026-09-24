@@ -10,6 +10,7 @@ import { create } from 'zustand'
 import { resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
+import type { AiSlice } from '@/features/ai-assist/types'
 import type {
   AdoptedConnectionProfile,
   AgentAuthMode,
@@ -493,6 +494,11 @@ export interface StoreData {
    */
   agentAuth: { mode?: AgentAuthMode; revealedKey?: string }
   /**
+   * 038-sdk-login-ollama: provider login/detection state, sourced only from backend
+   * `Ai*` events. `loaded` flips on the first `AiProviderStatus`. Never holds a secret.
+   */
+  ai: AiSlice
+  /**
    * 011-rbac-oidc-administration: three read-only RBAC payloads with no `name` field for the
    * generic `details` keying (`readKeyOf` assumes one) — same reasoning as `imageInspections`.
    * Global (not keyed): only one self-access check, namespace-access lookup, or kubeadm
@@ -821,6 +827,7 @@ export function initialData(): StoreData {
     imageInspections: {},
     agentConversations: {},
     agentAuth: {},
+    ai: { loaded: false, statuses: [], active: null, offline: false, ollamaModel: null },
     team: { adopted: [], available: [] },
     rbacAccess: {},
     helmUninstalls: {},

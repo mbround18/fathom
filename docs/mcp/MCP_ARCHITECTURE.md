@@ -136,6 +136,17 @@ Tool metadata also tells compliant clients to ask first: each mutation tool's de
 "This action modifies the cluster. Confirm with the operator before calling." and carries
 `read_only_hint: false` / `destructive_hint: true` annotations.
 
+## AI provider sign-in (038)
+
+The in-app assistant's provider is chosen in Settings -> Cluster Settings -> AI Assist
+(`backend::ai`). GitHub Models signs in by device flow; Claude and OpenAI take an API key;
+Ollama needs no credential. Secrets live only in the OS keyring (service `fathom`, account
+`ai-assist/<provider>`); a 0600 file store is an explicit opt-in used only when no keyring
+exists. The legacy 013 plaintext `~/.fathom/credentials.json` is migrated write, read back and
+verify, then removed. Every provider request goes through one HTTP chokepoint (`AiHttp`); in
+offline mode it refuses any non-loopback address and the effective provider is forced to
+Ollama with no hosted fallback. These tools are not exposed to MCP clients.
+
 ## Authorization
 
 Every tool call is scoped by a `SelfSubjectAccessReview` issued against the same kubeconfig

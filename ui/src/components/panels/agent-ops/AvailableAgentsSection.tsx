@@ -21,6 +21,8 @@
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { PROVIDER_LABEL } from '@/features/ai-assist/labels'
+import type { AiSlice } from '@/features/ai-assist/types'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 
@@ -42,11 +44,20 @@ function authSummary(mode: { type: string; data?: unknown } | undefined): string
   }
 }
 
+/** 038: the shared provider status is the source of truth once it has arrived. */
+function aiSummary(ai: AiSlice): string {
+  if (ai.offline) return 'Offline mode — Ollama only, nothing leaves this machine'
+  if (ai.active === null) return 'Not configured yet'
+  const name = PROVIDER_LABEL[ai.active]
+  return ai.active === 'ollama' && ai.ollamaModel !== null ? `${name} — ${ai.ollamaModel}` : name
+}
+
 export function AvailableAgentsSection() {
   const request = useStore((s) => s.request)
   const send = useStore((s) => s.send)
   const mcp = useStore((s) => s.mcp)
   const authMode = useStore((s) => s.agentAuth.mode)
+  const ai = useStore((s) => s.ai)
   const persistedEnabled = useStore((s) => s.prefs.mcpStdioEnabled)
 
   const [toggling, setToggling] = useState(false)
@@ -204,7 +215,7 @@ export function AvailableAgentsSection() {
       <div className="flex flex-col gap-1 text-xs">
         <span>In-app assistant</span>
         <span data-testid="mcp-agent-auth-summary" className="text-muted-foreground">
-          {authSummary(authMode)}
+          {ai.loaded ? aiSummary(ai) : authSummary(authMode)}
         </span>
         <span className="text-muted-foreground text-[11px]">
           Change this in the assistant&apos;s own setup, from the Ask AI tab.
