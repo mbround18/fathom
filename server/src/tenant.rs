@@ -322,7 +322,7 @@ impl UserBackend {
         if probe {
             // Queued behind Initialize on the same backend loop, so the client exists by then.
             let _ = self.forward(BackendCmd::RefreshRbacSelfAccess {
-                checks: rbac_access::hosted_probe_checks(),
+                checks: rbac_access::hosted_probe_checks_in(&crate::host::probe_namespaces()),
             });
         }
         Ok(id)

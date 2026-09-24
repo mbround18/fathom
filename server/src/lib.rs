@@ -2,6 +2,7 @@
 pub mod config;
 pub mod csrf;
 pub mod filter;
+pub mod host;
 pub mod http;
 pub mod kubeauth;
 pub mod limits;

@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use fathom::startup::{init_tracing, install_crypto_provider};
 use fathom_server::config::{EXIT_DISCOVERY_FAILED, HostedConfig};
+use fathom_server::host::HostedTenantHost;
 use fathom_server::http::{AppState, router};
 use fathom_server::oidc::OidcClient;
-use fathom_server::ws::UnwiredHost;
+use fathom_server::session::SessionStore;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -33,9 +34,9 @@ async fn main() -> ExitCode {
     };
     tracing::info!("OIDC discovery loaded for {}", oidc.issuer());
 
-    // TODO(integration): replace with the tenant.rs host once lane B's `TenantHost` lands.
-    let host = Arc::new(UnwiredHost);
-    let app = AppState::new(cfg.clone(), oidc, host);
+    let sessions = SessionStore::new(cfg.session_config());
+    let host = HostedTenantHost::new(cfg.clone(), oidc.clone(), sessions.clone());
+    let app = AppState::with_sessions(cfg.clone(), oidc, host, sessions);
     app.sessions.spawn_sweeper(Duration::from_secs(30));
 
     let listener = match tokio::net::TcpListener::bind(&cfg.listen).await {
