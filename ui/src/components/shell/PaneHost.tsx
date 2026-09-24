@@ -4,6 +4,7 @@ import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
 import { Inspector } from '@/components/Inspector'
 import { FluxPanel } from '@/components/panels/FluxPanel'
+import { KnativePanel } from '@/components/panels/KnativePanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
@@ -183,6 +184,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       if (pane.tool === 'flux') return <FluxPanel />
       if (pane.tool === 'hubble') return <HubblePanel />
+      if (pane.tool === 'knative') return <KnativePanel />
       if (pane.tool === 'topology') return <TopologyPanel paneId={pane.id} />
       if (pane.tool === 'portforwards') return <PortForwardsPanel />
       return (

@@ -23,6 +23,8 @@ export type TopologyNodeKind =
   | 'DaemonSet'
   | 'Pod'
   | 'Node'
+  | 'KnativeRevision'
+  | 'KnativeRoute'
 
 export interface TopologyNode {
   id: string
@@ -45,6 +47,8 @@ export interface TopologyEdge {
   source: string
   target: string
   relations: string[]
+  /** Optional text drawn at the edge midpoint (Knative traffic percentages). */
+  label?: string
 }
 
 export interface TopologyGraph {

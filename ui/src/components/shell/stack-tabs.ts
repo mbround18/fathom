@@ -1,6 +1,7 @@
 import {
   PlugsIcon,
   PulseIcon,
+  RocketLaunchIcon,
   ShareNetworkIcon,
   StackIcon,
   TerminalIcon,
@@ -36,6 +37,12 @@ export const TOPOLOGY_TAB: StackTab = {
   icon: ShareNetworkIcon,
   kind: 'tool',
   tool: 'topology',
+}
+export const KNATIVE_TAB: StackTab = {
+  label: 'Knative',
+  icon: RocketLaunchIcon,
+  kind: 'tool',
+  tool: 'knative',
 }
 
 /** Which tab the stack root belongs to: tool panes by tool, everything else is Resources. */

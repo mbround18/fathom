@@ -8,6 +8,7 @@ import { SlotGrid } from './SlotGrid'
 import {
   EVENTS_TAB,
   FORWARDS_TAB,
+  KNATIVE_TAB,
   LOGS_TAB,
   RESOURCES_TAB,
   TOPOLOGY_TAB,
@@ -15,7 +16,7 @@ import {
 } from './stack-tabs'
 import { StackTabs } from './StackTabs'
 
-const TABLET_TABS = [RESOURCES_TAB, LOGS_TAB, EVENTS_TAB, FORWARDS_TAB, TOPOLOGY_TAB] as const
+const TABLET_TABS = [RESOURCES_TAB, LOGS_TAB, EVENTS_TAB, FORWARDS_TAB, TOPOLOGY_TAB, KNATIVE_TAB] as const
 
 /**
  * Tablet: a tab strip on top. Resources shows the list | inspector split; the tool tabs take the

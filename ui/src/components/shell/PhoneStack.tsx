@@ -4,10 +4,10 @@ import { Button } from '@/components/ui/button'
 import { useStore } from '@/store'
 
 import { PaneHost } from './PaneHost'
-import { FORWARDS_TAB, LOGS_TAB, RESOURCES_TAB, TOPOLOGY_TAB } from './stack-tabs'
+import { FORWARDS_TAB, LOGS_TAB, KNATIVE_TAB, RESOURCES_TAB, TOPOLOGY_TAB } from './stack-tabs'
 import { StackTabs } from './StackTabs'
 
-const PHONE_TABS = [RESOURCES_TAB, LOGS_TAB, FORWARDS_TAB, TOPOLOGY_TAB] as const
+const PHONE_TABS = [RESOURCES_TAB, LOGS_TAB, FORWARDS_TAB, TOPOLOGY_TAB, KNATIVE_TAB] as const
 
 /** Phone: one pane at a time, drill-in stack with Back, bottom tab bar (FR-012). */
 export function PhoneStack() {
