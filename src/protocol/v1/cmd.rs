@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
-    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ClusterSettings, RbacAccessCheck, RequestId,
-    SectionKey, UiConfig,
+    ActionOutcome, AgentAuthModeInput, AgentObjectRef, CapabilityQuery, ClusterSettings,
+    ContextAuthMode, FathomRoleMap, OidcIssuerConfig, OidcSignInMethod, RbacAccessCheck, RequestId,
+    RoleAssignmentDraft, SectionKey, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -555,6 +556,78 @@ pub enum BackendCmdV1 {
         path: Option<String>,
     },
     RefreshTeamStoreStatus,
+    // 033-rauthy-oidc-teams-users: OIDC identity, IdP directory, capabilities, role assignment.
+    // Responses never carry tokens/secrets; `IdpSetAdminKey.api_key` is write-only.
+    /// Read the persisted `oidc` config and identities; replies `OidcConfigLoaded`.
+    LoadOidcConfig,
+    /// Persist (insert or replace by `id`) an issuer config (non-secret).
+    OidcSaveIssuer {
+        issuer: OidcIssuerConfig,
+    },
+    /// Remove an issuer config, its tokens and its admin key.
+    OidcDeleteIssuer {
+        issuer_id: String,
+    },
+    /// Persist the Fathom-level role-group names.
+    OidcSetRoleMap {
+        role_map: FathomRoleMap,
+    },
+    /// Start a sign-in flow; emits `OidcSignInProgress`.
+    OidcSignIn {
+        issuer_id: String,
+        method: OidcSignInMethod,
+    },
+    /// Abort an in-flight sign-in.
+    OidcCancelSignIn {
+        issuer_id: String,
+    },
+    /// Delete tokens; optionally open the RP-initiated logout URL.
+    OidcSignOut {
+        issuer_id: String,
+        end_session: bool,
+    },
+    /// Persist a context's auth mode and reconnect it.
+    SetContextAuthMode {
+        context: String,
+        mode: ContextAuthMode,
+        issuer_id: Option<String>,
+    },
+    /// Store the read-only IdP admin API key in the OS keyring. Write-only, never echoed.
+    IdpSetAdminKey {
+        issuer_id: String,
+        api_key: String,
+    },
+    /// Read users and groups from the IdP (read-only); emits `IdpDirectoryUpdated`.
+    IdpRefreshDirectory {
+        issuer_id: String,
+    },
+    /// Populate the capability cache for a namespace (`None` = cluster-scoped bucket).
+    ResolveCapabilities {
+        context: String,
+        namespace: Option<String>,
+    },
+    /// Single verb/resource check (cluster-scoped, or fallback for an incomplete rules review).
+    CheckCapability {
+        query: CapabilityQuery,
+    },
+    /// Link an IdP group to a shared team profile (advisory visibility, R8).
+    LinkTeamProfile {
+        group: String,
+        profile_id: String,
+    },
+    UnlinkTeamProfile {
+        group: String,
+        profile_id: String,
+    },
+    /// Render a Role/ClusterRoleBinding YAML for the existing diff view; no cluster write.
+    PreviewRoleAssignment {
+        draft: RoleAssignmentDraft,
+    },
+    /// Join current bindings' subjects against the IdP directory; emits `OrphanedSubjectsUpdated`.
+    RefreshOrphanedSubjects {
+        context: String,
+        issuer_id: String,
+    },
     RefreshConnectionProfiles,
     PublishConnectionProfile {
         context_alias: String,
@@ -1100,6 +1173,97 @@ mod tests {
             outcome: ActionOutcome::Error {
                 message: "deployments.apps \"api\" not found".to_owned(),
             },
+        });
+    }
+
+    #[test]
+    fn oidc_cmd_roundtrips() {
+        use crate::protocol::{RoleAssignmentRoleRef, RoleAssignmentSubject, RoleRefKind};
+        roundtrip(BackendCmdV1::LoadOidcConfig);
+        let issuer: OidcIssuerConfig = serde_json::from_str(
+            r#"{"id":"rauthy","issuer_url":"https://i/","client_id":"fathom-desktop"}"#,
+        )
+        .unwrap();
+        roundtrip(BackendCmdV1::OidcSaveIssuer { issuer });
+        roundtrip(BackendCmdV1::OidcDeleteIssuer {
+            issuer_id: "rauthy".to_owned(),
+        });
+        roundtrip(BackendCmdV1::OidcSetRoleMap {
+            role_map: FathomRoleMap::default(),
+        });
+        for method in [OidcSignInMethod::Browser, OidcSignInMethod::DeviceCode] {
+            roundtrip(BackendCmdV1::OidcSignIn {
+                issuer_id: "rauthy".to_owned(),
+                method,
+            });
+        }
+        roundtrip(BackendCmdV1::OidcCancelSignIn {
+            issuer_id: "rauthy".to_owned(),
+        });
+        roundtrip(BackendCmdV1::OidcSignOut {
+            issuer_id: "rauthy".to_owned(),
+            end_session: true,
+        });
+        roundtrip(BackendCmdV1::SetContextAuthMode {
+            context: "prod".to_owned(),
+            mode: ContextAuthMode::Oidc,
+            issuer_id: Some("rauthy".to_owned()),
+        });
+        roundtrip(BackendCmdV1::SetContextAuthMode {
+            context: "prod".to_owned(),
+            mode: ContextAuthMode::Kubeconfig,
+            issuer_id: None,
+        });
+        roundtrip(BackendCmdV1::IdpSetAdminKey {
+            issuer_id: "rauthy".to_owned(),
+            api_key: "k".to_owned(),
+        });
+        roundtrip(BackendCmdV1::IdpRefreshDirectory {
+            issuer_id: "rauthy".to_owned(),
+        });
+        roundtrip(BackendCmdV1::ResolveCapabilities {
+            context: "prod".to_owned(),
+            namespace: Some("default".to_owned()),
+        });
+        roundtrip(BackendCmdV1::ResolveCapabilities {
+            context: "prod".to_owned(),
+            namespace: None,
+        });
+        roundtrip(BackendCmdV1::CheckCapability {
+            query: CapabilityQuery {
+                context: "prod".to_owned(),
+                namespace: None,
+                verb: "create".to_owned(),
+                resource: "clusterrolebindings".to_owned(),
+                api_group: Some("rbac.authorization.k8s.io".to_owned()),
+                subresource: None,
+            },
+        });
+        roundtrip(BackendCmdV1::LinkTeamProfile {
+            group: "platform".to_owned(),
+            profile_id: "p1".to_owned(),
+        });
+        roundtrip(BackendCmdV1::UnlinkTeamProfile {
+            group: "platform".to_owned(),
+            profile_id: "p1".to_owned(),
+        });
+        roundtrip(BackendCmdV1::PreviewRoleAssignment {
+            draft: RoleAssignmentDraft {
+                issuer_id: "rauthy".to_owned(),
+                subject: RoleAssignmentSubject::Group {
+                    name: "dev".to_owned(),
+                },
+                role_ref: RoleAssignmentRoleRef {
+                    kind: RoleRefKind::ClusterRole,
+                    name: "view".to_owned(),
+                },
+                namespace: None,
+                binding_name: Some("dev-view".to_owned()),
+            },
+        });
+        roundtrip(BackendCmdV1::RefreshOrphanedSubjects {
+            context: "prod".to_owned(),
+            issuer_id: "rauthy".to_owned(),
         });
     }
 

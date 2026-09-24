@@ -1954,6 +1954,22 @@ fn sample_agent_object_ref() -> AgentObjectRef {
 fn all_cmds_is_exhaustive(v: &BackendCmd) {
     match v {
         BackendCmd::Initialize => {}
+        BackendCmd::RefreshOrphanedSubjects { .. } => {}
+        BackendCmd::LoadOidcConfig => {}
+        BackendCmd::OidcSaveIssuer { .. } => {}
+        BackendCmd::OidcDeleteIssuer { .. } => {}
+        BackendCmd::OidcSetRoleMap { .. } => {}
+        BackendCmd::OidcSignIn { .. } => {}
+        BackendCmd::OidcCancelSignIn { .. } => {}
+        BackendCmd::OidcSignOut { .. } => {}
+        BackendCmd::SetContextAuthMode { .. } => {}
+        BackendCmd::IdpSetAdminKey { .. } => {}
+        BackendCmd::IdpRefreshDirectory { .. } => {}
+        BackendCmd::ResolveCapabilities { .. } => {}
+        BackendCmd::CheckCapability { .. } => {}
+        BackendCmd::LinkTeamProfile { .. } => {}
+        BackendCmd::UnlinkTeamProfile { .. } => {}
+        BackendCmd::PreviewRoleAssignment { .. } => {}
         BackendCmd::Shutdown => {}
         BackendCmd::RefreshContexts => {}
         BackendCmd::SetContext { .. } => {}
@@ -2354,6 +2370,17 @@ fn sample_crd_catalog_entry() -> fathom::protocol::CrdCatalogEntry {
 fn all_system_events_is_exhaustive(v: &SystemEvent) {
     match v {
         SystemEvent::BackendStarted => {}
+        SystemEvent::OrphanedSubjectsUpdated { .. } => {}
+        SystemEvent::OidcConfigLoaded { .. } => {}
+        SystemEvent::OidcSignInProgress { .. } => {}
+        SystemEvent::OidcIdentityUpdated { .. } => {}
+        SystemEvent::OidcSessionEnded { .. } => {}
+        SystemEvent::OidcError { .. } => {}
+        SystemEvent::IdpAdminKeyStatus { .. } => {}
+        SystemEvent::IdpDirectoryUpdated { .. } => {}
+        SystemEvent::CapabilitiesResolved { .. } => {}
+        SystemEvent::CapabilityChecked { .. } => {}
+        SystemEvent::RoleAssignmentPreview { .. } => {}
         SystemEvent::Notification { .. } => {}
         SystemEvent::ContextsUpdated { .. } => {}
         SystemEvent::ContextChanged { .. } => {}

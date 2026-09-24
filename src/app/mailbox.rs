@@ -123,7 +123,19 @@ impl FathomApp {
                     | SystemEvent::TeamStoreStatusUpdated(_)
                     | SystemEvent::ConnectionProfilesUpdated { .. }
                     | SystemEvent::OrgClusterSettingsAvailable { .. }
-                    | SystemEvent::TeamPublishRejected { .. } => {
+                    | SystemEvent::TeamPublishRejected { .. }
+                    // 033-rauthy-oidc-teams-users: React bridge only, no egui view.
+                    | SystemEvent::OidcConfigLoaded { .. }
+                    | SystemEvent::OidcSignInProgress { .. }
+                    | SystemEvent::OidcIdentityUpdated { .. }
+                    | SystemEvent::OidcSessionEnded { .. }
+                    | SystemEvent::OidcError { .. }
+                    | SystemEvent::IdpAdminKeyStatus { .. }
+                    | SystemEvent::IdpDirectoryUpdated(_)
+                    | SystemEvent::CapabilitiesResolved(_)
+                    | SystemEvent::CapabilityChecked { .. }
+                    | SystemEvent::RoleAssignmentPreview { .. }
+                    | SystemEvent::OrphanedSubjectsUpdated { .. } => {
                         // Teams & Organizations (014, React bridge) handles this in on_event;
                         // no egui view yet.
                     }

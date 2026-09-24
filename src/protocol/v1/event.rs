@@ -22,7 +22,11 @@ use super::{
     ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
     WorkloadMetricsAggregate,
 };
-use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
+use super::{
+    CapabilityQuery, CapabilityResult, CapabilitySet, IdpDirectorySnapshot, OidcConfig,
+    OidcIdentity, OidcSignInStage, OrgClusterSettings, OrphanedSubject, TeamPublishRejection,
+    TeamStoreStatus,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -195,6 +199,53 @@ pub enum SystemEvent {
     /// Reply to `RefreshTeamStoreStatus`, and broadcast whenever reachability changes
     /// (FR-005).
     TeamStoreStatusUpdated(TeamStoreStatus),
+    // 033-rauthy-oidc-teams-users. No variant carries a token, refresh token, client secret
+    // or admin API key. Stale events (superseded request, previous context) are discarded.
+    /// Reply to `LoadOidcConfig` and broadcast after any config change.
+    OidcConfigLoaded {
+        config: OidcConfig,
+        /// Current identity per signed-in issuer (empty when nobody is signed in).
+        identities: Vec<OidcIdentity>,
+    },
+    OidcSignInProgress {
+        issuer_id: String,
+        stage: OidcSignInStage,
+    },
+    /// `None` = signed out / no identity for the issuer.
+    OidcIdentityUpdated {
+        issuer_id: String,
+        identity: Option<OidcIdentity>,
+    },
+    /// The session ended (refresh failed, revoked). `reason` is the verbatim IdP error.
+    OidcSessionEnded {
+        issuer_id: String,
+        reason: String,
+    },
+    /// Verbatim failure at `stage` (`"discovery"`, `"authorize"`, `"token"`, `"validate"`, ...).
+    OidcError {
+        issuer_id: String,
+        stage: String,
+        message: String,
+    },
+    /// Whether an admin API key exists in the keyring (never the key itself).
+    IdpAdminKeyStatus {
+        issuer_id: String,
+        present: bool,
+    },
+    IdpDirectoryUpdated(IdpDirectorySnapshot),
+    CapabilitiesResolved(CapabilitySet),
+    CapabilityChecked {
+        query: CapabilityQuery,
+        result: CapabilityResult,
+    },
+    RoleAssignmentPreview {
+        yaml: String,
+        rendered_subject_name: String,
+        warnings: Vec<String>,
+    },
+    OrphanedSubjectsUpdated {
+        orphans: Vec<OrphanedSubject>,
+    },
     /// Reply to `RefreshConnectionProfiles`, and broadcast after publish/adopt/remove.
     ConnectionProfilesUpdated {
         /// Profiles this operator has adopted locally (still-shared or not).
@@ -680,6 +731,116 @@ mod tests {
             status: ContextConnectionStatus::Error,
             error: Some("connection refused".to_owned()),
         });
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn oidc_events_roundtrip() {
+        use super::super::{
+            CapabilityRule, CapabilitySource, ContextAuthMode, IdpGroup, IdpUser, OidcIdentityState,
+        };
+        let identity = OidcIdentity {
+            issuer_id: "rauthy".to_owned(),
+            sub: "u1".to_owned(),
+            username: "alice".to_owned(),
+            email: None,
+            groups: vec!["fathom-viewers".to_owned()],
+            expires_at: 1,
+            state: OidcIdentityState::Refreshing,
+        };
+        system_roundtrip(SystemEvent::OidcConfigLoaded {
+            config: OidcConfig::default(),
+            identities: vec![identity.clone()],
+        });
+        for stage in [
+            OidcSignInStage::Awaiting,
+            OidcSignInStage::DeviceCode {
+                user_code: "AB-12".to_owned(),
+                verification_uri: "https://x/device".to_owned(),
+                expires_at: 5,
+            },
+            OidcSignInStage::Validating,
+            OidcSignInStage::Done,
+        ] {
+            system_roundtrip(SystemEvent::OidcSignInProgress {
+                issuer_id: "rauthy".to_owned(),
+                stage,
+            });
+        }
+        system_roundtrip(SystemEvent::OidcIdentityUpdated {
+            issuer_id: "rauthy".to_owned(),
+            identity: Some(identity),
+        });
+        system_roundtrip(SystemEvent::OidcIdentityUpdated {
+            issuer_id: "rauthy".to_owned(),
+            identity: None,
+        });
+        system_roundtrip(SystemEvent::OidcSessionEnded {
+            issuer_id: "rauthy".to_owned(),
+            reason: "invalid_grant".to_owned(),
+        });
+        system_roundtrip(SystemEvent::OidcError {
+            issuer_id: "rauthy".to_owned(),
+            stage: "discovery".to_owned(),
+            message: "connection refused".to_owned(),
+        });
+        system_roundtrip(SystemEvent::IdpAdminKeyStatus {
+            issuer_id: "rauthy".to_owned(),
+            present: true,
+        });
+        system_roundtrip(SystemEvent::IdpDirectoryUpdated(IdpDirectorySnapshot {
+            issuer_id: "rauthy".to_owned(),
+            users: vec![IdpUser {
+                sub: "u1".to_owned(),
+                username: "alice".to_owned(),
+                email: Some("a@x".to_owned()),
+                groups: vec![],
+                enabled: true,
+            }],
+            groups: vec![IdpGroup {
+                name: "g".to_owned(),
+                member_count: 2,
+            }],
+            fetched_at: 3,
+            stale: false,
+            error: None,
+        }));
+        system_roundtrip(SystemEvent::CapabilitiesResolved(CapabilitySet {
+            context: "prod".to_owned(),
+            namespace: Some("default".to_owned()),
+            identity_sub: "u1".to_owned(),
+            rules: vec![CapabilityRule::default()],
+            incomplete: true,
+            fetched_at: 4,
+        }));
+        system_roundtrip(SystemEvent::CapabilityChecked {
+            query: CapabilityQuery {
+                context: "prod".to_owned(),
+                namespace: None,
+                verb: "get".to_owned(),
+                resource: "nodes".to_owned(),
+                api_group: None,
+                subresource: None,
+            },
+            result: CapabilityResult {
+                allowed: true,
+                reason: None,
+                source: CapabilitySource::Rules,
+                verified: true,
+            },
+        });
+        system_roundtrip(SystemEvent::RoleAssignmentPreview {
+            yaml: "kind: RoleBinding\n".to_owned(),
+            rendered_subject_name: "oidc:dev".to_owned(),
+            warnings: vec!["no groups prefix configured".to_owned()],
+        });
+        system_roundtrip(SystemEvent::OrphanedSubjectsUpdated {
+            orphans: vec![OrphanedSubject {
+                binding: "ClusterRoleBinding/x".to_owned(),
+                subject_name: "oidc:gone".to_owned(),
+            }],
+        });
+        let _ = ContextAuthMode::Oidc;
     }
 
     #[test]

@@ -61,6 +61,7 @@ impl std::error::Error for BridgeError {}
 /// Tauri commands: `{"op":"send","cmd":<BackendCmd>}` and `{"op":"subscribe"}`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "op", rename_all = "lowercase")]
+#[allow(clippy::large_enum_variant)] // BackendCmd grew with the 033 OIDC issuer payload
 pub enum DevBridgeClientMsg {
     /// Like `send_cmd`: replied to with `sent` (the assigned id) or `error`.
     Send { cmd: BackendCmd },
