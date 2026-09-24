@@ -251,7 +251,7 @@ already exercises the `NotInstalled` path end-to-end.
       non-goals (no constraint authoring/editing, no template creation — FR-011) so future
       contributors don't accidentally scope-creep into Kubescape territory (per
       `docs/FEATURE_BACKLOG.md`).
-- [ ] T033 Run the full verification suite end-to-end: `cargo build --workspace --all-targets`,
+- [x] T033 Run the full verification suite end-to-end: `cargo build --workspace --all-targets`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `pnpm -C ui typecheck`,
       `pnpm -C ui lint`, `pnpm -C ui test`, and
       `pnpm -C ui exec playwright test gatekeeper-panel.spec.ts`; fix any failures before

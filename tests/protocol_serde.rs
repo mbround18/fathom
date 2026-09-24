@@ -1610,6 +1610,7 @@ fn all_cmds() -> Vec<BackendCmd> {
             api_key: "s".to_owned(),
         },
         BackendCmd::RefreshFlux,
+        BackendCmd::RefreshGatekeeper,
         BackendCmd::RefreshHubble,
         BackendCmd::SimulateSlowCall,
         BackendCmd::BulkDelete {
@@ -2037,6 +2038,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::ConfigureGrafana { .. } => {}
         BackendCmd::TestGrafanaConnection { .. } => {}
         BackendCmd::RefreshFlux => {}
+        BackendCmd::RefreshGatekeeper => {}
         BackendCmd::RefreshHubble => {}
         BackendCmd::SimulateSlowCall => {}
         BackendCmd::BulkDelete { .. } => {}
@@ -2185,6 +2187,7 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
+        SystemEvent::GatekeeperOverviewUpdated(Default::default()),
         SystemEvent::HubbleTrafficUpdated(sample_hubble_traffic_summary()),
         SystemEvent::HelmMutationPreviewReady(sample_helm_mutation_preview_ready()),
         SystemEvent::HelmMutationApplied(sample_helm_mutation_applied()),
@@ -2345,6 +2348,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
+        SystemEvent::GatekeeperOverviewUpdated(..) => {}
         SystemEvent::HubbleTrafficUpdated(..) => {}
         SystemEvent::HelmMutationPreviewReady(..) => {}
         SystemEvent::HelmMutationApplied(..) => {}
