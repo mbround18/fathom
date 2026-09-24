@@ -1,5 +1,6 @@
 mod agent;
 mod applications;
+mod audit;
 mod bridge_types;
 mod clusterrolebindings;
 mod clusterroles;
@@ -52,6 +53,7 @@ mod workloads;
 
 pub use agent::*;
 pub use applications::*;
+pub use audit::*;
 pub use bridge_types::*;
 pub use clusterrolebindings::*;
 pub use clusterroles::*;

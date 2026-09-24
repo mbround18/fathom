@@ -110,6 +110,9 @@ impl FathomApp {
                     SystemEvent::UiConfigLoaded { .. } => {
                         // Only the Tauri UI requests this; the egui UI reads config.json directly.
                     }
+                    SystemEvent::AuditLogLoaded { .. } => {
+                        // Audit-log viewer is React-only; no egui view.
+                    }
                     SystemEvent::CrdCatalogUpdated { .. }
                     | SystemEvent::CrdInstancesUpdated { .. } => {
                         // Custom Resources browsing (React bridge) handles this in on_event; no egui view yet.

@@ -1744,6 +1744,7 @@ fn all_cmds() -> Vec<BackendCmd> {
             name: "s".to_owned(),
         },
         BackendCmd::RefreshRuntimeClasses,
+        BackendCmd::RefreshAuditLog,
         BackendCmd::SelectRuntimeClass {
             name: "s".to_owned(),
         },
@@ -2087,6 +2088,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SelectPriorityClass { .. } => {}
         BackendCmd::DeletePriorityClass { .. } => {}
         BackendCmd::RefreshRuntimeClasses => {}
+        BackendCmd::RefreshAuditLog => {}
         BackendCmd::SelectRuntimeClass { .. } => {}
         BackendCmd::DeleteRuntimeClass { .. } => {}
         BackendCmd::RefreshLeases => {}
@@ -2193,6 +2195,22 @@ fn all_system_events() -> Vec<SystemEvent> {
             ui: Some(sample_ui_config()),
             expanded_groups: vec!["s".to_owned()],
             mcp_stdio_enabled: true,
+        },
+        SystemEvent::AuditLogLoaded {
+            entries: vec![AuditLogEntry {
+                id: "a1".to_owned(),
+                timestamp: "2026-01-01T00:00:00+00:00".to_owned(),
+                action: AuditActionKind::NodeCordon,
+                action_label: "Node Cordon".to_owned(),
+                context: "ctx".to_owned(),
+                target_kind: Some("Node".to_owned()),
+                target_namespace: None,
+                target_name: Some("n1".to_owned()),
+                outcome: AuditOutcome::Failure {
+                    reason: "boom".to_owned(),
+                },
+                request_id: None,
+            }],
         },
         SystemEvent::CrdCatalogUpdated {
             entries: vec![sample_crd_catalog_entry()],
@@ -2350,6 +2368,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::HelmMutationApplied(..) => {}
         SystemEvent::HelmMutationFailed(..) => {}
         SystemEvent::UiConfigLoaded { .. } => {}
+        SystemEvent::AuditLogLoaded { .. } => {}
         SystemEvent::CrdCatalogUpdated { .. } => {}
         SystemEvent::CrdInstancesUpdated { .. } => {}
         SystemEvent::AgentAuthModeUpdated { .. } => {}

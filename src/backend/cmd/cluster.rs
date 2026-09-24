@@ -60,6 +60,17 @@ pub(super) async fn handle(
             value,
             effect,
         } => nodes::taint_node(state, sender, &name, op, key, value, effect).await?,
+        BackendCmd::RefreshAuditLog => {
+            events::emit(
+                state.cluster.seq.as_ref(),
+                sender,
+                Route::global(section_keys::audit_log()),
+                Correlation::None,
+                BackendEvent::System(SystemEvent::AuditLogLoaded {
+                    entries: crate::backend::audit_log::load_entries(),
+                }),
+            );
+        }
         BackendCmd::RefreshEvents => refresh_events(state, sender).await,
         BackendCmd::SetNamespaceFilter { namespaces } => {
             set_namespace_filter(state, sender, namespaces).await?;

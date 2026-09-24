@@ -12,6 +12,7 @@ use crate::config::Args;
 mod agent;
 mod applications;
 mod apply;
+mod audit_log;
 mod cmd;
 mod context_status;
 mod crds;
@@ -179,6 +180,9 @@ async fn run_cmd(
     let CmdRequest { id, cmd } = request;
     events::in_cmd_scope(id, async move {
         let route = finished_route(&cmd);
+        // 026: summarize before `cmd` is consumed by dispatch.
+        let audit_summary = cmd.audit_summary();
+        let request_id = events::current_request_id_string();
         let mut state = state.lock().await;
         match cmd::dispatch_cmd(cmd, &mut state, sender).await {
             Ok(true) => tracing::debug!("Command signaled shutdown"),
@@ -194,6 +198,10 @@ async fn run_cmd(
         } else {
             (false, Some(errors.join("\n")))
         };
+        if let Some(summary) = audit_summary {
+            let context = state.cluster.current_context.clone().unwrap_or_default();
+            audit_log::record(summary, context, request_id, ok, error.as_deref());
+        }
         events::emit(
             state.cluster.seq.as_ref(),
             sender,
