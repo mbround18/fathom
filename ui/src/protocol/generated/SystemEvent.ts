@@ -23,6 +23,7 @@ import type { OidcIdentity } from "./OidcIdentity";
 import type { OidcSignInStage } from "./OidcSignInStage";
 import type { OrgClusterSettings } from "./OrgClusterSettings";
 import type { OrphanedSubject } from "./OrphanedSubject";
+import type { TeamLink } from "./TeamLink";
 import type { TeamPublishRejection } from "./TeamPublishRejection";
 import type { TeamStoreStatus } from "./TeamStoreStatus";
 import type { UiConfig } from "./UiConfig";
@@ -40,7 +41,7 @@ mcp_stdio_enabled: boolean, } } | { "type": "CrdCatalogUpdated", "data": { entri
 /**
  * Current identity per signed-in issuer (empty when nobody is signed in).
  */
-identities: Array<OidcIdentity>, } } | { "type": "OidcSignInProgress", "data": { issuer_id: string, stage: OidcSignInStage, } } | { "type": "OidcIdentityUpdated", "data": { issuer_id: string, identity: OidcIdentity | null, } } | { "type": "OidcSessionEnded", "data": { issuer_id: string, reason: string, } } | { "type": "OidcError", "data": { issuer_id: string, stage: string, message: string, } } | { "type": "IdpAdminKeyStatus", "data": { issuer_id: string, present: boolean, } } | { "type": "IdpDirectoryUpdated", "data": IdpDirectorySnapshot } | { "type": "CapabilitiesResolved", "data": CapabilitySet } | { "type": "CapabilityChecked", "data": { query: CapabilityQuery, result: CapabilityResult, } } | { "type": "RoleAssignmentPreview", "data": { yaml: string, rendered_subject_name: string, warnings: Array<string>, } } | { "type": "OrphanedSubjectsUpdated", "data": { orphans: Array<OrphanedSubject>, } } | { "type": "ConnectionProfilesUpdated", "data": { 
+identities: Array<OidcIdentity>, } } | { "type": "OidcSignInProgress", "data": { issuer_id: string, stage: OidcSignInStage, } } | { "type": "OidcIdentityUpdated", "data": { issuer_id: string, identity: OidcIdentity | null, } } | { "type": "OidcSessionEnded", "data": { issuer_id: string, reason: string, } } | { "type": "OidcError", "data": { issuer_id: string, stage: string, message: string, } } | { "type": "IdpAdminKeyStatus", "data": { issuer_id: string, present: boolean, } } | { "type": "IdpDirectoryUpdated", "data": IdpDirectorySnapshot } | { "type": "TeamLinksUpdated", "data": { links: Array<TeamLink>, } } | { "type": "CapabilitiesResolved", "data": CapabilitySet } | { "type": "CapabilityChecked", "data": { query: CapabilityQuery, result: CapabilityResult, } } | { "type": "RoleAssignmentPreview", "data": { yaml: string, rendered_subject_name: string, warnings: Array<string>, } } | { "type": "OrphanedSubjectsUpdated", "data": { orphans: Array<OrphanedSubject>, } } | { "type": "ConnectionProfilesUpdated", "data": { 
 /**
  * Profiles this operator has adopted locally (still-shared or not).
  */

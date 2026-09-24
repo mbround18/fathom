@@ -140,7 +140,7 @@ export function AvailableAgentsSection() {
           <span>Connect an external MCP client with:</span>
           <code
             data-testid="mcp-connection-command"
-            className="bg-muted overflow-x-auto rounded px-2 py-1 font-mono text-[11px]"
+            className="overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-[11px]"
           >
             {mcp.connectionCommand}
           </code>
@@ -206,13 +206,13 @@ export function AvailableAgentsSection() {
         <span data-testid="mcp-agent-auth-summary" className="text-muted-foreground">
           {authSummary(authMode)}
         </span>
-        <span className="text-muted-foreground text-[11px]">
+        <span className="text-[11px] text-muted-foreground">
           Change this in the assistant&apos;s own setup, from the Ask AI tab.
         </span>
       </div>
 
       {error !== undefined && (
-        <p data-testid="mcp-error" className="text-destructive text-xs">
+        <p data-testid="mcp-error" className="text-xs text-destructive">
           {error}
         </p>
       )}

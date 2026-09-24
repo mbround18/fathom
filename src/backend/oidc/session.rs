@@ -116,6 +116,11 @@ impl OidcSessions {
             .clone()
     }
 
+    /// The credential store (admin API key access for the IdP directory, US3).
+    pub fn credentials(&self) -> Arc<CredentialStore> {
+        self.inner.store.clone()
+    }
+
     /// Current identity per signed-in issuer.
     pub fn identities(&self) -> Vec<OidcIdentity> {
         let slots = self.inner.slots.lock().expect("slots");

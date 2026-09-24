@@ -58,12 +58,7 @@ export function IntegrationSummary({
         <div className="grid grid-cols-2 gap-2">
           {tiles.map((t) => (
             <div key={t.label} className="rounded-sm border border-border bg-card p-2">
-              <div
-                className={cn(
-                  'font-mono text-lg font-semibold',
-                  TONE_TEXT[t.tone ?? 'muted'],
-                )}
-              >
+              <div className={cn('font-mono text-lg font-semibold', TONE_TEXT[t.tone ?? 'muted'])}>
                 {t.value}
               </div>
               <div className="font-display text-[0.65rem] tracking-wider text-muted-foreground uppercase">

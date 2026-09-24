@@ -7,13 +7,14 @@ use std::path::PathBuf;
 use crossbeam_channel::Sender;
 
 use crate::backend::events;
+use crate::backend::idp_directory::{self, FathomRole};
 use crate::backend::persistence::{self, TeamConfig};
 use crate::backend::state::BackendState;
 use crate::backend::team_store::{self, StoreError};
 use crate::protocol::{
     AdoptedConnectionProfile, BackendCmd, BackendEvent, BackendEventEnvelope, ClusterSettings,
     ConnectionProfile, Correlation, OrgClusterSettings, Route, SettingOrigin, SystemEvent,
-    TeamPublishRejection, TeamStoreStatus, scan_fields_for_secrets, section_keys,
+    TeamLink, TeamPublishRejection, TeamStoreStatus, scan_fields_for_secrets, section_keys,
 };
 
 /// Handles every 014 command; returns the command back if it belongs to another family.
@@ -37,7 +38,15 @@ pub(super) async fn handle(
             api_server,
             default_namespace,
         } => {
-            publish_connection_profile(state, sender, context_alias, api_server, default_namespace)
+            if gate(state, sender, FathomRole::Editor) {
+                publish_connection_profile(
+                    state,
+                    sender,
+                    context_alias,
+                    api_server,
+                    default_namespace,
+                )
+            }
         }
         BackendCmd::AdoptConnectionProfile { profile_id } => {
             adopt_connection_profile(state, sender, profile_id)
@@ -46,10 +55,24 @@ pub(super) async fn handle(
             remove_connection_profile(state, sender, profile_id)
         }
         BackendCmd::PublishOrgClusterSettings { context } => {
-            publish_org_cluster_settings(state, sender, context)
+            if gate(state, sender, FathomRole::Editor) {
+                publish_org_cluster_settings(state, sender, context)
+            }
         }
         BackendCmd::AcceptOrgClusterSettings { context } => {
-            accept_org_cluster_settings(state, sender, context)
+            if gate(state, sender, FathomRole::Viewer) {
+                accept_org_cluster_settings(state, sender, context)
+            }
+        }
+        BackendCmd::LinkTeamProfile { group, profile_id } => {
+            if gate(state, sender, FathomRole::Admin) {
+                change_link(state, sender, TeamLink { group, profile_id }, true)
+            }
+        }
+        BackendCmd::UnlinkTeamProfile { group, profile_id } => {
+            if gate(state, sender, FathomRole::Admin) {
+                change_link(state, sender, TeamLink { group, profile_id }, false)
+            }
         }
         BackendCmd::DismissOrgClusterSettings { context } => {
             dismiss_org_cluster_settings(state, sender, context)
@@ -57,6 +80,76 @@ pub(super) async fn handle(
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+/// 033 US3 (R9): the Fathom role map gates team publish/sync/link. Kubeconfig-only contexts
+/// (no OIDC identity in play) are unrestricted. Refusals are surfaced, never silent.
+fn gate(state: &BackendState, sender: &Sender<BackendEventEnvelope>, required: FathomRole) -> bool {
+    let identity = super::idp::active_identity(state);
+    let map = persistence::load_oidc_config().role_map;
+    match idp_directory::require_role(identity.as_ref(), &map, required) {
+        Ok(()) => true,
+        Err(reason) => {
+            emit_rejection(
+                state,
+                sender,
+                TeamPublishRejection::RoleForbidden { reason },
+            );
+            false
+        }
+    }
+}
+
+fn emit_links(state: &BackendState, sender: &Sender<BackendEventEnvelope>, links: Vec<TeamLink>) {
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::global(section_keys::team_profiles()),
+        Correlation::None,
+        BackendEvent::System(SystemEvent::TeamLinksUpdated { links }),
+    );
+}
+
+fn change_link(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    link: TeamLink,
+    add: bool,
+) {
+    let config = persistence::load_team_config();
+    let Some(root) = store_root(&config) else {
+        emit_rejection(
+            state,
+            sender,
+            TeamPublishRejection::StoreUnreachable {
+                reason: "no shared config store configured".to_owned(),
+            },
+        );
+        return;
+    };
+    let result = if add {
+        team_store::link_team(&root, link)
+    } else {
+        team_store::unlink_team(&root, &link)
+    };
+    match result {
+        Ok(links) => emit_links(state, sender, links),
+        Err(StoreError::Invalid(reason)) => emit_rejection(
+            state,
+            sender,
+            TeamPublishRejection::SuspectedSecret {
+                field: "teamLink".to_owned(),
+                reason,
+            },
+        ),
+        Err(e) => emit_rejection(
+            state,
+            sender,
+            TeamPublishRejection::StoreUnreachable {
+                reason: e.to_string(),
+            },
+        ),
+    }
 }
 
 fn current_operator() -> String {
@@ -274,6 +367,9 @@ fn refresh_connection_profiles(state: &BackendState, sender: &Sender<BackendEven
             }
             let _ = persistence::save_team_config(&config);
             emit_store_status(state, sender, &config);
+            if let Ok(links) = team_store::read_links(&root) {
+                emit_links(state, sender, links);
+            }
             let available: Vec<ConnectionProfile> = shared
                 .into_iter()
                 .filter(|p| !p.removed && !config.adopted.contains_key(&p.id))

@@ -1,5 +1,6 @@
 /** `BackendEvent::System` arm: session, notifications, integrations, persisted UI config. */
 import { reduceIdentity } from '@/features/identity/state'
+import { reduceTeams } from '@/features/teams/state'
 import { resolveProfile } from '@/layout/defaults'
 import { ingestCapabilityChecked, ingestCapabilitySet, resetCapabilities } from '@/lib/capabilities'
 import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
@@ -380,6 +381,13 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'OidcSessionEnded':
     case 'OidcError': {
       reduceIdentity(d.edit('identity'), event)
+      return
+    }
+
+    case 'IdpDirectoryUpdated':
+    case 'IdpAdminKeyStatus':
+    case 'TeamLinksUpdated': {
+      reduceTeams(d.edit('teams'), event)
       return
     }
 

@@ -50,9 +50,12 @@ export function PortForwardPortField({
     }, DEBOUNCE_MS)
   }
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current)
+    },
+    [],
+  )
 
   const conflict = availability[value] === false
   useEffect(() => {

@@ -2378,6 +2378,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::OidcError { .. } => {}
         SystemEvent::IdpAdminKeyStatus { .. } => {}
         SystemEvent::IdpDirectoryUpdated { .. } => {}
+        SystemEvent::TeamLinksUpdated { .. } => {}
         SystemEvent::CapabilitiesResolved { .. } => {}
         SystemEvent::CapabilityChecked { .. } => {}
         SystemEvent::RoleAssignmentPreview { .. } => {}

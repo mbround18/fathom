@@ -39,7 +39,12 @@ export function GitOpsWarningBanner({
           className="text-foreground hover:text-accent-neon hover:underline"
           onClick={() => {
             openInspector(
-              { section: origin.section, kind: origin.kind, namespace: origin.namespace, name: origin.name },
+              {
+                section: origin.section,
+                kind: origin.kind,
+                namespace: origin.namespace,
+                name: origin.name,
+              },
               undefined,
               true,
             )

@@ -11,6 +11,8 @@
  */
 import { useEffect, useState } from 'react'
 
+import { isSignedIn } from '@/features/identity/state'
+import { filterProfiles } from '@/features/teams/filter'
 import { Button } from '@/components/ui/button'
 import { Gated } from '@/lib/capabilities'
 import { Input } from '@/components/ui/input'
@@ -25,7 +27,17 @@ export function TeamProfilesPanel() {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
   const storeStatus = useStore((s) => s.team.storeStatus)
   const adopted = useStore((s) => s.team.adopted)
-  const available = useStore((s) => s.team.available)
+  const allAvailable = useStore((s) => s.team.available)
+  const links = useStore((s) => s.teams.links)
+  const identities = useStore((s) => s.identity.identities)
+  const [showAll, setShowAll] = useState(false)
+  const myGroups = Object.values(identities)
+    .filter(isSignedIn)
+    .flatMap((i) => i.groups)
+  const signedIn = Object.values(identities).some(isSignedIn)
+  const filtering = signedIn && links.length > 0 && !showAll
+  const available = filtering ? filterProfiles(allAvailable, links, myGroups) : allAvailable
+  const hiddenCount = allAvailable.length - available.length
   const rejection = useStore((s) => s.team.rejection)
 
   const [storePathInput, setStorePathInput] = useState('')
@@ -163,7 +175,9 @@ export function TeamProfilesPanel() {
             ? `Publish refused: field "${rejection.field}" ${rejection.reason}`
             : rejection.kind === 'conflict'
               ? 'Publish refused: someone else published a newer version first. Refresh and retry.'
-              : 'Publish refused: the shared team store is unreachable.'}
+              : rejection.kind === 'roleForbidden'
+                ? `Not permitted: ${rejection.reason}`
+                : 'Publish refused: the shared team store is unreachable.'}
         </p>
       )}
 
@@ -247,6 +261,25 @@ export function TeamProfilesPanel() {
 
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold tracking-wider uppercase">Available</h3>
+        {signedIn && links.length > 0 && (
+          <p
+            data-testid="teams-advisory-filter"
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+          >
+            <span>
+              Filtered by your IdP groups (advisory, not access control).
+              {filtering && hiddenCount > 0 ? ` ${hiddenCount} hidden.` : ''}
+            </span>
+            <Button
+              size="xs"
+              variant="ghost"
+              data-testid="teams-advisory-toggle"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? 'Filter by my groups' : 'Show all'}
+            </Button>
+          </p>
+        )}
         {available.length === 0 ? (
           <Empty title="No profiles to adopt" />
         ) : (
