@@ -14,12 +14,12 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 [Gate] Amend the constitution to v1.1.0 (MINOR) via `/speckit-constitution`: replace the "browser-hosted web build is out of scope" sentence in `.specify/memory/constitution.md` with a "Hosted server (Linux container, amd64/arm64)" tier and keep mobile out of scope; include the Sync Impact Report. **Blocks all implementation tasks.**
-- [ ] T002 Create `server/Cargo.toml` (crate `fathom-server`, lib + bin, `fathom` with `default-features = false`) and add `"server"` to `members` in `/Cargo.toml`; add empty `server/src/{main,lib}.rs`.
-- [ ] T003 Record dependency resolution in `specs/031-hosted-server-mode/research.md` (append "R15 Verified deps"): add `axum` 0.8 (`ws`), `openidconnect` 4, `tower-http`, `secrecy`, `rand`; run `cargo tree -d -p fathom-server` and confirm a single `tokio-tungstenite` (0.27) and `reqwest` (0.13, rustls); if duplication appears apply the documented fallbacks (hyper + tokio-tungstenite handshake; custom `openidconnect` HTTP client).
-- [ ] T004 [P] Create empty skeletons `deploy/Dockerfile`, `deploy/helm/fathom/Chart.yaml`, `k8s/kind-oidc.yaml`, `k8s/overlays/hosted/kustomization.yaml` with header comments.
-- [ ] T005 [P] Add `Makefile.toml` tasks `server-build`, `server-test`, `hosted-image`, `hosted-e2e` in `/Makefile.toml`.
-- [ ] T006 [P] Add `hosted` to `TransportKind` in `ui/src/protocol/transport.ts` (folded at build time by `VITE_TRANSPORT=hosted`, lazy import of `./hosted-transport`).
+- [x] T001 [Gate] Amend the constitution to v1.1.0 (MINOR) via `/speckit-constitution`: replace the "browser-hosted web build is out of scope" sentence in `.specify/memory/constitution.md` with a "Hosted server (Linux container, amd64/arm64)" tier and keep mobile out of scope; include the Sync Impact Report. **Blocks all implementation tasks.**
+- [x] T002 Create `server/Cargo.toml` (crate `fathom-server`, lib + bin, `fathom` with `default-features = false`) and add `"server"` to `members` in `/Cargo.toml`; add empty `server/src/{main,lib}.rs`.
+- [x] T003 Record dependency resolution in `specs/031-hosted-server-mode/research.md` (append "R15 Verified deps"): add `axum` 0.8 (`ws`), `openidconnect` 4, `tower-http`, `secrecy`, `rand`; run `cargo tree -d -p fathom-server` and confirm a single `tokio-tungstenite` (0.27) and `reqwest` (0.13, rustls); if duplication appears apply the documented fallbacks (hyper + tokio-tungstenite handshake; custom `openidconnect` HTTP client).
+- [x] T004 [P] Create empty skeletons `deploy/Dockerfile`, `deploy/helm/fathom/Chart.yaml`, `k8s/kind-oidc.yaml`, `k8s/overlays/hosted/kustomization.yaml` with header comments.
+- [x] T005 [P] Add `Makefile.toml` tasks `server-build`, `server-test`, `hosted-image`, `hosted-e2e` in `/Makefile.toml`.
+- [x] T006 [P] Add `hosted` to `TransportKind` in `ui/src/protocol/transport.ts` (folded at build time by `VITE_TRANSPORT=hosted`, lazy import of `./hosted-transport`).
 
 **Checkpoint**: workspace resolves, deps deduped, amendment merged.
 

@@ -19,11 +19,11 @@ export interface Transport {
   onGone?(listener: (err: BridgeError) => void): void
 }
 
-export type TransportKind = 'tauri' | 'fake' | 'ws'
+export type TransportKind = 'tauri' | 'fake' | 'ws' | 'hosted'
 
 export function transportKind(): TransportKind {
   const kind = import.meta.env.VITE_TRANSPORT
-  return kind === 'fake' || kind === 'ws' ? kind : 'tauri'
+  return kind === 'fake' || kind === 'ws' || kind === 'hosted' ? kind : 'tauri'
 }
 
 let current: Promise<Transport> | undefined
@@ -38,6 +38,8 @@ export function getTransport(): Promise<Transport> {
       ? import('./fake-transport').then((m) => m.installFakeTransport())
       : import.meta.env.VITE_TRANSPORT === 'ws'
         ? import('./ws-transport').then((m) => m.createWsTransport())
-        : import('./tauri-transport').then((m) => new m.TauriTransport())
+        : import.meta.env.VITE_TRANSPORT === 'hosted'
+          ? import('./hosted-transport').then((m) => m.createHostedTransport())
+          : import('./tauri-transport').then((m) => new m.TauriTransport())
   return current
 }

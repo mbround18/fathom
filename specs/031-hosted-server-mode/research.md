@@ -119,3 +119,11 @@ Token used in pass-through: the **ID token** by default (Kubernetes OIDC authent
 - R-8 Group claim size/absence differs per IdP; explicit UI explanation, documented mappers.
 - R-9 Cookie-only auth for WS means proxies must pass `Upgrade` and preserve `Origin`/`Host`; documented in quickstart; a health check for proxy misconfiguration on `/api/session`.
 - R-10 ID-token-as-bearer requires API server OIDC; managed clusters without it must use impersonation (documented, not auto-detected per spec).
+
+## R15: Verified deps (T003)
+
+`cargo tree -d -p fathom-server` with the naive manifest (`axum` with `ws`, `openidconnect` with `reqwest`/`rustls-tls`) showed two duplications. Both documented fallbacks were applied and the tree now has a single copy of each:
+
+- **tokio-tungstenite**: axum 0.8's `ws` feature pulls `tokio-tungstenite` 0.29 next to the 0.27 kube uses. Fallback applied: `axum` without `ws`; the `/ws` upgrade is done with hyper's upgrade + `tokio-tungstenite` 0.27 handshake (`accept_hdr_async` / `WebSocketStream::from_raw_socket`). Single `tokio-tungstenite` 0.27 / `tungstenite` 0.27.
+- **reqwest**: `openidconnect` 4's `reqwest` feature pulls `oauth2` 5 with `reqwest` 0.12 next to the repo's 0.13. Fallback applied: `openidconnect` with `default-features = false` (no HTTP client feature) and a small custom `AsyncHttpClient` adapter over the repo's `reqwest` 0.13 (needed anyway for custom CA support). Single `reqwest` 0.13.
+- `axum` 0.8.9 is already in the tree via `tonic`; `secrecy` 0.10, `rand` 0.9, `tower-http` 0.6 (`fs`, `set-header`, `trace`) added.

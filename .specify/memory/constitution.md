@@ -1,5 +1,16 @@
 # Fathom Constitution
 
+<!--
+Sync Impact Report
+- Version change: 1.0.0 -> 1.1.0 (MINOR: platform section materially expanded)
+- Modified sections: Supported Platforms & Expected Outcomes ("Not supported yet" no longer
+  excludes a browser-hosted web build; new "Hosted server (Linux container)" tier added)
+- Principles: none added, removed or redefined
+- Templates requiring updates: none (plan/spec/tasks templates carry no web-build reference)
+- Affected specs: specs/031-hosted-server-mode (T001 gate satisfied)
+- Follow-up TODOs: none
+-->
+
 ## Core Principles
 
 ### I. Operator-First, Explicit Mutation
@@ -115,8 +126,14 @@ connect to a cluster, and pass the feature's quickstart validation on:
 WebKitGTK 4.1 Linux distributions, Windows 10, and macOS 14–15. They are built from the same
 artifacts where they run. Bugs are accepted but do not block releases.
 
-**Not supported yet.** Mobile (iOS/Android) and a browser-hosted web build are out of scope. The
-architecture MUST stay mobile-ready (Principles II and IV), but no mobile outcome is promised.
+**Hosted server (Linux container).** A hosted web build is in scope: `fathom-server` runs as a
+Linux container (amd64, arm64) inside a cluster and serves the same UI and the same versioned
+protocol to browsers behind OIDC sign-in. It is a shell over the one backend (Principle II), MUST
+authenticate to the cluster as the signed-in user, and MUST NOT expose desktop-only features
+(kind provisioning, kubeconfig switching, stdio MCP). It does not change the desktop Tier 1 table.
+
+**Not supported yet.** Mobile (iOS/Android) is out of scope. The architecture MUST stay
+mobile-ready (Principles II and IV), but no mobile outcome is promised.
 
 **Stack.** The backend is Rust (edition 2024) with tokio and kube-rs. The desktop shell is
 Tauri v2, and the frontend is pnpm, React, TypeScript (strict), Vite, shadcn/ui, and Tailwind,
@@ -159,4 +176,4 @@ a version bump, and an update to every affected spec or plan.
   CRITICAL.
 - Reviewers MUST reject changes that violate a MUST without a recorded justification.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-09-21
+**Version**: 1.1.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-09-23

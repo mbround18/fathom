@@ -91,3 +91,22 @@ description = "Watch for file changes and run tests"
 command = "cargo"
 args = ["watch", "-x", "test"]
 install_crate = { crate_name = "cargo-watch", binary = "cargo", test_arg = ["watch", "--help"] }
+
+[tasks.server-build]
+description = "Build the hosted server (fathom-server, spec 031)"
+command = "cargo"
+args = ["build", "-p", "fathom-server"]
+
+[tasks.server-test]
+description = "Test the hosted server (fathom-server, spec 031)"
+command = "cargo"
+args = ["test", "-p", "fathom-server"]
+
+[tasks.hosted-image]
+description = "Build the hosted container image (spec 031)"
+command = "docker"
+args = ["build", "-f", "deploy/Dockerfile", "-t", "fathom-server:dev", "."]
+
+[tasks.hosted-e2e]
+description = "Live OIDC login e2e on kind (PROVIDER=rauthy|keycloak; spec 031)"
+script = ["k8s/cluster.sh up-hosted", "pnpm -C ui e2e:hosted"]
