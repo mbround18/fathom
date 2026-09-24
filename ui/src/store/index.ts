@@ -18,6 +18,8 @@ import type {
   ClusterSettings,
   ConnectionProfile,
   ContextConnectionStatus,
+  KindClusterSummary,
+  KindPrerequisites,
   CrdCatalogEntry,
   DiskUsage,
   FluxOverview,
@@ -382,6 +384,26 @@ export interface PrefsState {
   mcpStdioEnabled: boolean
 }
 
+/** One in-flight or just-finished kind create/delete, keyed by its client `request_id`. */
+export interface KindOperation {
+  requestId: string
+  clusterName: string
+  kind: 'create' | 'delete'
+  /** Latest stage line from kind's own output. */
+  stage?: string
+  status: 'in-progress' | 'complete' | 'failed' | 'cancelled'
+  error?: string
+}
+
+/** 030-kind-cluster-provisioning: state behind the Local Clusters panel. */
+export interface KindState {
+  /** `undefined` until the first `KindPrerequisitesUpdated`. */
+  prerequisites?: KindPrerequisites
+  /** `undefined` until the first `KindClustersUpdated`. */
+  clusters?: KindClusterSummary[]
+  operations: Record<string, KindOperation>
+}
+
 /**
  * 015-mcp-agent-exposure: the stdio MCP server's operator-visible status, kept in sync by
  * `McpServerStatusChanged` (`store/handlers/system.ts`) — the reply to `LoadMcpServerStatus`
@@ -544,6 +566,8 @@ export interface StoreData {
   prefs: PrefsState
   /** 015-mcp-agent-exposure: stdio MCP server status, shown in Cluster Settings. */
   mcp: McpState
+  /** 030-kind-cluster-provisioning: local kind cluster readiness, inventory, and operations. */
+  kind: KindState
   /**
    * 008-pod-lifecycle-diagnostics: a "view logs for this container" click from the Lifecycle
    * section's Init Containers list, so the Inspector can switch to the Logs tab and
@@ -841,6 +865,7 @@ export function initialData(): StoreData {
       connectionCommand: '',
       demoChat: { status: 'idle', chunks: new RingBuffer<string>(), rev: 0 },
     },
+    kind: { prerequisites: undefined, clusters: undefined, operations: {} },
     podLogsIntent: null,
   }
 }
