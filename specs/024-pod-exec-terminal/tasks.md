@@ -17,41 +17,41 @@ protocol plumbing both stories need, per data-model.md.
 
 ## Phase 1: Setup
 
-- [ ] T001 Confirm `Cargo.toml`/`ui/package.json` need no new dependency (research.md R3) — no
+- [x] T001 Confirm `Cargo.toml`/`ui/package.json` need no new dependency (research.md R3) — no
       action expected; sanity-check only, no file changes.
 
 ## Phase 2: Foundational (blocking prerequisites for both user stories)
 
 **Purpose**: Protocol/state changes both stories depend on.
 
-- [ ] T002 Add `CheckPodExecAccess { namespace: String, name: String, container: Option<String> }`
+- [x] T002 Add `CheckPodExecAccess { namespace: String, name: String, container: Option<String> }`
       variant to `BackendCmdV1` in `src/protocol/v1/cmd.rs` (contracts/protocol.md)
-- [ ] T003 [P] Add a serde round-trip test for `CheckPodExecAccess` in `src/protocol/v1/cmd.rs`
+- [x] T003 [P] Add a serde round-trip test for `CheckPodExecAccess` in `src/protocol/v1/cmd.rs`
       (Constitution Principle III), alongside the existing `start_pod_exec_roundtrip` etc. tests
-- [ ] T004 Add `PodExecAccessChecked { namespace: String, name: String, container: Option<String>, allowed: bool, reason: Option<String> }`
+- [x] T004 Add `PodExecAccessChecked { namespace: String, name: String, container: Option<String>, allowed: bool, reason: Option<String> }`
       as a new `ResourceReadEvent` variant in `src/protocol/v1/event.rs` (data-model.md); `reason`
       MUST be `Some` whenever the underlying review call itself errored (contracts/protocol.md
       invariant), `None` is only valid for a plain server-side deny with no explanation
-- [ ] T005 [P] Add a serde round-trip test for `PodExecAccessChecked` in `src/protocol/v1/event.rs`
-- [ ] T006 In `src/protocol/v1/mutation.rs`, move `C::StartPodExec { .. }` out of the `ReadOnly`
+- [x] T005 [P] Add a serde round-trip test for `PodExecAccessChecked` in `src/protocol/v1/event.rs`
+- [x] T006 In `src/protocol/v1/mutation.rs`, move `C::StartPodExec { .. }` out of the `ReadOnly`
       match arm (currently lines ~63-66) into a new `Namespaced` arm keyed on its `namespace`
       field (research.md R1); add `C::CheckPodExecAccess { .. }` to the existing `ReadOnly` arm.
       Keep `SendPodExecInput`/`ResizePodExec`/`StopPodExec` in `ReadOnly`, unchanged.
-- [ ] T007 In `src/protocol/v1/mutation.rs`, add `C::CheckPodExecAccess { .. }` to the
+- [x] T007 In `src/protocol/v1/mutation.rs`, add `C::CheckPodExecAccess { .. }` to the
       `section()` match's `section_keys::workloads_pods()` arm (next to the other pod-exec
       commands, currently lines ~339-342)
-- [ ] T008 [P] Add a unit test in `src/protocol/v1/mutation.rs` asserting
+- [x] T008 [P] Add a unit test in `src/protocol/v1/mutation.rs` asserting
       `BackendCmdV1::StartPodExec { namespace: "ns".into(), name: "n".into(), container: None }.mutation_target()`
       equals `MutationTarget::Namespaced { namespaces: vec!["ns".into()] }` (not `ReadOnly`),
       per contracts/protocol.md's reclassification contract
-- [ ] T009 [P] Add/verify a `tools/devbridge/src/guard.rs` test asserting `StartPodExec` is now
+- [x] T009 [P] Add/verify a `tools/devbridge/src/guard.rs` test asserting `StartPodExec` is now
       blocked by the sandbox guard for a namespace that isn't allow-listed (mirrors the existing
       `DeletePod`-style guard test in that file) — confirms the "consumers affected" note in
       contracts/protocol.md
-- [ ] T010 [P] Add an `ExecAccessCheckState` type (`allowed: boolean`, `reason?: string`,
+- [x] T010 [P] Add an `ExecAccessCheckState` type (`allowed: boolean`, `reason?: string`,
       `rev: number`) plus a store slice keyed by `` `${namespace}/${name}/${container ?? ''}` ``
       in `ui/src/store/index.ts` (data-model.md "Store: exec-access-check slice")
-- [ ] T011 Add `PodExecAccessChecked` handling to `ui/src/store/handlers/stream.ts` (or a new
+- [x] T011 Add `PodExecAccessChecked` handling to `ui/src/store/handlers/stream.ts` (or a new
       handler if that file is scoped strictly to stream events — check its existing scope first),
       writing into T010's slice and bumping `rev`
 
@@ -69,19 +69,19 @@ for both user stories.
 shell input is possible; confirm proceeds to the existing terminal experience; decline sends
 nothing and leaves state unchanged (spec.md Acceptance Scenarios 1-4).
 
-- [ ] T012 [US1] In `ui/src/components/panels/PodTerminalTab.tsx`, extend the `Phase` union with
+- [x] T012 [US1] In `ui/src/components/panels/PodTerminalTab.tsx`, extend the `Phase` union with
       `'checking' | 'denied' | 'confirming'` between `'picking'` and `'attaching'` (data-model.md
       "PodTerminalTab phase union")
-- [ ] T013 [US1] In `PodTerminalTab.tsx`, replace the current auto-start `useEffect` (today:
+- [x] T013 [US1] In `PodTerminalTab.tsx`, replace the current auto-start `useEffect` (today:
       sends `StartPodExec` as soon as `started` is true) with: once a container is resolved, send
       `CheckPodExecAccess { namespace, name, container }` and enter `'checking'`; do NOT send
       `StartPodExec` from this effect anymore
-- [ ] T014 [US1] In `PodTerminalTab.tsx`, read the T010 store slice for the current
+- [x] T014 [US1] In `PodTerminalTab.tsx`, read the T010 store slice for the current
       namespace/name/container key; when a fresh result (`rev` newer than last-seen) arrives with
       `allowed: true`, transition to `'confirming'`; on `allowed: false`, transition to `'denied'`
       (US2 covers the denied-state UI; this task only needs the phase transition itself to exist
       so US1's flow is complete end-to-end)
-- [ ] T015 [US1] In `PodTerminalTab.tsx`, render `ConfirmDialog` (`ui/src/components/ConfirmDialog.tsx`)
+- [x] T015 [US1] In `PodTerminalTab.tsx`, render `ConfirmDialog` (`ui/src/components/ConfirmDialog.tsx`)
       when `phase === 'confirming'`: `items: [{ namespace, name }]`, `detail` naming the chosen
       container, `destructive: true`, `confirmLabel: "Open terminal"`; `onConfirm` sends
       `StartPodExec` and transitions to `'attaching'` (existing flow, unchanged from there);
@@ -89,12 +89,12 @@ nothing and leaves state unchanged (spec.md Acceptance Scenarios 1-4).
       container — add a minimal idle state with an explicit "Open Terminal" trigger, since the
       component can no longer auto-start for the single-container case either, per FR-002/FR-004
       applying uniformly)
-- [ ] T016 [US1] In `PodTerminalTab.tsx`, ensure reopening the tab (component remount, or pod/name
+- [x] T016 [US1] In `PodTerminalTab.tsx`, ensure reopening the tab (component remount, or pod/name
       change while mounted) resets to the pre-check flow rather than reusing a stale `'confirming'`/
       `'denied'` result — confirmation must never be skipped on a subsequent open (spec.md
       Acceptance Scenario 4; data-model.md state-transition diagram's "picking --(container
       resolved)--> checking" applies fresh every time)
-- [ ] T018 [US1] Playwright scenario in `ui/tests/e2e/pod-exec-gate.spec.ts`: open Terminal tab
+- [x] T018 [US1] Playwright scenario in `ui/tests/e2e/pod-exec-gate.spec.ts`: open Terminal tab
       against the fake backend, inject `PodExecAccessChecked { allowed: true }`, assert
       `ConfirmDialog` (`data-testid="confirm-dialog"`) appears naming the pod before any
       `StartPodExec` is sent; assert clicking confirm sends `StartPodExec` and, after injecting
@@ -116,21 +116,21 @@ operator lacks `pods/exec`.
 tab and see a permission-denied message immediately, no confirmation shown, no attach sent; as
 a permitted operator, the flow is unaffected (spec.md Acceptance Scenarios 1-3).
 
-- [ ] T019 [US2] In `src/backend/exec.rs`, add `pub(super) async fn check_access(state: &BackendState, sender: &Sender<BackendEventEnvelope>, namespace: String, name: String, container: Option<String>) -> anyhow::Result<()>`:
+- [x] T019 [US2] In `src/backend/exec.rs`, add `pub(super) async fn check_access(state: &BackendState, sender: &Sender<BackendEventEnvelope>, namespace: String, name: String, container: Option<String>) -> anyhow::Result<()>`:
       build one `SelfSubjectAccessReview` via `Api::<SelfSubjectAccessReview>::all(client)` +
       `PostParams::default()` (mirroring `handle_refresh_rbac_self_access` in
       `src/backend/rbac_access.rs`) with `ResourceAttributes { group: Some(String::new()), resource: Some("pods".into()), subresource: Some("exec".into()), verb: Some("create".into()), namespace: Some(namespace.clone()), name: Some(name.clone()), ..Default::default() }`;
       on success emit `PodExecAccessChecked { allowed: status.allowed, reason: status.reason.or(status.evaluation_error), .. }`;
       on the API call itself erroring, emit `allowed: false, reason: Some(err.to_string())`
       (contracts/protocol.md's error-mapping invariant)
-- [ ] T020 [P] [US2] Unit tests in `src/backend/exec.rs` for `check_access`'s `ResourceAttributes`
+- [x] T020 [P] [US2] Unit tests in `src/backend/exec.rs` for `check_access`'s `ResourceAttributes`
       construction (asserts `group` is empty-string/core, not `"rbac.authorization.k8s.io"` —
       the exact bug this spec must avoid per research.md R2) and its error-to-`allowed:false`
       mapping, mirroring the existing `describe_attach_failure` test conventions in this file
-- [ ] T021 [US2] Wire `BackendCmd::CheckPodExecAccess { namespace, name, container }` to
+- [x] T021 [US2] Wire `BackendCmd::CheckPodExecAccess { namespace, name, container }` to
       `exec::check_access(...)` in `src/backend/cmd/workloads.rs`, next to the existing
       `StartPodExec`/`SendPodExecInput`/`ResizePodExec`/`StopPodExec` wiring
-- [ ] T022 [US2] In `ui/src/components/panels/PodTerminalTab.tsx`, render the `'denied'` phase:
+- [x] T022 [US2] In `ui/src/components/panels/PodTerminalTab.tsx`, render the `'denied'` phase:
       a permission-denied panel (reuse the existing error-panel styling/`ShieldWarningIcon` used
       today for `stream?.reason?.toLowerCase().includes('permission')`) showing the
       `PodExecAccessChecked.reason` verbatim when present, and a generic "You don't have
@@ -138,12 +138,12 @@ a permitted operator, the flow is unaffected (spec.md Acceptance Scenarios 1-3).
       contracts/protocol.md: `reason` may legitimately be `None`); no `ConfirmDialog` is ever
       shown in this phase; provide the same "Choose container" recovery affordance as the
       existing `error`/`ended` panels when the pod has multiple containers
-- [ ] T023 [US2] In `PodTerminalTab.tsx`, ensure a `CheckPodExecAccess` call that itself never
+- [x] T023 [US2] In `PodTerminalTab.tsx`, ensure a `CheckPodExecAccess` call that itself never
       resolves (e.g. the review call errors before emitting — should not happen per T019, but
       guard defensively) does not leave the UI stuck in `'checking'` forever; treat a
       `StreamClosed`-free timeout or an explicit error path the same as `'denied'` with a
       check-failed reason (spec.md Acceptance Scenario 2.3 / FR-006 "fail safe")
-- [ ] T024 [P] [US2] Playwright scenario in `ui/tests/e2e/pod-exec-gate.spec.ts`: open Terminal
+- [x] T024 [P] [US2] Playwright scenario in `ui/tests/e2e/pod-exec-gate.spec.ts`: open Terminal
       tab against the fake backend, inject `PodExecAccessChecked { allowed: false, reason: "..." }`,
       assert the permission-denied message renders (containing the injected reason) and that no
       `ConfirmDialog` and no `StartPodExec` ever appear in the fake backend's command log
@@ -157,11 +157,11 @@ in place end to end.
 
 ## Phase 5: Polish & Cross-Cutting
 
-- [ ] T025 [P] Update `specs/002-pod-logs-terminal/spec.md`'s User Story 2 acceptance scenarios
+- [x] T025 [P] Update `specs/002-pod-logs-terminal/spec.md`'s User Story 2 acceptance scenarios
       with a note (not a rewrite) pointing at this spec for the confirmation/RBAC-pre-check
       behavior now layered on top, so a future reader of spec 002 isn't confused by the
       no-longer-accurate "opens immediately" framing
-- [ ] T026 Run `cargo build --workspace --all-targets`, `cargo clippy --all-targets -- -D warnings`,
+- [x] T026 Run `cargo build --workspace --all-targets`, `cargo clippy --all-targets -- -D warnings`,
       `cargo test`, `pnpm -C ui typecheck`, `pnpm -C ui lint`, `pnpm -C ui test`, and the new
       `ui/tests/e2e/pod-exec-gate.spec.ts`; fix any failures
 

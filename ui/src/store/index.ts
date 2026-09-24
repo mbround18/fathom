@@ -181,7 +181,21 @@ type GenericReadEvent = Exclude<
   ResourceReadEvent,
   | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
   | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
+  // 024-pod-exec-terminal: routed by `handleExecAccess` into `execAccess`.
+  | { type: 'PodExecAccessChecked' }
 >
+
+/** 024-pod-exec-terminal: result of a `CheckPodExecAccess` pre-check. */
+export interface ExecAccessCheckState {
+  allowed: boolean
+  reason?: string
+  /** Bumped on every reply so a repeat check for the same key is observable. */
+  rev: number
+}
+
+export function execAccessKey(namespace: string, name: string, container: string | null): string {
+  return `${namespace}/${name}/${container ?? ''}`
+}
 
 export interface DetailState {
   /** Object kind derived from the event (`PodDetailsUpdated` → `Pod`, `PodMetricsUpdated` → `PodMetrics`). */
@@ -494,6 +508,8 @@ export interface StoreData {
    * Global (not keyed): only one self-access check, namespace-access lookup, or kubeadm
    * detection is ever in flight/shown at a time.
    */
+  /** 024-pod-exec-terminal: latest `PodExecAccessChecked` per `execAccessKey`. */
+  execAccess: Record<string, ExecAccessCheckState>
   rbacAccess: {
     /** Latest `RbacSelfAccessUpdated` reply (US2/US3 create/edit/delete gating, FR-007). */
     selfAccess?: RbacAccessResult[]
@@ -814,6 +830,7 @@ export function initialData(): StoreData {
     agentConversations: {},
     agentAuth: {},
     team: { adopted: [], available: [] },
+    execAccess: {},
     rbacAccess: {},
     helmUninstalls: {},
     helmMutations: {},

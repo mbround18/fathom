@@ -4,13 +4,28 @@
  * events render in the terminal, and switching to a different pod's Terminal stops the first
  * session before starting the second (FR-007..FR-013, FR-012 singleton session).
  */
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { DETAIL_POD, PODS_500 } from '../fixtures'
-import { batch, nsRoute, stream } from '../fixtures/builders'
+import { batch, nsRoute, read, stream } from '../fixtures/builders'
 import { clearSent, emit, inspector, open, row, sent, sentTypes } from './helpers'
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
+/** 024: the gate — answer the access pre-check as allowed, then confirm. */
+async function passGate(page: Page, pod: { namespace: string; name: string }, seq: number) {
+  await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['CheckPodExecAccess']))
+  await emit(
+    page,
+    batch([
+      read(seq, nsRoute('kind-a', 'workloads/pods', pod.namespace), {
+        type: 'PodExecAccessChecked',
+        data: { namespace: pod.namespace, name: pod.name, container: null, allowed: true, reason: null },
+      }),
+    ]),
+  )
+  await page.getByTestId('confirm-submit').click()
+}
+
 const SECOND_POD = PODS_500[3]
 if (!SECOND_POD) throw new Error('fixture')
 
@@ -36,6 +51,7 @@ test.describe('US2 Terminal tab', () => {
       'true',
     )
 
+    await passGate(page, DETAIL_POD, 290)
     await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['StartPodExec']))
 
     const route = nsRoute('kind-a', 'workloads/pods', DETAIL_POD.namespace)
@@ -80,6 +96,7 @@ test.describe('US2 Terminal tab', () => {
     await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['StopPodExec']))
 
     await insp2.getByRole('tab', { name: 'Terminal' }).click()
+    await passGate(page, SECOND_POD, 310)
     await expect
       .poll(() => sentTypes(page))
       .toEqual(expect.arrayContaining(['StopPodExec', 'StartPodExec']))
@@ -108,6 +125,7 @@ test.describe('US2 Terminal tab', () => {
 
     await clearSent(page)
     await insp.getByRole('tab', { name: 'Terminal' }).click()
+    await passGate(page, DETAIL_POD, 290)
     await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['StartPodExec']))
 
     const route = nsRoute('kind-a', 'workloads/pods', DETAIL_POD.namespace)
