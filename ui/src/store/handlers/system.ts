@@ -12,6 +12,7 @@ import {
 } from '../helmMutation'
 import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice, useStore } from '../index'
 import { RingBuffer } from '../ring-buffer'
+import { applyFleetSummary } from './fleet'
 import { rowId } from './list'
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
@@ -109,6 +110,10 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       }
       return
     }
+
+    case 'FleetSummaryUpdated':
+      applyFleetSummary(d, event.data)
+      return
 
     case 'NamespaceFilterChanged': {
       const session = d.edit('session')
