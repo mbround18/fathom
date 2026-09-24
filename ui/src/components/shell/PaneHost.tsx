@@ -5,6 +5,7 @@ import { InspectorActions, ListActions, SelectionBar } from '@/components/Action
 import { Inspector } from '@/components/Inspector'
 import { FluxPanel } from '@/components/panels/FluxPanel'
 import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
+import { VeleroPanel } from '@/components/panels/VeleroPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
@@ -183,6 +184,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
     case 'tool':
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       if (pane.tool === 'flux') return <FluxPanel />
+      if (pane.tool === 'velero') return <VeleroPanel />
       if (pane.tool === 'hubble') return <HubblePanel />
       if (pane.tool === 'topology') return <TopologyPanel paneId={pane.id} />
       if (pane.tool === 'portforwards') return <PortForwardsPanel />

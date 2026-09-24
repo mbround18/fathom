@@ -201,6 +201,8 @@ pub enum ToolKind {
     Portforwards,
     /// 007-topology-graph-view: the cluster topology graph tool pane.
     Topology,
+    /// 022-velero-backup-pane: read-only Velero backup health tool pane.
+    Velero,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

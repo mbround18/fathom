@@ -19,6 +19,7 @@ import type { OrgClusterSettings } from "./OrgClusterSettings";
 import type { TeamPublishRejection } from "./TeamPublishRejection";
 import type { TeamStoreStatus } from "./TeamStoreStatus";
 import type { UiConfig } from "./UiConfig";
+import type { VeleroOverview } from "./VeleroOverview";
 
 export type SystemEvent = { "type": "BackendStarted" } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
 /**

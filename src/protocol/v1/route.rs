@@ -277,6 +277,11 @@ pub mod section_keys {
         SectionKey::new("integrations/flux")
     }
 
+    /// 022-velero-backup-pane: read-only Velero backup/schedule/restore/storage-location pane.
+    pub fn integrations_velero() -> SectionKey {
+        SectionKey::new("integrations/velero")
+    }
+
     pub fn integrations_hubble() -> SectionKey {
         SectionKey::new("integrations/hubble")
     }

@@ -1619,6 +1619,7 @@ fn all_cmds() -> Vec<BackendCmd> {
         },
         BackendCmd::RefreshFlux,
         BackendCmd::RefreshGatekeeper,
+        BackendCmd::RefreshVelero,
         BackendCmd::RefreshHubble,
         BackendCmd::SimulateSlowCall,
         BackendCmd::BulkDelete {
@@ -2047,6 +2048,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::TestGrafanaConnection { .. } => {}
         BackendCmd::RefreshFlux => {}
         BackendCmd::RefreshGatekeeper => {}
+        BackendCmd::RefreshVelero => {}
         BackendCmd::RefreshHubble => {}
         BackendCmd::SimulateSlowCall => {}
         BackendCmd::BulkDelete { .. } => {}
@@ -2197,6 +2199,14 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
         SystemEvent::ClusterVersionUpdated(sample_cluster_version_summary()),
         SystemEvent::GatekeeperOverviewUpdated(Default::default()),
+        SystemEvent::VeleroOverviewUpdated(fathom::protocol::VeleroOverview {
+            installed: true,
+            permission_denied: false,
+            backups: vec![],
+            schedules: vec![],
+            restores: vec![],
+            storage_locations: vec![],
+        }),
         SystemEvent::HubbleTrafficUpdated(sample_hubble_traffic_summary()),
         SystemEvent::HelmMutationPreviewReady(sample_helm_mutation_preview_ready()),
         SystemEvent::HelmMutationApplied(sample_helm_mutation_applied()),
@@ -2359,6 +2369,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::FluxOverviewUpdated(..) => {}
         SystemEvent::ClusterVersionUpdated(..) => {}
         SystemEvent::GatekeeperOverviewUpdated(..) => {}
+        SystemEvent::VeleroOverviewUpdated(..) => {}
         SystemEvent::HubbleTrafficUpdated(..) => {}
         SystemEvent::HelmMutationPreviewReady(..) => {}
         SystemEvent::HelmMutationApplied(..) => {}

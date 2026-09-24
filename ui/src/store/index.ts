@@ -23,6 +23,7 @@ import type {
   ClusterVersionSummary,
   FluxOverview,
   GatekeeperOverview,
+    VeleroOverview,
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
@@ -465,6 +466,7 @@ export interface StoreData {
   /** 019: `undefined` until the first `ClusterVersionUpdated` arrives. */
   clusterVersion: ClusterVersionSummary | undefined
   gatekeeper: { overview?: GatekeeperOverview }
+  velero: { overview?: VeleroOverview }
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -594,6 +596,8 @@ export interface StoreState extends StoreData {
   refreshFlux: () => void
   /** Sends `RefreshGatekeeper` (rescans OPA Gatekeeper constraints; also polled every 20s). */
   refreshGatekeeper: () => void
+  /** Sends `RefreshVelero` (rescans Velero backup resources; also polled every 20s). */
+  refreshVelero: () => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -815,6 +819,7 @@ export function initialData(): StoreData {
     flux: {},
     clusterVersion: undefined,
     gatekeeper: {},
+    velero: {},
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
@@ -1028,6 +1033,7 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
   refreshGatekeeper: () => get().send({ type: 'RefreshGatekeeper' }),
+  refreshVelero: () => get().send({ type: 'RefreshVelero' }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 

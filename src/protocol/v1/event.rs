@@ -20,7 +20,7 @@ use super::{
     RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
     SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
     StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
-    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
+    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary, VeleroOverview,
     WorkloadMetricsAggregate,
 };
 use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
@@ -134,6 +134,8 @@ pub enum SystemEvent {
 
     /// Cluster + node Kubernetes version snapshot, refreshed periodically (019).
     ClusterVersionUpdated(ClusterVersionSummary),
+    /// Velero backup state (Backups, Schedules, Restores, BackupStorageLocations; 022-velero-backup-pane)
+    VeleroOverviewUpdated(VeleroOverview),
 
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),
@@ -623,6 +625,27 @@ mod tests {
             namespace: Some("flux-system".to_owned()),
             instances: vec![serde_json::json!({"metadata": {"name": "podinfo"}}).to_string()],
         });
+    }
+
+    #[test]
+    fn velero_overview_updated_roundtrip() {
+        system_roundtrip(SystemEvent::VeleroOverviewUpdated(VeleroOverview {
+            installed: true,
+            permission_denied: false,
+            backups: vec![super::super::VeleroBackupSummary {
+                name: "nightly-20260101".to_owned(),
+                namespace: "velero".to_owned(),
+                phase: super::super::VeleroPhase::Completed,
+                schedule_name: Some("nightly".to_owned()),
+                start_timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                completion_timestamp: "2026-01-01T00:05:00Z".to_owned(),
+                errors: 0,
+                warnings: 0,
+            }],
+            schedules: vec![],
+            restores: vec![],
+            storage_locations: vec![],
+        }));
     }
 
     #[test]

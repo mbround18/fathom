@@ -50,6 +50,7 @@ mod storageclasses;
 mod team;
 mod ui_config;
 mod validatingwebhooks;
+mod velero;
 mod workloads;
 
 pub use agent::*;
@@ -104,4 +105,5 @@ pub use storageclasses::*;
 pub use team::*;
 pub use ui_config::*;
 pub use validatingwebhooks::*;
+pub use velero::*;
 pub use workloads::*;
