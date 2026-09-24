@@ -1,5 +1,6 @@
 /** `BackendEvent::System` arm: session, notifications, integrations, persisted UI config. */
 import { reduceIdentity } from '@/features/identity/state'
+import { reduceRoles } from '@/features/roles/state'
 import { resolveProfile } from '@/layout/defaults'
 import { ingestCapabilityChecked, ingestCapabilitySet, resetCapabilities } from '@/lib/capabilities'
 import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
@@ -380,6 +381,15 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'OidcSessionEnded':
     case 'OidcError': {
       reduceIdentity(d.edit('identity'), event)
+      return
+    }
+
+    // 033 US4. `IdpDirectoryUpdated` also feeds the subject picker; the US3 directory store
+    // may take over that case on merge.
+    case 'IdpDirectoryUpdated':
+    case 'RoleAssignmentPreview':
+    case 'OrphanedSubjectsUpdated': {
+      reduceRoles(d.edit('roles'), event)
       return
     }
 

@@ -61,11 +61,11 @@
 
 ## Phase 7: US4 Role assignment UI (P2)
 
-- [ ] T039 [US4] Tests first: subject rendering with prefixes, escaping of `:` and `/`, missing-prefix warning
-- [ ] T040 [US4] Implement `PreviewRoleAssignment` (renders YAML only)
-- [ ] T041 [P] [US4] UI `RoleAssignmentDialog` feeding existing `YamlDiffView` + `ConfirmDialog` + `ApplyResourceYaml`; picker from directory
-- [ ] T042 [US4] Orphaned-subject detection joined against directory + `OrphanedSubjectBadge` (read-only)
-- [ ] T043 [US4] E2E: assign, conflict, denied-by-RBAC disabled state
+- [x] T039 [US4] Tests first: subject rendering with prefixes, escaping of `:` and `/`, missing-prefix warning
+- [x] T040 [US4] Implement `PreviewRoleAssignment` (renders YAML only)
+- [x] T041 [P] [US4] UI `RoleAssignmentDialog` feeding existing `YamlDiffView` + `ConfirmDialog` + `ApplyResourceYaml`; picker from directory
+- [x] T042 [US4] Orphaned-subject detection joined against directory + `OrphanedSubjectBadge` (read-only)
+- [x] T043 [US4] E2E: assign, conflict, denied-by-RBAC disabled state
 
 ## Phase 8: US6 LDAP federation (P3)
 

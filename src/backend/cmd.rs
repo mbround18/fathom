@@ -14,6 +14,7 @@ mod mcp;
 mod oidc;
 mod port_forwards;
 mod resources;
+mod roles;
 mod team;
 mod workloads;
 
@@ -92,6 +93,10 @@ pub async fn dispatch_cmd(
     };
     // 033-rauthy-oidc-teams-users: OIDC identity and per-context auth mode.
     let Some(cmd) = oidc::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 033 US4: role assignment preview and orphaned subjects (read-only).
+    let Some(cmd) = roles::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
     // 015-mcp-agent-exposure: the stdio MCP server's toggle/status.
