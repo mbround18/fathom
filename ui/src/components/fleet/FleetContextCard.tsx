@@ -3,6 +3,8 @@
 import type { FleetContextSummary, FleetHealthState } from '@/protocol/types'
 import { cn } from '@/lib/utils'
 
+import { formatUpdatedAgo } from './relative-time'
+
 const HEALTH_LABEL: Record<FleetHealthState, string> = {
   Healthy: 'Healthy',
   Degraded: 'Degraded',
@@ -25,13 +27,19 @@ export function FleetContextCard({
   summary,
   active,
   onSelect,
+  now,
 }: {
   summary: FleetContextSummary
   active: boolean
   onSelect: (context: string) => void
+  /** Epoch ms, ticked by the dashboard view. */
+  now: number
 }) {
   const { health } = summary
   const flux = summary.flux === 'Synced' || summary.flux === 'OutOfSync' ? summary.flux : null
+  const updated = health === 'Pending' ? null : formatUpdatedAgo(summary.last_updated, now)
+  const showCounts = health === 'Healthy' || health === 'Degraded'
+  const noAccess = (group: string) => summary.restricted.includes(group)
   return (
     <button
       type="button"
@@ -59,18 +67,18 @@ export function FleetContextCard({
           {summary.error}
         </span>
       )}
-      {summary.node_total_count !== null && (
+      {showCounts && (
         <dl className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
           <div>
             <dt>Nodes</dt>
             <dd data-testid="fleet-nodes" className="text-foreground">
-              {summary.node_ready_count}/{summary.node_total_count}
+              {noAccess('nodes') ? 'no access' : `${summary.node_ready_count}/${summary.node_total_count}`}
             </dd>
           </div>
           <div>
             <dt>Unhealthy pods</dt>
             <dd data-testid="fleet-unhealthy-pods" className="text-foreground">
-              {summary.unhealthy_pod_count}
+              {noAccess('pods') ? 'no access' : summary.unhealthy_pod_count}
             </dd>
           </div>
           <div>
@@ -88,6 +96,11 @@ export function FleetContextCard({
           className={cn('text-xs', flux === 'Synced' ? 'text-emerald-400' : 'text-amber-400')}
         >
           {FLUX_LABEL[flux]}
+        </span>
+      )}
+      {updated && (
+        <span data-testid="fleet-updated" className="text-xs text-muted-foreground">
+          {updated}
         </span>
       )}
     </button>

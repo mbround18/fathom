@@ -53,7 +53,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
             <DialogTitle>Fleet</DialogTitle>
             <DialogDescription>Health of every kubeconfig context.</DialogDescription>
           </DialogHeader>
-          <FleetDashboardView />
+          <FleetDashboardView onSelected={() => setFleetOpen(false)} />
         </DialogContent>
       </Dialog>
       <div className="flex min-w-0 items-center gap-2">

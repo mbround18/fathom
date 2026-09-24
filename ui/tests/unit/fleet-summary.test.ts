@@ -22,6 +22,7 @@ const summary = (context: string, over: Partial<FleetContextSummary> = {}): Flee
   unhealthy_pod_count: 0,
   cluster_version: 'v1.31',
   flux: null,
+  restricted: [],
   last_updated: '2026-09-23T00:00:00Z',
   ...over,
 })

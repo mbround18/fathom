@@ -21,6 +21,7 @@ test('fleet dashboard shows both contexts without switching the active one', asy
   const base = {
     error: null,
     flux: null,
+    restricted: [],
     last_updated: '2026-09-23T00:00:00Z',
     cluster_version: 'v1.31',
   }
@@ -59,4 +60,45 @@ test('fleet dashboard shows both contexts without switching the active one', asy
   await expect(card('prod')).toHaveAttribute('aria-pressed', 'true')
   await expect(card('dev')).toHaveAttribute('aria-pressed', 'false')
   expect(await sentTypes(page)).not.toContain('SetContext')
+})
+
+test('restricted group shows "no access"; clicking a card switches and closes the dialog', async ({
+  page,
+}) => {
+  await open(page, 'manual')
+  await emit(
+    page,
+    batch([
+      system(1, { type: 'ContextsUpdated', data: { contexts: ['prod', 'dev'], current: 'prod' } }),
+    ]),
+  )
+  await page.getByTestId('fleet-open').click()
+  await emit(
+    page,
+    batch([
+      system(2, {
+        type: 'FleetSummaryUpdated',
+        data: {
+          context: 'dev',
+          health: 'Healthy',
+          error: null,
+          flux: null,
+          restricted: ['pods'],
+          last_updated: new Date().toISOString(),
+          cluster_version: 'v1.31',
+          node_ready_count: 3,
+          node_total_count: 3,
+          unhealthy_pod_count: null,
+        },
+      }),
+    ]),
+  )
+  const dev = page.locator('[data-testid="fleet-context-card"][data-context-name="dev"]')
+  await expect(dev.getByTestId('fleet-unhealthy-pods')).toHaveText('no access')
+  await expect(dev.getByTestId('fleet-nodes')).toHaveText('3/3')
+  await expect(dev.getByTestId('fleet-version')).toHaveText('v1.31')
+  await expect(dev.getByTestId('fleet-updated')).toContainText('ago')
+  await dev.click()
+  await expect(page.getByTestId('fleet-dashboard')).toBeHidden()
+  await expect.poll(async () => (await sentTypes(page)).includes('SetContext')).toBe(true)
 })

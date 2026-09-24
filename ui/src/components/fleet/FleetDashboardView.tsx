@@ -1,6 +1,6 @@
 /** 027-fleet-rollup-dashboard: read-only grid of every context's health. Backend pollers run
  * only while this view is mounted (Constitution V). */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { FleetContextSummary } from '@/protocol/types'
 import { useStore } from '@/store'
@@ -17,17 +17,24 @@ function pending(context: string): FleetContextSummary {
     unhealthy_pod_count: null,
     cluster_version: null,
     flux: null,
+    restricted: [],
     last_updated: '',
   }
 }
 
-export function FleetDashboardView() {
+export function FleetDashboardView({ onSelected }: { onSelected?: () => void }) {
   const contexts = useStore((s) => s.session.contexts)
   const summaries = useStore((s) => s.session.fleetSummaries)
   const active = useStore((s) => s.session.activeContext)
   const selectContext = useStore((s) => s.selectContext)
   const start = useStore((s) => s.startFleetPolling)
   const stop = useStore((s) => s.stopFleetPolling)
+
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     start()
@@ -52,7 +59,11 @@ export function FleetDashboardView() {
           key={name}
           summary={summaries[name] ?? pending(name)}
           active={name === active}
-          onSelect={selectContext}
+          now={now}
+          onSelect={(c) => {
+            selectContext(c)
+            onSelected?.()
+          }}
         />
       ))}
     </div>
