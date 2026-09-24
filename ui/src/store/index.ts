@@ -21,6 +21,7 @@ import type {
   CrdCatalogEntry,
   DiskUsage,
   FluxOverview,
+  VeleroOverview,
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
@@ -460,6 +461,7 @@ export interface StoreData {
   pendingPortForwardOrigins: PendingPortForwardOrigins
   metrics: MetricsState
   flux: { overview?: FluxOverview }
+  velero: { overview?: VeleroOverview }
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -587,6 +589,8 @@ export interface StoreState extends StoreData {
   refreshEvents: () => void
   /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
   refreshFlux: () => void
+  /** Sends `RefreshVelero` (rescans Velero backup resources; also polled every 20s). */
+  refreshVelero: () => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -806,6 +810,7 @@ export function initialData(): StoreData {
     pendingPortForwardOrigins: {},
     metrics: { diskUsage: [] },
     flux: {},
+    velero: {},
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
@@ -1018,6 +1023,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+  refreshVelero: () => get().send({ type: 'RefreshVelero' }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 

@@ -19,6 +19,9 @@ export interface SummaryRow {
   primary: ReactNode
   secondary?: ReactNode
   tone?: 'ok' | 'warn' | 'err' | 'muted'
+  /** When set, the row renders as a button (e.g. click-through to the generic CRD Inspector). */
+  onSelect?: () => void
+  testId?: string
 }
 
 const TONE_TEXT: Record<NonNullable<SummaryTile['tone']>, string> = {
@@ -80,7 +83,25 @@ export function IntegrationSummary({
           rows.map((r) => (
             <div
               key={r.key}
-              className="flex items-center gap-2 rounded-sm border border-border/60 bg-card/60 px-2 py-1.5"
+              data-testid={r.testId}
+              data-tone={r.tone}
+              role={r.onSelect ? 'button' : undefined}
+              tabIndex={r.onSelect ? 0 : undefined}
+              onClick={r.onSelect}
+              onKeyDown={
+                r.onSelect
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        r.onSelect?.()
+                      }
+                    }
+                  : undefined
+              }
+              className={cn(
+                'flex items-center gap-2 rounded-sm border border-border/60 bg-card/60 px-2 py-1.5',
+                r.onSelect && 'cursor-pointer hover:bg-card',
+              )}
             >
               <span
                 aria-hidden="true"

@@ -131,10 +131,10 @@ story-specific.
       `VeleroScheduleSummary.ts`, `VeleroRestoreSummary.ts`, `VeleroStorageLocationSummary.ts`,
       `VeleroOverview.ts`, and the updated `SystemEvent.ts`/`BackendCmd.ts` (or equivalent
       generated union files) reflecting T002/T005/T006.
-- [ ] T018 Add a `velero: { overview: VeleroOverview | null }` slice and `refreshVelero: () =>
+- [x] T018 Add a `velero: { overview: VeleroOverview | null }` slice and `refreshVelero: () =>
       get().send({ type: 'RefreshVelero' })` action to `ui/src/store/index.ts`, mirroring the
       existing `flux`/`refreshFlux` slice and action exactly (see lines around `589`, `1020`).
-- [ ] T019 Add a `VeleroOverviewUpdated` case to `ui/src/store/handlers/system.ts` that sets
+- [x] T019 Add a `VeleroOverviewUpdated` case to `ui/src/store/handlers/system.ts` that sets
       `velero.overview` to the event payload, mirroring the existing `FluxOverviewUpdated` case in
       that same file.
 
@@ -155,13 +155,13 @@ pane, confirm both render with correct status and age.
 
 ### Tests for User Story 1
 
-- [ ] T020 [P] [US1] Create fixture data (fake cluster state / mock backend responses, following
+- [x] T020 [P] [US1] Create fixture data (fake cluster state / mock backend responses, following
       whatever fixture mechanism the existing Playwright suite uses — check
       `ui/tests/e2e/` for the pattern other panels use, e.g. a scripted fake backend per
       Constitution Principle III) representing one completed Backup and one failed Backup, in
       `ui/tests/e2e/fixtures/velero.ts` (or the project's existing fixtures location/naming
       convention if different).
-- [ ] T021 [US1] Write `ui/tests/e2e/velero-pane.spec.ts` Scenario 1: open the Velero pane against
+- [x] T021 [US1] Write `ui/tests/e2e/velero-pane.spec.ts` Scenario 1: open the Velero pane against
       the T020 fixture cluster, assert the completed Backup renders with a "completed"/success
       tone and the failed Backup renders with a "failed"/error tone, and both show a correct
       relative age (depends on T020; this is the first of the two hyper-focused scenarios the
@@ -169,22 +169,22 @@ pane, confirm both render with correct status and age.
 
 ### Implementation for User Story 1
 
-- [ ] T022 [P] [US1] Create `ui/src/components/panels/VeleroPanel.tsx`: read
+- [x] T022 [P] [US1] Create `ui/src/components/panels/VeleroPanel.tsx`: read
       `store.velero.overview`, call `refreshVelero()` in a `useEffect` on mount (mirror
       `FluxPanel.tsx` exactly), render via `IntegrationSummary` with tiles summarizing backup
       counts by phase and rows listing each Backup (name, namespace, phase-derived tone, age)
       using a `VELERO_PHASE_TONE: Record<VeleroPhase, SummaryRow['tone']>` map (`Completed` → 'ok',
       `Failed` → 'err', `InProgress` → 'warn', `Unknown` → 'muted').
-- [ ] T023 [US1] In `VeleroPanel.tsx`, compute each Backup row's human-readable age from
+- [x] T023 [US1] In `VeleroPanel.tsx`, compute each Backup row's human-readable age from
       `completion_timestamp` (falling back to `start_timestamp` when still in progress, per
       data-model.md), using whatever relative-time utility other panels already use (search
       `ui/src/lib` / `ui/src/utils` for an existing "age"/"relative time" helper before adding a
       new one — Constitution Principle II implies reuse, not a parallel utility).
-- [ ] T024 [US1] Route `pane.tool === 'velero'` to `<VeleroPanel />` in
+- [x] T024 [US1] Route `pane.tool === 'velero'` to `<VeleroPanel />` in
       `ui/src/components/shell/PaneHost.tsx`, next to the `pane.tool === 'flux'` case, and add
       whatever pane-tool-id registration/enum entry is needed elsewhere in that file/its types for
       `'velero'` to be a valid tool id.
-- [ ] T025 [US1] Add a Vitest unit test for the `VELERO_PHASE_TONE` mapping and Backup row
+- [x] T025 [US1] Add a Vitest unit test for the `VELERO_PHASE_TONE` mapping and Backup row
       construction logic in `ui/src/components/panels/VeleroPanel.test.tsx` (or colocated per the
       project's existing convention — check for `FluxPanel.test.tsx`; if none exists, place this
       test next to the component per prevailing convention).
@@ -204,7 +204,7 @@ the explicit not-installed message and no error notifications.
 
 ### Tests for User Story 4
 
-- [ ] T026 [P] [US4] Write `ui/tests/e2e/velero-pane.spec.ts` Scenario 2: open the Velero pane
+- [x] T026 [P] [US4] Write `ui/tests/e2e/velero-pane.spec.ts` Scenario 2: open the Velero pane
       against a fixture cluster with no `velero.io` CRDs (or `installed: false` in the mocked
       backend response), assert the "Velero is not installed" empty state renders and no error
       toast/notification appears (this is the second of the two hyper-focused scenarios the
@@ -213,10 +213,10 @@ the explicit not-installed message and no error notifications.
 
 ### Implementation for User Story 4
 
-- [ ] T027 [US4] In `VeleroPanel.tsx` (from T022), add the `!overview` "waiting for scan" state and
+- [x] T027 [US4] In `VeleroPanel.tsx` (from T022), add the `!overview` "waiting for scan" state and
       the `!overview.installed` "Velero is not installed on this cluster" state, using
       `MetricsUnavailable` exactly as `FluxPanel.tsx` does for its equivalent states.
-- [ ] T028 [US4] In `VeleroPanel.tsx`, add a distinct state for `overview.installed &&
+- [x] T028 [US4] In `VeleroPanel.tsx`, add a distinct state for `overview.installed &&
       overview.permission_denied` (FR-012) — e.g. "Velero is installed, but this cluster
       connection doesn't have permission to read its backup resources" via `MetricsUnavailable` or
       an equivalent existing empty-state component — rendered before the normal tiles/rows so a
@@ -238,11 +238,11 @@ confirm "no backups yet".
 
 ### Implementation for User Story 2
 
-- [ ] T029 [US2] Extend `VeleroPanel.tsx` to render a Schedules section (tile: schedule count;
+- [x] T029 [US2] Extend `VeleroPanel.tsx` to render a Schedules section (tile: schedule count;
       rows: name, namespace, cron cadence, last-backup age or "no backups yet" per
       `last_backup_completion: Option<String>` — data-model.md), consistent with the existing
       tile/row visual language from `IntegrationSummary`.
-- [ ] T030 [P] [US2] Add a Vitest unit test in `ui/src/components/panels/VeleroPanel.test.tsx`
+- [x] T030 [P] [US2] Add a Vitest unit test in `ui/src/components/panels/VeleroPanel.test.tsx`
       (from T025) covering: a Schedule with a `last_backup_completion` timestamp renders a
       relative age, and a Schedule with `last_backup_completion: null` renders "no backups yet"
       exactly (not a blank cell — FR-005's explicit requirement).
@@ -261,13 +261,13 @@ render distinctly.
 
 ### Implementation for User Story 3
 
-- [ ] T031 [P] [US3] Extend `VeleroPanel.tsx` to render a Restores section (tile: restore count;
+- [x] T031 [P] [US3] Extend `VeleroPanel.tsx` to render a Restores section (tile: restore count;
       rows: name, namespace, source `backup_name`, phase-derived tone via the same
       `VELERO_PHASE_TONE` map from T022, age).
-- [ ] T032 [P] [US3] Extend `VeleroPanel.tsx` to render a Storage Locations section (rows: name,
+- [x] T032 [P] [US3] Extend `VeleroPanel.tsx` to render a Storage Locations section (rows: name,
       health tone from `available: bool` — 'ok' when true else 'err', and `message` shown as the
       row's secondary line when unhealthy, per data-model.md's `VeleroStorageLocationSummary`).
-- [ ] T033 [US3] Add a Vitest unit test in `VeleroPanel.test.tsx` covering: a Restore's phase→tone
+- [x] T033 [US3] Add a Vitest unit test in `VeleroPanel.test.tsx` covering: a Restore's phase→tone
       mapping, and a Storage Location with `available: false` and a non-empty `message` rendering
       that message as the row's secondary text.
 
@@ -280,28 +280,28 @@ render distinctly.
 **Purpose**: Satisfy FR-011 (Inspector linking) across all resource kinds, and close out the
 quality gates the feature owner asked for.
 
-- [ ] T034 Add click-through from each `VeleroPanel` row (Backup, Schedule, Restore,
+- [x] T034 Add click-through from each `VeleroPanel` row (Backup, Schedule, Restore,
       BackupStorageLocation) to the existing generic CRD Inspector, using the same
       `SelectCrdKind`/`SelectCrdInstance`/`RefreshCrdInstances` commands and
       `section_keys::custom_resources()` route already used by the CRD browser (research.md R6),
       rather than a new Inspector code path — satisfies FR-011.
-- [ ] T035 [P] Run `cargo fmt --check` and fix any formatting drift introduced by this feature's
+- [x] T035 [P] Run `cargo fmt --check` and fix any formatting drift introduced by this feature's
       Rust files.
-- [ ] T036 Run `cargo clippy --all-targets -- -D warnings` and fix any lint findings in
+- [x] T036 Run `cargo clippy --all-targets -- -D warnings` and fix any lint findings in
       `src/backend/velero.rs`, `src/protocol/v1/velero.rs`, and every modified file.
-- [ ] T037 Run `cargo build --workspace --all-targets` and fix any build errors (including the
+- [x] T037 Run `cargo build --workspace --all-targets` and fix any build errors (including the
       `egui-ui`-featured build, since it's the default feature set — confirm this feature adds no
       egui-side code and the legacy UI still compiles unchanged, per plan.md's Constitution
       Check).
-- [ ] T038 Run `cargo test` (full workspace) and fix any failures, including the new round-trip
+- [x] T038 Run `cargo test` (full workspace) and fix any failures, including the new round-trip
       tests (T005, T006, T007) and unit tests (T011).
-- [ ] T039 Run `pnpm -C ui typecheck` and fix any type errors from the new generated bindings
+- [x] T039 Run `pnpm -C ui typecheck` and fix any type errors from the new generated bindings
       (T017) or `VeleroPanel.tsx`.
-- [ ] T040 Run `pnpm -C ui lint` and fix any findings in the new/modified frontend files.
-- [ ] T041 Run `pnpm -C ui test` (Vitest) and fix any failures, including T025/T030/T033.
-- [ ] T042 Run the new `ui/tests/e2e/velero-pane.spec.ts` (both scenarios, T021 and T026) via
+- [x] T040 Run `pnpm -C ui lint` and fix any findings in the new/modified frontend files.
+- [x] T041 Run `pnpm -C ui test` (Vitest) and fix any failures, including T025/T030/T033.
+- [x] T042 Run the new `ui/tests/e2e/velero-pane.spec.ts` (both scenarios, T021 and T026) via
       Playwright and fix any failures.
-- [ ] T043 Walk through `specs/022-velero-backup-pane/quickstart.md` manually (or confirm each of
+- [x] T043 Walk through `specs/022-velero-backup-pane/quickstart.md` manually (or confirm each of
       its numbered scenarios is covered by an automated test above) and note any gap.
 
 ---

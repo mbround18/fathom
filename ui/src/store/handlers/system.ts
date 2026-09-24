@@ -131,6 +131,9 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'DiskUsageUpdated':
       d.edit('metrics').diskUsage = event.data
       return
+    case 'VeleroOverviewUpdated':
+      d.put('velero', { overview: event.data })
+      return
     case 'FluxOverviewUpdated':
       d.put('flux', { overview: event.data })
       return
