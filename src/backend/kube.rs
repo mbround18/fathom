@@ -141,11 +141,13 @@ pub(super) async fn connect_client_for_current_context(
             context: Some(ctx.clone()),
             ..Default::default()
         };
-        let config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
+        let mut config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
         // 033 US2: a context opted into OIDC authenticates with the signed-in ID token only.
         if let Some(issuer_id) = oidc_issuer_for_context(&ctx) {
             return build_oidc_client(config, state.oidc.token_source(&issuer_id));
         }
+        // 035: exec plugins (EKS/GKE/AKS) run through the shared, bounded credential cache.
+        super::cloud_auth::prepare_config(&ctx, &mut config).await?;
         return Ok(Client::try_from(config)?);
     }
 

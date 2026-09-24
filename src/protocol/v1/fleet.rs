@@ -57,6 +57,8 @@ pub struct FleetContextSummary {
     pub restricted: Vec<String>,
     /// ISO8601 timestamp.
     pub last_updated: String,
+    /// 035: typed exec-plugin failure behind `error` (distinct from an API 401/403).
+    pub plugin_error: Option<super::PluginError>,
 }
 
 /// Reduce a `FluxOverview` into the fleet card's single-value rollup status.

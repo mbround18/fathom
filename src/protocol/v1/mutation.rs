@@ -251,7 +251,9 @@ impl BackendCmdV1 {
             | C::StartFleetPolling
             | C::StopFleetPolling
             // 037-node-shell: persists per-context settings only.
-            | C::SetNodeShellSettings { .. } => MutationTarget::Local,
+            | C::SetNodeShellSettings { .. }
+            // 035-cloud-auth-plugins: persists a per-context exec policy only.
+            | C::SetExecPolicy { .. } => MutationTarget::Local,
 
             C::SetContext { context } => MutationTarget::ContextSwitch {
                 context: context.clone(),
@@ -422,6 +424,7 @@ impl BackendCmdV1 {
             | C::DeleteNodeShellOrphans { .. }
             | C::GetNodeShellSettings
             | C::SetNodeShellSettings { .. } => section_keys::nodes(),
+            C::SetExecPolicy { .. } => section_keys::system(),
             C::RefreshPods
             | C::SelectPod { .. }
             | C::DeletePod { .. }

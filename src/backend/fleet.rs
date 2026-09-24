@@ -25,8 +25,8 @@ use std::time::Duration;
 
 use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::{Node, Pod};
+use kube::Client;
 use kube::api::{Api, ListParams};
-use kube::{Client, Config, config::KubeConfigOptions};
 
 use crate::protocol::{
     BackendEvent, BackendEventEnvelope, Correlation, FleetContextSummary, FleetHealthState, Route,
@@ -170,6 +170,7 @@ fn pending_summary(context: String) -> FleetContextSummary {
         flux: None,
         restricted: Vec::new(),
         last_updated: now_iso8601(),
+        plugin_error: None,
     }
 }
 
@@ -248,12 +249,16 @@ async fn poll_once(context_name: &str) -> FleetContextSummary {
             flux: None,
             restricted: Vec::new(),
             last_updated: now_iso8601(),
+            plugin_error: None,
         },
     }
 }
 
 fn failure_summary(context_name: &str, err: &anyhow::Error) -> FleetContextSummary {
-    let health = if is_auth_error(err) {
+    let plugin_error = super::cloud_auth::plugin_error_of(err).cloned();
+    // A plugin failure is a credential problem, but stays distinguishable from an API 401/403
+    // by `plugin_error` (035).
+    let health = if plugin_error.is_some() || is_auth_error(err) {
         FleetHealthState::AuthError
     } else {
         FleetHealthState::Unreachable
@@ -269,6 +274,7 @@ fn failure_summary(context_name: &str, err: &anyhow::Error) -> FleetContextSumma
         flux: None,
         restricted: Vec::new(),
         last_updated: now_iso8601(),
+        plugin_error,
     }
 }
 
@@ -290,15 +296,23 @@ fn is_auth_error(err: &anyhow::Error) -> bool {
 }
 
 async fn poll_inner(context_name: &str) -> anyhow::Result<FleetContextSummary> {
-    let kubeconfig = load_kubeconfig()?;
-    let opts = KubeConfigOptions {
-        context: Some(context_name.to_owned()),
-        ..Default::default()
+    // 035: credentials come through the shared cloud-auth cache, so a fresh client per poll does
+    // not re-run the plugin. A 401 with a cached credential drops it and retries exactly once.
+    let mut client = super::cloud_auth::build_client(context_name).await?;
+    let version = match client.apiserver_version().await {
+        Ok(v) => v,
+        Err(e)
+            if matches!(&e, kube::Error::Api(r) if r.code == 401)
+                && super::cloud_auth::invalidate_context(context_name) =>
+        {
+            client = super::cloud_auth::build_client(context_name).await?;
+            match client.apiserver_version().await {
+                Ok(v) => v,
+                Err(e) => return Err(super::cloud_auth::rejected_after_retry(context_name, e)),
+            }
+        }
+        Err(e) => return Err(e.into()),
     };
-    let config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
-    let client = Client::try_from(config)?;
-
-    let version = client.apiserver_version().await?;
 
     let (nodes, pods, flux) = tokio::join!(
         fetch_node_counts(&client),
@@ -343,6 +357,7 @@ fn assemble_summary(
         flux,
         restricted,
         last_updated: now_iso8601(),
+        plugin_error: None,
     })
 }
 

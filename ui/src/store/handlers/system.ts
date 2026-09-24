@@ -121,8 +121,16 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
         [event.data.context]: {
           status: event.data.status,
           ...(event.data.error ? { error: event.data.error } : {}),
+          ...(event.data.plugin_error ? { pluginError: event.data.plugin_error } : {}),
         },
       }
+      return
+    }
+
+    case 'CloudAuthDetected': {
+      const cloudAuth: Record<string, (typeof event.data.infos)[number]> = {}
+      for (const info of event.data.infos) cloudAuth[info.context] = info
+      d.edit('session').cloudAuth = cloudAuth
       return
     }
 

@@ -117,11 +117,11 @@ export const federationContexts: EventBatch = batch([
 export const federationStatuses: EventBatch = batch([
   system(5, {
     type: 'ContextStatusUpdated',
-    data: { context: 'kind-a', status: 'Connected', error: null },
+    data: { context: 'kind-a', status: 'Connected', error: null, plugin_error: null },
   }),
   system(6, {
     type: 'ContextStatusUpdated',
-    data: { context: 'kind-b', status: 'NotConnected', error: null },
+    data: { context: 'kind-b', status: 'NotConnected', error: null, plugin_error: null },
   }),
   system(7, {
     type: 'ContextStatusUpdated',
@@ -129,6 +129,7 @@ export const federationStatuses: EventBatch = batch([
       context: FEDERATION_ERROR_CONTEXT,
       status: 'Error',
       error: FEDERATION_ERROR_MESSAGE,
+      plugin_error: null,
     },
   }),
 ])

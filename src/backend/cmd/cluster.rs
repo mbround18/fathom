@@ -135,13 +135,7 @@ async fn initialize(
                 ContextConnectionStatus::Connected,
                 None,
             ),
-            Err(e) => context_status::emit_status(
-                &state.cluster.seq,
-                sender,
-                target,
-                ContextConnectionStatus::Error,
-                Some(format!("{e:#}")),
-            ),
+            Err(e) => context_status::emit_status_err(&state.cluster.seq, sender, target, e),
         }
     }
     connect_result?;
@@ -241,13 +235,7 @@ async fn set_context(
             ContextConnectionStatus::Connected,
             None,
         ),
-        Err(e) => context_status::emit_status(
-            &state.cluster.seq,
-            sender,
-            &context,
-            ContextConnectionStatus::Error,
-            Some(format!("{e:#}")),
-        ),
+        Err(e) => context_status::emit_status_err(&state.cluster.seq, sender, &context, e),
     }
     connect_result?;
     emit_context_changed(state, sender);

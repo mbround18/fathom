@@ -7,7 +7,6 @@
 //! `research.md` R2's Constitution V idle-CPU rationale.
 
 use crossbeam_channel::Sender;
-use kube::{Client, Config, config::KubeConfigOptions};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
@@ -18,7 +17,6 @@ use crate::protocol::{
 };
 
 use super::events;
-use super::kube::load_kubeconfig;
 use super::state::BackendState;
 
 /// How long a single reachability probe may take before it's treated as unreachable.
@@ -45,6 +43,8 @@ pub(super) fn spawn_status_probes(
     contexts: &[String],
     active: Option<&str>,
 ) {
+    // 035: detect exec plugins (no spawn) whenever the context list is (re)loaded.
+    super::cloud_auth::emit_detection(&state.cluster.seq, sender);
     for name in contexts_to_probe(contexts, active) {
         let seq = state.cluster.seq.clone();
         let sender = sender.clone();
@@ -64,13 +64,7 @@ pub(super) fn spawn_status_probes(
                     ContextConnectionStatus::NotConnected,
                     None,
                 ),
-                Err(e) => emit_status(
-                    &seq,
-                    &sender,
-                    &name,
-                    ContextConnectionStatus::Error,
-                    Some(format!("{e:#}")),
-                ),
+                Err(e) => emit_status_err(&seq, &sender, &name, &e),
             }
         });
     }
@@ -81,13 +75,8 @@ pub(super) fn spawn_status_probes(
 /// auth (including any `exec` credential plugin) path a real connection would use, so a failure
 /// here is a true reachability/auth signal (research.md R1).
 async fn probe_context(context_name: &str) -> anyhow::Result<()> {
-    let kubeconfig = load_kubeconfig()?;
-    let opts = KubeConfigOptions {
-        context: Some(context_name.to_owned()),
-        ..Default::default()
-    };
-    let config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
-    let client = Client::try_from(config)?;
+    // 035: credentials come through the shared cloud-auth cache (typed plugin errors).
+    let client = super::cloud_auth::build_client(context_name).await?;
     tokio::time::timeout(PROBE_TIMEOUT, client.apiserver_version())
         .await
         .map_err(|_| {
@@ -110,6 +99,35 @@ pub(super) fn emit_status(
     status: ContextConnectionStatus,
     error: Option<String>,
 ) {
+    emit_status_full(seq, sender, context, status, error, None);
+}
+
+/// Emit an `Error` status for `err`, carrying the typed cloud-auth plugin error (035) when that
+/// is what failed.
+pub(super) fn emit_status_err(
+    seq: &Arc<AtomicU64>,
+    sender: &Sender<BackendEventEnvelope>,
+    context: &str,
+    err: &anyhow::Error,
+) {
+    emit_status_full(
+        seq,
+        sender,
+        context,
+        ContextConnectionStatus::Error,
+        Some(format!("{err:#}")),
+        super::cloud_auth::plugin_error_of(err).cloned(),
+    );
+}
+
+fn emit_status_full(
+    seq: &Arc<AtomicU64>,
+    sender: &Sender<BackendEventEnvelope>,
+    context: &str,
+    status: ContextConnectionStatus,
+    error: Option<String>,
+    plugin_error: Option<crate::protocol::PluginError>,
+) {
     debug_assert!(
         error.is_none() || matches!(status, ContextConnectionStatus::Error),
         "ContextStatusUpdated.error must only be set when status == Error"
@@ -123,6 +141,7 @@ pub(super) fn emit_status(
             context: context.to_owned(),
             status,
             error,
+            plugin_error,
         }),
     );
 }
@@ -168,6 +187,7 @@ mod tests {
                 context,
                 status,
                 error,
+                ..
             }) => {
                 assert_eq!(context, "prod");
                 assert_eq!(status, ContextConnectionStatus::NotConnected);

@@ -9,6 +9,7 @@ use crate::protocol::{
 
 mod agent;
 mod ai;
+mod cloud_auth;
 mod cluster;
 mod idp;
 mod integrations;
@@ -111,6 +112,10 @@ pub async fn dispatch_cmd(
     };
     // 015-mcp-agent-exposure: the stdio MCP server's toggle/status.
     let Some(cmd) = mcp::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 035-cloud-auth-plugins: per-context exec policy.
+    let Some(cmd) = cloud_auth::handle(cmd, state, sender)? else {
         return Ok(false);
     };
     let Some(cmd) = node_shell::handle(cmd, state, sender).await? else {

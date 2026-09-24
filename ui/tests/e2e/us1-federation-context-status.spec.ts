@@ -77,7 +77,7 @@ test.describe('US1 federation context status strip', () => {
         system(20, { type: 'ContextChanged', data: { current: 'kind-b' } }),
         system(21, {
           type: 'ContextStatusUpdated',
-          data: { context: 'kind-b', status: 'Connected', error: null },
+          data: { context: 'kind-b', status: 'Connected', error: null, plugin_error: null },
         }),
       ]),
     )

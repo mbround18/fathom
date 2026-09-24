@@ -107,6 +107,14 @@ pub enum SystemEvent {
         status: ContextConnectionStatus,
         /// Verbatim backend error (Principle I), present only when `status == Error`.
         error: Option<String>,
+        /// 035: typed cloud-auth plugin failure behind `error`, when that is what failed.
+        plugin_error: Option<crate::protocol::v1::PluginError>,
+    },
+
+    /// 035-cloud-auth-plugins: per-context exec plugin detection (no spawn), emitted on
+    /// `Initialize`/`RefreshContexts` and after `SetExecPolicy`.
+    CloudAuthDetected {
+        infos: Vec<crate::protocol::v1::CloudAuthInfo>,
     },
 
     NamespaceFilterChanged {
@@ -896,21 +904,25 @@ mod tests {
             context: "prod".to_owned(),
             status: ContextConnectionStatus::Connected,
             error: None,
+            plugin_error: None,
         });
         system_roundtrip(SystemEvent::ContextStatusUpdated {
             context: "prod".to_owned(),
             status: ContextConnectionStatus::Connecting,
             error: None,
+            plugin_error: None,
         });
         system_roundtrip(SystemEvent::ContextStatusUpdated {
             context: "prod".to_owned(),
             status: ContextConnectionStatus::NotConnected,
             error: None,
+            plugin_error: None,
         });
         system_roundtrip(SystemEvent::ContextStatusUpdated {
             context: "prod".to_owned(),
             status: ContextConnectionStatus::Error,
             error: Some("connection refused".to_owned()),
+            plugin_error: None,
         });
     }
 

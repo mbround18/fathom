@@ -23,6 +23,7 @@ import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
 import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
+import { CloudAuthSection } from './CloudAuthSection'
 import { NodeShellSettingsSection } from './NodeShellSettingsSection'
 
 function cloneSettings(s: ClusterSettings): ClusterSettings {
@@ -278,6 +279,7 @@ export function ClusterSettingsPanel() {
       <AiAssistSettings />
       <AvailableAgentsSection />
       <NodeShellSettingsSection />
+      <CloudAuthSection />
 
       {formError !== undefined && (
         <p
