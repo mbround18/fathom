@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { PODS_500 } from '../fixtures'
-import { expectRowCount, inspector, open } from './helpers'
+import { expectRowCount, expectScope, inspector, open } from './helpers'
 
 const POD = PODS_500[0]
 if (!POD) throw new Error('fixture')
@@ -32,7 +32,7 @@ test.describe('Command palette', () => {
     await page.keyboard.press('Control+k')
     await input(page).fill('payments')
     await page.locator('[cmdk-item]', { hasText: 'payments' }).first().click()
-    await expect(page.getByRole('combobox', { name: 'Namespace' })).toContainText('payments')
+    await expectScope(page, 'Namespace', 'payments')
   })
 
   test('selecting a section navigates to it', async ({ page }) => {

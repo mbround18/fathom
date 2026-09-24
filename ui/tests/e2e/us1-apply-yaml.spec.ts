@@ -16,7 +16,17 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { DETAIL_POD } from '../fixtures'
 import { batch, nsRoute, stream } from '../fixtures/builders'
-import { clearSent, confirmDialog, emit, finish, inspector, nextRequestId, open, row, sent } from './helpers'
+import {
+  clearSent,
+  confirmDialog,
+  emit,
+  finish,
+  inspector,
+  nextRequestId,
+  open,
+  row,
+  sent,
+} from './helpers'
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
 
@@ -128,11 +138,18 @@ test.describe('US1 YAML edit + apply', () => {
     await insp.getByTestId('yaml-apply').click()
     await confirmDialog(page).getByTestId('confirm-submit').click()
 
-    await finish(page, id, false, 'conflict: Operation cannot be fulfilled: the object has been modified')
+    await finish(
+      page,
+      id,
+      false,
+      'conflict: Operation cannot be fulfilled: the object has been modified',
+    )
 
     const status = insp.getByTestId('yaml-apply-status')
     await expect(status).toHaveAttribute('data-status', 'conflict')
-    await expect(insp.getByTestId('yaml-apply-error')).toContainText('Operation cannot be fulfilled')
+    await expect(insp.getByTestId('yaml-apply-error')).toContainText(
+      'Operation cannot be fulfilled',
+    )
     await expect(insp.getByTestId('yaml-reload')).toBeVisible()
 
     // Buffer preserved: the operator's edit is still in the textarea, not discarded.
@@ -184,6 +201,9 @@ test.describe('US1 YAML edit + apply', () => {
 
     page.once('dialog', (d) => void d.accept())
     await insp.getByRole('tab', { name: 'Details' }).click()
-    await expect(insp.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true')
+    await expect(insp.getByRole('tab', { name: 'Details' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
   })
 })

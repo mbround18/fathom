@@ -8,7 +8,7 @@ import { hasDock, visibleSlots, type WidthClass } from './width-class'
 
 const DOCK: DockConfig = {
   open: true,
-  heightPct: 30,
+  heightPct: 38,
   tabs: ['logs', 'events', 'topology', 'velero', 'certManager', 'knative', 'keda', 'linter'],
 }
 

@@ -6,12 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, clusterRoute, list, read } from '../fixtures/builders'
-import {
-  emit,
-  inspector,
-  open,
-  sentTypes,
-} from './helpers'
+import { emit, inspector, open, sentTypes } from './helpers'
 
 const NODE_A = {
   name: 'kind-a-worker',
@@ -29,7 +24,7 @@ async function goToNode(page: Page): Promise<void> {
   await open(page)
   const nav = page.getByRole('navigation', { name: 'Sections' })
   if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open navigator' }).click()
+    await page.getByRole('button', { name: 'Open sections' }).click()
   }
   await expect(nav).toBeVisible()
   const toggle = nav.getByRole('button', { name: 'Overview', expanded: false })
@@ -45,7 +40,6 @@ async function goToNode(page: Page): Promise<void> {
   // test starts asserting on `sent()`, or it pollutes the very next assertion.
   await expect.poll(() => sentTypes(page)).toContain('SaveUiConfig')
 }
-
 
 async function answer(page: Page, allowed: boolean, reason: string | null): Promise<void> {
   await emit(
@@ -68,7 +62,9 @@ async function answer(page: Page, allowed: boolean, reason: string | null): Prom
 }
 
 test.describe('018 mutation access gating', () => {
-  test('denied identity: node actions are disabled with the reason, no dialog', async ({ page }) => {
+  test('denied identity: node actions are disabled with the reason, no dialog', async ({
+    page,
+  }) => {
     await goToNode(page)
     await expect.poll(() => sentTypes(page)).toContain('RefreshRbacSelfAccess')
     await answer(page, false, 'RBAC: nodes is forbidden')

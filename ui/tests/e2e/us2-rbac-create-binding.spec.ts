@@ -64,7 +64,20 @@ async function grantAccess(
     batch([
       read(100, nsRoute('kind-a', ROLE_BINDINGS), {
         type: 'RbacSelfAccessUpdated',
-        data: { results: [{ check: { verb, resource: 'rolebindings', namespace, group: 'rbac.authorization.k8s.io' }, allowed, reason }] },
+        data: {
+          results: [
+            {
+              check: {
+                verb,
+                resource: 'rolebindings',
+                namespace,
+                group: 'rbac.authorization.k8s.io',
+              },
+              allowed,
+              reason,
+            },
+          ],
+        },
       }),
     ]),
   )
@@ -139,7 +152,12 @@ test.describe('US2 create RoleBinding', () => {
         list(101, nsRoute('kind-a', ROLE_BINDINGS), {
           type: 'RoleBindingsUpdated',
           data: [
-            { name: 'view-secrets', namespace: 'team-a', role_ref: 'Role/secret-reader', subjects_count: 1 },
+            {
+              name: 'view-secrets',
+              namespace: 'team-a',
+              role_ref: 'Role/secret-reader',
+              subjects_count: 1,
+            },
           ],
         }),
       ]),
@@ -165,7 +183,13 @@ test.describe('US2 create RoleBinding', () => {
     page,
   }) => {
     const form = await openCreateForm(page).then(() => page.getByTestId('rbac-binding-form'))
-    await grantAccess(page, 'create', null, false, 'rolebindings is forbidden: User cannot create in the given namespace')
+    await grantAccess(
+      page,
+      'create',
+      null,
+      false,
+      'rolebindings is forbidden: User cannot create in the given namespace',
+    )
 
     await expect(form.getByTestId('rbac-binding-create-disabled')).toBeVisible()
     await expect(form.getByTestId('rbac-binding-create-disabled')).toContainText('forbidden')

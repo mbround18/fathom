@@ -6,7 +6,7 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 import type { KnativeOverview } from '../../src/protocol/types'
 import { batch, system } from '../fixtures/builders'
-import { emit, open } from './helpers'
+import { emit, open, openToolPane } from './helpers'
 
 async function openKnative(page: Page, info: TestInfo): Promise<void> {
   // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there
@@ -14,7 +14,7 @@ async function openKnative(page: Page, info: TestInfo): Promise<void> {
   test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Knative' }).click()
+    await openToolPane(page, 'Knative')
   } else {
     await page.getByRole('tab', { name: 'Knative' }).click()
   }

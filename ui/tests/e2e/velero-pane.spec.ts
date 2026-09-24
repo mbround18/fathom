@@ -32,7 +32,10 @@ test.describe('Velero pane', () => {
 
   test('shows an honest not-installed state', async ({ page }, info) => {
     await openVeleroTab(page, info)
-    await emit(page, batch([system(1, { type: 'VeleroOverviewUpdated', data: VELERO_NOT_INSTALLED })]))
+    await emit(
+      page,
+      batch([system(1, { type: 'VeleroOverviewUpdated', data: VELERO_NOT_INSTALLED })]),
+    )
     await expect(page.getByText('Velero is not installed', { exact: false }).first()).toBeVisible()
     await expect(page.getByTestId('velero-backup-row')).toHaveCount(0)
     await expect(page.getByRole('alert')).toHaveCount(0)

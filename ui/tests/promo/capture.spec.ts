@@ -394,7 +394,7 @@ test.describe('phone', () => {
   test('navigator', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await page.getByRole('button', { name: 'Open navigator' }).click()
+    await page.getByRole('button', { name: 'Open sections' }).click()
     await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible()
     await shoot(page, 'phone-nav', pairs)
   })

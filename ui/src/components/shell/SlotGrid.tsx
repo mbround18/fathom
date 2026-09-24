@@ -2,6 +2,7 @@ import { Fragment, useCallback } from 'react'
 import type { Layout } from 'react-resizable-panels'
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
+import { ScrollFade } from '@/components/ui/scroll-fade'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { LayoutProfile } from '@/protocol/types'
 import { useStore } from '@/store'
@@ -102,21 +103,20 @@ function Dock() {
       className="flex h-full min-h-0 flex-col gap-0"
       data-testid="dock-tabs"
     >
-      <TabsList
-        variant="line"
-        className="h-8 w-full shrink-0 justify-start border-b border-border bg-card px-1"
-      >
-        {tabs.map((tool, i) => {
-          const id = dockPanes[i]
-          return id ? (
-            <TabsTrigger key={id} value={id} className="flex-none px-3">
-              {TOOL_LABEL[tool]}
-            </TabsTrigger>
-          ) : null
-        })}
-      </TabsList>
+      <ScrollFade className="shrink-0 border-b border-border bg-card">
+        <TabsList variant="line" className="h-8 w-max min-w-full justify-start px-1">
+          {tabs.map((tool, i) => {
+            const id = dockPanes[i]
+            return id ? (
+              <TabsTrigger key={id} value={id} className="flex-none px-3">
+                {TOOL_LABEL[tool]}
+              </TabsTrigger>
+            ) : null
+          })}
+        </TabsList>
+      </ScrollFade>
       {dockPanes.map((id) => (
-        <TabsContent key={id} value={id} className="min-h-0 flex-1">
+        <TabsContent key={id} value={id} className="min-h-0 flex-1 overflow-hidden">
           <PaneHost paneId={id} />
         </TabsContent>
       ))}

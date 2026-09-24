@@ -183,6 +183,8 @@ test.describe('030 kind cluster provisioning', () => {
       'data-status',
       'complete',
     )
+    if ((await page.locator('html').getAttribute('data-width-class')) === 'phone')
+      await page.getByTestId('scope-chip').click()
     await page.getByRole('combobox', { name: 'Context' }).click()
     await expect(page.getByRole('option', { name: 'kind-demo' })).toBeVisible()
   })

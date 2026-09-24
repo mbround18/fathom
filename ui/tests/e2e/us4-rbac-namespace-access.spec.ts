@@ -63,39 +63,35 @@ test.describe('US4 namespace access lookup', () => {
     await emit(
       page,
       batch([
-        read(
-          400,
-          clusterRoute('kind-a', SECTION),
-          {
-            type: 'NamespaceAccessResolved',
-            data: resolved({
-              subject_name: 'jane',
-              found_any: true,
-              cluster_wide: [
-                {
-                  namespace: '',
-                  verbs: ['get', 'list'],
-                  resources: ['nodes'],
-                  via: ['ClusterRoleBinding/node-viewers'],
-                },
-              ],
-              per_namespace: [
-                {
-                  namespace: 'default',
-                  verbs: ['get', 'list', 'watch'],
-                  resources: ['pods'],
-                  via: ['RoleBinding/pod-readers'],
-                },
-                {
-                  namespace: 'kube-system',
-                  verbs: ['get'],
-                  resources: ['configmaps'],
-                  via: ['RoleBinding/cm-readers'],
-                },
-              ],
-            }),
-          },
-        ),
+        read(400, clusterRoute('kind-a', SECTION), {
+          type: 'NamespaceAccessResolved',
+          data: resolved({
+            subject_name: 'jane',
+            found_any: true,
+            cluster_wide: [
+              {
+                namespace: '',
+                verbs: ['get', 'list'],
+                resources: ['nodes'],
+                via: ['ClusterRoleBinding/node-viewers'],
+              },
+            ],
+            per_namespace: [
+              {
+                namespace: 'default',
+                verbs: ['get', 'list', 'watch'],
+                resources: ['pods'],
+                via: ['RoleBinding/pod-readers'],
+              },
+              {
+                namespace: 'kube-system',
+                verbs: ['get'],
+                resources: ['configmaps'],
+                via: ['RoleBinding/cm-readers'],
+              },
+            ],
+          }),
+        }),
       ]),
     )
 
@@ -123,7 +119,11 @@ test.describe('US4 namespace access lookup', () => {
       batch([
         read(401, clusterRoute('kind-a', SECTION), {
           type: 'NamespaceAccessResolved',
-          data: resolved({ subject_kind: 'Group', subject_name: 'no-such-group', found_any: false }),
+          data: resolved({
+            subject_kind: 'Group',
+            subject_name: 'no-such-group',
+            found_any: false,
+          }),
         }),
       ]),
     )
@@ -168,7 +168,9 @@ test.describe('US4 namespace access lookup', () => {
     await expect(view.getByTestId('rbac-namespace-access-empty')).toHaveCount(0)
   })
 
-  test('empty subject name is rejected client-side without dispatching a command', async ({ page }) => {
+  test('empty subject name is rejected client-side without dispatching a command', async ({
+    page,
+  }) => {
     const view = await openLookup(page)
     await view.getByTestId('rbac-namespace-access-submit').click()
 
@@ -191,7 +193,12 @@ test.describe('US4 namespace access lookup', () => {
             subject_namespace: 'ci',
             found_any: true,
             per_namespace: [
-              { namespace: 'ci', verbs: ['create'], resources: ['pods'], via: ['RoleBinding/deployer'] },
+              {
+                namespace: 'ci',
+                verbs: ['create'],
+                resources: ['pods'],
+                via: ['RoleBinding/deployer'],
+              },
             ],
           }),
         }),
@@ -200,7 +207,12 @@ test.describe('US4 namespace access lookup', () => {
 
     const types = (await sent(page)).map((c) => c.type)
     expect(types).toContain('ResolveNamespaceAccess')
-    for (const writeType of ['ApplyResourceYaml', 'CreateResourceYaml', 'DeleteResource', 'DeleteResources']) {
+    for (const writeType of [
+      'ApplyResourceYaml',
+      'CreateResourceYaml',
+      'DeleteResource',
+      'DeleteResources',
+    ]) {
       expect(types).not.toContain(writeType)
     }
   })

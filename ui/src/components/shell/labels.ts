@@ -22,7 +22,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
 export function paneTitle(pane: PaneState): string {
   switch (pane.kind) {
     case 'nav':
-      return 'Navigator'
+      return 'Sections'
     case 'list':
       return pane.route ? sectionLabel(pane.route.section) : 'Resources'
     case 'inspector':

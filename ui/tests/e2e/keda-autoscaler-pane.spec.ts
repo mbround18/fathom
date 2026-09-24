@@ -6,17 +6,14 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 import type { KedaResourceDetails, KedaResourceSummary } from '../../src/protocol/types'
 import { batch, system } from '../fixtures/builders'
-import { emit, open, sentTypes } from './helpers'
+import { emit, open, openToolPane, sentTypes } from './helpers'
 
 async function openKeda(page: Page, info: TestInfo): Promise<void> {
   // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
   test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
-    await page
-      .getByRole('navigation', { name: 'Views' })
-      .getByRole('button', { name: 'Autoscalers' })
-      .click()
+    await openToolPane(page, 'Autoscalers')
   } else {
     await page.getByRole('tab', { name: 'Autoscalers' }).click()
   }
@@ -38,7 +35,12 @@ const QUEUE_WORKER: KedaResourceSummary = {
   age: '3d',
 }
 
-function details(summary: KedaResourceSummary, state: 'MidRange' | 'AtFloor', message: string, live: boolean): KedaResourceDetails {
+function details(
+  summary: KedaResourceSummary,
+  state: 'MidRange' | 'AtFloor',
+  message: string,
+  live: boolean,
+): KedaResourceDetails {
   return {
     summary,
     triggers: [
@@ -96,7 +98,12 @@ test.describe('KEDA autoscaler pane', () => {
       batch([
         system(2, {
           type: 'KedaResourceDetailsUpdated',
-          data: details(QUEUE_WORKER, 'MidRange', 'Scaled to 4 between the minimum (1) and maximum (10).', true),
+          data: details(
+            QUEUE_WORKER,
+            'MidRange',
+            'Scaled to 4 between the minimum (1) and maximum (10).',
+            true,
+          ),
         }),
       ]),
     )
@@ -111,7 +118,12 @@ test.describe('KEDA autoscaler pane', () => {
       batch([
         system(3, {
           type: 'KedaResourceDetailsUpdated',
-          data: details(atFloor, 'AtFloor', 'At floor (1) - no trigger currently reports active demand.', false),
+          data: details(
+            atFloor,
+            'AtFloor',
+            'At floor (1) - no trigger currently reports active demand.',
+            false,
+          ),
         }),
       ]),
     )

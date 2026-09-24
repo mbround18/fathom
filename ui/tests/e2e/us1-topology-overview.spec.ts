@@ -7,7 +7,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, clusterRoute, nsRoute } from '../fixtures/builders'
-import { emit, open, sentTypes } from './helpers'
+import { emit, open, openToolPane, sentTypes } from './helpers'
 
 const APPLICATIONS = 'applications'
 const NODES = 'nodes'
@@ -18,7 +18,7 @@ async function openTopology(page: Page, info: TestInfo): Promise<void> {
   test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Topology' }).click()
+    await openToolPane(page, 'Topology')
   } else {
     await page.getByRole('tab', { name: 'Topology' }).click()
   }
@@ -40,16 +40,18 @@ test.describe('US1 topology overview', () => {
 
     // Mount-time refresh (TopologyPanel): every section the graph can draw without the operator
     // doing anything first (namespace/app/helm/node/workload tiers).
-    await expect.poll(() => sentTypes(page)).toEqual(
-      expect.arrayContaining([
-        'RefreshApplications',
-        'RefreshHelmReleases',
-        'RefreshNodes',
-        'RefreshDeployments',
-        'RefreshStatefulSets',
-        'RefreshDaemonSets',
-      ]),
-    )
+    await expect
+      .poll(() => sentTypes(page))
+      .toEqual(
+        expect.arrayContaining([
+          'RefreshApplications',
+          'RefreshHelmReleases',
+          'RefreshNodes',
+          'RefreshDeployments',
+          'RefreshStatefulSets',
+          'RefreshDaemonSets',
+        ]),
+      )
   })
 
   test('T041: renders once application and node data arrive, with no error state', async ({

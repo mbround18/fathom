@@ -21,7 +21,7 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, clusterRoute } from '../fixtures/builders'
-import { emit, open, clearSent, sentTypes } from './helpers'
+import { clearSent, emit, open, openToolPane, sentTypes } from './helpers'
 
 const NODES = 'nodes'
 
@@ -30,7 +30,7 @@ async function openTopology(page: Page, info: TestInfo): Promise<void> {
   test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Topology' }).click()
+    await openToolPane(page, 'Topology')
   } else {
     await page.getByRole('tab', { name: 'Topology' }).click()
   }
@@ -97,9 +97,7 @@ test.describe('US4 topology live health state', () => {
 
     // Give the layout effect a tick to settle the single node at its deterministic center
     // position, then confirm something is actually drawn there (alpha > 0, not blank canvas).
-    await expect
-      .poll(async () => (await nodeColor(page, canvas))[3])
-      .toBeGreaterThan(0)
+    await expect.poll(async () => (await nodeColor(page, canvas))[3]).toBeGreaterThan(0)
 
     // The graph must not re-fetch anything just because a row it already has changed in place —
     // it draws straight from the store, same as any list view re-rendering a row.
@@ -111,9 +109,7 @@ test.describe('US4 topology live health state', () => {
     // same position (redraw happened, not a crash/blank canvas), no new commands sent by the
     // graph reacting to the update — the tone-mapping and color itself are unit-tested in
     // `tests/unit/topology/status.test.ts`.
-    await expect
-      .poll(async () => (await nodeColor(page, canvas))[3])
-      .toBeGreaterThan(0)
+    await expect.poll(async () => (await nodeColor(page, canvas))[3]).toBeGreaterThan(0)
     await expect(page.getByTestId('topology-canvas-host')).toBeVisible()
     expect(await sentTypes(page)).toEqual([])
   })

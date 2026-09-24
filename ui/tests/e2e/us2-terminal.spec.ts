@@ -19,7 +19,13 @@ async function passGate(page: Page, pod: { namespace: string; name: string }, se
     batch([
       read(seq, nsRoute('kind-a', 'workloads/pods', pod.namespace), {
         type: 'PodExecAccessChecked',
-        data: { namespace: pod.namespace, name: pod.name, container: null, allowed: true, reason: null },
+        data: {
+          namespace: pod.namespace,
+          name: pod.name,
+          container: null,
+          allowed: true,
+          reason: null,
+        },
       }),
     ]),
   )
@@ -57,10 +63,7 @@ test.describe('US2 Terminal tab', () => {
     const route = nsRoute('kind-a', 'workloads/pods', DETAIL_POD.namespace)
 
     // FR-007/FR-008: single-container pod, no picker — the session attaches immediately.
-    await emit(
-      page,
-      batch([stream(300, route, { type: 'PodExecReady', data: { stream_id: 1 } })]),
-    )
+    await emit(page, batch([stream(300, route, { type: 'PodExecReady', data: { stream_id: 1 } })]))
 
     const xterm = insp.getByTestId('pod-terminal-xterm')
     await expect(xterm).toBeVisible()
@@ -68,9 +71,7 @@ test.describe('US2 Terminal tab', () => {
     // FR-009/FR-011: keystrokes are relayed as SendPodExecInput.
     await xterm.click()
     await page.keyboard.type('ls')
-    await expect
-      .poll(() => sentTypes(page))
-      .toEqual(expect.arrayContaining(['SendPodExecInput']))
+    await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['SendPodExecInput']))
 
     // Output chunks render into the terminal (screenReaderMode gives an accessible text tree).
     await emit(

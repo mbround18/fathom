@@ -8,7 +8,7 @@
  * context, each time the palette needs it. Namespace and section results are drawn from
  * `StoreState.session.namespaces` and `NAV_GROUPS` respectively.
  */
-import type { SectionKey } from '@/protocol/types'
+import type { SectionKey, ToolKind } from '@/protocol/types'
 import type { ListKey, ListState, StoreState } from '@/store'
 import { NO_CONTEXT } from '@/store/keys'
 
@@ -25,7 +25,7 @@ export interface PaletteQuery {
   name: string
 }
 
-export type PaletteResultCategory = 'resource' | 'namespace' | 'section'
+export type PaletteResultCategory = 'resource' | 'namespace' | 'section' | 'tool'
 
 export interface PaletteResourcePayload {
   ref: ObjectRef
@@ -37,6 +37,11 @@ export interface PaletteSectionPayload {
   section: SectionKey
 }
 
+/** A tool pane, or the fleet dashboard (not a pane). */
+export interface PaletteToolPayload {
+  tool: ToolKind | 'fleet'
+}
+
 export interface PaletteResult {
   id: string
   category: PaletteResultCategory
@@ -44,7 +49,11 @@ export interface PaletteResult {
   sublabel?: string
   /** Higher = stronger match. Set by `rankAndFilter`; candidates start at `0`. */
   matchScore: number
-  payload: PaletteResourcePayload | PaletteNamespacePayload | PaletteSectionPayload
+  payload:
+    | PaletteResourcePayload
+    | PaletteNamespacePayload
+    | PaletteSectionPayload
+    | PaletteToolPayload
 }
 
 /** Default cap on total results shown, per category, before ranking (FR-007). */
@@ -154,6 +163,32 @@ export function buildSectionCandidates(): PaletteResult[] {
   return out
 }
 
+/** Tools and dashboards that have no navigator section (032-ui-shell-a11y). */
+const TOOL_ENTRIES: readonly { tool: ToolKind | 'fleet'; label: string }[] = [
+  { tool: 'fleet', label: 'Fleet dashboard' },
+  { tool: 'logs', label: 'Logs' },
+  { tool: 'events', label: 'Events tool' },
+  { tool: 'portforwards', label: 'Port forwards tool' },
+  { tool: 'topology', label: 'Topology' },
+  { tool: 'knative', label: 'Knative' },
+  { tool: 'keda', label: 'KEDA autoscalers' },
+  { tool: 'linter', label: 'Linter' },
+  { tool: 'velero', label: 'Velero backups' },
+  { tool: 'certManager', label: 'Certificates (cert-manager)' },
+  { tool: 'vulnerabilities', label: 'Trivy vulnerabilities' },
+]
+
+export function buildToolCandidates(): PaletteResult[] {
+  return TOOL_ENTRIES.map(({ tool, label }) => ({
+    id: `tool:${tool}`,
+    category: 'tool',
+    label,
+    sublabel: tool === 'fleet' ? 'Dashboard' : 'Tool',
+    matchScore: 0,
+    payload: { tool },
+  }))
+}
+
 /**
  * Convenience: build every category's candidates from the store snapshot in one call.
  */
@@ -165,6 +200,7 @@ export function buildAllCandidates(store: {
     ...buildResourceCandidates(store.lists, store.session.activeContext),
     ...buildNamespaceCandidates(store.session.namespaces),
     ...buildSectionCandidates(),
+    ...buildToolCandidates(),
   ]
 }
 

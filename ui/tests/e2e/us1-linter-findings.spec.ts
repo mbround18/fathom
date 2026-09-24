@@ -6,14 +6,14 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, nsRoute, read } from '../fixtures/builders'
-import { emit, inspector, open, sentTypes } from './helpers'
+import { emit, inspector, open, openToolPane, sentTypes } from './helpers'
 
 const PODS = 'workloads/pods'
 
 async function openLinter(page: Page, info: TestInfo): Promise<void> {
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Linter' }).click()
+    await openToolPane(page, 'Linter')
   } else {
     await page.getByRole('tab', { name: 'Linter' }).click()
   }
@@ -32,11 +32,16 @@ const POD_DETAILS = {
   resolved_owner: null,
   persistent_volume_claims: [],
   containers_lifecycle: [],
-  raw_json: JSON.stringify({ metadata: { name: 'naked-pod', namespace: 'default' }, spec: { containers: [{ name: 'app', image: 'nginx' }] } }),
+  raw_json: JSON.stringify({
+    metadata: { name: 'naked-pod', namespace: 'default' },
+    spec: { containers: [{ name: 'app', image: 'nginx' }] },
+  }),
 }
 
 test.describe('US1 linter findings', () => {
-  test('lists a finding for a naked pod without limits and opens the inspector on click', async ({ page }, info) => {
+  test('lists a finding for a naked pod without limits and opens the inspector on click', async ({
+    page,
+  }, info) => {
     // Same as Topology: the laptop class has no dock and no stack tabs, so tool panes are unreachable there.
     test.skip(info.project.name.endsWith('-laptop'), 'tool panes are not reachable at laptop width')
     await open(page)
@@ -44,24 +49,41 @@ test.describe('US1 linter findings', () => {
     await expect(page.getByTestId('linter-panel')).toBeVisible()
 
     // Mount refreshes lists with existing read-only commands only.
-    await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['RefreshPods', 'RefreshDeployments', 'RefreshRoles']))
+    await expect
+      .poll(() => sentTypes(page))
+      .toEqual(expect.arrayContaining(['RefreshPods', 'RefreshDeployments', 'RefreshRoles']))
 
     await emit(
       page,
       batch([
         list(1, nsRoute('kind-a', PODS), {
           type: 'PodsUpdated',
-          data: [{ name: 'naked-pod', namespace: 'default', phase: 'Running', node: 'n1', ready: 1, total: 1, restarts: 0 }],
+          data: [
+            {
+              name: 'naked-pod',
+              namespace: 'default',
+              phase: 'Running',
+              node: 'n1',
+              ready: 1,
+              total: 1,
+              restarts: 0,
+            },
+          ],
         }),
       ]),
     )
     // The linter reads the pod's details itself (existing SelectPod command).
     await expect.poll(() => sentTypes(page)).toContain('SelectPod')
-    await emit(page, batch([read(2, nsRoute('kind-a', PODS), { type: 'PodDetailsUpdated', data: POD_DETAILS })]))
+    await emit(
+      page,
+      batch([read(2, nsRoute('kind-a', PODS), { type: 'PodDetailsUpdated', data: POD_DETAILS })]),
+    )
 
     const finding = page.getByTestId('linter-finding').filter({ hasText: 'naked-pod' }).first()
     await expect(finding).toBeVisible()
-    await expect(page.getByTestId('linter-finding').filter({ hasText: 'no owning controller' })).toHaveCount(1)
+    await expect(
+      page.getByTestId('linter-finding').filter({ hasText: 'no owning controller' }),
+    ).toHaveCount(1)
 
     // Skipped checks are surfaced rather than silently dropped (ServiceAccounts are unavailable).
     await expect(page.getByTestId('linter-skipped')).toContainText('ServiceAccounts')

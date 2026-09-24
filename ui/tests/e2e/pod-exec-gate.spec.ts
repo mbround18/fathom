@@ -49,7 +49,9 @@ test.describe('Pod exec session gate', () => {
 
     // Re-open: confirmation is required again; confirming starts the session.
     await insp.getByRole('button', { name: 'Open Terminal' }).click()
-    await expect.poll(async () => (await sentTypes(page)).filter((t) => t === 'CheckPodExecAccess').length).toBe(2)
+    await expect
+      .poll(async () => (await sentTypes(page)).filter((t) => t === 'CheckPodExecAccess').length)
+      .toBe(2)
     await emit(page, batch([checked(true, null)]))
     await expect(dialog).toBeVisible()
     await page.getByTestId('confirm-submit').click()

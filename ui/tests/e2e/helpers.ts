@@ -86,8 +86,9 @@ export async function expectRowCount(page: Page, count: number, section = PODS):
 /** Open `section` from the navigator (the drawer on phone/tablet, the nav slot otherwise). */
 export async function navigateTo(page: Page, label: string, group = 'Workloads'): Promise<void> {
   const nav = page.getByRole('navigation', { name: 'Sections' })
-  if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open navigator' }).click()
+  const drawer = !(await nav.isVisible())
+  if (drawer) {
+    await page.getByRole('button', { name: 'Open sections' }).click()
   }
   await expect(nav).toBeVisible()
   // Scoped to `[aria-expanded]` (only the group toggle has it) since a group's own section can
@@ -97,6 +98,8 @@ export async function navigateTo(page: Page, label: string, group = 'Workloads')
   const toggle = nav.locator('button[aria-expanded]', { hasText: group })
   if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
   await nav.getByRole('button', { name: label, exact: true }).click()
+  // Let the drawer finish closing so a following call does not race its exit animation.
+  if (drawer) await expect(nav).toBeHidden()
 }
 
 /** No horizontal page scroll (contracts/layout.md § Verification). */
@@ -149,3 +152,66 @@ export function actionToast(page: Page, type: 'success' | 'error' | 'loading'): 
 
 export const confirmDialog = (page: Page): Locator => page.getByTestId('confirm-dialog')
 export const scaleDialog = (page: Page): Locator => page.getByTestId('scale-dialog')
+
+/** Phone collapses the context/namespace pickers into a chip that opens a sheet. */
+async function onPhone(page: Page): Promise<boolean> {
+  return (await page.locator('html').getAttribute('data-width-class')) === 'phone'
+}
+
+/** Pick `option` in the Context/Namespace picker, opening the scope sheet on phone. */
+export async function chooseScope(
+  page: Page,
+  picker: 'Context' | 'Namespace',
+  option: string,
+): Promise<void> {
+  const phone = await onPhone(page)
+  if (phone) await page.getByTestId('scope-chip').click()
+  await page.getByRole('combobox', { name: picker }).click()
+  await page.getByRole('option', { name: option }).click()
+  if (phone) await page.keyboard.press('Escape')
+}
+
+/** Assert the Context/Namespace picker currently shows `text` (via the chip on phone). */
+export async function expectScope(
+  page: Page,
+  picker: 'Context' | 'Namespace',
+  text: string,
+): Promise<void> {
+  if (await onPhone(page)) await expect(page.getByTestId('scope-chip')).toContainText(text)
+  else await expect(page.getByRole('combobox', { name: picker })).toContainText(text)
+}
+
+/** Open a tool pane from whichever surface the width class offers. */
+export async function openToolPane(page: Page, label: string): Promise<void> {
+  const cls = await page.locator('html').getAttribute('data-width-class')
+  if (cls === 'phone') {
+    const views = page.getByRole('navigation', { name: 'Views' })
+    const direct = views.getByRole('button', { name: label, exact: true })
+    if (await direct.count()) await direct.click()
+    else {
+      await views.getByRole('button', { name: 'More' }).click()
+      await page.getByTestId('more-sheet').getByRole('button', { name: label, exact: true }).click()
+    }
+  } else if (cls === 'tablet') {
+    await page
+      .getByRole('navigation', { name: 'Views' })
+      .getByRole('button', { name: label })
+      .click()
+  } else if (cls === 'laptop') {
+    await page.getByTestId('tools-menu').click()
+    await page.getByRole('menuitem', { name: label }).click()
+  } else {
+    await page.getByRole('tab', { name: label }).click()
+  }
+}
+
+/** Open the fleet dashboard (a top-bar button, or an overflow-menu item on phone). */
+export async function openFleet(page: Page): Promise<void> {
+  const button = page.getByTestId('fleet-open')
+  if (await button.isVisible()) {
+    await button.click()
+    return
+  }
+  await page.getByTestId('overflow-menu').click()
+  await page.getByRole('menuitem', { name: 'Fleet' }).click()
+}

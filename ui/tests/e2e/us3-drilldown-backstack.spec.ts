@@ -8,7 +8,18 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, clusterRoute, list, nsRoute, read } from '../fixtures/builders'
-import { clearSent, emit, inspector, navigateTo, open, row, sent, sentMutations, sentTypes, settleFakeReplies } from './helpers'
+import {
+  clearSent,
+  emit,
+  inspector,
+  navigateTo,
+  open,
+  row,
+  sent,
+  sentMutations,
+  sentTypes,
+  settleFakeReplies,
+} from './helpers'
 
 const APPLICATIONS = 'applications'
 const NODES = 'nodes'
@@ -138,7 +149,14 @@ test.describe('US3 drill-down back-stack', () => {
             namespace: WEB.namespace,
             name: POD_NAME,
             related: [
-              { section: NODES, kind: 'Node', namespace: null, name: NODE_NAME, relation: 'scheduled-on', status_hint: 'Ready' },
+              {
+                section: NODES,
+                kind: 'Node',
+                namespace: null,
+                name: NODE_NAME,
+                relation: 'scheduled-on',
+                status_hint: 'Ready',
+              },
             ],
           },
         }),
@@ -175,7 +193,10 @@ test.describe('US3 drill-down back-stack', () => {
     expect((await sentMutations(page)).map((c) => c.type)).toEqual([])
 
     // Back again: restores the Application; breadcrumb disappears (root, no history left).
-    await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: '← Back' }).click()
+    await page
+      .getByRole('navigation', { name: 'Breadcrumb' })
+      .getByRole('button', { name: '← Back' })
+      .click()
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
     await expect(insp).toContainText('web')
     expect((await sentMutations(page)).map((c) => c.type)).toEqual([])

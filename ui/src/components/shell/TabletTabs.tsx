@@ -50,7 +50,7 @@ export function TabletTabs() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <StackTabs tabs={TABLET_TABS} className="border-b" />
+      <StackTabs tabs={TABLET_TABS} scroll className="border-b" />
       {active?.kind === 'tool' && top ? (
         <div className="flex min-h-0 flex-1 flex-col">
           {stack.length > 1 && (

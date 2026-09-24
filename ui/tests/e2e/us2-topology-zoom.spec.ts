@@ -7,7 +7,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, read, clusterRoute, nsRoute } from '../fixtures/builders'
-import { emit, open, sentTypes, clearSent } from './helpers'
+import { clearSent, emit, open, openToolPane, sentTypes } from './helpers'
 
 const NAMESPACE = 'workloads-ns'
 const POD_COUNT = 120
@@ -17,7 +17,7 @@ async function openTopology(page: Page, info: TestInfo): Promise<void> {
   test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Topology' }).click()
+    await openToolPane(page, 'Topology')
   } else {
     await page.getByRole('tab', { name: 'Topology' }).click()
   }
@@ -31,10 +31,15 @@ async function seedOverview(page: Page): Promise<void> {
   await emit(
     page,
     batch([
-      list(1, clusterRoute('kind-a', 'namespaces'), { type: 'NamespacesUpdated', data: [NAMESPACE] }),
+      list(1, clusterRoute('kind-a', 'namespaces'), {
+        type: 'NamespacesUpdated',
+        data: [NAMESPACE],
+      }),
       list(2, nsRoute('kind-a', 'workloads/deployments'), {
         type: 'DeploymentsUpdated',
-        data: [{ name: 'web', namespace: NAMESPACE, desired: 3, ready: 3, updated: 3, available: 3 }],
+        data: [
+          { name: 'web', namespace: NAMESPACE, desired: 3, ready: 3, updated: 3, available: 3 },
+        ],
       }),
     ]),
   )
@@ -134,9 +139,7 @@ test.describe('US2 topology zoom', () => {
     // further would not change the readout.
     await zoomCanvas(page, 100)
     await expect(canvasHost(page)).toBeVisible()
-    await expect
-      .poll(async () => canvasHost(page).textContent())
-      .not.toBe(before)
+    await expect.poll(async () => canvasHost(page).textContent()).not.toBe(before)
   })
 
   test('T034: zooming back out restores the overview in the same pane', async ({ page }, info) => {

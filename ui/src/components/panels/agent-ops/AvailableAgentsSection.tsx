@@ -207,7 +207,7 @@ export function AvailableAgentsSection() {
           {authSummary(authMode)}
         </span>
         <span className="text-muted-foreground text-[11px]">
-          Change this in the assistant&apos;s own setup, from the Ask AI tab.
+          Change this in the assistant&apos;s own setup, from the Ask AI button in the top bar.
         </span>
       </div>
 

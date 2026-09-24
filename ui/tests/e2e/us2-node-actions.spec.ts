@@ -36,7 +36,7 @@ async function goToNode(page: Page): Promise<void> {
   await open(page)
   const nav = page.getByRole('navigation', { name: 'Sections' })
   if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open navigator' }).click()
+    await page.getByRole('button', { name: 'Open sections' }).click()
   }
   await expect(nav).toBeVisible()
   const toggle = nav.getByRole('button', { name: 'Overview', expanded: false })
@@ -166,9 +166,7 @@ test.describe('US2 node actions', () => {
         }),
       ]),
     )
-    await expect(page.getByTestId('node-action-error')).toContainText(
-      'no owning controller',
-    )
+    await expect(page.getByTestId('node-action-error')).toContainText('no owning controller')
   })
 
   test('T031: cancelling mid-drain preserves partial progress', async ({ page }) => {

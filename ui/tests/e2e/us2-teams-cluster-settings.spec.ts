@@ -59,9 +59,7 @@ test.describe('US2 teams: cluster settings + org sync', () => {
     await panel(page).getByTestId('teams-path-prefix').fill('/grafana')
     await panel(page).getByTestId('teams-hidden-metric-input').fill('cpu_throttled')
     await panel(page).getByTestId('teams-hidden-metric-input').press('Enter')
-    await expect(panel(page).getByTestId('teams-hidden-metric-row')).toContainText(
-      'cpu_throttled',
-    )
+    await expect(panel(page).getByTestId('teams-hidden-metric-row')).toContainText('cpu_throttled')
 
     // Navigating expanded a nav group, whose debounced SaveUiConfig consumes a request id: let it
     // land before reading `nextRequestId`, or the injected CommandFinished targets the wrong one.

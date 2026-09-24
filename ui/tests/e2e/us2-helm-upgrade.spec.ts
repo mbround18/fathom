@@ -6,7 +6,11 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 
-import type { GitOpsOriginRef, HelmReleaseDetails, HelmReleaseSummary } from '../../src/protocol/types'
+import type {
+  GitOpsOriginRef,
+  HelmReleaseDetails,
+  HelmReleaseSummary,
+} from '../../src/protocol/types'
 import { batch, envelope, list, nsRoute, read } from '../fixtures/builders'
 import { confirmDialog, emit, inspector, navigateTo, open, row, sent, sentTypes } from './helpers'
 
@@ -66,7 +70,10 @@ async function selectRedis(page: Page): Promise<void> {
   await open(page)
   await navigateTo(page, 'Helm Releases', 'Overview')
   await expect.poll(() => sentTypes(page)).toContain('RefreshHelmReleases')
-  await emit(page, batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [REDIS] })]))
+  await emit(
+    page,
+    batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [REDIS] })]),
+  )
   await row(page, `${REDIS.namespace}/${REDIS.name}`, HELM).click()
   await expect
     .poll(() => sent(page))
@@ -90,7 +97,7 @@ async function selectRedis(page: Page): Promise<void> {
 
 test.describe('US2 Helm upgrade', () => {
   test('T023: values edit → preview → confirm applies the upgrade', async ({ page }) => {
-    await selectRedis(page);
+    await selectRedis(page)
     const insp = inspector(page)
     const values = insp.getByTestId('helm-upgrade-values')
     await expect(values).toHaveValue('replicaCount: 3')
@@ -126,7 +133,8 @@ test.describe('US2 Helm upgrade', () => {
               action: 'upgrade',
               base_revision: 3,
               current_manifest: REDIS_DETAILS.manifest,
-              target_manifest: 'apiVersion: v1\nkind: Service\nmetadata:\n  name: redis\n  replicas: 5',
+              target_manifest:
+                'apiVersion: v1\nkind: Service\nmetadata:\n  name: redis\n  replicas: 5',
               target_revision: null,
               target_chart_version: null,
               gitops_warning: null,
@@ -170,7 +178,12 @@ test.describe('US2 Helm upgrade', () => {
           type: 'System',
           data: {
             type: 'HelmMutationApplied',
-            data: { namespace: REDIS.namespace, release: REDIS.name, action: 'upgrade', new_revision: 4 },
+            data: {
+              namespace: REDIS.namespace,
+              release: REDIS.name,
+              action: 'upgrade',
+              new_revision: 4,
+            },
           },
         }),
       ]),
@@ -178,7 +191,9 @@ test.describe('US2 Helm upgrade', () => {
     await expect(insp.getByTestId('helm-upgrade-applied')).toBeVisible()
   })
 
-  test('T023: an invalid-values preview failure surfaces the backend error verbatim', async ({ page }) => {
+  test('T023: an invalid-values preview failure surfaces the backend error verbatim', async ({
+    page,
+  }) => {
     await selectRedis(page)
     const insp = inspector(page)
     await insp.getByTestId('helm-upgrade-values').fill('not: [valid')
@@ -197,7 +212,8 @@ test.describe('US2 Helm upgrade', () => {
               release: REDIS.name,
               action: 'upgrade',
               stage: 'preview',
-              message: 'Error: YAML parse error on values.yaml: line 1: could not find expected \':\'',
+              message:
+                "Error: YAML parse error on values.yaml: line 1: could not find expected ':'",
             },
           },
         }),

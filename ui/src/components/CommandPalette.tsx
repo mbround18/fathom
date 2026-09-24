@@ -19,14 +19,18 @@ import {
   buildNamespaceCandidates,
   buildResourceCandidates,
   buildSectionCandidates,
+  buildToolCandidates,
   parsePaletteQuery,
   rankAndFilter,
   type PaletteNamespacePayload,
   type PaletteResourcePayload,
   type PaletteResult,
   type PaletteSectionPayload,
+  type PaletteToolPayload,
 } from '@/resources/paletteIndex'
 import { useStore } from '@/store'
+
+import { useOpenTool } from './shell/useOpenTool'
 
 export interface CommandPaletteProps {
   open: boolean
@@ -37,6 +41,7 @@ const CATEGORY_HEADING: Record<PaletteResult['category'], string> = {
   resource: 'Resources',
   namespace: 'Namespaces',
   section: 'Sections',
+  tool: 'Tools',
 }
 
 /** Group results into the three fixed sections, in a stable display order. */
@@ -45,9 +50,10 @@ function groupByCategory(results: readonly PaletteResult[]) {
     resource: [],
     namespace: [],
     section: [],
+    tool: [],
   }
   for (const result of results) groups[result.category].push(result)
-  return (['resource', 'namespace', 'section'] as const)
+  return (['resource', 'namespace', 'section', 'tool'] as const)
     .map((category) => ({ category, results: groups[category] }))
     .filter((g) => g.results.length > 0)
 }
@@ -62,12 +68,14 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useStore((s) => s.navigate)
   const slotPanes = useStore((s) => s.layout.slotPanes)
   const panes = useStore((s) => s.panes)
+  const openTool = useOpenTool()
 
   const candidates = useMemo(
     () => [
       ...buildResourceCandidates(lists, activeContext),
       ...buildNamespaceCandidates(namespaces),
       ...buildSectionCandidates(),
+      ...buildToolCandidates(),
     ],
     [lists, activeContext, namespaces],
   )
@@ -91,6 +99,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       openInspector((result.payload as PaletteResourcePayload).ref, from)
     } else if (result.category === 'namespace') {
       selectNamespace((result.payload as PaletteNamespacePayload).namespace)
+    } else if (result.category === 'tool') {
+      openTool((result.payload as PaletteToolPayload).tool)
     } else {
       navigate((result.payload as PaletteSectionPayload).section)
     }
@@ -100,6 +110,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   return (
     <CommandDialog
+      className="sm:max-w-[600px]"
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next)

@@ -3,9 +3,10 @@
  * global Cmd/Ctrl+K shortcut (mirrors `Inspector.tsx`'s `useEscapeToClose` pattern: a dedicated
  * hook rather than a new shortcut registry — research.md decision 5).
  */
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { CommandPalette } from '@/components/CommandPalette'
+import { useStore } from '@/store'
 
 /** Cmd+K (macOS) / Ctrl+K (Windows/Linux) toggles the palette from anywhere in the app. */
 function useToggleShortcut(onToggle: () => void) {
@@ -21,8 +22,9 @@ function useToggleShortcut(onToggle: () => void) {
 }
 
 export function CommandPaletteHost() {
-  const [open, setOpen] = useState(false)
-  useToggleShortcut(() => setOpen((o) => !o))
+  const open = useStore((s) => s.shell.paletteOpen)
+  const setShell = useStore((s) => s.setShell)
+  useToggleShortcut(() => setShell({ paletteOpen: !useStore.getState().shell.paletteOpen }))
 
-  return <CommandPalette open={open} onOpenChange={setOpen} />
+  return <CommandPalette open={open} onOpenChange={(o) => setShell({ paletteOpen: o })} />
 }

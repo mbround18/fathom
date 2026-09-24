@@ -22,7 +22,9 @@ import { detailKey, listKey, useStore, type ListRow, type PaneId, type PaneState
 import { cn } from '@/lib/utils'
 
 import { DetailSections } from './DetailSections'
+import { ScrollFade } from '@/components/ui/scroll-fade'
 import { AgentPanel } from './panels/agent-ops/AgentPanel'
+import { AGENT_OPS_KINDS } from './panels/agent-ops/kinds'
 import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
 import { HelmUpgradePanel } from './panels/HelmUpgradePanel'
 import { ImageInspectPanel } from './panels/ImageInspectPanel'
@@ -38,21 +40,6 @@ const DISCARD_EDIT_PROMPT =
   'You have unsaved YAML changes that have not been applied. Leave anyway and discard them?'
 
 const NO_ROWS: readonly ListRow[] = []
-
-// 013-agent-sdk-ops (US1 MVP): kinds the "Agent" tab is offered for. Grounding data collection
-// (`src/backend/agent/grounding.rs`) currently only implements Pod grounding — other kinds still
-// get a working conversation, just without grounding context yet, so this list is intentionally
-// broader than "Pod only" per the feature's "be reasonably inclusive" guidance.
-const AGENT_OPS_KINDS = new Set([
-  'Pod',
-  'Deployment',
-  'DaemonSet',
-  'StatefulSet',
-  'ReplicaSet',
-  'Job',
-  'CronJob',
-  'Service',
-])
 
 export function Inspector({ pane }: { pane: PaneState }) {
   useEscapeToClose(pane.target !== undefined)
@@ -110,7 +97,12 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   const editSession = useStore((s) => s.editSessions[editKey])
   const [tab, setTab] = useState('details')
   const handleTabChange = (next: string) => {
-    if (tab === 'yaml' && next !== 'yaml' && editSession?.dirty && editSession.status !== 'applying') {
+    if (
+      tab === 'yaml' &&
+      next !== 'yaml' &&
+      editSession?.dirty &&
+      editSession.status !== 'applying'
+    ) {
       if (!window.confirm(DISCARD_EDIT_PROMPT)) return
     }
     setTab(next)
@@ -140,7 +132,8 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   if (list?.status === 'ready' && !row) return <NoLongerExists name={target.name} />
   // Flux origin click-through (spec 005 FR-013): a deleted origin resolves to an explicit
   // `FluxResourceNotFound` reply, not a blank/frozen panel.
-  if (detailState?.eventType === 'FluxResourceNotFound') return <NoLongerExists name={target.name} />
+  if (detailState?.eventType === 'FluxResourceNotFound')
+    return <NoLongerExists name={target.name} />
 
   const detail = detailState ? descriptor.selectDetail(detailState) : undefined
   const raw = detail !== undefined && descriptor.rawJson ? descriptor.rawJson(detail) : undefined
@@ -164,108 +157,110 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
         <Breadcrumb paneId={pane.id} history={pane.history} target={target} />
       )}
       <Tabs value={tab} onValueChange={handleTabChange} className="min-h-0 flex-1 gap-0">
-        <TabsList
-          variant="line"
-          className="h-[var(--touch-target)] w-full shrink-0 justify-start border-b border-border px-2"
-        >
-          <TabsTrigger
-            value="details"
-            className="h-full flex-none px-3 font-display tracking-wider uppercase"
+        <ScrollFade className="shrink-0 border-b border-border">
+          <TabsList
+            variant="line"
+            className="h-[var(--touch-target)] w-max min-w-full justify-start px-2"
           >
-            Details
-          </TabsTrigger>
-          <TabsTrigger
-            value="yaml"
-            className="h-full flex-none px-3 font-display tracking-wider uppercase"
-          >
-            YAML
-          </TabsTrigger>
-          <TabsTrigger
-            value="events"
-            className="h-full flex-none px-3 font-display tracking-wider uppercase"
-          >
-            Events
-          </TabsTrigger>
-          {target.kind === 'Pod' && (
             <TabsTrigger
-              value="logs"
+              value="details"
               className="h-full flex-none px-3 font-display tracking-wider uppercase"
             >
-              Logs
+              Details
             </TabsTrigger>
-          )}
-          {target.kind === 'Pod' && (
             <TabsTrigger
-              value="image"
-              data-testid="image-inspect-tab"
+              value="yaml"
               className="h-full flex-none px-3 font-display tracking-wider uppercase"
             >
-              Image
+              YAML
             </TabsTrigger>
-          )}
-          {target.kind === 'Pod' && (
             <TabsTrigger
-              value="vulnerabilities"
-              data-testid="vulnerabilities-tab"
+              value="events"
               className="h-full flex-none px-3 font-display tracking-wider uppercase"
             >
-              Vulnerabilities
+              Events
             </TabsTrigger>
-          )}
-          {isRunningPod && (
-            <TabsTrigger
-              value="terminal"
-              className="h-full flex-none px-3 font-display tracking-wider uppercase"
-            >
-              Terminal
-            </TabsTrigger>
-          )}
-          {target.kind === 'Node' && (
-            <TabsTrigger
-              value="node-actions"
-              data-testid="node-actions-tab"
-              className="h-full flex-none px-3 font-display tracking-wider uppercase"
-            >
-              Actions
-            </TabsTrigger>
-          )}
-          {(target.kind === 'Pod' || target.kind === 'Service') && (
-            <TabsTrigger
-              value="port-forward"
-              data-testid="port-forward-tab"
-              className="h-full flex-none px-3 font-display tracking-wider uppercase"
-            >
-              Forward
-            </TabsTrigger>
-          )}
-          {target.kind === 'HelmRelease' && (
-            <TabsTrigger
-              value="helm-actions"
-              data-testid="helm-actions-tab"
-              className="h-full flex-none px-3 font-display tracking-wider uppercase"
-            >
-              Actions
-            </TabsTrigger>
-          )}
-          {target.kind === 'HelmRelease' && (
-            <TabsTrigger
-              value="helm-upgrade"
-              data-testid="helm-upgrade-tab"
-              className="h-full flex-none px-3 font-display tracking-wider uppercase"
-            >
-              Upgrade
-            </TabsTrigger>
-          )}
-          {target.namespace && AGENT_OPS_KINDS.has(target.kind) && (
-            <TabsTrigger
-              value="agent-ops"
-              data-testid="agent-ops-tab"
-              className="h-full flex-none px-3 font-display tracking-wider uppercase"
-            >
-              Ask AI
-            </TabsTrigger>
-          )}
-        </TabsList>
+            {target.kind === 'Pod' && (
+              <TabsTrigger
+                value="logs"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Logs
+              </TabsTrigger>
+            )}
+            {target.kind === 'Pod' && (
+              <TabsTrigger
+                value="image"
+                data-testid="image-inspect-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Image
+              </TabsTrigger>
+            )}
+            {target.kind === 'Pod' && (
+              <TabsTrigger
+                value="vulnerabilities"
+                data-testid="vulnerabilities-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Vulnerabilities
+              </TabsTrigger>
+            )}
+            {isRunningPod && (
+              <TabsTrigger
+                value="terminal"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Terminal
+              </TabsTrigger>
+            )}
+            {target.kind === 'Node' && (
+              <TabsTrigger
+                value="node-actions"
+                data-testid="node-actions-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Actions
+              </TabsTrigger>
+            )}
+            {(target.kind === 'Pod' || target.kind === 'Service') && (
+              <TabsTrigger
+                value="port-forward"
+                data-testid="port-forward-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Forward
+              </TabsTrigger>
+            )}
+            {target.kind === 'HelmRelease' && (
+              <TabsTrigger
+                value="helm-actions"
+                data-testid="helm-actions-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Actions
+              </TabsTrigger>
+            )}
+            {target.kind === 'HelmRelease' && (
+              <TabsTrigger
+                value="helm-upgrade"
+                data-testid="helm-upgrade-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Upgrade
+              </TabsTrigger>
+            )}
+            {target.namespace && AGENT_OPS_KINDS.has(target.kind) && (
+              <TabsTrigger
+                value="agent-ops"
+                data-testid="agent-ops-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Ask AI
+              </TabsTrigger>
+            )}
+          </TabsList>
+        </ScrollFade>
         <TabsContent value="details" className="min-h-0 overflow-y-auto text-sm">
           <DetailSections
             descriptor={descriptor}
@@ -341,7 +336,8 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
           <TabsContent value="helm-actions" className="min-h-0 flex-1 overflow-y-auto">
             {(() => {
               const helmDetail = detail as HelmReleaseDetails | undefined
-              const revision = helmDetail?.revision ?? (row as HelmReleaseSummary | undefined)?.revision
+              const revision =
+                helmDetail?.revision ?? (row as HelmReleaseSummary | undefined)?.revision
               if (revision === undefined) return <Loading rows={4} label="Loading release" />
               return (
                 <HelmReleaseActionsPanel
@@ -406,7 +402,10 @@ function Breadcrumb({
       {segments.map((seg, i) => {
         const isLast = i === segments.length - 1
         return (
-          <span key={`${seg.section}-${seg.namespace ?? ''}-${seg.name}-${String(i)}`} className="flex items-center gap-1">
+          <span
+            key={`${seg.section}-${seg.namespace ?? ''}-${seg.name}-${String(i)}`}
+            className="flex items-center gap-1"
+          >
             {i > 0 && <span aria-hidden="true">/</span>}
             {isLast ? (
               <span className="text-foreground">{seg.name}</span>

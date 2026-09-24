@@ -528,6 +528,21 @@ export interface LayoutState {
   focusedList?: PaneId
 }
 
+/** Transient shell overlays (032-ui-shell-a11y); never persisted. */
+export interface ShellUi {
+  paletteOpen: boolean
+  fleetOpen: boolean
+  askAiOpen: boolean
+  /** Ask AI sheet shows the assistant setup form instead of the conversation. */
+  askAiSetup: boolean
+  /** Laptop "Tools" overlay sheet: the tool shown in it, or undefined when closed. */
+  toolsSheet: ToolKind | undefined
+  /** Phone bottom-bar "More" sheet. */
+  moreOpen: boolean
+  /** Narrow context/namespace sheet. */
+  scopeOpen: boolean
+}
+
 /** The data part of the store (everything `ingest` may replace). */
 export interface StoreData {
   conn: ConnState
@@ -627,6 +642,7 @@ export interface StoreData {
    */
   helmMutations: Record<string, HelmMutationSession>
   layout: LayoutState
+  shell: ShellUi
   panes: Record<PaneId, PaneState>
   /**
    * In-progress YAML edits (US1, data-model.md "Resource Edit Session"), keyed like `details`.
@@ -679,6 +695,9 @@ export interface StoreState extends StoreData {
   navigate: (section: SectionKey) => void
   popPane: () => void
   setNavOpen: (open: boolean) => void
+  setShell: (patch: Partial<ShellUi>) => void
+  /** Find or create the (off-layout) pane hosting `tool`, for overlay sheets. */
+  ensureToolPane: (tool: ToolKind) => PaneId
   setConnection: (patch: Partial<ConnState>) => void
   notify: (level: Notice['level'], message: string) => void
   /** Switch kubeconfig context: sends `SetContext`; results for other contexts are then dropped. */
@@ -963,6 +982,15 @@ export function initialData(): StoreData {
       stack: slotPanes.slice(0, 1),
       navOpen: false,
     },
+    shell: {
+      paletteOpen: false,
+      fleetOpen: false,
+      askAiOpen: false,
+      askAiSetup: false,
+      toolsSheet: undefined,
+      moreOpen: false,
+      scopeOpen: false,
+    },
     panes,
     editSessions: {},
     selection: {},
@@ -1109,6 +1137,18 @@ export const useStore = create<StoreState>()((set, get) => ({
     ),
 
   setNavOpen: (open) => set((s) => ({ layout: { ...s.layout, navOpen: open } })),
+
+  setShell: (patch) => set((s) => ({ shell: { ...s.shell, ...patch } })),
+
+  ensureToolPane: (tool) => {
+    const existing = Object.values(get().panes).find(
+      (p) => p.kind === 'tool' && p.tool === tool && p.id.startsWith(`sheet-${tool}`),
+    )
+    if (existing) return existing.id
+    const id = nextId(get().panes, `sheet-${tool}`)
+    set((s) => ({ panes: { ...s.panes, [id]: newPane(id, 'tool', tool) } }))
+    return id
+  },
 
   setConnection: (patch) => set((s) => ({ conn: { ...s.conn, ...patch } })),
 

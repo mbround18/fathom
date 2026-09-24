@@ -11,6 +11,10 @@ import { Toaster } from '@/components/ui/sonner'
 import { useWidthClass } from '@/layout/use-width-class'
 import { useStore } from '@/store'
 
+import { AskAiSheet } from './AskAi'
+import { MoreSheet } from './MoreSheet'
+import { ScopeSheet } from './ScopeSheet'
+import { ToolsSheet } from './ToolsSheet'
 import { ClusterVersionBadge } from './ClusterVersionBadge'
 import { CommandPaletteHost } from './CommandPaletteHost'
 import { FederationContextSwitcher } from './FederationContextSwitcher'
@@ -59,7 +63,7 @@ export function AppShell() {
         <Sheet open={navOpen} onOpenChange={setNavOpen}>
           <SheetContent side="left" className="w-72 overflow-y-auto p-0 text-sm">
             <SheetHeader className="border-b border-border">
-              <SheetTitle className="font-display tracking-wider uppercase">Navigator</SheetTitle>
+              <SheetTitle className="font-display tracking-wider uppercase">Sections</SheetTitle>
               <SheetDescription className="sr-only">Choose a resource section</SheetDescription>
             </SheetHeader>
             <NavTree />
@@ -68,6 +72,10 @@ export function AppShell() {
       )}
       <ActionDialogHost />
       <CommandPaletteHost />
+      <AskAiSheet />
+      {widthClass === 'phone' && <ScopeSheet />}
+      {widthClass === 'phone' && <MoreSheet />}
+      {!narrow && <ToolsSheet />}
       {/* Narrow: toasts drop below the 44px top bar; error toasts stay until dismissed and must
           never cover the context/namespace pickers. */}
       <Toaster

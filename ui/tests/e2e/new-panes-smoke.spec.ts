@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, system } from '../fixtures/builders'
-import { emit, navigateTo, open, sentTypes } from './helpers'
+import { emit, navigateTo, open, openFleet, sentTypes } from './helpers'
 
 // Same shape as the 030 kind spec's loaded settings.
 const BASE_SETTINGS = {
@@ -30,7 +30,10 @@ test.describe('new panes smoke (desktop)', () => {
   let errors: string[] = []
 
   test.beforeEach(({ page }, info) => {
-    test.skip(!info.project.name.endsWith('-desktop'), 'dock tabs and pane layout are desktop-only here')
+    test.skip(
+      !info.project.name.endsWith('-desktop'),
+      'dock tabs and pane layout are desktop-only here',
+    )
     errors = []
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
     page.on('console', (m) => {
@@ -72,9 +75,14 @@ test.describe('new panes smoke (desktop)', () => {
     await open(page, 'manual')
     await emit(
       page,
-      batch([system(1, { type: 'ContextsUpdated', data: { contexts: ['prod', 'dev'], current: 'prod' } })]),
+      batch([
+        system(1, {
+          type: 'ContextsUpdated',
+          data: { contexts: ['prod', 'dev'], current: 'prod' },
+        }),
+      ]),
     )
-    await page.getByTestId('fleet-open').click()
+    await openFleet(page)
     await expect(page.getByTestId('fleet-dashboard')).toBeVisible()
   })
 
@@ -90,7 +98,12 @@ test.describe('new panes smoke (desktop)', () => {
     await expect.poll(() => sentTypes(page)).toContain('LoadClusterSettings')
     await emit(
       page,
-      batch([system(1, { type: 'ClusterSettingsLoaded', data: { context: 'kind-a', settings: BASE_SETTINGS } })]),
+      batch([
+        system(1, {
+          type: 'ClusterSettingsLoaded',
+          data: { context: 'kind-a', settings: BASE_SETTINGS },
+        }),
+      ]),
     )
     await expect(page.getByTestId('kind-clusters')).toBeVisible()
   })

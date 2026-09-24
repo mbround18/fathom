@@ -50,9 +50,30 @@ const REDIS_DETAILS: HelmReleaseDetails = {
   values_effective: 'replicaCount: 3\nimage:\n  repository: bitnami/redis\n  tag: 7.2.4',
   manifest: 'apiVersion: v1\nkind: Service\nmetadata:\n  name: redis',
   revisions: [
-    { revision: 3, status: 'Deployed', description: 'Upgrade complete', updated: REDIS.updated, app_version: '7.2.4', chart_version: '18.6.1' },
-    { revision: 2, status: 'Superseded', description: 'Upgrade complete', updated: '2024-01-10T10:00:00Z', app_version: '7.2.0', chart_version: '18.5.0' },
-    { revision: 1, status: 'Superseded', description: 'Install complete', updated: '2024-01-01T10:00:00Z', app_version: '7.1.0', chart_version: '18.0.0' },
+    {
+      revision: 3,
+      status: 'Deployed',
+      description: 'Upgrade complete',
+      updated: REDIS.updated,
+      app_version: '7.2.4',
+      chart_version: '18.6.1',
+    },
+    {
+      revision: 2,
+      status: 'Superseded',
+      description: 'Upgrade complete',
+      updated: '2024-01-10T10:00:00Z',
+      app_version: '7.2.0',
+      chart_version: '18.5.0',
+    },
+    {
+      revision: 1,
+      status: 'Superseded',
+      description: 'Install complete',
+      updated: '2024-01-01T10:00:00Z',
+      app_version: '7.1.0',
+      chart_version: '18.0.0',
+    },
   ],
   origin: null,
   related: [
@@ -91,7 +112,10 @@ async function selectRelease(page: Page, r: typeof REDIS): Promise<void> {
   await open(page)
   await navigateTo(page, 'Helm Releases', 'Overview')
   await expect.poll(() => sentTypes(page)).toContain('RefreshHelmReleases')
-  await emit(page, batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [r] })]))
+  await emit(
+    page,
+    batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [r] })]),
+  )
   await row(page, `${r.namespace}/${r.name}`, HELM).click()
   await expect
     .poll(() => sent(page))
@@ -109,7 +133,12 @@ test.describe('US3 Helm release full detail', () => {
     await selectRelease(page, REDIS)
     await emit(
       page,
-      batch([read(2, nsRoute('kind-a', HELM, REDIS.namespace), { type: 'HelmReleaseDetailsUpdated', data: REDIS_DETAILS })]),
+      batch([
+        read(2, nsRoute('kind-a', HELM, REDIS.namespace), {
+          type: 'HelmReleaseDetailsUpdated',
+          data: REDIS_DETAILS,
+        }),
+      ]),
     )
 
     const insp = inspector(page)
@@ -123,11 +152,18 @@ test.describe('US3 Helm release full detail', () => {
     await expect(insp).toContainText('owns')
   })
 
-  test('T038: a degraded release still renders from storage-object labels alone', async ({ page }) => {
+  test('T038: a degraded release still renders from storage-object labels alone', async ({
+    page,
+  }) => {
     await selectRelease(page, DEGRADED)
     await emit(
       page,
-      batch([read(2, nsRoute('kind-a', HELM, DEGRADED.namespace), { type: 'HelmReleaseDetailsUpdated', data: DEGRADED_DETAILS })]),
+      batch([
+        read(2, nsRoute('kind-a', HELM, DEGRADED.namespace), {
+          type: 'HelmReleaseDetailsUpdated',
+          data: DEGRADED_DETAILS,
+        }),
+      ]),
     )
 
     const insp = inspector(page)

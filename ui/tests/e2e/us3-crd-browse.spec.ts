@@ -7,7 +7,15 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import type { CrdCatalogEntry } from '../../src/protocol/types'
-import { batch, clusterRoute, globalRoute, list, read, SECTIONS, system } from '../fixtures/builders'
+import {
+  batch,
+  clusterRoute,
+  globalRoute,
+  list,
+  read,
+  SECTIONS,
+  system,
+} from '../fixtures/builders'
 import { emit, open, sent, sentTypes } from './helpers'
 
 function catalog(seq: number, entries: CrdCatalogEntry[]) {
@@ -82,7 +90,7 @@ async function goToCustomResources(page: Page) {
   await open(page)
   const nav = page.getByRole('navigation', { name: 'Sections' })
   if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open navigator' }).click()
+    await page.getByRole('button', { name: 'Open sections' }).click()
   }
   await expect(nav).toBeVisible()
   const toggle = nav.getByRole('button', { name: 'Custom Resources', expanded: false })
@@ -130,7 +138,10 @@ test.describe('US3 Custom Resource browsing', () => {
 
     // Cluster-scoped: instances carry no namespace.
     await page.getByRole('option', { name: /Gadget/ }).click()
-    await emit(page, instances(102, 'example.com', 'Gadget', 'v1', null, [gadgetJson('gadget-one')]))
+    await emit(
+      page,
+      instances(102, 'example.com', 'Gadget', 'v1', null, [gadgetJson('gadget-one')]),
+    )
     const row = page.locator('[role="row"][data-row-key="gadget-one"]')
     await expect(row).toBeVisible()
     await expect(row).toContainText('—')
@@ -148,9 +159,7 @@ test.describe('US3 Custom Resource browsing', () => {
     )
 
     await page.locator('[role="row"][data-row-key="team-a/widget-one"]').click()
-    await expect
-      .poll(() => sentTypes(page))
-      .toEqual(expect.arrayContaining(['SelectCrdInstance']))
+    await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['SelectCrdInstance']))
 
     await emit(
       page,

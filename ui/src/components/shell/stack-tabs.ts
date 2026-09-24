@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   CertificateIcon,
   ListChecksIcon,
   PlugsIcon,
@@ -78,3 +79,23 @@ export function useActiveTab(tabs: readonly StackTab[]): StackTab | undefined {
     return tabs.find((t) => t.kind === 'list')
   })
 }
+
+export const VELERO_TAB: StackTab = {
+  label: 'Velero',
+  icon: ArchiveIcon,
+  kind: 'tool',
+  tool: 'velero',
+}
+
+/** Every tool pane reachable from an overlay/"More" surface, in display order. */
+export const ALL_TOOL_TABS: readonly StackTab[] = [
+  LOGS_TAB,
+  EVENTS_TAB,
+  FORWARDS_TAB,
+  TOPOLOGY_TAB,
+  VELERO_TAB,
+  KNATIVE_TAB,
+  KEDA_TAB,
+  LINTER_TAB,
+  CERTIFICATES_TAB,
+]
