@@ -31,6 +31,7 @@ export function AppShell() {
   const { widthClass } = useWidthClass()
   const navOpen = useStore((s) => s.layout.navOpen)
   const setNavOpen = useStore((s) => s.setNavOpen)
+  const isHosted = useStore((s) => s.hosted.mode === 'hosted')
   const narrow = widthClass === 'phone' || widthClass === 'tablet'
 
   return (
@@ -41,7 +42,7 @@ export function AppShell() {
       <TopBar widthClass={widthClass} />
       <div className="flex w-full shrink-0 items-center">
         <div className="min-w-0 flex-1">
-          <FederationContextSwitcher />
+          {!isHosted && <FederationContextSwitcher />}
         </div>
         <ClusterVersionBadge />
       </div>

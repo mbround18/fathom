@@ -132,3 +132,9 @@ export function actionToast(page: Page, type: 'success' | 'error' | 'loading'): 
 
 export const confirmDialog = (page: Page): Locator => page.getByTestId('confirm-dialog')
 export const scaleDialog = (page: Page): Locator => page.getByTestId('scale-dialog')
+
+/** Open the fake backend presenting as a hosted shell (031-hosted-server-mode). */
+export async function openHosted(page: Page, qs = 'user=alice&groups=dev,ops'): Promise<void> {
+  await page.goto(`/?scenario=default&mode=hosted&${qs}`)
+  await page.waitForFunction(() => window.__fathomFake !== undefined)
+}

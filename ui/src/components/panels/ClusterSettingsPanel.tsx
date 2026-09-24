@@ -30,6 +30,7 @@ function cloneSettings(s: ClusterSettings): ClusterSettings {
 
 export function ClusterSettingsPanel() {
   const request = useStore((s) => s.request)
+  const hosted = useStore((s) => s.hosted.mode === 'hosted')
   const send = useStore((s) => s.send)
   const activeContext = useStore((s) => s.session.activeContext)
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
@@ -282,10 +283,10 @@ export function ClusterSettingsPanel() {
 
       {/* 015-mcp-agent-exposure: which agents can reach this cluster, and how. Owns its own
           commands and store slice; nothing here feeds the §10 settings draft above. */}
-      <AvailableAgentsSection />
+      {!hosted && <AvailableAgentsSection />}
 
       {/* 030-kind-cluster-provisioning: create/delete disposable local kind clusters. */}
-      <KindClusterPanel />
+      {!hosted && <KindClusterPanel />}
 
       {formError !== undefined && (
         <p role="alert" data-testid="teams-cluster-settings-error" className="text-xs text-status-err">

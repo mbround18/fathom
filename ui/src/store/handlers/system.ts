@@ -54,12 +54,18 @@ export function handleCommandFinished(
 
 export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemEvent): void {
   switch (event.type) {
+    // A transient reconnect re-delivers this: nothing to do, and never resets hosted state.
     case 'BackendStarted':
       return
 
-    // 031-hosted-server-mode: state handling lands with the hosted UI (T031).
     case 'SessionEnded':
+      d.put('hosted', { ...d.read('hosted'), sessionEnded: event.data.reason })
+      return
     case 'LimitReached':
+      d.put('hosted', {
+        ...d.read('hosted'),
+        limitReached: { kind: event.data.kind, max: event.data.max },
+      })
       return
 
     case 'Notification': {
