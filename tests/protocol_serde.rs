@@ -1407,6 +1407,11 @@ fn all_cmds() -> Vec<BackendCmd> {
         },
         BackendCmd::ResizePodExec { cols: 80, rows: 24 },
         BackendCmd::StopPodExec,
+        BackendCmd::CheckPodExecAccess {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+            container: Some("s".to_owned()),
+        },
         BackendCmd::RefreshDeployments,
         BackendCmd::SelectDeployment {
             namespace: "s".to_owned(),
@@ -1976,6 +1981,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SendPodExecInput { .. } => {}
         BackendCmd::ResizePodExec { .. } => {}
         BackendCmd::StopPodExec => {}
+        BackendCmd::CheckPodExecAccess { .. } => {}
         BackendCmd::RefreshDeployments => {}
         BackendCmd::SelectDeployment { .. } => {}
         BackendCmd::ScaleDeployment { .. } => {}
@@ -2602,6 +2608,13 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
         },
         ResourceReadEvent::NamespaceAccessResolved(sample_namespace_access_resolved()),
         ResourceReadEvent::KubeadmDetectionUpdated(sample_kubeadm_detection_result()),
+        ResourceReadEvent::PodExecAccessChecked {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+            container: Some("s".to_owned()),
+            allowed: false,
+            reason: Some("s".to_owned()),
+        },
     ]
 }
 
@@ -2702,6 +2715,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::RbacSelfAccessUpdated { .. } => {}
         ResourceReadEvent::NamespaceAccessResolved(..) => {}
         ResourceReadEvent::KubeadmDetectionUpdated(..) => {}
+        ResourceReadEvent::PodExecAccessChecked { .. } => {}
     }
 }
 

@@ -431,6 +431,17 @@ pub enum ResourceReadEvent {
     /// Reply for `RefreshKubeadmDetection` (011-rbac-oidc-administration, Story 5). Never an
     /// error: an unreadable/absent ConfigMap simply yields `checked: false`.
     KubeadmDetectionUpdated(KubeadmDetectionResult),
+    /// Reply for `CheckPodExecAccess` (024-pod-exec-terminal): a live, proactive
+    /// `pods/exec` `SelfSubjectAccessReview` result, checked before the exec-session
+    /// confirmation is shown. `reason` MUST be `Some` when the underlying review call
+    /// itself errored; it MAY be `None` for a plain server-side deny with no explanation.
+    PodExecAccessChecked {
+        namespace: String,
+        name: String,
+        container: Option<String>,
+        allowed: bool,
+        reason: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -649,6 +660,24 @@ mod tests {
                 name: "api-0".to_owned(),
             },
             conversation: super::super::AgentConversation::default(),
+        });
+    }
+
+    #[test]
+    fn pod_exec_access_checked_roundtrip() {
+        resource_read_roundtrip(ResourceReadEvent::PodExecAccessChecked {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: Some("app".to_owned()),
+            allowed: true,
+            reason: None,
+        });
+        resource_read_roundtrip(ResourceReadEvent::PodExecAccessChecked {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: None,
+            allowed: false,
+            reason: Some("forbidden: user cannot create pods/exec".to_owned()),
         });
     }
 

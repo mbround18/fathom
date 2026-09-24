@@ -60,10 +60,12 @@ impl BackendCmdV1 {
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
-            | C::StartPodExec { .. }
             | C::SendPodExecInput { .. }
             | C::ResizePodExec { .. }
             | C::StopPodExec
+            // 024-pod-exec-terminal: the proactive `pods/exec` permission pre-check is a
+            // read-only `SelfSubjectAccessReview`, shown before the exec confirmation.
+            | C::CheckPodExecAccess { .. }
             | C::RefreshDeployments
             | C::SelectDeployment { .. }
             | C::RefreshDaemonSets
@@ -214,7 +216,15 @@ impl BackendCmdV1 {
             },
 
             // Namespaced cluster writes.
-            C::DeletePod { namespace, .. }
+            //
+            // 024-pod-exec-terminal: `StartPodExec` is not a CRUD mutation, but opening an
+            // interactive shell into a container is effectively RCE-into-pod, so it is
+            // classified here on purpose — this is the enforceable gate (e.g.
+            // `tools/devbridge/src/guard.rs`'s sandbox guard treats it exactly like any
+            // other namespaced write). `SendPodExecInput`/`ResizePodExec`/`StopPodExec` stay
+            // `ReadOnly` above: only the act of opening a session is gated.
+            C::StartPodExec { namespace, .. }
+            | C::DeletePod { namespace, .. }
             | C::ScaleDeployment { namespace, .. }
             | C::RestartDeployment { namespace, .. }
             | C::DeleteDeployment { namespace, .. }
@@ -340,6 +350,7 @@ impl BackendCmdV1 {
             | C::SendPodExecInput { .. }
             | C::ResizePodExec { .. }
             | C::StopPodExec
+            | C::CheckPodExecAccess { .. }
             | C::StartMetricsPolling { .. }
             | C::StopMetricsPolling
             | C::BulkDelete { .. } => section_keys::workloads_pods(),
@@ -618,10 +629,45 @@ mod tests {
                 namespace: s("fathom-dev"),
                 name: s("l"),
             },
+            // 024-pod-exec-terminal: opening an exec session is gated like a mutation
+            // even though it writes no Kubernetes object (see the comment on this arm in
+            // `mutation_target()`).
+            BackendCmdV1::StartPodExec {
+                namespace: s("fathom-dev"),
+                name: s("p"),
+                container: None,
+            },
         ];
         for cmd in cases {
             assert_eq!(cmd.mutation_target(), nsn("fathom-dev"), "{cmd:?}");
             assert!(cmd.mutation_target().writes_cluster());
+        }
+    }
+
+    /// 024-pod-exec-terminal: `StartPodExec` MUST be gated like a mutation (contracts/
+    /// protocol.md's reclassification contract), while every other exec command stays a
+    /// pure read.
+    #[test]
+    fn start_pod_exec_is_namespaced_not_read_only() {
+        let start = BackendCmdV1::StartPodExec {
+            namespace: s("fathom-dev"),
+            name: s("p"),
+            container: Some(s("app")),
+        };
+        assert_eq!(start.mutation_target(), nsn("fathom-dev"));
+        assert!(start.mutation_target().writes_cluster());
+
+        for cmd in [
+            BackendCmdV1::SendPodExecInput { data: s("bHM=") },
+            BackendCmdV1::ResizePodExec { cols: 80, rows: 24 },
+            BackendCmdV1::StopPodExec,
+            BackendCmdV1::CheckPodExecAccess {
+                namespace: s("fathom-dev"),
+                name: s("p"),
+                container: None,
+            },
+        ] {
+            assert_eq!(cmd.mutation_target(), MutationTarget::ReadOnly, "{cmd:?}");
         }
     }
 

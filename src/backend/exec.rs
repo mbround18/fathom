@@ -12,12 +12,16 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use crossbeam_channel::Sender;
 use futures::SinkExt;
+use k8s_openapi::api::authorization::v1::{
+    ResourceAttributes, SelfSubjectAccessReview, SelfSubjectAccessReviewSpec,
+};
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, AttachParams, AttachedProcess, TerminalSize};
+use kube::api::{Api, AttachParams, AttachedProcess, PostParams, TerminalSize};
 use tokio::io::AsyncReadExt;
 
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, Correlation, Route, StreamEvent, section_keys,
+    BackendEvent, BackendEventEnvelope, Correlation, ResourceReadEvent, Route, StreamEvent,
+    section_keys,
 };
 
 use super::{events, state::BackendState};
@@ -137,6 +141,62 @@ pub(super) async fn start_exec(
         BackendEvent::Stream(StreamEvent::PodExecReady { stream_id }),
     );
     Ok(())
+}
+
+/// 024-pod-exec-terminal: proactive `pods/exec` permission pre-check (one
+/// `SelfSubjectAccessReview`). A review call that itself errors is reported as
+/// `allowed: false` with the error as the reason (fail safe).
+pub(super) async fn check_access(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: String,
+    name: String,
+    container: Option<String>,
+) -> anyhow::Result<()> {
+    let client = state.cluster.client_or_err()?;
+    let api: Api<SelfSubjectAccessReview> = Api::all(client);
+    let review = exec_access_review(&namespace, &name);
+    let (allowed, reason) = match api.create(&PostParams::default(), &review).await {
+        Ok(reviewed) => {
+            let status = reviewed.status.unwrap_or_default();
+            (status.allowed, status.reason.or(status.evaluation_error))
+        }
+        Err(err) => (false, Some(err.to_string())),
+    };
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        exec_route(state, &namespace),
+        Correlation::None,
+        BackendEvent::ResourceRead(ResourceReadEvent::PodExecAccessChecked {
+            namespace,
+            name,
+            container,
+            allowed,
+            reason,
+        }),
+    );
+    Ok(())
+}
+
+fn exec_access_review(namespace: &str, name: &str) -> SelfSubjectAccessReview {
+    SelfSubjectAccessReview {
+        metadata: Default::default(),
+        spec: SelfSubjectAccessReviewSpec {
+            resource_attributes: Some(ResourceAttributes {
+                // Core API group is the empty string (NOT rbac.authorization.k8s.io).
+                group: Some(String::new()),
+                resource: Some("pods".to_owned()),
+                subresource: Some("exec".to_owned()),
+                verb: Some("create".to_owned()),
+                namespace: Some(namespace.to_owned()),
+                name: Some(name.to_owned()),
+                ..Default::default()
+            }),
+            non_resource_attributes: None,
+        },
+        status: None,
+    }
 }
 
 /// Try `/bin/bash`, then `/bin/sh` once, per research.md R1/R2.
@@ -288,6 +348,18 @@ pub(super) fn stop(state: &mut BackendState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exec_access_review_targets_core_pods_exec_create() {
+        let review = exec_access_review("ns", "web-0");
+        let ra = review.spec.resource_attributes.unwrap();
+        assert_eq!(ra.group.as_deref(), Some(""));
+        assert_eq!(ra.resource.as_deref(), Some("pods"));
+        assert_eq!(ra.subresource.as_deref(), Some("exec"));
+        assert_eq!(ra.verb.as_deref(), Some("create"));
+        assert_eq!(ra.namespace.as_deref(), Some("ns"));
+        assert_eq!(ra.name.as_deref(), Some("web-0"));
+    }
 
     fn forbidden_error() -> kube::Error {
         kube::Error::Api(kube::core::ErrorResponse {
