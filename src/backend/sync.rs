@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use super::state::BackendState;
-use super::{deployments, events, flux, hubble, pods};
+use super::{deployments, events, flux, gatekeeper, hubble, pods};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -111,6 +111,60 @@ pub(super) async fn ensure_flux_poll(
         sender.clone(),
         state.cluster.current_context.clone(),
     )));
+}
+
+/// Best-effort: start (or keep running) a background scan of OPA Gatekeeper constraints
+/// every 20s, emitting `GatekeeperOverviewUpdated`. Does nothing if a poll task is already
+/// running; `scan_gatekeeper` itself reports `GatekeeperInstallState::NotInstalled` when
+/// Gatekeeper's CRDs are absent, so there is no separate detection gate here.
+pub(super) async fn ensure_gatekeeper_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.gatekeeper_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.gatekeeper_poll_task = Some(tokio::spawn(poll_gatekeeper_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan Gatekeeper constraints every 20s and emit the aggregated overview.
+async fn poll_gatekeeper_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match gatekeeper::scan_gatekeeper(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_gatekeeper(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::GatekeeperOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Gatekeeper scan failed: {}", e),
+                );
+            }
+        }
+    }
 }
 
 /// Background task: rescan Flux resources every 20s and emit the aggregated overview.

@@ -281,6 +281,11 @@ pub mod section_keys {
         SectionKey::new("integrations/hubble")
     }
 
+    /// 020-gatekeeper-policy-pane: OPA Gatekeeper constraint compliance view.
+    pub fn integrations_gatekeeper() -> SectionKey {
+        SectionKey::new("integrations/gatekeeper")
+    }
+
     pub fn network_portforwards() -> SectionKey {
         SectionKey::new("network/portforwards")
     }

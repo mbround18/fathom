@@ -324,6 +324,7 @@ pub enum BackendCmdV1 {
     },
     RefreshFlux,
     RefreshHubble,
+    RefreshGatekeeper,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
     // Bulk operations
@@ -1133,5 +1134,10 @@ mod tests {
         roundtrip(BackendCmdV1::LoadMcpServerStatus);
         roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: true });
         roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: false });
+    }
+
+    #[test]
+    fn refresh_gatekeeper_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshGatekeeper);
     }
 }

@@ -4,23 +4,23 @@ use super::{
     ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation, CronJobDetails,
     CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
     EndpointDetails, EndpointSummary, EventsSummary, FluxOverview, FluxResourceSummary,
-    HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails,
-    HelmReleaseSummary, HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary,
-    HubbleTrafficSummary, IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary,
-    JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
-    LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
-    NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
-    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
-    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
-    RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
-    ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
-    RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
-    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
-    StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
-    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
-    WorkloadMetricsAggregate,
+    GatekeeperOverview, HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady,
+    HelmReleaseDetails, HelmReleaseSummary, HorizontalPodAutoscalerDetails,
+    HorizontalPodAutoscalerSummary, HubbleTrafficSummary, IngressClassDetails, IngressClassSummary,
+    IngressDetails, IngressSummary, JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails,
+    LeaseSummary, LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
+    MutatingWebhookConfigurationSummary, NamespaceAccessResolved, NamespaceDetails,
+    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
+    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
+    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
+    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
+    PrometheusMetrics, RbacAccessResult, RelatedResourceRef, ReplicaSetSummary,
+    ReplicationControllerDetails, ReplicationControllerSummary, ResourceQuotaDetails,
+    ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
+    RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, SectionKey,
+    ServiceDetails, ServiceSummary, StatefulSetDetails, StatefulSetSummary, StorageClassDetails,
+    StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
+    ValidatingWebhookConfigurationSummary, WorkloadMetricsAggregate,
 };
 use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
 use serde::{Deserialize, Serialize};
@@ -133,6 +133,9 @@ pub enum SystemEvent {
 
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),
+
+    /// OPA Gatekeeper constraint compliance state (020-gatekeeper-policy-pane).
+    GatekeeperOverviewUpdated(GatekeeperOverview),
 
     /// A rollback/upgrade diff-preview was computed; nothing has been mutated yet (006).
     HelmMutationPreviewReady(HelmMutationPreviewReady),
@@ -526,6 +529,9 @@ pub type BackendEvent = BackendEventV1;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{
+        GatekeeperConstraintSummary, GatekeeperInstallState, GatekeeperViolation,
+    };
 
     fn roundtrip(event: StreamEvent) {
         let json = serde_json::to_string(&event).unwrap();
@@ -721,5 +727,34 @@ mod tests {
                 current_rev: 2,
             },
         });
+    }
+
+    #[test]
+    fn gatekeeper_overview_updated_roundtrip() {
+        system_roundtrip(SystemEvent::GatekeeperOverviewUpdated(GatekeeperOverview {
+            state: GatekeeperInstallState::Active,
+            error: String::new(),
+            constraints: vec![GatekeeperConstraintSummary {
+                kind: "K8sRequiredLabels".to_owned(),
+                name: "require-team-label".to_owned(),
+                enforcement_action: "deny".to_owned(),
+                total_violations: Some(1),
+                violations: vec![GatekeeperViolation {
+                    section: SectionKey::new("workloads/pods"),
+                    kind: "Pod".to_owned(),
+                    namespace: "default".to_owned(),
+                    name: "nginx".to_owned(),
+                    enforcement_action: "deny".to_owned(),
+                    message: "missing required label \"team\"".to_owned(),
+                }],
+                violations_truncated: false,
+                template_missing: false,
+            }],
+        }));
+        system_roundtrip(SystemEvent::GatekeeperOverviewUpdated(GatekeeperOverview {
+            state: GatekeeperInstallState::NotInstalled,
+            error: String::new(),
+            constraints: Vec::new(),
+        }));
     }
 }
