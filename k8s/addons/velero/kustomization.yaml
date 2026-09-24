@@ -1,0 +1,33 @@
+# Velero with an in-cluster RustFS as the backup store so BackupStorageLocation is Available.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rustfs.yaml
+helmCharts:
+  - name: velero
+    repo: https://vmware-tanzu.github.io/helm-charts
+    version: 7.2.1
+    releaseName: velero
+    namespace: velero
+    includeCRDs: true
+    valuesInline:
+      initContainers:
+        - name: velero-plugin-for-aws
+          image: velero/velero-plugin-for-aws:v1.10.1
+          volumeMounts: [{mountPath: /target, name: plugins}]
+      configuration:
+        backupStorageLocation:
+          - name: default
+            provider: aws
+            bucket: velero
+            config: {region: us-east-1, s3ForcePathStyle: "true", s3Url: "http://rustfs.velero.svc:9000"}
+        volumeSnapshotLocation: []
+      credentials:
+        secretContents:
+          cloud: |
+            [default]
+            aws_access_key_id=rustfsadmin
+            aws_secret_access_key=rustfsadmin
+      deployNodeAgent: false
+      upgradeCRDs: false
+      cleanUpCRDs: false
