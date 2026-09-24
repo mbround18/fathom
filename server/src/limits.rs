@@ -207,7 +207,13 @@ mod tests {
         let a = c.watch().unwrap();
         let _b = c.watch().unwrap();
         let err = c.watch().unwrap_err();
-        assert_eq!(err, LimitReached { kind: LimitKind::Watches, max: 2 });
+        assert_eq!(
+            err,
+            LimitReached {
+                kind: LimitKind::Watches,
+                max: 2
+            }
+        );
         assert_eq!(c.watches(), 2);
         drop(a);
         assert_eq!(c.watches(), 1);
@@ -221,7 +227,13 @@ mod tests {
         assert_eq!(c.stream().unwrap_err().kind, LimitKind::Streams);
         let _t1 = c.tab().unwrap();
         let _t2 = c.tab().unwrap();
-        assert_eq!(c.tab().unwrap_err(), LimitReached { kind: LimitKind::Tabs, max: 2 });
+        assert_eq!(
+            c.tab().unwrap_err(),
+            LimitReached {
+                kind: LimitKind::Tabs,
+                max: 2
+            }
+        );
         assert!(c.watch().is_ok());
     }
 
@@ -239,11 +251,23 @@ mod tests {
         let _a1 = l.acquire_session("alice").unwrap();
         let _a2 = l.acquire_session("alice").unwrap();
         let e = l.acquire_session("alice").unwrap_err();
-        assert_eq!(e, LimitReached { kind: LimitKind::Sessions, max: 2 });
+        assert_eq!(
+            e,
+            LimitReached {
+                kind: LimitKind::Sessions,
+                max: 2
+            }
+        );
         let _b1 = l.acquire_session("bob").unwrap();
         // global is 3: a third user is refused with the global max
         let e = l.acquire_session("carol").unwrap_err();
-        assert_eq!(e, LimitReached { kind: LimitKind::Sessions, max: 3 });
+        assert_eq!(
+            e,
+            LimitReached {
+                kind: LimitKind::Sessions,
+                max: 3
+            }
+        );
         assert_eq!(l.sessions(), 3);
     }
 
@@ -273,7 +297,10 @@ mod tests {
 
     #[test]
     fn concurrent_acquire_never_exceeds_max() {
-        let c = UserCounters::new(&SessionLimits { max_watches_per_user: 5, ..small() });
+        let c = UserCounters::new(&SessionLimits {
+            max_watches_per_user: 5,
+            ..small()
+        });
         let held = Arc::new(Mutex::new(Vec::new()));
         std::thread::scope(|s| {
             for _ in 0..16 {

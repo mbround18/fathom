@@ -70,9 +70,7 @@ mod tests {
         let mut first = true;
         for line in body.lines() {
             let t = line.trim();
-            if depth == 1
-                && t.chars().next().is_some_and(|c| c.is_ascii_uppercase())
-            {
+            if depth == 1 && t.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
                 let n: String = t.chars().take_while(|c| c.is_alphanumeric()).collect();
                 names.push(n);
             }
@@ -94,18 +92,40 @@ mod tests {
     /// Every variant, with the hosted verdict it must have. `true` = allowed.
     fn table() -> BTreeMap<&'static str, bool> {
         const DENIED: &[&str] = &[
-            "Shutdown", "RefreshContexts", "SetContext",
-            "RefreshKindPrerequisites", "RefreshKindClusters", "CreateKindCluster",
-            "CancelCreateKindCluster", "DeleteKindCluster",
-            "LoadMcpServerStatus", "SetMcpServerEnabled", "StartMcpDemoChat",
-            "StopMcpDemoChat", "SendMcpDemoChatInput", "ResizeMcpDemoChat",
-            "StartFleetPolling", "StopFleetPolling",
-            "LoadUiConfig", "SaveUiConfig", "LoadClusterSettings", "SaveClusterSettings",
-            "RefreshTeamStoreStatus", "SetTeamStorePath", "RefreshConnectionProfiles",
-            "PublishConnectionProfile", "AdoptConnectionProfile", "RemoveConnectionProfile",
-            "PublishOrgClusterSettings", "AcceptOrgClusterSettings",
-            "DismissOrgClusterSettings", "ConfigurePrometheus", "ConfigureGrafana",
-            "TestPrometheusConnection", "TestGrafanaConnection", "SimulateSlowCall",
+            "Shutdown",
+            "RefreshContexts",
+            "SetContext",
+            "RefreshKindPrerequisites",
+            "RefreshKindClusters",
+            "CreateKindCluster",
+            "CancelCreateKindCluster",
+            "DeleteKindCluster",
+            "LoadMcpServerStatus",
+            "SetMcpServerEnabled",
+            "StartMcpDemoChat",
+            "StopMcpDemoChat",
+            "SendMcpDemoChatInput",
+            "ResizeMcpDemoChat",
+            "StartFleetPolling",
+            "StopFleetPolling",
+            "LoadUiConfig",
+            "SaveUiConfig",
+            "LoadClusterSettings",
+            "SaveClusterSettings",
+            "RefreshTeamStoreStatus",
+            "SetTeamStorePath",
+            "RefreshConnectionProfiles",
+            "PublishConnectionProfile",
+            "AdoptConnectionProfile",
+            "RemoveConnectionProfile",
+            "PublishOrgClusterSettings",
+            "AcceptOrgClusterSettings",
+            "DismissOrgClusterSettings",
+            "ConfigurePrometheus",
+            "ConfigureGrafana",
+            "TestPrometheusConnection",
+            "TestGrafanaConnection",
+            "SimulateSlowCall",
         ];
         let mut t = BTreeMap::new();
         for n in declared_variants() {
@@ -160,13 +180,34 @@ mod tests {
             ("PublishOrgClusterSettings", json!({"context": "c"})),
             ("AcceptOrgClusterSettings", json!({"context": "c"})),
             ("DismissOrgClusterSettings", json!({"context": "c"})),
-            ("ConfigurePrometheus", json!({"namespace":"n","service":"s","port":9090})),
-            ("ConfigureGrafana", json!({"base_url":"http://x","api_key":"k"})),
-            ("TestPrometheusConnection", json!({"namespace":"n","service":"s","port":9090})),
-            ("TestGrafanaConnection", json!({"base_url":"http://x","api_key":"k"})),
-            ("AgentOpenConversation", json!({"object":{"kind":"Pod","namespace":"n","name":"p"}})),
-            ("AgentAsk", json!({"object":{"kind":"Pod","namespace":"n","name":"p"},"question":"q"})),
-            ("AgentReviewSuggestedAction", json!({"object":{"kind":"Pod","namespace":"n","name":"p"},"suggestion_id":"s"})),
+            (
+                "ConfigurePrometheus",
+                json!({"namespace":"n","service":"s","port":9090}),
+            ),
+            (
+                "ConfigureGrafana",
+                json!({"base_url":"http://x","api_key":"k"}),
+            ),
+            (
+                "TestPrometheusConnection",
+                json!({"namespace":"n","service":"s","port":9090}),
+            ),
+            (
+                "TestGrafanaConnection",
+                json!({"base_url":"http://x","api_key":"k"}),
+            ),
+            (
+                "AgentOpenConversation",
+                json!({"object":{"kind":"Pod","namespace":"n","name":"p"}}),
+            ),
+            (
+                "AgentAsk",
+                json!({"object":{"kind":"Pod","namespace":"n","name":"p"},"question":"q"}),
+            ),
+            (
+                "AgentReviewSuggestedAction",
+                json!({"object":{"kind":"Pod","namespace":"n","name":"p"},"suggestion_id":"s"}),
+            ),
         ];
         for (name, data) in samples {
             let cmd = parse(json!({"type": name, "data": data}))
@@ -182,7 +223,10 @@ mod tests {
         assert!(check(&home, HOME).is_ok());
         for other in ["kind-dev", "", "In-Cluster", "in-cluster "] {
             let c = parse(json!({"type":"SetContext","data":{"context":other}})).unwrap();
-            assert_eq!(check(&c, HOME).unwrap_err().reason, HostedDenial::ContextSwitch);
+            assert_eq!(
+                check(&c, HOME).unwrap_err().reason,
+                HostedDenial::ContextSwitch
+            );
         }
     }
 
