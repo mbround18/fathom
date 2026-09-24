@@ -1,4 +1,5 @@
 /** `BackendEvent::Stream` arm: log chunks into ring buffers (rule 4) and tunnel status. */
+import { resetCapabilities } from '@/lib/capabilities'
 import type { StreamEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
@@ -92,6 +93,8 @@ export function handleStream(d: Draft, event: StreamEvent): void {
       }
       return
     case 'ResourceApplied': {
+      // An apply may have changed RBAC: cached capability answers are re-asked (033 T031).
+      d.effects.push(resetCapabilities)
       // T022: the session awaiting this apply's request id (matched, not just "the" open
       // session, since the operator could in principle re-open the tab before this arrives).
       const sessions = d.read('editSessions')

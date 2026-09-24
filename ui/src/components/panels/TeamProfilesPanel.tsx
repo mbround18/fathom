@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { Input } from '@/components/ui/input'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
@@ -117,7 +118,9 @@ export function TeamProfilesPanel() {
       className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4"
     >
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-semibold tracking-wider uppercase">Shared team store</legend>
+        <legend className="text-xs font-semibold tracking-wider uppercase">
+          Shared team store
+        </legend>
         <div className="flex gap-2">
           <Input
             data-testid="teams-store-path-input"
@@ -191,14 +194,16 @@ export function TeamProfilesPanel() {
             {publishError}
           </p>
         )}
-        <Button
-          type="button"
-          data-testid="teams-publish-profile"
-          onClick={publish}
-          disabled={publishing}
-        >
-          {publishing ? 'Publishing…' : 'Publish'}
-        </Button>
+        <Gated verb="get" resource="namespaces">
+          <Button
+            type="button"
+            data-testid="teams-publish-profile"
+            onClick={publish}
+            disabled={publishing}
+          >
+            {publishing ? 'Publishing…' : 'Publish'}
+          </Button>
+        </Gated>
       </fieldset>
 
       <section className="flex flex-col gap-2">
@@ -216,7 +221,10 @@ export function TeamProfilesPanel() {
                 <span>
                   <strong>{a.profile.contextAlias}</strong> — {a.profile.apiServer}
                   {a.profile.removed && (
-                    <span data-testid="teams-profile-no-longer-shared" className="ml-2 text-status-err">
+                    <span
+                      data-testid="teams-profile-no-longer-shared"
+                      className="ml-2 text-status-err"
+                    >
                       no longer shared
                     </span>
                   )}

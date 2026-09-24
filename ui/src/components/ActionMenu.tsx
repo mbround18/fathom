@@ -28,6 +28,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Gated } from '@/lib/capabilities'
 import { cn } from '@/lib/utils'
 import {
   descriptorFor,
@@ -39,7 +40,7 @@ import { actionsFor } from '@/resources/actions'
 import { objectName, summarize } from '@/store/actions'
 import { listKey, useStore, type ListRow, type PaneId, type PaneState } from '@/store'
 
-import { promptAction, useCheckedRows } from './action-utils'
+import { actionTarget, promptAction, useCheckedRows } from './action-utils'
 
 const ICON: Record<ActionDescriptor<unknown>['id'], Icon> = {
   delete: TrashIcon,
@@ -67,17 +68,21 @@ function ActionItems({
     return (
       <div key={a.id} className="contents">
         {a.destructive && i > 0 && <DropdownMenuSeparator />}
-        <DropdownMenuItem
-          data-testid={`action-${a.id}`}
-          variant={a.destructive ? 'destructive' : 'default'}
-          onSelect={() => onPick(a)}
-          className="min-h-[max(2rem,var(--touch-target))] font-display text-xs font-semibold tracking-wider uppercase"
-        >
-          <IconCmp aria-hidden="true" />
-          {a.label}
-          {rows.length > 1 ? ` ${String(rows.length)}` : ''}…
-          {a.id === 'delete' && <DropdownMenuShortcut aria-hidden="true">Del</DropdownMenuShortcut>}
-        </DropdownMenuItem>
+        <Gated {...actionTarget(descriptor, a, rows)}>
+          <DropdownMenuItem
+            data-testid={`action-${a.id}`}
+            variant={a.destructive ? 'destructive' : 'default'}
+            onSelect={() => onPick(a)}
+            className="min-h-[max(2rem,var(--touch-target))] font-display text-xs font-semibold tracking-wider uppercase"
+          >
+            <IconCmp aria-hidden="true" />
+            {a.label}
+            {rows.length > 1 ? ` ${String(rows.length)}` : ''}…
+            {a.id === 'delete' && (
+              <DropdownMenuShortcut aria-hidden="true">Del</DropdownMenuShortcut>
+            )}
+          </DropdownMenuItem>
+        </Gated>
       </div>
     )
   })
@@ -279,22 +284,23 @@ export function SelectionBar({
       {actions.map((a) => {
         const IconCmp = ICON[a.id]
         return (
-          <Button
-            key={a.id}
-            variant={a.destructive ? 'destructive' : 'ghost'}
-            data-testid={`bulk-${a.id}`}
-            onClick={(e) =>
-              promptAction(descriptor, a, checked, {
-                paneId: pane.id,
-                returnFocus: focusGrid() ?? e.currentTarget,
-              })
-            }
-            className="h-[max(2rem,var(--touch-target))] px-2.5"
-          >
-            <IconCmp aria-hidden="true" data-icon="inline-start" />
-            {a.label}
-            {checked.length > 1 ? ` ${String(checked.length)}` : ''}
-          </Button>
+          <Gated key={a.id} {...actionTarget(descriptor, a, checked)}>
+            <Button
+              variant={a.destructive ? 'destructive' : 'ghost'}
+              data-testid={`bulk-${a.id}`}
+              onClick={(e) =>
+                promptAction(descriptor, a, checked, {
+                  paneId: pane.id,
+                  returnFocus: focusGrid() ?? e.currentTarget,
+                })
+              }
+              className="h-[max(2rem,var(--touch-target))] px-2.5"
+            >
+              <IconCmp aria-hidden="true" data-icon="inline-start" />
+              {a.label}
+              {checked.length > 1 ? ` ${String(checked.length)}` : ''}
+            </Button>
+          </Gated>
         )
       })}
       <Button

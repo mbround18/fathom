@@ -6,6 +6,7 @@
  * Only loaded when `VITE_TRANSPORT=fake` (see transport.ts), so none of this ships in the app.
  */
 import { FIXTURES, type FixtureName } from '../../tests/fixtures'
+import { batch as makeBatch, system as makeSystem } from '../../tests/fixtures/builders'
 import {
   isScenarioName,
   SCENARIOS,
@@ -15,7 +16,7 @@ import {
   type ScenarioName,
 } from '../../tests/fixtures/scenarios'
 import type { Transport } from './transport'
-import type { BackendCmd, EventBatch, SubscriptionInfo } from './types'
+import type { BackendCmd, CapabilityQuery, EventBatch, SubscriptionInfo } from './types'
 
 /** The Playwright-facing handle (`window.__fathomFake`). */
 export interface FathomFake {
@@ -40,6 +41,16 @@ export interface FathomFake {
    * the real backend does once the command's handler completes.
    */
   finish(requestId: number, ok: boolean, error?: string): void
+  /**
+   * Capability answers (033 US5). Default is allow-everything. `deny` lists (verb, resource)
+   * pairs answered "denied" with `reason`; `unverifiable` answers every check with
+   * `verified: false` (API server unreachable). Pass `undefined` to reset.
+   */
+  setCapabilities(
+    config:
+      | { deny?: { verb: string; resource: string; reason?: string }[]; unverifiable?: boolean }
+      | undefined,
+  ): void
 }
 
 declare global {
@@ -63,6 +74,8 @@ export class FakeTransport implements Transport {
   #latencyMs: number
   #nextRequestId = 1
   #finishSeq = 1_000_000
+  #capSeq = 2_000_000
+  #capabilities: Parameters<FathomFake['setCapabilities']>[0]
 
   constructor(options: FakeTransportOptions = {}) {
     this.#scenarioName = options.scenario ?? 'default'
@@ -75,12 +88,62 @@ export class FakeTransport implements Transport {
     this.#sent.push(cmd)
     if (this.#gone) return Promise.reject(new BackendGoneError())
     const id = this.#nextRequestId++
+    if (cmd.type === 'ResolveCapabilities' || cmd.type === 'CheckCapability') {
+      this.#deliverLater([this.#capabilityReply(cmd)])
+      return Promise.resolve(id)
+    }
     const reply = this.#scenario.replies[cmd.type] as Reply | undefined
     if (reply) {
       const batches = reply(cmd, this.#state)
       this.#deliverLater(batches)
     }
     return Promise.resolve(id)
+  }
+
+  setCapabilities(config: Parameters<FathomFake['setCapabilities']>[0]): void {
+    this.#capabilities = config
+  }
+
+  #capabilityReply(cmd: BackendCmd): EventBatch {
+    const seq = this.#capSeq++
+    if (cmd.type === 'CheckCapability') {
+      const q: CapabilityQuery = cmd.data.query
+      const cfg = this.#capabilities
+      const denied = cfg?.deny?.find((d) => d.verb === q.verb && d.resource === q.resource)
+      const unverified = cfg?.unverifiable === true
+      return makeBatch([
+        makeSystem(seq, {
+          type: 'CapabilityChecked',
+          data: {
+            query: q,
+            result: {
+              allowed: !denied && !unverified,
+              reason: denied
+                ? (denied.reason ?? 'forbidden')
+                : unverified
+                  ? 'connection refused'
+                  : null,
+              source: 'Review',
+              verified: !unverified,
+            },
+          },
+        }),
+      ])
+    }
+    const data = cmd.type === 'ResolveCapabilities' ? cmd.data : { context: '', namespace: null }
+    return makeBatch([
+      makeSystem(seq, {
+        type: 'CapabilitiesResolved',
+        data: {
+          context: data.context,
+          namespace: data.namespace,
+          identity_sub: '',
+          rules: [],
+          incomplete: true,
+          fetched_at: 0,
+        },
+      }),
+    ])
   }
 
   get nextRequestId(): number {
@@ -185,6 +248,7 @@ export function installFakeTransport(): FakeTransport {
     setLatency: (ms) => fake.setLatency(ms),
     nextRequestId: () => fake.nextRequestId,
     finish: (requestId, ok, error) => fake.finish(requestId, ok, error),
+    setCapabilities: (config) => fake.setCapabilities(config),
   }
   return fake
 }

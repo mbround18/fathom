@@ -52,6 +52,7 @@ mod sync;
 mod team_store;
 mod workload_common;
 
+mod capabilities;
 mod clusterrolebindings;
 mod clusterroles;
 mod configmaps;

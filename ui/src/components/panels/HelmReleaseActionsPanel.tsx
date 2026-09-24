@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import type { GitOpsOriginRef } from '@/protocol/types'
 import { useStore } from '@/store'
@@ -85,20 +86,22 @@ export function HelmReleaseActionsPanel({
           Uninstall
         </h3>
         <p className="text-xs text-muted-foreground">
-          Removes this release&apos;s Helm release-storage record and its installed resources.
-          This cannot be undone.
+          Removes this release&apos;s Helm release-storage record and its installed resources. This
+          cannot be undone.
         </p>
         <div>
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            disabled={busy}
-            data-testid="helm-release-uninstall"
-            onClick={() => setConfirming(true)}
-          >
-            <TrashIcon data-icon="inline-start" /> Uninstall release
-          </Button>
+          <Gated verb="delete" resource="secrets" namespace={namespace}>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={busy}
+              data-testid="helm-release-uninstall"
+              onClick={() => setConfirming(true)}
+            >
+              <TrashIcon data-icon="inline-start" /> Uninstall release
+            </Button>
+          </Gated>
         </div>
         {uninstall?.status === 'failed' && (
           <p data-testid="helm-uninstall-error" className="text-xs text-status-err">

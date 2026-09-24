@@ -5,11 +5,11 @@ use crossbeam_channel::Sender;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    applications, clusterrolebindings, clusterroles, configmaps, crds, endpoints, flux, helm,
-    horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges, mutatingwebhooks,
-    networkpolicies, persistentvolumeclaims, persistentvolumes, poddisruptionbudgets,
-    priorityclasses, rbac_access, related, resourcequotas, rolebindings, roles, runtimeclasses,
-    secrets, services, storageclasses, validatingwebhooks,
+    applications, capabilities, clusterrolebindings, clusterroles, configmaps, crds, endpoints,
+    flux, helm, horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges,
+    mutatingwebhooks, networkpolicies, persistentvolumeclaims, persistentvolumes,
+    poddisruptionbudgets, priorityclasses, rbac_access, related, resourcequotas, rolebindings,
+    roles, runtimeclasses, secrets, services, storageclasses, validatingwebhooks,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -747,6 +747,7 @@ async fn handle_access_cmd(
         }
         BackendCmd::DeleteRole { namespace, name } => {
             roles::delete_role(state, sender, &namespace, &name).await?;
+            state.capabilities.invalidate_all();
             roles::refresh_roles(state, sender).await?;
         }
         BackendCmd::RefreshRoleBindings => {
@@ -757,6 +758,7 @@ async fn handle_access_cmd(
         }
         BackendCmd::DeleteRoleBinding { namespace, name } => {
             rolebindings::delete_role_binding(state, sender, &namespace, &name).await?;
+            state.capabilities.invalidate_all();
             rolebindings::refresh_role_bindings(state, sender).await?;
         }
         BackendCmd::RefreshClusterRoles => {
@@ -767,6 +769,7 @@ async fn handle_access_cmd(
         }
         BackendCmd::DeleteClusterRole { name } => {
             clusterroles::delete_cluster_role(state, sender, &name).await?;
+            state.capabilities.invalidate_all();
             clusterroles::refresh_cluster_roles(state, sender).await?;
         }
         BackendCmd::RefreshClusterRoleBindings => {
@@ -777,6 +780,7 @@ async fn handle_access_cmd(
         }
         BackendCmd::DeleteClusterRoleBinding { name } => {
             clusterrolebindings::delete_cluster_role_binding(state, sender, &name).await?;
+            state.capabilities.invalidate_all();
             clusterrolebindings::refresh_cluster_role_bindings(state, sender).await?;
         }
         BackendCmd::RefreshRbacSelfAccess { checks } => {
@@ -795,6 +799,12 @@ async fn handle_access_cmd(
                 subject_namespace,
             )
             .await?;
+        }
+        BackendCmd::ResolveCapabilities { context, namespace } => {
+            capabilities::handle_resolve_capabilities(state, sender, context, namespace).await;
+        }
+        BackendCmd::CheckCapability { query } => {
+            capabilities::handle_check_capability(state, sender, query).await;
         }
         BackendCmd::RefreshKubeadmDetection => {
             rbac_access::handle_refresh_kubeadm_detection(state, sender).await?;

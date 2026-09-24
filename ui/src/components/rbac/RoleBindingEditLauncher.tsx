@@ -11,6 +11,7 @@
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import type { ClusterRoleBindingDetails, RoleBindingDetails } from '@/protocol/types'
 
@@ -27,16 +28,33 @@ export function RoleBindingEditLauncher({ kind, existing }: RoleBindingEditLaunc
 
   return (
     <>
-      <Button data-testid="rbac-binding-edit-open" size="sm" variant="outline" onClick={() => setOpen(true)}>
-        Edit
-      </Button>
+      <Gated
+        apiGroup="rbac.authorization.k8s.io"
+        verb="update"
+        resource={kind === 'RoleBinding' ? 'rolebindings' : 'clusterrolebindings'}
+        namespace={'namespace' in existing ? existing.namespace : null}
+      >
+        <Button
+          data-testid="rbac-binding-edit-open"
+          size="sm"
+          variant="outline"
+          onClick={() => setOpen(true)}
+        >
+          Edit
+        </Button>
+      </Gated>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-[calc(100vw-2rem)] sm:max-w-xl">
           <SheetHeader>
             <SheetTitle>{label}</SheetTitle>
           </SheetHeader>
           {open && (
-            <RoleBindingForm mode="edit" kind={kind} existing={existing} onClose={() => setOpen(false)} />
+            <RoleBindingForm
+              mode="edit"
+              kind={kind}
+              existing={existing}
+              onClose={() => setOpen(false)}
+            />
           )}
         </SheetContent>
       </Sheet>

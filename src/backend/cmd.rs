@@ -197,11 +197,23 @@ async fn handle_apply_resource_yaml(
     .await
     {
         Ok(resource_version) => {
+            invalidate_if_rbac_kind(state, &kind);
             apply::emit_resource_applied(seq, sender, resource_version);
         }
         Err(err) => {
             events::notify_error(seq, sender, err.to_string());
         }
+    }
+}
+
+/// A successful write to an RBAC kind can change what the identity may do: drop the
+/// capability cache so the next lookup re-reviews (033 US5, T031).
+fn invalidate_if_rbac_kind(state: &BackendState, kind: &str) {
+    if matches!(
+        kind,
+        "Role" | "RoleBinding" | "ClusterRole" | "ClusterRoleBinding"
+    ) {
+        state.capabilities.invalidate_all();
     }
 }
 
@@ -245,6 +257,7 @@ async fn handle_create_resource_yaml(
 
     match apply::create_resource(&client, &api_version, &kind, namespace.as_deref(), object).await {
         Ok(resource_version) => {
+            invalidate_if_rbac_kind(state, &kind);
             apply::emit_resource_applied(seq, sender, resource_version);
         }
         Err(err) => {

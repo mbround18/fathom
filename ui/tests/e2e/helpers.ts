@@ -25,7 +25,10 @@ export async function emit(page: Page, batch: EventBatch): Promise<void> {
 }
 
 export async function sent(page: Page): Promise<BackendCmd[]> {
-  return page.evaluate(() => window.__fathomFake?.sent() ?? [])
+  // Capability lookups (033 US5) are read-only background traffic, not part of any story's
+  // command assertions.
+  const all = await page.evaluate(() => window.__fathomFake?.sent() ?? [])
+  return all.filter((c) => c.type !== 'ResolveCapabilities' && c.type !== 'CheckCapability')
 }
 
 export async function clearSent(page: Page): Promise<void> {

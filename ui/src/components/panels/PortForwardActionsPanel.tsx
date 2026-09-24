@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Gated } from '@/lib/capabilities'
 import { Input } from '@/components/ui/input'
 import type { ContainerPort, RelatedResourceRef, ServicePort } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
@@ -53,7 +54,7 @@ export function PortForwardActionsPanel({
           Forward
         </h3>
         {kind === 'Pod' ? (
-          <PodPortList ports={containerPorts ?? []} onForward={startPod} />
+          <PodPortList namespace={namespace} ports={containerPorts ?? []} onForward={startPod} />
         ) : (
           <ServicePortList
             namespace={namespace}
@@ -81,30 +82,38 @@ export function PortForwardActionsPanel({
                 className="w-32 font-mono"
               />
             </div>
-            <Button
-              type="button"
-              size="sm"
-              data-testid="port-forward-action-manual"
-              disabled={!/^\d+$/.test(manualPort.trim())}
-              onClick={() => {
-                startPod(Number.parseInt(manualPort, 10))
-              }}
-            >
-              Forward
-            </Button>
+            <Gated verb="create" resource="pods" subresource="portforward" namespace={namespace}>
+              <Button
+                type="button"
+                size="sm"
+                data-testid="port-forward-action-manual"
+                disabled={!/^\d+$/.test(manualPort.trim())}
+                onClick={() => {
+                  startPod(Number.parseInt(manualPort, 10))
+                }}
+              >
+                Forward
+              </Button>
+            </Gated>
           </div>
         )}
       </section>
 
-      <PortForwardStartDialog target={dialogTarget} open={dialogOpen} onOpenChange={setDialogOpen} />
+      <PortForwardStartDialog
+        target={dialogTarget}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
     </div>
   )
 }
 
 function PodPortList({
+  namespace,
   ports,
   onForward,
 }: {
+  namespace: string
   ports: readonly ContainerPort[]
   onForward: (remotePort: number, container: string) => void
 }) {
@@ -126,16 +135,18 @@ function PodPortList({
           <span>
             {p.name ?? p.container}: {p.port} ({p.protocol})
           </span>
-          <Button
-            type="button"
-            size="sm"
-            data-testid={`port-forward-action-${p.container}-${String(p.port)}`}
-            onClick={() => {
-              onForward(p.port, p.container)
-            }}
-          >
-            Forward
-          </Button>
+          <Gated verb="create" resource="pods" subresource="portforward" namespace={namespace}>
+            <Button
+              type="button"
+              size="sm"
+              data-testid={`port-forward-action-${p.container}-${String(p.port)}`}
+              onClick={() => {
+                onForward(p.port, p.container)
+              }}
+            >
+              Forward
+            </Button>
+          </Gated>
         </li>
       ))}
     </ul>
@@ -157,7 +168,9 @@ function ServicePortList({
 }) {
   const send = useStore((s) => s.send)
   const ctx = useStore((s) => s.session.activeContext)
-  const relatedState = useStore((s) => s.details[detailKey(ctx, 'RelatedResources', namespace, name)])
+  const relatedState = useStore(
+    (s) => s.details[detailKey(ctx, 'RelatedResources', namespace, name)],
+  )
 
   useEffect(() => {
     send({
@@ -202,17 +215,19 @@ function ServicePortList({
           <span>
             {p.name ?? '(unnamed)'}: {p.port} ({p.protocol})
           </span>
-          <Button
-            type="button"
-            size="sm"
-            data-testid={`port-forward-action-service-${String(p.port)}`}
-            disabled={!readyPod}
-            onClick={() => {
-              if (readyPod) onForward(p.port, readyPod.name)
-            }}
-          >
-            Forward
-          </Button>
+          <Gated verb="create" resource="pods" subresource="portforward" namespace={namespace}>
+            <Button
+              type="button"
+              size="sm"
+              data-testid={`port-forward-action-service-${String(p.port)}`}
+              disabled={!readyPod}
+              onClick={() => {
+                if (readyPod) onForward(p.port, readyPod.name)
+              }}
+            >
+              Forward
+            </Button>
+          </Gated>
         </li>
       ))}
     </ul>
