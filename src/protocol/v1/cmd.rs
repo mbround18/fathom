@@ -323,6 +323,17 @@ pub enum BackendCmdV1 {
         api_key: String,
     },
     RefreshFlux,
+    /// KEDA overview refresh (029-keda-autoscaler-pane).
+    RefreshKeda,
+    /// KEDA single-resource lookups for the Inspector (read-only).
+    SelectScaledObject {
+        namespace: String,
+        name: String,
+    },
+    SelectScaledJob {
+        namespace: String,
+        name: String,
+    },
     RefreshHubble,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
@@ -984,6 +995,19 @@ mod tests {
             kind: "HelmRelease".to_owned(),
             namespace: "flux-system".to_owned(),
             name: "redis".to_owned(),
+        });
+    }
+
+    #[test]
+    fn keda_cmds_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKeda);
+        roundtrip(BackendCmdV1::SelectScaledObject {
+            namespace: "default".to_owned(),
+            name: "queue-worker".to_owned(),
+        });
+        roundtrip(BackendCmdV1::SelectScaledJob {
+            namespace: "default".to_owned(),
+            name: "batch".to_owned(),
         });
     }
 

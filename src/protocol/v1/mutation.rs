@@ -148,6 +148,9 @@ impl BackendCmdV1 {
             | C::RefreshHelmReleases
             | C::SelectHelmRelease { .. }
             | C::SelectFluxResource { .. }
+            | C::RefreshKeda
+            | C::SelectScaledObject { .. }
+            | C::SelectScaledJob { .. }
             // Agent SDK Ops (013): `AgentAsk` calls an external model provider but
             // writes no cluster/persisted state beyond the in-memory/on-disk
             // conversation (classified `Local` below is where persistence writes
@@ -504,6 +507,9 @@ impl BackendCmdV1 {
             | C::ApplyHelmUpgrade { .. }
             | C::UninstallHelmRelease { .. } => section_keys::helm_releases(),
             C::SelectFluxResource { .. } => section_keys::flux_resource(),
+            C::RefreshKeda | C::SelectScaledObject { .. } | C::SelectScaledJob { .. } => {
+                section_keys::autoscalers()
+            }
         };
         Some(key)
     }

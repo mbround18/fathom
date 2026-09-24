@@ -99,6 +99,11 @@ impl FathomApp {
                     SystemEvent::HubbleTrafficUpdated(_) => {
                         // HubblePanel (React bridge) handles this in on_event; no egui view yet.
                     }
+                    SystemEvent::KedaOverviewUpdated(_)
+                    | SystemEvent::KedaResourceDetailsUpdated(_)
+                    | SystemEvent::KedaResourceNotFound { .. } => {
+                        // KedaPanel (React bridge) handles this; no egui view.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }

@@ -196,6 +196,8 @@ pub enum ToolKind {
     Metrics,
     Flux,
     Hubble,
+    /// 029-keda-autoscaler-pane: KEDA Autoscalers tool pane.
+    Keda,
     Logs,
     Events,
     Portforwards,
