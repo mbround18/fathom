@@ -168,6 +168,8 @@ impl BackendCmdV1 {
             // 011-rbac-oidc-administration: self-access checks, namespace-access lookup, and
             // kubeadm ConfigMap detection are all read-only.
             | C::RefreshRbacSelfAccess { .. }
+            // 018-rbac-aware-mutation-ui: discovery + SelfSubjectAccessReview, read-only.
+            | C::CheckResourceMutationAccess { .. }
             | C::ResolveNamespaceAccess { .. }
             | C::RefreshKubeadmDetection => MutationTarget::ReadOnly,
 
@@ -448,7 +450,9 @@ impl BackendCmdV1 {
             | C::DeleteClusterRoleBinding { .. } => section_keys::access_clusterrolebindings(),
             // Gates whichever binding kind the caller is checking; the section is advisory
             // (used for correlation/routing only, not for scoping the review itself).
-            C::RefreshRbacSelfAccess { .. } => section_keys::access_rolebindings(),
+            C::RefreshRbacSelfAccess { .. } | C::CheckResourceMutationAccess { .. } => {
+                section_keys::access_rolebindings()
+            }
             C::ResolveNamespaceAccess { .. } => section_keys::access_namespace_access(),
             C::RefreshKubeadmDetection => section_keys::access_oidc_config(),
             C::RefreshConfigMaps | C::SelectConfigMap { .. } | C::DeleteConfigMap { .. } => {

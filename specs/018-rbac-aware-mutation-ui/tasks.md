@@ -4,10 +4,10 @@ Feature dir: `specs/018-rbac-aware-mutation-ui`. Dependency-ordered; complete in
 
 ## Phase 1: Protocol and backend (foundation)
 
-- [ ] T001 Add `group: Option<String>` (`#[serde(default)]`) to `RbacAccessCheck` in `src/protocol/v1/rbac_access.rs`; use it in `handle_refresh_rbac_self_access` (`src/backend/rbac_access.rs`) instead of the hardcoded RBAC group; fix all Rust construction sites and `tests/protocol_serde.rs`.
-- [ ] T002 Add `CheckResourceMutationAccess` command (`src/protocol/v1/cmd.rs`) and `ResourceMutationAccessChecked` event (`src/protocol/v1/event.rs`); add arms in `src/protocol/v1/mutation.rs` (ReadOnly), `src/app/mailbox.rs`, `tests/protocol_serde.rs` (round trip + exhaustive matches).
-- [ ] T003 Extract a reusable `resolve_api_resource(client, api_version, kind)` helper in `src/backend/apply.rs`; implement `handle_check_resource_mutation_access` in `src/backend/rbac_access.rs` and dispatch it in `src/backend/cmd/resources.rs`; unit-test the pure parts.
-- [ ] T004 Regenerate ts-rs bindings (`CARGO_BUILD_JOBS=2 cargo test -p fathom --test export_bindings`).
+- [x] T001 Add `group: Option<String>` (`#[serde(default)]`) to `RbacAccessCheck` in `src/protocol/v1/rbac_access.rs`; use it in `handle_refresh_rbac_self_access` (`src/backend/rbac_access.rs`) instead of the hardcoded RBAC group; fix all Rust construction sites and `tests/protocol_serde.rs`.
+- [x] T002 Add `CheckResourceMutationAccess` command (`src/protocol/v1/cmd.rs`) and `ResourceMutationAccessChecked` event (`src/protocol/v1/event.rs`); add arms in `src/protocol/v1/mutation.rs` (ReadOnly), `src/app/mailbox.rs`, `tests/protocol_serde.rs` (round trip + exhaustive matches).
+- [x] T003 Extract a reusable `resolve_api_resource(client, api_version, kind)` helper in `src/backend/apply.rs`; implement `handle_check_resource_mutation_access` in `src/backend/rbac_access.rs` and dispatch it in `src/backend/cmd/resources.rs`; unit-test the pure parts.
+- [x] T004 Regenerate ts-rs bindings (`CARGO_BUILD_JOBS=2 cargo test -p fathom --test export_bindings`).
 
 ## Phase 2: Frontend shared plumbing
 

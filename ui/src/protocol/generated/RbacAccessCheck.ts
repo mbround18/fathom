@@ -8,4 +8,9 @@ export type RbacAccessCheck = { verb: string, resource: string,
  * `Some(namespace)` for a namespaced check (e.g. creating a `RoleBinding`), `None` for a
  * cluster-scoped check (e.g. creating a `ClusterRoleBinding`).
  */
-namespace: string | null, };
+namespace: string | null, 
+/**
+ * Kubernetes API group of the resource; `None` means the core group `""`
+ * (nodes, secrets, ...). 018-rbac-aware-mutation-ui.
+ */
+group: string | null, };

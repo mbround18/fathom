@@ -782,6 +782,22 @@ async fn handle_access_cmd(
         BackendCmd::RefreshRbacSelfAccess { checks } => {
             rbac_access::handle_refresh_rbac_self_access(state, sender, checks).await?;
         }
+        BackendCmd::CheckResourceMutationAccess {
+            api_version,
+            kind,
+            namespace,
+            verb,
+        } => {
+            rbac_access::handle_check_resource_mutation_access(
+                state,
+                sender,
+                api_version,
+                kind,
+                namespace,
+                verb,
+            )
+            .await?;
+        }
         BackendCmd::ResolveNamespaceAccess {
             subject_kind,
             subject_name,
