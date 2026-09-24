@@ -286,6 +286,9 @@ async fn restore_saved_port_forwards(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
+    if !state.access.allows_local_features() {
+        return Ok(());
+    }
     let saved_ports = persistence::load_all_ports()?;
     if saved_ports.is_empty() {
         return Ok(());
