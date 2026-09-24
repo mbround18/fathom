@@ -45,6 +45,8 @@ An operator needs to poke around inside a container — check a config file, run
 5. **Given** the operator opens the Terminal tab against a pod whose container has no usable shell, **When** the attach attempt fails, **Then** the operator sees a clear error explaining the attach failed, not a silently empty pane.
 6. **Given** an operator without exec permission in the cluster (RBAC denies `pods/exec`), **When** they attempt to open the Terminal tab, **Then** they see a clear permission-denied message rather than a hang or generic error.
 
+> **Note (024-pod-exec-terminal)**: scenario 1 no longer attaches immediately. A `pods/exec` permission pre-check and an explicit confirmation now precede every session; see `specs/024-pod-exec-terminal/spec.md`.
+
 ---
 
 ### User Story 3 - See both capabilities in the promo brochure (Priority: P3)

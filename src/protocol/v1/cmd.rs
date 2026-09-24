@@ -130,6 +130,13 @@ pub enum BackendCmdV1 {
         rows: u16,
     },
     StopPodExec,
+    /// 024-pod-exec-terminal: proactive, read-only `pods/exec` permission pre-check, sent
+    /// before showing the exec-session confirmation. See `PodExecAccessChecked`.
+    CheckPodExecAccess {
+        namespace: String,
+        name: String,
+        container: Option<String>,
+    },
 
     // Workloads / Deployments section
     RefreshDeployments,
@@ -953,6 +960,20 @@ mod tests {
             target_container: None,
             image: "busybox".to_owned(),
             ephemeral_container_name: Some("debugger-1".to_owned()),
+        });
+    }
+
+    #[test]
+    fn check_pod_exec_access_roundtrip() {
+        roundtrip(BackendCmdV1::CheckPodExecAccess {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: Some("app".to_owned()),
+        });
+        roundtrip(BackendCmdV1::CheckPodExecAccess {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: None,
         });
     }
 

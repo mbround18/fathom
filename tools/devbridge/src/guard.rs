@@ -147,6 +147,45 @@ mod tests {
         );
     }
 
+    /// 024-pod-exec-terminal: opening an exec session is gated exactly like any other
+    /// namespaced write — a dev bridge sandboxed to `fathom-dev` must not forward
+    /// `StartPodExec` against another namespace.
+    #[test]
+    fn start_pod_exec_is_gated_like_a_namespaced_write() {
+        let g = guard();
+        let inside = BackendCmd::StartPodExec {
+            namespace: s("fathom-dev"),
+            name: s("web-0"),
+            container: None,
+        };
+        assert_eq!(g.check(&inside), Ok(()));
+
+        let outside = BackendCmd::StartPodExec {
+            namespace: s("default"),
+            name: s("web-0"),
+            container: None,
+        };
+        let err = g.check(&outside).unwrap_err();
+        assert!(
+            err.contains("StartPodExec") && err.contains("default"),
+            "{err}"
+        );
+
+        // The rest of the exec commands stay read-only and always pass.
+        for cmd in [
+            BackendCmd::SendPodExecInput { data: s("bHM=") },
+            BackendCmd::ResizePodExec { cols: 80, rows: 24 },
+            BackendCmd::StopPodExec,
+            BackendCmd::CheckPodExecAccess {
+                namespace: s("default"),
+                name: s("web-0"),
+                container: None,
+            },
+        ] {
+            assert_eq!(g.check(&cmd), Ok(()), "{cmd:?}");
+        }
+    }
+
     #[test]
     fn bulk_delete_needs_every_item_inside() {
         let g = guard();

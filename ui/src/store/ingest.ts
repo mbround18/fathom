@@ -24,6 +24,7 @@ import { handleAgentConversation } from './handlers/agent'
 import { handleImageInspect } from './handlers/imageInspect'
 import { handlePodVulnInspect } from './handlers/podVulnInspect'
 import { handleList } from './handlers/list'
+import { handleExecAccess } from './handlers/execAccess'
 import { handleRbacAccess } from './handlers/rbacAccess'
 import { handleRead, readKeyOf } from './handlers/read'
 import { handleStream } from './handlers/stream'
@@ -106,6 +107,11 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
       // `name` for `readKeyOf`, so this is keyed and handled separately too.
       if (event.data.type === 'AgentConversationUpdated') {
         handleAgentConversation(d, event.data.data)
+        return
+      }
+      // 024-pod-exec-terminal: keyed by namespace/name/container, not the generic details key.
+      if (event.data.type === 'PodExecAccessChecked') {
+        handleExecAccess(d, event.data)
         return
       }
       // 011-rbac-oidc-administration: same reasoning, see handlers/rbacAccess.ts.

@@ -17,8 +17,9 @@ import 'xterm/css/xterm.css'
 import { Button } from '@/components/ui/button'
 import type { PodDetails } from '@/protocol/types'
 import type { ObjectRef } from '@/resources'
-import { detailKey, useStore, type ExecStreamState } from '@/store'
+import { detailKey, execAccessKey, useStore, type ExecStreamState } from '@/store'
 
+import { ConfirmDialog } from '../ConfirmDialog'
 import { Picker } from '../Picker'
 import { Loading } from '../shell/PaneStates'
 
@@ -36,7 +37,23 @@ function encodeInput(data: string): string {
   return btoa(binary)
 }
 
-type Phase = 'picking' | 'attaching' | 'active' | 'ended' | 'error'
+type Phase =
+  | 'picking'
+  | 'idle'
+  | 'checking'
+  | 'denied'
+  | 'confirming'
+  | 'attaching'
+  | 'active'
+  | 'ended'
+  | 'error'
+
+/** 024-pod-exec-terminal: pre-session gate; `open` means confirmed, session may start. */
+type Gate = 'idle' | 'checking' | 'denied' | 'confirming' | 'open'
+
+/** FR-006 fail-safe: a pre-check that never answers is treated as denied. */
+const CHECK_TIMEOUT_MS = 15000
+const CHECK_FAILED_REASON = 'Could not verify permission to open a shell in this container.'
 
 export function PodTerminalTab({ target }: { target: ObjectRef }) {
   const namespace = target.namespace ?? ''
@@ -103,15 +120,61 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
   const sinceIdRef = useRef(0)
   const consumedRef = useRef(0)
 
+  // 024-pod-exec-terminal gate: check access -> confirm -> only then StartPodExec.
+  const container = containers.length > 1 ? (chosen ?? null) : null
+  const accessKey = execAccessKey(namespace, name, container)
+  const access = useStore((s) => s.execAccess[accessKey])
+  const [attempt, setAttempt] = useState(0)
+  const runKey = started ? `${accessKey}#${attempt}` : ''
+  const [run, setRun] = useState({
+    key: '',
+    baseline: 0,
+    idle: false,
+    confirmed: false,
+    timedOut: false,
+  })
+  // Every (re)open, or pod/container change, starts a fresh run with a fresh pre-check; a
+  // stale confirming/denied result is never reused (confirmation is never skipped). Adjusting
+  // state during render (rather than in an effect) is React's documented reset pattern.
+  if (run.key !== runKey) {
+    setRun({ key: runKey, baseline: access?.rev ?? 0, idle: false, confirmed: false, timedOut: false })
+  }
+  const fresh = access !== undefined && access.rev > run.baseline
+
+  const gate: Gate = !started || run.idle
+    ? 'idle'
+    : run.confirmed
+      ? 'open'
+      : fresh
+        ? access.allowed
+          ? 'confirming'
+          : 'denied'
+        : run.timedOut
+          ? 'denied'
+          : 'checking'
+  const deniedReason = fresh ? access.reason : CHECK_FAILED_REASON
+
+  const beginCheck = () => setAttempt((n) => n + 1)
+
   useEffect(() => {
-    if (!started) return
+    if (!runKey) return
+    send({ type: 'CheckPodExecAccess', data: { namespace, name, container } })
+  }, [runKey, namespace, name, container, send])
+
+  useEffect(() => {
+    if (gate !== 'checking') return
+    const t = setTimeout(() => setRun((r) => ({ ...r, timedOut: true })), CHECK_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [gate, runKey])
+
+  useEffect(() => {
+    if (gate !== 'open') return
     sinceIdRef.current = maxStreamId(useStore.getState().streams)
     consumedRef.current = 0
     terminalRef.current?.clear()
-    const container = containers.length > 1 ? chosen : null
     send({ type: 'StartPodExec', data: { namespace, name, container } })
     return () => send({ type: 'StopPodExec' })
-  }, [namespace, name, chosen, started, containers.length, send])
+  }, [gate, namespace, name, container, send])
 
   const stream = useStore((s) => {
     let bestId = -1
@@ -147,9 +210,15 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
 
   const phase: Phase = useMemo(() => {
     if (!started) return 'picking'
+    if (gate !== 'open') return gate
     if (!stream) return 'attaching'
     return stream.status
-  }, [started, stream])
+  }, [started, gate, stream])
+
+  const cancelConfirm = () => {
+    if (containers.length > 1) setPicked(undefined)
+    else setRun((r) => ({ ...r, idle: true }))
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -173,8 +242,40 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
           ref={containerEl}
           data-testid="pod-terminal-xterm"
           className="h-full min-w-0 p-2"
-          hidden={phase === 'picking'}
+          hidden={phase === 'picking' || phase === 'idle' || phase === 'denied'}
         />
+        {phase === 'idle' && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Button type="button" variant="outline" size="sm" onClick={beginCheck}>
+              Open Terminal
+            </Button>
+          </div>
+        )}
+        {phase === 'checking' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/60 text-xs text-muted-foreground">
+            Checking permissions…
+          </div>
+        )}
+        {phase === 'denied' && (
+          <div
+            role="alert"
+            data-pane-state="terminal-denied"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center text-xs text-status-warn"
+          >
+            <ShieldWarningIcon aria-hidden="true" className="size-5" />
+            <span>
+              {deniedReason ?? "You don't have permission to open a shell in this container."}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => (containers.length > 1 ? setPicked(undefined) : beginCheck())}
+            >
+              {containers.length > 1 ? 'Choose container' : 'Retry'}
+            </Button>
+          </div>
+        )}
         {phase === 'attaching' && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/60 text-xs text-muted-foreground">
             Attaching shell…
@@ -213,6 +314,22 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={phase === 'confirming'}
+        title="Open a shell in this container?"
+        items={[{ namespace, name }]}
+        detail={
+          <>
+            This opens an interactive shell in container{' '}
+            <strong>{chosen ?? containers[0] ?? 'default'}</strong>. Anything you type runs inside
+            the pod.
+          </>
+        }
+        destructive
+        confirmLabel="Open terminal"
+        onConfirm={() => setRun((r) => ({ ...r, confirmed: true }))}
+        onCancel={cancelConfirm}
+      />
     </div>
   )
 }

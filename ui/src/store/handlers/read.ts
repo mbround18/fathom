@@ -24,6 +24,8 @@ type GenericReadEvent = Exclude<
   | { type: 'PodVulnerabilitiesInspected' | 'PodVulnerabilitiesInspectFailed' }
   // 011-rbac-oidc-administration: no `name` field; routed by `handleRbacAccess` instead.
   | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
+  // 024-pod-exec-terminal: routed by `handleExecAccess`.
+  | { type: 'PodExecAccessChecked' }
 >
 
 export function readKeyOf(env: BackendEventEnvelope, event: GenericReadEvent): string {

@@ -72,6 +72,11 @@ async fn handle_pod_cmd(
             name,
             container,
         } => exec::start_exec(state, sender, namespace, name, container).await?,
+        BackendCmd::CheckPodExecAccess {
+            namespace,
+            name,
+            container,
+        } => exec::check_access(state, sender, namespace, name, container).await?,
         BackendCmd::SendPodExecInput { data } => exec::send_input(state, data).await?,
         BackendCmd::ResizePodExec { cols, rows } => exec::resize(state, cols, rows).await?,
         BackendCmd::StopPodExec => exec::stop(state),
