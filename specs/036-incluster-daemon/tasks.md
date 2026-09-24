@@ -51,12 +51,12 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 ## Phase 5: US3 — packaging and kind (P2)
 
 - [ ] T026 [US3] (needs 031) Add `fathom-daemon` binary/stage to `deploy/Dockerfile` (distroless static, non-root, read-only rootfs)
-- [ ] T027 [P] [US3] (needs 031) `k8s/addons/fathom-daemon/` kustomization: namespace, ServiceAccount, read-only ClusterRole (no secrets/configmaps, no write verbs; plus `create` on `subjectaccessreviews` only), `APIService` `v1.daemon.fathom.dev`, auth-configmap read in `kube-system`, binding, single-replica Deployment with probes/limits/securityContext, ClusterIP Service, common labels `app.kubernetes.io/name=fathom-daemon`
-- [ ] T028 [P] [US3] (needs 031) `k8s/overlays/daemon/kustomization.yaml` and optional namespaced-scope variant (Roles + `FATHOM_DAEMON_NAMESPACES`)
-- [ ] T029 [P] [US3] (needs 031) `k8s/samples/daemon-events.yaml`: Deployment with controllable rollout, failing Job, CronJob, HPA target
+- [X] T027 [P] [US3] (needs 031) `k8s/addons/fathom-daemon/` kustomization: namespace, ServiceAccount, read-only ClusterRole (no secrets/configmaps, no write verbs; plus `create` on `subjectaccessreviews` only), `APIService` `v1.daemon.fathom.dev`, auth-configmap read in `kube-system`, binding, single-replica Deployment with probes/limits/securityContext, ClusterIP Service, common labels `app.kubernetes.io/name=fathom-daemon`
+- [X] T028 [P] [US3] (needs 031) `k8s/overlays/daemon/kustomization.yaml` and optional namespaced-scope variant (Roles + `FATHOM_DAEMON_NAMESPACES`)
+- [X] T029 [P] [US3] (needs 031) `k8s/samples/daemon-events.yaml`: Deployment with controllable rollout, failing Job, CronJob, HPA target
 - [ ] T030 [US3] (needs 031) `k8s/cluster.sh up-daemon` / `down-daemon`: build image, `kind load docker-image`, apply overlay and samples; document in `k8s/README.md`
 - [ ] T031 [US3] (needs 031) `k8s/test-daemon.sh`: asserts Ready, capabilities, replay after simulated disconnect, truncation after rollout restart, and uninstall leaves no labeled objects
-- [ ] T032 [P] [US3] Static checks: `kubectl kustomize k8s/overlays/daemon | kubeconform`, and a test asserting the rendered ClusterRole contains only get/list/watch, `create` on `subjectaccessreviews`, and no secrets, and that the uninstall selector covers the `APIService`
+- [X] T032 [P] [US3] Static checks: `kubectl kustomize k8s/overlays/daemon | kubeconform`, and a test asserting the rendered ClusterRole contains only get/list/watch, `create` on `subjectaccessreviews`, and no secrets, and that the uninstall selector covers the `APIService`
 
 ## Phase 6: US4 — warm snapshots (P3)
 

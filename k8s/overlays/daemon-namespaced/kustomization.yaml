@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Namespaced-scope variant: the ClusterRole keeps ONLY `create subjectaccessreviews` (cluster-scoped resource,
+# cannot be a Role); reads are granted by per-namespace Roles. Edit the namespace list in role.yaml AND the
+# FATHOM_DAEMON_NAMESPACES value below together (nodes/namespaces are then not readable: no node topology).
+resources:
+  - ../../addons/fathom-daemon
+  - role.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/name: fathom-daemon
+      app.kubernetes.io/part-of: fathom
+    includeSelectors: false
+patches:
+  - target: {kind: ClusterRole, name: fathom-daemon}
+    patch: |-
+      - op: replace
+        path: /rules
+        value:
+          - apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create]
+  - target: {kind: Deployment, name: fathom-daemon}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/value
+        value: default

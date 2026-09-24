@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Every object (including cluster-scoped ones and the kube-system Role/RoleBinding) carries this label;
+# uninstall = `kubectl delete <kinds> -A -l app.kubernetes.io/name=fathom-daemon` (see k8s/README.md).
+labels:
+  - pairs:
+      app.kubernetes.io/name: fathom-daemon
+      app.kubernetes.io/part-of: fathom
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - apiservice.yaml
+  - deployment.yaml
+  - service.yaml
