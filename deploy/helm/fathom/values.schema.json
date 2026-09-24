@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["externalUrl", "oidc"],
+  "properties": {
+    "externalUrl": {"type": "string", "pattern": "^https?://.+"},
+    "oidc": {
+      "type": "object",
+      "required": ["issuer", "clientId"],
+      "properties": {
+        "issuer": {"type": "string", "minLength": 1},
+        "clientId": {"type": "string", "minLength": 1},
+        "clientSecret": {"type": "string"},
+        "existingSecret": {"type": "string"},
+        "caSecret": {"type": "string"},
+        "scopes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "claims": {
+      "type": "object",
+      "properties": {
+        "username": {"type": "string"}, "groups": {"type": "string"},
+        "usernamePrefix": {"type": "string"}, "groupsPrefix": {"type": "string"}
+      }
+    },
+    "accessModel": {"enum": ["passthrough", "impersonation"]},
+    "kubeToken": {"enum": ["id", "access"]},
+    "impersonation": {"type": "object", "properties": {"resourceNames": {"type": "array", "items": {"type": "string"}}}},
+    "ingress": {"type": "object", "properties": {
+      "enabled": {"type": "boolean"}, "className": {"type": "string"},
+      "annotations": {"type": "object"}, "tls": {"type": "array"}}},
+    "limits": {"type": "object", "properties": {
+      "maxSessions": {"type": "integer", "minimum": 1},
+      "maxSessionsPerUser": {"type": "integer", "minimum": 1},
+      "maxWatchesPerUser": {"type": "integer", "minimum": 1},
+      "maxStreamsPerUser": {"type": "integer", "minimum": 1}}},
+    "audit": {"type": "object", "properties": {"viewerGroups": {"type": "array", "items": {"type": "string"}}}},
+    "session": {"type": "object"},
+    "persistence": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "size": {"type": "string"}}},
+    "image": {"type": "object", "properties": {"repository": {"type": "string"}, "tag": {"type": "string"}, "pullPolicy": {"type": "string"}}},
+    "replicaCount": {"type": "integer", "minimum": 1, "maximum": 1},
+    "resources": {"type": "object"},
+    "networkPolicy": {"type": "object", "properties": {"enabled": {"type": "boolean"}}},
+    "pdb": {"type": "object", "properties": {"enabled": {"type": "boolean"}}}
+  }
+}

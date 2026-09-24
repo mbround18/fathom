@@ -1,0 +1,45 @@
+externalUrl: ""            # required, e.g. https://fathom.example.com
+oidc:
+  issuer: ""               # required
+  clientId: ""             # required
+  clientSecret: ""         # ignored when existingSecret is set
+  existingSecret: ""       # Secret with key client-secret
+  caSecret: ""             # Secret with key ca.crt for a private issuer CA
+  scopes: []
+claims:
+  username: preferred_username
+  groups: groups
+  usernamePrefix: "oidc:"
+  groupsPrefix: "oidc:"
+accessModel: passthrough   # or impersonation
+kubeToken: id
+impersonation:
+  resourceNames: []        # optional: restrict impersonate to these names
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  tls: []
+limits:
+  maxSessions: 50
+  maxSessionsPerUser: 3
+  maxWatchesPerUser: 30
+  maxStreamsPerUser: 10
+audit:
+  viewerGroups: []
+session:
+  absolute: ""
+  idle: ""
+persistence:
+  enabled: false
+  size: 1Gi
+image:
+  repository: ghcr.io/mbround18/fathom-server
+  tag: ""
+  pullPolicy: IfNotPresent
+replicaCount: 1
+resources: {}
+networkPolicy:
+  enabled: false
+pdb:
+  enabled: false

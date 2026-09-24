@@ -1,0 +1,6 @@
+externalUrl: https://fathom.example.com
+oidc: {issuer: https://idp.example.com, clientId: fathom, existingSecret: fathom-oidc, caSecret: idp-ca}
+accessModel: impersonation
+persistence: {enabled: true}
+networkPolicy: {enabled: true}
+pdb: {enabled: true}

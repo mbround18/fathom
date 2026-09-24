@@ -1,1 +1,6 @@
-# Fathom hosted-server Helm chart (spec 031). Filled in by US2.
+apiVersion: v2
+name: fathom
+description: Fathom hosted server mode (spec 031) - browser UI + OIDC-authenticated Kubernetes access
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
