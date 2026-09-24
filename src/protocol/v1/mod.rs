@@ -1,5 +1,6 @@
 mod agent;
 mod applications;
+mod audit;
 mod bridge_types;
 mod cert_manager;
 mod cluster_version;
@@ -56,6 +57,7 @@ mod workloads;
 
 pub use agent::*;
 pub use applications::*;
+pub use audit::*;
 pub use bridge_types::*;
 pub use cert_manager::*;
 pub use cluster_version::*;

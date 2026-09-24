@@ -32,7 +32,7 @@ error: string | null, } } | { "type": "NamespaceFilterChanged", "data": { namesp
  * `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
  * (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
  */
-mcp_stdio_enabled: boolean, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "ClusterSettingsLoaded", "data": { context: string, settings: ClusterSettings, } } | { "type": "ClusterSettingsError", "data": { context: string, reason: string, } } | { "type": "TeamStoreStatusUpdated", "data": TeamStoreStatus } | { "type": "ConnectionProfilesUpdated", "data": { 
+mcp_stdio_enabled: boolean, } } | { "type": "AuditLogLoaded", "data": { entries: Array<AuditLogEntry>, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "ClusterSettingsLoaded", "data": { context: string, settings: ClusterSettings, } } | { "type": "ClusterSettingsError", "data": { context: string, reason: string, } } | { "type": "TeamStoreStatusUpdated", "data": TeamStoreStatus } | { "type": "ConnectionProfilesUpdated", "data": { 
 /**
  * Profiles this operator has adopted locally (still-shared or not).
  */

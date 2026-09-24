@@ -14,6 +14,7 @@ import type {
   AdoptedConnectionProfile,
   AgentAuthMode,
   AgentConversation,
+  AuditLogEntry,
   BackendCmd,
   ClusterSettings,
   ConnectionProfile,
@@ -72,6 +73,7 @@ import {
   type HelmMutationSession,
 } from './helmMutation'
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
+import { DEFAULT_AUDIT_FILTER, type AuditLogFilter } from './auditLogFilter'
 import { RingBuffer } from './ring-buffer'
 import { waitForCommandResult } from './actions'
 
@@ -379,6 +381,17 @@ export interface CrdState {
   instances: Record<string, CrdInstancesState>
 }
 
+/** 026-mutation-audit-log-viewer: the local mutation history (newest first) + transient filter. */
+export interface AuditState {
+  entries: AuditLogEntry[]
+  loaded: boolean
+  /** True while the Audit Log pane is mounted: completed mutations then trigger a refresh. */
+  visible: boolean
+  /** Request id of the last `AuditLogLoaded`, so its own `CommandFinished` never re-refreshes. */
+  lastLoadedRequest?: number
+  filter: AuditLogFilter
+}
+
 export interface PrefsState {
   /** True once `UiConfigLoaded` has arrived. */
   loaded: boolean
@@ -552,6 +565,7 @@ export interface StoreData {
   actionPrompt?: ActionPrompt
   ui: UiConfig
   prefs: PrefsState
+  audit: AuditState
   /** 015-mcp-agent-exposure: stdio MCP server status, shown in Cluster Settings. */
   mcp: McpState
   /**
@@ -575,6 +589,10 @@ export interface StoreState extends StoreData {
   /** Persist a resized/rearranged profile for the current class. */
   setProfile: (profile: LayoutProfile) => void
   setTheme: (patch: Partial<ThemePrefs>) => void
+  /** 026: refresh the audit log, and track whether its pane is visible. */
+  refreshAuditLog: () => void
+  setAuditVisible: (visible: boolean) => void
+  setAuditFilter: (patch: Partial<AuditLogFilter>) => void
   updatePane: (id: PaneId, patch: Partial<Omit<PaneState, 'id' | 'kind'>>) => void
   pushPane: (id: PaneId) => void
   /** Phone: make the pane for `kind`/`tool` the root of the stack, creating it if needed. */
@@ -856,6 +874,7 @@ export function initialData(): StoreData {
     helmMutation: initialHelmMutationSession,
     ui: DEFAULT_UI,
     prefs: { loaded: false, expandedGroups: [], mcpStdioEnabled: false },
+    audit: { entries: [], loaded: false, visible: false, filter: DEFAULT_AUDIT_FILTER },
     mcp: {
       loaded: false,
       enabled: false,
@@ -905,6 +924,12 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
     }),
 
+  refreshAuditLog: () => {
+    get().send({ type: 'RefreshAuditLog' })
+  },
+  setAuditVisible: (visible) => set((s) => ({ audit: { ...s.audit, visible } })),
+  setAuditFilter: (patch) =>
+    set((s) => ({ audit: { ...s.audit, filter: { ...s.audit.filter, ...patch } } })),
   setTheme: (patch) => set((s) => ({ ui: { ...s.ui, theme: { ...s.ui.theme, ...patch } } })),
 
   updatePane: (id, patch) =>

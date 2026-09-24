@@ -792,6 +792,10 @@ pub enum BackendCmdV1 {
         command_summary: String,
         outcome: ActionOutcome,
     },
+
+    // 026-mutation-audit-log-viewer: read-only reload of the local, bounded mutation
+    // history from `~/.fathom/audit-log.json`. Never mutates anything itself.
+    RefreshAuditLog,
 }
 
 /// Direction of a `TaintNode` mutation.

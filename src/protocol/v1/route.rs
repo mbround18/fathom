@@ -253,6 +253,11 @@ pub mod section_keys {
         SectionKey::new("applications")
     }
 
+    /// 026-mutation-audit-log-viewer: the local mutation audit-log viewer pane.
+    pub fn audit_log() -> SectionKey {
+        SectionKey::new("audit-log")
+    }
+
     pub fn helm_releases() -> SectionKey {
         SectionKey::new("helm/releases")
     }

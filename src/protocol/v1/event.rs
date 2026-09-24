@@ -1,3 +1,4 @@
+use super::AuditLogEntry;
 use super::{
     AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, CertManagerOverview,
     CertificateChain, ClusterRoleBindingDetails, ClusterRoleBindingSummary, ClusterRoleDetails,
@@ -165,6 +166,12 @@ pub enum SystemEvent {
         /// `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
         /// (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
         mcp_stdio_enabled: bool,
+    },
+
+    /// Reply to `BackendCmd::RefreshAuditLog` (026-mutation-audit-log-viewer): the local,
+    /// bounded mutation history, oldest first.
+    AuditLogLoaded {
+        entries: Vec<AuditLogEntry>,
     },
 
     /// Full CRD catalog, refreshed via `RefreshCrds` or on context switch.
