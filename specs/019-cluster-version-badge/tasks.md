@@ -96,7 +96,7 @@ Kubernetes server version, updating on context switch, with a neutral state when
 event against the fake backend) and verify a badge showing the server version renders near the
 cluster/context switcher, without opening any other pane.
 
-- [ ] T011 [US1] Create `ui/src/components/shell/ClusterVersionBadge.tsx`: reads
+- [x] T011 [US1] Create `ui/src/components/shell/ClusterVersionBadge.tsx`: reads
   `clusterVersion` from the store; renders `null` (nothing) only if the app has no connected
   context at all (mirrors `FederationContextSwitcher`'s `if (contexts.length === 0) return null`
   early-return convention), otherwise renders a small pill: the version string (e.g. `v1.29.4`)
@@ -105,15 +105,15 @@ cluster/context switcher, without opening any other pane.
   `data-testid="cluster-version-badge"` on the container and `data-server-version` /
   `data-skew-detected` attributes on it for Playwright assertions (mirrors
   `FederationContextSwitcher`'s `data-context-status` convention).
-- [ ] T012 [US1] Mount `<ClusterVersionBadge />` beside `<FederationContextSwitcher />` in
+- [x] T012 [US1] Mount `<ClusterVersionBadge />` beside `<FederationContextSwitcher />` in
   `src/components/shell/AppShell.tsx` (per plan.md's Project Structure), so it renders at every
   width class alongside the existing always-visible context switcher strip (Constitution IV — no
   pane-count regression, present across width classes).
-- [ ] T013 [P] [US1] Add a `clusterVersion` fixture batch builder (or inline `system(seq, {...})`
+- [x] T013 [P] [US1] Add a `clusterVersion` fixture batch builder (or inline `system(seq, {...})`
   calls, following `tests/fixtures/batches.ts`'s existing pattern for `federationContexts`) to
   `ui/tests/fixtures/batches.ts` for a `ClusterVersionUpdated` event with `server_version:
   "v1.29.4"`, `node_kubelet_versions: ["v1.29.4"]`, `skew_detected: false`.
-- [ ] T014 [US1] Create `ui/tests/e2e/uc-cluster-version-badge.spec.ts` (mirrors
+- [x] T014 [US1] Create `ui/tests/e2e/uc-cluster-version-badge.spec.ts` (mirrors
   `us1-federation-context-status.spec.ts`'s structure: `open(page, 'manual')`, `emit(page,
   clusterVersionHealthy)`, then `expect(page.getByTestId('cluster-version-badge')).toHaveAttribute('data-server-version',
   'v1.29.4')` and assert the visible text contains `v1.29.4`) covering US1's Acceptance Scenario 1
@@ -134,22 +134,22 @@ and multiple `node_kubelet_versions` entries; verify the warning indicator rende
 distinct versions are visible on hover/click. Inject one with `skew_detected: false`; verify no
 warning renders.
 
-- [ ] T015 [US2] Extend `ClusterVersionBadge.tsx` (from T011) to render a visible warning
+- [x] T015 [US2] Extend `ClusterVersionBadge.tsx` (from T011) to render a visible warning
   indicator (icon/dot with a distinct color, e.g. amber, following
   `FederationContextSwitcher`'s `DOT_CLASS` Record-lookup convention) when `skew_detected` is
   `true`, and no warning element at all when `skew_detected` is `false` or the slice is
   `undefined` (spec Acceptance Scenarios 1 and 4 — no false warning before data loads).
-- [ ] T016 [US2] Add a lightweight hover tooltip / click popover to `ClusterVersionBadge.tsx`
+- [x] T016 [US2] Add a lightweight hover tooltip / click popover to `ClusterVersionBadge.tsx`
   (per spec FR-004) listing the distinct `node_kubelet_versions` alongside the `server_version`
   when `skew_detected` is `true`, using `title={...}` for the simple hover case (mirrors
   `FederationContextSwitcher`'s `title={...}` tooltip convention) plus a `data-testid="cluster-version-skew-details"`
   element containing the version list text for Playwright assertion (an always-hoverable `title`
   attribute alone is not reliably assertable in Playwright, so the visible/DOM detail element is
   the primary test hook).
-- [ ] T017 [P] [US2] Add a second fixture batch (or inline event) to
+- [x] T017 [P] [US2] Add a second fixture batch (or inline event) to
   `ui/tests/fixtures/batches.ts` for a skewed `ClusterVersionUpdated` event: `server_version:
   "v1.29.4"`, `node_kubelet_versions: ["v1.28.9", "v1.29.4"]`, `skew_detected: true`.
-- [ ] T018 [US2] Extend `ui/tests/e2e/uc-cluster-version-badge.spec.ts` (from T014) with
+- [x] T018 [US2] Extend `ui/tests/e2e/uc-cluster-version-badge.spec.ts` (from T014) with
   assertions covering US2's Acceptance Scenarios 1-3: emit the skewed fixture and assert the
   warning indicator (`data-skew-detected="true"`) is present and the skew-details element lists
   `v1.28.9`; then emit the healthy fixture from T013 and assert the warning indicator is gone
@@ -160,14 +160,14 @@ warning renders.
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T019 [P] Run `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`; fix any
+- [x] T019 [P] Run `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`; fix any
   warnings introduced by the new `cluster_version` modules.
-- [ ] T020 [P] Run `pnpm -C ui lint` and fix any warnings in the new `ClusterVersionBadge.tsx` /
+- [x] T020 [P] Run `pnpm -C ui lint` and fix any warnings in the new `ClusterVersionBadge.tsx` /
   store changes.
-- [ ] T021 Regenerate TS bindings (ts-rs) so `ui/src/protocol/generated/ClusterVersionSummary.ts`
+- [x] T021 Regenerate TS bindings (ts-rs) so `ui/src/protocol/generated/ClusterVersionSummary.ts`
   and the updated `SystemEvent.ts` exist, per the project's existing binding-generation step (same
   step already used for `FluxOverview.ts`); confirm no other generated files spuriously changed.
-- [ ] T022 Run the full verification suite: `cargo build`, `cargo clippy --all-targets -- -D
+- [x] T022 Run the full verification suite: `cargo build`, `cargo clippy --all-targets -- -D
   warnings`, `cargo test`, `pnpm -C ui typecheck`, `pnpm -C ui lint`, and the new e2e spec; confirm
   all pass before commit.
 

@@ -134,6 +134,9 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'FluxOverviewUpdated':
       d.put('flux', { overview: event.data })
       return
+    case 'ClusterVersionUpdated':
+      d.put('clusterVersion', event.data)
+      return
     case 'HubbleTrafficUpdated':
       d.put('hubble', { summary: event.data })
       return
