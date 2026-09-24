@@ -16,6 +16,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   knative: 'Knative',
   certManager: 'Certificates',
   vulnerabilities: 'Vulnerabilities',
+  linter: 'Linter',
 }
 
 export function paneTitle(pane: PaneState): string {

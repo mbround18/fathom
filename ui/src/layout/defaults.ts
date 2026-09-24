@@ -9,7 +9,7 @@ import { hasDock, visibleSlots, type WidthClass } from './width-class'
 const DOCK: DockConfig = {
   open: true,
   heightPct: 30,
-  tabs: ['logs', 'events', 'topology', 'velero', 'certManager', 'knative', 'keda'],
+  tabs: ['logs', 'events', 'topology', 'velero', 'certManager', 'knative', 'keda', 'linter'],
 }
 
 const PROFILES: Readonly<Record<WidthClass, readonly SlotConfig[]>> = {
@@ -61,6 +61,7 @@ const TOOL_KINDS: ReadonlySet<string> = new Set<ToolKind>([
   'velero',
   'knative',
   'certManager',
+  'linter',
 ])
 
 /** Rescale sizePct so the slots sum to 100 (rounded to 0.01). */

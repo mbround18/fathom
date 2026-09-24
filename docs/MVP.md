@@ -29,6 +29,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | **Helm** — mutate (rollback/upgrade/uninstall) | ✅ | 006-helm-mutate |
 | **Rich interlinking / drill-down** (chart → pod, resource → resource) | ✅ | 004-applications-interlinking, extended in 005 |
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ✅ | 007-topology-graph-view |
+| **Cluster linter** (read-only Popeye-style findings: limits, probes, deprecated APIs, unused ConfigMaps/Secrets, naked pods, RBAC wildcards, missing PDBs) | ✅ | 017-cluster-linter |
 | Pod lifecycle hooks / probes / init-container detail | ✅ | 008-pod-lifecycle-diagnostics |
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ✅ | 009-port-forward-ui |
 | Container image layer inspection | ✅ | see §9a |

@@ -1,5 +1,6 @@
 import {
   CertificateIcon,
+  ListChecksIcon,
   PlugsIcon,
   GaugeIcon,
   PulseIcon,
@@ -59,6 +60,13 @@ export const KEDA_TAB: StackTab = {
   icon: GaugeIcon,
   kind: 'tool',
   tool: 'keda',
+}
+
+export const LINTER_TAB: StackTab = {
+  label: 'Linter',
+  icon: ListChecksIcon,
+  kind: 'tool',
+  tool: 'linter',
 }
 
 /** Which tab the stack root belongs to: tool panes by tool, everything else is Resources. */

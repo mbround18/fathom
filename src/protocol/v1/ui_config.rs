@@ -212,6 +212,8 @@ pub enum ToolKind {
     CertManager,
     /// 021-trivy-vulnerability-pane: the cluster-wide Trivy Operator vulnerability summary.
     Vulnerabilities,
+    /// 017-cluster-linter: the read-only cluster sanitizer/linter tool pane.
+    Linter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

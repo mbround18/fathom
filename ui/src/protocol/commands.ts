@@ -13,6 +13,14 @@ export const SECTION = {
   pods: 'workloads/pods',
   deployments: 'workloads/deployments',
   customResources: 'custom-resources',
+  statefulsets: 'workloads/statefulsets',
+  daemonsets: 'workloads/daemonsets',
+  jobs: 'workloads/jobs',
+  cronjobs: 'workloads/cronjobs',
+  replicasets: 'workloads/replicasets',
+  configmaps: 'config/configmaps',
+  secrets: 'config/secrets',
+  poddisruptionbudgets: 'config/poddisruptionbudgets',
   nodes: 'nodes',
   applications: 'applications',
   services: 'network/services',
@@ -45,6 +53,15 @@ export const BOOTSTRAP_CMDS: readonly BackendCmd[] = [
 const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.pods]: { type: 'RefreshPods' },
   [SECTION.deployments]: { type: 'RefreshDeployments' },
+  // 017-cluster-linter: already-shipped backend refreshes with no descriptor yet (research R2).
+  [SECTION.statefulsets]: { type: 'RefreshStatefulSets' },
+  [SECTION.daemonsets]: { type: 'RefreshDaemonSets' },
+  [SECTION.jobs]: { type: 'RefreshJobs' },
+  [SECTION.cronjobs]: { type: 'RefreshCronJobs' },
+  [SECTION.replicasets]: { type: 'RefreshReplicaSets' },
+  [SECTION.configmaps]: { type: 'RefreshConfigMaps' },
+  [SECTION.secrets]: { type: 'RefreshSecrets' },
+  [SECTION.poddisruptionbudgets]: { type: 'RefreshPodDisruptionBudgets' },
   [SECTION.events]: { type: 'RefreshEvents' },
   [SECTION.namespaces]: { type: 'RefreshNamespaces' },
   // US3: the CRD catalog itself; instance lists/reads are sent directly by
@@ -79,6 +96,14 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectPod', data: { namespace, name } }
     case 'Deployment':
       return { type: 'SelectDeployment', data: { namespace, name } }
+    case 'StatefulSet':
+      return { type: 'SelectStatefulSet', data: { namespace, name } }
+    case 'DaemonSet':
+      return { type: 'SelectDaemonSet', data: { namespace, name } }
+    case 'ReplicaSet':
+      return { type: 'SelectReplicaSet', data: { namespace, name } }
+    case 'PodDisruptionBudget':
+      return { type: 'SelectPodDisruptionBudget', data: { namespace, name } }
     case 'Node':
       return { type: 'SelectNode', data: { name } }
     case 'Service':
