@@ -31,6 +31,6 @@
 
 ## Notes
 
-- No clarification markers: defaults documented in Assumptions (pass-through default, single home cluster, in-memory sessions, Dex-only LDAP path).
+- No clarification markers: defaults documented in Assumptions (pass-through default, single home cluster, in-memory sessions, OIDC-only (no LDAP), Rauthy+Keycloak test targets).
 - Standard terms (OIDC, PKCE-style flow, impersonation) are retained because they are the user-facing contract, not internal design.
 - All items pass on first pass.

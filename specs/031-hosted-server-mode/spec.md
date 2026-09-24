@@ -103,6 +103,9 @@ Every change made through hosted Fathom is recorded in the existing mutation aud
 - **FR-016**: The project MUST provide a test overlay for the existing kind test cluster with a bundled identity provider and sample users of differing permissions, plus a quickstart documenting the end-to-end flow.
 - **FR-017**: The system MUST NOT log or expose users' tokens or secrets in logs, audit entries, error messages, or the browser-visible interface.
 - **FR-018**: The desktop application and the existing development bridge MUST continue to behave as before; hosted mode MUST NOT weaken their access model.
+- **FR-020**: The system MUST be identity-provider-agnostic: any standards-compliant OIDC provider MUST work without provider-specific code paths, and the claims used for username and groups MUST be configurable per provider.
+- **FR-021**: The project MUST include an automated end-to-end login test covering sign-in (authorization code with proof-of-key), credential renewal, sign-out, and expired/revoked credentials, and it MUST pass against two independent providers (Rauthy as primary, Keycloak as secondary).
+- **FR-022**: The kind test overlay MUST deploy Rauthy (and optionally Keycloak) and MUST configure the kind API server to trust that provider (issuer, client ID, username and groups claims) via the kind cluster configuration, so pass-through RBAC is testable against a real cluster.
 - **FR-019**: The system MUST expose health status suitable for cluster liveness/readiness checks and MUST report sign-in and session failures with actionable messages to users and operators.
 
 ### Key Entities
@@ -125,11 +128,14 @@ Every change made through hosted Fathom is recorded in the existing mutation aud
 - **SC-005**: Revoking a user's access ends their live views and further actions within 5 minutes.
 - **SC-006**: At least 25 concurrent signed-in users can browse and watch resources with no user seeing another's data and no user-visible failures attributable to another user's activity.
 - **SC-007**: Credential renewal during an active live view causes no visible interruption in 95% of cases where the identity provider allows renewal.
+- **SC-009**: The end-to-end login suite (sign-in, renewal, sign-out, expired and revoked credentials) passes 100% against both Rauthy and Keycloak.
+- **SC-010**: On the kind overlay, pass-through RBAC is verified for real: users from the test providers are allowed or refused by the API server itself according to their groups.
 - **SC-008**: A signed-in user with no permissions sees an explanatory no-access state within 3 seconds of sign-in.
 
 ## Assumptions
 
-- The identity provider is any standards-compliant OIDC provider (e.g. Dex, Keycloak, Entra, Okta); LDAP is out of scope and can be reached later through Dex.
+- The identity provider is any standards-compliant OIDC provider. OAuth2/OIDC is the supported protocol; LDAP is out of scope since most organizations are moving away from it (it can still be bridged by an OIDC-fronting provider).
+- Test targets: Rauthy (self-hostable, Rust OIDC provider) is the primary and default end-to-end test provider; Keycloak is the second compatibility target so interoperability is not tied to one vendor. Dex, Entra, and Okta are documented as supported but are not test targets.
 - Pass-through requires the cluster's API server to trust the same identity provider; where it does not (e.g. some managed clusters), operators use the impersonation model. This is documented, not auto-detected.
 - Hosted mode serves one home cluster (the one it runs in); multi-cluster hosted access is deferred.
 - Exposure to the internet is the operator's responsibility via their ingress/TLS setup; Fathom expects an external HTTPS address and supports being behind a proxy.
@@ -139,7 +145,7 @@ Every change made through hosted Fathom is recorded in the existing mutation aud
 
 ## Out of Scope
 
-- LDAP or SAML directly (LDAP later via Dex).
+- LDAP or SAML directly.
 - Fathom-managed user, role, or group administration; RBAC is authored in the cluster.
 - Multi-cluster and fleet access from hosted mode.
 - Multi-replica high availability and shared session storage.
