@@ -1,13 +1,14 @@
 use super::{
-    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, ClusterRoleBindingDetails,
-    ClusterRoleBindingSummary, ClusterRoleDetails, ClusterRoleSummary, ClusterSettings,
-    ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation, CronJobDetails,
-    CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
-    EndpointDetails, EndpointSummary, EventsSummary, FluxOverview, FluxResourceSummary,
-    HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails,
-    HelmReleaseSummary, HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary,
-    HubbleTrafficSummary, IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary,
-    JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
+    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, CertManagerOverview,
+    CertificateChain, ClusterRoleBindingDetails, ClusterRoleBindingSummary, ClusterRoleDetails,
+    ClusterRoleSummary, ClusterSettings, ConfigMapDetails, ConfigMapSummary, ConnectionProfile,
+    Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails, DaemonSetSummary,
+    DeploymentDetails, DeploymentSummary, EndpointDetails, EndpointSummary, EventsSummary,
+    FluxOverview, FluxResourceSummary, HelmMutationApplied, HelmMutationFailed,
+    HelmMutationPreviewReady, HelmReleaseDetails, HelmReleaseSummary,
+    HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
+    IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
+    JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
     LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
     NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
     NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
@@ -130,6 +131,12 @@ pub enum SystemEvent {
 
     /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
     FluxOverviewUpdated(FluxOverview),
+
+    /// cert-manager CRD detection + Certificate list (dashboard aggregate).
+    CertManagerOverviewUpdated(CertManagerOverview),
+
+    /// Resolved lifecycle chain for one Certificate.
+    CertificateChainUpdated(CertificateChain),
 
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),

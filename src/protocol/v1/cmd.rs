@@ -324,6 +324,9 @@ pub enum BackendCmdV1 {
     },
     RefreshFlux,
     RefreshHubble,
+    /// Rescan cert-manager CRDs and Certificates now (dashboard aggregate), same shape as
+    /// `RefreshFlux` (023-cert-manager-certificates-pane).
+    RefreshCertManager,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
     // Bulk operations
@@ -685,6 +688,14 @@ pub enum BackendCmdV1 {
         name: String,
     },
 
+    /// Resolve one Certificate's lifecycle chain (Certificate -> CertificateRequest -> Order ->
+    /// Challenge), read-only, on-demand — same shape as `SelectFluxResource`
+    /// (023-cert-manager-certificates-pane).
+    SelectCertificateChain {
+        namespace: String,
+        name: String,
+    },
+
     // Helm releases (mutate: rollback, upgrade, uninstall — 006)
     /// Compute a rollback diff-preview without mutating anything.
     PreviewHelmRollback {
@@ -984,6 +995,19 @@ mod tests {
             kind: "HelmRelease".to_owned(),
             namespace: "flux-system".to_owned(),
             name: "redis".to_owned(),
+        });
+    }
+
+    #[test]
+    fn refresh_cert_manager_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshCertManager);
+    }
+
+    #[test]
+    fn select_certificate_chain_roundtrip() {
+        roundtrip(BackendCmdV1::SelectCertificateChain {
+            namespace: "default".to_owned(),
+            name: "example-com-tls".to_owned(),
         });
     }
 

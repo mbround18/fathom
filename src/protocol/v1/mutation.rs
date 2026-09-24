@@ -99,6 +99,8 @@ impl BackendCmdV1 {
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
             | C::RefreshHubble
+            | C::RefreshCertManager
+            | C::SelectCertificateChain { .. }
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
             | C::RefreshPersistentVolumes
@@ -425,6 +427,7 @@ impl BackendCmdV1 {
             }
             C::RefreshFlux => section_keys::integrations_flux(),
             C::RefreshHubble => section_keys::integrations_hubble(),
+            C::RefreshCertManager => section_keys::integrations_cert_manager(),
             C::RefreshPersistentVolumes
             | C::SelectPersistentVolume { .. }
             | C::DeletePersistentVolume { .. } => section_keys::storage_pv(),
@@ -504,6 +507,7 @@ impl BackendCmdV1 {
             | C::ApplyHelmUpgrade { .. }
             | C::UninstallHelmRelease { .. } => section_keys::helm_releases(),
             C::SelectFluxResource { .. } => section_keys::flux_resource(),
+            C::SelectCertificateChain { .. } => section_keys::certificate_chain(),
         };
         Some(key)
     }

@@ -1,6 +1,7 @@
 mod agent;
 mod applications;
 mod bridge_types;
+mod cert_manager;
 mod clusterrolebindings;
 mod clusterroles;
 mod cmd;
@@ -53,6 +54,7 @@ mod workloads;
 pub use agent::*;
 pub use applications::*;
 pub use bridge_types::*;
+pub use cert_manager::*;
 pub use clusterrolebindings::*;
 pub use clusterroles::*;
 pub use cmd::*;

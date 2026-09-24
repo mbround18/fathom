@@ -201,6 +201,41 @@ fn sample_flux_overview() -> FluxOverview {
     }
 }
 
+fn sample_cert_manager_overview() -> CertManagerOverview {
+    CertManagerOverview {
+        installed: true,
+        certificates: vec![CertificateSummary {
+            name: "s".to_owned(),
+            namespace: "s".to_owned(),
+            issuer_ref: "ClusterIssuer/s".to_owned(),
+            not_after: Some("2030-01-01T00:00:00Z".to_owned()),
+            expiry_state: CertExpiryState::Valid,
+            expiry_seconds: Some(1000),
+            ready: CertReadyState::Ready,
+            message: "s".to_owned(),
+            renewal_time: None,
+            dns_names: vec!["s".to_owned()],
+        }],
+    }
+}
+
+fn sample_certificate_chain() -> CertificateChain {
+    CertificateChain {
+        certificate_name: "s".to_owned(),
+        certificate_namespace: "s".to_owned(),
+        stages: vec![ChainStage {
+            kind: ChainStageKind::Challenge,
+            name: "s".to_owned(),
+            namespace: "s".to_owned(),
+            state: "pending".to_owned(),
+            reason: "s".to_owned(),
+            message: "s".to_owned(),
+            is_stuck: true,
+        }],
+        not_found: false,
+    }
+}
+
 fn sample_hubble_traffic_summary() -> HubbleTrafficSummary {
     HubbleTrafficSummary {
         installed: true,
@@ -1610,6 +1645,11 @@ fn all_cmds() -> Vec<BackendCmd> {
             api_key: "s".to_owned(),
         },
         BackendCmd::RefreshFlux,
+        BackendCmd::RefreshCertManager,
+        BackendCmd::SelectCertificateChain {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+        },
         BackendCmd::RefreshHubble,
         BackendCmd::SimulateSlowCall,
         BackendCmd::BulkDelete {
@@ -2037,6 +2077,8 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::ConfigureGrafana { .. } => {}
         BackendCmd::TestGrafanaConnection { .. } => {}
         BackendCmd::RefreshFlux => {}
+        BackendCmd::RefreshCertManager => {}
+        BackendCmd::SelectCertificateChain { .. } => {}
         BackendCmd::RefreshHubble => {}
         BackendCmd::SimulateSlowCall => {}
         BackendCmd::BulkDelete { .. } => {}
@@ -2185,6 +2227,8 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
+        SystemEvent::CertManagerOverviewUpdated(sample_cert_manager_overview()),
+        SystemEvent::CertificateChainUpdated(sample_certificate_chain()),
         SystemEvent::HubbleTrafficUpdated(sample_hubble_traffic_summary()),
         SystemEvent::HelmMutationPreviewReady(sample_helm_mutation_preview_ready()),
         SystemEvent::HelmMutationApplied(sample_helm_mutation_applied()),
@@ -2345,6 +2389,8 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
+        SystemEvent::CertManagerOverviewUpdated(..) => {}
+        SystemEvent::CertificateChainUpdated(..) => {}
         SystemEvent::HubbleTrafficUpdated(..) => {}
         SystemEvent::HelmMutationPreviewReady(..) => {}
         SystemEvent::HelmMutationApplied(..) => {}
