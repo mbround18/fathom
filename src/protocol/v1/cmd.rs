@@ -3,8 +3,9 @@ use ts_rs::TS;
 
 use super::{
     ActionOutcome, AgentAuthModeInput, AgentObjectRef, ApiKeyInput, CapabilityQuery,
-    ClusterSettings, ContextAuthMode, FathomRoleMap, OidcIssuerConfig, OidcSignInMethod, Provider,
-    RbacAccessCheck, RequestId, RoleAssignmentDraft, SectionKey, UiConfig,
+    ClusterSettings, ContextAuthMode, FathomRoleMap, NodeShellPodRef, NodeShellSettings,
+    OidcIssuerConfig, OidcSignInMethod, Provider, RbacAccessCheck, RequestId, RoleAssignmentDraft,
+    SectionKey, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -50,6 +51,36 @@ pub enum BackendCmdV1 {
         key: String,
         value: Option<String>,
         effect: String,
+    },
+    // 037-node-shell: privileged debug pod pinned to a node, with an attached terminal.
+    // Terminal I/O reuses `StartPodExec`/`SendPodExecInput`/`ResizePodExec` against the pod.
+    /// Read-only `SelfSubjectAccessReview`s for everything Node Shell needs.
+    CheckNodeShellAccess {
+        namespace: String,
+    },
+    /// Create the debug pod. Only sent after the operator confirmed the dialog.
+    StartNodeShell {
+        node: String,
+        namespace: String,
+        image: String,
+        image_pull_secret: Option<String>,
+        deadline_seconds: Option<u32>,
+    },
+    /// Delete the session's pod (also cancels a pending start). Retry after a leftover.
+    StopNodeShell {
+        session_id: u64,
+        /// The pod's namespace, so the delete classifies as a namespaced write.
+        namespace: String,
+    },
+    ListNodeShellOrphans {
+        namespace: Option<String>,
+    },
+    DeleteNodeShellOrphans {
+        pods: Vec<NodeShellPodRef>,
+    },
+    GetNodeShellSettings,
+    SetNodeShellSettings {
+        settings: NodeShellSettings,
     },
     RefreshEvents,
 
@@ -971,6 +1002,45 @@ mod tests {
     #[test]
     fn resize_pod_exec_roundtrip() {
         roundtrip(BackendCmdV1::ResizePodExec { cols: 80, rows: 24 });
+    }
+
+    #[test]
+    fn node_shell_cmds_roundtrip() {
+        roundtrip(BackendCmdV1::CheckNodeShellAccess {
+            namespace: "default".to_owned(),
+        });
+        roundtrip(BackendCmdV1::StartNodeShell {
+            node: "n1".to_owned(),
+            namespace: "default".to_owned(),
+            image: "busybox:stable".to_owned(),
+            image_pull_secret: Some("regcred".to_owned()),
+            deadline_seconds: Some(600),
+        });
+        roundtrip(BackendCmdV1::StartNodeShell {
+            node: "n1".to_owned(),
+            namespace: "default".to_owned(),
+            image: "busybox".to_owned(),
+            image_pull_secret: None,
+            deadline_seconds: None,
+        });
+        roundtrip(BackendCmdV1::StopNodeShell {
+            session_id: 3,
+            namespace: "default".to_owned(),
+        });
+        roundtrip(BackendCmdV1::ListNodeShellOrphans { namespace: None });
+        roundtrip(BackendCmdV1::ListNodeShellOrphans {
+            namespace: Some("kube-system".to_owned()),
+        });
+        roundtrip(BackendCmdV1::DeleteNodeShellOrphans {
+            pods: vec![NodeShellPodRef {
+                namespace: "default".to_owned(),
+                name: "fathom-node-shell-abc".to_owned(),
+            }],
+        });
+        roundtrip(BackendCmdV1::GetNodeShellSettings);
+        roundtrip(BackendCmdV1::SetNodeShellSettings {
+            settings: NodeShellSettings::default(),
+        });
     }
 
     #[test]

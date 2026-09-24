@@ -19,12 +19,16 @@ import type { HubbleTrafficSummary } from "./HubbleTrafficSummary";
 import type { IdpDirectorySnapshot } from "./IdpDirectorySnapshot";
 import type { LoginFlow } from "./LoginFlow";
 import type { MetricsStackScanResult } from "./MetricsStackScanResult";
+import type { NodeShellAccessCheck } from "./NodeShellAccessCheck";
+import type { NodeShellPhase } from "./NodeShellPhase";
+import type { NodeShellSettings } from "./NodeShellSettings";
 import type { NotificationLevel } from "./NotificationLevel";
 import type { OidcConfig } from "./OidcConfig";
 import type { OidcIdentity } from "./OidcIdentity";
 import type { OidcSignInStage } from "./OidcSignInStage";
 import type { OllamaState } from "./OllamaState";
 import type { OrgClusterSettings } from "./OrgClusterSettings";
+import type { OrphanedNodeShellPod } from "./OrphanedNodeShellPod";
 import type { OrphanedSubject } from "./OrphanedSubject";
 import type { Provider } from "./Provider";
 import type { ProviderStatus } from "./ProviderStatus";
@@ -64,4 +68,12 @@ available: Array<ConnectionProfile>, } } | { "type": "OrgClusterSettingsAvailabl
  * The literal command an external MCP client should launch to attach to this
  * Fathom installation over stdio (FR-007).
  */
-connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } } | { "type": "FleetSummaryUpdated", "data": FleetContextSummary };
+connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } } | { "type": "FleetSummaryUpdated", "data": FleetContextSummary } | { "type": "NodeShellAccessChecked", "data": { namespace: string, checks: Array<NodeShellAccessCheck>, } } | { "type": "NodeShellStatus", "data": { session_id: number, phase: NodeShellPhase, node: string, namespace: string, pod: string, 
+/**
+ * Verbatim API error, pod condition or waiting reason.
+ */
+detail: string | null, 
+/**
+ * True when deleting the pod failed and it still exists.
+ */
+leftover: boolean, } } | { "type": "NodeShellOrphans", "data": { pods: Array<OrphanedNodeShellPod>, } } | { "type": "NodeShellSettingsLoaded", "data": { context: string, settings: NodeShellSettings, } };

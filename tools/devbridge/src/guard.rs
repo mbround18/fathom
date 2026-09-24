@@ -34,6 +34,14 @@ impl WriteGuard {
                     .to_owned(),
             );
         }
+        // 037-node-shell: a privileged, host-namespace pod is never a sandbox operation, even
+        // though it classifies as a namespaced write in the sandbox namespace.
+        if matches!(cmd, BackendCmd::StartNodeShell { .. }) {
+            return Err(
+                "StartNodeShell is refused; a dev bridge must never create a privileged node pod"
+                    .to_owned(),
+            );
+        }
         match cmd.mutation_target() {
             MutationTarget::ReadOnly | MutationTarget::Local => Ok(()),
             MutationTarget::ClusterScoped => Err(format!(
@@ -100,6 +108,40 @@ mod tests {
         }
         // The status read is harmless and still passes.
         assert!(guard().check(&BackendCmd::LoadMcpServerStatus).is_ok());
+    }
+
+    /// 037-node-shell (T006): refused even when targeting the sandbox namespace; its cleanup
+    /// and read-side companions still pass the normal classification.
+    #[test]
+    fn node_shell_start_is_refused_in_sandbox() {
+        for namespace in ["fathom-dev", "default"] {
+            let err = guard()
+                .check(&BackendCmd::StartNodeShell {
+                    node: s("n1"),
+                    namespace: s(namespace),
+                    image: s("busybox"),
+                    image_pull_secret: None,
+                    deadline_seconds: None,
+                })
+                .expect_err("StartNodeShell must be refused");
+            assert!(err.contains("StartNodeShell"), "{err}");
+        }
+        assert!(
+            guard()
+                .check(&BackendCmd::CheckNodeShellAccess {
+                    namespace: s("default")
+                })
+                .is_ok()
+        );
+        assert!(
+            guard()
+                .check(&BackendCmd::StopNodeShell {
+                    session_id: 1,
+                    namespace: s("default")
+                })
+                .is_err(),
+            "stop targets a non-sandbox namespace, refused by the namespace rule"
+        );
     }
 
     #[test]

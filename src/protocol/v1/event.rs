@@ -10,10 +10,11 @@ use super::{
     JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
     LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
     NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
-    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
-    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
-    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
-    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
+    NetworkPolicySummary, NodeDetails, NodeShellAccessCheck, NodeShellPhase, NodeShellSettings,
+    NodeSummary, OrphanedNodeShellPod, PersistentVolumeClaimDetails, PersistentVolumeClaimSummary,
+    PersistentVolumeDetails, PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails,
+    PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary, PodSummary,
+    PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
     RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
     ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
     RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
@@ -338,6 +339,34 @@ pub enum SystemEvent {
     /// globally, matching `ContextStatusUpdated`'s pattern — the frontend keys its own map by
     /// `.context` on receipt.
     FleetSummaryUpdated(crate::protocol::v1::FleetContextSummary),
+
+    /// 037-node-shell: reply to `CheckNodeShellAccess`. Overall access is "every check allowed".
+    NodeShellAccessChecked {
+        namespace: String,
+        checks: Vec<NodeShellAccessCheck>,
+    },
+    /// 037-node-shell: emitted on every session transition, reflecting real cluster state.
+    /// `session_id` is a generation token; the UI drops events older than the current session.
+    NodeShellStatus {
+        session_id: u64,
+        phase: NodeShellPhase,
+        node: String,
+        namespace: String,
+        pod: String,
+        /// Verbatim API error, pod condition or waiting reason.
+        detail: Option<String>,
+        /// True when deleting the pod failed and it still exists.
+        leftover: bool,
+    },
+    /// 037-node-shell: reply to `ListNodeShellOrphans` / after `DeleteNodeShellOrphans`.
+    NodeShellOrphans {
+        pods: Vec<OrphanedNodeShellPod>,
+    },
+    /// 037-node-shell: reply to `GetNodeShellSettings`, and after a successful set.
+    NodeShellSettingsLoaded {
+        context: String,
+        settings: NodeShellSettings,
+    },
 }
 
 /// One installed CustomResourceDefinition, discovered via `kube::discovery`. See
@@ -632,6 +661,71 @@ mod tests {
         roundtrip(StreamEvent::PodExecOutputChunk {
             stream_id: StreamId(1),
             data: "aGVsbG8=".to_owned(),
+        });
+    }
+
+    #[test]
+    fn node_shell_events_roundtrip() {
+        fn rt(e: SystemEvent) {
+            let json = serde_json::to_string(&e).unwrap();
+            let back: SystemEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(format!("{back:?}"), format!("{e:?}"));
+        }
+        use crate::protocol::v1::NodeShellCheckOutcome;
+        rt(SystemEvent::NodeShellAccessChecked {
+            namespace: "default".to_owned(),
+            checks: vec![
+                NodeShellAccessCheck {
+                    verb: "create".to_owned(),
+                    resource: "pods".to_owned(),
+                    subresource: Some("exec".to_owned()),
+                    namespace: Some("default".to_owned()),
+                    outcome: NodeShellCheckOutcome::Denied {
+                        reason: Some("no".to_owned()),
+                    },
+                },
+                NodeShellAccessCheck {
+                    verb: "get".to_owned(),
+                    resource: "nodes".to_owned(),
+                    subresource: None,
+                    namespace: None,
+                    outcome: NodeShellCheckOutcome::Error {
+                        message: "boom".to_owned(),
+                    },
+                },
+            ],
+        });
+        for phase in [
+            NodeShellPhase::Creating,
+            NodeShellPhase::Pending,
+            NodeShellPhase::Running,
+            NodeShellPhase::Attached,
+            NodeShellPhase::Terminating,
+            NodeShellPhase::Removed,
+            NodeShellPhase::Failed,
+        ] {
+            rt(SystemEvent::NodeShellStatus {
+                session_id: 2,
+                phase,
+                node: "n1".to_owned(),
+                namespace: "default".to_owned(),
+                pod: "p".to_owned(),
+                detail: Some("ImagePullBackOff".to_owned()),
+                leftover: phase == NodeShellPhase::Failed,
+            });
+        }
+        rt(SystemEvent::NodeShellOrphans {
+            pods: vec![OrphanedNodeShellPod {
+                namespace: "default".to_owned(),
+                name: "p".to_owned(),
+                node: Some("n1".to_owned()),
+                phase: Some("Failed".to_owned()),
+                created_at: None,
+            }],
+        });
+        rt(SystemEvent::NodeShellSettingsLoaded {
+            context: "kind".to_owned(),
+            settings: NodeShellSettings::default(),
         });
     }
 

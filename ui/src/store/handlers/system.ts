@@ -390,6 +390,49 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     // broadcast after `SaveClusterSettings`/`AcceptOrgClusterSettings`/`DismissOrgClusterSettings`.
     // Accepting/dismissing an org default also clears `orgAvailable` for that context (the
     // backend only re-emits `OrgClusterSettingsAvailable` if a *newer* rev shows up later).
+    // 037-node-shell. A status for an older session generation than the one on screen is stale
+    // (superseded or already removed) and never overwrites it.
+    case 'NodeShellStatus': {
+      const ns = d.edit('nodeShell')
+      const cur = ns.session
+      if (cur !== undefined && event.data.session_id < cur.sessionId) return
+      // A failure's verbatim detail survives the Terminating/Removed events that follow it.
+      const carried =
+        cur?.sessionId === event.data.session_id &&
+        (cur.phase === 'Failed' || cur.phase === 'Terminating') &&
+        event.data.detail === null
+          ? cur.detail
+          : undefined
+      ns.session = {
+        sessionId: event.data.session_id,
+        phase: event.data.phase,
+        node: event.data.node,
+        namespace: event.data.namespace,
+        pod: event.data.pod,
+        detail: event.data.detail ?? carried,
+        leftover: event.data.leftover,
+      }
+      return
+    }
+
+    case 'NodeShellAccessChecked':
+      d.edit('nodeShell').access = {
+        namespace: event.data.namespace,
+        checks: event.data.checks,
+      }
+      return
+
+    case 'NodeShellOrphans':
+      d.edit('nodeShell').orphans = event.data.pods
+      return
+
+    case 'NodeShellSettingsLoaded': {
+      const ns = d.edit('nodeShell')
+      ns.settings = event.data.settings
+      ns.settingsContext = event.data.context
+      return
+    }
+
     case 'ClusterSettingsLoaded': {
       const team = d.edit('team')
       team.clusterSettings = event.data.settings

@@ -177,6 +177,8 @@ pub(super) struct BackendState {
     pub(super) cluster: ClusterContext,
     pub(super) log_stream: LogStreamState,
     pub(super) exec_session: ExecSessionState,
+    /// 037-node-shell: the single active debug-pod session.
+    pub(super) node_shell: super::node_shell::NodeShellState,
     pub(super) watch_tasks: WatchTasks,
     pub(super) node_actions: NodeActionState,
     pub(super) fleet: FleetState,
@@ -227,6 +229,7 @@ impl BackendState {
                 stdin_writer: None,
                 resize_tx: None,
             },
+            node_shell: super::node_shell::NodeShellState::default(),
             next_stream_id: 1,
             watch_tasks: WatchTasks {
                 pod_watch_task: None,
@@ -292,6 +295,9 @@ fn abort_background_tasks(state: &mut BackendState) {
     state.log_stream.stop();
     tracing::debug!("Aborting exec session");
     state.exec_session.stop();
+    // Abort only the startup watcher; the pod itself is deleted by `node_shell::end_active`
+    // (async) on the Shutdown path before this runs.
+    state.node_shell.abort_task();
     tracing::debug!("Aborting watch tasks");
     state.watch_tasks.abort_all();
     tracing::debug!("Aborting node action tasks");

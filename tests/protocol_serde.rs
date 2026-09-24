@@ -1965,6 +1965,31 @@ fn all_cmds() -> Vec<BackendCmd> {
         },
         BackendCmd::StartFleetPolling,
         BackendCmd::StopFleetPolling,
+        BackendCmd::CheckNodeShellAccess {
+            namespace: "default".to_owned(),
+        },
+        BackendCmd::StartNodeShell {
+            node: "n1".to_owned(),
+            namespace: "default".to_owned(),
+            image: "busybox:stable".to_owned(),
+            image_pull_secret: None,
+            deadline_seconds: Some(600),
+        },
+        BackendCmd::StopNodeShell {
+            session_id: 1,
+            namespace: "default".to_owned(),
+        },
+        BackendCmd::ListNodeShellOrphans { namespace: None },
+        BackendCmd::DeleteNodeShellOrphans {
+            pods: vec![NodeShellPodRef {
+                namespace: "default".to_owned(),
+                name: "fathom-node-shell-abc".to_owned(),
+            }],
+        },
+        BackendCmd::GetNodeShellSettings,
+        BackendCmd::SetNodeShellSettings {
+            settings: NodeShellSettings::default(),
+        },
     ]
 }
 
@@ -2018,6 +2043,13 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::StopPodLogs => {}
         BackendCmd::FetchPodMetrics { .. } => {}
         BackendCmd::StartPodExec { .. } => {}
+        BackendCmd::CheckNodeShellAccess { .. } => {}
+        BackendCmd::StartNodeShell { .. } => {}
+        BackendCmd::StopNodeShell { .. } => {}
+        BackendCmd::ListNodeShellOrphans { .. } => {}
+        BackendCmd::DeleteNodeShellOrphans { .. } => {}
+        BackendCmd::GetNodeShellSettings => {}
+        BackendCmd::SetNodeShellSettings { .. } => {}
         BackendCmd::SendPodExecInput { .. } => {}
         BackendCmd::ResizePodExec { .. } => {}
         BackendCmd::StopPodExec => {}
@@ -2379,6 +2411,24 @@ fn all_system_events() -> Vec<SystemEvent> {
             instructions: "Install Claude Code.".to_owned(),
         },
         SystemEvent::FleetSummaryUpdated(sample_fleet_context_summary()),
+        SystemEvent::NodeShellAccessChecked {
+            namespace: "default".to_owned(),
+            checks: vec![],
+        },
+        SystemEvent::NodeShellStatus {
+            session_id: 1,
+            phase: NodeShellPhase::Running,
+            node: "n1".to_owned(),
+            namespace: "default".to_owned(),
+            pod: "fathom-node-shell-abc".to_owned(),
+            detail: None,
+            leftover: false,
+        },
+        SystemEvent::NodeShellOrphans { pods: vec![] },
+        SystemEvent::NodeShellSettingsLoaded {
+            context: "ctx".to_owned(),
+            settings: NodeShellSettings::default(),
+        },
     ]
 }
 
@@ -2507,6 +2557,10 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::McpDemoChatEnded { .. } => {}
         SystemEvent::McpDemoChatNotDetected { .. } => {}
         SystemEvent::FleetSummaryUpdated(..) => {}
+        SystemEvent::NodeShellAccessChecked { .. } => {}
+        SystemEvent::NodeShellStatus { .. } => {}
+        SystemEvent::NodeShellOrphans { .. } => {}
+        SystemEvent::NodeShellSettingsLoaded { .. } => {}
     }
 }
 

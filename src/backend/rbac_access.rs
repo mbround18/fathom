@@ -23,6 +23,26 @@ use crate::protocol::{
 
 use super::{events, state::BackendState};
 
+/// One `SelfSubjectAccessReview` for arbitrary resource attributes, returning the review's
+/// status verbatim. Shared by 037-node-shell (which needs the core API group and subresources,
+/// unlike `RefreshRbacSelfAccess`'s fixed RBAC group).
+pub(super) async fn review_resource_access(
+    client: kube::Client,
+    attrs: ResourceAttributes,
+) -> Result<k8s_openapi::api::authorization::v1::SubjectAccessReviewStatus, kube::Error> {
+    let api: Api<SelfSubjectAccessReview> = Api::all(client);
+    let review = SelfSubjectAccessReview {
+        metadata: Default::default(),
+        spec: SelfSubjectAccessReviewSpec {
+            resource_attributes: Some(attrs),
+            non_resource_attributes: None,
+        },
+        status: None,
+    };
+    let reviewed = api.create(&PostParams::default(), &review).await?;
+    Ok(reviewed.status.unwrap_or_default())
+}
+
 /// Handle `RefreshRbacSelfAccess`: run one `SelfSubjectAccessReview` per requested check
 /// against the live API server and report the results. Never fails the whole batch over one
 /// check erroring — an erroring check is reported as `allowed: false` with the verbatim error

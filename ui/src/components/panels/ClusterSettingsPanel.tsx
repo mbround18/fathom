@@ -23,6 +23,7 @@ import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
 import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
+import { NodeShellSettingsSection } from './NodeShellSettingsSection'
 
 function cloneSettings(s: ClusterSettings): ClusterSettings {
   return { ...s, hiddenMetrics: [...s.hiddenMetrics], fieldOrigin: { ...s.fieldOrigin } }
@@ -276,6 +277,7 @@ export function ClusterSettingsPanel() {
           commands and store slice; nothing here feeds the §10 settings draft above. */}
       <AiAssistSettings />
       <AvailableAgentsSection />
+      <NodeShellSettingsSection />
 
       {formError !== undefined && (
         <p

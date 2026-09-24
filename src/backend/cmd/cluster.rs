@@ -193,6 +193,10 @@ async fn set_context(
     // Stop background activity and reconnect with the new context.
     state.log_stream.stop();
     state.exec_session.stop();
+    // 037: the node-shell pod lives in the old cluster; delete it with the client captured
+    // at start, bounded, before the connection is replaced.
+    crate::backend::node_shell::end_active(state, crate::backend::node_shell::CONTEXT_SWITCH_BOUND)
+        .await;
     state.watch_tasks.abort_all();
     state.node_actions.abort_all();
 

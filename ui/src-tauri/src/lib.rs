@@ -19,8 +19,13 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// How long shutdown waits for the backend thread before exiting anyway.
-pub const SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
+/// How long shutdown waits for the backend thread before exiting anyway. `shutdown_backend`
+/// returns as soon as the thread finishes, so the long bound only matters when a 037 node-shell
+/// debug pod is being deleted (the backend bounds that delete at 4s, `APP_EXIT_BOUND`).
+pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
+
+/// The Ctrl+C handlers cannot observe the backend thread, so they wait a fixed short time.
+const CTRL_C_GRACE: Duration = Duration::from_millis(500);
 
 /// Entry point for desktop (via `main.rs`) and mobile builds.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -41,7 +46,7 @@ pub fn run_with_args(args: Args) {
     if let Err(e) = ctrlc::set_handler(move || {
         tracing::info!("Received Ctrl+C, shutting down...");
         let _ = ctrlc_tx.send(BackendCmd::Shutdown.into());
-        std::thread::sleep(SHUTDOWN_GRACE);
+        std::thread::sleep(CTRL_C_GRACE);
         std::process::exit(0);
     }) {
         tracing::warn!("Failed to install Ctrl+C handler: {}", e);
@@ -87,7 +92,7 @@ pub fn run_only_mcp(args: Args) {
     ctrlc::set_handler(move || {
         tracing::info!("Received Ctrl+C, shutting down...");
         let _ = cmd_tx.send(BackendCmd::Shutdown.into());
-        std::thread::sleep(SHUTDOWN_GRACE);
+        std::thread::sleep(CTRL_C_GRACE);
         std::process::exit(0);
     })
     .expect("Error setting Ctrl+C handler");

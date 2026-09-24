@@ -136,6 +136,8 @@ pub(super) async fn start_exec(
         Correlation::Stream(stream_id),
         BackendEvent::Stream(StreamEvent::PodExecReady { stream_id }),
     );
+    // 037: a node-shell session's pod attaching promotes it to `Attached`.
+    super::node_shell::note_exec_ready(state, &namespace, &name);
     Ok(())
 }
 

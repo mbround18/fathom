@@ -2,7 +2,9 @@
 //!
 //! Manages loading/saving configuration to ~/.fathom/ directory.
 
-use crate::protocol::{AdoptedConnectionProfile, ClusterSettings, OidcConfig, UiConfig};
+use crate::protocol::{
+    AdoptedConnectionProfile, ClusterSettings, NodeShellSettings, OidcConfig, UiConfig,
+};
 use crate::sections::network::PortForward;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -462,6 +464,60 @@ pub fn save_cluster_settings(context: &str, settings: &ClusterSettings) -> Resul
     Ok(())
 }
 
+/// 037-node-shell: per-context Node Shell settings (`node-shell.json`).
+pub fn node_shell_config_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("node-shell.json"))
+}
+
+/// Load `context`'s Node Shell settings from `path`. Missing, unreadable or invalid input yields
+/// defaults and leaves the file untouched; each field defaults independently (FR-015).
+pub fn load_node_shell_settings_at(path: &Path, context: &str) -> NodeShellSettings {
+    let Ok(content) = fs::read_to_string(path) else {
+        return NodeShellSettings::default();
+    };
+    let Ok(all) = serde_json::from_str::<BTreeMap<String, serde_json::Value>>(&content) else {
+        tracing::warn!("node-shell.json is not valid JSON; using defaults for {context}");
+        return NodeShellSettings::default();
+    };
+    all.get(context)
+        .and_then(|raw| serde_json::from_value::<NodeShellSettings>(raw.clone()).ok())
+        .and_then(|s| s.normalized().ok())
+        .unwrap_or_default()
+}
+
+/// Save `context`'s settings into `path`, leaving other contexts' entries untouched. Refuses to
+/// overwrite a file that exists but is not valid JSON.
+pub fn save_node_shell_settings_at(
+    path: &Path,
+    context: &str,
+    settings: &NodeShellSettings,
+) -> Result<()> {
+    let settings = settings.clone().normalized().map_err(|e| anyhow!(e))?;
+    let mut all: BTreeMap<String, serde_json::Value> = if path.exists() {
+        serde_json::from_str(&fs::read_to_string(path)?)
+            .map_err(|e| anyhow!("node-shell.json is not valid JSON; not overwriting it: {e}"))?
+    } else {
+        BTreeMap::new()
+    };
+    all.insert(context.to_owned(), serde_json::to_value(&settings)?);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, serde_json::to_string_pretty(&all)?)?;
+    Ok(())
+}
+
+pub fn load_node_shell_settings(context: &str) -> NodeShellSettings {
+    match node_shell_config_path() {
+        Ok(p) => load_node_shell_settings_at(&p, context),
+        Err(_) => NodeShellSettings::default(),
+    }
+}
+
+pub fn save_node_shell_settings(context: &str, settings: &NodeShellSettings) -> Result<()> {
+    save_node_shell_settings_at(&node_shell_config_path()?, context, settings)
+}
+
 /// `team.json`'s on-disk shape.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TeamConfig {
@@ -505,6 +561,44 @@ pub fn save_team_config(config: &TeamConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_shell_settings_additive_defaults_and_invalid_preserved() {
+        let dir = std::env::temp_dir().join(format!("fathom-ns-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("node-shell.json");
+        let _ = fs::remove_file(&path);
+        // Missing file -> defaults.
+        assert_eq!(
+            load_node_shell_settings_at(&path, "a"),
+            NodeShellSettings::default()
+        );
+        // Missing keys default individually (additive).
+        fs::write(&path, r#"{"a":{"image":"alpine:3"}}"#).unwrap();
+        let s = load_node_shell_settings_at(&path, "a");
+        assert_eq!(s.image, "alpine:3");
+        assert_eq!(s.namespace, NodeShellSettings::default().namespace);
+        // Round trip keeps other contexts.
+        let b = NodeShellSettings {
+            namespace: "kube-system".to_owned(),
+            ..Default::default()
+        };
+        save_node_shell_settings_at(&path, "b", &b).unwrap();
+        assert_eq!(load_node_shell_settings_at(&path, "a").image, "alpine:3");
+        assert_eq!(
+            load_node_shell_settings_at(&path, "b").namespace,
+            "kube-system"
+        );
+        // Invalid file: defaults on load, untouched on save.
+        fs::write(&path, "{ not json").unwrap();
+        assert_eq!(
+            load_node_shell_settings_at(&path, "a"),
+            NodeShellSettings::default()
+        );
+        assert!(save_node_shell_settings_at(&path, "a", &b).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// 015-mcp-agent-exposure (T039), the half of the default that needs no filesystem: an
     /// `AutoStartConfig` that nothing has ever written is *off*. `AutoStartConfig::load()`
