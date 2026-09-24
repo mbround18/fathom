@@ -160,6 +160,15 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'KnativeOverviewUpdated':
       d.put('knative', { overview: event.data })
       return
+    case 'KedaOverviewUpdated':
+      d.edit('keda').overview = event.data
+      return
+    case 'KedaResourceDetailsUpdated':
+      d.edit('keda').selected = { state: 'ready', details: event.data }
+      return
+    case 'KedaResourceNotFound':
+      d.edit('keda').selected = { state: 'gone', ...event.data }
+      return
     case 'HubbleTrafficUpdated':
       d.put('hubble', { summary: event.data })
       return

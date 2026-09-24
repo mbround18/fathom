@@ -87,6 +87,7 @@ pub(super) struct WatchTasks {
     /// 023-cert-manager-certificates-pane: background poll of the Certificates overview.
     pub(super) cert_manager_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) trivy_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) keda_poll_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
@@ -102,6 +103,7 @@ impl WatchTasks {
         abort_task(&mut self.velero_poll_task);
         abort_task(&mut self.cert_manager_poll_task);
         abort_task(&mut self.trivy_poll_task);
+        abort_task(&mut self.keda_poll_task);
     }
 }
 
@@ -235,6 +237,7 @@ impl BackendState {
                 velero_poll_task: None,
                 cert_manager_poll_task: None,
                 trivy_poll_task: None,
+                keda_poll_task: None,
             },
             node_actions: NodeActionState::default(),
             fleet: FleetState::default(),

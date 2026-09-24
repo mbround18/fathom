@@ -32,6 +32,8 @@ import type {
     PodVulnerabilityInspection,
     TrivyOverview,
     VulnInspectError,
+      KedaOverview,
+  KedaResourceDetails,
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
@@ -150,6 +152,11 @@ export interface ContextStatusEntry {
   /** Present only when `status === 'Error'` (012-incluster-daemon-federation P1). */
   error?: string
 }
+
+/** Autoscalers Inspector state: the selected ScaledObject/ScaledJob's detail, or a not-found reply. */
+export type KedaSelection =
+  | { state: 'ready'; details: KedaResourceDetails }
+  | { state: 'gone'; kind: string; namespace: string; name: string }
 
 export interface SessionState {
   /** Kubeconfig context names. Empty with `contextsLoaded` means no kubeconfig. */
@@ -522,6 +529,7 @@ export interface StoreData {
   /** 021-trivy-vulnerability-pane: cluster-wide Trivy Operator summary. */
   trivy: { overview?: TrivyOverview }
   hubble: { summary?: HubbleTrafficSummary }
+  keda: { overview?: KedaOverview; selected?: KedaSelection }
   crds: CrdState
   integrations: IntegrationsState
   /** Node actions (US2), by node name. */
@@ -671,6 +679,10 @@ export interface StoreState extends StoreData {
   refreshTrivyOverview: () => void
   /** Sends `InspectPodVulnerabilities` and marks the Pod's slice loading. */
   inspectPodVulnerabilities: (namespace: string, pod: string) => void
+  /** Sends `RefreshKeda` (rescans KEDA ScaledObjects/ScaledJobs; also polled every 20s). */
+  refreshKeda: () => void
+  /** Sends `SelectScaledObject`/`SelectScaledJob` for the Autoscalers Inspector. */
+  selectKedaResource: (kind: string, namespace: string, name: string) => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -897,6 +909,7 @@ export function initialData(): StoreData {
     certManager: {},
     trivy: {},
     hubble: {},
+    keda: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
     nodeActions: {},
@@ -1136,6 +1149,13 @@ export const useStore = create<StoreState>()((set, get) => ({
     }))
     get().send({ type: 'InspectPodVulnerabilities', data: { namespace, pod } })
   },
+  refreshKeda: () => get().send({ type: 'RefreshKeda' }),
+
+  selectKedaResource: (kind, namespace, name) =>
+    get().send({
+      type: kind === 'ScaledJob' ? 'SelectScaledJob' : 'SelectScaledObject',
+      data: { namespace, name },
+    }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 

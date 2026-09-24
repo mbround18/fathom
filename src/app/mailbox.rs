@@ -112,6 +112,11 @@ impl FathomApp {
                     SystemEvent::TrivyOverviewUpdated(_) => {
                         // React UI owns the Trivy pane; no egui view.
                     }
+                    SystemEvent::KedaOverviewUpdated(_)
+                    | SystemEvent::KedaResourceDetailsUpdated(_)
+                    | SystemEvent::KedaResourceNotFound { .. } => {
+                        // KedaPanel (React bridge) handles this; no egui view.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }

@@ -35,6 +35,7 @@ mod ingresses;
 pub mod integrations;
 mod interactions;
 mod jobs;
+mod keda;
 mod kind;
 mod knative;
 mod kube;

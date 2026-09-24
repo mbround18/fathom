@@ -1,6 +1,7 @@
 import {
   CertificateIcon,
   PlugsIcon,
+  GaugeIcon,
   PulseIcon,
   RocketLaunchIcon,
   ShareNetworkIcon,
@@ -51,6 +52,13 @@ export const CERTIFICATES_TAB: StackTab = {
   icon: CertificateIcon,
   kind: 'tool',
   tool: 'certManager',
+}
+
+export const KEDA_TAB: StackTab = {
+  label: 'Autoscalers',
+  icon: GaugeIcon,
+  kind: 'tool',
+  tool: 'keda',
 }
 
 /** Which tab the stack root belongs to: tool panes by tool, everything else is Resources. */

@@ -198,6 +198,8 @@ pub enum ToolKind {
     /// 028-knative-pane: Knative Serving tool pane.
     Knative,
     Hubble,
+    /// 029-keda-autoscaler-pane: KEDA Autoscalers tool pane.
+    Keda,
     Logs,
     Events,
     Portforwards,

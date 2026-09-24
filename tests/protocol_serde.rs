@@ -1735,6 +1735,15 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::RefreshKeda,
+        BackendCmd::SelectScaledObject {
+            namespace: "default".to_owned(),
+            name: "queue-worker".to_owned(),
+        },
+        BackendCmd::SelectScaledJob {
+            namespace: "default".to_owned(),
+            name: "batch".to_owned(),
+        },
         BackendCmd::RefreshHubble,
         BackendCmd::SimulateSlowCall,
         BackendCmd::BulkDelete {
@@ -2178,6 +2187,9 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshVelero => {}
         BackendCmd::RefreshCertManager => {}
         BackendCmd::SelectCertificateChain { .. } => {}
+        BackendCmd::RefreshKeda => {}
+        BackendCmd::SelectScaledObject { .. } => {}
+        BackendCmd::SelectScaledJob { .. } => {}
         BackendCmd::RefreshHubble => {}
         BackendCmd::SimulateSlowCall => {}
         BackendCmd::BulkDelete { .. } => {}
@@ -2343,6 +2355,12 @@ fn all_system_events() -> Vec<SystemEvent> {
         }),
         SystemEvent::CertManagerOverviewUpdated(sample_cert_manager_overview()),
         SystemEvent::CertificateChainUpdated(sample_certificate_chain()),
+        SystemEvent::KedaOverviewUpdated(KedaOverview::default()),
+        SystemEvent::KedaResourceNotFound {
+            kind: "ScaledObject".to_owned(),
+            namespace: "default".to_owned(),
+            name: "gone".to_owned(),
+        },
         SystemEvent::HubbleTrafficUpdated(sample_hubble_traffic_summary()),
         SystemEvent::HelmMutationPreviewReady(sample_helm_mutation_preview_ready()),
         SystemEvent::HelmMutationApplied(sample_helm_mutation_applied()),
@@ -2541,6 +2559,9 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::VeleroOverviewUpdated(..) => {}
         SystemEvent::CertManagerOverviewUpdated(..) => {}
         SystemEvent::CertificateChainUpdated(..) => {}
+        SystemEvent::KedaOverviewUpdated(..) => {}
+        SystemEvent::KedaResourceDetailsUpdated(..) => {}
+        SystemEvent::KedaResourceNotFound { .. } => {}
         SystemEvent::HubbleTrafficUpdated(..) => {}
         SystemEvent::HelmMutationPreviewReady(..) => {}
         SystemEvent::HelmMutationApplied(..) => {}

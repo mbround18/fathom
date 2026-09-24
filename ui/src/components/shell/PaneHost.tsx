@@ -10,6 +10,7 @@ import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
 import { VeleroPanel } from '@/components/panels/VeleroPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
 import { TrivyPanel } from '@/components/panels/TrivyPanel'
+import { KedaPanel } from '@/components/panels/KedaPanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
@@ -198,6 +199,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
       if (pane.tool === 'certManager') return <CertManagerPanel />
       if (pane.tool === 'hubble') return <HubblePanel />
       if (pane.tool === 'vulnerabilities') return <TrivyPanel />
+      if (pane.tool === 'keda') return <KedaPanel />
       if (pane.tool === 'topology') return <TopologyPanel paneId={pane.id} />
       if (pane.tool === 'portforwards') return <PortForwardsPanel />
       return (

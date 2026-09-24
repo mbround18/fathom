@@ -155,6 +155,9 @@ impl BackendCmdV1 {
             | C::SelectHelmRelease { .. }
             | C::SelectFluxResource { .. }
             | C::RefreshKnative
+            | C::RefreshKeda
+            | C::SelectScaledObject { .. }
+            | C::SelectScaledJob { .. }
             // Agent SDK Ops (013): `AgentAsk` calls an external model provider but
             // writes no cluster/persisted state beyond the in-memory/on-disk
             // conversation (classified `Local` below is where persistence writes
@@ -543,6 +546,9 @@ impl BackendCmdV1 {
             C::SelectFluxResource { .. } => section_keys::flux_resource(),
             C::SelectCertificateChain { .. } => section_keys::certificate_chain(),
             C::RefreshAuditLog => section_keys::audit_log(),
+            C::RefreshKeda | C::SelectScaledObject { .. } | C::SelectScaledJob { .. } => {
+                section_keys::autoscalers()
+            }
         };
         Some(key)
     }
@@ -630,6 +636,9 @@ impl BackendCmdV1 {
             | C::CancelCreateKindCluster { .. }
             | C::StartFleetPolling
             | C::StopFleetPolling
+            | C::RefreshKeda
+            | C::SelectScaledObject { .. }
+            | C::SelectScaledJob { .. }
             | C::RefreshGatekeeper
             | C::RefreshVelero
             | C::RefreshCertManager

@@ -330,6 +330,7 @@ async fn refresh_core_resources(
     sync::ensure_knative_poll(state, sender).await;
     sync::ensure_cluster_version_poll(state, sender).await;
     sync::ensure_trivy_poll(state, sender).await;
+    sync::ensure_keda_poll(state, sender).await;
     sync::ensure_hubble_poll(state, sender).await;
     sync::ensure_velero_poll(state, sender).await;
     sync::ensure_cert_manager_poll(state, sender).await;

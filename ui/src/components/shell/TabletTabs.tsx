@@ -8,6 +8,7 @@ import { SlotGrid } from './SlotGrid'
 import {
   EVENTS_TAB,
   FORWARDS_TAB,
+  KEDA_TAB,
   LOGS_TAB,
   RESOURCES_TAB,
   TOPOLOGY_TAB,
@@ -25,6 +26,7 @@ const TABLET_TABS = [
   TOPOLOGY_TAB,
   CERTIFICATES_TAB,
   KNATIVE_TAB,
+  KEDA_TAB,
 ] as const
 
 /**

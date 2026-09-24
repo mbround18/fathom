@@ -291,6 +291,10 @@ pub mod section_keys {
         SectionKey::new("integrations/knative")
     }
 
+    pub fn autoscalers() -> SectionKey {
+        SectionKey::new("autoscalers")
+    }
+
     pub fn integrations_hubble() -> SectionKey {
         SectionKey::new("integrations/hubble")
     }

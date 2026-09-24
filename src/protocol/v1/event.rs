@@ -9,20 +9,21 @@ use super::{
     HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails, HelmReleaseSummary,
     HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
     IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
-    JobSummary, KnativeOverview, KubeadmDetectionResult, LeaseDetails, LeaseSummary,
-    LimitRangeDetails, LimitRangeSummary, MutatingWebhookConfigurationDetails,
-    MutatingWebhookConfigurationSummary, NamespaceAccessResolved, NamespaceDetails,
-    NamespaceSummary, NetworkPolicyDetails, NetworkPolicySummary, NodeDetails, NodeSummary,
-    PersistentVolumeClaimDetails, PersistentVolumeClaimSummary, PersistentVolumeDetails,
-    PersistentVolumeSummary, PodDetails, PodDisruptionBudgetDetails, PodDisruptionBudgetSummary,
-    PodMetricsHistory, PodMetricsSummary, PodSummary, PriorityClassDetails, PriorityClassSummary,
-    PrometheusMetrics, RbacAccessResult, RelatedResourceRef, ReplicaSetSummary,
-    ReplicationControllerDetails, ReplicationControllerSummary, ResourceQuotaDetails,
-    ResourceQuotaSummary, RoleBindingDetails, RoleBindingSummary, RoleDetails, RoleSummary, Route,
-    RuntimeClassDetails, RuntimeClassSummary, SecretDetails, SecretSummary, SectionKey,
-    ServiceDetails, ServiceSummary, StatefulSetDetails, StatefulSetSummary, StorageClassDetails,
-    StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
-    ValidatingWebhookConfigurationSummary, VeleroOverview, WorkloadMetricsAggregate,
+    JobSummary, KedaOverview, KedaResourceDetails, KnativeOverview, KubeadmDetectionResult,
+    LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
+    MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
+    NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
+    NetworkPolicySummary, NodeDetails, NodeSummary, PersistentVolumeClaimDetails,
+    PersistentVolumeClaimSummary, PersistentVolumeDetails, PersistentVolumeSummary, PodDetails,
+    PodDisruptionBudgetDetails, PodDisruptionBudgetSummary, PodMetricsHistory, PodMetricsSummary,
+    PodSummary, PriorityClassDetails, PriorityClassSummary, PrometheusMetrics, RbacAccessResult,
+    RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
+    ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
+    RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
+    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
+    StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
+    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary, VeleroOverview,
+    WorkloadMetricsAggregate,
 };
 use super::{KindClusterSummary, KindPrerequisites};
 use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
@@ -148,6 +149,16 @@ pub enum SystemEvent {
     CertificateChainUpdated(CertificateChain),
     /// Aqua Trivy Operator vulnerability state, cluster-wide (021-trivy-vulnerability-pane).
     TrivyOverviewUpdated(super::TrivyOverview),
+    /// KEDA ScaledObjects/ScaledJobs (029-keda-autoscaler-pane).
+    KedaOverviewUpdated(KedaOverview),
+    /// KEDA single-resource detail for the Inspector.
+    KedaResourceDetailsUpdated(KedaResourceDetails),
+    /// The selected KEDA resource no longer exists.
+    KedaResourceNotFound {
+        kind: String,
+        namespace: String,
+        name: String,
+    },
 
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),
@@ -673,6 +684,47 @@ mod tests {
             request_id: "r".to_owned(),
             ok: false,
             error: Some("boom".to_owned()),
+        });
+    }
+
+    #[test]
+    fn keda_events_roundtrip() {
+        use super::super::{KedaResourceSummary, ScaleReasoning, ScaleReasoningState};
+        system_roundtrip(SystemEvent::KedaOverviewUpdated(KedaOverview::default()));
+        let summary = KedaResourceSummary {
+            kind: "ScaledObject".to_owned(),
+            name: "queue-worker".to_owned(),
+            namespace: "default".to_owned(),
+            target_kind: "Deployment".to_owned(),
+            target_name: "queue-worker".to_owned(),
+            target_found: true,
+            current_replicas: 4,
+            min_replicas: 1,
+            max_replicas: 10,
+            paused: false,
+            ready: true,
+            trigger_types: vec!["prometheus".to_owned()],
+            age: "3d".to_owned(),
+        };
+        system_roundtrip(SystemEvent::KedaOverviewUpdated(KedaOverview {
+            installed: true,
+            scaled_objects: vec![summary.clone()],
+            scaled_jobs: vec![],
+        }));
+        system_roundtrip(SystemEvent::KedaResourceDetailsUpdated(
+            KedaResourceDetails {
+                summary,
+                triggers: vec![],
+                reasoning: ScaleReasoning {
+                    state: ScaleReasoningState::MidRange,
+                    message: "ok".to_owned(),
+                },
+            },
+        ));
+        system_roundtrip(SystemEvent::KedaResourceNotFound {
+            kind: "ScaledObject".to_owned(),
+            namespace: "default".to_owned(),
+            name: "gone".to_owned(),
         });
     }
 

@@ -368,6 +368,17 @@ pub enum BackendCmdV1 {
     /// Rescan Aqua Trivy Operator CRDs for the cluster-wide vulnerability summary
     /// (021-trivy-vulnerability-pane). Also polled every 20s in the background.
     RefreshTrivyOverview,
+    /// KEDA overview refresh (029-keda-autoscaler-pane).
+    RefreshKeda,
+    /// KEDA single-resource lookups for the Inspector (read-only).
+    SelectScaledObject {
+        namespace: String,
+        name: String,
+    },
+    SelectScaledJob {
+        namespace: String,
+        name: String,
+    },
     RefreshHubble,
     RefreshGatekeeper,
     /// Rescan cert-manager CRDs and Certificates now (dashboard aggregate), same shape as
@@ -1112,6 +1123,19 @@ mod tests {
         roundtrip(BackendCmdV1::SelectCertificateChain {
             namespace: "default".to_owned(),
             name: "example-com-tls".to_owned(),
+        });
+    }
+
+    #[test]
+    fn keda_cmds_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKeda);
+        roundtrip(BackendCmdV1::SelectScaledObject {
+            namespace: "default".to_owned(),
+            name: "queue-worker".to_owned(),
+        });
+        roundtrip(BackendCmdV1::SelectScaledJob {
+            namespace: "default".to_owned(),
+            name: "batch".to_owned(),
         });
     }
 
