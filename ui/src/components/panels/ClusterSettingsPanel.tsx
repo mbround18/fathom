@@ -21,6 +21,7 @@ import { waitForCommandResult } from '@/store/actions'
 
 import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
+import { KindClusterPanel } from './KindClusterPanel'
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
 
 function cloneSettings(s: ClusterSettings): ClusterSettings {
@@ -282,6 +283,9 @@ export function ClusterSettingsPanel() {
       {/* 015-mcp-agent-exposure: which agents can reach this cluster, and how. Owns its own
           commands and store slice; nothing here feeds the §10 settings draft above. */}
       <AvailableAgentsSection />
+
+      {/* 030-kind-cluster-provisioning: create/delete disposable local kind clusters. */}
+      <KindClusterPanel />
 
       {formError !== undefined && (
         <p role="alert" data-testid="teams-cluster-settings-error" className="text-xs text-status-err">

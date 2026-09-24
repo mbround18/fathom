@@ -3,6 +3,7 @@ import type { ActionOutcome } from "./ActionOutcome";
 import type { AgentAuthModeInput } from "./AgentAuthModeInput";
 import type { AgentObjectRef } from "./AgentObjectRef";
 import type { ClusterSettings } from "./ClusterSettings";
+import type { KindClusterProfileId } from "./KindClusterProfileId";
 import type { RbacAccessCheck } from "./RbacAccessCheck";
 import type { SectionKey } from "./SectionKey";
 import type { TaintOp } from "./TaintOp";
@@ -14,7 +15,7 @@ import type { UiConfig } from "./UiConfig";
  * Serialized adjacently tagged: `{ "type": "RefreshPods" }`,
  * `{ "type": "SetContext", "data": { "context": "kind-a" } }`.
  */
-export type BackendCmdV1 = { "type": "Initialize" } | { "type": "Shutdown" } | { "type": "RefreshContexts" } | { "type": "SetContext", "data": { context: string, } } | { "type": "RefreshNamespaces" } | { "type": "SetNamespaceFilter", "data": { namespaces: Array<string>, } } | { "type": "RefreshNodes" } | { "type": "SelectNode", "data": { name: string, } } | { "type": "CordonNode", "data": { name: string, } } | { "type": "UncordonNode", "data": { name: string, } } | { "type": "DrainNode", "data": { name: string, ignore_daemonsets: boolean, force_delete_empty_dir: boolean, } } | { "type": "CancelDrainNode", "data": { name: string, request_id: string, } } | { "type": "TaintNode", "data": { name: string, op: TaintOp, key: string, value: string | null, effect: string, } } | { "type": "RefreshEvents" } | { "type": "RefreshPods" } | { "type": "SelectPod", "data": { namespace: string, name: string, } } | { "type": "DeletePod", "data": { namespace: string, name: string, } } | { "type": "AddEphemeralContainer", "data": { namespace: string, pod: string, 
+export type BackendCmdV1 = { "type": "Initialize" } | { "type": "Shutdown" } | { "type": "RefreshContexts" } | { "type": "SetContext", "data": { context: string, } } | { "type": "RefreshNamespaces" } | { "type": "SetNamespaceFilter", "data": { namespaces: Array<string>, } } | { "type": "RefreshNodes" } | { "type": "SelectNode", "data": { name: string, } } | { "type": "CordonNode", "data": { name: string, } } | { "type": "UncordonNode", "data": { name: string, } } | { "type": "DrainNode", "data": { name: string, ignore_daemonsets: boolean, force_delete_empty_dir: boolean, } } | { "type": "CancelDrainNode", "data": { name: string, request_id: string, } } | { "type": "RefreshKindPrerequisites" } | { "type": "RefreshKindClusters" } | { "type": "CreateKindCluster", "data": { request_id: string, name: string, profile: KindClusterProfileId, custom_yaml: string | null, } } | { "type": "CancelCreateKindCluster", "data": { request_id: string, } } | { "type": "DeleteKindCluster", "data": { request_id: string, name: string, } } | { "type": "TaintNode", "data": { name: string, op: TaintOp, key: string, value: string | null, effect: string, } } | { "type": "RefreshEvents" } | { "type": "RefreshPods" } | { "type": "SelectPod", "data": { namespace: string, name: string, } } | { "type": "DeletePod", "data": { namespace: string, name: string, } } | { "type": "AddEphemeralContainer", "data": { namespace: string, pod: string, 
 /**
  * Existing container whose process namespace the new container will share.
  * `None` is only valid when the pod has exactly one container (auto-selected).

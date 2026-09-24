@@ -33,6 +33,8 @@ const ACTION_LABELS: Record<AuditActionKind, string> = {
   agentAction: 'Agent Action',
   mcpToggle: 'MCP Server Toggle',
   ephemeralContainer: 'Debug Container',
+  kindClusterCreate: 'Kind Cluster Create',
+  kindClusterDelete: 'Kind Cluster Delete',
 }
 
 const SELECT_CLASS =

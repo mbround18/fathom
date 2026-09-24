@@ -24,6 +24,7 @@ use super::{
     StorageClassSummary, StreamId, UiConfig, ValidatingWebhookConfigurationDetails,
     ValidatingWebhookConfigurationSummary, VeleroOverview, WorkloadMetricsAggregate,
 };
+use super::{KindClusterSummary, KindPrerequisites};
 use super::{OrgClusterSettings, TeamPublishRejection, TeamStoreStatus};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -523,6 +524,25 @@ pub enum StreamEvent {
         ok: bool,
         error: Option<String>,
     },
+    /// 030: host readiness for local kind provisioning.
+    KindPrerequisitesUpdated {
+        prerequisites: KindPrerequisites,
+    },
+    /// 030: current local kind clusters.
+    KindClustersUpdated {
+        clusters: Vec<KindClusterSummary>,
+    },
+    /// 030: one stage line from an in-flight kind create/delete, keyed by `request_id`.
+    KindProvisionProgress {
+        request_id: String,
+        stage: String,
+    },
+    /// 030: terminal event for a kind create/delete, keyed by `request_id`.
+    KindClusterActionFinished {
+        request_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
 }
 
 /// Tunnel status carried by `StreamEvent::PortForwardTunnel`.
@@ -629,6 +649,30 @@ mod tests {
             request_id: "req-1".to_owned(),
             ok: false,
             error: Some("node not found".to_owned()),
+        });
+    }
+
+    #[test]
+    fn kind_events_roundtrip() {
+        roundtrip(StreamEvent::KindPrerequisitesUpdated {
+            prerequisites: KindPrerequisites {
+                kind_installed: false,
+                kind_version: None,
+                runtime_installed: false,
+                runtime_kind: None,
+                runtime_running: false,
+                ready: false,
+            },
+        });
+        roundtrip(StreamEvent::KindClustersUpdated { clusters: vec![] });
+        roundtrip(StreamEvent::KindProvisionProgress {
+            request_id: "r".to_owned(),
+            stage: "Preparing nodes".to_owned(),
+        });
+        roundtrip(StreamEvent::KindClusterActionFinished {
+            request_id: "r".to_owned(),
+            ok: false,
+            error: Some("boom".to_owned()),
         });
     }
 

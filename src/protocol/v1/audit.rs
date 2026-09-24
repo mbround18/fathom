@@ -76,6 +76,10 @@ pub enum AuditActionKind {
     McpToggle,
     /// Ephemeral debug container injected into a running pod (025).
     EphemeralContainer,
+    /// Local kind cluster created via the provisioning UI (030).
+    KindClusterCreate,
+    /// Local kind cluster deleted via the provisioning UI (030).
+    KindClusterDelete,
 }
 
 impl AuditActionKind {
@@ -101,6 +105,8 @@ impl AuditActionKind {
             Self::AgentAction => "Agent Action",
             Self::McpToggle => "MCP Server Toggle",
             Self::EphemeralContainer => "Debug Container",
+            Self::KindClusterCreate => "Kind Cluster Create",
+            Self::KindClusterDelete => "Kind Cluster Delete",
         }
     }
 }

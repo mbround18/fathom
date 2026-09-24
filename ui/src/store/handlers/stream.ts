@@ -126,6 +126,46 @@ export function handleStream(d: Draft, event: StreamEvent): void {
       }
       return
     }
+    // 030-kind-cluster-provisioning.
+    case 'KindPrerequisitesUpdated': {
+      d.edit('kind').prerequisites = event.data.prerequisites
+      return
+    }
+    case 'KindClustersUpdated': {
+      d.edit('kind').clusters = event.data.clusters
+      return
+    }
+    case 'KindProvisionProgress': {
+      const kind = d.edit('kind')
+      const prev = kind.operations[event.data.request_id]
+      if (!prev || prev.status !== 'in-progress') return
+      kind.operations = {
+        ...kind.operations,
+        [event.data.request_id]: { ...prev, stage: event.data.stage },
+      }
+      return
+    }
+    case 'KindClusterActionFinished': {
+      const kind = d.edit('kind')
+      const prev = kind.operations[event.data.request_id]
+      if (!prev) return
+      // A delete only removes the row on the backend's confirmation (Principle I): the
+      // authoritative `KindClustersUpdated` that precedes this event already dropped it, but
+      // filter again in case ordering differs.
+      if (prev.kind === 'delete' && event.data.ok && kind.clusters) {
+        kind.clusters = kind.clusters.filter((c) => c.name !== prev.clusterName)
+      }
+      const cancelled = !event.data.ok && event.data.error === 'cancelled'
+      kind.operations = {
+        ...kind.operations,
+        [event.data.request_id]: {
+          ...prev,
+          status: event.data.ok ? 'complete' : cancelled ? 'cancelled' : 'failed',
+          error: cancelled ? undefined : (event.data.error ?? undefined),
+        },
+      }
+      return
+    }
     case 'NodeActionFinished': {
       const nodeActions = d.read('nodeActions')
       const nodeName = Object.keys(nodeActions).find(

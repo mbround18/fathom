@@ -172,6 +172,9 @@ impl BackendCmdV1 {
             // 015-mcp-agent-exposure: reads the persisted toggle and the derived connection
             // snippet only; never the cluster, never a write.
             | C::LoadMcpServerStatus
+            // 030-kind-cluster-provisioning: host tool/runtime probes and `kind get clusters`.
+            | C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
             // 011-rbac-oidc-administration: self-access checks, namespace-access lookup, and
             // kubeadm ConfigMap detection are all read-only.
             | C::RefreshRbacSelfAccess { .. }
@@ -211,6 +214,11 @@ impl BackendCmdV1 {
             // starts/stops the local stdio server task — never the cluster itself. (The MCP
             // server's own tools re-enter the backend's existing guarded mutation paths.)
             | C::SetMcpServerEnabled { .. }
+            // 030-kind-cluster-provisioning: creates/deletes local kind clusters and merges
+            // their contexts into the kubeconfig; never touches an existing cluster's objects.
+            | C::CreateKindCluster { .. }
+            | C::CancelCreateKindCluster { .. }
+            | C::DeleteKindCluster { .. }
             // 015-mcp-agent-exposure US4: the demo chat is a subprocess on the operator's own
             // machine (`claude` from `PATH`) talking to Fathom's stdio MCP server; nothing here
             // reaches the cluster except through that server's own guarded tools.
@@ -312,6 +320,12 @@ impl BackendCmdV1 {
         let key = match self {
             C::Initialize
             | C::Shutdown
+            // 030-kind-cluster-provisioning: host-level, not tied to a UI section.
+            | C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
+            | C::CreateKindCluster { .. }
+            | C::CancelCreateKindCluster { .. }
+            | C::DeleteKindCluster { .. }
             | C::RefreshContexts
             | C::SetContext { .. }
             | C::SetNamespaceFilter { .. }
@@ -611,6 +625,9 @@ impl BackendCmdV1 {
             | C::RefreshFlux
             | C::RefreshKnative
             | C::RefreshHubble
+            | C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
+            | C::CancelCreateKindCluster { .. }
             | C::StartFleetPolling
             | C::StopFleetPolling
             | C::RefreshGatekeeper
@@ -755,6 +772,19 @@ impl BackendCmdV1 {
             C::AgentSetAuthMode { .. } => {
                 summary(AuditActionKind::AgentAction, None, None, None)
             }
+
+            C::CreateKindCluster { name, .. } => summary(
+                AuditActionKind::KindClusterCreate,
+                Some("KindCluster"),
+                None,
+                Some(name),
+            ),
+            C::DeleteKindCluster { name, .. } => summary(
+                AuditActionKind::KindClusterDelete,
+                Some("KindCluster"),
+                None,
+                Some(name),
+            ),
 
             // Namespaced cluster writes: deletes.
             C::AddEphemeralContainer {
@@ -1079,6 +1109,8 @@ mod tests {
     fn read_only_sample() {
         for cmd in [
             BackendCmdV1::Initialize,
+            BackendCmdV1::RefreshKindPrerequisites,
+            BackendCmdV1::RefreshKindClusters,
             BackendCmdV1::RefreshPods,
             BackendCmdV1::RefreshVelero,
             BackendCmdV1::SelectDeployment {
@@ -1120,6 +1152,17 @@ mod tests {
                 container: None,
             },
             BackendCmdV1::DeletePortForward { tunnel_id: s("t") },
+            BackendCmdV1::CreateKindCluster {
+                request_id: s("r"),
+                name: s("dev"),
+                profile: crate::protocol::KindClusterProfileId::Bare,
+                custom_yaml: None,
+            },
+            BackendCmdV1::CancelCreateKindCluster { request_id: s("r") },
+            BackendCmdV1::DeleteKindCluster {
+                request_id: s("r"),
+                name: s("dev"),
+            },
             BackendCmdV1::ConfigureGrafana {
                 base_url: s("http://g"),
                 api_key: s("k"),
