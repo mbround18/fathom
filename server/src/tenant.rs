@@ -4,6 +4,7 @@
 //! runtime, a [`HostedAccess`] that talks to the API server as that user (never a kubeconfig,
 //! never `Client::try_default`), and a fan-out hub so several tabs of the same user share it.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,12 +13,14 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use fathom::backend::access::{ClusterAccess, Identity};
 use fathom::backend::audit_log::{AuditSink, LocalFileSink};
+use fathom::backend::rbac_access;
 use fathom::bridge::pump::{BUFFER_CAP, BatchSink, Hub, SinkError};
 use fathom::bridge::{BackendLink, spawn_backend_with, spawn_pump};
 use fathom::config::Args;
 use fathom::protocol::{
-    BackendCmd, BackendEventEnvelope, BridgeError, PublicIdentity, RequestId, ShellMode,
-    SubscriptionInfo,
+    BackendCmd, BackendEvent, BackendEventEnvelope, BridgeError, Correlation, NotificationLevel,
+    PublicIdentity, RequestId, ResourceReadEvent, Route, SessionEndReason, ShellMode,
+    SubscriptionInfo, SystemEvent, section_keys,
 };
 use kube::{Client, Config};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -157,6 +160,12 @@ pub struct UserBackend {
     last_activity: Mutex<Instant>,
     log_stream: Mutex<Option<Permit>>,
     exec_stream: Mutex<Option<Permit>>,
+    /// The active log follow, kept so a recycle can restart it (T024).
+    log_cmd: Mutex<Option<BackendCmd>>,
+    /// Live watch/poll slots counted against `max_watches_per_user`, by kind.
+    watch_permits: Mutex<HashMap<&'static str, Permit>>,
+    /// Set once the self-access probe found at least one permitted check (T033).
+    access_verified: Arc<AtomicBool>,
     ended: AtomicBool,
     threads: Mutex<Vec<std::thread::JoinHandle<()>>>,
 }
@@ -190,7 +199,14 @@ impl UserBackend {
             Some(p.identity.clone()),
             Some(runtime),
         );
-        let pump = spawn_pump(gui_rx, Arc::clone(&hub), &link, |_| {});
+        let access_verified = Arc::new(AtomicBool::new(false));
+        let pump = {
+            let hub = Arc::clone(&hub);
+            let verified = Arc::clone(&access_verified);
+            spawn_pump(gui_rx, Arc::clone(&hub), &link, move |env| {
+                watch_access_probe(env, &hub, &verified);
+            })
+        };
         let counters = UserCounters::new(&p.limits);
         Ok(Arc::new(Self {
             user_key: p.user_key,
@@ -205,6 +221,9 @@ impl UserBackend {
             last_activity: Mutex::new(Instant::now()),
             log_stream: Mutex::new(None),
             exec_stream: Mutex::new(None),
+            log_cmd: Mutex::new(None),
+            watch_permits: Mutex::new(HashMap::new()),
+            access_verified,
             ended: AtomicBool::new(false),
             threads: Mutex::new(vec![backend, pump]),
         }))
@@ -295,8 +314,89 @@ impl UserBackend {
     pub fn send(&self, cmd: BackendCmd) -> Result<RequestId, BridgeError> {
         filter::check(&cmd, HOME_CONTEXT).map_err(|d| BridgeError::Forbidden(d.to_string()))?;
         self.account_streams(&cmd)?;
+        self.account_watches(&cmd)?;
         self.touch();
-        self.forward(cmd)
+        let probe =
+            matches!(cmd, BackendCmd::Initialize) && !self.access_verified.load(Ordering::Acquire);
+        let id = self.forward(cmd)?;
+        if probe {
+            // Queued behind Initialize on the same backend loop, so the client exists by then.
+            let _ = self.forward(BackendCmd::RefreshRbacSelfAccess {
+                checks: rbac_access::hosted_probe_checks(),
+            });
+        }
+        Ok(id)
+    }
+
+    /// Count long-lived watches/pollers against `max_watches_per_user`. The connect commands
+    /// start the pod and deployment watchers; metrics pollers take one slot each. A slot is
+    /// held until its stop command (or shutdown). Repeats of the same kind reuse the slot.
+    fn account_watches(&self, cmd: &BackendCmd) -> Result<(), BridgeError> {
+        use BackendCmd as C;
+        let mut held = self.watch_permits.lock().unwrap_or_else(|e| e.into_inner());
+        match cmd {
+            C::Initialize | C::SetContext { .. } => {
+                self.take_watch(&mut held, "pods")?;
+                self.take_watch(&mut held, "deployments")?;
+            }
+            C::StartMetricsPolling { .. } => self.take_watch(&mut held, "metrics")?,
+            C::StartWorkloadMetricsPolling { .. } => {
+                self.take_watch(&mut held, "workload-metrics")?;
+            }
+            C::StopMetricsPolling => {
+                held.remove("metrics");
+            }
+            C::StopWorkloadMetricsPolling => {
+                held.remove("workload-metrics");
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn take_watch(
+        &self,
+        held: &mut HashMap<&'static str, Permit>,
+        kind: &'static str,
+    ) -> Result<(), BridgeError> {
+        if !held.contains_key(kind) {
+            let permit = self
+                .counters
+                .watch()
+                .map_err(|e| BridgeError::Forbidden(e.to_string()))?;
+            held.insert(kind, permit);
+        }
+        Ok(())
+    }
+
+    /// Push one system event to every tab through the private link (not the command path), so
+    /// it needs no backend round trip and works while the backend is winding down.
+    pub fn emit_system(&self, event: SystemEvent) {
+        emit_system_to(&self.hub, event);
+    }
+
+    /// Terminal end of the hosted session: tell the tabs why, then revoke and stop the backend.
+    pub fn end_session(&self, reason: SessionEndReason) {
+        if self.ended.load(Ordering::Acquire) {
+            return;
+        }
+        self.emit_system(SystemEvent::SessionEnded { reason });
+        self.shutdown();
+    }
+
+    /// Restart the active log follow so it re-authenticates with the current token and a
+    /// lapsed user cannot hold a stream forever (research R6). The slot is reused. Returns
+    /// whether a stream was recycled. Watchers reconnect on their own timeouts; exec shells and
+    /// port forwards are deliberately not recycled mid-use.
+    pub fn recycle_streams(&self) -> bool {
+        let cmd = self
+            .log_cmd
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(cmd) = cmd else { return false };
+        let _ = self.forward(BackendCmd::StopPodLogs);
+        self.forward(cmd).is_ok()
     }
 
     fn forward(&self, cmd: BackendCmd) -> Result<RequestId, BridgeError> {
@@ -313,13 +413,17 @@ impl UserBackend {
         let refuse = |e: LimitReached| BridgeError::Forbidden(e.to_string());
         match cmd {
             C::StartPodLogs { .. } => {
+                *self.log_cmd.lock().unwrap_or_else(|e| e.into_inner()) = Some(cmd.clone());
                 let mut slot = self.log_stream.lock().unwrap_or_else(|e| e.into_inner());
                 // Replacing the active log stream reuses its slot.
                 if slot.is_none() {
                     *slot = Some(self.counters.stream().map_err(refuse)?);
                 }
             }
-            C::StopPodLogs => *self.log_stream.lock().unwrap_or_else(|e| e.into_inner()) = None,
+            C::StopPodLogs => {
+                *self.log_cmd.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                *self.log_stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            }
             C::StartPodExec { .. } => {
                 let mut slot = self.exec_stream.lock().unwrap_or_else(|e| e.into_inner());
                 if slot.is_none() {
@@ -345,6 +449,10 @@ impl UserBackend {
         }
         *self.log_stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.exec_stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.log_cmd.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let mut w = self.watch_permits.lock().unwrap_or_else(|e| e.into_inner());
+        w.remove("metrics");
+        w.remove("workload-metrics");
     }
 
     /// End the backend: revoke credentials first (in-flight requests fail closed), then ask it
@@ -360,6 +468,10 @@ impl UserBackend {
         let _ = self.forward(BackendCmd::Shutdown);
         self.link.lock().unwrap_or_else(|e| e.into_inner()).take();
         self.tabs.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.watch_permits
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// Wait for the backend and pump threads (tests, graceful server shutdown).
@@ -368,6 +480,46 @@ impl UserBackend {
         for h in handles {
             let _ = h.join();
         }
+    }
+}
+
+fn emit_system_to(hub: &FanoutHub, event: SystemEvent) {
+    hub.deliver(vec![BackendEventEnvelope::new(
+        0,
+        Route::global(section_keys::system()),
+        Correlation::None,
+        BackendEvent::System(event),
+    )]);
+}
+
+/// Pump-side hook for the T033 self-access probe. All checks denied means the user has no
+/// permissions at all: the tabs get an empty `ContextsUpdated` (what the UI keys its no-access
+/// state off) plus a warning notification, without waiting for any further command.
+fn watch_access_probe(env: &BackendEventEnvelope, hub: &FanoutHub, verified: &AtomicBool) {
+    let BackendEvent::ResourceRead(ResourceReadEvent::RbacSelfAccessUpdated { results }) =
+        &env.event
+    else {
+        return;
+    };
+    match rbac_access::hosted_probe_verdict(results) {
+        Some(false) => verified.store(true, Ordering::Release),
+        Some(true) => {
+            emit_system_to(
+                hub,
+                SystemEvent::ContextsUpdated {
+                    contexts: Vec::new(),
+                    current: None,
+                },
+            );
+            emit_system_to(
+                hub,
+                SystemEvent::Notification {
+                    level: NotificationLevel::Warn,
+                    message: "Your account has no permissions on this cluster. Ask an administrator to grant access.".to_owned(),
+                },
+            );
+        }
+        None => {}
     }
 }
 
@@ -666,5 +818,104 @@ mod tests {
         reg.end("ka");
         assert!(b.is_alive());
         reg.end("kb");
+    }
+
+    fn recv_system(t: &mut TabAttachment, want: impl Fn(&SystemEvent) -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            while let Ok(batch) = t.rx.try_recv() {
+                for e in batch.envelopes {
+                    if let BackendEvent::System(ev) = &e.event
+                        && want(ev)
+                    {
+                        return true;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    #[test]
+    fn watches_count_against_the_per_user_cap_and_release_on_stop() {
+        let b = spawn(
+            "alice",
+            SessionLimits {
+                max_watches_per_user: 3,
+                ..Default::default()
+            },
+        );
+        b.send(BackendCmd::Initialize).unwrap();
+        assert_eq!(b.counters().watches(), 2, "pod + deployment watchers");
+        b.send(BackendCmd::Initialize).unwrap();
+        assert_eq!(b.counters().watches(), 2, "repeat connect reuses slots");
+        let metrics = || BackendCmd::StartMetricsPolling {
+            namespace: "n".into(),
+            name: "p".into(),
+            interval_secs: 5,
+        };
+        b.send(metrics()).unwrap();
+        let err = b
+            .send(BackendCmd::StartWorkloadMetricsPolling {
+                namespace: "n".into(),
+                workload_name: "w".into(),
+                workload_kind: "Deployment".into(),
+                pod_selector: "a=b".into(),
+                interval_secs: 5,
+            })
+            .err();
+        assert!(matches!(err, Some(BridgeError::Forbidden(_))), "{err:?}");
+        b.send(BackendCmd::StopMetricsPolling).unwrap();
+        assert_eq!(b.counters().watches(), 2);
+        b.shutdown();
+        assert_eq!(b.counters().watches(), 0);
+        b.join();
+    }
+
+    #[test]
+    fn end_session_tells_tabs_then_stops_the_backend() {
+        let b = spawn("alice", SessionLimits::default());
+        let mut t = b.attach_tab().unwrap();
+        b.end_session(SessionEndReason::Revoked);
+        assert!(recv_system(&mut t, |e| matches!(
+            e,
+            SystemEvent::SessionEnded {
+                reason: SessionEndReason::Revoked
+            }
+        )));
+        assert!(!b.is_alive());
+        b.join();
+    }
+
+    #[test]
+    fn zero_permission_probe_result_emits_the_no_access_signal() {
+        use fathom::protocol::RbacAccessResult;
+        let b = spawn("alice", SessionLimits::default());
+        let mut t = b.attach_tab().unwrap();
+        let denied: Vec<_> = rbac_access::hosted_probe_checks()
+            .into_iter()
+            .map(|check| RbacAccessResult {
+                check,
+                allowed: false,
+                reason: None,
+            })
+            .collect();
+        let env = BackendEventEnvelope::new(
+            1,
+            Route::global(section_keys::system()),
+            Correlation::None,
+            BackendEvent::ResourceRead(ResourceReadEvent::RbacSelfAccessUpdated {
+                results: denied,
+            }),
+        );
+        watch_access_probe(&env, &b.hub, &b.access_verified);
+        assert!(recv_system(&mut t, |e| matches!(
+            e,
+            SystemEvent::ContextsUpdated { contexts, current: None } if contexts.is_empty()
+        )));
+        assert!(!b.access_verified.load(Ordering::Acquire));
+        b.shutdown();
+        b.join();
     }
 }

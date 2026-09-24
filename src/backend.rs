@@ -71,7 +71,7 @@ mod persistentvolumeclaims;
 mod persistentvolumes;
 mod poddisruptionbudgets;
 mod priorityclasses;
-mod rbac_access;
+pub mod rbac_access;
 mod resourcequotas;
 mod rolebindings;
 mod roles;

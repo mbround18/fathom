@@ -495,6 +495,41 @@ pub(super) async fn handle_refresh_kubeadm_detection(
     Ok(())
 }
 
+/// The fixed self-access probe a hosted backend runs after connecting (spec 031, T033): can
+/// this user read any of the core resources the shell shows? Reuses the spec 018
+/// `RefreshRbacSelfAccess` review path, so it is a read-only `SelfSubjectAccessReview` batch.
+#[must_use]
+pub fn hosted_probe_checks() -> Vec<RbacAccessCheck> {
+    let check = |group: &str, resource: &str| RbacAccessCheck {
+        verb: "list".to_owned(),
+        resource: resource.to_owned(),
+        namespace: None,
+        group: Some(group.to_owned()),
+    };
+    vec![
+        check("", "namespaces"),
+        check("", "pods"),
+        check("apps", "deployments"),
+        check("", "nodes"),
+    ]
+}
+
+/// Interpret an `RbacSelfAccessUpdated` batch. `None` when it is not the hosted probe's answer
+/// (a UI-issued gating batch); `Some(true)` when every probe check was denied, meaning the user
+/// has no usable permissions (the "no access" state, SC-008).
+#[must_use]
+pub fn hosted_probe_verdict(results: &[RbacAccessResult]) -> Option<bool> {
+    let probe = hosted_probe_checks();
+    let is_probe = results.len() == probe.len()
+        && results.iter().zip(&probe).all(|(r, p)| {
+            r.check.verb == p.verb
+                && r.check.resource == p.resource
+                && r.check.namespace == p.namespace
+                && r.check.group == p.group
+        });
+    is_probe.then(|| results.iter().all(|r| !r.allowed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -703,5 +738,37 @@ mod tests {
             Some("ci"),
         );
         assert!(right_ns.found_any);
+    }
+
+    fn probe_results(allowed: &[bool]) -> Vec<RbacAccessResult> {
+        hosted_probe_checks()
+            .into_iter()
+            .zip(allowed)
+            .map(|(check, a)| RbacAccessResult {
+                check,
+                allowed: *a,
+                reason: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn probe_verdict_all_denied_is_zero_permission() {
+        let r = probe_results(&[false; 4]);
+        assert_eq!(hosted_probe_verdict(&r), Some(true));
+    }
+
+    #[test]
+    fn probe_verdict_any_allowed_is_access() {
+        let r = probe_results(&[false, true, false, false]);
+        assert_eq!(hosted_probe_verdict(&r), Some(false));
+    }
+
+    #[test]
+    fn non_probe_batches_are_ignored() {
+        let mut r = probe_results(&[false; 4]);
+        r[0].check.resource = "secrets".to_owned();
+        assert_eq!(hosted_probe_verdict(&r), None);
+        assert_eq!(hosted_probe_verdict(&[]), None);
     }
 }
