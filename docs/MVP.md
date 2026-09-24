@@ -35,7 +35,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
 | Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) delivered by 033-rauthy-oidc-teams-users (automated tests only; live multi-user validation not run) — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ✅ | 038-sdk-login-ollama (GitHub device flow, Claude/OpenAI keys in the OS keyring, Ollama detection and model picker, offline mode; provider calls verified against mocks only, no live credentials) |
-| Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | 🚧 | `037-node-shell` — privileged debug pod pinned to a node with confirm, SSAR pre-check, guaranteed cleanup and orphan sweep; shipped incl. settings and a11y e2e; validated on kind (Linux only); remaining: T030 Tier 1 platform runs, T031 brochure |
+| Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | 🚧 | `037-node-shell` — privileged debug pod pinned to a node with confirm, SSAR pre-check, guaranteed cleanup and orphan sweep; shipped incl. settings and a11y e2e; validated on kind (Linux only); remaining: T030 Tier 1 platform runs; brochure shots captured |
 
 ---
 
@@ -489,7 +489,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 
 ### Node Shell
 
-*Status: ✅ Shipped (`037-node-shell`; remaining: T030 Tier 1 platform runs, T031 brochure screenshots).* An on-demand ephemeral debug pod scheduled onto a specific node (distinct from `002`'s in-pod `kubectl exec`-equivalent terminal, which attaches to an existing container).
+*Status: ✅ Shipped (`037-node-shell`; remaining: T030 Tier 1 platform runs; brochure shots captured).* An on-demand ephemeral debug pod scheduled onto a specific node (distinct from `002`'s in-pod `kubectl exec`-equivalent terminal, which attaches to an existing container).
 
 * Configurable image
 * Optional image pull secret

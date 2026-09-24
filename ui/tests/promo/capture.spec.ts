@@ -354,6 +354,142 @@ test.describe('wide', () => {
   })
 })
 
+test.describe('wide: 036 in-cluster daemon', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  /** Turn the per-context "use in-cluster daemon" preference on and wait for the real daemon
+   * (installed by `k8s/cluster.sh up-daemon`) to report `available`. The preference is a
+   * client-side setting, not a cluster write. */
+  async function enableDaemon(page: Page): Promise<void> {
+    const chip = page.getByTestId('daemon-chip')
+    await chip.click()
+    const toggle = page.getByTestId('daemon-toggle')
+    if ((await toggle.getAttribute('aria-checked')) !== 'true') await toggle.click()
+    await expect(chip).toHaveAttribute('data-daemon-state', 'available', { timeout: 30_000 })
+  }
+
+  /** Leave the preference off again so later scenes (and reruns) start from the default. */
+  test.afterEach(async ({ page }) => {
+    await page.keyboard.press('Escape')
+    await page.getByTestId('daemon-chip').click()
+    const toggle = page.getByTestId('daemon-toggle')
+    if ((await toggle.getAttribute('aria-checked')) === 'true') await toggle.click()
+  })
+
+  test('daemon status chip', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await enableDaemon(page)
+    await expect(page.getByTestId('daemon-capabilities')).toBeVisible()
+    await shoot(page, 'wide-daemon-chip', pairs)
+  })
+
+  test('while you were away timeline', async ({ app, page, toolPane }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await enableDaemon(page)
+    await page.keyboard.press('Escape')
+    await toolPane.open(page, 'daemon', async (pg) => {
+      await expect(pg.getByTestId('daemon-timeline-entry').first()).toBeVisible({ timeout: 30_000 })
+    })
+    await shoot(page, 'wide-daemon-timeline', pairs)
+  })
+
+  test('daemon topology graph with sparkline', async ({ app, page, toolPane }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await enableDaemon(page)
+    await page.keyboard.press('Escape')
+    await toolPane.open(page, 'topology', async (pg) => {
+      const graph = pg.getByTestId('daemon-topology-graph')
+      await expect(graph).toBeVisible({ timeout: 30_000 })
+      await expect
+        .poll(async () => Number(await graph.getAttribute('data-node-count')))
+        .toBeGreaterThan(3)
+    })
+    // Select the real cluster Node: the daemon replies with its metrics-server trend.
+    await page.getByRole('region', { name: 'Node', exact: true }).getByTestId('daemon-topology-node').first().click()
+    await expect(page.getByTestId('daemon-topology-detail')).toBeVisible()
+    await expect(page.getByTestId('daemon-sparkline').first()).toBeVisible({ timeout: 90_000 })
+    await page.getByTestId('daemon-topology-detail').evaluate((el) => { el.scrollTop = 0 })
+    await page.getByTestId('daemon-sparkline').first().scrollIntoViewIfNeeded()
+    await shoot(page, 'wide-daemon-topology', pairs)
+  })
+})
+
+test.describe('wide: 034/037/038 screens', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  test('simultaneous federation fleet', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await page.getByTestId('fleet-open').click()
+    // Keep both real kubeconfig contexts live (a client-side watch preference, not a cluster write).
+    for (const ctx of [app.context, 'kind-fathom-oidc-rauthy']) {
+      const sw = page.getByRole('switch', { name: `Keep ${ctx} live` })
+      if ((await sw.getAttribute('aria-checked')) !== 'true') await sw.click()
+    }
+    await expect(page.getByTestId('federation-row')).toHaveCount(2)
+    await expect(page.getByTestId('federation-state').filter({ hasText: /live/i })).toHaveCount(2, {
+      timeout: 60_000,
+    })
+    await expect(page.getByTestId('federation-combined')).toBeVisible()
+    await shoot(page, 'wide-federation-fleet', pairs)
+    // Restore the default (un-federate) so the run leaves no preference behind.
+    for (const ctx of [app.context, 'kind-fathom-oidc-rauthy']) {
+      await page.getByRole('switch', { name: `Keep ${ctx} live` }).click()
+    }
+  })
+
+  test('ai assist sign-in and ollama', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Cluster Settings', 'Team')
+    const section = page.getByTestId('ai-assist-settings')
+    await section.scrollIntoViewIfNeeded()
+    await expect(section).toBeVisible()
+    await expect(page.getByTestId('ai-provider-github')).toBeVisible()
+    await shoot(page, 'wide-ai-assist', pairs)
+  })
+
+  test('identity dialog (033, signed out)', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    // Real, unauthenticated state: no sign-in is performed by the promo run.
+    await page.getByTestId('identity-chip').click()
+    await expect(page.getByTestId('oidc-issuer-settings')).toBeVisible()
+    await shoot(page, 'wide-identity', pairs)
+    await page.keyboard.press('Escape')
+  })
+
+  test('teams view (033, signed out)', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Teams', 'Team')
+    await expect(page.getByTestId('teams-view')).toBeVisible()
+    await shoot(page, 'wide-teams', pairs)
+  })
+
+  test('node shell confirmation', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Nodes', 'Overview')
+    await table(page, 'nodes').locator('[role="row"][data-row-key]').first().click()
+    const insp = inspector(page)
+    await insp.getByTestId('node-shell-tab').click()
+    const panel = insp.getByTestId('node-shell-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByTestId('node-shell-start')).toBeEnabled({ timeout: 30_000 })
+    await shoot(page, 'wide-node-shell-panel', pairs)
+    // Open the real confirmation (privileges, pod name, image), photograph, cancel. Nothing is
+    // created: the same open-photograph-cancel pattern as the scale dialog.
+    await panel.getByTestId('node-shell-start').click()
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await shoot(page, 'wide-node-shell-confirm', pairs)
+    await page.keyboard.press('Escape')
+  })
+})
+
 test.describe('ultra', () => {
   test.use({ viewport: { width: 3840, height: 1600 }, deviceScaleFactor: 1 })
 

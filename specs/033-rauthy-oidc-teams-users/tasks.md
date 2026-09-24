@@ -80,7 +80,7 @@
 - [x] T049 [P] Performance checks: refresh/capability off UI thread, idle CPU, 200-namespace lazy resolution (SC-004)
 - [~] T050 Run full quickstart on Ubuntu 26.04, Windows 11, macOS 26 (record manual runs where no runner) PARTIAL: Linux automated gates only; manual quickstart not run on any OS; Windows 11 and macOS 26 not run. See research.md Phase 9.
 - [x] T051 Run CI gates: fmt, clippy -D warnings, cargo test, lint, typecheck, Vitest, Playwright, binding drift
-- [ ] T052 Brochure/marketing PDF screenshots of new screens (always last) (Not done: no screenshot tooling was run in this pass; left open.)
+- [ ] T052 Brochure/marketing PDF screenshots of new screens (always last) (Partial: signed-out identity dialog and Teams view captured; the signed-in chip and directory are not, they need a live Rauthy session and admin key.)
 
 ## Dependencies
 
