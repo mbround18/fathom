@@ -81,6 +81,7 @@ pub(super) struct WatchTasks {
     pub(super) hubble_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) flux_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) cluster_version_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) gatekeeper_poll_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
@@ -91,6 +92,7 @@ impl WatchTasks {
         abort_task(&mut self.hubble_poll_task);
         abort_task(&mut self.flux_poll_task);
         abort_task(&mut self.cluster_version_poll_task);
+        abort_task(&mut self.gatekeeper_poll_task);
     }
 }
 
@@ -197,6 +199,7 @@ impl BackendState {
                 hubble_poll_task: None,
                 flux_poll_task: None,
                 cluster_version_poll_task: None,
+                gatekeeper_poll_task: None,
             },
             node_actions: NodeActionState::default(),
             metrics: MetricsState {

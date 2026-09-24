@@ -102,6 +102,9 @@ impl FathomApp {
                     SystemEvent::ClusterVersionUpdated(_) => {
                         // Tauri UI badge only (019); no egui view.
                     }
+                    SystemEvent::GatekeeperOverviewUpdated(_) => {
+                        // GatekeeperPanel (React bridge) handles this; no egui view.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
                     }

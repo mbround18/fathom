@@ -99,6 +99,7 @@ impl BackendCmdV1 {
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
             | C::RefreshHubble
+            | C::RefreshGatekeeper
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
             | C::RefreshPersistentVolumes
@@ -425,6 +426,7 @@ impl BackendCmdV1 {
             }
             C::RefreshFlux => section_keys::integrations_flux(),
             C::RefreshHubble => section_keys::integrations_hubble(),
+            C::RefreshGatekeeper => section_keys::integrations_gatekeeper(),
             C::RefreshPersistentVolumes
             | C::SelectPersistentVolume { .. }
             | C::DeletePersistentVolume { .. } => section_keys::storage_pv(),

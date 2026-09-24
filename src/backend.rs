@@ -23,6 +23,7 @@ mod endpoints;
 mod events;
 mod exec;
 mod flux;
+mod gatekeeper;
 mod helm;
 mod hubble;
 mod images;

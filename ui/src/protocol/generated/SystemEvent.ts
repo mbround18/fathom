@@ -8,6 +8,7 @@ import type { ContextConnectionStatus } from "./ContextConnectionStatus";
 import type { CrdCatalogEntry } from "./CrdCatalogEntry";
 import type { DiskUsage } from "./DiskUsage";
 import type { FluxOverview } from "./FluxOverview";
+import type { GatekeeperOverview } from "./GatekeeperOverview";
 import type { HelmMutationApplied } from "./HelmMutationApplied";
 import type { HelmMutationFailed } from "./HelmMutationFailed";
 import type { HelmMutationPreviewReady } from "./HelmMutationPreviewReady";

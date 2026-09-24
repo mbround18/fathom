@@ -22,6 +22,7 @@ import type {
   DiskUsage,
   ClusterVersionSummary,
   FluxOverview,
+  GatekeeperOverview,
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
@@ -463,6 +464,7 @@ export interface StoreData {
   flux: { overview?: FluxOverview }
   /** 019: `undefined` until the first `ClusterVersionUpdated` arrives. */
   clusterVersion: ClusterVersionSummary | undefined
+  gatekeeper: { overview?: GatekeeperOverview }
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -590,6 +592,8 @@ export interface StoreState extends StoreData {
   refreshEvents: () => void
   /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
   refreshFlux: () => void
+  /** Sends `RefreshGatekeeper` (rescans OPA Gatekeeper constraints; also polled every 20s). */
+  refreshGatekeeper: () => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -810,6 +814,7 @@ export function initialData(): StoreData {
     metrics: { diskUsage: [] },
     flux: {},
     clusterVersion: undefined,
+    gatekeeper: {},
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
@@ -1022,6 +1027,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+  refreshGatekeeper: () => get().send({ type: 'RefreshGatekeeper' }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 
