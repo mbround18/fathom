@@ -31,7 +31,7 @@ mod ingresses;
 pub mod integrations;
 mod interactions;
 mod jobs;
-mod kube;
+pub mod kube;
 mod longhorn;
 mod mcp;
 mod metrics;

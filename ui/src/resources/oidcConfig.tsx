@@ -20,11 +20,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useStore } from '@/store'
 
-import {
-  buildKubeadmFlags,
-  buildProviderInstructions,
-  type OidcFormInput,
-} from './oidcGenerator'
+import { buildAuthenticationConfiguration, prefillFromIssuer } from './oidcAuthConfig'
+import { buildKubeadmFlags, buildProviderInstructions, type OidcFormInput } from './oidcGenerator'
 
 const DEFAULT_FORM: OidcFormInput = {
   issuerUrl: '',
@@ -50,7 +47,10 @@ function cleanInput(form: OidcFormInput): OidcFormInput {
   }
 }
 
-function renderExportText(flags: string[], blocks: ReturnType<typeof buildProviderInstructions>): string {
+function renderExportText(
+  flags: string[],
+  blocks: ReturnType<typeof buildProviderInstructions>,
+): string {
   const lines: string[] = []
   lines.push('# Fathom OIDC issuer config (generated, not applied)')
   lines.push('#')
@@ -81,10 +81,17 @@ export function OidcConfigView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const [form, setForm] = useState<OidcFormInput>(DEFAULT_FORM)
+  const issuers = useStore((s) => s.identity.config.issuers)
+  const [form, setForm] = useState<OidcFormInput>(() =>
+    issuers[0] ? prefillFromIssuer(issuers[0]) : DEFAULT_FORM,
+  )
   const [generated, setGenerated] = useState<OidcFormInput | undefined>(undefined)
 
   const flags = useMemo(() => (generated ? buildKubeadmFlags(generated) : []), [generated])
+  const authConfig = useMemo(
+    () => (generated ? buildAuthenticationConfiguration(generated) : ''),
+    [generated],
+  )
   const providerBlocks = useMemo(
     () => (generated ? buildProviderInstructions(generated) : []),
     [generated],
@@ -136,8 +143,8 @@ export function OidcConfigView() {
           </h2>
           <p className="mt-1 max-w-prose text-xs text-muted-foreground">
             Build the kube-apiserver OIDC flags and per-provider guidance for wiring an external
-            identity provider into this cluster's authentication. This is a generator only —
-            nothing here is sent to the cluster.
+            identity provider into this cluster's authentication. This is a generator only — nothing
+            here is sent to the cluster.
           </p>
         </div>
         <Badge
@@ -206,11 +213,7 @@ export function OidcConfigView() {
       </div>
 
       <div>
-        <Button
-          data-testid="rbac-oidc-generate"
-          disabled={!canGenerate}
-          onClick={handleGenerate}
-        >
+        <Button data-testid="rbac-oidc-generate" disabled={!canGenerate} onClick={handleGenerate}>
           Generate
         </Button>
       </div>
@@ -225,10 +228,10 @@ export function OidcConfigView() {
             data-testid="rbac-oidc-generator-disclaimer"
           >
             <QuestionIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            This generates configuration for you to apply yourself outside Fathom — Fathom does
-            not modify the API server. Applying kube-apiserver flags typically requires editing
-            the control plane's static pod manifest or your managed offering's own configuration
-            path, and will likely restart the API server.
+            This generates configuration for you to apply yourself outside Fathom — Fathom does not
+            modify the API server. Applying kube-apiserver flags typically requires editing the
+            control plane's static pod manifest or your managed offering's own configuration path,
+            and will likely restart the API server.
           </p>
 
           <div className="flex items-center justify-between gap-2">
@@ -261,6 +264,16 @@ export function OidcConfigView() {
             className="min-w-0 overflow-auto bg-background p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap"
           >
             {flags.join('\n')}
+          </pre>
+
+          <h3 className="font-display text-xs font-semibold tracking-wide uppercase">
+            AuthenticationConfiguration (v1beta1, Kubernetes 1.30+)
+          </h3>
+          <pre
+            data-testid="rbac-oidc-generator-authconfig"
+            className="min-w-0 overflow-auto bg-background p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap"
+          >
+            {authConfig}
           </pre>
 
           <h3 className="font-display text-xs font-semibold tracking-wide uppercase">

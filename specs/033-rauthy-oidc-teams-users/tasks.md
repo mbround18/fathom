@@ -21,22 +21,22 @@
 
 ## Phase 3: US1 Sign in to Fathom (P1)
 
-- [ ] T011 [US1] Tests first: discovery, PKCE flow, ID token validation failures (bad sig, iss, aud, exp, nonce, skew) in `src/backend/oidc/`
-- [ ] T012 [US1] Implement `flow.rs` (browser + IPv4-only loopback listener on `127.0.0.1` (Rauthy does not match `[::1]`), 120 s timeout, cancel; drop empty `groups` claims, Rauthy omits/empties them) and `validate.rs` (JWKS cache/rotation)
-- [ ] T013 [US1] Implement device-code flow and fallback selection
-- [ ] T014 [US1] Implement `session.rs`: per-issuer refresh task off `exp`, ArcSwap token, rotating refresh token, `OidcSessionEnded`
-- [ ] T015 [US1] Wire commands `OidcSaveIssuer/SignIn/CancelSignIn/SignOut` and events in `src/backend/cmd/`
-- [ ] T016 [P] [US1] UI: `IssuerSettings`, `SignInPanel` (browser + device-code code display), `IdentityChip` (responsive) in `ui/src/features/identity/`
-- [ ] T017 [US1] Vitest for identity state reducer; Playwright E2E with fake backend (sign in, cancel, expire, sign out)
-- [ ] T018 [US1] Private-CA bundle support and clock-skew error message + tests
+- [x] T011 [US1] Tests first: discovery, PKCE flow, ID token validation failures (bad sig, iss, aud, exp, nonce, skew) in `src/backend/oidc/`
+- [x] T012 [US1] Implement `flow.rs` (browser + IPv4-only loopback listener on `127.0.0.1` (Rauthy does not match `[::1]`), 120 s timeout, cancel; drop empty `groups` claims, Rauthy omits/empties them) and `validate.rs` (JWKS cache/rotation)
+- [x] T013 [US1] Implement device-code flow and fallback selection
+- [x] T014 [US1] Implement `session.rs`: per-issuer refresh task off `exp`, ArcSwap token, rotating refresh token, `OidcSessionEnded`
+- [x] T015 [US1] Wire commands `OidcSaveIssuer/SignIn/CancelSignIn/SignOut` and events in `src/backend/cmd/`
+- [x] T016 [P] [US1] UI: `IssuerSettings`, `SignInPanel` (browser + device-code code display), `IdentityChip` (responsive) in `ui/src/features/identity/`
+- [x] T017 [US1] Vitest for identity state reducer; Playwright E2E with fake backend (sign in, cancel, expire, sign out)
+- [x] T018 [US1] Private-CA bundle support and clock-skew error message + tests
 
 ## Phase 4: US2 Cluster login with OIDC (P1)
 
-- [ ] T019 [US2] Tests first: kube client uses current token, refreshes mid-session, never falls back after OIDC failure
-- [ ] T020 [US2] Implement bearer layer in `src/backend/kube.rs` for OIDC-opted contexts; `SetContextAuthMode` command
-- [ ] T021 [P] [US2] UI: per-context "authenticate with OIDC" control and verbatim-error panel linking to the 011 generator
-- [ ] T022 [US2] Prefill 011 OIDC generator from discovery document (issuer, client id, claims, prefixes) + test; offer the kube-apiserver `AuthenticationConfiguration` (v1beta1) form as well as the legacy flags (T004: it is what the lab uses; supports multiple audiences)
-- [ ] T023 [US2] Live validation per quickstart section 2 on kind (manual, record result)
+- [x] T019 [US2] Tests first: kube client uses current token, refreshes mid-session, never falls back after OIDC failure
+- [x] T020 [US2] Implement bearer layer in `src/backend/kube.rs` for OIDC-opted contexts; `SetContextAuthMode` command
+- [x] T021 [P] [US2] UI: per-context "authenticate with OIDC" control and verbatim-error panel linking to the 011 generator
+- [x] T022 [US2] Prefill 011 OIDC generator from discovery document (issuer, client id, claims, prefixes) + test; offer the kube-apiserver `AuthenticationConfiguration` (v1beta1) form as well as the legacy flags (T004: it is what the lab uses; supports multiple audiences)
+- [ ] T023 [US2] Live validation per quickstart section 2 on kind (manual, record result) NOT RUN headlessly: needs an interactive browser sign-in against Rauthy and an API server started with the AuthenticationConfiguration; run manually per quickstart section 2. Bearer layer covered by tests/oidc_kube_bearer.rs.
 
 ## Phase 5: US5 RBAC-scoped UI (P2, before US3/US4)
 

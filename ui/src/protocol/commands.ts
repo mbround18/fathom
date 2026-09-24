@@ -34,6 +34,7 @@ export const SECTION = {
 export const BOOTSTRAP_CMDS: readonly BackendCmd[] = [
   { type: 'LoadUiConfig' },
   { type: 'RefreshContexts' },
+  { type: 'LoadOidcConfig' },
   // Connects to the current context, then emits ContextChanged, namespaces, pods, deployments.
   { type: 'Initialize' },
 ]

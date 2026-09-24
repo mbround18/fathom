@@ -11,6 +11,7 @@ mod agent;
 mod cluster;
 mod integrations;
 mod mcp;
+mod oidc;
 mod port_forwards;
 mod resources;
 mod team;
@@ -87,6 +88,10 @@ pub async fn dispatch_cmd(
         return Ok(false);
     };
     let Some(cmd) = team::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 033-rauthy-oidc-teams-users: OIDC identity and per-context auth mode.
+    let Some(cmd) = oidc::handle(cmd, state, sender).await? else {
         return Ok(false);
     };
     // 015-mcp-agent-exposure: the stdio MCP server's toggle/status.

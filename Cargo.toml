@@ -99,6 +99,7 @@ hyper-util = "0.1.19"
 openidconnect = "4.0.1"
 keyring = "4.2.0"
 arc-swap = "1.9.2"
+http = "1"
 
 [build-dependencies]
 embed-resource = "3.0.6"
