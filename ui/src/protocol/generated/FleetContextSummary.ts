@@ -9,9 +9,16 @@ import type { FluxRollupStatus } from "./FluxRollupStatus";
  * - `node_ready_count`/`node_total_count`/`unhealthy_pod_count`/`cluster_version` MUST all be
  *   `None` together when `health` is `Pending`, `Unreachable`, or `AuthError` — a failed poll
  *   never reports stale numbers.
+ * - For `Healthy`/`Degraded`, a count is `None` only when its group is listed in `restricted`.
  * - `last_updated` is set on every poll attempt, success or failure.
  */
 export type FleetContextSummary = { context: string, health: FleetHealthState, error: string | null, node_ready_count: number | null, node_total_count: number | null, unhealthy_pod_count: number | null, cluster_version: string | null, flux: FluxRollupStatus | null, 
+/**
+ * Resource groups the credentials could not read (`"nodes"`, `"pods"`); the matching
+ * counts are `None` and the card shows "no access". Empty when nothing was denied, and
+ * always empty for `Pending`/`Unreachable`/`AuthError`.
+ */
+restricted: Array<string>, 
 /**
  * ISO8601 timestamp.
  */

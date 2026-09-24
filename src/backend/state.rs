@@ -121,10 +121,23 @@ impl NodeActionState {
 
 /// 027-fleet-rollup-dashboard: per-context fleet pollers, alive only while the Fleet Dashboard
 /// view is open (`active`).
-#[derive(Default)]
 pub(super) struct FleetState {
     pub(super) active: bool,
     pub(super) pollers: HashMap<String, tokio::task::JoinHandle<()>>,
+    /// Shared across all pollers to bound concurrent polls (FR-012).
+    pub(super) poll_semaphore: Arc<tokio::sync::Semaphore>,
+}
+
+impl Default for FleetState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            pollers: HashMap::new(),
+            poll_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                crate::backend::fleet::MAX_CONCURRENT_POLLS,
+            )),
+        }
+    }
 }
 
 impl FleetState {

@@ -39,6 +39,7 @@ pub enum FluxRollupStatus {
 /// - `node_ready_count`/`node_total_count`/`unhealthy_pod_count`/`cluster_version` MUST all be
 ///   `None` together when `health` is `Pending`, `Unreachable`, or `AuthError` — a failed poll
 ///   never reports stale numbers.
+/// - For `Healthy`/`Degraded`, a count is `None` only when its group is listed in `restricted`.
 /// - `last_updated` is set on every poll attempt, success or failure.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct FleetContextSummary {
@@ -50,6 +51,10 @@ pub struct FleetContextSummary {
     pub unhealthy_pod_count: Option<u32>,
     pub cluster_version: Option<String>,
     pub flux: Option<FluxRollupStatus>,
+    /// Resource groups the credentials could not read (`"nodes"`, `"pods"`); the matching
+    /// counts are `None` and the card shows "no access". Empty when nothing was denied, and
+    /// always empty for `Pending`/`Unreachable`/`AuthError`.
+    pub restricted: Vec<String>,
     /// ISO8601 timestamp.
     pub last_updated: String,
 }

@@ -2288,6 +2288,7 @@ fn sample_fleet_context_summary() -> fathom::protocol::FleetContextSummary {
         unhealthy_pod_count: Some(2),
         cluster_version: Some("v1.31.2".to_owned()),
         flux: Some(fathom::protocol::FluxRollupStatus::OutOfSync),
+        restricted: vec!["pods".to_owned()],
         last_updated: "2026-09-23T18:04:12Z".to_owned(),
     }
 }
