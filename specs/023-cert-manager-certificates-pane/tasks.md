@@ -106,24 +106,24 @@ and ready/renewal status.
 healthy long-lived cert, a cert inside the expiring-soon threshold, and a `Ready=False` cert;
 assert all three render with correct countdown/status.
 
-- [ ] T014 [P] [US1] Add `certManager: { overview?: CertManagerOverview; chain?: CertificateChain }`
+- [x] T014 [P] [US1] Add `certManager: { overview?: CertManagerOverview; chain?: CertificateChain }`
       to `StoreData` in `ui/src/store/index.ts`, initialize `certManager: {}` in the store's
       initial state (next to `flux: {}`), and add `refreshCertManager: () => void` +
       `selectCertificateChain: (namespace: string, name: string) => void` actions implemented as
       `get().send({ type: 'RefreshCertManager' })` / `get().send({ type: 'SelectCertificateChain', namespace, name })`,
       mirroring `refreshFlux`.
-- [ ] T015 [US1] Handle `CertManagerOverviewUpdated` and `CertificateChainUpdated` in
+- [x] T015 [US1] Handle `CertManagerOverviewUpdated` and `CertificateChainUpdated` in
       `ui/src/store/handlers/system.ts`, setting `certManager.overview` / `certManager.chain`
       respectively (mirrors the existing `FluxOverviewUpdated` case referenced in
       `ui/src/app/mailbox.rs`-equivalent TS ingest path — follow whatever existing
       `FluxOverviewUpdated`/`HubbleTrafficUpdated` case is already in `system.ts`).
-- [ ] T016 [P] [US1] Create `ui/src/lib/cert-expiry.ts` (or colocate in the panel file if the
+- [x] T016 [P] [US1] Create `ui/src/lib/cert-expiry.ts` (or colocate in the panel file if the
       codebase has no `lib` convention for this) with a pure `formatExpiryCountdown(expirySeconds: number | null): string`
       helper: renders "expires in Nd" for positive values, "expired Nd ago" for negative values
       (per spec Edge Cases — must not show a bare negative number), and "unknown" for `null`. Add
       Vitest unit tests in `ui/src/lib/cert-expiry.test.ts` covering positive, negative, zero, and
       `null` inputs.
-- [ ] T017 [US1] Create `ui/src/components/panels/CertManagerPanel.tsx`: on mount, dispatch
+- [x] T017 [US1] Create `ui/src/components/panels/CertManagerPanel.tsx`: on mount, dispatch
       `refreshCertManager()` (mirrors `FluxPanel.tsx`'s `useEffect`); if `overview` is undefined,
       render `MetricsUnavailable` (waiting state); if `overview.installed === false`, render the
       not-installed empty state (US3, built here since it's a one-line branch shared with US1's
@@ -135,7 +135,7 @@ assert all three render with correct countdown/status.
       top"). If `overview.installed === true && overview.certificates.length === 0`, render a
       distinct "no certificates found" message (spec US3 Acceptance Scenario 2 — do not reuse the
       not-installed copy).
-- [ ] T018 [US1] Register the new pane in `ui/src/components/shell/PaneHost.tsx`'s `PaneBody`
+- [x] T018 [US1] Register the new pane in `ui/src/components/shell/PaneHost.tsx`'s `PaneBody`
       tool switch: `if (pane.tool === 'certManager') return <CertManagerPanel />`, importing it
       next to `FluxPanel`. Add `'certManager'` to whatever `PaneTool`/`TOOL_LABEL` union/type
       definition backs `pane.tool` (find via the existing `'flux' | 'hubble' | ...` type and the
@@ -153,26 +153,26 @@ stage with its reason.
 assert `SelectCertificateChain` is sent and the rendered chain marks the Challenge stage as stuck
 with its message.
 
-- [ ] T019 [US2] Extend `CertManagerPanel.tsx` with row selection: clicking a Certificate row calls
+- [x] T019 [US2] Extend `CertManagerPanel.tsx` with row selection: clicking a Certificate row calls
       `selectCertificateChain(namespace, name)` and tracks the selected `(namespace, name)` in
       local component state, mirroring `FluxView`'s `selected` field / `FluxPanel`'s existing
       selection conventions if any exist in the React pane (check `flux-resource.tsx`'s
       click-through pattern for precedent).
-- [ ] T020 [US2] Add a chain drill-down section/sub-panel to `CertManagerPanel.tsx` (or a new
+- [x] T020 [US2] Add a chain drill-down section/sub-panel to `CertManagerPanel.tsx` (or a new
       `ui/src/components/panels/CertificateChainView.tsx` if the panel file would otherwise exceed
       the codebase's typical component size) that renders `certManager.chain.stages` in order as a
       simple vertical chain (Certificate → CertificateRequest → Order → Challenge), visually
       highlighting the one stage where `is_stuck === true` and showing its `reason`/`message`; if
       `certManager.chain.not_found === true`, show a "this certificate no longer exists" notice
       instead of a chain.
-- [ ] T021 [P] [US2] Create `ui/src/resources/certificate-resource.tsx` as a `ResourceDescriptor`
+- [x] T021 [P] [US2] Create `ui/src/resources/certificate-resource.tsx` as a `ResourceDescriptor`
       (modeled on `ui/src/resources/flux-resource.tsx`): no navigator entry, `read` dispatches a
       resource lookup for the selected chain-stage kind, `detailSections` render the common
       fields (kind, name/namespace, state, reason, message) from `ChainStage`, and `refresh`
       re-issues `RefreshCertManager` (mirrors `flux-resource.tsx`'s `refresh: () => ({ type: 'RefreshFlux' })`
       given there's no dedicated single-object refresh command, matching contracts/protocol.md).
       Register it in whichever resource-descriptor registry `flux-resource.tsx` is registered in.
-- [ ] T022 [US2] Wire each `ChainStage` row in the chain view (T020) to open
+- [x] T022 [US2] Wire each `ChainStage` row in the chain view (T020) to open
       `certificate-resource.tsx`'s descriptor in the Inspector on click, using the same
       navigation call `flux-resource.tsx`'s consumers use for `RelatedResourceLink`/inspector
       hand-off (spec FR-010).
@@ -190,7 +190,7 @@ Note: the not-installed and zero-certificates branches were already implemented 
 (they're one conditional in the same component) — this phase is almost entirely test coverage to
 lock that behavior in, per the user's explicit request for tight, hyper-focused e2e coverage.
 
-- [ ] T023 [P] [US3] Add a Vitest test for `CertManagerPanel.tsx` in
+- [x] T023 [P] [US3] Add a Vitest test for `CertManagerPanel.tsx` in
       `ui/src/components/panels/CertManagerPanel.test.tsx` (or the codebase's established test
       colocation convention) asserting: `overview === undefined` renders the waiting state,
       `overview.installed === false` renders the not-installed copy, and
@@ -204,7 +204,7 @@ lock that behavior in, per the user's explicit request for tight, hyper-focused 
 **Purpose**: The required focused Playwright coverage tying all three stories together, plus final
 verification.
 
-- [ ] T024 Write `ui/tests/e2e/cert-manager-pane.spec.ts` against the project's existing
+- [x] T024 Write `ui/tests/e2e/cert-manager-pane.spec.ts` against the project's existing
       scripted-fake-backend e2e harness (follow the setup pattern of an existing spec in
       `ui/tests/e2e/`, e.g. the Flux/Hubble e2e spec if one exists, otherwise the nearest tool-pane
       e2e spec for the harness API). Cover exactly:
@@ -218,7 +218,7 @@ verification.
          the stuck stage with its message visible.
       3. Reload/reconnect the pane against a fixture `CertManagerOverviewUpdated { installed: false, certificates: [] }` — assert the honest not-installed empty state renders.
       Keep the spec to these three scenarios only, no extra coverage.
-- [ ] T025 Run the full gate: `cargo build --workspace --all-targets`,
+- [x] T025 Run the full gate: `cargo build --workspace --all-targets`,
       `cargo clippy --all-targets -- -D warnings`, `cargo test`, `pnpm -C ui typecheck`,
       `pnpm -C ui lint`, `pnpm -C ui test`, and
       `pnpm -C ui exec playwright test ui/tests/e2e/cert-manager-pane.spec.ts`. Fix any failures

@@ -20,6 +20,8 @@ import type {
   ContextConnectionStatus,
   CrdCatalogEntry,
   DiskUsage,
+  CertManagerOverview,
+  CertificateChain,
   FluxOverview,
   HubbleTrafficSummary,
   ImageInspectError,
@@ -460,6 +462,7 @@ export interface StoreData {
   pendingPortForwardOrigins: PendingPortForwardOrigins
   metrics: MetricsState
   flux: { overview?: FluxOverview }
+  certManager: { overview?: CertManagerOverview; chain?: CertificateChain }
   hubble: { summary?: HubbleTrafficSummary }
   crds: CrdState
   integrations: IntegrationsState
@@ -587,6 +590,10 @@ export interface StoreState extends StoreData {
   refreshEvents: () => void
   /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
   refreshFlux: () => void
+  /** Sends `RefreshCertManager` (rescans Certificates; also polled every 20s). */
+  refreshCertManager: () => void
+  /** Sends `SelectCertificateChain` (resolves one Certificate's lifecycle chain). */
+  selectCertificateChain: (namespace: string, name: string) => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -806,6 +813,7 @@ export function initialData(): StoreData {
     pendingPortForwardOrigins: {},
     metrics: { diskUsage: [] },
     flux: {},
+    certManager: {},
     hubble: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
@@ -1018,6 +1026,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+  refreshCertManager: () => get().send({ type: 'RefreshCertManager' }),
+  selectCertificateChain: (namespace, name) =>
+    get().send({ type: 'SelectCertificateChain', data: { namespace, name } }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 
@@ -1241,7 +1252,10 @@ export const useStore = create<StoreState>()((set, get) => ({
       return {
         editSessions: {
           ...s.editSessions,
-          [key]: markFailed(current, result.error ?? 'The backend reported a failure with no message.'),
+          [key]: markFailed(
+            current,
+            result.error ?? 'The backend reported a failure with no message.',
+          ),
         },
       }
     })

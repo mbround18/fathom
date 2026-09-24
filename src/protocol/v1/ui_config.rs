@@ -201,6 +201,9 @@ pub enum ToolKind {
     Portforwards,
     /// 007-topology-graph-view: the cluster topology graph tool pane.
     Topology,
+    /// 023-cert-manager-certificates-pane: the Certificates (cert-manager) tool pane.
+    #[serde(rename = "certManager")]
+    CertManager,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

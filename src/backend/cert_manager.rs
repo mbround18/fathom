@@ -243,6 +243,7 @@ fn is_order_or_challenge_stuck(state: &str) -> bool {
 /// Resolve one Certificate's lifecycle chain (research.md R3/R4): correlate through owner
 /// references and the `cert-manager.io/certificate-name` label cert-manager itself sets, then
 /// walk the chain to find the first non-terminal-success stage.
+#[allow(clippy::too_many_lines)]
 pub(super) async fn resolve_chain(
     client: &Client,
     namespace: &str,
@@ -414,16 +415,16 @@ pub(super) async fn resolve_chain(
 
     // Research R4: walk the chain, mark the first non-terminal-success stage as stuck. If the
     // Certificate is Ready, nothing is stuck.
-    if !cert_ready {
-        if let Some(stuck) = stages.iter_mut().find(|s| match s.kind {
+    if !cert_ready
+        && let Some(stuck) = stages.iter_mut().find(|s| match s.kind {
             ChainStageKind::Certificate => stages_certificate_stuck(&s.state),
             ChainStageKind::CertificateRequest => !s.state.eq_ignore_ascii_case("true"),
             ChainStageKind::Order | ChainStageKind::Challenge => {
                 is_order_or_challenge_stuck(&s.state)
             }
-        }) {
-            stuck.is_stuck = true;
-        }
+        })
+    {
+        stuck.is_stuck = true;
     }
 
     Ok(CertificateChain {
