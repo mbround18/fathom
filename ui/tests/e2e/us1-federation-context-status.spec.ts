@@ -100,7 +100,10 @@ test.describe('US1 federation context status strip', () => {
       batch([
         system(30, {
           type: 'ContextsUpdated',
-          data: { contexts: ['kind-a', 'kind-b', FEDERATION_ERROR_CONTEXT, 'kind-d'], current: 'kind-a' },
+          data: {
+            contexts: ['kind-a', 'kind-b', FEDERATION_ERROR_CONTEXT, 'kind-d'],
+            current: 'kind-a',
+          },
         }),
       ]),
     )

@@ -10,6 +10,8 @@ import type { ContextConnectionStatus } from "./ContextConnectionStatus";
 import type { CrdCatalogEntry } from "./CrdCatalogEntry";
 import type { CredentialMigrationOutcome } from "./CredentialMigrationOutcome";
 import type { DiskUsage } from "./DiskUsage";
+import type { FederationCombinedRollup } from "./FederationCombinedRollup";
+import type { FederationContextRollup } from "./FederationContextRollup";
 import type { FleetContextSummary } from "./FleetContextSummary";
 import type { FluxOverview } from "./FluxOverview";
 import type { HelmMutationApplied } from "./HelmMutationApplied";
@@ -68,7 +70,7 @@ available: Array<ConnectionProfile>, } } | { "type": "OrgClusterSettingsAvailabl
  * The literal command an external MCP client should launch to attach to this
  * Fathom installation over stdio (FR-007).
  */
-connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } } | { "type": "FleetSummaryUpdated", "data": FleetContextSummary } | { "type": "NodeShellAccessChecked", "data": { namespace: string, checks: Array<NodeShellAccessCheck>, } } | { "type": "NodeShellStatus", "data": { session_id: number, phase: NodeShellPhase, node: string, namespace: string, pod: string, 
+connection_command: string, } } | { "type": "McpDemoChatReady", "data": { session_id: number, } } | { "type": "McpDemoChatOutputChunk", "data": { session_id: number, data: string, } } | { "type": "McpDemoChatEnded", "data": { session_id: number, reason: string, } } | { "type": "McpDemoChatNotDetected", "data": { instructions: string, } } | { "type": "FleetSummaryUpdated", "data": FleetContextSummary } | { "type": "FederationStateUpdated", "data": { federated: Array<string>, soft_cap: number, over_cap: boolean, } } | { "type": "FederationRollupUpdated", "data": { context: FederationContextRollup, combined: FederationCombinedRollup, } } | { "type": "NodeShellAccessChecked", "data": { namespace: string, checks: Array<NodeShellAccessCheck>, } } | { "type": "NodeShellStatus", "data": { session_id: number, phase: NodeShellPhase, node: string, namespace: string, pod: string, 
 /**
  * Verbatim API error, pod condition or waiting reason.
  */

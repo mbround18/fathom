@@ -795,3 +795,122 @@ mod ai_settings_tests {
         assert!(load_ai_account_labels_at(&path).is_empty());
     }
 }
+
+/// 034-simultaneous-federation: `~/.fathom/federation.json`. Context names only; no secrets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FederationFile {
+    #[serde(default = "federation_file_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub contexts: Vec<String>,
+    #[serde(default = "federation_soft_cap")]
+    pub soft_cap: u32,
+}
+
+fn federation_file_version() -> u32 {
+    1
+}
+
+fn federation_soft_cap() -> u32 {
+    crate::protocol::FEDERATION_SOFT_CAP
+}
+
+impl Default for FederationFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            contexts: Vec::new(),
+            soft_cap: federation_soft_cap(),
+        }
+    }
+}
+
+/// Path of `federation.json`.
+pub fn federation_config_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("federation.json"))
+}
+
+/// Load the federated set from `path`. Absent yields empty. A file that cannot be parsed
+/// yields empty and is preserved as `federation.json.corrupt` (never silently overwritten).
+pub fn load_federation_from(path: &Path) -> FederationFile {
+    let Ok(content) = fs::read_to_string(path) else {
+        return FederationFile::default();
+    };
+    match serde_json::from_str::<FederationFile>(&content) {
+        Ok(file) => file,
+        Err(e) => {
+            tracing::warn!("Failed to parse {}: {}; using empty set", path.display(), e);
+            let mut backup = path.as_os_str().to_owned();
+            backup.push(".corrupt");
+            if let Err(e) = fs::copy(path, PathBuf::from(backup)) {
+                tracing::warn!("Failed to preserve corrupt federation file: {}", e);
+            }
+            FederationFile::default()
+        }
+    }
+}
+
+/// Atomically write the federated set to `path` (temp file + rename).
+pub fn save_federation_to(path: &Path, file: &FederationFile) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, serde_json::to_string_pretty(file)?)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+pub fn load_federation() -> FederationFile {
+    federation_config_path()
+        .map(|p| load_federation_from(&p))
+        .unwrap_or_default()
+}
+
+pub fn save_federation(file: &FederationFile) -> Result<()> {
+    save_federation_to(&federation_config_path()?, file)
+}
+
+#[cfg(test)]
+mod federation_tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_and_absent_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("federation.json");
+        assert!(load_federation_from(&path).contexts.is_empty());
+        let file = FederationFile {
+            contexts: vec!["a".into(), "b".into()],
+            ..FederationFile::default()
+        };
+        save_federation_to(&path, &file).unwrap();
+        assert_eq!(load_federation_from(&path), file);
+        assert!(!dir.path().join("federation.json.tmp").exists());
+    }
+
+    #[test]
+    fn corrupt_file_falls_back_and_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("federation.json");
+        fs::write(&path, "{not json").unwrap();
+        assert!(load_federation_from(&path).contexts.is_empty());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("federation.json.corrupt")).unwrap(),
+            "{not json"
+        );
+    }
+
+    #[test]
+    fn unknown_keys_and_missing_fields_are_tolerated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("federation.json");
+        fs::write(&path, r#"{"contexts":["x"],"future":1}"#).unwrap();
+        let f = load_federation_from(&path);
+        assert_eq!(f.contexts, vec!["x".to_owned()]);
+        assert_eq!(f.soft_cap, 8);
+    }
+}

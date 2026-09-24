@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ListIcon, SquaresFourIcon } from '@phosphor-icons/react'
 
+import { FederationView } from '@/components/fleet/FederationView'
 import { FleetDashboardView } from '@/components/fleet/FleetDashboardView'
 import { Button } from '@/components/ui/button'
 import {
@@ -55,6 +56,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
             <DialogDescription>Health of every kubeconfig context.</DialogDescription>
           </DialogHeader>
           <FleetDashboardView onSelected={() => setFleetOpen(false)} />
+          <FederationView />
         </DialogContent>
       </Dialog>
       <IdentityChip compact={narrow} />

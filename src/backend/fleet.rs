@@ -44,14 +44,14 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of contexts polled concurrently (FR-012).
 pub(super) const MAX_CONCURRENT_POLLS: usize = 8;
 /// Per-context stagger applied before a poller's first poll, and its cap (FR-012).
-const START_OFFSET_STEP: Duration = Duration::from_millis(250);
+pub(super) const START_OFFSET_STEP: Duration = Duration::from_millis(250);
 const START_OFFSET_CAP: Duration = Duration::from_secs(5);
 /// A `Pending` pod older than this counts as unhealthy (FR-014).
 const PENDING_UNHEALTHY_AFTER: Duration = Duration::from_secs(5 * 60);
 
 /// Every context name currently listed in the operator's kubeconfig, sorted. Deliberately not
 /// filtered by connection status — see module doc.
-fn all_kubeconfig_contexts() -> Vec<String> {
+pub(super) fn all_kubeconfig_contexts() -> Vec<String> {
     match load_kubeconfig() {
         Ok(kc) => {
             let mut names: Vec<String> = kc.contexts.iter().map(|c| c.name.clone()).collect();
@@ -108,7 +108,7 @@ pub(super) fn sync_pollers(state: &mut BackendState, sender: &Sender<BackendEven
 }
 
 /// `sync_pollers` with the context list and per-context poll function injected (testability).
-fn sync_pollers_with<F, Fut>(
+pub(super) fn sync_pollers_with<F, Fut>(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
     contexts: Vec<String>,
@@ -117,6 +117,12 @@ fn sync_pollers_with<F, Fut>(
     F: Fn(String) -> Fut + Clone + Send + 'static,
     Fut: std::future::Future<Output = FleetContextSummary> + Send + 'static,
 {
+    // 034: a context in the federated set is served by its live tier, never also polled.
+    let contexts: Vec<String> = contexts
+        .into_iter()
+        .filter(|c| !state.federation.is_federated(c))
+        .collect();
+
     // Stop pollers for contexts that disappeared from the kubeconfig.
     let to_remove: Vec<String> = state
         .fleet
@@ -151,14 +157,32 @@ fn sync_pollers_with<F, Fut>(
     }
 }
 
+/// 034: abort and forget `context`'s 027 poller (it is being promoted to the live tier).
+pub(super) fn stop_poller(state: &mut BackendState, context: &str) {
+    if let Some(handle) = state.fleet.pollers.remove(context) {
+        handle.abort();
+    }
+}
+
+/// 034: build a client for `context_name` via the same kubeconfig path the poller uses.
+pub(super) async fn client_for_context(context_name: &str) -> anyhow::Result<Client> {
+    let kubeconfig = load_kubeconfig()?;
+    let opts = KubeConfigOptions {
+        context: Some(context_name.to_owned()),
+        ..Default::default()
+    };
+    let config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
+    Ok(Client::try_from(config)?)
+}
+
 /// Deterministic first-poll delay for the `index`th context: index x 250 ms, capped at 5 s.
-fn start_offset(index: usize) -> Duration {
+pub(super) fn start_offset(index: usize) -> Duration {
     START_OFFSET_STEP
         .saturating_mul(u32::try_from(index).unwrap_or(u32::MAX))
         .min(START_OFFSET_CAP)
 }
 
-fn pending_summary(context: String) -> FleetContextSummary {
+pub(super) fn pending_summary(context: String) -> FleetContextSummary {
     FleetContextSummary {
         context,
         health: FleetHealthState::Pending,
@@ -170,6 +194,7 @@ fn pending_summary(context: String) -> FleetContextSummary {
         flux: None,
         restricted: Vec::new(),
         last_updated: now_iso8601(),
+        live: false,
     }
 }
 
@@ -205,7 +230,7 @@ where
     })
 }
 
-fn emit_summary(
+pub(super) fn emit_summary(
     seq: &AtomicU64,
     sender: &Sender<BackendEventEnvelope>,
     summary: FleetContextSummary,
@@ -248,6 +273,7 @@ async fn poll_once(context_name: &str) -> FleetContextSummary {
             flux: None,
             restricted: Vec::new(),
             last_updated: now_iso8601(),
+            live: false,
         },
     }
 }
@@ -269,6 +295,7 @@ fn failure_summary(context_name: &str, err: &anyhow::Error) -> FleetContextSumma
         flux: None,
         restricted: Vec::new(),
         last_updated: now_iso8601(),
+        live: false,
     }
 }
 
@@ -282,7 +309,7 @@ fn api_status_code(err: &anyhow::Error) -> Option<u16> {
 }
 
 /// Whether the error is an auth rejection (401/403 from the API server) (FR-005).
-fn is_auth_error(err: &anyhow::Error) -> bool {
+pub(super) fn is_auth_error(err: &anyhow::Error) -> bool {
     matches!(api_status_code(err), Some(401 | 403))
         || err
             .chain()
@@ -343,6 +370,7 @@ fn assemble_summary(
         flux,
         restricted,
         last_updated: now_iso8601(),
+        live: false,
     })
 }
 
@@ -378,7 +406,7 @@ async fn fetch_node_counts(client: &Client) -> anyhow::Result<Option<(u32, u32)>
     Ok(Some((ready, total)))
 }
 
-fn node_is_ready(node: &Node) -> bool {
+pub(super) fn node_is_ready(node: &Node) -> bool {
     node.status
         .as_ref()
         .and_then(|s| s.conditions.as_ref())
@@ -412,7 +440,7 @@ const BAD_WAITING_REASONS: [&str; 4] = [
     "CreateContainerError",
 ];
 
-fn pod_is_unhealthy(pod: &Pod, now: chrono::DateTime<chrono::Utc>) -> bool {
+pub(super) fn pod_is_unhealthy(pod: &Pod, now: chrono::DateTime<chrono::Utc>) -> bool {
     let Some(status) = pod.status.as_ref() else {
         return false;
     };
@@ -457,7 +485,7 @@ async fn fetch_flux_rollup(client: &Client) -> Option<crate::protocol::FluxRollu
     }
 }
 
-fn now_iso8601() -> String {
+pub(super) fn now_iso8601() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 

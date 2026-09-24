@@ -149,6 +149,40 @@ impl FleetState {
     }
 }
 
+/// 034-simultaneous-federation: one federated context's live tier.
+pub(super) struct FederationHandle {
+    /// Empty for a persisted context that is missing from the kubeconfig.
+    pub(super) tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+/// 034-simultaneous-federation: the opt-in federated set. Empty by default; while empty it
+/// owns no client and no task (SC-003). A context in `handles` is live-tier, so the 027
+/// poller skips it (the tier arbiter: polled OR live, never both).
+#[derive(Default)]
+pub(super) struct FederationState {
+    pub(super) handles: HashMap<String, FederationHandle>,
+    pub(super) next_generation: u64,
+    /// Latest rollup per federated context, shared with the per-context tasks.
+    pub(super) latest:
+        Arc<std::sync::Mutex<HashMap<String, crate::protocol::FederationContextRollup>>>,
+    /// Override of `~/.fathom/federation.json` (tests only).
+    pub(super) path: Option<std::path::PathBuf>,
+}
+
+impl FederationState {
+    pub(super) fn is_federated(&self, context: &str) -> bool {
+        self.handles.contains_key(context)
+    }
+
+    pub(super) fn abort_all(&mut self) {
+        for (_, handle) in self.handles.drain() {
+            for task in handle.tasks {
+                task.abort();
+            }
+        }
+    }
+}
+
 /// Metrics probe state and background polling tasks.
 pub(super) struct MetricsState {
     pub(super) availability: MetricsAvailability,
@@ -182,6 +216,7 @@ pub(super) struct BackendState {
     pub(super) watch_tasks: WatchTasks,
     pub(super) node_actions: NodeActionState,
     pub(super) fleet: FleetState,
+    pub(super) federation: FederationState,
     pub(super) metrics: MetricsState,
     pub(super) port_forward_manager: PortForwardManager,
     /// Session-scoped image-inspection cache, keyed by resolved manifest digest
@@ -240,6 +275,7 @@ impl BackendState {
             },
             node_actions: NodeActionState::default(),
             fleet: FleetState::default(),
+            federation: FederationState::default(),
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,
                 unavailable_notified: false,
@@ -303,6 +339,7 @@ fn abort_background_tasks(state: &mut BackendState) {
     tracing::debug!("Aborting node action tasks");
     state.node_actions.abort_all();
     state.fleet.abort_all();
+    state.federation.abort_all();
     tracing::debug!("Aborting metrics poll tasks");
     state.metrics.abort_tasks();
     tracing::debug!("Aborting MCP stdio server");

@@ -1965,6 +1965,13 @@ fn all_cmds() -> Vec<BackendCmd> {
         },
         BackendCmd::StartFleetPolling,
         BackendCmd::StopFleetPolling,
+        BackendCmd::FederateContext {
+            context: "dev".to_owned(),
+        },
+        BackendCmd::UnfederateContext {
+            context: "dev".to_owned(),
+        },
+        BackendCmd::RequestFederationSnapshot,
         BackendCmd::CheckNodeShellAccess {
             namespace: "default".to_owned(),
         },
@@ -2233,6 +2240,9 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::ResizeMcpDemoChat { .. } => {}
         BackendCmd::StartFleetPolling => {}
         BackendCmd::StopFleetPolling => {}
+        BackendCmd::FederateContext { .. } => {}
+        BackendCmd::UnfederateContext { .. } => {}
+        BackendCmd::RequestFederationSnapshot => {}
     }
 }
 
@@ -2411,6 +2421,26 @@ fn all_system_events() -> Vec<SystemEvent> {
             instructions: "Install Claude Code.".to_owned(),
         },
         SystemEvent::FleetSummaryUpdated(sample_fleet_context_summary()),
+        SystemEvent::FederationStateUpdated {
+            federated: vec!["dev".to_owned()],
+            soft_cap: 8,
+            over_cap: false,
+        },
+        SystemEvent::FederationRollupUpdated {
+            context: sample_federation_rollup(),
+            combined: fathom::protocol::FederationCombinedRollup {
+                contributing_contexts: 1,
+                total_contexts: 1,
+                nodes_ready: 3,
+                nodes_total: 3,
+                pods_running: 20,
+                pods_pending: 1,
+                pods_failed: 0,
+                pods_unhealthy: 2,
+                deployments_unavailable: 1,
+                warning_events_1h: 4,
+            },
+        },
         SystemEvent::NodeShellAccessChecked {
             namespace: "default".to_owned(),
             checks: vec![],
@@ -2444,7 +2474,64 @@ fn sample_fleet_context_summary() -> fathom::protocol::FleetContextSummary {
         flux: Some(fathom::protocol::FluxRollupStatus::OutOfSync),
         restricted: vec!["pods".to_owned()],
         last_updated: "2026-09-23T18:04:12Z".to_owned(),
+        live: true,
     }
+}
+
+fn sample_federation_rollup() -> fathom::protocol::FederationContextRollup {
+    use fathom::protocol::FederationConnectionState as S;
+    fathom::protocol::FederationContextRollup {
+        context: "dev".to_owned(),
+        state: S::Live,
+        generation: 3,
+        error: None,
+        nodes_ready: Some(3),
+        nodes_total: Some(3),
+        pods_running: Some(20),
+        pods_pending: Some(1),
+        pods_failed: Some(0),
+        pods_unhealthy: Some(2),
+        deployments_unavailable: Some(1),
+        warning_events_1h: None,
+        cluster_version: Some("v1.31.2".to_owned()),
+        restricted: vec!["events".to_owned()],
+        last_updated: "2026-09-24T10:00:00Z".to_owned(),
+    }
+}
+
+#[test]
+fn federation_state_variants_roundtrip_as_bare_strings() {
+    use fathom::protocol::FederationConnectionState as S;
+    for s in [
+        S::Pending,
+        S::Live,
+        S::Reconnecting,
+        S::Unreachable,
+        S::AuthError,
+    ] {
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<S>(&json).unwrap(), s);
+    }
+    assert_eq!(
+        serde_json::to_string(&S::AuthError).unwrap(),
+        "\"AuthError\""
+    );
+}
+
+#[test]
+fn federation_rollup_roundtrips() {
+    let r = sample_federation_rollup();
+    let back: fathom::protocol::FederationContextRollup =
+        serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+    assert_eq!(back, r);
+}
+
+#[test]
+fn fleet_summary_live_defaults_false_when_absent() {
+    let mut v = serde_json::to_value(sample_fleet_context_summary()).unwrap();
+    v.as_object_mut().unwrap().remove("live");
+    let s: fathom::protocol::FleetContextSummary = serde_json::from_value(v).unwrap();
+    assert!(!s.live);
 }
 
 fn sample_connection_profile() -> ConnectionProfile {
@@ -2557,6 +2644,8 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::McpDemoChatEnded { .. } => {}
         SystemEvent::McpDemoChatNotDetected { .. } => {}
         SystemEvent::FleetSummaryUpdated(..) => {}
+        SystemEvent::FederationStateUpdated { .. } => {}
+        SystemEvent::FederationRollupUpdated { .. } => {}
         SystemEvent::NodeShellAccessChecked { .. } => {}
         SystemEvent::NodeShellStatus { .. } => {}
         SystemEvent::NodeShellOrphans { .. } => {}

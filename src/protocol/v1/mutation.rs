@@ -250,6 +250,9 @@ impl BackendCmdV1 {
             // 027-fleet-rollup-dashboard: view-only polling, never mutates a cluster.
             | C::StartFleetPolling
             | C::StopFleetPolling
+            | C::FederateContext { .. }
+            | C::UnfederateContext { .. }
+            | C::RequestFederationSnapshot
             // 037-node-shell: persists per-context settings only.
             | C::SetNodeShellSettings { .. } => MutationTarget::Local,
 
@@ -362,6 +365,9 @@ impl BackendCmdV1 {
             | C::LoadUiConfig
             | C::StartFleetPolling
             | C::StopFleetPolling
+            | C::FederateContext { .. }
+            | C::UnfederateContext { .. }
+            | C::RequestFederationSnapshot
             | C::SaveUiConfig { .. }
             | C::ApplyResourceYaml { .. }
             // Agent SDK Ops (013): not tied to one existing UI section (a conversation

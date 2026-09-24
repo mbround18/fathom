@@ -56,6 +56,13 @@ export function FleetContextCard({
       <span className="flex items-center justify-between gap-2">
         <span className="truncate font-mono text-sm">{summary.context}</span>
         <span
+          data-testid="fleet-tier"
+          data-tier={summary.live ? 'live' : 'polled'}
+          className="ml-auto shrink-0 text-xs text-muted-foreground"
+        >
+          {summary.live ? 'Live' : 'Polled'}
+        </span>
+        <span
           data-testid="fleet-health-badge"
           className={cn('shrink-0 rounded border px-1.5 py-0.5 text-xs', HEALTH_CLASS[health])}
         >
@@ -72,7 +79,9 @@ export function FleetContextCard({
           <div>
             <dt>Nodes</dt>
             <dd data-testid="fleet-nodes" className="text-foreground">
-              {noAccess('nodes') ? 'no access' : `${summary.node_ready_count}/${summary.node_total_count}`}
+              {noAccess('nodes')
+                ? 'no access'
+                : `${summary.node_ready_count}/${summary.node_total_count}`}
             </dd>
           </div>
           <div>
