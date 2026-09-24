@@ -48,6 +48,7 @@ mod state;
 mod statefulsets;
 mod sync;
 mod team_store;
+mod trivy;
 mod workload_common;
 
 mod clusterrolebindings;

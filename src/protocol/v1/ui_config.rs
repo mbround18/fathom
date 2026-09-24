@@ -201,6 +201,8 @@ pub enum ToolKind {
     Portforwards,
     /// 007-topology-graph-view: the cluster topology graph tool pane.
     Topology,
+    /// 021-trivy-vulnerability-pane: the cluster-wide Trivy Operator vulnerability summary.
+    Vulnerabilities,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

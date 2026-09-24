@@ -131,6 +131,9 @@ pub enum SystemEvent {
     /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
     FluxOverviewUpdated(FluxOverview),
 
+    /// Aqua Trivy Operator vulnerability state, cluster-wide (021-trivy-vulnerability-pane).
+    TrivyOverviewUpdated(super::TrivyOverview),
+
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),
 
@@ -412,6 +415,19 @@ pub enum ResourceReadEvent {
         pod: String,
         container: String,
         error: super::ImageInspectError,
+    },
+    /// Success reply for `InspectPodVulnerabilities` (021-trivy-vulnerability-pane).
+    PodVulnerabilitiesInspected {
+        namespace: String,
+        pod: String,
+        inspection: super::PodVulnerabilityInspection,
+    },
+    /// Failure reply for `InspectPodVulnerabilities`: an explicit, distinguishable error state
+    /// (FR-007/FR-008/FR-013), never a blank/generic panel.
+    PodVulnerabilitiesInspectFailed {
+        namespace: String,
+        pod: String,
+        error: super::VulnInspectError,
     },
     /// Full conversation state for one object, sent after `AgentOpenConversation`,
     /// `AgentAsk`, `AgentClearConversation`, `AgentReviewSuggestedAction`,

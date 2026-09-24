@@ -57,6 +57,7 @@ impl BackendCmdV1 {
             | C::RefreshPods
             | C::SelectPod { .. }
             | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
@@ -98,6 +99,7 @@ impl BackendCmdV1 {
             | C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
+            | C::RefreshTrivyOverview
             | C::RefreshHubble
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
@@ -333,6 +335,7 @@ impl BackendCmdV1 {
             | C::SelectPod { .. }
             | C::DeletePod { .. }
             | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
@@ -424,6 +427,7 @@ impl BackendCmdV1 {
                 section_keys::integrations_grafana()
             }
             C::RefreshFlux => section_keys::integrations_flux(),
+            C::RefreshTrivyOverview => section_keys::integrations_vulnerabilities(),
             C::RefreshHubble => section_keys::integrations_hubble(),
             C::RefreshPersistentVolumes
             | C::SelectPersistentVolume { .. }

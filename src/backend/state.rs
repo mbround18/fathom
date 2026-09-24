@@ -80,6 +80,7 @@ pub(super) struct WatchTasks {
     pub(super) namespace_sync_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) hubble_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) flux_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) trivy_poll_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
@@ -89,6 +90,7 @@ impl WatchTasks {
         abort_task(&mut self.namespace_sync_task);
         abort_task(&mut self.hubble_poll_task);
         abort_task(&mut self.flux_poll_task);
+        abort_task(&mut self.trivy_poll_task);
     }
 }
 
@@ -155,6 +157,8 @@ pub(super) struct BackendState {
     /// (010-container-image-inspection, FR-008/data-model.md). In-memory only, never
     /// persisted to `~/.fathom/` (Constitution VI) or shared across cluster connections.
     pub(super) image_inspect_cache: HashMap<String, crate::protocol::ImageInspection>,
+    /// 021-trivy-vulnerability-pane: per-Pod vulnerability inspections keyed `namespace/pod`.
+    pub(super) pod_vuln_inspect_cache: HashMap<String, crate::protocol::PodVulnerabilityInspection>,
     /// 013-agent-sdk-ops: per-object assistant conversations, keyed by
     /// `"<kind>/<namespace>/<name>"`. Session-scoped for now (Phase 6/T044 adds
     /// `~/.fathom/agent_conversations.json` persistence across restarts); never
@@ -194,6 +198,7 @@ impl BackendState {
                 namespace_sync_task: None,
                 hubble_poll_task: None,
                 flux_poll_task: None,
+                trivy_poll_task: None,
             },
             node_actions: NodeActionState::default(),
             metrics: MetricsState {
@@ -207,6 +212,7 @@ impl BackendState {
             },
             port_forward_manager: PortForwardManager::new(),
             image_inspect_cache: HashMap::new(),
+            pod_vuln_inspect_cache: HashMap::new(),
             agent_conversations: HashMap::new(),
             mcp: crate::backend::mcp::McpState::default(),
         }
