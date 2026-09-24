@@ -35,7 +35,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
 | Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) unblocked now that 011 has landed in `main` — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ⬜ | future — live/SDK-auth tier |
-| Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | ⬜ | not yet planned |
+| Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | 📝 | spec drafted (`037-node-shell`) |
 
 ---
 
