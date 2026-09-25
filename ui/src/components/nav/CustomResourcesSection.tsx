@@ -118,7 +118,7 @@ function CrdCatalogList({
             >
               <span className="font-mono font-medium">{entry.kind}</span>
               <span className="truncate text-xs text-muted-foreground">{entry.group}</span>
-              <span className="flex items-center gap-2 text-[0.65rem] text-muted-foreground">
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>{entry.scope}</span>
                 {entry.permission_denied && (
                   <span

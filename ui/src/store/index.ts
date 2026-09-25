@@ -19,16 +19,30 @@ import type {
   DaemonStatus,
   AgentAuthMode,
   AgentConversation,
+  AuditLogEntry,
   BackendCmd,
   ClusterSettings,
   ConnectionProfile,
   ContextConnectionStatus,
+  KindClusterSummary,
+  KindPrerequisites,
   CrdCatalogEntry,
   DiskUsage,
+  ClusterVersionSummary,
+  CertManagerOverview,
+  CertificateChain,
   FluxOverview,
+  GatekeeperOverview,
+  VeleroOverview,
+  PodVulnerabilityInspection,
+  TrivyOverview,
+  VulnInspectError,
+  KedaOverview,
+  KedaResourceDetails,
   HubbleTrafficSummary,
   ImageInspectError,
   ImageInspection,
+  KnativeOverview,
   KubeadmDetectionResult,
   KubernetesEvent,
   LayoutProfile,
@@ -82,6 +96,7 @@ import {
   type HelmMutationSession,
 } from './helmMutation'
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
+import { DEFAULT_AUDIT_FILTER, type AuditLogFilter } from './auditLogFilter'
 import { RingBuffer } from './ring-buffer'
 import { waitForCommandResult } from './actions'
 
@@ -136,6 +151,13 @@ export interface Notice {
   at: number
 }
 
+/** Drop the status-bar notice: it described the previous context/namespace/section. */
+function withoutNotice(conn: ConnState): ConnState {
+  const rest = { ...conn }
+  delete rest.lastNotice
+  return rest
+}
+
 export interface ConnState {
   status: ConnectionStatus
   /** Envelopes the bridge discarded because the UI fell behind (backpressure), cumulative. */
@@ -154,6 +176,11 @@ export interface ContextStatusEntry {
   /** 035: typed cloud-auth plugin failure (present when the error came from an exec plugin). */
   pluginError?: PluginError
 }
+
+/** Autoscalers Inspector state: the selected ScaledObject/ScaledJob's detail, or a not-found reply. */
+export type KedaSelection =
+  | { state: 'ready'; details: KedaResourceDetails }
+  | { state: 'gone'; kind: string; namespace: string; name: string }
 
 export interface SessionState {
   /** Kubeconfig context names. Empty with `contextsLoaded` means no kubeconfig. */
@@ -204,8 +231,30 @@ export interface ListState {
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
   | { type: 'ContainerImageInspected' | 'ContainerImageInspectFailed' | 'AgentConversationUpdated' }
-  | { type: 'RbacSelfAccessUpdated' | 'NamespaceAccessResolved' | 'KubeadmDetectionUpdated' }
+  // 021-trivy-vulnerability-pane: keyed by namespace/pod, routed to `handlePodVulnInspect`.
+  | { type: 'PodVulnerabilitiesInspected' | 'PodVulnerabilitiesInspectFailed' }
+  | {
+      type:
+        | 'RbacSelfAccessUpdated'
+        | 'ResourceMutationAccessChecked'
+        | 'NamespaceAccessResolved'
+        | 'KubeadmDetectionUpdated'
+    }
+  // 024-pod-exec-terminal: routed by `handleExecAccess` into `execAccess`.
+  | { type: 'PodExecAccessChecked' }
 >
+
+/** 024-pod-exec-terminal: result of a `CheckPodExecAccess` pre-check. */
+export interface ExecAccessCheckState {
+  allowed: boolean
+  reason?: string
+  /** Bumped on every reply so a repeat check for the same key is observable. */
+  rev: number
+}
+
+export function execAccessKey(namespace: string, name: string, container: string | null): string {
+  return `${namespace}/${name}/${container ?? ''}`
+}
 
 export interface DetailState {
   /** Object kind derived from the event (`PodDetailsUpdated` → `Pod`, `PodMetricsUpdated` → `PodMetrics`). */
@@ -342,6 +391,13 @@ export interface HelmUninstallState {
  * no local setter; `ImageInspectPanel` only ever reads this and sends `InspectContainerImage`
  * on mount/container-change (never eagerly, FR-003).
  */
+/** 021-trivy-vulnerability-pane: one Pod's vulnerability inspection, keyed `${namespace}/${pod}`. */
+export interface PodVulnInspectState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  data?: PodVulnerabilityInspection
+  error?: VulnInspectError
+}
+
 export interface ImageInspectState {
   status: 'loading' | 'ready' | 'error'
   inspection?: ImageInspection
@@ -421,12 +477,43 @@ export interface CrdState {
   instances: Record<string, CrdInstancesState>
 }
 
+/** 026-mutation-audit-log-viewer: the local mutation history (newest first) + transient filter. */
+export interface AuditState {
+  entries: AuditLogEntry[]
+  loaded: boolean
+  /** True while the Audit Log pane is mounted: completed mutations then trigger a refresh. */
+  visible: boolean
+  /** Request id of the last `AuditLogLoaded`, so its own `CommandFinished` never re-refreshes. */
+  lastLoadedRequest?: number
+  filter: AuditLogFilter
+}
+
 export interface PrefsState {
   /** True once `UiConfigLoaded` has arrived. */
   loaded: boolean
   expandedGroups: string[]
   /** `auto_start.mcp_stdio`: whether the stdio MCP server (015) is enabled. Off by default. */
   mcpStdioEnabled: boolean
+}
+
+/** One in-flight or just-finished kind create/delete, keyed by its client `request_id`. */
+export interface KindOperation {
+  requestId: string
+  clusterName: string
+  kind: 'create' | 'delete'
+  /** Latest stage line from kind's own output. */
+  stage?: string
+  status: 'in-progress' | 'complete' | 'failed' | 'cancelled'
+  error?: string
+}
+
+/** 030-kind-cluster-provisioning: state behind the Local Clusters panel. */
+export interface KindState {
+  /** `undefined` until the first `KindPrerequisitesUpdated`. */
+  prerequisites?: KindPrerequisites
+  /** `undefined` until the first `KindClustersUpdated`. */
+  clusters?: KindClusterSummary[]
+  operations: Record<string, KindOperation>
 }
 
 /**
@@ -491,6 +578,21 @@ export interface LayoutState {
   focusedList?: PaneId
 }
 
+/** Transient shell overlays (032-ui-shell-a11y); never persisted. */
+export interface ShellUi {
+  paletteOpen: boolean
+  fleetOpen: boolean
+  askAiOpen: boolean
+  /** Ask AI sheet shows the assistant setup form instead of the conversation. */
+  askAiSetup: boolean
+  /** Laptop "Tools" overlay sheet: the tool shown in it, or undefined when closed. */
+  toolsSheet: ToolKind | undefined
+  /** Phone bottom-bar "More" sheet. */
+  moreOpen: boolean
+  /** Narrow context/namespace sheet. */
+  scopeOpen: boolean
+}
+
 /** The data part of the store (everything `ingest` may replace). */
 export interface StoreData {
   conn: ConnState
@@ -509,7 +611,16 @@ export interface StoreData {
   pendingPortForwardOrigins: PendingPortForwardOrigins
   metrics: MetricsState
   flux: { overview?: FluxOverview }
+  knative: { overview?: KnativeOverview }
+  /** 019: `undefined` until the first `ClusterVersionUpdated` arrives. */
+  clusterVersion: ClusterVersionSummary | undefined
+  gatekeeper: { overview?: GatekeeperOverview }
+  velero: { overview?: VeleroOverview }
+  certManager: { overview?: CertManagerOverview; chain?: CertificateChain }
+  /** 021-trivy-vulnerability-pane: cluster-wide Trivy Operator summary. */
+  trivy: { overview?: TrivyOverview }
   hubble: { summary?: HubbleTrafficSummary }
+  keda: { overview?: KedaOverview; selected?: KedaSelection }
   crds: CrdState
   integrations: IntegrationsState
   /** Node actions (US2), by node name. */
@@ -519,6 +630,8 @@ export interface StoreData {
    * `${namespace}/${pod}/${container}`. See `ImageInspectState`.
    */
   imageInspections: Record<string, ImageInspectState>
+  /** Pod vulnerability inspections by `${namespace}/${pod}` (021-trivy-vulnerability-pane). */
+  podVulnInspections: Record<string, PodVulnInspectState>
   /**
    * 013-agent-sdk-ops: per-object assistant conversations, keyed by
    * `${kind}/${namespace}/${name}` (matches the backend's `conversation_key`). Driven entirely
@@ -548,9 +661,13 @@ export interface StoreData {
    * Global (not keyed): only one self-access check, namespace-access lookup, or kubeadm
    * detection is ever in flight/shown at a time.
    */
+  /** 024-pod-exec-terminal: latest `PodExecAccessChecked` per `execAccessKey`. */
+  execAccess: Record<string, ExecAccessCheckState>
   rbacAccess: {
     /** Latest `RbacSelfAccessUpdated` reply (US2/US3 create/edit/delete gating, FR-007). */
     selfAccess?: RbacAccessResult[]
+    /** 018: `ResourceMutationAccessChecked` replies keyed by `resourceAccessKey`. */
+    resourceAccess?: Record<string, RbacAccessResult>
     /** Latest `NamespaceAccessResolved` reply (US4). */
     namespaceAccess?: NamespaceAccessResolved
     /** Latest `KubeadmDetectionUpdated` reply (US5), never an error. */
@@ -590,6 +707,7 @@ export interface StoreData {
    */
   helmMutations: Record<string, HelmMutationSession>
   layout: LayoutState
+  shell: ShellUi
   panes: Record<PaneId, PaneState>
   /**
    * In-progress YAML edits (US1, data-model.md "Resource Edit Session"), keyed like `details`.
@@ -604,8 +722,11 @@ export interface StoreData {
   actionPrompt?: ActionPrompt
   ui: UiConfig
   prefs: PrefsState
+  audit: AuditState
   /** 015-mcp-agent-exposure: stdio MCP server status, shown in Cluster Settings. */
   mcp: McpState
+  /** 030-kind-cluster-provisioning: local kind cluster readiness, inventory, and operations. */
+  kind: KindState
   /**
    * 008-pod-lifecycle-diagnostics: a "view logs for this container" click from the Lifecycle
    * section's Init Containers list, so the Inspector can switch to the Logs tab and
@@ -627,6 +748,10 @@ export interface StoreState extends StoreData {
   /** Persist a resized/rearranged profile for the current class. */
   setProfile: (profile: LayoutProfile) => void
   setTheme: (patch: Partial<ThemePrefs>) => void
+  /** 026: refresh the audit log, and track whether its pane is visible. */
+  refreshAuditLog: () => void
+  setAuditVisible: (visible: boolean) => void
+  setAuditFilter: (patch: Partial<AuditLogFilter>) => void
   updatePane: (id: PaneId, patch: Partial<Omit<PaneState, 'id' | 'kind'>>) => void
   pushPane: (id: PaneId) => void
   /** Phone: make the pane for `kind`/`tool` the root of the stack, creating it if needed. */
@@ -635,6 +760,9 @@ export interface StoreState extends StoreData {
   navigate: (section: SectionKey) => void
   popPane: () => void
   setNavOpen: (open: boolean) => void
+  setShell: (patch: Partial<ShellUi>) => void
+  /** Find or create the (off-layout) pane hosting `tool`, for overlay sheets. */
+  ensureToolPane: (tool: ToolKind) => PaneId
   setConnection: (patch: Partial<ConnState>) => void
   notify: (level: Notice['level'], message: string) => void
   /** Switch kubeconfig context: sends `SetContext`; results for other contexts are then dropped. */
@@ -661,6 +789,24 @@ export interface StoreState extends StoreData {
   refreshEvents: () => void
   /** Sends `RefreshFlux` (rescans GitOps Toolkit resources; also polled every 20s). */
   refreshFlux: () => void
+  /** Sends `RefreshKnative` (rescans Knative Serving resources; also polled every 20s). */
+  refreshKnative: () => void
+  /** Sends `RefreshGatekeeper` (rescans OPA Gatekeeper constraints; also polled every 20s). */
+  refreshGatekeeper: () => void
+  /** Sends `RefreshVelero` (rescans Velero backup resources; also polled every 20s). */
+  refreshVelero: () => void
+  /** Sends `RefreshCertManager` (rescans Certificates; also polled every 20s). */
+  refreshCertManager: () => void
+  /** Sends `SelectCertificateChain` (resolves one Certificate's lifecycle chain). */
+  selectCertificateChain: (namespace: string, name: string) => void
+  /** Sends `RefreshTrivyOverview` (rescans Trivy reports; also polled every 20s). */
+  refreshTrivyOverview: () => void
+  /** Sends `InspectPodVulnerabilities` and marks the Pod's slice loading. */
+  inspectPodVulnerabilities: (namespace: string, pod: string) => void
+  /** Sends `RefreshKeda` (rescans KEDA ScaledObjects/ScaledJobs; also polled every 20s). */
+  refreshKeda: () => void
+  /** Sends `SelectScaledObject`/`SelectScaledJob` for the Autoscalers Inspector. */
+  selectKedaResource: (kind: string, namespace: string, name: string) => void
   /** Sends `RefreshHubble` (rescans Hubble traffic; also polled every 20s). */
   refreshHubble: () => void
   /**
@@ -884,11 +1030,19 @@ export function initialData(): StoreData {
     pendingPortForwardOrigins: {},
     metrics: { diskUsage: [] },
     flux: {},
+    knative: {},
+    clusterVersion: undefined,
+    gatekeeper: {},
+    velero: {},
+    certManager: {},
+    trivy: {},
     hubble: {},
+    keda: {},
     crds: { catalog: [], catalogLoaded: false, instances: {} },
     integrations: { portAvailability: {} },
     nodeActions: {},
     imageInspections: {},
+    podVulnInspections: {},
     agentConversations: {},
     agentAuth: {},
     ai: { loaded: false, statuses: [], active: null, offline: false, ollamaModel: null },
@@ -897,6 +1051,7 @@ export function initialData(): StoreData {
     teams: initialTeamsState(),
     roles: initialRolesState(),
     nodeShell: {},
+    execAccess: {},
     rbacAccess: {},
     helmUninstalls: {},
     helmMutations: {},
@@ -909,6 +1064,15 @@ export function initialData(): StoreData {
       stack: slotPanes.slice(0, 1),
       navOpen: false,
     },
+    shell: {
+      paletteOpen: false,
+      fleetOpen: false,
+      askAiOpen: false,
+      askAiSetup: false,
+      toolsSheet: undefined,
+      moreOpen: false,
+      scopeOpen: false,
+    },
     panes,
     editSessions: {},
     selection: {},
@@ -917,6 +1081,7 @@ export function initialData(): StoreData {
     helmMutation: initialHelmMutationSession,
     ui: DEFAULT_UI,
     prefs: { loaded: false, expandedGroups: [], mcpStdioEnabled: false },
+    audit: { entries: [], loaded: false, visible: false, filter: DEFAULT_AUDIT_FILTER },
     mcp: {
       loaded: false,
       enabled: false,
@@ -924,6 +1089,7 @@ export function initialData(): StoreData {
       connectionCommand: '',
       demoChat: { status: 'idle', chunks: new RingBuffer<string>(), rev: 0 },
     },
+    kind: { prerequisites: undefined, clusters: undefined, operations: {} },
     podLogsIntent: null,
   }
 }
@@ -966,6 +1132,12 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
     }),
 
+  refreshAuditLog: () => {
+    get().send({ type: 'RefreshAuditLog' })
+  },
+  setAuditVisible: (visible) => set((s) => ({ audit: { ...s.audit, visible } })),
+  setAuditFilter: (patch) =>
+    set((s) => ({ audit: { ...s.audit, filter: { ...s.audit.filter, ...patch } } })),
   setTheme: (patch) => set((s) => ({ ui: { ...s.ui, theme: { ...s.ui.theme, ...patch } } })),
 
   updatePane: (id, patch) =>
@@ -996,6 +1168,7 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   navigate: (section) => {
     set((s) => {
+      s = { ...s, conn: withoutNotice(s.conn) }
       const focused = s.layout.focusedList
       const listId =
         (focused !== undefined &&
@@ -1014,6 +1187,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         namespace: s.session.activeNamespace,
       }
       return {
+        conn: s.conn,
         panes: {
           ...s.panes,
           [pane.id]: {
@@ -1047,6 +1221,18 @@ export const useStore = create<StoreState>()((set, get) => ({
     ),
 
   setNavOpen: (open) => set((s) => ({ layout: { ...s.layout, navOpen: open } })),
+
+  setShell: (patch) => set((s) => ({ shell: { ...s.shell, ...patch } })),
+
+  ensureToolPane: (tool) => {
+    const existing = Object.values(get().panes).find(
+      (p) => p.kind === 'tool' && p.tool === tool && p.id.startsWith(`sheet-${tool}`),
+    )
+    if (existing) return existing.id
+    const id = nextId(get().panes, `sheet-${tool}`)
+    set((s) => ({ panes: { ...s.panes, [id]: newPane(id, 'tool', tool) } }))
+    return id
+  },
 
   setConnection: (patch) => set((s) => ({ conn: { ...s.conn, ...patch } })),
 
@@ -1106,6 +1292,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     const s = get()
     if (s.session.activeContext === name) return
     set({
+      conn: withoutNotice(s.conn),
       session: {
         ...s.session,
         activeContext: name,
@@ -1114,6 +1301,8 @@ export const useStore = create<StoreState>()((set, get) => ({
         namespaces: [],
       },
       lists: markLoading(s.lists, name, CONTEXT_LISTS),
+      // 018: cached permission answers belong to the previous context's identity.
+      rbacAccess: {},
     })
     s.send({ type: 'SetContext', data: { context: name } })
   },
@@ -1121,6 +1310,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   selectNamespace: (ns) => {
     const s = get()
     set({
+      conn: withoutNotice(s.conn),
       session: { ...s.session, activeNamespace: ns },
       lists: markLoading(s.lists, s.session.activeContext, CONTEXT_LISTS),
     })
@@ -1150,6 +1340,32 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshEvents: () => get().send({ type: 'RefreshEvents' }),
 
   refreshFlux: () => get().send({ type: 'RefreshFlux' }),
+
+  refreshKnative: () => get().send({ type: 'RefreshKnative' }),
+  refreshGatekeeper: () => get().send({ type: 'RefreshGatekeeper' }),
+  refreshVelero: () => get().send({ type: 'RefreshVelero' }),
+  refreshCertManager: () => get().send({ type: 'RefreshCertManager' }),
+  selectCertificateChain: (namespace, name) =>
+    get().send({ type: 'SelectCertificateChain', data: { namespace, name } }),
+
+  refreshTrivyOverview: () => get().send({ type: 'RefreshTrivyOverview' }),
+
+  inspectPodVulnerabilities: (namespace, pod) => {
+    set((s) => ({
+      podVulnInspections: {
+        ...s.podVulnInspections,
+        [`${namespace}/${pod}`]: { status: 'loading' },
+      },
+    }))
+    get().send({ type: 'InspectPodVulnerabilities', data: { namespace, pod } })
+  },
+  refreshKeda: () => get().send({ type: 'RefreshKeda' }),
+
+  selectKedaResource: (kind, namespace, name) =>
+    get().send({
+      type: kind === 'ScaledJob' ? 'SelectScaledJob' : 'SelectScaledObject',
+      data: { namespace, name },
+    }),
 
   refreshHubble: () => get().send({ type: 'RefreshHubble' }),
 

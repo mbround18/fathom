@@ -253,6 +253,11 @@ pub mod section_keys {
         SectionKey::new("applications")
     }
 
+    /// 026-mutation-audit-log-viewer: the local mutation audit-log viewer pane.
+    pub fn audit_log() -> SectionKey {
+        SectionKey::new("audit-log")
+    }
+
     pub fn helm_releases() -> SectionKey {
         SectionKey::new("helm/releases")
     }
@@ -277,8 +282,41 @@ pub mod section_keys {
         SectionKey::new("integrations/flux")
     }
 
+    /// 022-velero-backup-pane: read-only Velero backup/schedule/restore/storage-location pane.
+    pub fn integrations_velero() -> SectionKey {
+        SectionKey::new("integrations/velero")
+    }
+
+    pub fn integrations_knative() -> SectionKey {
+        SectionKey::new("integrations/knative")
+    }
+
+    pub fn autoscalers() -> SectionKey {
+        SectionKey::new("autoscalers")
+    }
+
     pub fn integrations_hubble() -> SectionKey {
         SectionKey::new("integrations/hubble")
+    }
+
+    /// 020-gatekeeper-policy-pane: OPA Gatekeeper constraint compliance view.
+    pub fn integrations_gatekeeper() -> SectionKey {
+        SectionKey::new("integrations/gatekeeper")
+    }
+
+    /// 023-cert-manager-certificates-pane: Certificates dashboard aggregate.
+    pub fn integrations_cert_manager() -> SectionKey {
+        SectionKey::new("integrations/cert-manager")
+    }
+
+    /// 023-cert-manager-certificates-pane: single Certificate lifecycle-chain lookup.
+    pub fn certificate_chain() -> SectionKey {
+        SectionKey::new("integrations/certificate-chain")
+    }
+
+    /// 021-trivy-vulnerability-pane: the cluster-wide Trivy Operator vulnerability summary.
+    pub fn integrations_vulnerabilities() -> SectionKey {
+        SectionKey::new("integrations/vulnerabilities")
     }
 
     pub fn network_portforwards() -> SectionKey {

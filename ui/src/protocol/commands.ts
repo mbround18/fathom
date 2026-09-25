@@ -13,16 +13,28 @@ export const SECTION = {
   pods: 'workloads/pods',
   deployments: 'workloads/deployments',
   customResources: 'custom-resources',
+  statefulsets: 'workloads/statefulsets',
+  daemonsets: 'workloads/daemonsets',
+  jobs: 'workloads/jobs',
+  cronjobs: 'workloads/cronjobs',
+  replicasets: 'workloads/replicasets',
+  configmaps: 'config/configmaps',
+  secrets: 'config/secrets',
+  poddisruptionbudgets: 'config/poddisruptionbudgets',
   nodes: 'nodes',
   applications: 'applications',
   services: 'network/services',
   portForwards: 'network/portforwards',
+  /** 020-gatekeeper-policy-pane: read-only OPA Gatekeeper constraint compliance view. */
+  gatekeeper: 'integrations/gatekeeper',
   /** 014-teams-organizations: local §10 Cluster Settings + org-level sync affordances. */
   clusterSettings: 'integrations/cluster-settings',
   /** 014-teams-organizations: shared, non-secret connection profiles + team-store status. */
   teamProfiles: 'team/profiles',
   /** 033 US3: IdP groups/users as teams. */
   teams: 'team/teams',
+  /** 026-mutation-audit-log-viewer: local mutation history viewer. */
+  auditLog: 'audit-log',
   // 011-rbac-oidc-administration
   roles: 'access/roles',
   roleBindings: 'access/rolebindings',
@@ -44,6 +56,15 @@ export const BOOTSTRAP_CMDS: readonly BackendCmd[] = [
 const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.pods]: { type: 'RefreshPods' },
   [SECTION.deployments]: { type: 'RefreshDeployments' },
+  // 017-cluster-linter: already-shipped backend refreshes with no descriptor yet (research R2).
+  [SECTION.statefulsets]: { type: 'RefreshStatefulSets' },
+  [SECTION.daemonsets]: { type: 'RefreshDaemonSets' },
+  [SECTION.jobs]: { type: 'RefreshJobs' },
+  [SECTION.cronjobs]: { type: 'RefreshCronJobs' },
+  [SECTION.replicasets]: { type: 'RefreshReplicaSets' },
+  [SECTION.configmaps]: { type: 'RefreshConfigMaps' },
+  [SECTION.secrets]: { type: 'RefreshSecrets' },
+  [SECTION.poddisruptionbudgets]: { type: 'RefreshPodDisruptionBudgets' },
   [SECTION.events]: { type: 'RefreshEvents' },
   [SECTION.namespaces]: { type: 'RefreshNamespaces' },
   // US3: the CRD catalog itself; instance lists/reads are sent directly by
@@ -53,6 +74,7 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.applications]: { type: 'RefreshApplications' },
   [SECTION.services]: { type: 'RefreshServices' },
   [SECTION.portForwards]: { type: 'RefreshPortForwards' },
+  [SECTION.auditLog]: { type: 'RefreshAuditLog' },
   // 011-rbac-oidc-administration: list-section refreshes (namespace-access/oidc-config are
   // lookup/generator panels, not list sections, so they have no entry here).
   [SECTION.roles]: { type: 'RefreshRoles' },
@@ -77,6 +99,14 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectPod', data: { namespace, name } }
     case 'Deployment':
       return { type: 'SelectDeployment', data: { namespace, name } }
+    case 'StatefulSet':
+      return { type: 'SelectStatefulSet', data: { namespace, name } }
+    case 'DaemonSet':
+      return { type: 'SelectDaemonSet', data: { namespace, name } }
+    case 'ReplicaSet':
+      return { type: 'SelectReplicaSet', data: { namespace, name } }
+    case 'PodDisruptionBudget':
+      return { type: 'SelectPodDisruptionBudget', data: { namespace, name } }
     case 'Node':
       return { type: 'SelectNode', data: { name } }
     case 'Service':

@@ -6,7 +6,16 @@ import { expect, test } from '@playwright/test'
 
 import { genDeployments } from '../fixtures/gen-pods'
 import { PODS_500 } from '../fixtures'
-import { DEPLOYMENTS, expectRowCount, navigateTo, open, sent, table } from './helpers'
+import {
+  DEPLOYMENTS,
+  chooseScope,
+  expectRowCount,
+  expectScope,
+  navigateTo,
+  open,
+  sent,
+  table,
+} from './helpers'
 
 const IN_PAYMENTS = PODS_500.filter((p) => p.namespace === 'payments').length
 const DEPLOY_PAYMENTS = genDeployments('kind-a').filter((d) => d.namespace === 'payments').length
@@ -16,10 +25,9 @@ test.describe('US1 namespace filter', () => {
     await open(page)
     await expectRowCount(page, 500)
 
-    await page.getByRole('combobox', { name: 'Namespace' }).click()
-    await page.getByRole('option', { name: 'payments' }).click()
+    await chooseScope(page, 'Namespace', 'payments')
 
-    await expect(page.getByRole('combobox', { name: 'Namespace' })).toContainText('payments')
+    await expectScope(page, 'Namespace', 'payments')
     await expectRowCount(page, IN_PAYMENTS)
     expect((await sent(page)).filter((c) => c.type === 'SetNamespaceFilter').at(-1)).toEqual({
       type: 'SetNamespaceFilter',
@@ -32,7 +40,7 @@ test.describe('US1 namespace filter', () => {
       .locator('[role="row"][data-row-key]')
       .evaluateAll((rows) => rows.map((r) => r.getAttribute('data-row-key')?.split('/')[0]))
     expect(new Set(namespaces)).toEqual(new Set(['payments']))
-    await expect(page.getByRole('combobox', { name: 'Namespace' })).toContainText('payments')
+    await expectScope(page, 'Namespace', 'payments')
 
     await navigateTo(page, 'Pods')
     await expectRowCount(page, IN_PAYMENTS)

@@ -27,7 +27,6 @@ const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonse
 
 export function TopologyPanel({ paneId }: { paneId: PaneId }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const fatal = useStore((s) => s.conn.fatal)
   const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
   const notice = useStore((s) => s.conn.lastNotice?.message)
   const refreshSection = useStore((s) => s.refreshSection)
@@ -48,7 +47,7 @@ export function TopologyPanel({ paneId }: { paneId: PaneId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one snapshot request per (re)availability
   }, [context, daemonState(daemon), requestDaemonTopology])
 
-  if (disconnected) return <Disconnected detail={fatal} />
+  if (disconnected) return <Disconnected />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
 
   return (

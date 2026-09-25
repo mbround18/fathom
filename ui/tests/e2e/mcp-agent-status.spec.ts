@@ -68,7 +68,9 @@ async function mcpStatus(page: Page, seq: number, enabled: boolean, running: boo
 }
 
 test.describe('US1 MCP agent exposure: Available Agents status', () => {
-  test('starts off, toggles on, and reports running with a connection command', async ({ page }) => {
+  test('starts off, toggles on, and reports running with a connection command', async ({
+    page,
+  }) => {
     await goToSettings(page)
 
     // Mounting the section reads status and never enables anything.

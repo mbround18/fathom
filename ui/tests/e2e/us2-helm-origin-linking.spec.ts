@@ -73,7 +73,10 @@ async function selectRelease(page: Page, r: typeof REDIS): Promise<void> {
   await open(page)
   await navigateTo(page, 'Helm Releases', 'Overview')
   await expect.poll(() => sentTypes(page)).toContain('RefreshHelmReleases')
-  await emit(page, batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [r] })]))
+  await emit(
+    page,
+    batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [r] })]),
+  )
   await row(page, `${r.namespace}/${r.name}`, HELM).click()
   await expect
     .poll(() => sent(page))
@@ -108,7 +111,10 @@ test.describe('US2 Helm release GitOps origin linking', () => {
       .poll(() => sent(page))
       .toEqual(
         expect.arrayContaining([
-          { type: 'SelectFluxResource', data: { kind: 'HelmRelease', namespace: 'flux-system', name: 'redis' } },
+          {
+            type: 'SelectFluxResource',
+            data: { kind: 'HelmRelease', namespace: 'flux-system', name: 'redis' },
+          },
         ]),
       )
 
@@ -180,7 +186,10 @@ test.describe('US2 Helm release GitOps origin linking', () => {
       .poll(() => sent(page))
       .toEqual(
         expect.arrayContaining([
-          { type: 'SelectFluxResource', data: { kind: 'HelmRelease', namespace: 'flux-system', name: 'redis' } },
+          {
+            type: 'SelectFluxResource',
+            data: { kind: 'HelmRelease', namespace: 'flux-system', name: 'redis' },
+          },
         ]),
       )
 

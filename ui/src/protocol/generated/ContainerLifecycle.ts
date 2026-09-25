@@ -9,4 +9,11 @@ import type { ProbeSpec } from "./ProbeSpec";
  * Pod's Events is computed in the frontend (already has the Events via `RefreshEvents`), not
  * stored here — this is a pure snapshot of spec + status.
  */
-export type ContainerLifecycle = { name: string, is_init: boolean, image: string, ready: boolean, state: ContainerState, restart_count: number, last_state: ContainerState | null, probes: Array<ProbeSpec>, hooks: Array<LifecycleHookSpec>, };
+export type ContainerLifecycle = { name: string, is_init: boolean, image: string, ready: boolean, state: ContainerState, restart_count: number, last_state: ContainerState | null, probes: Array<ProbeSpec>, hooks: Array<LifecycleHookSpec>, 
+/**
+ * 025-ephemeral-debug-containers: `true` for an entry sourced from
+ * `status.ephemeralContainerStatuses[]` (added via `AddEphemeralContainer`). Always
+ * `false` for regular app/init containers. Ephemeral containers are never init
+ * containers, so `is_init` is always `false` when this is `true`.
+ */
+is_ephemeral: boolean, };

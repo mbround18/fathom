@@ -16,7 +16,10 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use super::state::BackendState;
-use super::{deployments, events, flux, hubble, pods};
+use super::{
+    cert_manager, cluster_version, deployments, events, flux, gatekeeper, hubble, keda, knative,
+    pods, trivy, velero,
+};
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -111,6 +114,332 @@ pub(super) async fn ensure_flux_poll(
         sender.clone(),
         state.cluster.current_context.clone(),
     )));
+}
+
+/// Best-effort: start (or keep running) a background scan of OPA Gatekeeper constraints
+/// every 20s, emitting `GatekeeperOverviewUpdated`. Does nothing if a poll task is already
+/// running; `scan_gatekeeper` itself reports `GatekeeperInstallState::NotInstalled` when
+/// Gatekeeper's CRDs are absent, so there is no separate detection gate here.
+pub(super) async fn ensure_gatekeeper_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.gatekeeper_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.gatekeeper_poll_task = Some(tokio::spawn(poll_gatekeeper_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan Gatekeeper constraints every 20s and emit the aggregated overview.
+async fn poll_gatekeeper_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match gatekeeper::scan_gatekeeper(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_gatekeeper(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::GatekeeperOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Gatekeeper scan failed: {}", e),
+                );
+            }
+        }
+    }
+}
+
+/// Best-effort: start (or keep running) a background scan of Velero backup resources every
+/// 20s, emitting `VeleroOverviewUpdated`. Does nothing if a poll task is already running;
+/// `scan_velero` itself reports `installed: false` when Velero's CRDs are absent, so there is no
+/// separate detection gate here (mirrors `ensure_flux_poll`).
+pub(super) async fn ensure_velero_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.velero_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.velero_poll_task = Some(tokio::spawn(poll_velero_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan Velero resources every 20s and emit the aggregated overview.
+async fn poll_velero_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match velero::scan_velero(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_velero(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::VeleroOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Velero scan failed: {}", e),
+                );
+            }
+        }
+    }
+}
+
+/// Best-effort: start (or keep running) a background scan of cert-manager Certificates
+/// every 20s, emitting `CertManagerOverviewUpdated`. Does nothing if a poll task is already
+/// running; `scan_cert_manager` itself reports `installed: false` when the Certificate CRD
+/// is absent, so there is no separate detection gate here (mirrors `ensure_flux_poll`).
+pub(super) async fn ensure_cert_manager_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.cert_manager_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.cert_manager_poll_task = Some(tokio::spawn(poll_cert_manager_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan cert-manager Certificates every 20s and emit the aggregated overview.
+async fn poll_cert_manager_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match cert_manager::scan_cert_manager(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_cert_manager(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::CertManagerOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background cert-manager scan failed: {}", e),
+                );
+            }
+        }
+    }
+}
+
+/// Best-effort: start (or keep running) a background scan of Trivy Operator vulnerability
+/// reports every 20s, emitting `TrivyOverviewUpdated`. Does nothing if a poll task is already
+/// running; `scan_trivy` itself reports `installed: false` when the Trivy Operator's CRDs are
+/// absent, so there is no separate detection gate here (mirrors `ensure_flux_poll`).
+pub(super) async fn ensure_trivy_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.trivy_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.trivy_poll_task = Some(tokio::spawn(poll_trivy_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan Trivy Operator vulnerability reports every 20s and emit the
+/// aggregated overview.
+async fn poll_trivy_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match trivy::scan_trivy(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(
+                        section_keys::integrations_vulnerabilities(),
+                        context.clone(),
+                    ),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::TrivyOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Trivy scan failed: {}", e),
+                );
+            }
+        }
+    }
+}
+
+/// Best-effort: start (or keep running) a background scan of Knative Serving resources every
+/// 20s, emitting `KnativeOverviewUpdated`. Does nothing if a poll task is already running;
+/// `scan_knative` itself reports `installed: false` when Knative's CRDs are absent, so there is
+/// no separate detection gate here (mirrors `ensure_flux_poll`).
+pub(super) async fn ensure_knative_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.knative_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.knative_poll_task = Some(tokio::spawn(poll_knative_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan Knative Serving resources every 20s and emit the aggregated overview.
+async fn poll_knative_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match knative::scan_knative(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::integrations_knative(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::KnativeOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background Knative scan failed: {}", e),
+                );
+            }
+        }
+    }
+}
+
+/// Best-effort: start (or keep running) a background KEDA scan every 20s, emitting
+/// `KedaOverviewUpdated`. `scan_keda` reports `installed: false` when KEDA is absent
+/// (mirrors `ensure_flux_poll`).
+pub(super) async fn ensure_keda_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.keda_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+    state.watch_tasks.keda_poll_task = Some(tokio::spawn(poll_keda_overview(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+        state.cluster.current_context.clone(),
+    )));
+}
+
+/// Background task: rescan KEDA ScaledObjects/ScaledJobs every 20s.
+async fn poll_keda_overview(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+    context: Option<String>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await;
+        match keda::scan_keda(&client).await {
+            Ok(overview) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::cluster(section_keys::autoscalers(), context.clone()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::KedaOverviewUpdated(overview)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background KEDA scan failed: {}", e),
+                );
+            }
+        }
+    }
 }
 
 /// Background task: rescan Flux resources every 20s and emit the aggregated overview.
@@ -427,6 +756,55 @@ fn emit_namespace_names(
         Correlation::None,
         BackendEvent::ResourceList(ResourceListEvent::NamespacesUpdated(namespaces)),
     );
+}
+
+/// Start the cluster/node Kubernetes version poll (019) if not already running.
+pub(super) async fn ensure_cluster_version_poll(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if state.watch_tasks.cluster_version_poll_task.is_some() {
+        return;
+    }
+    let Some(client) = state.cluster.client.clone() else {
+        return;
+    };
+
+    state.watch_tasks.cluster_version_poll_task = Some(tokio::spawn(poll_cluster_version(
+        client,
+        state.cluster.seq.clone(),
+        sender.clone(),
+    )));
+}
+
+/// Background task: fetch immediately, then every 20s, emitting `ClusterVersionUpdated`.
+async fn poll_cluster_version(
+    client: kube::Client,
+    seq: Arc<AtomicU64>,
+    sender: Sender<BackendEventEnvelope>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    loop {
+        ticker.tick().await; // first tick completes immediately
+        match cluster_version::fetch_cluster_version(&client).await {
+            Ok(summary) => {
+                events::emit(
+                    seq.as_ref(),
+                    &sender,
+                    Route::global(section_keys::system()),
+                    Correlation::None,
+                    BackendEvent::System(SystemEvent::ClusterVersionUpdated(summary)),
+                );
+            }
+            Err(e) => {
+                events::notify_error(
+                    seq.as_ref(),
+                    &sender,
+                    format!("Background cluster version poll failed: {}", e),
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

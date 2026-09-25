@@ -80,6 +80,14 @@ pub(super) struct WatchTasks {
     pub(super) namespace_sync_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) hubble_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) flux_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) knative_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) cluster_version_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) gatekeeper_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) velero_poll_task: Option<tokio::task::JoinHandle<()>>,
+    /// 023-cert-manager-certificates-pane: background poll of the Certificates overview.
+    pub(super) cert_manager_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) trivy_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) keda_poll_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl WatchTasks {
@@ -89,6 +97,13 @@ impl WatchTasks {
         abort_task(&mut self.namespace_sync_task);
         abort_task(&mut self.hubble_poll_task);
         abort_task(&mut self.flux_poll_task);
+        abort_task(&mut self.knative_poll_task);
+        abort_task(&mut self.cluster_version_poll_task);
+        abort_task(&mut self.gatekeeper_poll_task);
+        abort_task(&mut self.velero_poll_task);
+        abort_task(&mut self.cert_manager_poll_task);
+        abort_task(&mut self.trivy_poll_task);
+        abort_task(&mut self.keda_poll_task);
     }
 }
 
@@ -218,6 +233,8 @@ pub(super) struct BackendState {
     pub(super) fleet: FleetState,
     pub(super) federation: FederationState,
     pub(super) daemon: super::daemon_ctl::DaemonRuntime,
+    /// 030-kind-cluster-provisioning: in-flight kind create/delete operations.
+    pub(super) kind_actions: crate::backend::kind::KindActionRegistry,
     pub(super) metrics: MetricsState,
     pub(super) port_forward_manager: PortForwardManager,
     /// Session-scoped image-inspection cache, keyed by resolved manifest digest
@@ -226,6 +243,8 @@ pub(super) struct BackendState {
     pub(super) image_inspect_cache: HashMap<String, crate::protocol::ImageInspection>,
     /// 033 US5: capability cache (rules reviews per context/identity/namespace, 60 s TTL).
     pub(super) capabilities: crate::backend::capabilities::CapabilityCache,
+    /// 021-trivy-vulnerability-pane: per-Pod vulnerability inspections keyed `namespace/pod`.
+    pub(super) pod_vuln_inspect_cache: HashMap<String, crate::protocol::PodVulnerabilityInspection>,
     /// 013-agent-sdk-ops: per-object assistant conversations, keyed by
     /// `"<kind>/<namespace>/<name>"`. Session-scoped for now (Phase 6/T044 adds
     /// `~/.fathom/agent_conversations.json` persistence across restarts); never
@@ -273,11 +292,19 @@ impl BackendState {
                 namespace_sync_task: None,
                 hubble_poll_task: None,
                 flux_poll_task: None,
+                knative_poll_task: None,
+                cluster_version_poll_task: None,
+                gatekeeper_poll_task: None,
+                velero_poll_task: None,
+                cert_manager_poll_task: None,
+                trivy_poll_task: None,
+                keda_poll_task: None,
             },
             node_actions: NodeActionState::default(),
             fleet: FleetState::default(),
             federation: FederationState::default(),
             daemon: super::daemon_ctl::DaemonRuntime::default(),
+            kind_actions: crate::backend::kind::KindActionRegistry::default(),
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,
                 unavailable_notified: false,
@@ -290,6 +317,7 @@ impl BackendState {
             port_forward_manager: PortForwardManager::new(),
             image_inspect_cache: HashMap::new(),
             capabilities: crate::backend::capabilities::CapabilityCache::default(),
+            pod_vuln_inspect_cache: HashMap::new(),
             agent_conversations: HashMap::new(),
             mcp: crate::backend::mcp::McpState::default(),
             idp: crate::backend::idp_directory::DirectoryCache::default(),

@@ -195,7 +195,11 @@ pub enum ToolKind {
     Overview,
     Metrics,
     Flux,
+    /// 028-knative-pane: Knative Serving tool pane.
+    Knative,
     Hubble,
+    /// 029-keda-autoscaler-pane: KEDA Autoscalers tool pane.
+    Keda,
     Logs,
     Events,
     Portforwards,
@@ -203,6 +207,15 @@ pub enum ToolKind {
     Topology,
     /// 036-incluster-daemon: the "While you were away" timeline tool pane.
     Daemon,
+    /// 022-velero-backup-pane: read-only Velero backup health tool pane.
+    Velero,
+    /// 023-cert-manager-certificates-pane: the Certificates (cert-manager) tool pane.
+    #[serde(rename = "certManager")]
+    CertManager,
+    /// 021-trivy-vulnerability-pane: the cluster-wide Trivy Operator vulnerability summary.
+    Vulnerabilities,
+    /// 017-cluster-linter: the read-only cluster sanitizer/linter tool pane.
+    Linter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

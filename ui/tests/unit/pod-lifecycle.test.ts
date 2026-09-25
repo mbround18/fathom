@@ -14,6 +14,7 @@ function container(overrides: Partial<ContainerLifecycle> = {}): ContainerLifecy
   return {
     name: 'api',
     is_init: false,
+    is_ephemeral: false,
     image: 'registry.example.com/api:1.0.0',
     ready: true,
     state: { phase: 'running', reason: null, exit_code: null, started_at: null, finished_at: null },

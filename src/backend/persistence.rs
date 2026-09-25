@@ -123,6 +123,12 @@ pub fn main_config_path() -> Result<PathBuf> {
     Ok(fathom_config_dir()?.join("config.json"))
 }
 
+/// Get the path to `audit-log.json` (026-mutation-audit-log-viewer: the local, append-only,
+/// bounded record of completed mutating actions). See `src/backend/audit_log.rs`.
+pub fn audit_log_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("audit-log.json"))
+}
+
 /// Load JSON from file, return empty object if file doesn't exist
 pub fn load_json_file(path: &Path) -> Result<serde_json::Value> {
     ensure_config_dir()?;

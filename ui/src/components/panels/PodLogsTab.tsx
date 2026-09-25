@@ -43,6 +43,8 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
     ? [
         ...detail.containers_lifecycle.filter((c) => c.is_init).map((c) => c.name),
         ...detail.containers,
+        // 025-ephemeral-debug-containers: debug containers stream logs like any other container.
+        ...detail.containers_lifecycle.filter((c) => c.is_ephemeral).map((c) => c.name),
       ]
     : []
 
@@ -155,7 +157,7 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
           ) : (
             <>
               {(stream?.lines.truncated ?? 0) > 0 && (
-                <p className="mb-1 text-[0.65rem] text-muted-foreground">
+                <p className="mb-1 text-xs text-muted-foreground">
                   … {stream?.lines.truncated} earlier line
                   {stream?.lines.truncated === 1 ? '' : 's'} truncated
                 </p>

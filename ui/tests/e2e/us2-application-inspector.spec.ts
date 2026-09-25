@@ -109,9 +109,7 @@ test.describe('US2 application inspector', () => {
     await expect(insp).toContainText('owns')
   })
 
-  test('T025: shows metrics-unavailable when no metrics source is configured', async ({
-    page,
-  }) => {
+  test('T025: shows metrics-unavailable when no metrics source is configured', async ({ page }) => {
     await selectWeb(page)
     await emit(
       page,

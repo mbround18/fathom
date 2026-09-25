@@ -59,9 +59,7 @@ test.describe('US2 teams: cluster settings + org sync', () => {
     await panel(page).getByTestId('teams-path-prefix').fill('/grafana')
     await panel(page).getByTestId('teams-hidden-metric-input').fill('cpu_throttled')
     await panel(page).getByTestId('teams-hidden-metric-input').press('Enter')
-    await expect(panel(page).getByTestId('teams-hidden-metric-row')).toContainText(
-      'cpu_throttled',
-    )
+    await expect(panel(page).getByTestId('teams-hidden-metric-row')).toContainText('cpu_throttled')
 
     await panel(page).getByTestId('teams-save-cluster-settings').click()
     await expect.poll(() => sentTypes(page)).toContain('SaveClusterSettings')

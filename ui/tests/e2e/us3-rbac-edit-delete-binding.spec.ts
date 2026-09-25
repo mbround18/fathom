@@ -37,6 +37,7 @@ import {
   open,
   row,
   sent,
+  sentMutations,
   sentTypes,
   pressDelete,
 } from './helpers'
@@ -80,7 +81,15 @@ async function openBindingDetail(page: Page): Promise<void> {
   // The pane shows a loading state (not the `resource-table` testid) until the list event below
   // lands, so this waits for the Refresh command and emits before asserting row count.
   await expect.poll(() => sentTypes(page)).toContain('RefreshRoleBindings')
-  await emit(page, batch([list(1, nsRoute('kind-a', ROLE_BINDINGS), { type: 'RoleBindingsUpdated', data: [BINDING_ROW] })]))
+  await emit(
+    page,
+    batch([
+      list(1, nsRoute('kind-a', ROLE_BINDINGS), {
+        type: 'RoleBindingsUpdated',
+        data: [BINDING_ROW],
+      }),
+    ]),
+  )
   await expectRowCount(page, 1, ROLE_BINDINGS)
   await row(page, `${BINDING_ROW.namespace}/${BINDING_ROW.name}`, ROLE_BINDINGS).click()
   await emit(
@@ -108,7 +117,12 @@ async function openEditForm(page: Page): Promise<Locator> {
         data: {
           results: [
             {
-              check: { verb: 'update', resource: 'rolebindings', namespace: BINDING_ROW.namespace },
+              check: {
+                verb: 'update',
+                resource: 'rolebindings',
+                namespace: BINDING_ROW.namespace,
+                group: 'rbac.authorization.k8s.io',
+              },
               allowed: true,
               reason: null,
             },
@@ -186,12 +200,20 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await expect(form.getByTestId('yaml-diff')).toBeVisible()
 
     await form.getByTestId('yaml-apply').click()
+    await expect(confirmDialog(page)).toBeVisible()
     await confirmDialog(page).getByTestId('confirm-submit').click()
     const id = await requestIdOf(page, 'ApplyResourceYaml')
 
-    await finish(page, id, false, 'conflict: Operation cannot be fulfilled: the object has been modified')
+    await finish(
+      page,
+      id,
+      false,
+      'conflict: Operation cannot be fulfilled: the object has been modified',
+    )
 
-    await expect(form.getByTestId('yaml-apply-error')).toContainText('Operation cannot be fulfilled')
+    await expect(form.getByTestId('yaml-apply-error')).toContainText(
+      'Operation cannot be fulfilled',
+    )
     await expect(form.getByTestId('yaml-reload')).toBeVisible()
     // Not applied, not silently discarded.
     await expect(form.getByTestId('rbac-binding-applied')).toHaveCount(0)
@@ -204,7 +226,15 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await open(page)
     await navigateTo(page, 'Role Bindings', 'Access Control')
     await expect.poll(() => sentTypes(page)).toContain('RefreshRoleBindings')
-    await emit(page, batch([list(1, nsRoute('kind-a', ROLE_BINDINGS), { type: 'RoleBindingsUpdated', data: [BINDING_ROW] })]))
+    await emit(
+      page,
+      batch([
+        list(1, nsRoute('kind-a', ROLE_BINDINGS), {
+          type: 'RoleBindingsUpdated',
+          data: [BINDING_ROW],
+        }),
+      ]),
+    )
     await expectRowCount(page, 1, ROLE_BINDINGS)
 
     const key = `${BINDING_ROW.namespace}/${BINDING_ROW.name}`
@@ -218,8 +248,13 @@ test.describe('US3 edit/delete RoleBinding', () => {
 
     await dialog.getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
-      .toEqual([{ type: 'DeleteRoleBinding', data: { namespace: BINDING_ROW.namespace, name: BINDING_ROW.name } }])
+      .poll(() => sentMutations(page))
+      .toEqual([
+        {
+          type: 'DeleteRoleBinding',
+          data: { namespace: BINDING_ROW.namespace, name: BINDING_ROW.name },
+        },
+      ])
 
     // No optimistic removal.
     await expectRowCount(page, 1, ROLE_BINDINGS)
@@ -231,7 +266,11 @@ test.describe('US3 edit/delete RoleBinding', () => {
   test('(c) ClusterRoleBinding delete: cluster-scoped DeleteClusterRoleBinding, no namespace', async ({
     page,
   }) => {
-    const binding = { name: 'cluster-admins', role_ref: 'ClusterRole/cluster-admin', subjects_count: 1 }
+    const binding = {
+      name: 'cluster-admins',
+      role_ref: 'ClusterRole/cluster-admin',
+      subjects_count: 1,
+    }
     await open(page)
     await navigateTo(page, 'Cluster Role Bindings', 'Access Control')
     await expect.poll(() => sentTypes(page)).toContain('RefreshClusterRoleBindings')
@@ -255,7 +294,7 @@ test.describe('US3 edit/delete RoleBinding', () => {
     await dialog.getByTestId('confirm-submit').click()
 
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentMutations(page))
       .toEqual([{ type: 'DeleteClusterRoleBinding', data: { name: binding.name } }])
 
     await expectRowCount(page, 1, CLUSTER_ROLE_BINDINGS)

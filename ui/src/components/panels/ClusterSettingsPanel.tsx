@@ -22,6 +22,7 @@ import { waitForCommandResult } from '@/store/actions'
 import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
 import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
+import { KindClusterPanel } from './KindClusterPanel'
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
 import { CloudAuthSection } from './CloudAuthSection'
 import { NodeShellSettingsSection } from './NodeShellSettingsSection'
@@ -280,6 +281,9 @@ export function ClusterSettingsPanel() {
       <AvailableAgentsSection />
       <NodeShellSettingsSection />
       <CloudAuthSection />
+
+      {/* 030-kind-cluster-provisioning: create/delete disposable local kind clusters. */}
+      <KindClusterPanel />
 
       {formError !== undefined && (
         <p

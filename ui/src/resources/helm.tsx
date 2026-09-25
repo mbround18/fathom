@@ -18,6 +18,8 @@ import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/GatedButton'
+import { useMutationAccess } from '@/hooks/useMutationAccess'
 import type {
   GitOpsOriginRef,
   HelmReleaseDetails,
@@ -94,6 +96,7 @@ function RollbackAction({
   const applyHelmRollback = useStore((s) => s.applyHelmRollback)
   const resetHelmMutation = useStore((s) => s.resetHelmMutation)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const access = useMutationAccess({ verb: 'update', resource: 'secrets', namespace })
 
   const preview = session.preview
   const isThisRevision =
@@ -105,7 +108,7 @@ function RollbackAction({
   if (!isThisRevision) {
     const busy = session.status === 'previewing' || session.status === 'applying'
     return (
-      <Button
+      <GatedButton access={access} what="roll back Helm releases"
         data-testid={`helm-rollback-${revision.revision}`}
         size="sm"
         variant="outline"
@@ -113,7 +116,7 @@ function RollbackAction({
         onClick={() => previewHelmRollback(namespace, release, revision.revision)}
       >
         Roll back
-      </Button>
+      </GatedButton>
     )
   }
 

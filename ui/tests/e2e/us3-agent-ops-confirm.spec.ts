@@ -173,7 +173,9 @@ test.describe('US3 agent ops: confirm/execute a suggested action', () => {
     await expect(card.getByTestId('agent-ops-suggested-action-outcome')).toContainText('succeeded')
   })
 
-  test('(d) declining sends only AgentDeclineSuggestedAction, no mutating command', async ({ page }) => {
+  test('(d) declining sends only AgentDeclineSuggestedAction, no mutating command', async ({
+    page,
+  }) => {
     const insp = await selectDeploymentAndOpenAgentTab(page)
     await emitConversation(page, 10, conversationWith('delete'))
 
@@ -194,7 +196,9 @@ test.describe('US3 agent ops: confirm/execute a suggested action', () => {
     await expect(confirmDialog(page)).toBeHidden()
   })
 
-  test('(e) an unmatched action_kind renders informational-only, no Review button', async ({ page }) => {
+  test('(e) an unmatched action_kind renders informational-only, no Review button', async ({
+    page,
+  }) => {
     const insp = await selectDeploymentAndOpenAgentTab(page)
     await emitConversation(page, 10, conversationWith('rollback-to-previous-image'))
 

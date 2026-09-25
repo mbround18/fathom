@@ -145,7 +145,15 @@ export const rolebindings: ResourceDescriptor<RoleBindingSummary, RoleBindingDet
   ],
   detailSections: roleBindingSections,
   actions: [
-    deleteAction((namespace, name) => ({ type: 'DeleteRoleBinding', data: { namespace, name } })),
+    {
+      ...deleteAction((namespace, name) => ({ type: 'DeleteRoleBinding', data: { namespace, name } })),
+      accessCheck: (row) => ({
+        verb: 'delete',
+        group: 'rbac.authorization.k8s.io',
+        resource: 'rolebindings',
+        namespace: row.namespace,
+      }),
+    },
   ],
   selectListEvent: (e) => (e.type === 'RoleBindingsUpdated' ? e.data : undefined),
   selectDetail: (d) =>

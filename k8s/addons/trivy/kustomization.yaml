@@ -1,0 +1,15 @@
+# Needs `kubectl kustomize --enable-helm` (see ../../up.sh).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+helmCharts:
+  - name: trivy-operator
+    repo: https://aquasecurity.github.io/helm-charts/
+    version: 0.24.1
+    releaseName: trivy-operator
+    namespace: trivy-system
+    includeCRDs: true
+    valuesInline:
+      trivy:
+        ignoreUnfixed: true
+resources:
+  - namespace.yaml

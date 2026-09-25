@@ -1,0 +1,4 @@
+# Sample workloads/CRs that light up every pane. Apply AFTER addons (CRDs must exist).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [demo.yaml]

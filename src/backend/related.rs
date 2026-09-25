@@ -32,6 +32,7 @@ pub(super) async fn related_resources(
         "Deployment" | "StatefulSet" | "DaemonSet" | "ReplicaSet" => {
             related_for_workload(&client, kind, namespace, name).await
         }
+        "ScaledObject" | "ScaledJob" => related_for_scaler(&client, kind, namespace, name).await,
         "Application" => related_for_application(state, namespace, name).await,
         "HelmRelease" => {
             let Some(namespace) = namespace else {
@@ -261,6 +262,92 @@ async fn related_for_pod(
         });
     }
 
+    // Pod -> scaledBy -> ScaledObject, resolved via the pod's owning workload.
+    if let Some(workload) = pod_owning_workload(&client_owner_chain(client, namespace, &pod).await)
+    {
+        for (scaler_kind, scaler_name, target_kind, target_name) in
+            super::keda::list_scale_targets(client, namespace).await
+        {
+            if target_kind == workload.0 && target_name == workload.1 {
+                out.push(RelatedResourceRef {
+                    section: section_keys::autoscalers(),
+                    kind: scaler_kind,
+                    namespace: Some(namespace.to_owned()),
+                    name: scaler_name,
+                    relation: "scaledBy".to_owned(),
+                    status_hint: None,
+                });
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Owner chain of a pod as `(kind, name)`, with ReplicaSets resolved up to their Deployment.
+async fn client_owner_chain(client: &Client, namespace: &str, pod: &Pod) -> Vec<(String, String)> {
+    let mut chain = Vec::new();
+    for owner in pod.owner_references() {
+        if owner.kind == "ReplicaSet" {
+            let api: Api<ReplicaSet> = Api::namespaced(client.clone(), namespace);
+            if let Ok(Some(rs)) = api.get_opt(&owner.name).await
+                && let Some(dep) = rs
+                    .owner_references()
+                    .iter()
+                    .find(|o| o.kind == "Deployment")
+            {
+                chain.push(("Deployment".to_owned(), dep.name.clone()));
+                continue;
+            }
+        }
+        chain.push((owner.kind.clone(), owner.name.clone()));
+    }
+    chain
+}
+
+/// First workload-like owner from a resolved owner chain.
+fn pod_owning_workload(chain: &[(String, String)]) -> Option<(String, String)> {
+    chain
+        .iter()
+        .find(|(k, _)| matches!(k.as_str(), "Deployment" | "StatefulSet" | "Job"))
+        .cloned()
+}
+
+/// ScaledObject/ScaledJob -> `scales` -> target workload, and `owns` -> the target's pods.
+async fn related_for_scaler(
+    client: &Client,
+    kind: &str,
+    namespace: Option<&str>,
+    name: &str,
+) -> anyhow::Result<Vec<RelatedResourceRef>> {
+    let Some(namespace) = namespace else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    if kind == "ScaledJob" {
+        return Ok(out);
+    }
+    let Some((_, _, target_kind, target_name)) = super::keda::list_scale_targets(client, namespace)
+        .await
+        .into_iter()
+        .find(|(k, n, _, _)| k == kind && n == name)
+    else {
+        return Ok(out);
+    };
+    let section = match target_kind.as_str() {
+        "Deployment" => section_keys::workloads_deployments(),
+        "StatefulSet" => section_keys::workloads_statefulsets(),
+        _ => return Ok(out),
+    };
+    out.push(RelatedResourceRef {
+        section,
+        kind: target_kind.clone(),
+        namespace: Some(namespace.to_owned()),
+        name: target_name.clone(),
+        relation: "scales".to_owned(),
+        status_hint: None,
+    });
+    out.extend(related_for_workload(client, &target_kind, Some(namespace), &target_name).await?);
     Ok(out)
 }
 
@@ -307,6 +394,19 @@ pub(super) async fn list_pods_by_selector(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pod_owning_workload_picks_workload_owner() {
+        let chain = vec![
+            ("Node".to_owned(), "n1".to_owned()),
+            ("Deployment".to_owned(), "queue-worker".to_owned()),
+        ];
+        assert_eq!(
+            pod_owning_workload(&chain),
+            Some(("Deployment".to_owned(), "queue-worker".to_owned()))
+        );
+        assert_eq!(pod_owning_workload(&[]), None);
+    }
 
     #[test]
     fn pod_membership_prefers_flux_over_helm() {

@@ -10,8 +10,12 @@ import { descriptorFor } from '@/resources'
 import { DEFAULT_EXPANDED_GROUPS, NAV_GROUPS } from '@/resources/nav'
 import { useStore } from '@/store'
 
+import { ALL_TOOL_TABS } from './shell/stack-tabs'
+import { useOpenTool } from './shell/useOpenTool'
+
 export function NavTree() {
   const navigate = useStore((s) => s.navigate)
+  const openTool = useOpenTool()
   const setExpandedGroups = useStore((s) => s.setExpandedGroups)
   const expanded = useStore((s) =>
     s.prefs.loaded ? s.prefs.expandedGroups : (DEFAULT_EXPANDED_GROUPS as string[]),
@@ -40,7 +44,7 @@ export function NavTree() {
               onClick={() => toggle(group.label)}
               className={cn(
                 'group/g flex h-[var(--row-height)] shrink-0 items-center gap-2 px-2 text-left outline-none',
-                'font-display text-[0.7rem] font-semibold tracking-[0.12em] uppercase',
+                'font-display text-xs font-semibold tracking-[0.04em] uppercase',
                 'text-muted-foreground hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
               )}
             >
@@ -51,7 +55,7 @@ export function NavTree() {
               <span className="min-w-0 flex-1 truncate">{group.label}</span>
               <span
                 aria-hidden="true"
-                className="font-brand text-xs tracking-normal text-accent-neon/60 group-hover/g:text-accent-neon"
+                className="font-brand text-xs tracking-normal text-accent-neon group-hover/g:text-accent-neon"
               >
                 {group.kanji}
               </span>
@@ -85,6 +89,27 @@ export function NavTree() {
           </div>
         )
       })}
+      <div className="flex flex-col">
+        <p className="flex h-[var(--row-height)] shrink-0 items-center gap-2 px-2 pl-7 font-display text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          Tools
+        </p>
+        <ul className="flex flex-col pb-1">
+          {[{ label: 'Fleet', tool: 'fleet' as const }, ...ALL_TOOL_TABS.filter((t) => t.tool)].map(
+            (t) => (
+              <li key={t.label} className="flex">
+                <button
+                  type="button"
+                  data-tool={t.tool}
+                  onClick={() => t.tool && openTool(t.tool)}
+                  className="flex h-[var(--row-height)] w-full min-w-0 items-center pr-3 pl-7 text-left outline-none hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+                >
+                  <span className="truncate">{t.label}</span>
+                </button>
+              </li>
+            ),
+          )}
+        </ul>
+      </div>
     </nav>
   )
 }

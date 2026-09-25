@@ -70,6 +70,38 @@ export function scaleAction<R extends Named>(
   }
 }
 
+/**
+ * Add an ephemeral debug container to one pod (025). Irreversible: Kubernetes cannot remove it.
+ * The `debug` dialog collects `input.image` and `input.targetContainer`.
+ */
+export function addEphemeralContainerAction<R extends Named>(): ActionDescriptor<R> {
+  return {
+    id: 'debug',
+    label: 'Add debug container',
+    done: 'Added debug container to',
+    doing: 'Adding debug container to',
+    prompt: 'debug',
+    destructive: true,
+    plan: (rows, input) => {
+      const image = input.image?.trim()
+      if (!image) return []
+      return rows.map((r) => ({
+        cmd: {
+          type: 'AddEphemeralContainer',
+          data: {
+            namespace: r.namespace,
+            pod: r.name,
+            target_container: input.targetContainer?.trim() || null,
+            image,
+            ephemeral_container_name: null,
+          },
+        },
+        rows: [r],
+      }))
+    },
+  }
+}
+
 /** The actions that can run on `count` rows at once. */
 export function actionsFor<R>(
   actions: ActionDescriptor<R>[],

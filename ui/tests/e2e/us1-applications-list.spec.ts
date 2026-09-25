@@ -7,7 +7,17 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, list, nsRoute } from '../fixtures/builders'
-import { emit, expectRowCount, navigateTo, open, row, sent, sentTypes, table } from './helpers'
+import {
+  chooseScope,
+  emit,
+  expectRowCount,
+  navigateTo,
+  open,
+  row,
+  sent,
+  sentTypes,
+  table,
+} from './helpers'
 
 const APPLICATIONS = 'applications'
 
@@ -52,7 +62,12 @@ test.describe('US1 applications list', () => {
     await goToApplications(page)
     await emit(
       page,
-      batch([list(1, nsRoute('kind-a', APPLICATIONS), { type: 'ApplicationsUpdated', data: [REDIS, WEB] })]),
+      batch([
+        list(1, nsRoute('kind-a', APPLICATIONS), {
+          type: 'ApplicationsUpdated',
+          data: [REDIS, WEB],
+        }),
+      ]),
     )
     await expectRowCount(page, 2, APPLICATIONS)
 
@@ -74,12 +89,16 @@ test.describe('US1 applications list', () => {
     await goToApplications(page)
     await emit(
       page,
-      batch([list(1, nsRoute('kind-a', APPLICATIONS), { type: 'ApplicationsUpdated', data: [REDIS, WEB] })]),
+      batch([
+        list(1, nsRoute('kind-a', APPLICATIONS), {
+          type: 'ApplicationsUpdated',
+          data: [REDIS, WEB],
+        }),
+      ]),
     )
     await expectRowCount(page, 2, APPLICATIONS)
 
-    await page.getByRole('combobox', { name: 'Namespace' }).click()
-    await page.getByRole('option', { name: 'payments' }).click()
+    await chooseScope(page, 'Namespace', 'payments')
     expect((await sent(page)).filter((c) => c.type === 'SetNamespaceFilter').at(-1)).toEqual({
       type: 'SetNamespaceFilter',
       data: { namespaces: ['payments'] },
@@ -87,7 +106,9 @@ test.describe('US1 applications list', () => {
 
     await emit(
       page,
-      batch([list(2, nsRoute('kind-a', APPLICATIONS), { type: 'ApplicationsUpdated', data: [WEB] })]),
+      batch([
+        list(2, nsRoute('kind-a', APPLICATIONS), { type: 'ApplicationsUpdated', data: [WEB] }),
+      ]),
     )
     await expectRowCount(page, 1, APPLICATIONS)
     await expect(table(page, APPLICATIONS)).toContainText('web')

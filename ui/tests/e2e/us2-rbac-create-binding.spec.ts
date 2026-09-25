@@ -28,6 +28,7 @@ import {
   open,
   row,
   sent,
+  sentMutations,
   sentTypes,
   table,
 } from './helpers'
@@ -63,7 +64,20 @@ async function grantAccess(
     batch([
       read(100, nsRoute('kind-a', ROLE_BINDINGS), {
         type: 'RbacSelfAccessUpdated',
-        data: { results: [{ check: { verb, resource: 'rolebindings', namespace }, allowed, reason }] },
+        data: {
+          results: [
+            {
+              check: {
+                verb,
+                resource: 'rolebindings',
+                namespace,
+                group: 'rbac.authorization.k8s.io',
+              },
+              allowed,
+              reason,
+            },
+          ],
+        },
       }),
     ]),
   )
@@ -94,11 +108,12 @@ test.describe('US2 create RoleBinding', () => {
     await expect(diff).toContainText('alice')
 
     await clearSent(page)
-    const id = await nextRequestId(page)
     await form.getByTestId('yaml-apply').click()
 
-    const dialog = confirmDialog(page);
+    const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
+    // Read the id as late as possible: a debounced SaveUiConfig also consumes request ids.
+    const id = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
 
     await expect
@@ -137,7 +152,12 @@ test.describe('US2 create RoleBinding', () => {
         list(101, nsRoute('kind-a', ROLE_BINDINGS), {
           type: 'RoleBindingsUpdated',
           data: [
-            { name: 'view-secrets', namespace: 'team-a', role_ref: 'Role/secret-reader', subjects_count: 1 },
+            {
+              name: 'view-secrets',
+              namespace: 'team-a',
+              role_ref: 'Role/secret-reader',
+              subjects_count: 1,
+            },
           ],
         }),
       ]),
@@ -156,14 +176,20 @@ test.describe('US2 create RoleBinding', () => {
     await clearSent(page)
     await form.getByRole('button', { name: 'Cancel' }).click()
     await expect(page.getByTestId('rbac-binding-form')).toBeHidden()
-    expect(await sent(page)).toEqual([])
+    expect(await sentMutations(page)).toEqual([])
   })
 
   test('create entry point is disabled with an explanation when self-access denies it', async ({
     page,
   }) => {
     const form = await openCreateForm(page).then(() => page.getByTestId('rbac-binding-form'))
-    await grantAccess(page, 'create', null, false, 'rolebindings is forbidden: User cannot create in the given namespace')
+    await grantAccess(
+      page,
+      'create',
+      null,
+      false,
+      'rolebindings is forbidden: User cannot create in the given namespace',
+    )
 
     await expect(form.getByTestId('rbac-binding-create-disabled')).toBeVisible()
     await expect(form.getByTestId('rbac-binding-create-disabled')).toContainText('forbidden')
@@ -171,6 +197,6 @@ test.describe('US2 create RoleBinding', () => {
 
     await clearSent(page)
     await form.getByTestId('rbac-binding-review').click({ force: true })
-    expect(await sent(page)).toEqual([])
+    expect(await sentMutations(page)).toEqual([])
   })
 })

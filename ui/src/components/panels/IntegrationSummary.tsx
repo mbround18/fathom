@@ -19,6 +19,9 @@ export interface SummaryRow {
   primary: ReactNode
   secondary?: ReactNode
   tone?: 'ok' | 'warn' | 'err' | 'muted'
+  /** When set, the row renders as a button (e.g. click-through to the generic CRD Inspector). */
+  onSelect?: () => void
+  testId?: string
 }
 
 const TONE_TEXT: Record<NonNullable<SummaryTile['tone']>, string> = {
@@ -61,7 +64,7 @@ export function IntegrationSummary({
               <div className={cn('font-mono text-lg font-semibold', TONE_TEXT[t.tone ?? 'muted'])}>
                 {t.value}
               </div>
-              <div className="font-display text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+              <div className="font-display text-xs tracking-wider text-muted-foreground uppercase">
                 {t.label}
               </div>
             </div>
@@ -75,7 +78,25 @@ export function IntegrationSummary({
           rows.map((r) => (
             <div
               key={r.key}
-              className="flex items-center gap-2 rounded-sm border border-border/60 bg-card/60 px-2 py-1.5"
+              data-testid={r.testId}
+              data-tone={r.tone}
+              role={r.onSelect ? 'button' : undefined}
+              tabIndex={r.onSelect ? 0 : undefined}
+              onClick={r.onSelect}
+              onKeyDown={
+                r.onSelect
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        r.onSelect?.()
+                      }
+                    }
+                  : undefined
+              }
+              className={cn(
+                'flex items-center gap-2 rounded-sm border border-border/60 bg-card/60 px-2 py-1.5',
+                r.onSelect && 'cursor-pointer hover:bg-card',
+              )}
             >
               <span
                 aria-hidden="true"
@@ -84,7 +105,7 @@ export function IntegrationSummary({
               <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-xs">{r.primary}</div>
                 {r.secondary && (
-                  <div className="truncate text-[0.7rem] text-muted-foreground">{r.secondary}</div>
+                  <div className="truncate text-xs text-muted-foreground">{r.secondary}</div>
                 )}
               </div>
             </div>

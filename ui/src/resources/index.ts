@@ -4,6 +4,7 @@
 import type { SectionKey } from '@/protocol/types'
 
 import { applications } from './applications'
+import { certificateResource } from './certificate-resource'
 import { clusterrolebindings } from './clusterrolebindings'
 import { clusterroles } from './clusterroles'
 import { daemonsets } from './daemonsets'
@@ -45,7 +46,10 @@ export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [
  * trick `types.ts` documents for `ALL_DESCRIPTORS`, needed explicitly here since it's a type
  * outside the `ResourceListEvent` union entirely.
  */
-const DETAIL_ONLY_DESCRIPTORS: readonly AnyDescriptor[] = [fluxResource as unknown as AnyDescriptor]
+const DETAIL_ONLY_DESCRIPTORS: readonly AnyDescriptor[] = [
+  fluxResource as unknown as AnyDescriptor,
+  certificateResource as unknown as AnyDescriptor,
+]
 
 const BY_SECTION = new Map<SectionKey, AnyDescriptor>(
   [...ALL_DESCRIPTORS, ...DETAIL_ONLY_DESCRIPTORS].map((d) => [d.section, d]),

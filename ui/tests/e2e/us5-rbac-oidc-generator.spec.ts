@@ -31,9 +31,15 @@ async function openGenerator(page: Page) {
 }
 
 async function fillForm(page: Page, view: ReturnType<typeof page.getByTestId>) {
-  await view.getByTestId('rbac-oidc-issuer-url').getByRole('textbox').fill('https://accounts.example.com')
+  await view
+    .getByTestId('rbac-oidc-issuer-url')
+    .getByRole('textbox')
+    .fill('https://accounts.example.com')
   await view.getByTestId('rbac-oidc-client-id').getByRole('textbox').fill('fathom-cluster')
-  await view.getByTestId('rbac-oidc-audience').getByRole('textbox').fill('https://kubernetes.example.com')
+  await view
+    .getByTestId('rbac-oidc-audience')
+    .getByRole('textbox')
+    .fill('https://kubernetes.example.com')
 }
 
 test.describe('US5 OIDC config generator', () => {
@@ -55,9 +61,7 @@ test.describe('US5 OIDC config generator', () => {
     await expect(page.getByTestId('confirm-submit')).toHaveCount(0)
 
     // The disclaimer is visible once generated, not buried.
-    await expect(output).toContainText(
-      'Fathom does not modify the API server',
-    )
+    await expect(output).toContainText('Fathom does not modify the API server')
     await expect(page.getByTestId('rbac-oidc-generator-disclaimer')).toBeVisible()
 
     // Flags rendered as a code block, and provider-labeled instructions for EKS/GKE/AKS.

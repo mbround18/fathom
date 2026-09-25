@@ -9,7 +9,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { selectCmd } from '@/protocol/commands'
 import type { PodDetails, PodSummary } from '@/protocol/types'
 
-import { deleteAction } from './actions'
+import { addEphemeralContainerAction, deleteAction } from './actions'
 import { formatAge, formatMi, formatMillicores } from './format'
 import { relatedResourcesBlock } from './related'
 import { compareNumber, compareStatus, compareText } from './search'
@@ -77,12 +77,23 @@ const podSections: DetailSection<PodSummary, PodDetails>[] = [
     title: 'Spec',
     render: ({ detail }) => {
       if (!detail) return null
+      // 025-ephemeral-debug-containers: debug containers, listed apart from the spec containers.
+      const debug = detail.containers_lifecycle.filter((c) => c.is_ephemeral)
       const fields = [
         {
           label: `Containers (${String(detail.containers.length)})`,
           value: detail.containers.join(', ') || '—',
           mono: true,
         },
+        ...(debug.length > 0
+          ? [
+              {
+                label: `Debug containers (${String(debug.length)})`,
+                value: debug.map((c) => `${c.name} (${c.state.phase})`).join(', '),
+                mono: true,
+              },
+            ]
+          : []),
         {
           label: `Ports (${String(detail.ports.length)})`,
           value:
@@ -234,6 +245,7 @@ export const pods: ResourceDescriptor<PodSummary, PodDetails> = {
         data: { items: rows.map((r): [string, string] => [r.namespace, r.name]) },
       }),
     ),
+    addEphemeralContainerAction<PodSummary>(),
   ],
   selectListEvent: (e) => (e.type === 'PodsUpdated' ? e.data : undefined),
   selectDetail: (d) => (d.eventType === 'PodDetailsUpdated' ? (d.data as PodDetails) : undefined),

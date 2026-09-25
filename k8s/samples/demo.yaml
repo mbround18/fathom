@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: demo, labels: {fathom.dev/sandbox: "true"}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web, owner: fathom}}
+    spec:
+      containers:
+        - {name: web, image: "nginx:1.21", ports: [{containerPort: 80}]}   # old tag: gives Trivy findings + linter hits
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: demo}
+spec: {selector: {app: web}, ports: [{port: 80}]}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata: {name: selfsigned}
+spec: {selfSigned: {}}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: web-tls, namespace: demo}
+spec: {secretName: web-tls, dnsNames: [web.demo.local], issuerRef: {name: selfsigned, kind: ClusterIssuer}}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: {name: web-scaler, namespace: demo}
+spec:
+  scaleTargetRef: {name: web}
+  triggers: [{type: cron, metadata: {timezone: UTC, start: "0 8 * * *", end: "0 18 * * *", desiredReplicas: "3"}}]
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata: {name: hello, namespace: demo}
+spec: {template: {spec: {containers: [{image: gcr.io/knative-samples/helloworld-go}]}}}
+---
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata: {name: k8srequiredlabels}
+spec:
+  crd: {spec: {names: {kind: K8sRequiredLabels}}}
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredlabels
+        violation[{"msg": msg}] { not input.review.object.metadata.labels.owner; msg := "missing owner label" }
+---
+apiVersion: velero.io/v1
+kind: Backup
+metadata: {name: demo-backup, namespace: velero}
+spec: {includedNamespaces: [demo]}

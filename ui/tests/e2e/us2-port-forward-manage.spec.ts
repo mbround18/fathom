@@ -95,7 +95,12 @@ test.describe('US2 port forward manage', () => {
     await clearSent(page)
     await emit(
       page,
-      batch([list(1, nsRoute('kind-a', 'network/services'), { type: 'ServicesUpdated', data: [SERVICE] })]),
+      batch([
+        list(1, nsRoute('kind-a', 'network/services'), {
+          type: 'ServicesUpdated',
+          data: [SERVICE],
+        }),
+      ]),
     )
     await row(page, `${SERVICE.namespace}/${SERVICE.name}`, 'network/services').click()
     await expect.poll(() => sentTypes(page)).toContain('SelectService')
@@ -151,7 +156,17 @@ test.describe('US2 port forward manage', () => {
       batch([
         list(4, globalRoute('network/portforwards'), {
           type: 'PortForwardsUpdated',
-          data: [pf({ id: 'pf-svc', namespace: SERVICE.namespace, pod: SERVICE_POD_NAME, local_port: 80, remote_port: 80, container: null, status: 'Active' })],
+          data: [
+            pf({
+              id: 'pf-svc',
+              namespace: SERVICE.namespace,
+              pod: SERVICE_POD_NAME,
+              local_port: 80,
+              remote_port: 80,
+              container: null,
+              status: 'Active',
+            }),
+          ],
         }),
       ]),
     )
@@ -239,7 +254,13 @@ test.describe('US2 port forward manage', () => {
     const startCall = calls.find((c) => c.type === 'StartPortForward')
     expect(startCall).toEqual({
       type: 'StartPortForward',
-      data: { namespace: 'default', pod: 'web-1', local_port: 8080, remote_port: 8080, container: 'web' },
+      data: {
+        namespace: 'default',
+        pod: 'web-1',
+        local_port: 8080,
+        remote_port: 8080,
+        container: 'web',
+      },
     })
     await finish(page, requestId, true)
     await expect(dialog).toBeHidden()

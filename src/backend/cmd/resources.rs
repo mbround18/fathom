@@ -5,9 +5,9 @@ use crossbeam_channel::Sender;
 
 use crate::backend::state::BackendState;
 use crate::backend::{
-    applications, capabilities, clusterrolebindings, clusterroles, configmaps, crds, endpoints,
-    flux, helm, horizontalpodautoscalers, ingressclasses, ingresses, leases, limitranges,
-    mutatingwebhooks, networkpolicies, persistentvolumeclaims, persistentvolumes,
+    applications, capabilities, cert_manager, clusterrolebindings, clusterroles, configmaps, crds,
+    endpoints, flux, helm, horizontalpodautoscalers, ingressclasses, ingresses, leases,
+    limitranges, mutatingwebhooks, networkpolicies, persistentvolumeclaims, persistentvolumes,
     poddisruptionbudgets, priorityclasses, rbac_access, related, resourcequotas, rolebindings,
     roles, runtimeclasses, secrets, services, storageclasses, validatingwebhooks,
 };
@@ -185,6 +185,9 @@ async fn handle_applications_cmd(
         } => {
             handle_select_flux_resource(state, sender, kind, namespace, name).await?;
         }
+        BackendCmd::SelectCertificateChain { namespace, name } => {
+            handle_select_certificate_chain(state, sender, namespace, name).await?;
+        }
         other => return Ok(Some(other)),
     }
     Ok(None)
@@ -308,6 +311,33 @@ async fn handle_select_flux_resource(
         ),
         crate::protocol::Correlation::None,
         crate::protocol::BackendEvent::ResourceRead(event),
+    );
+    Ok(())
+}
+
+/// `SelectCertificateChain`: on-demand resolution of one Certificate's lifecycle chain (no new
+/// poll loop — research.md R6), mirroring `handle_select_flux_resource`'s on-demand-lookup shape.
+async fn handle_select_certificate_chain(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    namespace: String,
+    name: String,
+) -> anyhow::Result<()> {
+    let client = state.cluster.client_or_err()?;
+    let chain = cert_manager::resolve_chain(&client, &namespace, &name).await?;
+
+    crate::backend::events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        crate::protocol::Route::namespaced(
+            crate::protocol::section_keys::certificate_chain(),
+            state.cluster.current_context.clone(),
+            Some(namespace),
+        ),
+        crate::protocol::Correlation::None,
+        crate::protocol::BackendEvent::System(
+            crate::protocol::SystemEvent::CertificateChainUpdated(chain),
+        ),
     );
     Ok(())
 }
@@ -785,6 +815,22 @@ async fn handle_access_cmd(
         }
         BackendCmd::RefreshRbacSelfAccess { checks } => {
             rbac_access::handle_refresh_rbac_self_access(state, sender, checks).await?;
+        }
+        BackendCmd::CheckResourceMutationAccess {
+            api_version,
+            kind,
+            namespace,
+            verb,
+        } => {
+            rbac_access::handle_check_resource_mutation_access(
+                state,
+                sender,
+                api_version,
+                kind,
+                namespace,
+                verb,
+            )
+            .await?;
         }
         BackendCmd::ResolveNamespaceAccess {
             subject_kind,

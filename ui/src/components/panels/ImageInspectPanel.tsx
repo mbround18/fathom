@@ -149,7 +149,7 @@ function ImageDetails({ inspection }: { inspection: ImageInspection }) {
         {base_image ? (
           <p className="text-xs text-muted-foreground">
             {base_image.label}{' '}
-            <span className="text-muted-foreground/70">({base_image.confidence})</span>
+            <span className="text-muted-foreground">({base_image.confidence})</span>
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">Not determined</p>

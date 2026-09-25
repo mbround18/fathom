@@ -7,14 +7,16 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, clusterRoute } from '../fixtures/builders'
-import { emit, inspector, open, sentTypes } from './helpers'
+import { emit, inspector, open, openToolPane, sentTypes } from './helpers'
 
 const NODES = 'nodes'
 
 async function openTopology(page: Page, info: TestInfo): Promise<void> {
+  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
+  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
   const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
   if (stacked) {
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Topology' }).click()
+    await openToolPane(page, 'Topology')
   } else {
     await page.getByRole('tab', { name: 'Topology' }).click()
   }

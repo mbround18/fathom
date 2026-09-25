@@ -13,7 +13,10 @@ mod agent;
 mod ai;
 mod applications;
 mod apply;
+mod audit_log;
+mod cert_manager;
 pub mod cloud_auth;
+mod cluster_version;
 mod cmd;
 mod context_status;
 mod crds;
@@ -28,6 +31,7 @@ mod exec;
 mod federation;
 mod fleet;
 mod flux;
+mod gatekeeper;
 mod helm;
 mod hubble;
 mod idp_directory;
@@ -37,6 +41,9 @@ mod ingresses;
 pub mod integrations;
 mod interactions;
 mod jobs;
+mod keda;
+mod kind;
+mod knative;
 pub mod kube;
 mod longhorn;
 mod mcp;
@@ -57,6 +64,7 @@ mod state;
 mod statefulsets;
 mod sync;
 mod team_store;
+mod trivy;
 mod workload_common;
 
 mod capabilities;
@@ -80,6 +88,7 @@ mod runtimeclasses;
 mod secrets;
 mod storageclasses;
 mod validatingwebhooks;
+mod velero;
 
 use state::BackendState;
 
@@ -198,6 +207,9 @@ async fn run_cmd(
     let CmdRequest { id, cmd } = request;
     events::in_cmd_scope(id, async move {
         let route = finished_route(&cmd);
+        // 026: summarize before `cmd` is consumed by dispatch.
+        let audit_summary = cmd.audit_summary();
+        let request_id = events::current_request_id_string();
         let mut state = state.lock().await;
         match cmd::dispatch_cmd(cmd, &mut state, sender).await {
             Ok(true) => tracing::debug!("Command signaled shutdown"),
@@ -213,6 +225,10 @@ async fn run_cmd(
         } else {
             (false, Some(errors.join("\n")))
         };
+        if let Some(summary) = audit_summary {
+            let context = state.cluster.current_context.clone().unwrap_or_default();
+            audit_log::record(summary, context, request_id, ok, error.as_deref());
+        }
         events::emit(
             state.cluster.seq.as_ref(),
             sender,

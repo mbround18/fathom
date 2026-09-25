@@ -28,6 +28,7 @@ export function HelmUpgradePanel({
   detail: HelmReleaseDetails | undefined
 }) {
   const key = `${namespace}/${release}`
+  // 018: Helm keeps release state in Secrets (research Decision 3).
   const chartVersionInputId = useId()
   const request = useStore((s) => s.request)
   const setHelmMutation = useStore((s) => s.setHelmMutation)

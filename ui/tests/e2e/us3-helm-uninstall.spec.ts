@@ -8,7 +8,11 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 
-import type { GitOpsOriginRef, HelmReleaseDetails, HelmReleaseSummary } from '../../src/protocol/types'
+import type {
+  GitOpsOriginRef,
+  HelmReleaseDetails,
+  HelmReleaseSummary,
+} from '../../src/protocol/types'
 import { batch, list, nsRoute, read, system } from '../fixtures/builders'
 import { emit, inspector, navigateTo, open, row, sent, sentTypes } from './helpers'
 
@@ -73,7 +77,10 @@ async function selectRelease(page: Page, r: HelmReleaseSummary): Promise<void> {
   await open(page)
   await navigateTo(page, 'Helm Releases', 'Overview')
   await expect.poll(() => sentTypes(page)).toContain('RefreshHelmReleases')
-  await emit(page, batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [r] })]))
+  await emit(
+    page,
+    batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [r] })]),
+  )
   await row(page, `${r.namespace}/${r.name}`, HELM).click()
   await expect
     .poll(() => sent(page))
@@ -120,7 +127,11 @@ test.describe('US3 Helm release uninstall', () => {
         expect.arrayContaining([
           {
             type: 'UninstallHelmRelease',
-            data: { namespace: REDIS.namespace, release: REDIS.name, base_revision: REDIS.revision },
+            data: {
+              namespace: REDIS.namespace,
+              release: REDIS.name,
+              base_revision: REDIS.revision,
+            },
           },
         ]),
       )

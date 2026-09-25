@@ -70,9 +70,7 @@ test.describe('US2 agent ops: assistant auth setup', () => {
 
     const revealRequestId = await nextRequestId(page)
     await revealButton.click()
-    await expect
-      .poll(async () => (await sent(page)).map((c) => c.type))
-      .toContain('AgentRevealKey')
+    await expect.poll(async () => (await sent(page)).map((c) => c.type)).toContain('AgentRevealKey')
 
     // Still not shown until the backend's reply actually arrives.
     await expect(authSetup.getByTestId('agent-ops-revealed-key')).toHaveCount(0)

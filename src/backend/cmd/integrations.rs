@@ -4,7 +4,10 @@ use crossbeam_channel::Sender;
 
 use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
 use crate::backend::state::BackendState;
-use crate::backend::{events, flux, hubble, integrations, metrics_provider};
+use crate::backend::{
+    cert_manager, events, flux, gatekeeper, hubble, integrations, keda, knative, metrics_provider,
+    trivy, velero,
+};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SectionKey, SystemEvent,
     section_keys,
@@ -41,9 +44,21 @@ pub(super) async fn handle(
         BackendCmd::TestGrafanaConnection { base_url, api_key } => {
             test_grafana_connection(state, sender, &base_url, &api_key).await;
         }
+        BackendCmd::RefreshTrivyOverview => refresh_trivy(state, sender).await,
         BackendCmd::RefreshIntegrations => refresh_integrations(state, sender).await,
+        BackendCmd::RefreshKeda => refresh_keda(state, sender).await,
+        BackendCmd::SelectScaledObject { namespace, name } => {
+            select_keda(state, sender, "ScaledObject", namespace, name).await
+        }
+        BackendCmd::SelectScaledJob { namespace, name } => {
+            select_keda(state, sender, "ScaledJob", namespace, name).await
+        }
         BackendCmd::RefreshFlux => refresh_flux(state, sender).await,
+        BackendCmd::RefreshKnative => refresh_knative(state, sender).await,
+        BackendCmd::RefreshGatekeeper => refresh_gatekeeper(state, sender).await,
+        BackendCmd::RefreshVelero => refresh_velero(state, sender).await,
         BackendCmd::RefreshHubble => refresh_hubble(state, sender).await,
+        BackendCmd::RefreshCertManager => refresh_cert_manager(state, sender).await,
         other => return Ok(Some(other)),
     }
     Ok(None)
@@ -252,6 +267,209 @@ async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope
             format!("Failed to scan cluster for Flux resources: {}", e),
         ),
     }
+}
+
+async fn refresh_gatekeeper(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
+    crate::backend::sync::ensure_gatekeeper_poll(state, sender).await;
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match gatekeeper::scan_gatekeeper(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_gatekeeper(),
+            context,
+            SystemEvent::GatekeeperOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for Gatekeeper constraints: {}", e),
+        ),
+    }
+}
+
+async fn refresh_velero(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match velero::scan_velero(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_velero(),
+            context,
+            SystemEvent::VeleroOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for Velero resources: {}", e),
+        ),
+    }
+}
+
+/// `RefreshCertManager`: rescan cert-manager Certificates now (mirrors `refresh_flux`).
+async fn refresh_cert_manager(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match cert_manager::scan_cert_manager(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_cert_manager(),
+            context,
+            SystemEvent::CertManagerOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!(
+                "Failed to scan cluster for cert-manager Certificates: {}",
+                e
+            ),
+        ),
+    }
+}
+
+async fn refresh_trivy(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match trivy::scan_trivy(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_vulnerabilities(),
+            context,
+            SystemEvent::TrivyOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for Trivy reports: {}", e),
+        ),
+    }
+}
+
+async fn refresh_knative(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match knative::scan_knative(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::integrations_knative(),
+            context,
+            SystemEvent::KnativeOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for Knative resources: {}", e),
+        ),
+    }
+}
+
+async fn refresh_keda(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    match keda::scan_keda(client).await {
+        Ok(overview) => emit_cluster_system(
+            state,
+            sender,
+            section_keys::autoscalers(),
+            context,
+            SystemEvent::KedaOverviewUpdated(overview),
+        ),
+        Err(e) => events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            format!("Failed to scan cluster for KEDA resources: {}", e),
+        ),
+    }
+}
+
+/// `SelectScaledObject`/`SelectScaledJob`: fetch one resource for the Inspector. Live Prometheus
+/// trigger values come from Fathom's own metrics integration and degrade silently.
+async fn select_keda(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    kind: &str,
+    namespace: String,
+    name: String,
+) {
+    let context = state.cluster.current_context.clone();
+    let Some(client) = &state.cluster.client else {
+        events::notify_error(
+            state.cluster.seq.as_ref(),
+            sender,
+            "Not connected to a cluster.".to_owned(),
+        );
+        return;
+    };
+    let provider =
+        integrations::prometheus_base_url(state).map(metrics_provider::PrometheusClient::new);
+    let provider_ref = provider
+        .as_ref()
+        .map(|p| p as &(dyn metrics_provider::MetricsProviderTrait + Sync));
+    let event = match keda::get_details(client, kind, &namespace, &name, provider_ref).await {
+        Ok(Some(details)) => SystemEvent::KedaResourceDetailsUpdated(details),
+        Ok(None) => SystemEvent::KedaResourceNotFound {
+            kind: kind.to_owned(),
+            namespace,
+            name,
+        },
+        Err(e) => {
+            events::notify_error(
+                state.cluster.seq.as_ref(),
+                sender,
+                format!("Failed to load KEDA resource: {}", e),
+            );
+            return;
+        }
+    };
+    emit_cluster_system(state, sender, section_keys::autoscalers(), context, event);
 }
 
 async fn refresh_hubble(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
