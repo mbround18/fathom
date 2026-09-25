@@ -26,40 +26,38 @@ Fathom is a desktop Kubernetes dashboard written in Rust using [egui](https://gi
 
 ## Installation
 
-### Pre-built binaries
+### Pre-built bundles
 
-Download the latest release for your platform from the [Releases page](https://github.com/mbround18/fathom/releases):
+Download the latest release for your platform from the [Releases page](https://github.com/mbround18/fathom/releases). Assets are named `fathom-<version>-<os>-<arch>.<ext>`:
 
-| Platform | Download |
+| Platform | Bundles |
 |---|---|
-| Linux x86_64 | `fathom-linux-x86_64.tar.gz` |
-| Linux aarch64 | `fathom-linux-aarch64.tar.gz` |
-| macOS x86_64 | `fathom-macos-x86_64.tar.gz` |
-| macOS Apple Silicon | `fathom-macos-aarch64.tar.gz` |
-| Windows x86_64 | `fathom-windows-x86_64.zip` |
-
-```bash
-# Linux/macOS example
-curl -L https://github.com/mbround18/fathom/releases/latest/download/fathom-linux-x86_64.tar.gz | tar xz
-./fathom
-```
+| Linux x86_64 / aarch64 | `.deb`, `.rpm`, `.AppImage` |
+| macOS Apple Silicon / Intel | `.dmg` |
+| Windows x86_64 | `.msi`, `.exe` (NSIS) |
 
 ### Build from source
 
+Prerequisites:
+
+| Tool | Version | Notes |
+|---|---|---|
+| Rust | 1.85+ (edition 2024) | |
+| Node | LTS (22+) | |
+| pnpm | 9+ | `corepack enable` |
+| Linux system libs | webkit2gtk-4.1 | see below |
+| macOS | Xcode CLT | |
+| Windows | WebView2 runtime + MSVC build tools | WebView2 ships with Windows 11 |
+
 ```bash
-# Prerequisites: Rust 1.75+, system GTK/xcb dev libs (Linux)
-
 # Ubuntu/Debian
-sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev \
-  libxcb-xfixes0-dev libxkbcommon-dev libssl-dev pkg-config
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+  libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-# macOS (Xcode CLI tools are sufficient)
-
-# Build
 git clone https://github.com/mbround18/fathom
 cd fathom
-cargo build --release
-./target/release/fathom
+pnpm -C ui install
+pnpm -C ui tauri build      # host-platform bundles under the cargo target dir's release/bundle/
 ```
 
 ---
@@ -166,19 +164,30 @@ Settings include: Prometheus endpoint, Grafana URL, MCP auto-start, port-forward
 
 ## Development
 
+Commands run from the repo root (full detail in `specs/001-tauri-shadcn-frontend/quickstart.md`).
+
 ```bash
-# Run in dev mode
-cargo run
+pnpm -C ui install
+cargo test -p fathom export_bindings   # generates ui/src/protocol/generated/
 
-# Check for errors/warnings
+# Run
+pnpm -C ui tauri dev                   # full app: Vite HMR + Rust backend
+pnpm -C ui dev:fake                    # browser only, fake transport (no cluster needed)
+cargo run -p fathom-desktop -- --only-mcp   # headless MCP server
+
+# Test
+pnpm -C ui lint && pnpm -C ui typecheck
+pnpm -C ui test                        # Vitest
+pnpm -C ui e2e                         # Playwright: chromium + webkit x phone..ultra
+cargo test --workspace                 # backend, serde round-trips, bindings drift
+
+# Rust checks
 cargo check
-
-# Lint
 cargo clippy
-
-# Format
 cargo fmt
 ```
+
+Performance checks: `scripts/measure-idle-cpu.sh` (SC-005) and `scripts/measure-startup.sh` (SC-003).
 
 ### Architecture
 
