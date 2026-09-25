@@ -14,6 +14,7 @@ import type {
   ServiceSummary,
 } from '../../src/protocol/types'
 import { PODS_500 } from './batches'
+import { BATCH_C_LIST_EVENTS } from './batchCKinds'
 import { genDeployments } from './gen-pods'
 
 const APPLICATIONS: ApplicationSummary[] = [
@@ -119,4 +120,5 @@ export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
     type: 'ClusterRoleBindingsUpdated',
     data: CLUSTER_ROLE_BINDINGS,
   },
+  ...BATCH_C_LIST_EVENTS,
 }

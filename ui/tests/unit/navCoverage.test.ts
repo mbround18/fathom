@@ -33,18 +33,9 @@ const UNAVAILABLE = new Set(['config/verticalpodautoscalers'])
 const PENDING: Record<string, string[]> = {
   A: ['workloads/jobs', 'workloads/cronjobs'],
   B: ['network/endpoints', 'network/ingress', 'network/ingressclasses', 'network/networkpolicies'],
-  C: [
-    'storage/persistentvolumes',
-    'storage/persistentvolumeclaims',
-    'storage/storageclasses',
-    'config/configmaps',
-    'config/secrets',
-  ],
+  C: [],
   D: [
-    'config/resourcequotas',
-    'config/limitranges',
     'config/horizontalpodautoscalers',
-    'config/poddisruptionbudgets',
     'config/priorityclasses',
     'config/runtimeclasses',
     'config/leases',
