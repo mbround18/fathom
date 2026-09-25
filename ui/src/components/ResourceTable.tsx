@@ -192,6 +192,16 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
   useEffect(() => {
     virtualizer.measure()
   }, [rowHeight, virtualizer])
+  // Re-mounting (phone Back, reflow) must land on the saved offset, not only seed the virtualizer.
+  const restored = useRef(false)
+  useLayoutEffect(() => {
+    const el = bodyRef.current
+    const saved = useStore.getState().panes[pane.id]?.scrollTop ?? 0
+    if (!el || restored.current || saved <= 0) return
+    el.scrollTop = saved
+    // Content may not be tall enough yet (row height / rows still settling): retry next pass.
+    if (el.scrollTop >= saved - 1) restored.current = true
+  }, [pane.id, rowHeight, modelRows.length])
 
   const frame = useRef(0)
   const onScroll = useCallback(() => {
