@@ -278,6 +278,7 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
             detail={detail}
             hiddenColumns={hiddenColumns}
             related={related}
+            metricsTarget={target}
           />
         </TabsContent>
         <TabsContent value="yaml" className="min-h-0 overflow-auto">
