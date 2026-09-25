@@ -208,6 +208,7 @@ pub(super) struct MetricsState {
     pub(super) poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) polling_notified: Option<bool>,
     pub(super) workload_poll_task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) node_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) prometheus_client: Option<PrometheusClient>,
 }
 
@@ -221,6 +222,7 @@ impl MetricsState {
     pub(super) fn abort_tasks(&mut self) {
         abort_task(&mut self.poll_task);
         abort_task(&mut self.workload_poll_task);
+        abort_task(&mut self.node_poll_task);
     }
 }
 
@@ -334,6 +336,7 @@ impl BackendState {
                 poll_task: None,
                 polling_notified: None,
                 workload_poll_task: None,
+                node_poll_task: None,
                 prometheus_client: None,
             },
             port_forward_manager: PortForwardManager::new(),

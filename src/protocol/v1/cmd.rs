@@ -390,6 +390,13 @@ pub enum BackendCmdV1 {
         interval_secs: u64,
     },
     StopWorkloadMetricsPolling,
+    /// Poll `metrics.k8s.io` NodeMetrics for every node, emitting one
+    /// `ResourceReadEvent::NodeMetricsUpdated` per node per tick. A no-op when the metrics API
+    /// is absent or forbidden (the UI keeps its metrics-unavailable state).
+    StartNodeMetricsPolling {
+        interval_secs: u64,
+    },
+    StopNodeMetricsPolling,
     ConfigurePrometheus {
         namespace: String,
         service: String,

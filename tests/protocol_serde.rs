@@ -776,6 +776,23 @@ fn sample_pod_metrics_summary() -> PodMetricsSummary {
     }
 }
 
+fn sample_node_metrics_summary() -> NodeMetricsSummary {
+    NodeMetricsSummary {
+        name: "s".to_owned(),
+        cpu: CpuMetrics {
+            usage_percent: Some(1.5),
+            cores: Some(0.25),
+        },
+        memory: MemoryMetrics {
+            usage_bytes: Some(7),
+            usage_percent: Some(2.5),
+            limit_bytes: Some(9),
+        },
+        disk: None,
+        timestamp: 7,
+    }
+}
+
 fn sample_pod_summary() -> PodSummary {
     PodSummary {
         name: "s".to_owned(),
@@ -1752,6 +1769,8 @@ fn all_cmds() -> Vec<BackendCmd> {
             interval_secs: 7,
         },
         BackendCmd::StopWorkloadMetricsPolling,
+        BackendCmd::StartNodeMetricsPolling { interval_secs: 5 },
+        BackendCmd::StopNodeMetricsPolling,
         BackendCmd::ConfigurePrometheus {
             namespace: "s".to_owned(),
             service: "s".to_owned(),
@@ -2345,6 +2364,8 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::StopMetricsPolling => {}
         BackendCmd::StartWorkloadMetricsPolling { .. } => {}
         BackendCmd::StopWorkloadMetricsPolling => {}
+        BackendCmd::StartNodeMetricsPolling { .. } => {}
+        BackendCmd::StopNodeMetricsPolling => {}
         BackendCmd::ConfigurePrometheus { .. } => {}
         BackendCmd::TestPrometheusConnection { .. } => {}
         BackendCmd::ConfigureGrafana { .. } => {}
@@ -3179,6 +3200,7 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
         ResourceReadEvent::NamespaceDetailsUpdated(sample_namespace_details()),
         ResourceReadEvent::PodDetailsUpdated(sample_pod_details()),
         ResourceReadEvent::PodMetricsUpdated(sample_pod_metrics_summary()),
+        ResourceReadEvent::NodeMetricsUpdated(sample_node_metrics_summary()),
         ResourceReadEvent::PodMetricsHistoryUpdated(sample_pod_metrics_history()),
         ResourceReadEvent::PrometheusMetricsUpdated(sample_prometheus_metrics()),
         ResourceReadEvent::DeploymentDetailsUpdated(sample_workload_details()),
@@ -3381,6 +3403,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::NamespaceDetailsUpdated(..) => {}
         ResourceReadEvent::PodDetailsUpdated(..) => {}
         ResourceReadEvent::PodMetricsUpdated(..) => {}
+        ResourceReadEvent::NodeMetricsUpdated(..) => {}
         ResourceReadEvent::PodMetricsHistoryUpdated(..) => {}
         ResourceReadEvent::PrometheusMetricsUpdated(..) => {}
         ResourceReadEvent::DeploymentDetailsUpdated(..) => {}

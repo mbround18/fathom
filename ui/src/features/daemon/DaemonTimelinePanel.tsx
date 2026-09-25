@@ -1,9 +1,10 @@
 /** 036 US1: "While you were away" — controller-level events from the in-cluster daemon. */
 import { WarningIcon } from '@phosphor-icons/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/store'
 import type { DaemonTimelineEntry, DerivedSeverity, TruncationMarker } from '@/protocol/types'
 
 import { Empty } from '../../components/shell/PaneStates'
@@ -17,6 +18,8 @@ import {
 } from './state'
 
 const PAGE = 200
+/** How much buffered history to ask the backend for when the pane opens or refreshes. */
+export const TIMELINE_REQUEST_LIMIT = 1000
 
 const SEV: Record<DerivedSeverity, { glyph: string; label: string; cls: string }> = {
   info: { glyph: '●', label: 'Info', cls: 'text-muted-foreground' },
@@ -97,6 +100,14 @@ export function DaemonTimelinePanel() {
   const { context, daemon } = useActiveDaemon()
   const [shown, setShown] = useState(PAGE)
   const state = daemonState(daemon)
+  const requestTimeline = useStore((s) => s.requestDaemonTimeline)
+
+  // Opening the pane pulls the backend's buffered history (no server call on the backend side).
+  useEffect(() => {
+    if (context !== undefined && state === 'available') {
+      requestTimeline(context, TIMELINE_REQUEST_LIMIT)
+    }
+  }, [context, state, requestTimeline])
 
   if (state !== 'available' && daemon.timeline.length === 0) {
     return (
@@ -133,6 +144,20 @@ export function DaemonTimelinePanel() {
         <p className="border-b border-border px-3 py-1 text-xs text-status-warn" role="status">
           Daemon {STATE_LABEL[state].toLowerCase()}: showing what was received earlier.
         </p>
+      )}
+      {state === 'available' && context !== undefined && (
+        <div className="flex justify-end border-b border-border px-3 py-1">
+          <Button
+            variant="outline"
+            className="min-h-[var(--touch-target)]"
+            data-testid="daemon-timeline-refresh"
+            onClick={() => {
+              requestTimeline(context, TIMELINE_REQUEST_LIMIT)
+            }}
+          >
+            Refresh
+          </Button>
+        </div>
       )}
       {daemon.timeline.length === 0 ? (
         <Empty title="Nothing happened while you were away" />
