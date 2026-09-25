@@ -16,6 +16,7 @@ import type {
 } from '../../src/protocol/types'
 import { PODS_500 } from './batches'
 import { CRONJOBS, JOBS } from './batchA'
+import { BATCH_C_LIST_EVENTS } from './batchCKinds'
 import { genDeployments } from './gen-pods'
 import { NETWORK_LIST_EVENTS } from './network'
 
@@ -141,4 +142,5 @@ export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
     type: 'ClusterRoleBindingsUpdated',
     data: CLUSTER_ROLE_BINDINGS,
   },
+  ...BATCH_C_LIST_EVENTS,
 }

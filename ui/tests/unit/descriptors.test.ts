@@ -26,6 +26,11 @@ const NO_STATUS_OR_SPEC = new Set([
   'access/rolebindings',
   'access/clusterrolebindings',
   'namespaces',
+  // batch C: no lifecycle status/spec to show truthfully (keys, limits, quotas).
+  'config/configmaps',
+  'config/secrets',
+  'config/resourcequotas',
+  'config/limitranges',
 ])
 
 describe.each(ALL_DESCRIPTORS.map((d) => [d.section, d] as const))('%s', (section, d) => {
