@@ -15,7 +15,6 @@ import {
   emit,
   expectNoHorizontalScroll,
   inspector,
-  isPhone,
   open,
   row,
   sent,
@@ -64,14 +63,16 @@ async function openNodesList(page: Page): Promise<void> {
   )
 }
 
+const listShowsUsage = (info: TestInfo): boolean => !/-(phone|tablet)$/.test(info.project.name)
+
 test.describe('node metrics', () => {
   test('list cells and the inspector chart follow NodeMetricsUpdated; polling stops on close', async ({
     page,
   }, info: TestInfo) => {
     await openNodesList(page)
     // Rendering the Nodes list is what asks the backend to poll node metrics.
-    // (Phone folds the usage columns into the inspector, so only wide layouts poll from the list.)
-    if (!isPhone(info)) {
+    // (Phone and tablet fold the usage columns into the inspector, so only laptop+ layouts poll from the list.)
+    if (listShowsUsage(info)) {
       await expect
         .poll(async () => (await sent(page)).find((c) => c.type === 'StartNodeMetricsPolling'))
         .toMatchObject({ data: { interval_secs: 5 } })
@@ -91,8 +92,8 @@ test.describe('node metrics', () => {
     await expect(insp.getByTestId('metrics-chart')).toBeVisible()
     await expect(insp.getByTestId('metrics-chart').locator('svg').first()).toBeVisible()
 
-    // Nodes list: usage cell (hidden columns are folded into the inspector on phone).
-    if (!isPhone(info)) {
+    // Nodes list: usage cell (hidden columns are folded into the inspector on phone/tablet).
+    if (listShowsUsage(info)) {
       await expect(
         page.locator(`[role="row"][data-row-key="${NODE.name}"]`).getByTestId('node-cpu-usage'),
       ).toHaveText('30.0%')
