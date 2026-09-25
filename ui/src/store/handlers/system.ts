@@ -88,7 +88,14 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       const fromAction =
         env.correlation.type === 'Request' && d.read('pending')[env.correlation.data] !== undefined
       if (level === 'error' && !fromAction) {
-        failLoadingLists(d, event.data.message)
+        // A refresh failure carries its section's route (the backend scopes errors raised by a
+        // section command); a global route is a genuinely uncorrelated error.
+        const section = env.route.section
+        failLoadingLists(
+          d,
+          event.data.message,
+          env.correlation.type === 'Request' && section !== 'system' ? section : undefined,
+        )
       }
       return
     }
@@ -625,23 +632,22 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
 }
 
 /**
- * Protocol v1 reports a failed refresh only as an uncorrelated error `Notification` (the
- * backend's `notify_error`). Attribute it to the active context's lists that are still loading,
- * so their panes show the error verbatim instead of spinning forever.
- * TODO(protocol): route list failures by `Correlation::Request` or `Route` instead.
+ * Fails loading lists of the active context with a refresh's error, so their panes show it
+ * verbatim instead of spinning forever. With `section` (the failed request's route) only that
+ * section's lists fail; without it (a genuinely uncorrelated error) every loading list does.
  */
-function failLoadingLists(d: Draft, message: string): void {
+function failLoadingLists(d: Draft, message: string, section?: string): void {
   const ctx = d.read('session').activeContext
   if (ctx === undefined) return
-  const prefix = `${ctx}|`
+  const prefix = section === undefined ? `${ctx}|` : `${ctx}|${section}|`
   const lists = d.read('lists')
   const failing = Object.keys(lists).filter(
     (k) => k.startsWith(prefix) && lists[k]?.status === 'loading',
   )
   // Lists the first `Initialize` never delivered have no entry yet (the pane shows Loading).
-  const missing = CONTEXT_LISTS.map((sec) => listKey(ctx, sec, 'Namespaced', null)).filter(
-    (k) => !(k in lists),
-  )
+  const missing = CONTEXT_LISTS.filter((sec) => section === undefined || sec === section)
+    .map((sec) => listKey(ctx, sec, 'Namespaced', null))
+    .filter((k) => !(k in lists))
   if (failing.length === 0 && missing.length === 0) return
   const edit = d.edit('lists')
   for (const k of failing) {

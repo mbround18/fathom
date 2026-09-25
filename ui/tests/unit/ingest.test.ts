@@ -317,6 +317,31 @@ describe('rule 5: pending actions', () => {
   })
 })
 
+describe('section-routed refresh errors', () => {
+  it("fails only the routed section's loading lists", () => {
+    ingest(twoContexts)
+    useStore.getState().refreshSection('workloads/pods')
+    useStore.getState().refreshSection('workloads/deployments')
+    const DEPLOYS_A = listKey('kind-a', 'workloads/deployments', 'Namespaced', null)
+    const base = system(7, {
+      type: 'Notification',
+      data: { level: 'Error', message: PODS_FORBIDDEN },
+    })
+    ingest(
+      batch([
+        {
+          ...base,
+          route: { ...base.route, section: 'workloads/pods' },
+          correlation: { type: 'Request', data: 42 },
+        },
+      ]),
+    )
+    const lists = useStore.getState().lists
+    expect(lists[PODS_A]).toMatchObject({ status: 'error', error: PODS_FORBIDDEN })
+    expect(lists[DEPLOYS_A]?.status).toBe('loading')
+  })
+})
+
 describe('reads', () => {
   it('stores pod details under the detail key, including raw_json', () => {
     ingest(twoContexts)

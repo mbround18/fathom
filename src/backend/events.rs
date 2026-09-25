@@ -16,6 +16,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// `Stream`/`None` correlation and its errors are not attributed to the command.
 struct CmdScope {
     request: Option<RequestId>,
+    /// The section route the command targets (`None` for global/system commands). Error
+    /// notifications raised while it runs carry this route, so the UI can fail exactly the
+    /// list a failed `Refresh*` was loading instead of every loading list.
+    route: Option<Route>,
     /// Every error-level notification emitted while the command ran, verbatim.
     errors: Mutex<Vec<String>>,
 }
@@ -26,11 +30,16 @@ tokio::task_local! {
 
 /// Run `fut` (one command's handling) with `request` as the default correlation of every
 /// envelope it emits, collecting its error notifications for [`take_cmd_errors`].
-pub(super) async fn in_cmd_scope<F: Future>(request: Option<RequestId>, fut: F) -> F::Output {
+pub(super) async fn in_cmd_scope<F: Future>(
+    request: Option<RequestId>,
+    route: Option<Route>,
+    fut: F,
+) -> F::Output {
     CMD_SCOPE
         .scope(
             CmdScope {
                 request,
+                route,
                 errors: Mutex::new(Vec::new()),
             },
             fut,
@@ -111,10 +120,16 @@ pub(super) fn notify_error(
     sender: &Sender<BackendEventEnvelope>,
     message: String,
 ) {
+    // Inside a section command, attribute the error to that section's route.
+    let route = CMD_SCOPE
+        .try_with(|scope| scope.route.clone())
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| Route::global(section_keys::system()));
     emit(
         seq,
         sender,
-        Route::global(section_keys::system()),
+        route,
         Correlation::None,
         BackendEvent::System(SystemEvent::Notification {
             level: NotificationLevel::Error,
@@ -137,7 +152,7 @@ mod tests {
     async fn scope_sets_request_correlation_and_collects_errors() {
         let seq = AtomicU64::new(0);
         let (tx, rx) = unbounded();
-        let errors = in_cmd_scope(Some(RequestId(5)), async {
+        let errors = in_cmd_scope(Some(RequestId(5)), None, async {
             emit(
                 &seq,
                 &tx,
@@ -177,6 +192,26 @@ mod tests {
                 Correlation::None,
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn error_in_a_section_scope_carries_the_section_route() {
+        let seq = AtomicU64::new(0);
+        let (tx, rx) = unbounded();
+        let route = Route::namespaced(
+            crate::protocol::SectionKey::new("workloads/pods"),
+            None,
+            Some("default".into()),
+        );
+        in_cmd_scope(Some(RequestId(9)), Some(route.clone()), async {
+            notify_error(&seq, &tx, "forbidden".into());
+            notify_info(&seq, &tx, "fine".into());
+        })
+        .await;
+        let got: Vec<_> = rx.try_iter().collect();
+        assert_eq!(got[0].route, route);
+        assert_eq!(got[0].correlation, Correlation::Request(RequestId(9)));
+        assert_eq!(got[1].route, Route::global(section_keys::system()));
     }
 
     #[tokio::test]

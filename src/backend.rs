@@ -240,8 +240,9 @@ async fn run_cmd(
     sender: &Sender<BackendEventEnvelope>,
 ) {
     let CmdRequest { id, cmd } = request;
-    events::in_cmd_scope(id, async move {
-        let route = finished_route(&cmd);
+    let route = finished_route(&cmd);
+    let scope_route = cmd.section().map(|_| route.clone());
+    events::in_cmd_scope(id, scope_route, async move {
         // 026: summarize before `cmd` is consumed by dispatch.
         let audit_summary = cmd.audit_summary();
         let request_id = events::current_request_id_string();
