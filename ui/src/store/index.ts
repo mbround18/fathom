@@ -787,6 +787,8 @@ export interface StoreState extends StoreData {
   refreshDaemon: (context: string) => void
   requestDaemonTopology: (context: string) => void
   requestDaemonMetrics: (context: string, uid: string, metric: 'cpu' | 'memory') => void
+  /** Ask the backend to re-emit its buffered timeline (newest `limit` entries). */
+  requestDaemonTimeline: (context: string, limit: number) => void
   /** Sends `SetNamespaceFilter` (`null` = all namespaces). */
   selectNamespace: (ns: string | null) => void
   /** Sends the section's `Refresh*` command and marks its list loading. */
@@ -1315,6 +1317,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   refreshDaemon: (context) => get().send({ type: 'RefreshDaemon', data: { context } }),
   requestDaemonTopology: (context) =>
     get().send({ type: 'RequestDaemonTopology', data: { context } }),
+  requestDaemonTimeline: (context, limit) =>
+    get().send({ type: 'RequestDaemonTimeline', data: { context, limit } }),
   requestDaemonMetrics: (context, uid, metric) =>
     get().send({
       type: 'RequestDaemonMetrics',

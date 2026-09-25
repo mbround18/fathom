@@ -118,6 +118,10 @@ async fn handle_pod_cmd(
             .await?;
         }
         BackendCmd::StopWorkloadMetricsPolling => metrics::stop_workload_metrics_polling(state),
+        BackendCmd::StartNodeMetricsPolling { interval_secs } => {
+            metrics::start_node_metrics_polling(state, sender, interval_secs).await?;
+        }
+        BackendCmd::StopNodeMetricsPolling => metrics::stop_node_metrics_polling(state),
         BackendCmd::BulkDelete { items } => bulk_delete_pods(state, sender, items).await?,
         other => return Ok(Some(other)),
     }

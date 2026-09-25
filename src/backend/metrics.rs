@@ -1,7 +1,8 @@
 use crate::protocol::{
     BackendEvent, BackendEventEnvelope, ContainerMetrics, ContainerMetricsAggregate,
-    ContainerMetricsHistory, ContainerResourceSpec, Correlation, MetricsSample, PodMetricsHistory,
-    PodMetricsSummary, ResourceReadEvent, Route, WorkloadMetricsAggregate, section_keys,
+    ContainerMetricsHistory, ContainerResourceSpec, Correlation, CpuMetrics, MemoryMetrics,
+    MetricsSample, NodeMetricsSummary, PodMetricsHistory, PodMetricsSummary, ResourceReadEvent,
+    Route, WorkloadMetricsAggregate, section_keys,
 };
 use crossbeam_channel::Sender;
 use kube::api::ListParams;
@@ -1159,12 +1160,16 @@ pub(super) async fn start_workload_metrics_polling(
                 }
                 // No metrics provider configured: still report replica_count so
                 // the UI isn't blank while metrics remain unavailable.
-                None => Ok(metrics_unavailable_aggregate(
+                // No Prometheus: metrics-server aggregate, else replica count only.
+                None => Ok(aggregate_without_prometheus(
+                    client.as_ref(),
                     &namespace,
                     &workload_name,
                     &workload_kind,
+                    &pods,
                     replica_count,
-                )),
+                )
+                .await),
             };
 
             match result {
@@ -1308,6 +1313,336 @@ pub(super) async fn aggregate_workload_metrics_once(
     result.unwrap_or_else(|_| {
         metrics_unavailable_aggregate(namespace, workload_name, workload_kind, replica_count)
     })
+}
+
+/// Aggregate from metrics-server PodMetrics when it is served, otherwise a
+/// replica-count-only aggregate (the metrics-unavailable state).
+async fn aggregate_without_prometheus(
+    client: Option<&Client>,
+    namespace: &str,
+    workload_name: &str,
+    workload_kind: &str,
+    pods: &[k8s_openapi::api::core::v1::Pod],
+    replica_count: u32,
+) -> WorkloadMetricsAggregate {
+    let unavailable =
+        || metrics_unavailable_aggregate(namespace, workload_name, workload_kind, replica_count);
+    let Some(client) = client else {
+        return unavailable();
+    };
+    aggregate_from_metrics_api(
+        client,
+        namespace,
+        workload_name,
+        workload_kind,
+        pods,
+        replica_count,
+    )
+    .await
+    .unwrap_or_else(|e| {
+        tracing::debug!("metrics.k8s.io workload aggregate unavailable: {e}");
+        unavailable()
+    })
+}
+
+/// Aggregate a workload's pods from `metrics.k8s.io` PodMetrics (no Prometheus needed).
+///
+/// CPU percent is relative to the workload's summed CPU limit, falling back to the summed
+/// request when no limits are set, and `None` when neither exists (no fabricated baseline).
+async fn aggregate_from_metrics_api(
+    client: &Client,
+    namespace: &str,
+    workload_name: &str,
+    workload_kind: &str,
+    pods: &[k8s_openapi::api::core::v1::Pod],
+    replica_count: u32,
+) -> anyhow::Result<WorkloadMetricsAggregate> {
+    let gvk = GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "PodMetrics");
+    let resource = ApiResource::from_gvk(&gvk);
+    let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &resource);
+    let list = api.list(&ListParams::default()).await?;
+
+    let names: std::collections::HashSet<&str> = pods
+        .iter()
+        .filter_map(|p| p.metadata.name.as_deref())
+        .collect();
+    let usage: Vec<PodUsage> = list
+        .items
+        .iter()
+        .filter(|o| {
+            o.metadata
+                .name
+                .as_deref()
+                .is_some_and(|n| names.contains(n))
+        })
+        .map(|o| PodUsage {
+            containers: o
+                .data
+                .get("containers")
+                .and_then(|c| c.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|item| {
+                            let text = |v: Option<&serde_json::Value>| {
+                                v.and_then(|v| v.as_str()).unwrap_or_default().to_owned()
+                            };
+                            ContainerMetrics {
+                                name: text(item.get("name")),
+                                cpu: text(item.get("usage").and_then(|u| u.get("cpu"))),
+                                memory: text(item.get("usage").and_then(|u| u.get("memory"))),
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(aggregate_pod_usage(
+        namespace,
+        workload_name,
+        workload_kind,
+        pods,
+        &usage,
+        replica_count,
+    ))
+}
+
+/// One pod's metrics-server container usage.
+struct PodUsage {
+    containers: Vec<ContainerMetrics>,
+}
+
+/// Pure aggregation of per-pod usage against the pods' spec requests/limits.
+fn aggregate_pod_usage(
+    namespace: &str,
+    workload_name: &str,
+    workload_kind: &str,
+    pods: &[k8s_openapi::api::core::v1::Pod],
+    usage: &[PodUsage],
+    replica_count: u32,
+) -> WorkloadMetricsAggregate {
+    use std::collections::BTreeMap;
+
+    let mut cpu_total = 0.0;
+    let mut mem_total = 0.0;
+    let mut containers: BTreeMap<String, ContainerMetricsAggregate> = BTreeMap::new();
+    let mut cpu_cont: BTreeMap<String, f64> = BTreeMap::new();
+
+    for c in usage.iter().flat_map(|pu| &pu.containers) {
+        let cpu = parse_cpu_quantity(&c.cpu).unwrap_or(0.0);
+        let mem = parse_memory_quantity(&c.memory).unwrap_or(0.0);
+        cpu_total += cpu;
+        mem_total += mem;
+        *cpu_cont.entry(c.name.clone()).or_default() += cpu;
+        let entry = containers
+            .entry(c.name.clone())
+            .or_insert_with(|| ContainerMetricsAggregate {
+                name: c.name.clone(),
+                cpu_usage_percent: None,
+                memory_usage_bytes: Some(0),
+                memory_limit_bytes: None,
+                memory_request_bytes: None,
+                cpu_request_millicores: None,
+                cpu_limit_millicores: None,
+            });
+        entry.memory_usage_bytes = Some(entry.memory_usage_bytes.unwrap_or(0) + mem as u64);
+    }
+
+    let (mut cpu_req, mut cpu_lim, mut mem_req, mut mem_lim) = (0u64, 0u64, 0u64, 0u64);
+    for container in pods
+        .iter()
+        .filter_map(|p| p.spec.as_ref())
+        .flat_map(|s| &s.containers)
+    {
+        let t = container_resource_totals(container);
+        cpu_req = cpu_req.saturating_add(t.cpu_req);
+        cpu_lim = cpu_lim.saturating_add(t.cpu_lim);
+        mem_req = mem_req.saturating_add(t.mem_req);
+        mem_lim = mem_lim.saturating_add(t.mem_lim);
+        if let Some(agg) = containers.get_mut(&container.name) {
+            let add = |cur: Option<u64>, v: u64| nonzero(cur.unwrap_or(0).saturating_add(v));
+            agg.cpu_request_millicores = add(agg.cpu_request_millicores, t.cpu_req);
+            agg.cpu_limit_millicores = add(agg.cpu_limit_millicores, t.cpu_lim);
+            agg.memory_request_bytes = add(agg.memory_request_bytes, t.mem_req);
+            agg.memory_limit_bytes = add(agg.memory_limit_bytes, t.mem_lim);
+        }
+    }
+    for (name, agg) in &mut containers {
+        let base = agg.cpu_limit_millicores.or(agg.cpu_request_millicores);
+        agg.cpu_usage_percent =
+            base.and_then(|b| workload_cpu_percent(cpu_cont.get(name).copied().unwrap_or(0.0), b));
+    }
+
+    let cpu_base = if cpu_lim > 0 { cpu_lim } else { cpu_req };
+    let have_usage = !usage.is_empty();
+    WorkloadMetricsAggregate {
+        namespace: namespace.to_owned(),
+        name: workload_name.to_owned(),
+        workload_kind: workload_kind.to_owned(),
+        replica_count,
+        total_cpu_usage_percent: have_usage
+            .then(|| workload_cpu_percent(cpu_total, cpu_base))
+            .flatten(),
+        total_memory_usage_bytes: have_usage.then_some(mem_total as u64),
+        total_memory_limit_bytes: nonzero(mem_lim),
+        total_memory_request_bytes: nonzero(mem_req),
+        total_cpu_request_millicores: nonzero(cpu_req),
+        total_cpu_limit_millicores: nonzero(cpu_lim),
+        containers: containers.into_values().collect(),
+        timestamp: Utc::now().timestamp_millis() as u64,
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Node metrics (metrics.k8s.io NodeMetrics)
+// ---------------------------------------------------------------------------------------------
+
+/// Start polling NodeMetrics for all nodes. Silently does nothing when the metrics API is
+/// absent or forbidden (the probe already surfaced that once); the UI keeps its
+/// metrics-unavailable state because no `NodeMetricsUpdated` events arrive.
+pub(super) async fn start_node_metrics_polling(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    interval_secs: u64,
+) -> anyhow::Result<()> {
+    stop_node_metrics_polling(state);
+    probe_metrics_api(state, sender).await?;
+    if matches!(
+        state.metrics.availability,
+        MetricsAvailability::Unavailable | MetricsAvailability::Forbidden
+    ) {
+        tracing::debug!("Skipping node metrics polling: metrics API unavailable");
+        return Ok(());
+    }
+    let client = state.cluster.client_or_err()?;
+    let emitter = PollEmitter::from_state(state, sender);
+    let interval = Duration::from_secs(interval_secs.max(2));
+    state.metrics.node_poll_task = Some(tokio::spawn(async move {
+        loop {
+            match fetch_node_metrics(&client).await {
+                Ok(list) => {
+                    for m in list {
+                        emitter.emit_node_metrics(m);
+                    }
+                }
+                Err(kube::Error::Api(ae)) if ae.code == 404 || ae.code == 403 => {
+                    tracing::debug!("Node metrics API not usable ({}); stopping", ae.code);
+                    return;
+                }
+                Err(e) => tracing::debug!("Node metrics poll failed: {e}"),
+            }
+            tokio::time::sleep(interval).await;
+        }
+    }));
+    Ok(())
+}
+
+pub(super) fn stop_node_metrics_polling(state: &mut BackendState) {
+    if let Some(task) = state.metrics.node_poll_task.take() {
+        task.abort();
+        tracing::info!("Stopped node metrics polling");
+    }
+}
+
+impl PollEmitter {
+    fn emit_node_metrics(&self, metrics: NodeMetricsSummary) {
+        events::emit(
+            self.seq.as_ref(),
+            &self.sender,
+            Route::cluster(section_keys::nodes(), self.context.clone()),
+            Correlation::None,
+            BackendEvent::ResourceRead(ResourceReadEvent::NodeMetricsUpdated(metrics)),
+        );
+    }
+}
+
+async fn fetch_node_metrics(client: &Client) -> Result<Vec<NodeMetricsSummary>, kube::Error> {
+    use k8s_openapi::api::core::v1::Node;
+
+    let gvk = GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", "NodeMetrics");
+    let resource = ApiResource::from_gvk(&gvk);
+    let api: Api<DynamicObject> = Api::all_with(client.clone(), &resource);
+    let list = api.list(&ListParams::default()).await?;
+    // Allocatable is best-effort: without it the percentages are simply absent.
+    let allocatable: std::collections::HashMap<String, (Option<f64>, Option<f64>)> =
+        Api::<Node>::all(client.clone())
+            .list(&ListParams::default())
+            .await
+            .map(|nodes| {
+                nodes
+                    .items
+                    .into_iter()
+                    .filter_map(|n| {
+                        let name = n.metadata.name?;
+                        let alloc = n.status?.allocatable?;
+                        Some((
+                            name,
+                            (
+                                alloc.get("cpu").and_then(|q| parse_cpu_quantity(&q.0)),
+                                alloc
+                                    .get("memory")
+                                    .and_then(|q| parse_memory_quantity(&q.0)),
+                            ),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+    let now = Utc::now().timestamp_millis() as u64;
+    Ok(list
+        .items
+        .iter()
+        .filter_map(|o| {
+            let name = o.metadata.name.clone()?;
+            let usage = |k: &str| {
+                o.data
+                    .get("usage")
+                    .and_then(|u| u.get(k))
+                    .and_then(|v| v.as_str())
+            };
+            let (cpu_alloc, mem_alloc) = allocatable.get(&name).copied().unwrap_or((None, None));
+            Some(node_metrics_summary(
+                name,
+                usage("cpu").and_then(parse_cpu_quantity),
+                usage("memory").and_then(parse_memory_quantity),
+                cpu_alloc,
+                mem_alloc,
+                now,
+            ))
+        })
+        .collect())
+}
+
+/// Build a node summary from usage (millicores / bytes) and allocatable (same units).
+fn node_metrics_summary(
+    name: String,
+    cpu_millicores: Option<f64>,
+    memory_bytes: Option<f64>,
+    cpu_alloc_millicores: Option<f64>,
+    memory_alloc_bytes: Option<f64>,
+    timestamp: u64,
+) -> NodeMetricsSummary {
+    let pct = |used: Option<f64>, total: Option<f64>| match (used, total) {
+        (Some(u), Some(t)) if t > 0.0 => Some(u / t * 100.0),
+        _ => None,
+    };
+    NodeMetricsSummary {
+        name,
+        cpu: CpuMetrics {
+            usage_percent: pct(cpu_millicores, cpu_alloc_millicores),
+            cores: cpu_millicores.map(|m| m / 1000.0),
+        },
+        memory: MemoryMetrics {
+            usage_bytes: memory_bytes.map(|b| b as u64),
+            usage_percent: pct(memory_bytes, memory_alloc_bytes),
+            limit_bytes: memory_alloc_bytes.map(|b| b as u64),
+        },
+        disk: None,
+        timestamp,
+    }
 }
 
 /// Wrap workload metrics in the event for its kind; `None` (with a warning) for
@@ -1512,5 +1847,66 @@ mod tests {
         // No limit configured - no baseline to be relative to, so no
         // fabricated percent (mirrors how memory_usage_percent behaves).
         assert_eq!(workload_cpu_percent(5000.0, 0), None);
+    }
+
+    #[test]
+    fn node_metrics_summary_computes_percent_against_allocatable() {
+        let m = node_metrics_summary(
+            "n1".to_owned(),
+            Some(500.0),
+            Some(1024.0 * 1024.0 * 512.0),
+            Some(2000.0),
+            Some(1024.0 * 1024.0 * 1024.0),
+            7,
+        );
+        assert_eq!(m.cpu.usage_percent, Some(25.0));
+        assert_eq!(m.cpu.cores, Some(0.5));
+        assert_eq!(m.memory.usage_percent, Some(50.0));
+        assert_eq!(m.memory.limit_bytes, Some(1024 * 1024 * 1024));
+        let none = node_metrics_summary("n2".to_owned(), Some(1.0), None, None, None, 0);
+        assert_eq!(none.cpu.usage_percent, None);
+        assert_eq!(none.memory.usage_bytes, None);
+    }
+
+    #[test]
+    fn aggregate_pod_usage_sums_replicas_against_the_limit() {
+        use k8s_openapi::api::core::v1::{Container, Pod, PodSpec, ResourceRequirements};
+        use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+        let pod = |cpu_limit: &str| Pod {
+            spec: Some(PodSpec {
+                containers: vec![Container {
+                    name: "app".to_owned(),
+                    resources: Some(ResourceRequirements {
+                        limits: Some([("cpu".to_owned(), Quantity(cpu_limit.to_owned()))].into()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let usage = |cpu: &str, mem: &str| PodUsage {
+            containers: vec![ContainerMetrics {
+                name: "app".to_owned(),
+                cpu: cpu.to_owned(),
+                memory: mem.to_owned(),
+            }],
+        };
+        let agg = aggregate_pod_usage(
+            "ns",
+            "web",
+            "Deployment",
+            &[pod("1"), pod("1")],
+            &[usage("500m", "100Mi"), usage("250000000n", "50Mi")],
+            2,
+        );
+        // 750m used of 2000m limit.
+        assert_eq!(agg.total_cpu_usage_percent, Some(37.5));
+        assert_eq!(agg.total_memory_usage_bytes, Some(150 * 1024 * 1024));
+        assert_eq!(agg.containers.len(), 1);
+        let empty = aggregate_pod_usage("ns", "web", "Deployment", &[pod("1")], &[], 1);
+        assert_eq!(empty.total_cpu_usage_percent, None);
+        assert_eq!(empty.total_memory_usage_bytes, None);
     }
 }

@@ -37,7 +37,7 @@ function podDetail(ts: number) {
 describe('InspectorMetrics (T105)', () => {
   it('says node metrics are unavailable', () => {
     render(<InspectorMetrics target={{ kind: 'Node', name: 'n1' }} />)
-    expect(screen.getByText(/Node metrics are not provided/)).toBeTruthy()
+    expect(screen.getByText(/No node metrics yet/)).toBeTruthy()
   })
 
   it('shows unavailable for a pod with no metrics', () => {

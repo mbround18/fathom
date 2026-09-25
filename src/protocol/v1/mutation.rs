@@ -52,6 +52,8 @@ impl BackendCmdV1 {
             | C::RefreshNamespaces
             | C::SetNamespaceFilter { .. }
             | C::RefreshNodes
+            | C::StartNodeMetricsPolling { .. }
+            | C::StopNodeMetricsPolling
             | C::SelectNode { .. }
             | C::SelectNamespace { .. }
             | C::RefreshEvents
@@ -469,6 +471,8 @@ impl BackendCmdV1 {
             | C::RefreshOrphanedSubjects { .. } => return None,
             C::RefreshNamespaces | C::SelectNamespace { .. } => section_keys::namespaces(),
             C::RefreshNodes
+            | C::StartNodeMetricsPolling { .. }
+            | C::StopNodeMetricsPolling
             | C::SelectNode { .. }
             | C::CordonNode { .. }
             | C::UncordonNode { .. }
@@ -761,6 +765,8 @@ impl BackendCmdV1 {
             | C::RefreshNamespaces
             | C::SetNamespaceFilter { .. }
             | C::RefreshNodes
+            | C::StartNodeMetricsPolling { .. }
+            | C::StopNodeMetricsPolling
             | C::SelectNode { .. }
             | C::SelectNamespace { .. }
             | C::RefreshEvents
@@ -1397,6 +1403,8 @@ impl BackendCmdV1 {
             | C::RefreshNamespaces
             | C::SetNamespaceFilter { .. }
             | C::RefreshNodes
+            | C::StartNodeMetricsPolling { .. }
+            | C::StopNodeMetricsPolling
             | C::SelectNode { .. }
             | C::SelectNamespace { .. }
             | C::CordonNode { .. }

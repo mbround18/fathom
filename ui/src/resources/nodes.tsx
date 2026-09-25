@@ -4,15 +4,51 @@
  * frontend previously had no Nodes view at all (SelectNode/NodeSummary were unused).
  */
 import { StatusBadge } from '@/components/StatusBadge'
+import {
+  nodeMetricsNow,
+  nodeUsagePercent,
+  nodeUsageText,
+  useNodeMetrics,
+  useNodeMetricsPolling,
+  type NodeUsageMetric,
+} from '@/features/metrics/nodePolling'
 import { selectCmd } from '@/protocol/commands'
 import type { NodeDetails, NodeSummary } from '@/protocol/types'
 
 import { formatMi, formatMillicores } from './format'
 import { relatedResourcesBlock } from './related'
 import { compareNumber, compareStatus, compareText } from './search'
-import type { DetailSection, ResourceDescriptor } from './types'
+import type { ColumnDef, DetailSection, ResourceDescriptor } from './types'
 
 const SECTION = 'nodes'
+
+/** Live usage cell; mounting it keeps node metrics polling (ref-counted) while rows are shown. */
+function NodeUsageCell({ name, metric }: { name: string; metric: NodeUsageMetric }) {
+  useNodeMetricsPolling()
+  const m = useNodeMetrics(name)
+  return <span data-testid={`node-${metric}-usage`}>{nodeUsageText(m, metric)}</span>
+}
+
+function usageColumn(
+  id: string,
+  header: string,
+  metric: NodeUsageMetric,
+): ColumnDef<NodeSummary> {
+  return {
+    id,
+    header,
+    priority: 2,
+    minWidth: 84,
+    align: 'end',
+    cell: (n) => <NodeUsageCell name={n.name} metric={metric} />,
+    text: (n) => nodeUsageText(nodeMetricsNow(n.name), metric),
+    sort: (a, b) =>
+      compareNumber(
+        nodeUsagePercent(nodeMetricsNow(a.name), metric) ?? -1,
+        nodeUsagePercent(nodeMetricsNow(b.name), metric) ?? -1,
+      ),
+  }
+}
 
 export function nodeStatus(n: NodeSummary): string {
   return n.status
@@ -160,6 +196,8 @@ export const nodes: ResourceDescriptor<NodeSummary, NodeDetails> = {
       text: (n) => `${String(n.pod_count)}/${String(n.pod_capacity)}`,
       sort: (a, b) => compareNumber(a.pod_count, b.pod_count),
     },
+    usageColumn('cpu-use', 'CPU use', 'cpu'),
+    usageColumn('mem-use', 'Mem use', 'memory'),
     {
       id: 'cpu',
       header: 'CPU',
