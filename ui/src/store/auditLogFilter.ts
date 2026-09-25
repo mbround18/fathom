@@ -11,6 +11,8 @@ export interface AuditLogFilter {
   /** Inclusive bounds, epoch milliseconds. */
   timeRange: { from?: number; to?: number }
   searchText: string
+  /** Actor username (hosted server only); null = any. */
+  actor: string | null
 }
 
 export const DEFAULT_AUDIT_FILTER: AuditLogFilter = {
@@ -19,6 +21,7 @@ export const DEFAULT_AUDIT_FILTER: AuditLogFilter = {
   context: null,
   timeRange: {},
   searchText: '',
+  actor: null,
 }
 
 export function isDefaultFilter(f: AuditLogFilter): boolean {
@@ -28,7 +31,8 @@ export function isDefaultFilter(f: AuditLogFilter): boolean {
     f.context === null &&
     f.timeRange.from === undefined &&
     f.timeRange.to === undefined &&
-    f.searchText.trim() === ''
+    f.searchText.trim() === '' &&
+    f.actor === null
   )
 }
 
@@ -42,10 +46,16 @@ export function applyAuditFilter(
     if (f.outcome === 'success' && e.outcome.type !== 'Success') return false
     if (f.outcome === 'failure' && e.outcome.type !== 'Failure') return false
     if (f.context !== null && e.context !== f.context) return false
+    if (f.actor !== null && e.actor?.username !== f.actor) return false
     const t = Date.parse(e.timestamp)
     if (f.timeRange.from !== undefined && !(t >= f.timeRange.from)) return false
     if (f.timeRange.to !== undefined && !(t <= f.timeRange.to)) return false
     if (q !== '' && !(e.targetName ?? '').toLowerCase().includes(q)) return false
     return true
   })
+}
+
+/** True when any entry carries an actor (hosted mode); desktop logs never do. */
+export function hasActors(entries: readonly AuditLogEntry[]): boolean {
+  return entries.some((e) => e.actor !== undefined)
 }
