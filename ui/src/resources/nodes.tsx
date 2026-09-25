@@ -29,11 +29,7 @@ function NodeUsageCell({ name, metric }: { name: string; metric: NodeUsageMetric
   return <span data-testid={`node-${metric}-usage`}>{nodeUsageText(m, metric)}</span>
 }
 
-function usageColumn(
-  id: string,
-  header: string,
-  metric: NodeUsageMetric,
-): ColumnDef<NodeSummary> {
+function usageColumn(id: string, header: string, metric: NodeUsageMetric): ColumnDef<NodeSummary> {
   return {
     id,
     header,

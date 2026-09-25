@@ -4,6 +4,11 @@ import { expect, test } from '@playwright/test'
 import { batch, system } from '../fixtures/builders'
 import { emit, open, openFleet, sentTypes } from './helpers'
 
+// Radix unmounts a closing dialog only after its exit animation's `animationend`; on a CPU-starved
+// runner that event lags by seconds and `toBeHidden()` flaked. Reduced motion (effects.css) makes
+// the dialog unmount synchronously, so the close assertion tests the behaviour, not animation timing.
+test.use({ reducedMotion: 'reduce' })
+
 test('fleet dashboard shows both contexts without switching the active one', async ({ page }) => {
   await open(page, 'manual')
   await emit(
