@@ -194,8 +194,8 @@ Measured on the author's Linux dev box (Ubuntu, Wayland session, WebKitGTK 2.52.
 |---|---|---|
 | Tauri: launch to backend context-list handoff (5 runs) | `scripts/measure-startup.sh --runs 5` (spawn to the `Sending N contexts to UI` log line) | 920, 946, 922, 918, 931 ms; median 922 ms |
 | Tauri: idle CPU, launch view, 60 s after a 10 s settle | `scripts/measure-idle-cpu.sh` (utime+stime of the app and its WebKit child processes, % of one core) | 0.95% (budget < 2%) |
-| SC-003 proper: launch to populated Pods, egui baseline vs Tauri | not measured | needs a reachable cluster plus tauri-driver (Tauri) and a stopwatch or screen capture (egui); the egui binary was not built for this run |
-| SC-005 proper: idle on the Pods view | not measured | needs tauri-driver or a manual run; the number above is for the launch view, not Pods |
+| SC-003: launch to populated Pods (budget < 3 s; egui baseline obsolete) | `ui/tests/driver/smoke.test.ts` (tauri-driver, kind cluster) and `scripts/measure-startup.sh --runs 3` | Pods populated in ~1.6 s (single run, includes driver polling); context handoff median 1036 ms, PASS |
+| SC-005: idle on the Pods view, 60 s after 10 s settle | `ui/tests/driver/idle.test.ts` (tauri-driver, kind cluster) | 0.10% of one core (budget < 2%) |
 | SC-004 (10,000 pods, 250 ms updates): keystroke under 100 ms, no long task over 100 ms | `ui/tests/e2e/perf-10k.spec.ts`, `chromium-wide` | passes (budgets asserted, per-run values not recorded); `webkit-wide` not run, WebKit here lacks a system library (`libevent-2.1-7t64`) |
 
-The two scripts take `--binary`, so the same commands measure the egui binary for the SC-003 comparison once it is built.
+The egui comparison is obsolete (egui removed, T125); SC-003 is checked against its absolute 3 s budget.

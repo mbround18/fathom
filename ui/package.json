@@ -20,7 +20,8 @@
     "e2e:live": "playwright test -c playwright.live.config.ts",
     "e2e:live:serve": "vite build --mode live --outDir dist-live && vite preview --outDir dist-live --port 4174 --strictPort",
     "promo": "playwright test -c playwright.promo.config.ts",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:driver": "node --experimental-strip-types --test tests/driver/*.test.ts"
   },
   "dependencies": {
     "@fontsource/chakra-petch": "^5.3.0",
