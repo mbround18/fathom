@@ -205,6 +205,32 @@ const APPS = new Set(['deployments', 'statefulsets', 'daemonsets', 'replicasets'
 const BATCH = new Set(['jobs', 'cronjobs'])
 const RBAC = new Set(['roles', 'rolebindings', 'clusterroles', 'clusterrolebindings'])
 
+/**
+ * Kinds outside core/apps/batch/rbac: the nav key's last segment is not always the Kubernetes
+ * resource name (`ingress` -> `ingresses`), and a wrong or missing group would make the
+ * SelfSubjectAccessReview ask the wrong question, so name the pair explicitly.
+ */
+const OTHER_GROUPS: Record<string, { resource: string; apiGroup: string }> = {
+  ingress: { resource: 'ingresses', apiGroup: 'networking.k8s.io' },
+  ingresses: { resource: 'ingresses', apiGroup: 'networking.k8s.io' },
+  ingressclasses: { resource: 'ingressclasses', apiGroup: 'networking.k8s.io' },
+  networkpolicies: { resource: 'networkpolicies', apiGroup: 'networking.k8s.io' },
+  storageclasses: { resource: 'storageclasses', apiGroup: 'storage.k8s.io' },
+  horizontalpodautoscalers: { resource: 'horizontalpodautoscalers', apiGroup: 'autoscaling' },
+  poddisruptionbudgets: { resource: 'poddisruptionbudgets', apiGroup: 'policy' },
+  priorityclasses: { resource: 'priorityclasses', apiGroup: 'scheduling.k8s.io' },
+  runtimeclasses: { resource: 'runtimeclasses', apiGroup: 'node.k8s.io' },
+  leases: { resource: 'leases', apiGroup: 'coordination.k8s.io' },
+  mutatingwebhooks: {
+    resource: 'mutatingwebhookconfigurations',
+    apiGroup: 'admissionregistration.k8s.io',
+  },
+  validatingwebhooks: {
+    resource: 'validatingwebhookconfigurations',
+    apiGroup: 'admissionregistration.k8s.io',
+  },
+}
+
 /** The (resource, apiGroup) a navigator section's objects live under. */
 export function capabilityForSection(section: string): { resource: string; apiGroup?: string } {
   if (section === 'helm/releases') return { resource: 'secrets' }
@@ -212,6 +238,8 @@ export function capabilityForSection(section: string): { resource: string; apiGr
   if (APPS.has(resource)) return { resource, apiGroup: 'apps' }
   if (BATCH.has(resource)) return { resource, apiGroup: 'batch' }
   if (RBAC.has(resource)) return { resource, apiGroup: 'rbac.authorization.k8s.io' }
+  const other = OTHER_GROUPS[resource]
+  if (other) return other
   return { resource }
 }
 
