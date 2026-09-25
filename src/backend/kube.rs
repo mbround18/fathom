@@ -133,6 +133,13 @@ fn emit_contexts(
 pub(super) async fn connect_client_for_current_context(
     state: &BackendState,
 ) -> anyhow::Result<Client> {
+    // 031: a hosted server supplies its own per-user access (no kubeconfig, no local auth).
+    if !state.access.allows_local_features() {
+        return state
+            .access
+            .build_client(state.cluster.current_context.as_deref())
+            .await;
+    }
     // If we have a selected context and kubeconfig exists, use it; otherwise fall back.
     if let Some(ctx) = state.cluster.current_context.clone()
         && let Ok(kubeconfig) = load_kubeconfig()

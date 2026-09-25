@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use crate::backend::state::BackendState;
 use crate::backend::{
     cronjobs, daemonsets, deployments, events, exec, images, jobs, metrics, pods, replicasets,
-    replicationcontrollers, statefulsets,
+    replicationcontrollers, statefulsets, trivy,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -39,6 +39,25 @@ async fn handle_pod_cmd(
             pods::delete_pod(state, sender, &namespace, &name).await?;
             pods::refresh_pods(state, sender).await?;
         }
+        BackendCmd::AddEphemeralContainer {
+            namespace,
+            pod,
+            target_container,
+            image,
+            ephemeral_container_name,
+        } => {
+            pods::add_ephemeral_container(
+                state,
+                sender,
+                &namespace,
+                &pod,
+                target_container.as_deref(),
+                &image,
+                ephemeral_container_name.as_deref(),
+            )
+            .await?;
+            pods::fetch_pod_details(state, sender, &namespace, &pod).await?;
+        }
         BackendCmd::SelectPod { namespace, name } => {
             pods::fetch_pod_details(state, sender, &namespace, &name).await?;
         }
@@ -53,6 +72,11 @@ async fn handle_pod_cmd(
             name,
             container,
         } => exec::start_exec(state, sender, namespace, name, container).await?,
+        BackendCmd::CheckPodExecAccess {
+            namespace,
+            name,
+            container,
+        } => exec::check_access(state, sender, namespace, name, container).await?,
         BackendCmd::SendPodExecInput { data } => exec::send_input(state, data).await?,
         BackendCmd::ResizePodExec { cols, rows } => exec::resize(state, cols, rows).await?,
         BackendCmd::StopPodExec => exec::stop(state),
@@ -62,6 +86,9 @@ async fn handle_pod_cmd(
             container,
         } => {
             images::inspect_container_image(state, sender, &namespace, &pod, &container).await?;
+        }
+        BackendCmd::InspectPodVulnerabilities { namespace, pod } => {
+            trivy::handle_inspect(state, sender, &namespace, &pod).await?;
         }
         BackendCmd::FetchPodMetrics { namespace, name } => {
             metrics::fetch_metrics(state, sender, &namespace, &name).await?;

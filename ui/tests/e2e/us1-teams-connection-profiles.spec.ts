@@ -16,9 +16,7 @@ async function goToProfiles(page: Page) {
   await navigateTo(page, 'Connection Profiles', 'Team')
   await expect
     .poll(() => sentTypes(page))
-    .toEqual(
-      expect.arrayContaining(['RefreshTeamStoreStatus', 'RefreshConnectionProfiles']),
-    )
+    .toEqual(expect.arrayContaining(['RefreshTeamStoreStatus', 'RefreshConnectionProfiles']))
 }
 
 function panel(page: Page) {

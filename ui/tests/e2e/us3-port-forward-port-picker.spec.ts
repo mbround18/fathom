@@ -19,6 +19,7 @@ import {
   navigateTo,
   requestIdOf,
   row,
+  sent,
   sentTypes,
   open as openApp,
 } from './helpers'
@@ -55,7 +56,10 @@ async function openPodForwardDialog(page: Page) {
   await expect.poll(() => sentTypes(page)).toContain('RefreshPods')
   await page.waitForTimeout(600)
   await clearSent(page)
-  await emit(page, batch([list(1, nsRoute('kind-a', 'workloads/pods'), { type: 'PodsUpdated', data: [POD] })]))
+  await emit(
+    page,
+    batch([list(1, nsRoute('kind-a', 'workloads/pods'), { type: 'PodsUpdated', data: [POD] })]),
+  )
   await row(page, `${POD.namespace}/${POD.name}`, 'workloads/pods').click()
   await expect.poll(() => sentTypes(page)).toContain('SelectPod')
   await emit(
@@ -114,7 +118,10 @@ test.describe('US3 port forward port picker', () => {
           seq: 10,
           route: globalRoute('system'),
           correlation: { type: 'None' },
-          event: { type: 'System', data: { type: 'PortAvailability', data: { port: 9999, available: false } } },
+          event: {
+            type: 'System',
+            data: { type: 'PortAvailability', data: { port: 9999, available: false } },
+          },
         },
       ]),
     )
@@ -129,6 +136,13 @@ test.describe('US3 port forward port picker', () => {
 
     // Switching to a free port clears the warning and unblocks confirm.
     await field.fill('9998')
+    // The debounced availability check for 9998 also consumes a request id: let it land before
+    // reading `nextRequestId` below, or the injected CommandFinished targets the wrong request.
+    await expect
+      .poll(async () =>
+        (await sent(page)).some((c) => c.type === 'CheckPortAvailability' && c.data.port === 9998),
+      )
+      .toBe(true)
     await emit(
       page,
       batch([
@@ -137,7 +151,10 @@ test.describe('US3 port forward port picker', () => {
           seq: 11,
           route: globalRoute('system'),
           correlation: { type: 'None' },
-          event: { type: 'System', data: { type: 'PortAvailability', data: { port: 9998, available: true } } },
+          event: {
+            type: 'System',
+            data: { type: 'PortAvailability', data: { port: 9998, available: true } },
+          },
         },
       ]),
     )
@@ -158,8 +175,15 @@ test.describe('US3 port forward port picker', () => {
     await clearSent(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect.poll(() => sentTypes(page)).toContain('StartPortForward')
-    await finish(page, await requestIdOf(page, 'StartPortForward'), false, 'bind: address already in use')
-    await expect(dialog.getByTestId('port-forward-start-error')).toContainText('address already in use')
+    await finish(
+      page,
+      await requestIdOf(page, 'StartPortForward'),
+      false,
+      'bind: address already in use',
+    )
+    await expect(dialog.getByTestId('port-forward-start-error')).toContainText(
+      'address already in use',
+    )
     await expect(dialog).toBeVisible()
   })
 })

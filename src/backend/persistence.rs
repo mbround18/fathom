@@ -53,10 +53,28 @@ impl AutoStartConfig {
     }
 }
 
-/// Get the Fathom config directory (~/.fathom/)
-pub fn fathom_config_dir() -> Result<PathBuf> {
+/// Process-wide state-directory override (031-hosted-server-mode). Set at most once, when a
+/// backend is started with a `ClusterAccess` that supplies a `state_root` (the hosted server);
+/// desktop and devbridge never set it, so their paths stay `~/.fathom`.
+static STATE_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Install the state-directory override. First call wins; later calls are ignored.
+pub fn set_state_root(root: PathBuf) {
+    let _ = STATE_ROOT.set(root);
+}
+
+/// `override_root` if given, else `<home>/.fathom`.
+fn config_dir_with(override_root: Option<&Path>) -> Result<PathBuf> {
+    if let Some(root) = override_root {
+        return Ok(root.to_path_buf());
+    }
     let home = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
     Ok(home.join(".fathom"))
+}
+
+/// Get the Fathom config directory (~/.fathom/, or the hosted state root)
+pub fn fathom_config_dir() -> Result<PathBuf> {
+    config_dir_with(STATE_ROOT.get().map(PathBuf::as_path))
 }
 
 /// Ensure the Fathom config directory exists
@@ -121,6 +139,12 @@ pub fn credentials_config_path() -> Result<PathBuf> {
 /// Get the path to config.json (main application config)
 pub fn main_config_path() -> Result<PathBuf> {
     Ok(fathom_config_dir()?.join("config.json"))
+}
+
+/// Get the path to `audit-log.json` (026-mutation-audit-log-viewer: the local, append-only,
+/// bounded record of completed mutating actions). See `src/backend/audit_log.rs`.
+pub fn audit_log_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("audit-log.json"))
 }
 
 /// Load JSON from file, return empty object if file doesn't exist
@@ -717,6 +741,16 @@ mod tests {
 
         let written = serde_json::to_value(AutoStartConfig { mcp_stdio: true }).expect("serialize");
         assert_eq!(written, serde_json::json!({ "mcp_stdio": true }));
+    }
+
+    #[test]
+    fn state_root_override_and_default() {
+        let custom = std::path::Path::new("/var/lib/fathom");
+        assert_eq!(config_dir_with(Some(custom)).unwrap(), custom);
+        let default = config_dir_with(None).unwrap();
+        assert!(default.ends_with(".fathom"));
+        // No test installs the process-wide override, so the public path is the default.
+        assert_eq!(fathom_config_dir().unwrap(), default);
     }
 
     #[test]

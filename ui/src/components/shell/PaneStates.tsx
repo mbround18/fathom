@@ -38,7 +38,8 @@ function StateFrame({
 }: StateFrameProps) {
   return (
     <div
-      role="status"
+      role={tone === 'err' ? 'alert' : 'status'}
+      aria-live={tone === 'err' ? 'assertive' : 'polite'}
       data-pane-state={kind}
       className="flex h-full min-h-40 flex-col items-center justify-center gap-3 p-6 text-center"
     >
@@ -108,16 +109,15 @@ export function ErrorState({
   )
 }
 
-export function Disconnected({ detail }: { detail?: ReactNode }) {
+/** Never echoes backend/JS exception text: that lives in logs, not in front of the operator. */
+export function Disconnected() {
   return (
     <StateFrame
       kind="disconnected"
       icon={PlugsIcon}
       tone="warn"
       title="Disconnected"
-      detail={
-        detail ?? 'The backend stopped. Restart Fathom to reconnect; data shown may be stale.'
-      }
+      detail="The backend stopped. Restart Fathom to reconnect; data shown may be stale."
     />
   )
 }

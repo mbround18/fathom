@@ -97,13 +97,13 @@ export function ProviderRow({ status }: { status: ProviderStatus }) {
     <li data-testid={`ai-provider-${p}`} className="flex flex-col gap-2 border-b py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-medium">{PROVIDER_LABEL[p]}</span>
-        <span data-testid={`ai-state-${p}`} className="text-muted-foreground text-xs">
+        <span data-testid={`ai-state-${p}`} className="text-xs text-muted-foreground">
           {stateLabel(status.state)}
           {status.account_label !== null && connected ? ` — ${status.account_label}` : ''}
         </span>
       </div>
       {failed !== undefined && (
-        <p data-testid={`ai-flow-${failed.type}`} className="text-destructive text-xs">
+        <p data-testid={`ai-flow-${failed.type}`} className="text-xs text-destructive">
           {failed.type === 'Failed' ? failed.data.message : `Sign-in ${failed.type.toLowerCase()}`}
         </p>
       )}
@@ -125,9 +125,7 @@ export function ProviderRow({ status }: { status: ProviderStatus }) {
               size="sm"
               variant="outline"
               data-testid={`ai-use-${p}`}
-              onClick={() =>
-                void request({ type: 'AiSetActiveProvider', data: { provider: p } })
-              }
+              onClick={() => void request({ type: 'AiSetActiveProvider', data: { provider: p } })}
             >
               Use this
             </Button>

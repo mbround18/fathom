@@ -7,17 +7,23 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   metrics: 'Metrics',
   flux: 'Flux',
   hubble: 'Hubble',
+  keda: 'Autoscalers',
   logs: 'Logs',
   events: 'Events',
   portforwards: 'Forwards',
   topology: 'Topology',
   daemon: 'While you were away',
+  velero: 'Velero',
+  knative: 'Knative',
+  certManager: 'Certificates',
+  vulnerabilities: 'Vulnerabilities',
+  linter: 'Linter',
 }
 
 export function paneTitle(pane: PaneState): string {
   switch (pane.kind) {
     case 'nav':
-      return 'Navigator'
+      return 'Sections'
     case 'list':
       return pane.route ? sectionLabel(pane.route.section) : 'Resources'
     case 'inspector':

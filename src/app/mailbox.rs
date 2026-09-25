@@ -45,6 +45,10 @@ impl FathomApp {
                     SystemEvent::BackendStarted => {
                         self.push_status("Backend started.".to_owned());
                     }
+                    SystemEvent::SessionEnded { .. } | SystemEvent::LimitReached { .. } => {
+                        // 031-hosted-server-mode: hosted-only events; the desktop shell never
+                        // receives them.
+                    }
                     SystemEvent::Notification { level, message } => match level {
                         NotificationLevel::Info => self.push_status(message.clone()),
                         NotificationLevel::Warn => self.push_status(format!("WARN: {}", message)),
@@ -100,8 +104,32 @@ impl FathomApp {
                     SystemEvent::HubbleTrafficUpdated(_) => {
                         // HubblePanel (React bridge) handles this in on_event; no egui view yet.
                     }
+                    SystemEvent::ClusterVersionUpdated(_) => {
+                        // Tauri UI badge only (019); no egui view.
+                    }
+                    SystemEvent::GatekeeperOverviewUpdated(_) => {
+                        // GatekeeperPanel (React bridge) handles this; no egui view.
+                    }
+                    SystemEvent::CertManagerOverviewUpdated(_)
+                    | SystemEvent::CertificateChainUpdated(_) => {
+                        // Certificates pane (React bridge) handles this; no egui view.
+                    }
+                    SystemEvent::TrivyOverviewUpdated(_) => {
+                        // React UI owns the Trivy pane; no egui view.
+                    }
+                    SystemEvent::KedaOverviewUpdated(_)
+                    | SystemEvent::KedaResourceDetailsUpdated(_)
+                    | SystemEvent::KedaResourceNotFound { .. } => {
+                        // KedaPanel (React bridge) handles this; no egui view.
+                    }
                     SystemEvent::FluxOverviewUpdated(_) => {
                         // FluxView handles this in on_event
+                    }
+                    SystemEvent::VeleroOverviewUpdated(_) => {
+                        // React-only pane (022-velero-backup-pane); no egui view.
+                    }
+                    SystemEvent::KnativeOverviewUpdated(_) => {
+                        // KnativePanel (React bridge) handles this; no egui view.
                     }
                     SystemEvent::HelmMutationPreviewReady(_)
                     | SystemEvent::HelmMutationApplied(_)
@@ -110,6 +138,9 @@ impl FathomApp {
                     }
                     SystemEvent::UiConfigLoaded { .. } => {
                         // Only the Tauri UI requests this; the egui UI reads config.json directly.
+                    }
+                    SystemEvent::AuditLogLoaded { .. } => {
+                        // Audit-log viewer is React-only; no egui view.
                     }
                     SystemEvent::CrdCatalogUpdated { .. }
                     | SystemEvent::CrdInstancesUpdated { .. } => {

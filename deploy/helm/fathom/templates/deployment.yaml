@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fathom.fullname" . }}
+  labels:
+    {{- include "fathom.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "fathom.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fathom.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "fathom.fullname" . }}
+      automountServiceAccountToken: {{ eq .Values.accessModel "impersonation" }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fathom
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - {name: FATHOM_EXTERNAL_URL, value: {{ .Values.externalUrl | quote }}}
+            - {name: FATHOM_OIDC_ISSUER, value: {{ .Values.oidc.issuer | quote }}}
+            - {name: FATHOM_OIDC_CLIENT_ID, value: {{ .Values.oidc.clientId | quote }}}
+            - name: FATHOM_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fathom.secretName" . }}
+                  key: client-secret
+            {{- if .Values.oidc.caSecret }}
+            - {name: FATHOM_OIDC_CA_FILE, value: /etc/fathom/ca/ca.crt}
+            {{- end }}
+            {{- with .Values.oidc.scopes }}
+            - {name: FATHOM_OIDC_SCOPES, value: {{ join "," . | quote }}}
+            {{- end }}
+            - {name: FATHOM_CLAIM_USERNAME, value: {{ .Values.claims.username | quote }}}
+            - {name: FATHOM_CLAIM_GROUPS, value: {{ .Values.claims.groups | quote }}}
+            - {name: FATHOM_USERNAME_PREFIX, value: {{ .Values.claims.usernamePrefix | quote }}}
+            - {name: FATHOM_GROUPS_PREFIX, value: {{ .Values.claims.groupsPrefix | quote }}}
+            - {name: FATHOM_ACCESS_MODEL, value: {{ .Values.accessModel | quote }}}
+            - {name: FATHOM_KUBE_TOKEN, value: {{ .Values.kubeToken | quote }}}
+            {{- with .Values.audit.viewerGroups }}
+            - {name: FATHOM_AUDIT_VIEWER_GROUPS, value: {{ join "," . | quote }}}
+            {{- end }}
+            - {name: FATHOM_LIMIT_MAX_SESSIONS, value: {{ .Values.limits.maxSessions | quote }}}
+            - {name: FATHOM_LIMIT_MAX_SESSIONS_PER_USER, value: {{ .Values.limits.maxSessionsPerUser | quote }}}
+            - {name: FATHOM_LIMIT_MAX_WATCHES_PER_USER, value: {{ .Values.limits.maxWatchesPerUser | quote }}}
+            - {name: FATHOM_LIMIT_MAX_STREAMS_PER_USER, value: {{ .Values.limits.maxStreamsPerUser | quote }}}
+            {{- with .Values.limits.maxTabsPerUser }}
+            - {name: FATHOM_LIMIT_MAX_TABS_PER_USER, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.limits.streamRecycleMinutes }}
+            - {name: FATHOM_LIMIT_STREAM_RECYCLE_MINUTES, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.session.refreshGraceSeconds }}
+            - {name: FATHOM_REFRESH_GRACE_SECONDS, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.session.revalidateSeconds }}
+            - {name: FATHOM_REVALIDATE_SECONDS, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.session.absolute }}
+            - {name: FATHOM_SESSION_ABSOLUTE, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.session.idle }}
+            - {name: FATHOM_SESSION_IDLE, value: {{ . | quote }}}
+            {{- end }}
+            - {name: FATHOM_STATE_DIR, value: /var/lib/fathom}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - {name: state, mountPath: /var/lib/fathom}
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.oidc.caSecret }}
+            - {name: ca, mountPath: /etc/fathom/ca, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: state
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "fathom.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.oidc.caSecret }}
+        - name: ca
+          secret:
+            secretName: {{ .Values.oidc.caSecret }}
+        {{- end }}

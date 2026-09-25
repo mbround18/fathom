@@ -39,8 +39,10 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
+  onCloseAutoFocus?: (event: Event) => void
   title?: string
   description?: string
   className?: string
@@ -58,6 +60,7 @@ function CommandDialog({
           className
         )}
         showCloseButton={showCloseButton}
+        {...(onCloseAutoFocus && { onCloseAutoFocus })}
       >
         {children}
       </DialogContent>

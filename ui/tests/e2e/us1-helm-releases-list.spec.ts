@@ -7,7 +7,17 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, list, nsRoute } from '../fixtures/builders'
-import { emit, expectRowCount, navigateTo, open, row, sent, sentTypes, table } from './helpers'
+import {
+  chooseScope,
+  emit,
+  expectRowCount,
+  navigateTo,
+  open,
+  row,
+  sent,
+  sentTypes,
+  table,
+} from './helpers'
 
 const HELM = 'helm/releases'
 
@@ -46,7 +56,12 @@ test.describe('US1 Helm releases list', () => {
     const fullColumns = info.project.name === 'chromium-desktop'
 
     await goToHelmReleases(page)
-    await emit(page, batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [REDIS, WEB] })]))
+    await emit(
+      page,
+      batch([
+        list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [REDIS, WEB] }),
+      ]),
+    )
     await expectRowCount(page, 2, HELM)
 
     const redisRow = row(page, `${REDIS.namespace}/${REDIS.name}`, HELM)
@@ -65,17 +80,24 @@ test.describe('US1 Helm releases list', () => {
 
   test('T021: respects the active namespace filter', async ({ page }) => {
     await goToHelmReleases(page)
-    await emit(page, batch([list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [REDIS, WEB] })]))
+    await emit(
+      page,
+      batch([
+        list(1, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [REDIS, WEB] }),
+      ]),
+    )
     await expectRowCount(page, 2, HELM)
 
-    await page.getByRole('combobox', { name: 'Namespace' }).click()
-    await page.getByRole('option', { name: 'payments' }).click()
+    await chooseScope(page, 'Namespace', 'payments')
     expect((await sent(page)).filter((c) => c.type === 'SetNamespaceFilter').at(-1)).toEqual({
       type: 'SetNamespaceFilter',
       data: { namespaces: ['payments'] },
     })
 
-    await emit(page, batch([list(2, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [WEB] })]))
+    await emit(
+      page,
+      batch([list(2, nsRoute('kind-a', HELM), { type: 'HelmReleasesUpdated', data: [WEB] })]),
+    )
     await expectRowCount(page, 1, HELM)
     await expect(table(page, HELM)).toContainText('web')
     await expect(table(page, HELM)).not.toContainText('redis')

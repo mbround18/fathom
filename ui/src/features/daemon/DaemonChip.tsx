@@ -63,7 +63,10 @@ export function DaemonChip({ compact }: { compact: boolean }) {
           aria-label={`In-cluster daemon: ${STATE_LABEL[state]}`}
           data-testid="daemon-chip"
           data-daemon-state={state}
-          className={cn('shrink-0', TONE_CLASS[tone])}
+          className={cn(
+            'min-h-[var(--touch-target)] min-w-[var(--touch-target)] shrink-0',
+            TONE_CLASS[tone],
+          )}
         >
           <HardDrivesIcon />
           {!compact && (

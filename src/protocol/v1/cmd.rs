@@ -3,9 +3,9 @@ use ts_rs::TS;
 
 use super::{
     ActionOutcome, AgentAuthModeInput, AgentObjectRef, ApiKeyInput, CapabilityQuery,
-    ClusterSettings, ContextAuthMode, FathomRoleMap, NodeShellPodRef, NodeShellSettings,
-    OidcIssuerConfig, OidcSignInMethod, Provider, RbacAccessCheck, RequestId, RoleAssignmentDraft,
-    SectionKey, UiConfig,
+    ClusterSettings, ContextAuthMode, FathomRoleMap, KindClusterProfileId, NodeShellPodRef,
+    NodeShellSettings, OidcIssuerConfig, OidcSignInMethod, Provider, RbacAccessCheck, RequestId,
+    RoleAssignmentDraft, SectionKey, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -44,6 +44,22 @@ pub enum BackendCmdV1 {
     CancelDrainNode {
         name: String,
         request_id: String,
+    },
+    // 030-kind-cluster-provisioning
+    RefreshKindPrerequisites,
+    RefreshKindClusters,
+    CreateKindCluster {
+        request_id: String,
+        name: String,
+        profile: KindClusterProfileId,
+        custom_yaml: Option<String>,
+    },
+    CancelCreateKindCluster {
+        request_id: String,
+    },
+    DeleteKindCluster {
+        request_id: String,
+        name: String,
     },
     TaintNode {
         name: String,
@@ -100,12 +116,34 @@ pub enum BackendCmdV1 {
         namespace: String,
         name: String,
     },
+    /// Add an ephemeral debug container to a running pod (025-ephemeral-debug-containers),
+    /// equivalent to `kubectl debug`'s `AddEphemeralContainer`. This is a one-way mutation:
+    /// the Kubernetes API has no way to remove an ephemeral container once added, so there is
+    /// no corresponding `RemoveEphemeralContainer` command.
+    AddEphemeralContainer {
+        namespace: String,
+        pod: String,
+        /// Existing container whose process namespace the new container will share.
+        /// `None` is only valid when the pod has exactly one container (auto-selected).
+        target_container: Option<String>,
+        /// Debug image reference (e.g. `busybox`, `nicolaka/netshoot`), free text (no catalog).
+        image: String,
+        /// Name for the new ephemeral container. `None` = backend generates one.
+        ephemeral_container_name: Option<String>,
+    },
     /// Fetch one container's OCI image manifest/config metadata (010-container-image-inspection).
     /// Sent only when the operator opens that container's "Image" tab (FR-003) — never eagerly.
     InspectContainerImage {
         namespace: String,
         pod: String,
         container: String,
+    },
+    /// Fetch a Pod's Aqua Trivy Operator vulnerability findings
+    /// (021-trivy-vulnerability-pane). Sent only when the operator opens that Pod's
+    /// "Vulnerabilities" tab — never eagerly.
+    InspectPodVulnerabilities {
+        namespace: String,
+        pod: String,
     },
     StartPodLogs {
         namespace: String,
@@ -130,6 +168,13 @@ pub enum BackendCmdV1 {
         rows: u16,
     },
     StopPodExec,
+    /// 024-pod-exec-terminal: proactive, read-only `pods/exec` permission pre-check, sent
+    /// before showing the exec-session confirmation. See `PodExecAccessChecked`.
+    CheckPodExecAccess {
+        namespace: String,
+        name: String,
+        container: Option<String>,
+    },
 
     // Workloads / Deployments section
     RefreshDeployments,
@@ -361,7 +406,29 @@ pub enum BackendCmdV1 {
         api_key: String,
     },
     RefreshFlux,
+    RefreshKnative,
+    /// 022-velero-backup-pane: immediate re-scan, so opening the pane doesn't wait out the
+    /// background poll interval.
+    RefreshVelero,
+    /// Rescan Aqua Trivy Operator CRDs for the cluster-wide vulnerability summary
+    /// (021-trivy-vulnerability-pane). Also polled every 20s in the background.
+    RefreshTrivyOverview,
+    /// KEDA overview refresh (029-keda-autoscaler-pane).
+    RefreshKeda,
+    /// KEDA single-resource lookups for the Inspector (read-only).
+    SelectScaledObject {
+        namespace: String,
+        name: String,
+    },
+    SelectScaledJob {
+        namespace: String,
+        name: String,
+    },
     RefreshHubble,
+    RefreshGatekeeper,
+    /// Rescan cert-manager CRDs and Certificates now (dashboard aggregate), same shape as
+    /// `RefreshFlux` (023-cert-manager-certificates-pane).
+    RefreshCertManager,
     // Keeps the original Day-1 “proof” button around.
     SimulateSlowCall,
     // Bulk operations
@@ -447,6 +514,15 @@ pub enum BackendCmdV1 {
     // create/edit/delete actions (FR-007). Read-only; never mutates the cluster.
     RefreshRbacSelfAccess {
         checks: Vec<RbacAccessCheck>,
+    },
+
+    // 018-rbac-aware-mutation-ui: resolve the plural/group of `api_version`/`kind` via discovery,
+    // then run one live `SelfSubjectAccessReview`. Read-only; used to gate YAML apply/create.
+    CheckResourceMutationAccess {
+        api_version: String,
+        kind: String,
+        namespace: Option<String>,
+        verb: String,
     },
 
     // access/namespace-access (read-only, derived from already-fetched RBAC objects)
@@ -795,6 +871,14 @@ pub enum BackendCmdV1 {
         name: String,
     },
 
+    /// Resolve one Certificate's lifecycle chain (Certificate -> CertificateRequest -> Order ->
+    /// Challenge), read-only, on-demand — same shape as `SelectFluxResource`
+    /// (023-cert-manager-certificates-pane).
+    SelectCertificateChain {
+        namespace: String,
+        name: String,
+    },
+
     // Helm releases (mutate: rollback, upgrade, uninstall — 006)
     /// Compute a rollback diff-preview without mutating anything.
     PreviewHelmRollback {
@@ -926,6 +1010,10 @@ pub enum BackendCmdV1 {
         command_summary: String,
         outcome: ActionOutcome,
     },
+
+    // 026-mutation-audit-log-viewer: read-only reload of the local, bounded mutation
+    // history from `~/.fathom/audit-log.json`. Never mutates anything itself.
+    RefreshAuditLog,
 
     // 027-fleet-rollup-dashboard: view-scoped multi-context health rollup. Both are idempotent
     // and never touch `ClusterContext.client`/`current_context` (the active context) — the
@@ -1095,6 +1183,38 @@ mod tests {
     }
 
     #[test]
+    fn add_ephemeral_container_roundtrip() {
+        roundtrip(BackendCmdV1::AddEphemeralContainer {
+            namespace: "default".to_owned(),
+            pod: "web-0".to_owned(),
+            target_container: Some("app".to_owned()),
+            image: "nicolaka/netshoot:latest".to_owned(),
+            ephemeral_container_name: None,
+        });
+        roundtrip(BackendCmdV1::AddEphemeralContainer {
+            namespace: "default".to_owned(),
+            pod: "web-0".to_owned(),
+            target_container: None,
+            image: "busybox".to_owned(),
+            ephemeral_container_name: Some("debugger-1".to_owned()),
+        });
+    }
+
+    #[test]
+    fn check_pod_exec_access_roundtrip() {
+        roundtrip(BackendCmdV1::CheckPodExecAccess {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: Some("app".to_owned()),
+        });
+        roundtrip(BackendCmdV1::CheckPodExecAccess {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: None,
+        });
+    }
+
+    #[test]
     fn apply_resource_yaml_roundtrip() {
         roundtrip(BackendCmdV1::ApplyResourceYaml {
             api_version: "apps/v1".to_owned(),
@@ -1160,6 +1280,25 @@ mod tests {
     }
 
     #[test]
+    fn kind_cluster_cmds_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKindPrerequisites);
+        roundtrip(BackendCmdV1::RefreshKindClusters);
+        roundtrip(BackendCmdV1::CreateKindCluster {
+            request_id: "r".to_owned(),
+            name: "dev".to_owned(),
+            profile: KindClusterProfileId::CustomYaml,
+            custom_yaml: Some("kind: Cluster".to_owned()),
+        });
+        roundtrip(BackendCmdV1::CancelCreateKindCluster {
+            request_id: "r".to_owned(),
+        });
+        roundtrip(BackendCmdV1::DeleteKindCluster {
+            request_id: "r".to_owned(),
+            name: "dev".to_owned(),
+        });
+    }
+
+    #[test]
     fn taint_node_roundtrip() {
         roundtrip(BackendCmdV1::TaintNode {
             name: "node-1".to_owned(),
@@ -1175,6 +1314,11 @@ mod tests {
             value: None,
             effect: "NoSchedule".to_owned(),
         });
+    }
+
+    #[test]
+    fn refresh_velero_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshVelero);
     }
 
     #[test]
@@ -1225,6 +1369,37 @@ mod tests {
             namespace: "flux-system".to_owned(),
             name: "redis".to_owned(),
         });
+    }
+
+    #[test]
+    fn refresh_cert_manager_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshCertManager);
+    }
+
+    #[test]
+    fn select_certificate_chain_roundtrip() {
+        roundtrip(BackendCmdV1::SelectCertificateChain {
+            namespace: "default".to_owned(),
+            name: "example-com-tls".to_owned(),
+        });
+    }
+
+    #[test]
+    fn keda_cmds_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKeda);
+        roundtrip(BackendCmdV1::SelectScaledObject {
+            namespace: "default".to_owned(),
+            name: "queue-worker".to_owned(),
+        });
+        roundtrip(BackendCmdV1::SelectScaledJob {
+            namespace: "default".to_owned(),
+            name: "batch".to_owned(),
+        });
+    }
+
+    #[test]
+    fn refresh_knative_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshKnative);
     }
 
     #[test]
@@ -1515,6 +1690,11 @@ mod tests {
         roundtrip(BackendCmdV1::LoadMcpServerStatus);
         roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: true });
         roundtrip(BackendCmdV1::SetMcpServerEnabled { enabled: false });
+    }
+
+    #[test]
+    fn refresh_gatekeeper_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshGatekeeper);
     }
 
     #[test]

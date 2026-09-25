@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test'
 
 import { batch, system } from '../fixtures/builders'
-import { emit, open, sentTypes } from './helpers'
+import { emit, open, openFleet, sentTypes } from './helpers'
 
 test('fleet dashboard shows both contexts without switching the active one', async ({ page }) => {
   await open(page, 'manual')
@@ -12,11 +12,9 @@ test('fleet dashboard shows both contexts without switching the active one', asy
       system(1, { type: 'ContextsUpdated', data: { contexts: ['prod', 'dev'], current: 'prod' } }),
     ]),
   )
-  await page.getByTestId('fleet-open').click()
+  await openFleet(page)
   await expect(page.getByTestId('fleet-context-card')).toHaveCount(2)
-  await expect
-    .poll(async () => (await sentTypes(page)).includes('StartFleetPolling'))
-    .toBe(true)
+  await expect.poll(async () => (await sentTypes(page)).includes('StartFleetPolling')).toBe(true)
 
   const base = {
     error: null,
@@ -74,7 +72,7 @@ test('restricted group shows "no access"; clicking a card switches and closes th
       system(1, { type: 'ContextsUpdated', data: { contexts: ['prod', 'dev'], current: 'prod' } }),
     ]),
   )
-  await page.getByTestId('fleet-open').click()
+  await openFleet(page)
   await emit(
     page,
     batch([

@@ -51,9 +51,7 @@ test.describe('US1 pod lifecycle: init containers', () => {
     // "View logs" on an init container switches to Logs and starts a stream for it.
     await migrate.getByTestId('pod-lifecycle-view-logs').click()
     await expect(insp.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
-    await expect
-      .poll(() => sentTypes(page))
-      .toEqual(expect.arrayContaining(['StartPodLogs']))
+    await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['StartPodLogs']))
     const starts = (await sent(page)).filter((c) => c.type === 'StartPodLogs')
     expect(starts.at(-1)).toMatchObject({
       type: 'StartPodLogs',

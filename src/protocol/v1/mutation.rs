@@ -6,7 +6,7 @@
 
 #[cfg(test)]
 use super::{ActionOutcome, AgentAuthModeInput, AgentObjectRef};
-use super::{BackendCmdV1, SectionKey, section_keys};
+use super::{AuditActionKind, AuditActionSummary, BackendCmdV1, SectionKey, section_keys};
 
 /// What executing a command can modify.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,10 +57,10 @@ impl BackendCmdV1 {
             | C::RefreshPods
             | C::SelectPod { .. }
             | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
-            | C::StartPodExec { .. }
             | C::SendPodExecInput { .. }
             | C::ResizePodExec { .. }
             | C::StopPodExec
@@ -68,6 +68,9 @@ impl BackendCmdV1 {
             | C::CheckNodeShellAccess { .. }
             | C::ListNodeShellOrphans { .. }
             | C::GetNodeShellSettings
+            // 024-pod-exec-terminal: the proactive `pods/exec` permission pre-check is a
+            // read-only `SelfSubjectAccessReview`, shown before the exec confirmation.
+            | C::CheckPodExecAccess { .. }
             | C::RefreshDeployments
             | C::SelectDeployment { .. }
             | C::RefreshDaemonSets
@@ -102,7 +105,12 @@ impl BackendCmdV1 {
             | C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
             | C::RefreshFlux
+            | C::RefreshVelero
+            | C::RefreshTrivyOverview
             | C::RefreshHubble
+            | C::RefreshGatekeeper
+            | C::RefreshCertManager
+            | C::SelectCertificateChain { .. }
             | C::SimulateSlowCall
             | C::SetActiveSection { .. }
             | C::RefreshPersistentVolumes
@@ -152,6 +160,10 @@ impl BackendCmdV1 {
             | C::RefreshHelmReleases
             | C::SelectHelmRelease { .. }
             | C::SelectFluxResource { .. }
+            | C::RefreshKnative
+            | C::RefreshKeda
+            | C::SelectScaledObject { .. }
+            | C::SelectScaledJob { .. }
             // Agent SDK Ops (013): `AgentAsk` calls an external model provider but
             // writes no cluster/persisted state beyond the in-memory/on-disk
             // conversation (classified `Local` below is where persistence writes
@@ -181,11 +193,19 @@ impl BackendCmdV1 {
             // 015-mcp-agent-exposure: reads the persisted toggle and the derived connection
             // snippet only; never the cluster, never a write.
             | C::LoadMcpServerStatus
+            // 030-kind-cluster-provisioning: host tool/runtime probes and `kind get clusters`.
+            | C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
             // 011-rbac-oidc-administration: self-access checks, namespace-access lookup, and
             // kubeadm ConfigMap detection are all read-only.
             | C::RefreshRbacSelfAccess { .. }
+            // 018-rbac-aware-mutation-ui: discovery + SelfSubjectAccessReview, read-only.
+            | C::CheckResourceMutationAccess { .. }
             | C::ResolveNamespaceAccess { .. }
-            | C::RefreshKubeadmDetection => MutationTarget::ReadOnly,
+            | C::RefreshKubeadmDetection
+            // 026-mutation-audit-log-viewer: reads the persisted, bounded local audit log
+            // only; never mutates anything.
+            | C::RefreshAuditLog => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -240,6 +260,11 @@ impl BackendCmdV1 {
             // starts/stops the local stdio server task — never the cluster itself. (The MCP
             // server's own tools re-enter the backend's existing guarded mutation paths.)
             | C::SetMcpServerEnabled { .. }
+            // 030-kind-cluster-provisioning: creates/deletes local kind clusters and merges
+            // their contexts into the kubeconfig; never touches an existing cluster's objects.
+            | C::CreateKindCluster { .. }
+            | C::CancelCreateKindCluster { .. }
+            | C::DeleteKindCluster { .. }
             // 015-mcp-agent-exposure US4: the demo chat is a subprocess on the operator's own
             // machine (`claude` from `PATH`) talking to Fathom's stdio MCP server; nothing here
             // reaches the cluster except through that server's own guarded tools.
@@ -268,7 +293,16 @@ impl BackendCmdV1 {
             },
 
             // Namespaced cluster writes.
-            C::DeletePod { namespace, .. }
+            C::AddEphemeralContainer { namespace, .. }
+            //
+            // 024-pod-exec-terminal: `StartPodExec` is not a CRUD mutation, but opening an
+            // interactive shell into a container is effectively RCE-into-pod, so it is
+            // classified here on purpose — this is the enforceable gate (e.g.
+            // `tools/devbridge/src/guard.rs`'s sandbox guard treats it exactly like any
+            // other namespaced write). `SendPodExecInput`/`ResizePodExec`/`StopPodExec` stay
+            // `ReadOnly` above: only the act of opening a session is gated.
+            | C::StartPodExec { namespace, .. }
+            | C::DeletePod { namespace, .. }
             | C::ScaleDeployment { namespace, .. }
             | C::RestartDeployment { namespace, .. }
             | C::DeleteDeployment { namespace, .. }
@@ -364,6 +398,12 @@ impl BackendCmdV1 {
         let key = match self {
             C::Initialize
             | C::Shutdown
+            // 030-kind-cluster-provisioning: host-level, not tied to a UI section.
+            | C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
+            | C::CreateKindCluster { .. }
+            | C::CancelCreateKindCluster { .. }
+            | C::DeleteKindCluster { .. }
             | C::RefreshContexts
             | C::SetContext { .. }
             | C::SetNamespaceFilter { .. }
@@ -444,7 +484,9 @@ impl BackendCmdV1 {
             C::RefreshPods
             | C::SelectPod { .. }
             | C::DeletePod { .. }
+            | C::AddEphemeralContainer { .. }
             | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
             | C::FetchPodMetrics { .. }
@@ -452,6 +494,7 @@ impl BackendCmdV1 {
             | C::SendPodExecInput { .. }
             | C::ResizePodExec { .. }
             | C::StopPodExec
+            | C::CheckPodExecAccess { .. }
             | C::StartMetricsPolling { .. }
             | C::StopMetricsPolling
             | C::BulkDelete { .. } => section_keys::workloads_pods(),
@@ -538,7 +581,12 @@ impl BackendCmdV1 {
                 section_keys::integrations_grafana()
             }
             C::RefreshFlux => section_keys::integrations_flux(),
+            C::RefreshKnative => section_keys::integrations_knative(),
+            C::RefreshVelero => section_keys::integrations_velero(),
+            C::RefreshTrivyOverview => section_keys::integrations_vulnerabilities(),
             C::RefreshHubble => section_keys::integrations_hubble(),
+            C::RefreshGatekeeper => section_keys::integrations_gatekeeper(),
+            C::RefreshCertManager => section_keys::integrations_cert_manager(),
             C::RefreshPersistentVolumes
             | C::SelectPersistentVolume { .. }
             | C::DeletePersistentVolume { .. } => section_keys::storage_pv(),
@@ -562,7 +610,9 @@ impl BackendCmdV1 {
             | C::DeleteClusterRoleBinding { .. } => section_keys::access_clusterrolebindings(),
             // Gates whichever binding kind the caller is checking; the section is advisory
             // (used for correlation/routing only, not for scoping the review itself).
-            C::RefreshRbacSelfAccess { .. } => section_keys::access_rolebindings(),
+            C::RefreshRbacSelfAccess { .. } | C::CheckResourceMutationAccess { .. } => {
+                section_keys::access_rolebindings()
+            }
             C::ResolveNamespaceAccess { .. } => section_keys::access_namespace_access(),
             C::RefreshKubeadmDetection => section_keys::access_oidc_config(),
             C::RefreshConfigMaps | C::SelectConfigMap { .. } | C::DeleteConfigMap { .. } => {
@@ -618,8 +668,884 @@ impl BackendCmdV1 {
             | C::ApplyHelmUpgrade { .. }
             | C::UninstallHelmRelease { .. } => section_keys::helm_releases(),
             C::SelectFluxResource { .. } => section_keys::flux_resource(),
+            C::SelectCertificateChain { .. } => section_keys::certificate_chain(),
+            C::RefreshAuditLog => section_keys::audit_log(),
+            C::RefreshKeda | C::SelectScaledObject { .. } | C::SelectScaledJob { .. } => {
+                section_keys::autoscalers()
+            }
         };
         Some(key)
+    }
+
+    /// Classify a mutating command for the local audit log (026-mutation-audit-log-viewer).
+    /// `None` for every `ReadOnly`/`ContextSwitch` command and for pure session/UI mechanics
+    /// that carry no meaningful target (backend shutdown, the demo-chat subprocess
+    /// lifecycle) — see `research.md` R1. Exhaustive with no wildcard arm, same discipline as
+    /// [`Self::mutation_target`].
+    #[allow(clippy::too_many_lines)] // one arm per protocol variant, by design
+    pub fn audit_summary(&self) -> Option<AuditActionSummary> {
+        use BackendCmdV1 as C;
+
+        fn summary(
+            kind: AuditActionKind,
+            target_kind: Option<&str>,
+            target_namespace: Option<&str>,
+            target_name: Option<&str>,
+        ) -> Option<AuditActionSummary> {
+            Some(AuditActionSummary {
+                kind,
+                target_kind: target_kind.map(str::to_owned),
+                target_namespace: target_namespace.map(str::to_owned),
+                target_name: target_name.map(str::to_owned),
+            })
+        }
+
+        match self {
+            // Reads, transient backend state, and context switches: nothing to audit.
+            C::Initialize
+            // 033-038 identity, federation, node-shell, AI-login and daemon commands have no
+            // audit kind of their own yet: not audited.
+            | C::CheckNodeShellAccess { .. }
+            | C::StartNodeShell { .. }
+            | C::StopNodeShell { .. }
+            | C::ListNodeShellOrphans { .. }
+            | C::DeleteNodeShellOrphans { .. }
+            | C::GetNodeShellSettings
+            | C::SetNodeShellSettings { .. }
+            | C::SetExecPolicy { .. }
+            | C::LoadOidcConfig
+            | C::OidcSaveIssuer { .. }
+            | C::OidcDeleteIssuer { .. }
+            | C::OidcSetRoleMap { .. }
+            | C::OidcSignIn { .. }
+            | C::OidcCancelSignIn { .. }
+            | C::OidcSignOut { .. }
+            | C::SetContextAuthMode { .. }
+            | C::IdpSetAdminKey { .. }
+            | C::IdpRefreshDirectory { .. }
+            | C::ResolveCapabilities { .. }
+            | C::CheckCapability { .. }
+            | C::LinkTeamProfile { .. }
+            | C::UnlinkTeamProfile { .. }
+            | C::PreviewRoleAssignment { .. }
+            | C::RefreshOrphanedSubjects { .. }
+            | C::AiProviderLoginStart { .. }
+            | C::AiProviderSubmitApiKey { .. }
+            | C::AiProviderLoginCancel
+            | C::AiProviderSignOut { .. }
+            | C::AiSetActiveProvider { .. }
+            | C::AiSetOfflineMode { .. }
+            | C::AiOllamaProbe { .. }
+            | C::AiOllamaSelectModel { .. }
+            | C::AiSetOllamaEndpoint { .. }
+            | C::AiEnableFileStore { .. }
+            | C::AiGetStatus
+            | C::FederateContext { .. }
+            | C::UnfederateContext { .. }
+            | C::RequestFederationSnapshot
+            | C::SetDaemonPreference { .. }
+            | C::RefreshDaemon { .. }
+            | C::RequestDaemonTimeline { .. }
+            | C::RequestDaemonTopology { .. }
+            | C::RequestDaemonMetrics { .. }
+            | C::RefreshContexts
+            | C::RefreshNamespaces
+            | C::SetNamespaceFilter { .. }
+            | C::RefreshNodes
+            | C::SelectNode { .. }
+            | C::RefreshEvents
+            | C::RefreshPods
+            | C::SelectPod { .. }
+            | C::InspectContainerImage { .. }
+            | C::StartPodLogs { .. }
+            | C::StopPodLogs
+            | C::FetchPodMetrics { .. }
+            | C::StartPodExec { .. }
+            | C::SendPodExecInput { .. }
+            | C::ResizePodExec { .. }
+            | C::StopPodExec
+            | C::RefreshDeployments
+            | C::SelectDeployment { .. }
+            | C::RefreshDaemonSets
+            | C::SelectDaemonSet { .. }
+            | C::RefreshStatefulSets
+            | C::SelectStatefulSet { .. }
+            | C::RefreshReplicaSets
+            | C::SelectReplicaSet { .. }
+            | C::RefreshReplicationControllers
+            | C::SelectReplicationController { .. }
+            | C::RefreshJobs
+            | C::SelectJob { .. }
+            | C::RefreshCronJobs
+            | C::SelectCronJob { .. }
+            | C::CheckPortAvailability { .. }
+            | C::RefreshPortForwards
+            | C::RefreshServices
+            | C::SelectService { .. }
+            | C::RefreshEndpoints
+            | C::SelectEndpoint { .. }
+            | C::RefreshIngresses
+            | C::SelectIngress { .. }
+            | C::RefreshIngressClasses
+            | C::SelectIngressClass { .. }
+            | C::RefreshNetworkPolicies
+            | C::SelectNetworkPolicy { .. }
+            | C::RefreshIntegrations
+            | C::StartMetricsPolling { .. }
+            | C::StopMetricsPolling
+            | C::StartWorkloadMetricsPolling { .. }
+            | C::StopWorkloadMetricsPolling
+            | C::TestPrometheusConnection { .. }
+            | C::TestGrafanaConnection { .. }
+            | C::RefreshFlux
+            | C::RefreshKnative
+            | C::RefreshHubble
+            | C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
+            | C::CancelCreateKindCluster { .. }
+            | C::StartFleetPolling
+            | C::StopFleetPolling
+            | C::CheckPodExecAccess { .. }
+            | C::CheckResourceMutationAccess { .. }
+            | C::RefreshKeda
+            | C::SelectScaledObject { .. }
+            | C::SelectScaledJob { .. }
+            | C::RefreshGatekeeper
+            | C::RefreshVelero
+            | C::RefreshCertManager
+            | C::RefreshTrivyOverview
+            | C::InspectPodVulnerabilities { .. }
+            | C::SelectCertificateChain { .. }
+            | C::SimulateSlowCall
+            | C::SetActiveSection { .. }
+            | C::RefreshPersistentVolumes
+            | C::SelectPersistentVolume { .. }
+            | C::RefreshPersistentVolumeClaims
+            | C::SelectPersistentVolumeClaim { .. }
+            | C::RefreshStorageClasses
+            | C::SelectStorageClass { .. }
+            | C::RefreshRoles
+            | C::SelectRole { .. }
+            | C::RefreshRoleBindings
+            | C::SelectRoleBinding { .. }
+            | C::RefreshClusterRoles
+            | C::SelectClusterRole { .. }
+            | C::RefreshClusterRoleBindings
+            | C::SelectClusterRoleBinding { .. }
+            | C::RefreshConfigMaps
+            | C::SelectConfigMap { .. }
+            | C::RefreshSecrets
+            | C::SelectSecret { .. }
+            | C::RefreshResourceQuotas
+            | C::SelectResourceQuota { .. }
+            | C::RefreshLimitRanges
+            | C::SelectLimitRange { .. }
+            | C::RefreshHorizontalPodAutoscalers
+            | C::SelectHorizontalPodAutoscaler { .. }
+            | C::RefreshPodDisruptionBudgets
+            | C::SelectPodDisruptionBudget { .. }
+            | C::RefreshPriorityClasses
+            | C::SelectPriorityClass { .. }
+            | C::RefreshRuntimeClasses
+            | C::SelectRuntimeClass { .. }
+            | C::RefreshLeases
+            | C::SelectLease { .. }
+            | C::RefreshMutatingWebhookConfigurations
+            | C::SelectMutatingWebhookConfiguration { .. }
+            | C::RefreshValidatingWebhookConfigurations
+            | C::SelectValidatingWebhookConfiguration { .. }
+            | C::LoadUiConfig
+            | C::RefreshCrds
+            | C::SelectCrdKind { .. }
+            | C::RefreshCrdInstances { .. }
+            | C::SelectCrdInstance { .. }
+            | C::RefreshApplications
+            | C::SelectApplication { .. }
+            | C::RefreshRelatedResources { .. }
+            | C::RefreshHelmReleases
+            | C::SelectHelmRelease { .. }
+            | C::SelectFluxResource { .. }
+            | C::AgentGetAuthMode
+            | C::AgentRevealKey
+            | C::AgentOpenConversation { .. }
+            | C::AgentAsk { .. }
+            | C::AgentReviewSuggestedAction { .. }
+            | C::LoadClusterSettings { .. }
+            | C::RefreshTeamStoreStatus
+            | C::RefreshConnectionProfiles
+            | C::LoadMcpServerStatus
+            | C::RefreshRbacSelfAccess { .. }
+            | C::ResolveNamespaceAccess { .. }
+            | C::RefreshKubeadmDetection
+            | C::RefreshAuditLog
+            | C::SetContext { .. }
+            // Pure session/UI mechanics with no meaningful target to audit.
+            | C::Shutdown
+            | C::StartMcpDemoChat
+            | C::StopMcpDemoChat
+            | C::SendMcpDemoChatInput { .. }
+            | C::ResizeMcpDemoChat { .. }
+            | C::AgentClearConversation { .. }
+            | C::AgentDeclineSuggestedAction { .. }
+            | C::AgentRecordExecutedAction { .. } => None,
+
+            // Local settings/state changes worth recording.
+            C::SaveUiConfig { .. } => {
+                summary(AuditActionKind::SettingsChange, None, None, None)
+            }
+            C::ConfigurePrometheus { namespace, service, .. } => summary(
+                AuditActionKind::SettingsChange,
+                Some("Service"),
+                Some(namespace),
+                Some(service),
+            ),
+            C::ConfigureGrafana { .. } => {
+                summary(AuditActionKind::SettingsChange, None, None, None)
+            }
+            C::SaveClusterSettings { context, .. } => summary(
+                AuditActionKind::SettingsChange,
+                Some("ClusterSettings"),
+                None,
+                Some(context),
+            ),
+            C::SetMcpServerEnabled { .. } => {
+                summary(AuditActionKind::McpToggle, None, None, None)
+            }
+            C::StartPortForward { namespace, pod, .. } => summary(
+                AuditActionKind::PortForwardChange,
+                Some("Pod"),
+                Some(namespace),
+                Some(pod),
+            ),
+            C::StopPortForward { tunnel_id }
+            | C::DeletePortForward { tunnel_id }
+            | C::UpdatePortForward { tunnel_id, .. } => summary(
+                AuditActionKind::PortForwardChange,
+                Some("PortForward"),
+                None,
+                Some(tunnel_id),
+            ),
+            C::SetTeamStorePath { .. } => {
+                summary(AuditActionKind::TeamStoreChange, None, None, None)
+            }
+            C::PublishConnectionProfile { context_alias, .. } => summary(
+                AuditActionKind::TeamStoreChange,
+                Some("ConnectionProfile"),
+                None,
+                Some(context_alias),
+            ),
+            C::AdoptConnectionProfile { profile_id }
+            | C::RemoveConnectionProfile { profile_id } => summary(
+                AuditActionKind::TeamStoreChange,
+                Some("ConnectionProfile"),
+                None,
+                Some(profile_id),
+            ),
+            C::PublishOrgClusterSettings { context }
+            | C::AcceptOrgClusterSettings { context }
+            | C::DismissOrgClusterSettings { context } => summary(
+                AuditActionKind::TeamStoreChange,
+                Some("OrgClusterSettings"),
+                None,
+                Some(context),
+            ),
+            C::AgentSetAuthMode { .. } => {
+                summary(AuditActionKind::AgentAction, None, None, None)
+            }
+
+            C::CreateKindCluster { name, .. } => summary(
+                AuditActionKind::KindClusterCreate,
+                Some("KindCluster"),
+                None,
+                Some(name),
+            ),
+            C::DeleteKindCluster { name, .. } => summary(
+                AuditActionKind::KindClusterDelete,
+                Some("KindCluster"),
+                None,
+                Some(name),
+            ),
+
+            // Namespaced cluster writes: deletes.
+            C::AddEphemeralContainer {
+                namespace, pod, ..
+            } => summary(
+                AuditActionKind::EphemeralContainer,
+                Some("Pod"),
+                Some(namespace),
+                Some(pod),
+            ),
+
+            C::DeletePod { namespace, name } => {
+                summary(AuditActionKind::Delete, Some("Pod"), Some(namespace), Some(name))
+            }
+            C::DeleteDeployment { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("Deployment"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteDaemonSet { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("DaemonSet"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteStatefulSet { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("StatefulSet"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteReplicaSet { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("ReplicaSet"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteReplicationController { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("ReplicationController"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteJob { namespace, name } => {
+                summary(AuditActionKind::Delete, Some("Job"), Some(namespace), Some(name))
+            }
+            C::DeleteCronJob { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("CronJob"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteService { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("Service"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteIngress { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("Ingress"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteNetworkPolicy { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("NetworkPolicy"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeletePersistentVolumeClaim { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("PersistentVolumeClaim"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteRole { namespace, name } => {
+                summary(AuditActionKind::Delete, Some("Role"), Some(namespace), Some(name))
+            }
+            C::DeleteRoleBinding { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("RoleBinding"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteConfigMap { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("ConfigMap"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteSecret { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("Secret"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteResourceQuota { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("ResourceQuota"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteLimitRange { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("LimitRange"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteHorizontalPodAutoscaler { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("HorizontalPodAutoscaler"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeletePodDisruptionBudget { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("PodDisruptionBudget"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteLease { namespace, name } => {
+                summary(AuditActionKind::Delete, Some("Lease"), Some(namespace), Some(name))
+            }
+
+            C::BulkDelete { items } => Some(AuditActionSummary {
+                kind: AuditActionKind::BulkDelete,
+                target_kind: None,
+                target_namespace: None,
+                target_name: Some(format!("{} object(s)", items.len())),
+            }),
+
+            // Cluster-scoped deletes.
+            C::DeletePersistentVolume { name } => {
+                summary(AuditActionKind::Delete, Some("PersistentVolume"), None, Some(name))
+            }
+            C::DeleteStorageClass { name } => {
+                summary(AuditActionKind::Delete, Some("StorageClass"), None, Some(name))
+            }
+            C::DeleteClusterRole { name } => {
+                summary(AuditActionKind::Delete, Some("ClusterRole"), None, Some(name))
+            }
+            C::DeleteClusterRoleBinding { name } => summary(
+                AuditActionKind::Delete,
+                Some("ClusterRoleBinding"),
+                None,
+                Some(name),
+            ),
+            C::DeletePriorityClass { name } => {
+                summary(AuditActionKind::Delete, Some("PriorityClass"), None, Some(name))
+            }
+            C::DeleteRuntimeClass { name } => {
+                summary(AuditActionKind::Delete, Some("RuntimeClass"), None, Some(name))
+            }
+            C::DeleteMutatingWebhookConfiguration { name } => summary(
+                AuditActionKind::Delete,
+                Some("MutatingWebhookConfiguration"),
+                None,
+                Some(name),
+            ),
+            C::DeleteValidatingWebhookConfiguration { name } => summary(
+                AuditActionKind::Delete,
+                Some("ValidatingWebhookConfiguration"),
+                None,
+                Some(name),
+            ),
+
+            // Node lifecycle.
+            C::CordonNode { name } => {
+                summary(AuditActionKind::NodeCordon, Some("Node"), None, Some(name))
+            }
+            C::UncordonNode { name } => {
+                summary(AuditActionKind::NodeUncordon, Some("Node"), None, Some(name))
+            }
+            C::DrainNode { name, .. } | C::CancelDrainNode { name, .. } => {
+                summary(AuditActionKind::NodeDrain, Some("Node"), None, Some(name))
+            }
+            C::TaintNode { name, .. } => {
+                summary(AuditActionKind::NodeTaint, Some("Node"), None, Some(name))
+            }
+
+            // Scale / restart / cronjob control.
+            C::ScaleDeployment { namespace, name, .. } => {
+                summary(AuditActionKind::Scale, Some("Deployment"), Some(namespace), Some(name))
+            }
+            C::ScaleStatefulSet { namespace, name, .. } => {
+                summary(AuditActionKind::Scale, Some("StatefulSet"), Some(namespace), Some(name))
+            }
+            C::ScaleReplicaSet { namespace, name, .. } => {
+                summary(AuditActionKind::Scale, Some("ReplicaSet"), Some(namespace), Some(name))
+            }
+            C::ScaleReplicationController { namespace, name, .. } => summary(
+                AuditActionKind::Scale,
+                Some("ReplicationController"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::RestartDeployment { namespace, name } => summary(
+                AuditActionKind::Restart,
+                Some("Deployment"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::RestartDaemonSet { namespace, name } => summary(
+                AuditActionKind::Restart,
+                Some("DaemonSet"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::RestartStatefulSet { namespace, name } => summary(
+                AuditActionKind::Restart,
+                Some("StatefulSet"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::RestartReplicaSet { namespace, name } => summary(
+                AuditActionKind::Restart,
+                Some("ReplicaSet"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::RestartReplicationController { namespace, name } => summary(
+                AuditActionKind::Restart,
+                Some("ReplicationController"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::SuspendCronJob { namespace, name, .. }
+            | C::TriggerCronJob { namespace, name } => summary(
+                AuditActionKind::CronJobControl,
+                Some("CronJob"),
+                Some(namespace),
+                Some(name),
+            ),
+
+            // Full-object apply/create: scope follows the target object's own scope, but the
+            // audit entry always records the object identity regardless of scope.
+            C::ApplyResourceYaml {
+                kind,
+                namespace,
+                name,
+                ..
+            }
+            | C::CreateResourceYaml {
+                kind,
+                namespace,
+                name,
+                ..
+            } => Some(AuditActionSummary {
+                kind: AuditActionKind::YamlApply,
+                target_kind: Some(kind.clone()),
+                target_namespace: namespace.clone(),
+                target_name: Some(name.clone()),
+            }),
+
+            // Helm releases.
+            C::PreviewHelmRollback { .. } | C::PreviewHelmUpgrade { .. } => None,
+            C::ApplyHelmRollback { namespace, release, .. } => summary(
+                AuditActionKind::HelmRollback,
+                Some("HelmRelease"),
+                Some(namespace),
+                Some(release),
+            ),
+            C::ApplyHelmUpgrade { namespace, release, .. } => summary(
+                AuditActionKind::HelmUpgrade,
+                Some("HelmRelease"),
+                Some(namespace),
+                Some(release),
+            ),
+            C::UninstallHelmRelease { namespace, release, .. } => summary(
+                AuditActionKind::HelmUninstall,
+                Some("HelmRelease"),
+                Some(namespace),
+                Some(release),
+            ),
+        }
+    }
+}
+
+/// Why a command is refused in hosted mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostedDenial {
+    /// Local kind cluster provisioning.
+    Kind,
+    /// Kubeconfig context listing.
+    Contexts,
+    /// Switching to a context other than the hosted home context.
+    ContextSwitch,
+    /// stdio MCP server / demo chat.
+    Mcp,
+    /// Multi-cluster fleet polling (reads the kubeconfig).
+    Fleet,
+    /// Reads/writes the state directory shared by every user of the process
+    /// (`config.json`, `integrations.json`, team store, cluster settings).
+    SharedState,
+    /// Agent SDK Ops (server-held credentials and shared conversations).
+    Agent,
+    /// Makes the server call arbitrary URLs, or is a diagnostic hook.
+    ServerSideProbe,
+    /// Backend lifecycle is owned by the server, not the client.
+    Lifecycle,
+}
+
+/// Hosted-mode verdict for one command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostedPolicy {
+    Allowed,
+    Denied(HostedDenial),
+}
+
+impl BackendCmdV1 {
+    /// Hosted-mode policy (spec 031). Exhaustive with no wildcard on purpose: a new variant
+    /// must be classified here. `home` is the hosted home context; `SetContext` is allowed
+    /// only to it. Cluster writes are NOT decided here: the API server enforces the user's RBAC.
+    #[allow(clippy::too_many_lines)] // one arm per protocol variant, by design
+    pub fn hosted_policy(&self, home: &str) -> HostedPolicy {
+        use BackendCmdV1 as C;
+        match self {
+            C::SetContext { context } if context == home => HostedPolicy::Allowed,
+            C::SetContext { .. } => HostedPolicy::Denied(HostedDenial::ContextSwitch),
+            C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
+            | C::CreateKindCluster { .. }
+            | C::CancelCreateKindCluster { .. }
+            | C::DeleteKindCluster { .. } => HostedPolicy::Denied(HostedDenial::Kind),
+            C::RefreshContexts => HostedPolicy::Denied(HostedDenial::Contexts),
+            C::LoadMcpServerStatus
+            | C::SetMcpServerEnabled { .. }
+            | C::StartMcpDemoChat
+            | C::StopMcpDemoChat
+            | C::SendMcpDemoChatInput { .. }
+            | C::ResizeMcpDemoChat { .. } => HostedPolicy::Denied(HostedDenial::Mcp),
+            C::StartFleetPolling | C::StopFleetPolling => HostedPolicy::Denied(HostedDenial::Fleet),
+            C::ConfigurePrometheus { .. }
+            | C::ConfigureGrafana { .. }
+            | C::LoadUiConfig
+            | C::SaveUiConfig { .. }
+            | C::LoadClusterSettings { .. }
+            | C::SaveClusterSettings { .. }
+            | C::SetTeamStorePath { .. }
+            | C::RefreshTeamStoreStatus
+            | C::RefreshConnectionProfiles
+            | C::PublishConnectionProfile { .. }
+            | C::AdoptConnectionProfile { .. }
+            | C::RemoveConnectionProfile { .. }
+            | C::PublishOrgClusterSettings { .. }
+            | C::AcceptOrgClusterSettings { .. }
+            | C::DismissOrgClusterSettings { .. } => {
+                HostedPolicy::Denied(HostedDenial::SharedState)
+            }
+            C::AgentGetAuthMode
+            | C::AgentSetAuthMode { .. }
+            | C::AgentRevealKey
+            | C::AgentOpenConversation { .. }
+            | C::AgentAsk { .. }
+            | C::AgentClearConversation { .. }
+            | C::AgentReviewSuggestedAction { .. }
+            | C::AgentDeclineSuggestedAction { .. }
+            | C::AgentRecordExecutedAction { .. } => HostedPolicy::Denied(HostedDenial::Agent),
+            C::TestPrometheusConnection { .. }
+            | C::TestGrafanaConnection { .. }
+            | C::SimulateSlowCall => HostedPolicy::Denied(HostedDenial::ServerSideProbe),
+            C::Shutdown => HostedPolicy::Denied(HostedDenial::Lifecycle),
+            // 033-038 additions. Per-user cluster operations stay allowed (the API server
+            // enforces the user's RBAC); everything that touches server-shared state or
+            // server-held credentials is refused.
+            C::GetNodeShellSettings
+            | C::SetNodeShellSettings { .. }
+            | C::SetExecPolicy { .. }
+            | C::LoadOidcConfig
+            | C::OidcSaveIssuer { .. }
+            | C::OidcDeleteIssuer { .. }
+            | C::OidcSetRoleMap { .. }
+            | C::OidcSignIn { .. }
+            | C::OidcCancelSignIn { .. }
+            | C::OidcSignOut { .. }
+            | C::SetContextAuthMode { .. }
+            | C::IdpSetAdminKey { .. }
+            | C::IdpRefreshDirectory { .. }
+            | C::LinkTeamProfile { .. }
+            | C::UnlinkTeamProfile { .. }
+            | C::PreviewRoleAssignment { .. }
+            | C::RefreshOrphanedSubjects { .. }
+            | C::SetDaemonPreference { .. }
+            | C::RefreshDaemon { .. }
+            | C::RequestDaemonTimeline { .. }
+            | C::RequestDaemonTopology { .. }
+            | C::RequestDaemonMetrics { .. } => HostedPolicy::Denied(HostedDenial::SharedState),
+            C::AiProviderLoginStart { .. }
+            | C::AiProviderSubmitApiKey { .. }
+            | C::AiProviderLoginCancel
+            | C::AiProviderSignOut { .. }
+            | C::AiSetActiveProvider { .. }
+            | C::AiSetOfflineMode { .. }
+            | C::AiOllamaProbe { .. }
+            | C::AiOllamaSelectModel { .. }
+            | C::AiSetOllamaEndpoint { .. }
+            | C::AiEnableFileStore { .. }
+            | C::AiGetStatus => HostedPolicy::Denied(HostedDenial::Agent),
+            C::FederateContext { .. }
+            | C::UnfederateContext { .. }
+            | C::RequestFederationSnapshot => HostedPolicy::Denied(HostedDenial::Fleet),
+            C::CheckNodeShellAccess { .. }
+            | C::StartNodeShell { .. }
+            | C::StopNodeShell { .. }
+            | C::ListNodeShellOrphans { .. }
+            | C::DeleteNodeShellOrphans { .. }
+            | C::ResolveCapabilities { .. }
+            | C::CheckCapability { .. }
+            | C::Initialize
+            | C::RefreshNamespaces
+            | C::SetNamespaceFilter { .. }
+            | C::RefreshNodes
+            | C::SelectNode { .. }
+            | C::CordonNode { .. }
+            | C::UncordonNode { .. }
+            | C::DrainNode { .. }
+            | C::CancelDrainNode { .. }
+            | C::TaintNode { .. }
+            | C::RefreshEvents
+            | C::RefreshPods
+            | C::SelectPod { .. }
+            | C::DeletePod { .. }
+            | C::AddEphemeralContainer { .. }
+            | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
+            | C::StartPodLogs { .. }
+            | C::StopPodLogs
+            | C::FetchPodMetrics { .. }
+            | C::StartPodExec { .. }
+            | C::SendPodExecInput { .. }
+            | C::ResizePodExec { .. }
+            | C::StopPodExec
+            | C::CheckPodExecAccess { .. }
+            | C::RefreshDeployments
+            | C::SelectDeployment { .. }
+            | C::ScaleDeployment { .. }
+            | C::RestartDeployment { .. }
+            | C::DeleteDeployment { .. }
+            | C::RefreshDaemonSets
+            | C::SelectDaemonSet { .. }
+            | C::RestartDaemonSet { .. }
+            | C::DeleteDaemonSet { .. }
+            | C::RefreshStatefulSets
+            | C::SelectStatefulSet { .. }
+            | C::ScaleStatefulSet { .. }
+            | C::RestartStatefulSet { .. }
+            | C::DeleteStatefulSet { .. }
+            | C::RefreshReplicaSets
+            | C::SelectReplicaSet { .. }
+            | C::ScaleReplicaSet { .. }
+            | C::RestartReplicaSet { .. }
+            | C::DeleteReplicaSet { .. }
+            | C::RefreshReplicationControllers
+            | C::SelectReplicationController { .. }
+            | C::ScaleReplicationController { .. }
+            | C::RestartReplicationController { .. }
+            | C::DeleteReplicationController { .. }
+            | C::RefreshJobs
+            | C::SelectJob { .. }
+            | C::DeleteJob { .. }
+            | C::RefreshCronJobs
+            | C::SelectCronJob { .. }
+            | C::SuspendCronJob { .. }
+            | C::TriggerCronJob { .. }
+            | C::DeleteCronJob { .. }
+            | C::CheckPortAvailability { .. }
+            | C::StartPortForward { .. }
+            | C::StopPortForward { .. }
+            | C::DeletePortForward { .. }
+            | C::UpdatePortForward { .. }
+            | C::RefreshPortForwards
+            | C::RefreshServices
+            | C::SelectService { .. }
+            | C::DeleteService { .. }
+            | C::RefreshEndpoints
+            | C::SelectEndpoint { .. }
+            | C::RefreshIngresses
+            | C::SelectIngress { .. }
+            | C::DeleteIngress { .. }
+            | C::RefreshIngressClasses
+            | C::SelectIngressClass { .. }
+            | C::RefreshNetworkPolicies
+            | C::SelectNetworkPolicy { .. }
+            | C::DeleteNetworkPolicy { .. }
+            | C::RefreshIntegrations
+            | C::StartMetricsPolling { .. }
+            | C::StopMetricsPolling
+            | C::StartWorkloadMetricsPolling { .. }
+            | C::StopWorkloadMetricsPolling
+            | C::RefreshFlux
+            | C::RefreshKnative
+            | C::RefreshVelero
+            | C::RefreshTrivyOverview
+            | C::RefreshKeda
+            | C::SelectScaledObject { .. }
+            | C::SelectScaledJob { .. }
+            | C::RefreshHubble
+            | C::RefreshGatekeeper
+            | C::RefreshCertManager
+            | C::BulkDelete { .. }
+            | C::SetActiveSection { .. }
+            | C::RefreshPersistentVolumes
+            | C::SelectPersistentVolume { .. }
+            | C::DeletePersistentVolume { .. }
+            | C::RefreshPersistentVolumeClaims
+            | C::SelectPersistentVolumeClaim { .. }
+            | C::DeletePersistentVolumeClaim { .. }
+            | C::RefreshStorageClasses
+            | C::SelectStorageClass { .. }
+            | C::DeleteStorageClass { .. }
+            | C::RefreshRoles
+            | C::SelectRole { .. }
+            | C::DeleteRole { .. }
+            | C::RefreshRoleBindings
+            | C::SelectRoleBinding { .. }
+            | C::DeleteRoleBinding { .. }
+            | C::RefreshClusterRoles
+            | C::SelectClusterRole { .. }
+            | C::DeleteClusterRole { .. }
+            | C::RefreshClusterRoleBindings
+            | C::SelectClusterRoleBinding { .. }
+            | C::DeleteClusterRoleBinding { .. }
+            | C::RefreshRbacSelfAccess { .. }
+            | C::CheckResourceMutationAccess { .. }
+            | C::ResolveNamespaceAccess { .. }
+            | C::RefreshKubeadmDetection
+            | C::RefreshConfigMaps
+            | C::SelectConfigMap { .. }
+            | C::DeleteConfigMap { .. }
+            | C::RefreshSecrets
+            | C::SelectSecret { .. }
+            | C::DeleteSecret { .. }
+            | C::RefreshResourceQuotas
+            | C::SelectResourceQuota { .. }
+            | C::DeleteResourceQuota { .. }
+            | C::RefreshLimitRanges
+            | C::SelectLimitRange { .. }
+            | C::DeleteLimitRange { .. }
+            | C::RefreshHorizontalPodAutoscalers
+            | C::SelectHorizontalPodAutoscaler { .. }
+            | C::DeleteHorizontalPodAutoscaler { .. }
+            | C::RefreshPodDisruptionBudgets
+            | C::SelectPodDisruptionBudget { .. }
+            | C::DeletePodDisruptionBudget { .. }
+            | C::RefreshPriorityClasses
+            | C::SelectPriorityClass { .. }
+            | C::DeletePriorityClass { .. }
+            | C::RefreshRuntimeClasses
+            | C::SelectRuntimeClass { .. }
+            | C::DeleteRuntimeClass { .. }
+            | C::RefreshLeases
+            | C::SelectLease { .. }
+            | C::DeleteLease { .. }
+            | C::RefreshMutatingWebhookConfigurations
+            | C::SelectMutatingWebhookConfiguration { .. }
+            | C::DeleteMutatingWebhookConfiguration { .. }
+            | C::RefreshValidatingWebhookConfigurations
+            | C::SelectValidatingWebhookConfiguration { .. }
+            | C::DeleteValidatingWebhookConfiguration { .. }
+            | C::ApplyResourceYaml { .. }
+            | C::CreateResourceYaml { .. }
+            | C::RefreshCrds
+            | C::SelectCrdKind { .. }
+            | C::RefreshCrdInstances { .. }
+            | C::SelectCrdInstance { .. }
+            | C::RefreshApplications
+            | C::SelectApplication { .. }
+            | C::RefreshRelatedResources { .. }
+            | C::RefreshHelmReleases
+            | C::SelectHelmRelease { .. }
+            | C::SelectFluxResource { .. }
+            | C::SelectCertificateChain { .. }
+            | C::PreviewHelmRollback { .. }
+            | C::ApplyHelmRollback { .. }
+            | C::PreviewHelmUpgrade { .. }
+            | C::ApplyHelmUpgrade { .. }
+            | C::UninstallHelmRelease { .. }
+            | C::RefreshAuditLog => HostedPolicy::Allowed,
+        }
     }
 }
 
@@ -639,10 +1565,38 @@ mod tests {
     }
 
     #[test]
+    fn audit_summary_none_for_reads_some_for_mutations() {
+        assert!(BackendCmdV1::RefreshPods.audit_summary().is_none());
+        assert!(BackendCmdV1::RefreshAuditLog.audit_summary().is_none());
+        let a = BackendCmdV1::CordonNode { name: s("n1") }
+            .audit_summary()
+            .expect("cordon is audited");
+        assert_eq!(a.kind, AuditActionKind::NodeCordon);
+        assert_eq!(a.target_kind.as_deref(), Some("Node"));
+        assert_eq!(a.target_name.as_deref(), Some("n1"));
+        assert_eq!(a.target_namespace, None);
+        let y = BackendCmdV1::ApplyResourceYaml {
+            api_version: s("v1"),
+            kind: s("ConfigMap"),
+            namespace: Some(s("default")),
+            name: s("cm"),
+            yaml: s(""),
+            expected_resource_version: s("1"),
+        }
+        .audit_summary()
+        .expect("apply is audited");
+        assert_eq!(y.kind, AuditActionKind::YamlApply);
+        assert_eq!(y.target_namespace.as_deref(), Some("default"));
+    }
+
+    #[test]
     fn read_only_sample() {
         for cmd in [
             BackendCmdV1::Initialize,
+            BackendCmdV1::RefreshKindPrerequisites,
+            BackendCmdV1::RefreshKindClusters,
             BackendCmdV1::RefreshPods,
+            BackendCmdV1::RefreshVelero,
             BackendCmdV1::SelectDeployment {
                 namespace: s("kube-system"),
                 name: s("coredns"),
@@ -682,6 +1636,17 @@ mod tests {
                 container: None,
             },
             BackendCmdV1::DeletePortForward { tunnel_id: s("t") },
+            BackendCmdV1::CreateKindCluster {
+                request_id: s("r"),
+                name: s("dev"),
+                profile: crate::protocol::KindClusterProfileId::Bare,
+                custom_yaml: None,
+            },
+            BackendCmdV1::CancelCreateKindCluster { request_id: s("r") },
+            BackendCmdV1::DeleteKindCluster {
+                request_id: s("r"),
+                name: s("dev"),
+            },
             BackendCmdV1::ConfigureGrafana {
                 base_url: s("http://g"),
                 api_key: s("k"),
@@ -732,11 +1697,59 @@ mod tests {
                 namespace: s("fathom-dev"),
                 name: s("l"),
             },
+            // 024-pod-exec-terminal: opening an exec session is gated like a mutation
+            // even though it writes no Kubernetes object (see the comment on this arm in
+            // `mutation_target()`).
+            BackendCmdV1::StartPodExec {
+                namespace: s("fathom-dev"),
+                name: s("p"),
+                container: None,
+            },
         ];
         for cmd in cases {
             assert_eq!(cmd.mutation_target(), nsn("fathom-dev"), "{cmd:?}");
             assert!(cmd.mutation_target().writes_cluster());
         }
+    }
+
+    /// 024-pod-exec-terminal: `StartPodExec` MUST be gated like a mutation (contracts/
+    /// protocol.md's reclassification contract), while every other exec command stays a
+    /// pure read.
+    #[test]
+    fn start_pod_exec_is_namespaced_not_read_only() {
+        let start = BackendCmdV1::StartPodExec {
+            namespace: s("fathom-dev"),
+            name: s("p"),
+            container: Some(s("app")),
+        };
+        assert_eq!(start.mutation_target(), nsn("fathom-dev"));
+        assert!(start.mutation_target().writes_cluster());
+
+        for cmd in [
+            BackendCmdV1::SendPodExecInput { data: s("bHM=") },
+            BackendCmdV1::ResizePodExec { cols: 80, rows: 24 },
+            BackendCmdV1::StopPodExec,
+            BackendCmdV1::CheckPodExecAccess {
+                namespace: s("fathom-dev"),
+                name: s("p"),
+                container: None,
+            },
+        ] {
+            assert_eq!(cmd.mutation_target(), MutationTarget::ReadOnly, "{cmd:?}");
+        }
+    }
+
+    #[test]
+    fn add_ephemeral_container_is_namespaced_write() {
+        let cmd = BackendCmdV1::AddEphemeralContainer {
+            namespace: s("fathom-dev"),
+            pod: s("web-0"),
+            target_container: Some(s("app")),
+            image: s("busybox"),
+            ephemeral_container_name: None,
+        };
+        assert_eq!(cmd.mutation_target(), nsn("fathom-dev"));
+        assert!(cmd.mutation_target().writes_cluster());
     }
 
     #[test]

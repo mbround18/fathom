@@ -13,7 +13,11 @@ import { clearSent, emit, finish, inspector, nextRequestId, open, row, sent } fr
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
 
-const OBJECT: AgentObjectRef = { kind: 'Pod', namespace: DETAIL_POD.namespace, name: DETAIL_POD.name }
+const OBJECT: AgentObjectRef = {
+  kind: 'Pod',
+  namespace: DETAIL_POD.namespace,
+  name: DETAIL_POD.name,
+}
 
 test.describe('US1 agent ops: ask the assistant', () => {
   test('open the Agent tab, ask a question, and see the response appear', async ({ page }) => {
@@ -37,9 +41,7 @@ test.describe('US1 agent ops: ask the assistant', () => {
     const askRequestId = await nextRequestId(page)
     await insp.getByTestId('agent-ops-submit').click()
 
-    await expect
-      .poll(async () => (await sent(page)).map((c) => c.type))
-      .toContain('AgentAsk')
+    await expect.poll(async () => (await sent(page)).map((c) => c.type)).toContain('AgentAsk')
     const ask = (await sent(page)).find((c) => c.type === 'AgentAsk')
     expect(ask).toEqual({ type: 'AgentAsk', data: { object: OBJECT, question } })
 
@@ -83,7 +85,10 @@ test.describe('US1 agent ops: ask the assistant', () => {
     await emit(
       page,
       batch([
-        read(10, globalRoute('agent'), { type: 'AgentConversationUpdated', data: { object: OBJECT, conversation } }),
+        read(10, globalRoute('agent'), {
+          type: 'AgentConversationUpdated',
+          data: { object: OBJECT, conversation },
+        }),
       ]),
     )
 

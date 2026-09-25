@@ -9,11 +9,15 @@ use tokio::runtime::Runtime;
 
 use crate::config::Args;
 
+pub mod access;
 mod agent;
 mod ai;
 mod applications;
 mod apply;
+pub mod audit_log;
+mod cert_manager;
 pub mod cloud_auth;
+mod cluster_version;
 mod cmd;
 mod context_status;
 mod crds;
@@ -28,6 +32,7 @@ mod exec;
 mod federation;
 mod fleet;
 mod flux;
+mod gatekeeper;
 mod helm;
 mod hubble;
 mod idp_directory;
@@ -37,6 +42,9 @@ mod ingresses;
 pub mod integrations;
 mod interactions;
 mod jobs;
+mod keda;
+mod kind;
+mod knative;
 pub mod kube;
 mod longhorn;
 mod mcp;
@@ -57,6 +65,7 @@ mod state;
 mod statefulsets;
 mod sync;
 mod team_store;
+mod trivy;
 mod workload_common;
 
 mod capabilities;
@@ -71,7 +80,7 @@ mod persistentvolumeclaims;
 mod persistentvolumes;
 mod poddisruptionbudgets;
 mod priorityclasses;
-mod rbac_access;
+pub mod rbac_access;
 mod resourcequotas;
 mod role_assignment;
 mod rolebindings;
@@ -80,6 +89,7 @@ mod runtimeclasses;
 mod secrets;
 mod storageclasses;
 mod validatingwebhooks;
+mod velero;
 
 use state::BackendState;
 
@@ -91,9 +101,41 @@ pub fn init<C>(receiver: Receiver<C>, sender: Sender<BackendEventEnvelope>, args
 where
     C: Into<CmdRequest>,
 {
-    let rt = Runtime::new().expect("Failed to create Tokio runtime");
+    init_with(
+        receiver,
+        sender,
+        args,
+        Arc::new(access::KubeconfigAccess),
+        Arc::new(audit_log::LocalFileSink),
+        None,
+        None,
+    );
+}
 
-    let mut state = BackendState::new();
+/// [`init`] with explicit seams (031-hosted-server-mode): where clients come from, where
+/// audit entries go, the signed-in identity, and an optional Tokio runtime (the hosted
+/// server gives each user a small runtime; `None` builds the default multi-thread one).
+pub fn init_with<C>(
+    receiver: Receiver<C>,
+    sender: Sender<BackendEventEnvelope>,
+    args: Args,
+    access: Arc<dyn access::ClusterAccess>,
+    audit: Arc<dyn audit_log::AuditSink>,
+    identity: Option<access::Identity>,
+    runtime: Option<Runtime>,
+) where
+    C: Into<CmdRequest>,
+{
+    let rt = runtime.unwrap_or_else(|| Runtime::new().expect("Failed to create Tokio runtime"));
+
+    if let Some(root) = access.state_root() {
+        persistence::set_state_root(root);
+    }
+    let local_features = access.allows_local_features();
+    let home_context = access.home_context();
+
+    let mut state = BackendState::with_seams(access, audit, identity);
+    state.cluster.current_context = home_context;
     state.agent_conversations = agent::persistence::load_agent_conversations();
     // 038: load AI-assist settings, migrate any legacy plaintext credential into the OS
     // credential store (never losing it), and learn which providers are connected.
@@ -105,10 +147,12 @@ where
     // 015-mcp-agent-exposure: shells that must never expose an MCP endpoint (`fathom-devbridge`)
     // set `Args::disable_mcp`, and `McpState::start` then refuses before spawning anything. The
     // server is off regardless — this only makes it un-enableable for this process.
-    state.mcp.disabled = args.disable_mcp;
+    state.mcp.disabled = args.disable_mcp || !local_features;
 
-    // Clear metrics history on startup to begin fresh collection
-    if let Err(e) = persistence::clear_metrics_history() {
+    // Clear metrics history on startup to begin fresh collection. Skipped for hosted access:
+    // the state directory is shared by every user's backend, so one user signing in must not
+    // wipe another's history.
+    if local_features && let Err(e) = persistence::clear_metrics_history() {
         tracing::warn!("Failed to clear metrics history on startup: {}", e);
     }
 
@@ -198,6 +242,9 @@ async fn run_cmd(
     let CmdRequest { id, cmd } = request;
     events::in_cmd_scope(id, async move {
         let route = finished_route(&cmd);
+        // 026: summarize before `cmd` is consumed by dispatch.
+        let audit_summary = cmd.audit_summary();
+        let request_id = events::current_request_id_string();
         let mut state = state.lock().await;
         match cmd::dispatch_cmd(cmd, &mut state, sender).await {
             Ok(true) => tracing::debug!("Command signaled shutdown"),
@@ -213,6 +260,13 @@ async fn run_cmd(
         } else {
             (false, Some(errors.join("\n")))
         };
+        if let Some(summary) = audit_summary {
+            let context = state.cluster.current_context.clone().unwrap_or_default();
+            let actor = state.identity.as_ref().map(access::Identity::audit_actor);
+            state
+                .audit
+                .record(summary, context, request_id, ok, error.as_deref(), actor);
+        }
         events::emit(
             state.cluster.seq.as_ref(),
             sender,
@@ -250,6 +304,9 @@ async fn restore_saved_port_forwards(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
+    if !state.access.allows_local_features() {
+        return Ok(());
+    }
     let saved_ports = persistence::load_all_ports()?;
     if saved_ports.is_empty() {
         return Ok(());

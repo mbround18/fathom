@@ -1,0 +1,8 @@
+# Hosted overlay common part (spec 031): ingress + RBAC fixtures. Provider overlays add the IdP:
+#   overlays/hosted-rauthy, overlays/hosted-keycloak (separate kind clusters; API-server OIDC flags
+#   are fixed at cluster create time).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../addons/ingress-nginx
+  - ../../samples/hosted-rbac.yaml

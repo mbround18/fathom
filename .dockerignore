@@ -1,0 +1,11 @@
+target
+**/node_modules
+.git
+.claude
+graphify-out
+ui/dist
+ui/src-tauri/target
+ui/test-results
+ui/playwright-report
+specs
+docs

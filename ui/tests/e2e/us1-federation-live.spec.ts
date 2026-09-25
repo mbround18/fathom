@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 
 import type { FederationContextRollup } from '../../src/protocol/types'
 import { batch, system } from '../fixtures/builders'
-import { emit, open, sentTypes } from './helpers'
+import { emit, open, openFleet, sentTypes } from './helpers'
 
 const rollup = (
   context: string,
@@ -49,7 +49,7 @@ test('two federated contexts stay live independently; primary unchanged', async 
       system(1, { type: 'ContextsUpdated', data: { contexts: ['prod', 'dev'], current: 'prod' } }),
     ]),
   )
-  await page.getByTestId('fleet-open').click()
+  await openFleet(page)
   await expect
     .poll(async () => (await sentTypes(page)).includes('RequestFederationSnapshot'))
     .toBe(true)

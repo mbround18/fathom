@@ -3,13 +3,21 @@ import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
 import { Inspector } from '@/components/Inspector'
+import { CertManagerPanel } from '@/components/panels/CertManagerPanel'
 import { FluxPanel } from '@/components/panels/FluxPanel'
+import { KnativePanel } from '@/components/panels/KnativePanel'
+import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
+import { VeleroPanel } from '@/components/panels/VeleroPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
 import { DaemonTimelinePanel } from '@/features/daemon/DaemonTimelinePanel'
+import { TrivyPanel } from '@/components/panels/TrivyPanel'
+import { KedaPanel } from '@/components/panels/KedaPanel'
+import { LinterPanel } from '@/components/panels/LinterPanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { ClusterSettingsPanel } from '@/components/panels/ClusterSettingsPanel'
+import { AuditLogPane } from '@/components/audit/AuditLogPane'
 import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
 import { TeamsView } from '@/features/teams/TeamsView'
 import { TeamProfilesPanel } from '@/components/panels/TeamProfilesPanel'
@@ -90,7 +98,7 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
     >
       <header className="flex h-[max(2rem,var(--touch-target))] shrink-0 items-center gap-2 border-b border-border bg-card px-2">
         {slotIndex !== undefined && (
-          <span aria-hidden="true" className="text-[0.65rem] text-accent-neon">
+          <span aria-hidden="true" className="text-xs text-accent-neon">
             {String(slotIndex + 1).padStart(2, '0')}
           </span>
         )}
@@ -190,23 +198,42 @@ function PaneBody({ pane }: { pane: PaneState }) {
     case 'tool':
       if (pane.tool === 'metrics') return <MetricsUnavailable />
       if (pane.tool === 'flux') return <FluxPanel />
+      if (pane.tool === 'knative') return <KnativePanel />
+      if (pane.tool === 'velero') return <VeleroPanel />
+      if (pane.tool === 'certManager') return <CertManagerPanel />
       if (pane.tool === 'hubble') return <HubblePanel />
+      if (pane.tool === 'vulnerabilities') return <TrivyPanel />
+      if (pane.tool === 'keda') return <KedaPanel />
       if (pane.tool === 'topology') return <TopologyPanel paneId={pane.id} />
       if (pane.tool === 'daemon') return <DaemonTimelinePanel />
+      if (pane.tool === 'linter') return <LinterPanel paneId={pane.id} />
       if (pane.tool === 'portforwards') return <PortForwardsPanel />
       return (
         <Empty
           title={pane.tool ? TOOL_LABEL[pane.tool] : 'Tool'}
-          detail="No data yet. Connect to a cluster to populate this view."
+          detail={
+            pane.tool === 'logs'
+              ? 'Select a pod to stream logs.'
+              : pane.tool === 'events'
+                ? 'Events appear here as the cluster reports them.'
+                : 'No data yet. Connect to a cluster to populate this view.'
+          }
         />
       )
   }
 }
 
+/** An API 404 on a list means the resource type (a CRD) is not installed, not that it failed. */
+function isNotInstalledError(message: string | undefined): boolean {
+  return (
+    message !== undefined &&
+    /\b404\b|not\s?found|could not find the requested resource/i.test(message)
+  )
+}
+
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
 function ListBody({ pane }: { pane: PaneState }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const fatal = useStore((s) => s.conn.fatal)
   const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
   const notice = useStore((s) => s.conn.lastNotice?.message)
   const ctx = useStore((s) => s.session.activeContext)
@@ -218,7 +245,7 @@ function ListBody({ pane }: { pane: PaneState }) {
   )
   const refreshSection = useStore((s) => s.refreshSection)
 
-  if (disconnected) return <Disconnected detail={fatal} />
+  if (disconnected) return <Disconnected />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
   if (section === undefined) {
     return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
@@ -237,11 +264,18 @@ function ListBody({ pane }: { pane: PaneState }) {
   // 014-teams-organizations: local §10 Cluster Settings (+ org sync) and shared connection
   // profiles are settings forms, not resource tables — same "render itself directly" pattern
   // as `portForwards` above, no descriptor.
+  // 020-gatekeeper-policy-pane: read-only constraint compliance view, no descriptor.
+  if (section === SECTION.gatekeeper) {
+    return <GatekeeperPanel />
+  }
   if (section === SECTION.clusterSettings) {
     return <ClusterSettingsPanel />
   }
   if (section === SECTION.teams) {
     return <TeamsView />
+  }
+  if (section === SECTION.auditLog) {
+    return <AuditLogPane />
   }
   if (section === SECTION.teamProfiles) {
     return <TeamProfilesPanel />
@@ -253,6 +287,10 @@ function ListBody({ pane }: { pane: PaneState }) {
   }
   if (section === SECTION.oidcConfig) {
     return <OidcConfigView />
+  }
+  // 021-trivy-vulnerability-pane: cluster-wide summary, no descriptor (renders itself).
+  if (section === 'integrations/vulnerabilities') {
+    return <TrivyPanel />
   }
   if (!descriptor) {
     return (
@@ -267,6 +305,14 @@ function ListBody({ pane }: { pane: PaneState }) {
     return <Loading label={`Loading ${descriptor.label}`} />
   }
   if (list.status === 'error' && !hasRows) {
+    if (isNotInstalledError(list.error)) {
+      return (
+        <Empty
+          title={`${descriptor.label} not available`}
+          detail="This resource type is not installed on the cluster (its CRD was not found)."
+        />
+      )
+    }
     return (
       <ErrorState
         title={`Cannot list ${descriptor.label.toLowerCase()}`}

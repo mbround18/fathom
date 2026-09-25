@@ -167,7 +167,7 @@ function ScaleBody({ kind, item, current, onConfirm }: ScaleDialogProps) {
         className="flex items-baseline justify-center gap-3 border border-border bg-background py-2 font-mono tabular-nums"
       >
         <span className="flex flex-col items-center">
-          <span className="text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+          <span className="text-xs tracking-wider text-muted-foreground uppercase">
             current
           </span>
           <span data-testid="scale-current" className="text-lg">
@@ -179,7 +179,7 @@ function ScaleBody({ kind, item, current, onConfirm }: ScaleDialogProps) {
         </span>
         <span className="sr-only">to</span>
         <span className="flex flex-col items-center">
-          <span className="text-[0.65rem] tracking-wider text-muted-foreground uppercase">new</span>
+          <span className="text-xs tracking-wider text-muted-foreground uppercase">new</span>
           <span data-testid="scale-new" className="text-lg text-accent-neon">
             {valid ? next : '—'}
           </span>

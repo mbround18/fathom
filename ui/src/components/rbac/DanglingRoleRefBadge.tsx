@@ -69,7 +69,7 @@ export function DanglingRoleRefBadge({ roleRef, namespace }: DanglingRoleRefBadg
     <span
       data-testid="rbac-dangling-badge"
       title={`roleRef "${roleRef}" does not match any known Role or ClusterRole`}
-      className="inline-flex shrink-0 items-center gap-1 border border-status-warn/60 bg-status-warn/10 px-1.5 py-0.5 text-[0.68rem] font-semibold tracking-wide text-status-warn uppercase"
+      className="inline-flex shrink-0 items-center gap-1 border border-status-warn/60 bg-status-warn/10 px-1.5 py-0.5 text-xs font-semibold tracking-wide text-status-warn uppercase"
     >
       <span aria-hidden="true">▲</span>
       Dangling

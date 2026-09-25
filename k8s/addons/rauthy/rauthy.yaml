@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: rauthy, labels: {app: rauthy}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: rauthy}}
+  template:
+    metadata: {labels: {app: rauthy}}
+    spec:
+      securityContext: {fsGroup: 10001}
+      containers:
+        - name: rauthy
+          image: ghcr.io/sebadob/rauthy:0.36.2
+          ports: [{name: http, containerPort: 8080}]
+          envFrom: [{secretRef: {name: rauthy-secrets}}]
+          env:
+            - {name: PUB_URL, value: auth.localtest.me}
+            - {name: LISTEN_SCHEME, value: http}
+            - {name: PROXY_MODE, value: "true"}
+            # pod CIDR: requests come from the ingress controller pod
+            - {name: TRUSTED_PROXIES, value: "10.244.0.0/16"}
+            - {name: BOOTSTRAP_ADMIN_EMAIL, value: admin@fathom.test}
+            - {name: BOOTSTRAP_DIR, value: /bootstrap}
+            - {name: HQL_NODE_ID, value: "1"}
+            - {name: HQL_NODES, value: "1 localhost:8100 localhost:8200"}
+            - {name: HQL_DATA_DIR, value: /data}
+            - {name: HTTP_WORKERS, value: "1"}
+            - {name: RP_ID, value: auth.localtest.me}
+            - {name: RP_ORIGIN, value: "https://auth.localtest.me:443"}
+          readinessProbe:
+            httpGet: {path: /auth/v1/health, port: http}
+            periodSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+      volumes:
+        - {name: data, emptyDir: {}}
+        - name: bootstrap
+          configMap: {name: rauthy-bootstrap}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: rauthy}
+spec:
+  selector: {app: rauthy}
+  ports: [{name: http, port: 8080, targetPort: http}]

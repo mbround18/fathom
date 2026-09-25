@@ -31,7 +31,11 @@ import { clearSent, confirmDialog, emit, inspector, open, row, sent, sentTypes }
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
 
-const OBJECT: AgentObjectRef = { kind: 'Pod', namespace: DETAIL_POD.namespace, name: DETAIL_POD.name }
+const OBJECT: AgentObjectRef = {
+  kind: 'Pod',
+  namespace: DETAIL_POD.namespace,
+  name: DETAIL_POD.name,
+}
 
 const CONVERSATION: AgentConversation = {
   messages: [

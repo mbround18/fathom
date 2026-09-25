@@ -63,7 +63,7 @@ export function Picker(props: PickerProps) {
 
 function Prefix({ children }: { children: string }) {
   return (
-    <span className="shrink-0 font-display text-[0.65rem] tracking-[0.15em] text-accent-neon/80 uppercase">
+    <span className="shrink-0 font-display text-xs tracking-[0.15em] text-accent-neon/80 uppercase">
       {children}
     </span>
   )

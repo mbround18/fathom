@@ -86,6 +86,7 @@ pub(super) async fn handle(
             value,
             effect,
         } => nodes::taint_node(state, sender, &name, op, key, value, effect).await?,
+        BackendCmd::RefreshAuditLog => refresh_audit_log(state, sender),
         BackendCmd::RefreshEvents => refresh_events(state, sender).await,
         BackendCmd::SetNamespaceFilter { namespaces } => {
             set_namespace_filter(state, sender, namespaces).await?;
@@ -110,6 +111,18 @@ pub(super) async fn handle(
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+fn refresh_audit_log(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::global(section_keys::audit_log()),
+        Correlation::None,
+        BackendEvent::System(SystemEvent::AuditLogLoaded {
+            entries: crate::backend::audit_log::load_entries(),
+        }),
+    );
 }
 
 async fn initialize(
@@ -337,7 +350,13 @@ async fn refresh_core_resources(
     deployments::refresh_deployments(state, sender).await?;
     sync::ensure_background_sync(state, sender).await?;
     sync::ensure_flux_poll(state, sender).await;
+    sync::ensure_knative_poll(state, sender).await;
+    sync::ensure_cluster_version_poll(state, sender).await;
+    sync::ensure_trivy_poll(state, sender).await;
+    sync::ensure_keda_poll(state, sender).await;
     sync::ensure_hubble_poll(state, sender).await;
+    sync::ensure_velero_poll(state, sender).await;
+    sync::ensure_cert_manager_poll(state, sender).await;
     Ok(())
 }
 

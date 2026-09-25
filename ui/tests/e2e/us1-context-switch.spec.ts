@@ -16,11 +16,13 @@ import {
   twoContexts,
 } from '../fixtures'
 import {
-  clearSent,
   DEPLOYMENTS,
+  chooseScope,
+  clearSent,
   emit,
   expectNoHorizontalScroll,
   expectRowCount,
+  expectScope,
   isPhone,
   listPane,
   open,
@@ -30,8 +32,7 @@ import {
 } from './helpers'
 
 async function pickContext(page: Page, name: string) {
-  await page.getByRole('combobox', { name: 'Context' }).click()
-  await page.getByRole('option', { name }).click()
+  await chooseScope(page, 'Context', name)
 }
 
 test.describe('US1 context switching', () => {
@@ -40,12 +41,12 @@ test.describe('US1 context switching', () => {
   }, info) => {
     await open(page)
     await expectRowCount(page, PODS_500.length)
-    await expect(page.getByRole('combobox', { name: 'Context' })).toContainText('kind-a')
+    await expectScope(page, 'Context', 'kind-a')
     await clearSent(page)
 
     await pickContext(page, 'kind-b')
 
-    await expect(page.getByRole('combobox', { name: 'Context' })).toContainText('kind-b')
+    await expectScope(page, 'Context', 'kind-b')
     await expectRowCount(page, PODS_KIND_B.length)
     const cmds = await sent(page)
     expect(cmds.filter((c) => c.type === 'SetContext')).toEqual([

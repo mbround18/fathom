@@ -32,7 +32,7 @@ export function IdentityChip({ compact }: { compact: boolean }) {
           aria-label={active ? `Signed in as ${active.username}` : 'Identity'}
           data-testid="identity-chip"
           data-signed-in={active ? 'true' : 'false'}
-          className="shrink-0"
+          className="min-h-[var(--touch-target)] min-w-[var(--touch-target)] shrink-0"
         >
           <UserCircleIcon />
           {!compact && <span className="max-w-32 truncate text-xs">{label}</span>}

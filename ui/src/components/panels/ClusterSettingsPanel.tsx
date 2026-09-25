@@ -22,6 +22,7 @@ import { waitForCommandResult } from '@/store/actions'
 import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
 import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
+import { KindClusterPanel } from './KindClusterPanel'
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
 import { CloudAuthSection } from './CloudAuthSection'
 import { NodeShellSettingsSection } from './NodeShellSettingsSection'
@@ -32,6 +33,7 @@ function cloneSettings(s: ClusterSettings): ClusterSettings {
 
 export function ClusterSettingsPanel() {
   const request = useStore((s) => s.request)
+  const hosted = useStore((s) => s.hosted.mode === 'hosted')
   const send = useStore((s) => s.send)
   const activeContext = useStore((s) => s.session.activeContext)
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
@@ -276,10 +278,17 @@ export function ClusterSettingsPanel() {
 
       {/* 015-mcp-agent-exposure: which agents can reach this cluster, and how. Owns its own
           commands and store slice; nothing here feeds the §10 settings draft above. */}
-      <AiAssistSettings />
-      <AvailableAgentsSection />
-      <NodeShellSettingsSection />
-      <CloudAuthSection />
+      {!hosted && (
+        <>
+          <AiAssistSettings />
+          <AvailableAgentsSection />
+          <NodeShellSettingsSection />
+          <CloudAuthSection />
+        </>
+      )}
+
+      {/* 030-kind-cluster-provisioning: create/delete disposable local kind clusters. */}
+      {!hosted && <KindClusterPanel />}
 
       {formError !== undefined && (
         <p

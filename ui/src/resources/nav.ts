@@ -82,6 +82,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ['integrations/metrics', 'Metrics'],
     ['integrations/grafana', 'Grafana'],
     ['integrations/flux', 'Flux'],
+    ['integrations/gatekeeper', 'Gatekeeper'],
+    ['integrations/vulnerabilities', 'Vulnerabilities'],
   ]),
   // 014-teams-organizations: local §10 Cluster Settings (+ org-level sync affordances) and
   // shared, non-secret connection profiles.
@@ -89,6 +91,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ['integrations/cluster-settings', 'Cluster Settings'],
     ['team/profiles', 'Connection Profiles'],
     ['team/teams', 'Teams'],
+    // 026-mutation-audit-log-viewer
+    ['audit-log', 'Audit Log'],
   ]),
 ]
 

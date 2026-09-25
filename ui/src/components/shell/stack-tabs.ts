@@ -1,6 +1,11 @@
 import {
+  ArchiveIcon,
+  CertificateIcon,
+  ListChecksIcon,
   PlugsIcon,
+  GaugeIcon,
   PulseIcon,
+  RocketLaunchIcon,
   ShareNetworkIcon,
   StackIcon,
   TerminalIcon,
@@ -37,6 +42,33 @@ export const TOPOLOGY_TAB: StackTab = {
   kind: 'tool',
   tool: 'topology',
 }
+export const KNATIVE_TAB: StackTab = {
+  label: 'Knative',
+  icon: RocketLaunchIcon,
+  kind: 'tool',
+  tool: 'knative',
+}
+
+export const CERTIFICATES_TAB: StackTab = {
+  label: 'Certificates',
+  icon: CertificateIcon,
+  kind: 'tool',
+  tool: 'certManager',
+}
+
+export const KEDA_TAB: StackTab = {
+  label: 'Autoscalers',
+  icon: GaugeIcon,
+  kind: 'tool',
+  tool: 'keda',
+}
+
+export const LINTER_TAB: StackTab = {
+  label: 'Linter',
+  icon: ListChecksIcon,
+  kind: 'tool',
+  tool: 'linter',
+}
 
 /** Which tab the stack root belongs to: tool panes by tool, everything else is Resources. */
 export function useActiveTab(tabs: readonly StackTab[]): StackTab | undefined {
@@ -47,3 +79,23 @@ export function useActiveTab(tabs: readonly StackTab[]): StackTab | undefined {
     return tabs.find((t) => t.kind === 'list')
   })
 }
+
+export const VELERO_TAB: StackTab = {
+  label: 'Velero',
+  icon: ArchiveIcon,
+  kind: 'tool',
+  tool: 'velero',
+}
+
+/** Every tool pane reachable from an overlay/"More" surface, in display order. */
+export const ALL_TOOL_TABS: readonly StackTab[] = [
+  LOGS_TAB,
+  EVENTS_TAB,
+  FORWARDS_TAB,
+  TOPOLOGY_TAB,
+  VELERO_TAB,
+  KNATIVE_TAB,
+  KEDA_TAB,
+  LINTER_TAB,
+  CERTIFICATES_TAB,
+]

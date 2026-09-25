@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "daemon", "pipeline", "ui/src-tauri", "tools/devbridge"]
+members = [".", "daemon", "pipeline", "ui/src-tauri", "tools/devbridge", "server"]
 resolver = "3"
 
 [package]

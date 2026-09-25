@@ -238,6 +238,15 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
       g.moveTo(from.x, from.y)
       g.lineTo(to.x, to.y)
       g.stroke()
+      if (e.label) {
+        const fg = style.getPropertyValue('--foreground').trim()
+        g.globalAlpha = 1
+        g.fillStyle = fg ? `oklch(${fg})` : '#eee'
+        g.font = '10px sans-serif'
+        g.textAlign = 'center'
+        g.fillText(e.label, (from.x + to.x) / 2, (from.y + to.y) / 2 - 4)
+        g.globalAlpha = 0.5
+      }
     }
     g.globalAlpha = 1
 
@@ -355,7 +364,7 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
         onPointerUp={onPointerUp}
         onClick={onClick}
       />
-      <div className="pointer-events-none absolute right-2 bottom-2 font-mono text-[0.65rem] text-muted-foreground">
+      <div className="pointer-events-none absolute right-2 bottom-2 font-mono text-xs text-muted-foreground">
         {Math.round(clampScale(camera.scale) * 100)}%
       </div>
     </div>

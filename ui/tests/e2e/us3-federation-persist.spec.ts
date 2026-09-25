@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 
 import type { FederationContextRollup } from '../../src/protocol/types'
 import { batch, system } from '../fixtures/builders'
-import { emit, open, sentTypes } from './helpers'
+import { emit, open, openFleet, sentTypes } from './helpers'
 
 const rollup = (
   context: string,
@@ -79,7 +79,7 @@ test('restored set, unavailable context, over-cap banner, no-access metric', asy
       }),
     ]),
   )
-  await page.getByTestId('fleet-open').click()
+  await openFleet(page)
   const row = (n: string) =>
     page.locator(`[data-testid="federation-row"][data-context-name="${n}"]`)
   await expect(row('prod').getByTestId('federation-nodes')).toHaveText('no access')

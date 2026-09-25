@@ -1,14 +1,17 @@
+use super::AuditLogEntry;
 use super::{
-    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, ClusterRoleBindingDetails,
-    ClusterRoleBindingSummary, ClusterRoleDetails, ClusterRoleSummary, ClusterSettings,
-    ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation, CronJobDetails,
-    CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
-    EndpointDetails, EndpointSummary, EventsSummary, FluxOverview, FluxResourceSummary,
-    HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails,
-    HelmReleaseSummary, HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary,
-    HubbleTrafficSummary, IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary,
-    JobDetails, JobSummary, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
-    LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
+    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, CertManagerOverview,
+    CertificateChain, ClusterRoleBindingDetails, ClusterRoleBindingSummary, ClusterRoleDetails,
+    ClusterRoleSummary, ClusterSettings, ClusterVersionSummary, ConfigMapDetails, ConfigMapSummary,
+    ConnectionProfile, Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails,
+    DaemonSetSummary, DeploymentDetails, DeploymentSummary, EndpointDetails, EndpointSummary,
+    EventsSummary, FluxOverview, FluxResourceSummary, GatekeeperOverview, HelmMutationApplied,
+    HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails, HelmReleaseSummary,
+    HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
+    IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
+    JobSummary, KedaOverview, KedaResourceDetails, KnativeOverview, KubeadmDetectionResult,
+    LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
+    MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
     NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
     NetworkPolicySummary, NodeDetails, NodeShellAccessCheck, NodeShellPhase, NodeShellSettings,
     NodeSummary, OrphanedNodeShellPod, PersistentVolumeClaimDetails, PersistentVolumeClaimSummary,
@@ -20,7 +23,7 @@ use super::{
     RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
     SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
     StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
-    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
+    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary, VeleroOverview,
     WorkloadMetricsAggregate,
 };
 use super::{
@@ -28,6 +31,7 @@ use super::{
     OidcIdentity, OidcSignInStage, OrgClusterSettings, OrphanedSubject, TeamLink,
     TeamPublishRejection, TeamStoreStatus,
 };
+use super::{KindClusterSummary, KindPrerequisites};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -83,6 +87,18 @@ pub enum ContextConnectionStatus {
 #[serde(tag = "type", content = "data")]
 pub enum SystemEvent {
     BackendStarted,
+
+    /// The hosted session ended; the UI shows a sign-in prompt (031-hosted-server-mode).
+    SessionEnded {
+        reason: super::SessionEndReason,
+    },
+
+    /// A per-user limit refused the request (031-hosted-server-mode).
+    LimitReached {
+        kind: super::LimitKind,
+        max: u32,
+    },
+
     Notification {
         level: NotificationLevel,
         message: String,
@@ -144,8 +160,36 @@ pub enum SystemEvent {
     /// Flux GitOps Toolkit state (sources, Kustomizations, HelmReleases)
     FluxOverviewUpdated(FluxOverview),
 
+    /// Knative Serving state (Services, Revisions, Routes) — 028-knative-pane.
+    KnativeOverviewUpdated(KnativeOverview),
+
+    /// Cluster + node Kubernetes version snapshot, refreshed periodically (019).
+    ClusterVersionUpdated(ClusterVersionSummary),
+    /// Velero backup state (Backups, Schedules, Restores, BackupStorageLocations; 022-velero-backup-pane)
+    VeleroOverviewUpdated(VeleroOverview),
+    /// cert-manager CRD detection + Certificate list (dashboard aggregate).
+    CertManagerOverviewUpdated(CertManagerOverview),
+
+    /// Resolved lifecycle chain for one Certificate.
+    CertificateChainUpdated(CertificateChain),
+    /// Aqua Trivy Operator vulnerability state, cluster-wide (021-trivy-vulnerability-pane).
+    TrivyOverviewUpdated(super::TrivyOverview),
+    /// KEDA ScaledObjects/ScaledJobs (029-keda-autoscaler-pane).
+    KedaOverviewUpdated(KedaOverview),
+    /// KEDA single-resource detail for the Inspector.
+    KedaResourceDetailsUpdated(KedaResourceDetails),
+    /// The selected KEDA resource no longer exists.
+    KedaResourceNotFound {
+        kind: String,
+        namespace: String,
+        name: String,
+    },
+
     /// Hubble/Cilium traffic summary, sampled from a bounded `GetFlows` poll.
     HubbleTrafficUpdated(HubbleTrafficSummary),
+
+    /// OPA Gatekeeper constraint compliance state (020-gatekeeper-policy-pane).
+    GatekeeperOverviewUpdated(GatekeeperOverview),
 
     /// A rollback/upgrade diff-preview was computed; nothing has been mutated yet (006).
     HelmMutationPreviewReady(HelmMutationPreviewReady),
@@ -164,6 +208,12 @@ pub enum SystemEvent {
         /// `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
         /// (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
         mcp_stdio_enabled: bool,
+    },
+
+    /// Reply to `BackendCmd::RefreshAuditLog` (026-mutation-audit-log-viewer): the local,
+    /// bounded mutation history, oldest first.
+    AuditLogLoaded {
+        entries: Vec<AuditLogEntry>,
     },
 
     /// Full CRD catalog, refreshed via `RefreshCrds` or on context switch.
@@ -576,6 +626,19 @@ pub enum ResourceReadEvent {
         container: String,
         error: super::ImageInspectError,
     },
+    /// Success reply for `InspectPodVulnerabilities` (021-trivy-vulnerability-pane).
+    PodVulnerabilitiesInspected {
+        namespace: String,
+        pod: String,
+        inspection: super::PodVulnerabilityInspection,
+    },
+    /// Failure reply for `InspectPodVulnerabilities`: an explicit, distinguishable error state
+    /// (FR-007/FR-008/FR-013), never a blank/generic panel.
+    PodVulnerabilitiesInspectFailed {
+        namespace: String,
+        pod: String,
+        error: super::VulnInspectError,
+    },
     /// Full conversation state for one object, sent after `AgentOpenConversation`,
     /// `AgentAsk`, `AgentClearConversation`, `AgentReviewSuggestedAction`,
     /// `AgentDeclineSuggestedAction`, and `AgentRecordExecutedAction` (013). Always the
@@ -589,11 +652,28 @@ pub enum ResourceReadEvent {
     RbacSelfAccessUpdated {
         results: Vec<RbacAccessResult>,
     },
+    /// Reply for `CheckResourceMutationAccess` (018-rbac-aware-mutation-ui). Read-only.
+    ResourceMutationAccessChecked {
+        api_version: String,
+        kind: String,
+        result: RbacAccessResult,
+    },
     /// Reply for `ResolveNamespaceAccess` (011-rbac-oidc-administration, Story 4). Read-only.
     NamespaceAccessResolved(NamespaceAccessResolved),
     /// Reply for `RefreshKubeadmDetection` (011-rbac-oidc-administration, Story 5). Never an
     /// error: an unreadable/absent ConfigMap simply yields `checked: false`.
     KubeadmDetectionUpdated(KubeadmDetectionResult),
+    /// Reply for `CheckPodExecAccess` (024-pod-exec-terminal): a live, proactive
+    /// `pods/exec` `SelfSubjectAccessReview` result, checked before the exec-session
+    /// confirmation is shown. `reason` MUST be `Some` when the underlying review call
+    /// itself errored; it MAY be `None` for a plain server-side deny with no explanation.
+    PodExecAccessChecked {
+        namespace: String,
+        name: String,
+        container: Option<String>,
+        allowed: bool,
+        reason: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -637,6 +717,25 @@ pub enum StreamEvent {
     },
     /// Terminal event for a node action (cordon/uncordon/drain/taint), keyed by `request_id`.
     NodeActionFinished {
+        request_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    /// 030: host readiness for local kind provisioning.
+    KindPrerequisitesUpdated {
+        prerequisites: KindPrerequisites,
+    },
+    /// 030: current local kind clusters.
+    KindClustersUpdated {
+        clusters: Vec<KindClusterSummary>,
+    },
+    /// 030: one stage line from an in-flight kind create/delete, keyed by `request_id`.
+    KindProvisionProgress {
+        request_id: String,
+        stage: String,
+    },
+    /// 030: terminal event for a kind create/delete, keyed by `request_id`.
+    KindClusterActionFinished {
         request_id: String,
         ok: bool,
         error: Option<String>,
@@ -689,6 +788,9 @@ pub type BackendEvent = BackendEventV1;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{
+        GatekeeperConstraintSummary, GatekeeperInstallState, GatekeeperViolation,
+    };
 
     fn roundtrip(event: StreamEvent) {
         let json = serde_json::to_string(&event).unwrap();
@@ -812,6 +914,71 @@ mod tests {
         });
     }
 
+    #[test]
+    fn kind_events_roundtrip() {
+        roundtrip(StreamEvent::KindPrerequisitesUpdated {
+            prerequisites: KindPrerequisites {
+                kind_installed: false,
+                kind_version: None,
+                runtime_installed: false,
+                runtime_kind: None,
+                runtime_running: false,
+                ready: false,
+            },
+        });
+        roundtrip(StreamEvent::KindClustersUpdated { clusters: vec![] });
+        roundtrip(StreamEvent::KindProvisionProgress {
+            request_id: "r".to_owned(),
+            stage: "Preparing nodes".to_owned(),
+        });
+        roundtrip(StreamEvent::KindClusterActionFinished {
+            request_id: "r".to_owned(),
+            ok: false,
+            error: Some("boom".to_owned()),
+        });
+    }
+
+    #[test]
+    fn keda_events_roundtrip() {
+        use super::super::{KedaResourceSummary, ScaleReasoning, ScaleReasoningState};
+        system_roundtrip(SystemEvent::KedaOverviewUpdated(KedaOverview::default()));
+        let summary = KedaResourceSummary {
+            kind: "ScaledObject".to_owned(),
+            name: "queue-worker".to_owned(),
+            namespace: "default".to_owned(),
+            target_kind: "Deployment".to_owned(),
+            target_name: "queue-worker".to_owned(),
+            target_found: true,
+            current_replicas: 4,
+            min_replicas: 1,
+            max_replicas: 10,
+            paused: false,
+            ready: true,
+            trigger_types: vec!["prometheus".to_owned()],
+            age: "3d".to_owned(),
+        };
+        system_roundtrip(SystemEvent::KedaOverviewUpdated(KedaOverview {
+            installed: true,
+            scaled_objects: vec![summary.clone()],
+            scaled_jobs: vec![],
+        }));
+        system_roundtrip(SystemEvent::KedaResourceDetailsUpdated(
+            KedaResourceDetails {
+                summary,
+                triggers: vec![],
+                reasoning: ScaleReasoning {
+                    state: ScaleReasoningState::MidRange,
+                    message: "ok".to_owned(),
+                },
+            },
+        ));
+        system_roundtrip(SystemEvent::KedaResourceNotFound {
+            kind: "ScaledObject".to_owned(),
+            namespace: "default".to_owned(),
+            name: "gone".to_owned(),
+        });
+    }
+
     fn system_roundtrip(event: SystemEvent) {
         let json = serde_json::to_string(&event).unwrap();
         let back: SystemEvent = serde_json::from_str(&json).unwrap();
@@ -841,6 +1008,27 @@ mod tests {
             namespace: Some("flux-system".to_owned()),
             instances: vec![serde_json::json!({"metadata": {"name": "podinfo"}}).to_string()],
         });
+    }
+
+    #[test]
+    fn velero_overview_updated_roundtrip() {
+        system_roundtrip(SystemEvent::VeleroOverviewUpdated(VeleroOverview {
+            installed: true,
+            permission_denied: false,
+            backups: vec![super::super::VeleroBackupSummary {
+                name: "nightly-20260101".to_owned(),
+                namespace: "velero".to_owned(),
+                phase: super::super::VeleroPhase::Completed,
+                schedule_name: Some("nightly".to_owned()),
+                start_timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                completion_timestamp: "2026-01-01T00:05:00Z".to_owned(),
+                errors: 0,
+                warnings: 0,
+            }],
+            schedules: vec![],
+            restores: vec![],
+            storage_locations: vec![],
+        }));
     }
 
     #[test]
@@ -934,6 +1122,24 @@ mod tests {
                 name: "api-0".to_owned(),
             },
             conversation: super::super::AgentConversation::default(),
+        });
+    }
+
+    #[test]
+    fn pod_exec_access_checked_roundtrip() {
+        resource_read_roundtrip(ResourceReadEvent::PodExecAccessChecked {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: Some("app".to_owned()),
+            allowed: true,
+            reason: None,
+        });
+        resource_read_roundtrip(ResourceReadEvent::PodExecAccessChecked {
+            namespace: "default".to_owned(),
+            name: "web-0".to_owned(),
+            container: None,
+            allowed: false,
+            reason: Some("forbidden: user cannot create pods/exec".to_owned()),
         });
     }
 
@@ -1120,5 +1326,76 @@ mod tests {
                 current_rev: 2,
             },
         });
+    }
+
+    #[test]
+    fn gatekeeper_overview_updated_roundtrip() {
+        system_roundtrip(SystemEvent::GatekeeperOverviewUpdated(GatekeeperOverview {
+            state: GatekeeperInstallState::Active,
+            error: String::new(),
+            constraints: vec![GatekeeperConstraintSummary {
+                kind: "K8sRequiredLabels".to_owned(),
+                name: "require-team-label".to_owned(),
+                enforcement_action: "deny".to_owned(),
+                total_violations: Some(1),
+                violations: vec![GatekeeperViolation {
+                    section: SectionKey::new("workloads/pods"),
+                    kind: "Pod".to_owned(),
+                    namespace: "default".to_owned(),
+                    name: "nginx".to_owned(),
+                    enforcement_action: "deny".to_owned(),
+                    message: "missing required label \"team\"".to_owned(),
+                }],
+                violations_truncated: false,
+                template_missing: false,
+            }],
+        }));
+        system_roundtrip(SystemEvent::GatekeeperOverviewUpdated(GatekeeperOverview {
+            state: GatekeeperInstallState::NotInstalled,
+            error: String::new(),
+            constraints: Vec::new(),
+        }));
+    }
+
+    #[test]
+    fn knative_overview_updated_roundtrip() {
+        system_roundtrip(SystemEvent::KnativeOverviewUpdated(
+            KnativeOverview::default(),
+        ));
+        system_roundtrip(SystemEvent::KnativeOverviewUpdated(KnativeOverview {
+            installed: true,
+            services: vec![super::super::KnativeServiceSummary {
+                name: "hello".to_owned(),
+                namespace: "default".to_owned(),
+                ready: super::super::KnativeReadyState::Ready,
+                latest_ready_revision: Some("hello-00001".to_owned()),
+                latest_created_revision: Some("hello-00001".to_owned()),
+            }],
+            revisions: vec![super::super::KnativeRevisionSummary {
+                name: "hello-00001".to_owned(),
+                namespace: "default".to_owned(),
+                service_name: "hello".to_owned(),
+                ready: super::super::KnativeReadyState::Ready,
+                actual_replicas: 0,
+                desired_replicas: 0,
+                scale_reason: super::super::KnativeScaleReason::ScaledToZero {
+                    idle_since: Some("2026-09-23T00:00:00Z".to_owned()),
+                },
+                traffic_percent: 100,
+            }],
+            routes: vec![super::super::KnativeRouteSummary {
+                name: "hello".to_owned(),
+                namespace: "default".to_owned(),
+                service_name: "hello".to_owned(),
+                ready: super::super::KnativeReadyState::Ready,
+                url: Some("http://hello.default.example.com".to_owned()),
+                traffic: vec![super::super::KnativeRouteTrafficTarget {
+                    revision_name: "hello-00001".to_owned(),
+                    percent: 100,
+                    tag: None,
+                    revision_missing: false,
+                }],
+            }],
+        }));
     }
 }

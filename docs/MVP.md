@@ -17,16 +17,19 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Metrics & Observability (Prometheus) | ✅ | 001-tauri-shadcn-frontend |
 | Pod logs streaming | ✅ | 002-pod-logs-terminal |
 | Interactive pod exec / terminal | ✅ | 002-pod-logs-terminal |
+| Ephemeral debug containers on a running pod (add-only, confirm-gated; logs via existing viewer) | ✅ | 025-ephemeral-debug-containers |
 | YAML edit + diff + apply (any resource) | ✅ | 003-yaml-node-crd-parity |
 | Node actions (cordon/uncordon/drain/taint) | ✅ | 003-yaml-node-crd-parity |
 | Custom Resources — generic CRD discovery/browsing | ✅ | 003-yaml-node-crd-parity |
 | GitOps (Flux) integration panel | ✅ | promo-brochure-v2 work |
+| KEDA autoscaler pane (ScaledObjects/ScaledJobs, triggers, scale reasoning) | ✅ | 029-keda-autoscaler-pane |
 | Hubble/Cilium traffic panel | ✅ | promo-brochure-v2 work |
 | **Applications view** | ✅ | 004-applications-interlinking |
 | **Helm** — read (list/inspector/origin-link) | ✅ | 005-helm-release-origin-linking |
 | **Helm** — mutate (rollback/upgrade/uninstall) | ✅ | 006-helm-mutate |
 | **Rich interlinking / drill-down** (chart → pod, resource → resource) | ✅ | 004-applications-interlinking, extended in 005 |
 | **Topology graph view** (zoomable namespace→pod block-and-line diagram) | ✅ | 007-topology-graph-view |
+| **Cluster linter** (read-only Popeye-style findings: limits, probes, deprecated APIs, unused ConfigMaps/Secrets, naked pods, RBAC wildcards, missing PDBs) | ✅ | 017-cluster-linter |
 | Pod lifecycle hooks / probes / init-container detail | ✅ | 008-pod-lifecycle-diagnostics |
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ✅ | 009-port-forward-ui |
 | Container image layer inspection | ✅ | see §9a |
@@ -485,7 +488,9 @@ A "download and inspect layers" affordance on a container's image reference, wit
 * HTTPS toggle
 * Path prefix
 * Hidden metrics
+* **Vulnerabilities** *(✅ shipped, `021-trivy-vulnerability-pane`)* — read-only surfacing of Aqua Trivy Operator `VulnerabilityReport`s: a Pod Inspector "Vulnerabilities" tab (severity counts + top findings, honest not-installed / no-report-yet / forbidden states) and an opt-in cluster-wide tool pane ranking workloads worst-first. Fathom never triggers or configures scans.
 * **Available Agents** *(✅ shipped, `015-mcp-agent-exposure`)* — the stdio MCP server's on/off toggle (off by default), its live running/not-running state, the connection command an external MCP client should launch, a read-only Anthropic/Ollama auth summary reused from `AuthSetup.tsx`, and the "Launch example chat" affordance with honest not-detected/server-off states. See §14 Tier A.
+* **Audit Log** *(✅ shipped, `026-mutation-audit-log-viewer`)* — Team → Audit Log: a local, read-only, newest-first history of the mutating actions Fathom completed (action, target, context, timestamp, success/failed with reason), bounded to the last 500 in `~/.fathom/audit-log.json`, with client-side filters (action, outcome, context, time range, name search). It is local-only and is not Kubernetes' own audit log.
 
 ### Node Shell
 

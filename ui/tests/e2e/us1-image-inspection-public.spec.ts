@@ -85,7 +85,9 @@ test.describe('US1 Image tab', () => {
     const panel = insp.getByTestId('image-inspect-panel')
     await expect(panel.getByTestId('image-inspect-ref')).toContainText('registry.example.com')
     await expect(panel.getByTestId('image-inspect-ref')).toContainText(container)
-    await expect(panel.getByTestId('image-inspect-base-image')).toContainText('debian:bookworm-slim')
+    await expect(panel.getByTestId('image-inspect-base-image')).toContainText(
+      'debian:bookworm-slim',
+    )
     await expect(panel.getByTestId('image-inspect-layers')).toContainText('RUN apt-get update')
     await expect(panel.getByTestId('image-inspect-layers')).toContainText('COPY . /app')
 

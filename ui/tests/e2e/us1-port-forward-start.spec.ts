@@ -91,7 +91,10 @@ async function openPodForwardTab(page: Page): Promise<void> {
   // fake transport). Not asserted, since the group may already be expanded and no save fires.
   await page.waitForTimeout(600)
   await clearSent(page)
-  await emit(page, batch([list(1, nsRoute('kind-a', 'workloads/pods'), { type: 'PodsUpdated', data: [POD] })]))
+  await emit(
+    page,
+    batch([list(1, nsRoute('kind-a', 'workloads/pods'), { type: 'PodsUpdated', data: [POD] })]),
+  )
   await row(page, `${POD.namespace}/${POD.name}`, 'workloads/pods').click()
   await expect.poll(() => sentTypes(page)).toContain('SelectPod')
   await emit(
@@ -198,7 +201,9 @@ test.describe('US1 port forward start', () => {
     await expect(forwardRow).toContainText('Active')
   })
 
-  test('Scenario 2: a Service-port forward resolves a backing pod and names it', async ({ page }) => {
+  test('Scenario 2: a Service-port forward resolves a backing pod and names it', async ({
+    page,
+  }) => {
     await openApp(page)
     await navigateTo(page, 'Services', 'Network')
     await expect.poll(() => sentTypes(page)).toContain('RefreshServices')
@@ -210,7 +215,12 @@ test.describe('US1 port forward start', () => {
     await clearSent(page)
     await emit(
       page,
-      batch([list(1, nsRoute('kind-a', 'network/services'), { type: 'ServicesUpdated', data: [SERVICE] })]),
+      batch([
+        list(1, nsRoute('kind-a', 'network/services'), {
+          type: 'ServicesUpdated',
+          data: [SERVICE],
+        }),
+      ]),
     )
     await row(page, `${SERVICE.namespace}/${SERVICE.name}`, 'network/services').click()
     await expect.poll(() => sentTypes(page)).toContain('SelectService')
