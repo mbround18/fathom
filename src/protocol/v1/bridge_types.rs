@@ -28,6 +28,64 @@ pub struct SubscriptionInfo {
     pub protocol_version: u32,
     /// Whether the pump has already seen `SystemEvent::BackendStarted`.
     pub backend_started: bool,
+    /// Which shell serves this backend (031-hosted-server-mode). Absent = desktop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub mode: Option<ShellMode>,
+    /// The signed-in user (hosted only). Never carries tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub identity: Option<PublicIdentity>,
+    /// Read-only view of the per-user limits (hosted only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub limits: Option<PublicLimits>,
+}
+
+/// Which shell hosts the backend (031-hosted-server-mode).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ShellMode {
+    Desktop,
+    Hosted,
+}
+
+/// The signed-in user as shown in the UI. No tokens, no subject id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicIdentity {
+    pub username: String,
+    pub groups: Vec<String>,
+}
+
+/// Per-user limits exposed read-only to the UI (031-hosted-server-mode).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicLimits {
+    pub max_watches: u32,
+    pub max_streams: u32,
+    pub max_tabs: u32,
+}
+
+/// Why a hosted session ended (`SystemEvent::SessionEnded`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionEndReason {
+    SignedOut,
+    Expired,
+    Revoked,
+    IdpUnavailable,
+    LimitEvicted,
+}
+
+/// Which per-user limit was hit (`SystemEvent::LimitReached`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum LimitKind {
+    Sessions,
+    Watches,
+    Streams,
+    Tabs,
 }
 
 /// Error returned by the bridge commands. Serialized as `{ "type": "BackendGone" }` (adjacently tagged).

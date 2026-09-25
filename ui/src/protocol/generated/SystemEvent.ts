@@ -30,6 +30,7 @@ import type { IdpDirectorySnapshot } from "./IdpDirectorySnapshot";
 import type { KedaOverview } from "./KedaOverview";
 import type { KedaResourceDetails } from "./KedaResourceDetails";
 import type { KnativeOverview } from "./KnativeOverview";
+import type { LimitKind } from "./LimitKind";
 import type { LoginFlow } from "./LoginFlow";
 import type { MetricSeries } from "./MetricSeries";
 import type { MetricsStackScanResult } from "./MetricsStackScanResult";
@@ -47,6 +48,7 @@ import type { OrphanedSubject } from "./OrphanedSubject";
 import type { PluginError } from "./PluginError";
 import type { Provider } from "./Provider";
 import type { ProviderStatus } from "./ProviderStatus";
+import type { SessionEndReason } from "./SessionEndReason";
 import type { TeamLink } from "./TeamLink";
 import type { TeamPublishRejection } from "./TeamPublishRejection";
 import type { TeamStoreStatus } from "./TeamStoreStatus";
@@ -56,7 +58,7 @@ import type { TruncationMarker } from "./TruncationMarker";
 import type { UiConfig } from "./UiConfig";
 import type { VeleroOverview } from "./VeleroOverview";
 
-export type SystemEvent = { "type": "BackendStarted" } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
+export type SystemEvent = { "type": "BackendStarted" } | { "type": "SessionEnded", "data": { reason: SessionEndReason, } } | { "type": "LimitReached", "data": { kind: LimitKind, max: number, } } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
 /**
  * Verbatim backend error (Principle I), present only when `status == Error`.
  */

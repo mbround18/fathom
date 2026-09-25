@@ -1,0 +1,3 @@
+externalUrl: https://fathom.example.com
+oidc: {issuer: https://idp.example.com, clientId: fathom, clientSecret: s3cret}
+ingress: {enabled: true, className: nginx}

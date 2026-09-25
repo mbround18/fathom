@@ -1,0 +1,8 @@
+Fathom hosted server installed ({{ .Values.accessModel }} mode).
+URL: {{ .Values.externalUrl }}
+OIDC redirect URI to register: {{ trimSuffix "/" .Values.externalUrl }}/auth/callback
+{{- if eq .Values.accessModel "passthrough" }}
+The Kubernetes API server must trust issuer {{ .Values.oidc.issuer }} (--oidc-issuer-url, --oidc-client-id) with matching claims/prefixes.
+{{- else }}
+Bind real permissions to the mapped names (prefix "{{ .Values.claims.usernamePrefix }}"); the Fathom ServiceAccount can only impersonate.
+{{- end }}

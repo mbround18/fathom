@@ -231,6 +231,11 @@ pub fn emit_port_forward_list(
 
 /// Save active port forwards to disk
 pub fn save_port_forwards_to_disk(state: &crate::backend::state::BackendState) {
+    // Hosted (031): the registry is per-backend memory; the shared state root must never
+    // carry one user's forwards to another.
+    if !state.access.allows_local_features() {
+        return;
+    }
     let list = state.port_forward_manager.list();
     if let Err(e) = persistence::save_all_ports(&list) {
         tracing::warn!("Failed to save port forwards to disk: {}", e);

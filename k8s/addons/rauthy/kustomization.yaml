@@ -1,0 +1,26 @@
+# Rauthy IdP for the hosted kind overlay (spec 031). Issuer: https://auth.localtest.me/auth/v1
+# Dev-only static secrets below; the cluster is a disposable kind cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rauthy
+resources:
+  - namespace.yaml
+  - rauthy.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: rauthy-bootstrap
+    files:
+      - bootstrap/groups.json
+      - bootstrap/users.json
+      - bootstrap/clients.json
+      - bootstrap/api_keys.json
+    options: {disableNameSuffixHash: true}
+secretGenerator:
+  - name: rauthy-secrets
+    literals:
+      - ENC_KEYS=dev1/ZmF0aG9tZGV2ZW5ja2V5LTMyLWJ5dGVzLWxvbmchISE=
+      - ENC_KEY_ACTIVE=dev1
+      - HQL_SECRET_RAFT=fathom-dev-raft-secret-0123456789
+      - HQL_SECRET_API=fathom-dev-api-secret-0123456789
+      - BOOTSTRAP_ADMIN_PASSWORD_PLAIN=FathomAdmin#2026-Pw1
+    options: {disableNameSuffixHash: true}

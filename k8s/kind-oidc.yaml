@@ -1,0 +1,35 @@
+# kind config with API-server OIDC flags (spec 031). Not applied directly: cluster.sh up-hosted
+# substitutes __ISSUER__ (provider issuer URL) and __CA_DIR__ (absolute dir holding ca.crt).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        oidc-issuer-url: "__ISSUER__"
+        oidc-client-id: fathom
+        oidc-username-claim: preferred_username
+        oidc-groups-claim: groups
+        oidc-username-prefix: "oidc:"
+        oidc-groups-prefix: "oidc:"
+        oidc-ca-file: /etc/fathom-oidc/ca.crt
+      extraVolumes:
+        - name: fathom-oidc-ca
+          hostPath: /etc/fathom-oidc
+          mountPath: /etc/fathom-oidc
+          readOnly: true
+          pathType: DirectoryOrCreate
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - {containerPort: 80, hostPort: 80, protocol: TCP}
+      - {containerPort: 443, hostPort: 443, protocol: TCP}
+    extraMounts:
+      - {hostPath: "__CA_DIR__", containerPath: /etc/fathom-oidc, readOnly: true}

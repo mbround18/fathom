@@ -1245,6 +1245,310 @@ impl BackendCmdV1 {
     }
 }
 
+/// Why a command is refused in hosted mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostedDenial {
+    /// Local kind cluster provisioning.
+    Kind,
+    /// Kubeconfig context listing.
+    Contexts,
+    /// Switching to a context other than the hosted home context.
+    ContextSwitch,
+    /// stdio MCP server / demo chat.
+    Mcp,
+    /// Multi-cluster fleet polling (reads the kubeconfig).
+    Fleet,
+    /// Reads/writes the state directory shared by every user of the process
+    /// (`config.json`, `integrations.json`, team store, cluster settings).
+    SharedState,
+    /// Agent SDK Ops (server-held credentials and shared conversations).
+    Agent,
+    /// Makes the server call arbitrary URLs, or is a diagnostic hook.
+    ServerSideProbe,
+    /// Backend lifecycle is owned by the server, not the client.
+    Lifecycle,
+}
+
+/// Hosted-mode verdict for one command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostedPolicy {
+    Allowed,
+    Denied(HostedDenial),
+}
+
+impl BackendCmdV1 {
+    /// Hosted-mode policy (spec 031). Exhaustive with no wildcard on purpose: a new variant
+    /// must be classified here. `home` is the hosted home context; `SetContext` is allowed
+    /// only to it. Cluster writes are NOT decided here: the API server enforces the user's RBAC.
+    #[allow(clippy::too_many_lines)] // one arm per protocol variant, by design
+    pub fn hosted_policy(&self, home: &str) -> HostedPolicy {
+        use BackendCmdV1 as C;
+        match self {
+            C::SetContext { context } if context == home => HostedPolicy::Allowed,
+            C::SetContext { .. } => HostedPolicy::Denied(HostedDenial::ContextSwitch),
+            C::RefreshKindPrerequisites
+            | C::RefreshKindClusters
+            | C::CreateKindCluster { .. }
+            | C::CancelCreateKindCluster { .. }
+            | C::DeleteKindCluster { .. } => HostedPolicy::Denied(HostedDenial::Kind),
+            C::RefreshContexts => HostedPolicy::Denied(HostedDenial::Contexts),
+            C::LoadMcpServerStatus
+            | C::SetMcpServerEnabled { .. }
+            | C::StartMcpDemoChat
+            | C::StopMcpDemoChat
+            | C::SendMcpDemoChatInput { .. }
+            | C::ResizeMcpDemoChat { .. } => HostedPolicy::Denied(HostedDenial::Mcp),
+            C::StartFleetPolling | C::StopFleetPolling => HostedPolicy::Denied(HostedDenial::Fleet),
+            C::ConfigurePrometheus { .. }
+            | C::ConfigureGrafana { .. }
+            | C::LoadUiConfig
+            | C::SaveUiConfig { .. }
+            | C::LoadClusterSettings { .. }
+            | C::SaveClusterSettings { .. }
+            | C::SetTeamStorePath { .. }
+            | C::RefreshTeamStoreStatus
+            | C::RefreshConnectionProfiles
+            | C::PublishConnectionProfile { .. }
+            | C::AdoptConnectionProfile { .. }
+            | C::RemoveConnectionProfile { .. }
+            | C::PublishOrgClusterSettings { .. }
+            | C::AcceptOrgClusterSettings { .. }
+            | C::DismissOrgClusterSettings { .. } => {
+                HostedPolicy::Denied(HostedDenial::SharedState)
+            }
+            C::AgentGetAuthMode
+            | C::AgentSetAuthMode { .. }
+            | C::AgentRevealKey
+            | C::AgentOpenConversation { .. }
+            | C::AgentAsk { .. }
+            | C::AgentClearConversation { .. }
+            | C::AgentReviewSuggestedAction { .. }
+            | C::AgentDeclineSuggestedAction { .. }
+            | C::AgentRecordExecutedAction { .. } => HostedPolicy::Denied(HostedDenial::Agent),
+            C::TestPrometheusConnection { .. }
+            | C::TestGrafanaConnection { .. }
+            | C::SimulateSlowCall => HostedPolicy::Denied(HostedDenial::ServerSideProbe),
+            C::Shutdown => HostedPolicy::Denied(HostedDenial::Lifecycle),
+            // 033-038 additions. Per-user cluster operations stay allowed (the API server
+            // enforces the user's RBAC); everything that touches server-shared state or
+            // server-held credentials is refused.
+            C::GetNodeShellSettings
+            | C::SetNodeShellSettings { .. }
+            | C::SetExecPolicy { .. }
+            | C::LoadOidcConfig
+            | C::OidcSaveIssuer { .. }
+            | C::OidcDeleteIssuer { .. }
+            | C::OidcSetRoleMap { .. }
+            | C::OidcSignIn { .. }
+            | C::OidcCancelSignIn { .. }
+            | C::OidcSignOut { .. }
+            | C::SetContextAuthMode { .. }
+            | C::IdpSetAdminKey { .. }
+            | C::IdpRefreshDirectory { .. }
+            | C::LinkTeamProfile { .. }
+            | C::UnlinkTeamProfile { .. }
+            | C::PreviewRoleAssignment { .. }
+            | C::RefreshOrphanedSubjects { .. }
+            | C::SetDaemonPreference { .. }
+            | C::RefreshDaemon { .. }
+            | C::RequestDaemonTimeline { .. }
+            | C::RequestDaemonTopology { .. }
+            | C::RequestDaemonMetrics { .. } => HostedPolicy::Denied(HostedDenial::SharedState),
+            C::AiProviderLoginStart { .. }
+            | C::AiProviderSubmitApiKey { .. }
+            | C::AiProviderLoginCancel
+            | C::AiProviderSignOut { .. }
+            | C::AiSetActiveProvider { .. }
+            | C::AiSetOfflineMode { .. }
+            | C::AiOllamaProbe { .. }
+            | C::AiOllamaSelectModel { .. }
+            | C::AiSetOllamaEndpoint { .. }
+            | C::AiEnableFileStore { .. }
+            | C::AiGetStatus => HostedPolicy::Denied(HostedDenial::Agent),
+            C::FederateContext { .. }
+            | C::UnfederateContext { .. }
+            | C::RequestFederationSnapshot => HostedPolicy::Denied(HostedDenial::Fleet),
+            C::CheckNodeShellAccess { .. }
+            | C::StartNodeShell { .. }
+            | C::StopNodeShell { .. }
+            | C::ListNodeShellOrphans { .. }
+            | C::DeleteNodeShellOrphans { .. }
+            | C::ResolveCapabilities { .. }
+            | C::CheckCapability { .. }
+            | C::Initialize
+            | C::RefreshNamespaces
+            | C::SetNamespaceFilter { .. }
+            | C::RefreshNodes
+            | C::SelectNode { .. }
+            | C::CordonNode { .. }
+            | C::UncordonNode { .. }
+            | C::DrainNode { .. }
+            | C::CancelDrainNode { .. }
+            | C::TaintNode { .. }
+            | C::RefreshEvents
+            | C::RefreshPods
+            | C::SelectPod { .. }
+            | C::DeletePod { .. }
+            | C::AddEphemeralContainer { .. }
+            | C::InspectContainerImage { .. }
+            | C::InspectPodVulnerabilities { .. }
+            | C::StartPodLogs { .. }
+            | C::StopPodLogs
+            | C::FetchPodMetrics { .. }
+            | C::StartPodExec { .. }
+            | C::SendPodExecInput { .. }
+            | C::ResizePodExec { .. }
+            | C::StopPodExec
+            | C::CheckPodExecAccess { .. }
+            | C::RefreshDeployments
+            | C::SelectDeployment { .. }
+            | C::ScaleDeployment { .. }
+            | C::RestartDeployment { .. }
+            | C::DeleteDeployment { .. }
+            | C::RefreshDaemonSets
+            | C::SelectDaemonSet { .. }
+            | C::RestartDaemonSet { .. }
+            | C::DeleteDaemonSet { .. }
+            | C::RefreshStatefulSets
+            | C::SelectStatefulSet { .. }
+            | C::ScaleStatefulSet { .. }
+            | C::RestartStatefulSet { .. }
+            | C::DeleteStatefulSet { .. }
+            | C::RefreshReplicaSets
+            | C::SelectReplicaSet { .. }
+            | C::ScaleReplicaSet { .. }
+            | C::RestartReplicaSet { .. }
+            | C::DeleteReplicaSet { .. }
+            | C::RefreshReplicationControllers
+            | C::SelectReplicationController { .. }
+            | C::ScaleReplicationController { .. }
+            | C::RestartReplicationController { .. }
+            | C::DeleteReplicationController { .. }
+            | C::RefreshJobs
+            | C::SelectJob { .. }
+            | C::DeleteJob { .. }
+            | C::RefreshCronJobs
+            | C::SelectCronJob { .. }
+            | C::SuspendCronJob { .. }
+            | C::TriggerCronJob { .. }
+            | C::DeleteCronJob { .. }
+            | C::CheckPortAvailability { .. }
+            | C::StartPortForward { .. }
+            | C::StopPortForward { .. }
+            | C::DeletePortForward { .. }
+            | C::UpdatePortForward { .. }
+            | C::RefreshPortForwards
+            | C::RefreshServices
+            | C::SelectService { .. }
+            | C::DeleteService { .. }
+            | C::RefreshEndpoints
+            | C::SelectEndpoint { .. }
+            | C::RefreshIngresses
+            | C::SelectIngress { .. }
+            | C::DeleteIngress { .. }
+            | C::RefreshIngressClasses
+            | C::SelectIngressClass { .. }
+            | C::RefreshNetworkPolicies
+            | C::SelectNetworkPolicy { .. }
+            | C::DeleteNetworkPolicy { .. }
+            | C::RefreshIntegrations
+            | C::StartMetricsPolling { .. }
+            | C::StopMetricsPolling
+            | C::StartWorkloadMetricsPolling { .. }
+            | C::StopWorkloadMetricsPolling
+            | C::RefreshFlux
+            | C::RefreshKnative
+            | C::RefreshVelero
+            | C::RefreshTrivyOverview
+            | C::RefreshKeda
+            | C::SelectScaledObject { .. }
+            | C::SelectScaledJob { .. }
+            | C::RefreshHubble
+            | C::RefreshGatekeeper
+            | C::RefreshCertManager
+            | C::BulkDelete { .. }
+            | C::SetActiveSection { .. }
+            | C::RefreshPersistentVolumes
+            | C::SelectPersistentVolume { .. }
+            | C::DeletePersistentVolume { .. }
+            | C::RefreshPersistentVolumeClaims
+            | C::SelectPersistentVolumeClaim { .. }
+            | C::DeletePersistentVolumeClaim { .. }
+            | C::RefreshStorageClasses
+            | C::SelectStorageClass { .. }
+            | C::DeleteStorageClass { .. }
+            | C::RefreshRoles
+            | C::SelectRole { .. }
+            | C::DeleteRole { .. }
+            | C::RefreshRoleBindings
+            | C::SelectRoleBinding { .. }
+            | C::DeleteRoleBinding { .. }
+            | C::RefreshClusterRoles
+            | C::SelectClusterRole { .. }
+            | C::DeleteClusterRole { .. }
+            | C::RefreshClusterRoleBindings
+            | C::SelectClusterRoleBinding { .. }
+            | C::DeleteClusterRoleBinding { .. }
+            | C::RefreshRbacSelfAccess { .. }
+            | C::CheckResourceMutationAccess { .. }
+            | C::ResolveNamespaceAccess { .. }
+            | C::RefreshKubeadmDetection
+            | C::RefreshConfigMaps
+            | C::SelectConfigMap { .. }
+            | C::DeleteConfigMap { .. }
+            | C::RefreshSecrets
+            | C::SelectSecret { .. }
+            | C::DeleteSecret { .. }
+            | C::RefreshResourceQuotas
+            | C::SelectResourceQuota { .. }
+            | C::DeleteResourceQuota { .. }
+            | C::RefreshLimitRanges
+            | C::SelectLimitRange { .. }
+            | C::DeleteLimitRange { .. }
+            | C::RefreshHorizontalPodAutoscalers
+            | C::SelectHorizontalPodAutoscaler { .. }
+            | C::DeleteHorizontalPodAutoscaler { .. }
+            | C::RefreshPodDisruptionBudgets
+            | C::SelectPodDisruptionBudget { .. }
+            | C::DeletePodDisruptionBudget { .. }
+            | C::RefreshPriorityClasses
+            | C::SelectPriorityClass { .. }
+            | C::DeletePriorityClass { .. }
+            | C::RefreshRuntimeClasses
+            | C::SelectRuntimeClass { .. }
+            | C::DeleteRuntimeClass { .. }
+            | C::RefreshLeases
+            | C::SelectLease { .. }
+            | C::DeleteLease { .. }
+            | C::RefreshMutatingWebhookConfigurations
+            | C::SelectMutatingWebhookConfiguration { .. }
+            | C::DeleteMutatingWebhookConfiguration { .. }
+            | C::RefreshValidatingWebhookConfigurations
+            | C::SelectValidatingWebhookConfiguration { .. }
+            | C::DeleteValidatingWebhookConfiguration { .. }
+            | C::ApplyResourceYaml { .. }
+            | C::CreateResourceYaml { .. }
+            | C::RefreshCrds
+            | C::SelectCrdKind { .. }
+            | C::RefreshCrdInstances { .. }
+            | C::SelectCrdInstance { .. }
+            | C::RefreshApplications
+            | C::SelectApplication { .. }
+            | C::RefreshRelatedResources { .. }
+            | C::RefreshHelmReleases
+            | C::SelectHelmRelease { .. }
+            | C::SelectFluxResource { .. }
+            | C::SelectCertificateChain { .. }
+            | C::PreviewHelmRollback { .. }
+            | C::ApplyHelmRollback { .. }
+            | C::PreviewHelmUpgrade { .. }
+            | C::ApplyHelmUpgrade { .. }
+            | C::UninstallHelmRelease { .. }
+            | C::RefreshAuditLog => HostedPolicy::Allowed,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

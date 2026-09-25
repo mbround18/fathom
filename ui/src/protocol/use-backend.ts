@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import type { StoreApi } from 'zustand'
 
 import { useStore, type StoreState } from '@/store'
+import { applySubscriptionInfo } from '@/store/handlers/hosted'
 import { ingest } from '@/store/ingest'
 
 import { BOOTSTRAP_CMDS } from './commands'
@@ -82,9 +83,12 @@ export async function connectBackend(
   store.setState({ send, request, conn: { ...store.getState().conn, status: 'starting' } })
   transport.onGone?.(fail)
   try {
-    await transport.subscribe((batch) => {
+    const info = await transport.subscribe((batch) => {
       ingest(batch, store)
     })
+    // Idempotent: a duplicate SubscriptionInfo after a reconnect only refreshes these fields
+    // and keeps any terminal state (session ended, limit reached) already recorded.
+    store.setState((s) => ({ hosted: applySubscriptionInfo(s.hosted, info) }))
   } catch (err) {
     fail(err)
     return

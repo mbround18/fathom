@@ -1,0 +1,34 @@
+# Hosted-mode RBAC fixtures (spec 031). Subjects are the API server's OIDC-mapped names
+# (--oidc-groups-prefix=oidc:). alice -> fathom-viewers (view), bob -> fathom-editors (edit),
+# carol -> no group (no access). Self-contained: creates namespace demo
+# (same as samples/demo.yaml) plus a workload alice/bob/carol can be tested against.
+apiVersion: v1
+kind: Namespace
+metadata: {name: demo}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: rbac-probe, namespace: demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: rbac-probe}}
+  template:
+    metadata: {labels: {app: rbac-probe}}
+    spec:
+      containers:
+        - name: sleep
+          image: busybox:1.37
+          command: [sleep, infinity]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: oidc-fathom-viewers}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: view}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: "oidc:fathom-viewers"}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: oidc-fathom-editors, namespace: demo}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: edit}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: "oidc:fathom-editors"}]

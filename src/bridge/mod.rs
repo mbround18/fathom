@@ -5,6 +5,8 @@
 
 pub mod pump;
 
+use crate::backend::access::{ClusterAccess, Identity, KubeconfigAccess};
+use crate::backend::audit_log::{AuditSink, LocalFileSink};
 use crate::config::Args;
 use crate::protocol::{
     BRIDGE_PROTOCOL_VERSION, BackendCmd, BackendEvent, BackendEventEnvelope, BridgeError,
@@ -97,6 +99,9 @@ impl BackendLink {
         Ok(SubscriptionInfo {
             protocol_version: BRIDGE_PROTOCOL_VERSION,
             backend_started: self.backend_started.load(Ordering::Acquire),
+            mode: None,
+            identity: None,
+            limits: None,
         })
     }
 }
@@ -107,9 +112,33 @@ pub fn spawn_backend(
     gui_tx: Sender<BackendEventEnvelope>,
     args: Args,
 ) -> JoinHandle<()> {
+    spawn_backend_with(
+        cmd_rx,
+        gui_tx,
+        args,
+        Arc::new(KubeconfigAccess),
+        Arc::new(LocalFileSink),
+        None,
+        None,
+    )
+}
+
+/// [`spawn_backend`] with explicit seams (031-hosted-server-mode): cluster access, audit sink,
+/// the signed-in identity, and an optional pre-built Tokio runtime for the backend thread.
+pub fn spawn_backend_with(
+    cmd_rx: Receiver<CmdRequest>,
+    gui_tx: Sender<BackendEventEnvelope>,
+    args: Args,
+    access: Arc<dyn ClusterAccess>,
+    audit: Arc<dyn AuditSink>,
+    identity: Option<Identity>,
+    runtime: Option<tokio::runtime::Runtime>,
+) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("fathom-backend".into())
-        .spawn(move || crate::backend::init(cmd_rx, gui_tx, args))
+        .spawn(move || {
+            crate::backend::init_with(cmd_rx, gui_tx, args, access, audit, identity, runtime)
+        })
         .expect("failed to spawn backend thread")
 }
 

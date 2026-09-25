@@ -2451,6 +2451,13 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
 fn all_system_events() -> Vec<SystemEvent> {
     vec![
         SystemEvent::BackendStarted,
+        SystemEvent::SessionEnded {
+            reason: SessionEndReason::Revoked,
+        },
+        SystemEvent::LimitReached {
+            kind: LimitKind::Tabs,
+            max: 5,
+        },
         SystemEvent::Notification {
             level: NotificationLevel::Info,
             message: "s".to_owned(),
@@ -2541,6 +2548,10 @@ fn all_system_events() -> Vec<SystemEvent> {
                     reason: "boom".to_owned(),
                 },
                 request_id: None,
+                actor: Some(AuditActor {
+                    sub: "sub-1".to_owned(),
+                    username: "alice".to_owned(),
+                }),
             }],
         },
         SystemEvent::CrdCatalogUpdated {
@@ -2943,6 +2954,8 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::CapabilitiesResolved { .. } => {}
         SystemEvent::CapabilityChecked { .. } => {}
         SystemEvent::RoleAssignmentPreview { .. } => {}
+        SystemEvent::SessionEnded { .. } => {}
+        SystemEvent::LimitReached { .. } => {}
         SystemEvent::Notification { .. } => {}
         SystemEvent::ContextsUpdated { .. } => {}
         SystemEvent::ContextChanged { .. } => {}
@@ -3718,11 +3731,49 @@ fn event_batch_and_bridge_types() {
     let info = SubscriptionInfo {
         protocol_version: BRIDGE_PROTOCOL_VERSION,
         backend_started: true,
+        mode: None,
+        identity: None,
+        limits: None,
     };
     assert_eq!(
         assert_round_trip(&info),
         json!({ "protocolVersion": 1, "backendStarted": true })
     );
+
+    // 031: hosted fields round-trip, and a legacy payload without them still deserializes.
+    let hosted = SubscriptionInfo {
+        protocol_version: BRIDGE_PROTOCOL_VERSION,
+        backend_started: true,
+        mode: Some(ShellMode::Hosted),
+        identity: Some(PublicIdentity {
+            username: "alice".to_owned(),
+            groups: vec!["fathom-viewers".to_owned()],
+        }),
+        limits: Some(PublicLimits {
+            max_watches: 30,
+            max_streams: 10,
+            max_tabs: 5,
+        }),
+    };
+    assert_eq!(
+        assert_round_trip(&hosted),
+        json!({
+            "protocolVersion": 1,
+            "backendStarted": true,
+            "mode": "hosted",
+            "identity": { "username": "alice", "groups": ["fathom-viewers"] },
+            "limits": { "maxWatches": 30, "maxStreams": 10, "maxTabs": 5 }
+        })
+    );
+    let legacy: SubscriptionInfo =
+        serde_json::from_value(json!({ "protocolVersion": 1, "backendStarted": false })).unwrap();
+    assert_eq!(legacy.mode, None);
+    assert!(legacy.identity.is_none() && legacy.limits.is_none());
+    assert_eq!(
+        assert_round_trip(&SessionEndReason::IdpUnavailable),
+        json!("idpUnavailable")
+    );
+    assert_eq!(assert_round_trip(&LimitKind::Watches), json!("watches"));
     assert_eq!(
         assert_round_trip(&BridgeError::BackendGone),
         json!({ "type": "BackendGone" })
@@ -3798,6 +3849,9 @@ fn dev_bridge_messages() {
             info: SubscriptionInfo {
                 protocol_version: BRIDGE_PROTOCOL_VERSION,
                 backend_started: false,
+                mode: None,
+                identity: None,
+                limits: None,
             }
         }),
         json!({ "op": "subscribed", "info": { "protocolVersion": 1, "backendStarted": false } })
@@ -4009,4 +4063,18 @@ fn trivy_dtos_round_trip() {
     let back: TrivyOverview =
         serde_json::from_value(serde_json::to_value(sample_trivy_overview()).unwrap()).unwrap();
     assert_eq!(back.workloads.len(), 1);
+}
+
+#[test]
+fn audit_entry_actor_is_additive() {
+    let legacy: AuditLogEntry = serde_json::from_value(json!({
+        "id": "a", "timestamp": "t",
+        "action": "nodeCordon", "actionLabel": "Node Cordon", "context": "c",
+        "targetKind": null, "targetNamespace": null, "targetName": null,
+        "outcome": { "type": "Success" }, "requestId": null
+    }))
+    .unwrap();
+    assert!(legacy.actor.is_none());
+    let value = assert_round_trip(&legacy);
+    assert!(value.get("actor").is_none());
 }

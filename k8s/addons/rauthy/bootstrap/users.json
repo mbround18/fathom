@@ -1,0 +1,50 @@
+[
+  {
+    "email": "alice@fathom.test",
+    "preferred_username": "alice",
+    "given_name": "Alice",
+    "family_name": "Demo",
+    "password": {
+      "Plain": "FathomDemo#2026-Pw1"
+    },
+    "roles": [
+      "user"
+    ],
+    "enabled": true,
+    "email_verified": true,
+    "groups": [
+      "fathom-viewers"
+    ]
+  },
+  {
+    "email": "bob@fathom.test",
+    "preferred_username": "bob",
+    "given_name": "Bob",
+    "family_name": "Demo",
+    "password": {
+      "Plain": "FathomDemo#2026-Pw1"
+    },
+    "roles": [
+      "user"
+    ],
+    "enabled": true,
+    "email_verified": true,
+    "groups": [
+      "fathom-editors"
+    ]
+  },
+  {
+    "email": "carol@fathom.test",
+    "preferred_username": "carol",
+    "given_name": "Carol",
+    "family_name": "Demo",
+    "password": {
+      "Plain": "FathomDemo#2026-Pw1"
+    },
+    "roles": [
+      "user"
+    ],
+    "enabled": true,
+    "email_verified": true
+  }
+]

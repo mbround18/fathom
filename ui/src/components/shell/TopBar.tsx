@@ -16,6 +16,8 @@ import { IdentityChip } from '@/features/identity/IdentityChip'
 import { ContextPicker } from '@/components/ContextPicker'
 import { NamespacePicker } from '@/components/NamespacePicker'
 import type { WidthClass } from '@/layout/width-class'
+import { UserMenu } from '@/components/hosted/UserMenu'
+import { signOutHosted } from '@/protocol/sign-out'
 import { useStore } from '@/store'
 import { BrandMark } from '@/theme/BrandMark'
 
@@ -33,6 +35,8 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
   const setFleetOpen = (open: boolean) => setShell({ fleetOpen: open })
   const returnFocus = useFocusReturn(fleetOpen)
   useLoadAssistantMode()
+  const hosted = useStore((s) => s.hosted)
+  const isHosted = hosted.mode === 'hosted'
 
   return (
     <header className="neon-chrome flex h-11 shrink-0 items-center gap-2 border-b border-border bg-card px-2 sm:px-3">
@@ -48,15 +52,18 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
         </Button>
       )}
       <BrandMark compact={phone} className="shrink-0" />
-      <DaemonChip compact={narrow} />
-      <IdentityChip compact={narrow} />
+      {!isHosted && <DaemonChip compact={narrow} />}
+      {!isHosted && <IdentityChip compact={narrow} />}
       {phone ? (
         <ScopeChip />
       ) : (
         <div className="flex min-w-0 items-center gap-2">
-          <ContextPicker className="max-w-[40vw] sm:max-w-64" />
+          {!isHosted && <ContextPicker className="max-w-[40vw] sm:max-w-64" />}
           <NamespacePicker className="max-w-[36vw] sm:max-w-56" />
         </div>
+      )}
+      {isHosted && hosted.identity && (
+        <UserMenu identity={hosted.identity} onSignOut={signOutHosted} />
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1" role="toolbar" aria-label="Actions">
         <Button
@@ -82,7 +89,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
           )}
         </Button>
         {!phone && <AskAiButton />}
-        {!phone && (
+        {!phone && !isHosted && (
           <Button
             variant="ghost"
             size="icon"
@@ -97,7 +104,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
         {widthClass === 'laptop' && <ToolsMenu />}
         <OverflowMenu folded={phone} onOpenFleet={() => setFleetOpen(true)} />
       </div>
-      <Dialog open={fleetOpen} onOpenChange={setFleetOpen}>
+      <Dialog open={fleetOpen && !isHosted} onOpenChange={setFleetOpen}>
         <DialogContent
           onCloseAutoFocus={returnFocus}
           className="max-h-[85vh] overflow-y-auto sm:max-w-4xl"

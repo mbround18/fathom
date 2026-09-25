@@ -57,6 +57,8 @@ export interface FathomFake {
       | { deny?: { verb: string; resource: string; reason?: string }[]; unverifiable?: boolean }
       | undefined,
   ): void
+  /** How many times the UI asked to sign out (hosted mode). */
+  signOuts(): number
 }
 
 declare global {
@@ -183,7 +185,18 @@ export class FakeTransport implements Transport {
     if (this.#gone) return Promise.reject(new BackendGoneError())
     this.#onBatch = onBatch
     this.#deliverLater(this.#scenario.onSubscribe)
-    return Promise.resolve({ protocolVersion: 1, backendStarted: true })
+    return Promise.resolve(subscriptionInfoFromUrl())
+  }
+
+  #signOuts = 0
+  get signOuts(): number {
+    return this.#signOuts
+  }
+
+  /** Stand-in for `HostedTransport.signOut()` (hosted-mode specs). */
+  signOut(): Promise<string | null> {
+    this.#signOuts += 1
+    return Promise.resolve(null)
   }
 
   /** Deliver immediately (tests); batches sent before `subscribe` are lost, like the pump's. */
@@ -248,6 +261,24 @@ export function scenarioFromUrl(
 }
 
 /** Create the app's fake transport and expose it as `window.__fathomFake`. */
+/**
+ * `?mode=hosted&user=alice&groups=a,b&limits=2,3,4` makes the fake present as a hosted backend
+ * (031-hosted-server-mode); without `mode` it is the desktop shell, as before.
+ */
+function subscriptionInfoFromUrl(): SubscriptionInfo {
+  const info: SubscriptionInfo = { protocolVersion: 1, backendStarted: true }
+  const q = new URLSearchParams(globalThis.location.search)
+  if (q.get('mode') !== 'hosted') return info
+  info.mode = 'hosted'
+  const user = q.get('user')
+  if (user !== null) {
+    info.identity = { username: user, groups: (q.get('groups') ?? '').split(',').filter(Boolean) }
+  }
+  const [w, st, t] = (q.get('limits') ?? '100,20,10').split(',').map(Number)
+  info.limits = { maxWatches: w ?? 100, maxStreams: st ?? 20, maxTabs: t ?? 10 }
+  return info
+}
+
 export function installFakeTransport(): FakeTransport {
   const fake = new FakeTransport({ scenario: scenarioFromUrl() })
   window.__fathomFake = {
@@ -263,6 +294,7 @@ export function installFakeTransport(): FakeTransport {
     requestIdOf: (type) => fake.requestIdOf(type),
     finish: (requestId, ok, error) => fake.finish(requestId, ok, error),
     setCapabilities: (config) => fake.setCapabilities(config),
+    signOuts: () => fake.signOuts,
   }
   return fake
 }

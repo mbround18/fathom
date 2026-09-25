@@ -99,6 +99,7 @@ import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
 import { DEFAULT_AUDIT_FILTER, type AuditLogFilter } from './auditLogFilter'
 import { RingBuffer } from './ring-buffer'
 import { waitForCommandResult } from './actions'
+import type { HostedState } from './handlers/hosted'
 
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
 export type { HelmMutationSession, HelmMutationStatus } from './helmMutation'
@@ -722,6 +723,8 @@ export interface StoreData {
   actionPrompt?: ActionPrompt
   ui: UiConfig
   prefs: PrefsState
+  /** 031-hosted-server-mode: shell mode, signed-in identity, limits and terminal states. */
+  hosted: HostedState
   audit: AuditState
   /** 015-mcp-agent-exposure: stdio MCP server status, shown in Cluster Settings. */
   mcp: McpState
@@ -1081,6 +1084,7 @@ export function initialData(): StoreData {
     helmMutation: initialHelmMutationSession,
     ui: DEFAULT_UI,
     prefs: { loaded: false, expandedGroups: [], mcpStdioEnabled: false },
+    hosted: { mode: 'desktop' },
     audit: { entries: [], loaded: false, visible: false, filter: DEFAULT_AUDIT_FILTER },
     mcp: {
       loaded: false,
