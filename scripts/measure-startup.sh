@@ -1,32 +1,34 @@
 #!/usr/bin/env bash
-# SC-003 startup baseline (T121). Linux only.
+# SC-003 startup check (T121). Linux only.
 #
-# Launches a binary and reports milliseconds from spawn to the first log line matching a marker,
-# repeated N times (median and all samples printed). Works for both UIs, so the egui baseline and
-# the Tauri build are compared with the same method:
+# The egui baseline no longer exists (egui was removed, T125), so SC-003 is checked against its
+# absolute budget only: launch to populated pods in under 3000 ms. The script launches a binary N
+# times, reports milliseconds from spawn to the first log line matching a marker (median and all
+# samples), and exits 1 if the median is at or above --budget-ms.
 #
-#   scripts/measure-startup.sh --binary target/release/fathom          --marker "$MARKER"   # egui
-#   scripts/measure-startup.sh --binary target/release/fathom-desktop  --marker "$MARKER"   # tauri
+#   scripts/measure-startup.sh --binary target/release/fathom-desktop [--marker REGEX] [--budget-ms 3000]
 #
-# The default marker ("Sending .* contexts to UI") is the backend's context-list handoff: it is
-# the latest milestone visible on stdout without a UI driver. It is NOT "populated pods" (SC-003
-# proper). Measuring that needs a reachable cluster plus either tauri-driver (Tauri) or a human
-# with a stopwatch / screen recording (egui); pass a marker that only appears once pods are
-# listed if the backend logs one.
+# The default marker ("Sending .* contexts to UI") is the backend's context-list handoff, the
+# latest milestone visible on stdout without a UI driver. It is a lower bound on, NOT the same as,
+# "populated pods". For SC-003 proper pass a marker that only appears once pods are listed if the
+# backend logs one, or use the tauri-driver smoke test (ui/tests/driver/smoke.test.ts).
 #
-# Usage: scripts/measure-startup.sh --binary PATH [--marker REGEX] [--runs N] [--timeout SECS]
+# Usage: scripts/measure-startup.sh [--binary PATH] [--marker REGEX] [--runs N] [--timeout SECS]
+#                                   [--budget-ms MS]
 set -euo pipefail
 
 BIN="target/release/fathom-desktop"
 MARKER='Sending [0-9]+ contexts to UI'
 RUNS=5
 TIMEOUT=30
+BUDGET_MS=3000
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --binary) BIN="$2"; shift 2 ;;
     --marker) MARKER="$2"; shift 2 ;;
     --runs) RUNS="$2"; shift 2 ;;
     --timeout) TIMEOUT="$2"; shift 2 ;;
+    --budget-ms) BUDGET_MS="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -61,3 +63,9 @@ if ((${#samples[@]} == 0)); then
 fi
 median=$(printf '%s\n' "${samples[@]}" | sort -n | awk '{a[NR]=$1} END {print a[int((NR+1)/2)]}')
 echo "binary=$BIN marker=/$MARKER/ samples_ms=${samples[*]} median_ms=$median"
+if ((median < BUDGET_MS)); then
+  echo "PASS: median ${median} ms < ${BUDGET_MS} ms (SC-003)"
+else
+  echo "FAIL: median ${median} ms >= ${BUDGET_MS} ms (SC-003)" >&2
+  exit 1
+fi

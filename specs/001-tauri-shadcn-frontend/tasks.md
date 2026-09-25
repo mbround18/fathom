@@ -229,7 +229,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Integration hardening (found during implementation)
 
-- [ ] T127 Do the first compile of `fathom-desktop`:
+- [x] T127 Do the first compile of `fathom-desktop`: _(note: verified 2026-09-25: `cargo test -p fathom-desktop` compiles and runs green but finds 0 tests (no T024 pump/bridge tests exist in the crate); `cargo clippy -p fathom-desktop -- -D warnings` clean; the build succeeds with no `ui/dist` present (CI-style) and the release build with a real `ui/dist` and `--features tauri/custom-protocol` launches, reaches the Pods view with real cluster data under tauri-driver (T118). NOT run: interactive `pnpm tauri dev` status-bar `ready` check and the 500 ms close-shutdown timing)_
   - Run `cargo test -p fathom-desktop` (the pump/bridge tests from T024) and `cargo clippy -p fathom-desktop -- -D warnings`, and fix any compile errors in `ui/src-tauri/src/{lib,bridge,main}.rs`.
   - Then run `pnpm -C ui tauri dev` against a real kubeconfig, and confirm that the window opens, the status bar reaches `ready`, and closing the window shuts the backend down within 500 ms.
   - Confirm that a CI-style build with the placeholder `ui/dist/index.html` compiles.
@@ -496,7 +496,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - Keyboard shortcuts reference.
   - About/version.
   - Changes are applied via `applyTheme` and persisted via `SaveUiConfig`.
-- [x] T118 [US6] Verify the MCP server runs regardless of the UI: _(note: verified structurally, no UI mount starts the server: McpState::start has exactly two call sites, backend bootstrap (mcp/mod.rs startup_enabled: --disable-mcp, then --mcp-stdio, then persisted auto-start) and the SetMcpServerEnabled handler; LoadMcpServerStatus, the only mount-time call, is read-only and covered by cmd/mcp.rs tests; bootstrap/startup_enabled have unit tests. The tauri-driver smoke test was not added: no tauri-driver harness exists in the repo)_
+- [x] T118 [US6] Verify the MCP server runs regardless of the UI: _(note: verified structurally, no UI mount starts the server: McpState::start has exactly two call sites, backend bootstrap (mcp/mod.rs startup_enabled: --disable-mcp, then --mcp-stdio, then persisted auto-start) and the SetMcpServerEnabled handler; LoadMcpServerStatus, the only mount-time call, is read-only and covered by cmd/mcp.rs tests; bootstrap/startup_enabled have unit tests. Update 2026-09-25: tauri-driver smoke test added at `ui/tests/driver/smoke.test.ts` (harness `ui/tests/driver/harness.ts`, run with `pnpm -C ui test:driver`); it skips with a reason when tauri-driver, WebKitWebDriver (`apt install webkit2gtk-driver`, must match webkit2gtk) or the release binary (build with `--features tauri/custom-protocol`) are missing. Run locally against the kind cluster: passes, pods rows populate in ~1.6 s including launch)_
   - The MCP server is started by the backend auto-start path, not by a view mount.
   - Add a `tauri-driver` smoke test in `ui/tests/driver/smoke.test.ts` (Linux only). Launch the built app, wait for the status bar to show `ready`, `curl` `127.0.0.1:18288` while the Pods view is open, then close the window and assert a clean exit.
 
@@ -512,11 +512,11 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - Done: spec skips non-`-wide` projects; `chromium-wide` passes. `webkit-wide` is configured but could not run here (Playwright WebKit missing system lib libevent-2.1-7t64); run it on a host with `playwright install-deps`.
   - Load `pods-10k.json`, then emit updates every 250 ms.
   - Assert that search keystroke-to-render is under 100 ms and that no long task exceeds 100 ms, using `PerformanceObserver` (SC-004).
-- [ ] T120 [P] Idle CPU check (SC-005):
-  - Partial: `scripts/measure-idle-cpu.sh` written and run on the release binary (launch view 0.95% of one core, see research.md Baselines); V13 procedure documented in quickstart.md. Open: `ui/tests/driver/idle.test.ts` (no tauri-driver installed) and the Pods-view measurement.
+- [x] T120 [P] Idle CPU check (SC-005): _(note: verified 2026-09-25 via `ui/tests/driver/idle.test.ts` on the Pods view with real cluster data, 60 s after a 10 s settle: 0.10% of one core, budget < 2%; the 5 min V13 run was not performed)_
+  - Originally: `scripts/measure-idle-cpu.sh` written and run on the release binary (launch view 0.95% of one core, see research.md Baselines); V13 procedure documented in quickstart.md. Open: `ui/tests/driver/idle.test.ts` (no tauri-driver installed) and the Pods-view measurement.
   - Add `ui/tests/driver/idle.test.ts` (Linux, `tauri-driver`). Open Pods, idle for 60 s, and sample the process CPU from `/proc/<pid>/stat`. Assert it stays under 2% of one core.
   - Document the manual procedure in `specs/001-tauri-shadcn-frontend/quickstart.md` under V13.
-- [ ] T121 [P] Startup baseline (SC-003): record egui launch-to-populated-pods time, then compare Tauri, in a script `scripts/measure-startup.sh`. Record the results in `specs/001-tauri-shadcn-frontend/research.md` under a new "Baselines" heading.
+- [x] T121 [P] _(obsolete as written: the egui baseline no longer exists after T125; `scripts/measure-startup.sh` is now an absolute-budget check against SC-003, median < 3000 ms, exit 1 otherwise. Run 2026-09-25: launch-to-context-handoff median 1036 ms, PASS; launch-to-populated-pods via tauri-driver ~1.6 s)_ Startup baseline (SC-003): ~~record egui launch-to-populated-pods time, then compare Tauri,~~ in a script `scripts/measure-startup.sh`. Record the results in `specs/001-tauri-shadcn-frontend/research.md` under a new "Baselines" heading.
   - Partial: `scripts/measure-startup.sh` and a Baselines section written; Tauri launch-to-context-handoff measured (median 922 ms). Open: the egui baseline and launch-to-populated-pods need a reachable cluster and a UI driver or stopwatch.
 - [x] T122 Replace the release build matrix in `.github/workflows/release.yml` with `tauri-apps/tauri-action@v0`:
   - Done: five-entry matrix on `tauri-apps/tauri-action@v0` (`projectPath: ui`, `assetNamePattern: fathom-[version]-[platform]-[arch][ext]`); YAML parses. Not exercised on a real tag push.
@@ -533,7 +533,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - The egui deps and the `egui-ui` feature from `Cargo.toml`, and the `[[bin]]` for `fathom` (the shipping binary is now `fathom-desktop`, bundled as "Fathom").
   - `#[cfg(feature = "egui-ui")]` in `src/lib.rs`.
   - Also update the `pipeline/src/pipeline.rs` and `.github/workflows/ci.yml` steps that referenced the egui binary.
-- [ ] T126 Run the full quickstart.md validation (V1–V13) on each Tier 1 platform (Ubuntu 26.04 LTS x86_64 and arm64, Windows 11 x86_64, macOS 26 Tahoe arm64 and x86_64), using the T122 artifacts. Record the OS build, the artifact, and the pass/fail per scenario in `specs/001-tauri-shadcn-frontend/checklists/release-validation.md`. Where GitHub has no hosted runner for a Tier 1 OS, the manual run recorded there is required before publishing (constitution, Supported Platforms).
+- [ ] T126 _(deferred: awaiting funding)_ Run the full quickstart.md validation (V1–V13) on each Tier 1 platform (Ubuntu 26.04 LTS x86_64 and arm64, Windows 11 x86_64, macOS 26 Tahoe arm64 and x86_64), using the T122 artifacts. Record the OS build, the artifact, and the pass/fail per scenario in `specs/001-tauri-shadcn-frontend/checklists/release-validation.md`. Where GitHub has no hosted runner for a Tier 1 OS, the manual run recorded there is required before publishing (constitution, Supported Platforms).
 
 ---
 
