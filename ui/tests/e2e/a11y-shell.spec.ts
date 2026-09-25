@@ -5,8 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { open } from './helpers'
 
-const cls = (page: Page) =>
-  page.locator('html').getAttribute('data-width-class')
+const cls = (page: Page) => page.locator('html').getAttribute('data-width-class')
 
 test.describe('shell accessibility', () => {
   test('one h1, a working skip link, and a main landmark', async ({ page }) => {

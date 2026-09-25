@@ -27,7 +27,7 @@ export function AiAssistSettings() {
         </p>
       )}
       {ai.migration?.type === 'Failed' && (
-        <p data-testid="ai-migration-failed" className="text-destructive text-xs">
+        <p data-testid="ai-migration-failed" className="text-xs text-destructive">
           Could not move your saved key: {ai.migration.data.message}. It was left in place.
         </p>
       )}
@@ -38,15 +38,17 @@ export function AiAssistSettings() {
           data-testid="ai-offline-toggle"
           aria-label="Offline mode"
           checked={ai.offline}
-          onCheckedChange={(enabled) => void request({ type: 'AiSetOfflineMode', data: { enabled } })}
+          onCheckedChange={(enabled) =>
+            void request({ type: 'AiSetOfflineMode', data: { enabled } })
+          }
         />
       </div>
 
       {ai.lastError !== undefined && (
-        <p data-testid="ai-error" role="alert" className="text-destructive text-xs">
+        <p data-testid="ai-error" role="alert" className="text-xs text-destructive">
           {ai.lastError.message}
           {ai.lastError.hint !== '' && (
-            <span className="text-muted-foreground block">{ai.lastError.hint}</span>
+            <span className="block text-muted-foreground">{ai.lastError.hint}</span>
           )}
         </p>
       )}

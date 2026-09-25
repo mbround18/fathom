@@ -58,7 +58,12 @@ function ModelList({
           {v.getVirtualItems().map((it) => (
             <div
               key={it.key}
-              style={{ position: 'absolute', top: 0, width: '100%', transform: `translateY(${it.start}px)` }}
+              style={{
+                position: 'absolute',
+                top: 0,
+                width: '100%',
+                transform: `translateY(${it.start}px)`,
+              }}
             >
               {row(models.at(it.index) as OllamaModel)}
             </div>
@@ -84,7 +89,7 @@ export function OllamaPicker() {
 
   let body
   if (state === undefined) {
-    body = <p className="text-muted-foreground text-xs">Not checked yet.</p>
+    body = <p className="text-xs text-muted-foreground">Not checked yet.</p>
   } else if (!state.reachable) {
     body = (
       <div data-testid="ollama-not-running" className="text-xs">

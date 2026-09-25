@@ -29,9 +29,24 @@ const statuses = (github: 'NotConfigured' | 'Connected', offline = false) => ({
   type: 'AiProviderStatus' as const,
   data: {
     statuses: [
-      { provider: 'github' as const, state: { type: github }, account_label: github === 'Connected' ? 'octocat' : null, last_checked_at: null },
-      { provider: 'claude' as const, state: { type: 'NotConfigured' as const }, account_label: null, last_checked_at: null },
-      { provider: 'openai' as const, state: { type: 'NotConfigured' as const }, account_label: null, last_checked_at: null },
+      {
+        provider: 'github' as const,
+        state: { type: github },
+        account_label: github === 'Connected' ? 'octocat' : null,
+        last_checked_at: null,
+      },
+      {
+        provider: 'claude' as const,
+        state: { type: 'NotConfigured' as const },
+        account_label: null,
+        last_checked_at: null,
+      },
+      {
+        provider: 'openai' as const,
+        state: { type: 'NotConfigured' as const },
+        account_label: null,
+        last_checked_at: null,
+      },
     ],
     active: null,
     offline,
@@ -44,7 +59,9 @@ async function goToAi(page: Page) {
   await navigateTo(page, 'Cluster Settings', 'Team')
   await emit(
     page,
-    batch([system(1, { type: 'ClusterSettingsLoaded', data: { context: 'kind-a', settings: SETTINGS } })]),
+    batch([
+      system(1, { type: 'ClusterSettingsLoaded', data: { context: 'kind-a', settings: SETTINGS } }),
+    ]),
   )
   await expect(page.getByTestId('ai-assist-settings')).toBeVisible()
   await emit(page, batch([system(2, statuses('NotConfigured'))]))
@@ -96,7 +113,11 @@ test.describe('038 AI Assist settings', () => {
       batch([
         system(3, {
           type: 'AiError',
-          data: { code: 'invalid_key', message_verbatim: 'Claude rejected the key (401)', hint: 'Check the key.' },
+          data: {
+            code: 'invalid_key',
+            message_verbatim: 'Claude rejected the key (401)',
+            hint: 'Check the key.',
+          },
         }),
       ]),
     )
@@ -121,8 +142,20 @@ test.describe('038 AI Assist settings', () => {
               checked_at: new Date().toISOString(),
               error: null,
               models: [
-                { name: 'llama3.2:latest', size_bytes: 2e9, family: 'llama', parameter_size: '3.2B', modified_at: '' },
-                { name: 'qwen2.5:7b', size_bytes: 4.7e9, family: null, parameter_size: null, modified_at: '' },
+                {
+                  name: 'llama3.2:latest',
+                  size_bytes: 2e9,
+                  family: 'llama',
+                  parameter_size: '3.2B',
+                  modified_at: '',
+                },
+                {
+                  name: 'qwen2.5:7b',
+                  size_bytes: 4.7e9,
+                  family: null,
+                  parameter_size: null,
+                  modified_at: '',
+                },
               ],
             },
           },

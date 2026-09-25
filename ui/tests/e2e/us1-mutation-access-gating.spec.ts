@@ -5,7 +5,7 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 
-import { batch, clusterRoute, list, read } from '../fixtures/builders'
+import { batch, clusterRoute, list } from '../fixtures/builders'
 import { emit, inspector, open, sentTypes } from './helpers'
 
 const NODE_A = {
@@ -20,8 +20,15 @@ const NODE_A = {
 
 const NODES_ROUTE = clusterRoute('kind-a', 'nodes')
 
-async function goToNode(page: Page): Promise<void> {
+async function goToNode(page: Page, caps?: unknown): Promise<void> {
   await open(page)
+  if (caps) {
+    await page.evaluate((c) => {
+      ;(
+        window as unknown as { __fathomFake: { setCapabilities(c: unknown): void } }
+      ).__fathomFake.setCapabilities(c)
+    }, caps)
+  }
   const nav = page.getByRole('navigation', { name: 'Sections' })
   if (!(await nav.isVisible())) {
     await page.getByRole('button', { name: 'Open sections' }).click()
@@ -36,57 +43,33 @@ async function goToNode(page: Page): Promise<void> {
   const insp = inspector(page)
   await expect(insp).toBeVisible()
   await insp.getByRole('tab', { name: 'Actions' }).click()
-  // Expanding the nav group persists a debounced `SaveUiConfig`; let it settle before the
-  // test starts asserting on `sent()`, or it pollutes the very next assertion.
-  await expect.poll(() => sentTypes(page)).toContain('SaveUiConfig')
 }
 
-async function answer(page: Page, allowed: boolean, reason: string | null): Promise<void> {
-  await emit(
-    page,
-    batch([
-      read(100, NODES_ROUTE, {
-        type: 'RbacSelfAccessUpdated',
-        data: {
-          results: [
-            {
-              check: { verb: 'update', resource: 'nodes', namespace: null, group: '' },
-              allowed,
-              reason,
-            },
-          ],
-        },
-      }),
-    ]),
-  )
-}
-
-test.describe('018 mutation access gating', () => {
+test.describe('018 mutation access gating (via 033 capability gate)', () => {
   test('denied identity: node actions are disabled with the reason, no dialog', async ({
     page,
   }) => {
-    await goToNode(page)
-    await expect.poll(() => sentTypes(page)).toContain('RefreshRbacSelfAccess')
-    await answer(page, false, 'RBAC: nodes is forbidden')
+    await goToNode(page, {
+      deny: [
+        { verb: 'patch', resource: 'nodes', reason: 'RBAC: nodes is forbidden' },
+        { verb: 'create', resource: 'pods', reason: 'RBAC: nodes is forbidden' },
+      ],
+    })
     const cordon = page.getByTestId('node-action-cordon')
     await expect(cordon).toBeDisabled()
     await expect(page.getByTestId('node-action-drain')).toBeDisabled()
-    await expect(page.getByTestId('access-denied-hint').first()).toBeVisible()
-    await page.getByTestId('access-denied-hint').first().focus()
-    await expect(page.getByRole('tooltip').first()).toContainText('RBAC: nodes is forbidden')
+    await expect(cordon).toHaveAttribute('title', 'RBAC: nodes is forbidden')
   })
 
   test('allowed identity: node actions stay enabled', async ({ page }) => {
     await goToNode(page)
-    await expect.poll(() => sentTypes(page)).toContain('RefreshRbacSelfAccess')
-    await answer(page, true, null)
     await expect(page.getByTestId('node-action-cordon')).toBeEnabled()
-    await expect(page.getByTestId('access-denied-hint')).toHaveCount(0)
   })
 
-  test('no answer yet: node actions stay enabled with no false tooltip', async ({ page }) => {
-    await goToNode(page)
-    await expect(page.getByTestId('node-action-cordon')).toBeEnabled()
-    await expect(page.getByTestId('access-denied-hint')).toHaveCount(0)
+  test('unverifiable check fails closed with a could-not-verify reason', async ({ page }) => {
+    await goToNode(page, { unverifiable: true })
+    const cordon = page.getByTestId('node-action-cordon')
+    await expect(cordon).toBeDisabled()
+    await expect(cordon).toHaveAttribute('title', /could not verify/i)
   })
 })

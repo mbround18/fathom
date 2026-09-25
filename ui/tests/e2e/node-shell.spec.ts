@@ -90,7 +90,7 @@ async function openShellTab(page: Page, checks: NodeShellAccessCheck[] = ALL_ALL
   await open(page)
   const nav = page.getByRole('navigation', { name: 'Sections' })
   if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open navigator' }).click()
+    await page.getByRole('button', { name: 'Open sections' }).click()
   }
   const toggle = nav.getByRole('button', { name: 'Overview', expanded: false })
   if (await toggle.isVisible()) await toggle.click()

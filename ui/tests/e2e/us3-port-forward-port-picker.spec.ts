@@ -175,8 +175,15 @@ test.describe('US3 port forward port picker', () => {
     await clearSent(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect.poll(() => sentTypes(page)).toContain('StartPortForward')
-    await finish(page, await requestIdOf(page, 'StartPortForward'), false, 'bind: address already in use')
-    await expect(dialog.getByTestId('port-forward-start-error')).toContainText('address already in use')
+    await finish(
+      page,
+      await requestIdOf(page, 'StartPortForward'),
+      false,
+      'bind: address already in use',
+    )
+    await expect(dialog.getByTestId('port-forward-start-error')).toContainText(
+      'address already in use',
+    )
     await expect(dialog).toBeVisible()
   })
 })

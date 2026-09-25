@@ -259,7 +259,10 @@ test.describe('US3 edit/delete RoleBinding', () => {
     // No optimistic removal.
     await expectRowCount(page, 1, ROLE_BINDINGS)
     await finish(page, await requestIdOf(page, 'DeleteRoleBinding'), true)
-    await emit(page, batch([list(2, nsRoute('kind-a', ROLE_BINDINGS), { type: 'RoleBindingsUpdated', data: [] })]))
+    await emit(
+      page,
+      batch([list(2, nsRoute('kind-a', ROLE_BINDINGS), { type: 'RoleBindingsUpdated', data: [] })]),
+    )
     await expectRowCount(page, 0, ROLE_BINDINGS)
   })
 

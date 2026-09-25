@@ -72,7 +72,7 @@ test('restricted group shows "no access"; clicking a card switches and closes th
       system(1, { type: 'ContextsUpdated', data: { contexts: ['prod', 'dev'], current: 'prod' } }),
     ]),
   )
-  await page.getByTestId('fleet-open').click()
+  await openFleet(page)
   await emit(
     page,
     batch([

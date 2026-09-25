@@ -15,7 +15,8 @@ test('hosted hides fleet and the context picker', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Fleet dashboard' })).toHaveCount(0)
 })
 
-test('desktop still shows fleet', async ({ page }) => {
+test('desktop still shows fleet', async ({ page }, info) => {
+  test.skip(info.project.name.includes('phone'), 'fleet lives in the overflow menu on phone')
   await open(page, 'manual')
   await emit(page, ctx)
   await expect(page.getByTestId('fleet-open')).toBeVisible()
