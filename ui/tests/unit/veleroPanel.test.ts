@@ -24,7 +24,12 @@ const backup: VeleroBackupSummary = {
 
 describe('VeleroPanel logic', () => {
   it('maps phases to tones', () => {
-    expect(VELERO_PHASE_TONE).toEqual({ Completed: 'ok', Failed: 'err', InProgress: 'warn', Unknown: 'muted' })
+    expect(VELERO_PHASE_TONE).toEqual({
+      Completed: 'ok',
+      Failed: 'err',
+      InProgress: 'warn',
+      Unknown: 'muted',
+    })
   })
 
   it('builds backup rows with tone and age (falls back to start when in progress)', () => {
@@ -37,7 +42,11 @@ describe('VeleroPanel logic', () => {
 
   it('renders schedule age or "no backups yet"', () => {
     const base = { name: 's', namespace: 'velero', cron_schedule: '0 0 * * *', paused: false }
-    const withBackup = scheduleRow({ ...base, last_backup_completion: ago(2), last_backup_phase: 'Completed' })
+    const withBackup = scheduleRow({
+      ...base,
+      last_backup_completion: ago(2),
+      last_backup_phase: 'Completed',
+    })
     expect(withBackup.secondary).toContain('last backup 2h ago')
     const none = scheduleRow({ ...base, last_backup_completion: null, last_backup_phase: null })
     expect(none.secondary).toContain('no backups yet')
@@ -45,13 +54,21 @@ describe('VeleroPanel logic', () => {
 
   it('maps restore phase and storage-location health', () => {
     const r = restoreRow({
-      name: 'r', namespace: 'velero', phase: 'Failed', backup_name: 'b1',
-      start_timestamp: ago(1), completion_timestamp: ago(1),
+      name: 'r',
+      namespace: 'velero',
+      phase: 'Failed',
+      backup_name: 'b1',
+      start_timestamp: ago(1),
+      completion_timestamp: ago(1),
     })
     expect(r.tone).toBe('err')
     expect(r.secondary).toContain('from b1')
     const loc = storageLocationRow({
-      name: 'l', phase: 'Unavailable', available: false, message: 'bucket unreachable', is_default: false,
+      name: 'l',
+      phase: 'Unavailable',
+      available: false,
+      message: 'bucket unreachable',
+      is_default: false,
     })
     expect(loc.tone).toBe('err')
     expect(loc.secondary).toBe('bucket unreachable')

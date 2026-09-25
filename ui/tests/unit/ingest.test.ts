@@ -237,10 +237,14 @@ describe('rule 4: streams', () => {
     ingest(twoContexts)
     const route = nsRoute('kind-a', 'workloads/pods', 'default')
     // Logs tab opens against the first container: backend assigns stream_id 7.
-    ingest(batch([stream(10, route, { type: 'PodLogsChunk', data: { stream_id: 7, lines: ['a'] } })]))
+    ingest(
+      batch([stream(10, route, { type: 'PodLogsChunk', data: { stream_id: 7, lines: ['a'] } })]),
+    )
     // Operator switches container: PodLogsTab sends StopPodLogs + StartPodLogs, a fresh
     // stream_id (8) is assigned for the new container's stream.
-    ingest(batch([stream(11, route, { type: 'PodLogsChunk', data: { stream_id: 8, lines: ['b'] } })]))
+    ingest(
+      batch([stream(11, route, { type: 'PodLogsChunk', data: { stream_id: 8, lines: ['b'] } })]),
+    )
     // A late StreamClosed for the superseded stream_id 7 must not touch stream_id 8's state.
     ingest(
       batch([stream(12, route, { type: 'StreamClosed', data: { stream_id: 7, reason: 'EOF' } })]),

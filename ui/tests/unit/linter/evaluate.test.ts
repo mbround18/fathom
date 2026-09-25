@@ -18,24 +18,37 @@ describe('evaluate', () => {
     const r = evaluate(
       input({
         lists: { 'workloads/pods': { rows: pods(2) } },
-        details: { 'Pod|d|p0': { raw: { metadata: {}, spec: { containers: [] } } }, 'Pod|d|p1': { raw: { metadata: { ownerReferences: [{}] } } } },
+        details: {
+          'Pod|d|p0': { raw: { metadata: {}, spec: { containers: [] } } },
+          'Pod|d|p1': { raw: { metadata: { ownerReferences: [{}] } } },
+        },
       }),
     )
     expect(r.counts.high).toBe(1)
     expect(must(r.findings[0]).rule).toBe('naked-pod')
     expect(r.score).toBeLessThan(100)
     expect(filterFindings(r.findings, { severity: 'low', category: null })).toHaveLength(0)
-    expect(filterFindings(r.findings, { severity: null, category: 'naked-pod' }).length).toBeGreaterThan(0)
+    expect(
+      filterFindings(r.findings, { severity: null, category: 'naked-pod' }).length,
+    ).toBeGreaterThan(0)
   })
   it('never throws on malformed raw_json', () => {
-    const bad = { rows: () => ({ status: 'ready' as const, rows: pods(1) }), detail: () => ({ data: { raw_json: '{nope' } }) }
+    const bad = {
+      rows: () => ({ status: 'ready' as const, rows: pods(1) }),
+      detail: () => ({ data: { raw_json: '{nope' } }),
+    }
     expect(() => evaluate(bad)).not.toThrow()
   })
 })
 
 describe('fetch plan', () => {
   it('targets active-scope objects and throttles in-flight reads', () => {
-    const inp = input({ lists: { 'workloads/pods': { rows: pods(20) }, 'workloads/replicasets': { rows: [{ name: 'old', namespace: 'd', desired: 0 }] } } })
+    const inp = input({
+      lists: {
+        'workloads/pods': { rows: pods(20) },
+        'workloads/replicasets': { rows: [{ name: 'old', namespace: 'd', desired: 0 }] },
+      },
+    })
     const targets = detailTargets(inp)
     expect(targets.every((t) => t.kind === 'Pod')).toBe(true)
     const sent = new Map<string, number>()

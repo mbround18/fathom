@@ -38,11 +38,15 @@ describe('KedaPanel', () => {
   })
 
   it('shows not-installed distinctly from no-autoscalers', () => {
-    useStore.setState({ keda: { overview: { installed: false, scaled_objects: [], scaled_jobs: [] } } })
+    useStore.setState({
+      keda: { overview: { installed: false, scaled_objects: [], scaled_jobs: [] } },
+    })
     const { unmount } = render(<KedaPanel />)
     expect(screen.getByText(/KEDA not detected/)).toBeTruthy()
     unmount()
-    useStore.setState({ keda: { overview: { installed: true, scaled_objects: [], scaled_jobs: [] } } })
+    useStore.setState({
+      keda: { overview: { installed: true, scaled_objects: [], scaled_jobs: [] } },
+    })
     render(<KedaPanel />)
     expect(screen.getByTestId('keda-empty')).toBeTruthy()
   })

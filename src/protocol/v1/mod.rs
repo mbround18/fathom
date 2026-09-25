@@ -66,6 +66,7 @@ mod trivy;
 mod ui_config;
 mod validatingwebhooks;
 mod velero;
+mod verticalpodautoscalers;
 mod workloads;
 
 pub use agent::*;
@@ -136,4 +137,5 @@ pub use trivy::*;
 pub use ui_config::*;
 pub use validatingwebhooks::*;
 pub use velero::*;
+pub use verticalpodautoscalers::*;
 pub use workloads::*;

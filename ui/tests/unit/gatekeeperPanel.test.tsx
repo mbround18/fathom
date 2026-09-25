@@ -79,7 +79,11 @@ describe('GatekeeperPanel', () => {
     expect(screen.queryByText(/not installed on this cluster/)).toBeNull()
     second.unmount()
 
-    setOverview({ state: 'PermissionDenied', error: 'forbidden: cannot list K8sFoo', constraints: [] })
+    setOverview({
+      state: 'PermissionDenied',
+      error: 'forbidden: cannot list K8sFoo',
+      constraints: [],
+    })
     render(<GatekeeperPanel />)
     expect(screen.getByText(/forbidden: cannot list K8sFoo/)).toBeTruthy()
   })

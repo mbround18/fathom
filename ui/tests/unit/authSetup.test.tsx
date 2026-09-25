@@ -78,7 +78,9 @@ describe('AuthSetup', () => {
 
     expect(sent).toContainEqual({
       type: 'AgentSetAuthMode',
-      data: { mode: { type: 'Ollama', data: { endpoint: 'http://localhost:11434', model: 'mistral' } } },
+      data: {
+        mode: { type: 'Ollama', data: { endpoint: 'http://localhost:11434', model: 'mistral' } },
+      },
     })
   })
 
@@ -105,7 +107,9 @@ describe('AuthSetup', () => {
     expect(screen.queryByTestId('agent-ops-revealed-key')).toBeNull()
 
     const requestId = nextId - 1
-    useStore.setState((s) => ({ agentAuth: { ...s.agentAuth, revealedKey: 'sk-ant-the-real-key' } }))
+    useStore.setState((s) => ({
+      agentAuth: { ...s.agentAuth, revealedKey: 'sk-ant-the-real-key' },
+    }))
     commandFinished(requestId, { ok: true, error: null })
 
     expect(await screen.findByTestId('agent-ops-revealed-key')).toHaveTextContent(
@@ -125,7 +129,8 @@ describe('AuthSetup', () => {
     const requestId = nextId - 1
     commandFinished(requestId, {
       ok: false,
-      error: 'Anthropic rejected the API key (invalid or revoked). Anthropic API error 401 Unauthorized: invalid x-api-key',
+      error:
+        'Anthropic rejected the API key (invalid or revoked). Anthropic API error 401 Unauthorized: invalid x-api-key',
     })
 
     expect(await screen.findByTestId('agent-ops-auth-error')).toHaveTextContent(

@@ -217,6 +217,7 @@ const OTHER_GROUPS: Record<string, { resource: string; apiGroup: string }> = {
   networkpolicies: { resource: 'networkpolicies', apiGroup: 'networking.k8s.io' },
   storageclasses: { resource: 'storageclasses', apiGroup: 'storage.k8s.io' },
   horizontalpodautoscalers: { resource: 'horizontalpodautoscalers', apiGroup: 'autoscaling' },
+  verticalpodautoscalers: { resource: 'verticalpodautoscalers', apiGroup: 'autoscaling.k8s.io' },
   poddisruptionbudgets: { resource: 'poddisruptionbudgets', apiGroup: 'policy' },
   priorityclasses: { resource: 'priorityclasses', apiGroup: 'scheduling.k8s.io' },
   runtimeclasses: { resource: 'runtimeclasses', apiGroup: 'node.k8s.io' },

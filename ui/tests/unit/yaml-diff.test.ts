@@ -103,7 +103,10 @@ describe('applyLiveUpdate', () => {
     const reviewed = reviewDiff(session)
     expect(reviewed.liveYamlChangedSinceReview).toBe(false)
 
-    const updated = applyLiveUpdate(reviewed, rawJson({ metadata: { name: 'web-1', namespace: 'default', resourceVersion: '101' } }))
+    const updated = applyLiveUpdate(
+      reviewed,
+      rawJson({ metadata: { name: 'web-1', namespace: 'default', resourceVersion: '101' } }),
+    )
     expect(updated).not.toBe(reviewed)
     expect(updated.liveYamlChangedSinceReview).toBe(true)
     expect(updated.liveYaml).not.toBe(reviewed.liveYaml)

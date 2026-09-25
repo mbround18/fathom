@@ -11,7 +11,12 @@ import '@/store'
 import { applications } from '@/resources/applications'
 import { deployments } from '@/resources/deployments'
 import { nodes as nodesDescriptor } from '@/resources/nodes'
-import { buildTopologyGraph, type BuildInput, type DetailSnapshot, type ListSnapshot } from '@/topology/build'
+import {
+  buildTopologyGraph,
+  type BuildInput,
+  type DetailSnapshot,
+  type ListSnapshot,
+} from '@/topology/build'
 
 function input(overrides: Partial<BuildInput> = {}): BuildInput {
   return {
@@ -77,7 +82,9 @@ describe('buildTopologyGraph', () => {
       },
       [deployments.section]: {
         status: 'ready',
-        rows: [{ name: 'web', namespace: 'default', desired: 1, ready: 1, updated: 1, available: 1 }],
+        rows: [
+          { name: 'web', namespace: 'default', desired: 1, ready: 1, updated: 1, available: 1 },
+        ],
       },
     }
     const details: Record<string, DetailSnapshot> = {
@@ -98,7 +105,11 @@ describe('buildTopologyGraph', () => {
       },
     }
     const graph = buildTopologyGraph(
-      input({ lists, details, viewport: { namespaceFocus: new Set(['default']), workloadFocus: new Set() } }),
+      input({
+        lists,
+        details,
+        viewport: { namespaceFocus: new Set(['default']), workloadFocus: new Set() },
+      }),
     )
     // Namespace->Deployment and Application->Deployment: two distinct pairs, not a duplicate of
     // the same pair, so both edges are expected; assert no duplicate edge ids exist regardless.
@@ -110,7 +121,9 @@ describe('buildTopologyGraph', () => {
     const lists: Record<string, ListSnapshot> = {
       [deployments.section]: {
         status: 'ready',
-        rows: [{ name: 'web', namespace: 'default', desired: 3, ready: 3, updated: 3, available: 3 }],
+        rows: [
+          { name: 'web', namespace: 'default', desired: 3, ready: 3, updated: 3, available: 3 },
+        ],
       },
     }
     const graph = buildTopologyGraph(
@@ -131,18 +144,40 @@ describe('buildTopologyGraph', () => {
     const lists: Record<string, ListSnapshot> = {
       [deployments.section]: {
         status: 'ready',
-        rows: [{ name: 'web', namespace: 'default', desired: 1, ready: 1, updated: 1, available: 1 }],
+        rows: [
+          { name: 'web', namespace: 'default', desired: 1, ready: 1, updated: 1, available: 1 },
+        ],
       },
       [nodesDescriptor.section]: {
         status: 'ready',
-        rows: [{ name: 'node-1', status: 'Ready', role: 'worker', pod_count: 1, pod_capacity: 10, cpu_allocatable_millicores: 1000, memory_allocatable_bytes: 1 }],
+        rows: [
+          {
+            name: 'node-1',
+            status: 'Ready',
+            role: 'worker',
+            pod_count: 1,
+            pod_capacity: 10,
+            cpu_allocatable_millicores: 1000,
+            memory_allocatable_bytes: 1,
+          },
+        ],
       },
     }
     const details: Record<string, DetailSnapshot> = {
       'Deployment|default|web': {
         eventType: 'DeploymentDetailsUpdated',
         data: {
-          pods: [{ name: 'web-abc', namespace: 'default', phase: 'Running', ready: 1, total: 1, node: 'node-1', restarts: 0 }],
+          pods: [
+            {
+              name: 'web-abc',
+              namespace: 'default',
+              phase: 'Running',
+              ready: 1,
+              total: 1,
+              node: 'node-1',
+              restarts: 0,
+            },
+          ],
         },
       },
     }

@@ -24,7 +24,7 @@ use super::{
     SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
     StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
     ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary, VeleroOverview,
-    WorkloadMetricsAggregate,
+    VerticalPodAutoscalerDetails, VerticalPodAutoscalerSummary, WorkloadMetricsAggregate,
 };
 use super::{
     CapabilityQuery, CapabilityResult, CapabilitySet, IdpDirectorySnapshot, OidcConfig,
@@ -542,6 +542,7 @@ pub enum ResourceListEvent {
     ResourceQuotasUpdated(Vec<ResourceQuotaSummary>),
     LimitRangesUpdated(Vec<LimitRangeSummary>),
     HorizontalPodAutoscalersUpdated(Vec<HorizontalPodAutoscalerSummary>),
+    VerticalPodAutoscalersUpdated(Vec<VerticalPodAutoscalerSummary>),
     PodDisruptionBudgetsUpdated(Vec<PodDisruptionBudgetSummary>),
     PriorityClassesUpdated(Vec<PriorityClassSummary>),
     RuntimeClassesUpdated(Vec<RuntimeClassSummary>),
@@ -588,6 +589,7 @@ pub enum ResourceReadEvent {
     ResourceQuotaDetailsUpdated(ResourceQuotaDetails),
     LimitRangeDetailsUpdated(LimitRangeDetails),
     HorizontalPodAutoscalerDetailsUpdated(HorizontalPodAutoscalerDetails),
+    VerticalPodAutoscalerDetailsUpdated(VerticalPodAutoscalerDetails),
     PodDisruptionBudgetDetailsUpdated(PodDisruptionBudgetDetails),
     PriorityClassDetailsUpdated(PriorityClassDetails),
     RuntimeClassDetailsUpdated(RuntimeClassDetails),

@@ -12,7 +12,12 @@ import type { ObjectRef } from '@/resources'
 import { detailKey, initialData, useStore } from '@/store'
 import { imageInspectKey } from '@/store/handlers/imageInspect'
 
-const TARGET: ObjectRef = { section: 'workloads/pods', kind: 'Pod', namespace: 'default', name: 'api-0' }
+const TARGET: ObjectRef = {
+  section: 'workloads/pods',
+  kind: 'Pod',
+  namespace: 'default',
+  name: 'api-0',
+}
 
 function podDetails(containers: string[]): PodDetails {
   return {

@@ -94,7 +94,9 @@ describe('probeState', () => {
       ],
     })
     const events = [
-      event({ message: 'Liveness probe failed: HTTP probe failed with statuscode: 503 (container api)' }),
+      event({
+        message: 'Liveness probe failed: HTTP probe failed with statuscode: 503 (container api)',
+      }),
     ]
     const [entry] = probeState(c, events)
     expect(entry?.failing).toBe(true)
@@ -156,12 +158,15 @@ describe('probeState', () => {
 describe('hookState', () => {
   it('postStart hook is failed only via a matching FailedPostStartHook event', () => {
     const c = container({
-      hooks: [{ hook_type: 'postStart', mechanism: 'exec', target: 'exec: /bin/sh -c warm-cache.sh' }],
+      hooks: [
+        { hook_type: 'postStart', mechanism: 'exec', target: 'exec: /bin/sh -c warm-cache.sh' },
+      ],
     })
     const events = [
       event({
         reason: 'FailedPostStartHook',
-        message: 'Exec lifecycle hook (...) for Container "api" in Pod "api-abc_default(uid)" failed',
+        message:
+          'Exec lifecycle hook (...) for Container "api" in Pod "api-abc_default(uid)" failed',
       }),
     ]
     expect(hookState(c, events)[0]?.failed).toBe(true)

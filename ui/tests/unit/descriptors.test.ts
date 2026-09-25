@@ -34,6 +34,7 @@ const NO_STATUS_OR_SPEC = new Set([
   // Batch D: config kinds with no lifecycle status; their real state (replicas/conditions,
   // priority value, handler, holder, hooks) has dedicated columns and sections.
   'config/horizontalpodautoscalers',
+  'config/verticalpodautoscalers',
   'config/priorityclasses',
   'config/runtimeclasses',
   'config/leases',

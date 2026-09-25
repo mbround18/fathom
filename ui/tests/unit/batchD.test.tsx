@@ -1,14 +1,16 @@
-import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { UnavailableSection } from '@/components/panels/UnavailableSection'
 import { descriptorFor } from '@/resources'
 import { hpaMetrics } from '@/resources/horizontalpodautoscalers'
 import { runtimeOverhead } from '@/resources/runtimeclasses'
+import { vpaRecommendationLine, vpaTargetSummary } from '@/resources/verticalpodautoscalers'
 import { hookViews } from '@/resources/webhooks'
+
+import { VPA_ROW } from '../fixtures/batchD'
 
 const KEYS = [
   'config/horizontalpodautoscalers',
+  'config/verticalpodautoscalers',
   'config/priorityclasses',
   'config/runtimeclasses',
   'config/leases',
@@ -26,7 +28,7 @@ describe('batch D descriptors', () => {
   })
 
   it('cluster-scoped kinds send name-only commands', () => {
-    for (const k of KEYS.filter((k) => !/horizontal|leases/.test(k))) {
+    for (const k of KEYS.filter((k) => !/horizontal|vertical|leases/.test(k))) {
       const d = descriptorFor(k)
       expect(d?.namespaced).toBe(false)
       const row = { name: 'x' } as never
@@ -94,10 +96,23 @@ describe('batch D descriptors', () => {
 })
 
 describe('Vertical Pod Autoscalers', () => {
-  it('has no descriptor and renders an honest unavailable state', () => {
-    expect(descriptorFor('config/verticalpodautoscalers')).toBeUndefined()
-    render(<UnavailableSection label="Vertical Pod Autoscalers" />)
-    expect(screen.getByText(/not available in this build/i)).toBeTruthy()
-    expect(screen.queryByText(/not ported yet/i)).toBeNull()
+  it('is registered as a namespaced descriptor', () => {
+    expect(descriptorFor('config/verticalpodautoscalers')?.namespaced).toBe(true)
+  })
+
+  it('formats per-container lower/target/upper recommendations', () => {
+    const rec = VPA_ROW.recommendations[0]
+    if (!rec) throw new Error('fixture has no recommendation')
+    expect(vpaRecommendationLine(rec)).toBe(
+      'app: lower cpu 25m / mem 100Mi · target cpu 50m / mem 200Mi · upper cpu 1 / mem 1Gi',
+    )
+  })
+
+  it('summarizes the first target and counts extra containers', () => {
+    expect(vpaTargetSummary([])).toBe('—')
+    const rec = VPA_ROW.recommendations[0]
+    if (!rec) throw new Error('fixture has no recommendation')
+    expect(vpaTargetSummary([rec])).toBe('50m / 200Mi')
+    expect(vpaTargetSummary([rec, rec])).toBe('50m / 200Mi +1')
   })
 })

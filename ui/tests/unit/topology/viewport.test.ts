@@ -40,7 +40,12 @@ describe('deriveFocus', () => {
   })
 
   it('recomputes fresh each call, no persisted state (US2 acceptance scenario 3)', () => {
-    const zoomedIn = deriveFocus({ scale: WORKLOAD_FOCUS_SCALE, namespaceNodes, workloadNodes, namespaceIdToName })
+    const zoomedIn = deriveFocus({
+      scale: WORKLOAD_FOCUS_SCALE,
+      namespaceNodes,
+      workloadNodes,
+      namespaceIdToName,
+    })
     expect(zoomedIn.workloadFocus.size).toBe(1)
     const zoomedOut = deriveFocus({ scale: 1, namespaceNodes, workloadNodes, namespaceIdToName })
     expect(zoomedOut.workloadFocus.size).toBe(0)

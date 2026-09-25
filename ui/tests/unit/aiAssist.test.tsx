@@ -34,7 +34,11 @@ function load(github: 'NotConfigured' | 'Connected' = 'NotConfigured') {
   useStore.setState({
     ai: {
       loaded: true,
-      statuses: [status('github', github), status('claude', 'NotConfigured'), status('openai', 'NotConfigured')],
+      statuses: [
+        status('github', github),
+        status('claude', 'NotConfigured'),
+        status('openai', 'NotConfigured'),
+      ],
       active: null,
       offline: false,
       ollamaModel: null,
@@ -108,7 +112,9 @@ describe('AiAssistSettings', () => {
     }
     useStore.setState((s) => ({ ai: { ...s.ai, ollama: { ...base, reachable: false } } }))
     const { unmount } = render(<AiAssistSettings />)
-    expect(screen.getByTestId('ollama-not-running')).toHaveTextContent('does not appear to be installed')
+    expect(screen.getByTestId('ollama-not-running')).toHaveTextContent(
+      'does not appear to be installed',
+    )
     unmount()
     useStore.setState((s) => ({ ai: { ...s.ai, ollama: { ...base, reachable: true } } }))
     render(<AiAssistSettings />)

@@ -8,6 +8,7 @@ describe('capabilityForSection for non-core kinds', () => {
     ['network/networkpolicies', 'networkpolicies', 'networking.k8s.io'],
     ['storage/storageclasses', 'storageclasses', 'storage.k8s.io'],
     ['config/horizontalpodautoscalers', 'horizontalpodautoscalers', 'autoscaling'],
+    ['config/verticalpodautoscalers', 'verticalpodautoscalers', 'autoscaling.k8s.io'],
     ['config/poddisruptionbudgets', 'poddisruptionbudgets', 'policy'],
     ['config/leases', 'leases', 'coordination.k8s.io'],
     ['config/mutatingwebhooks', 'mutatingwebhookconfigurations', 'admissionregistration.k8s.io'],
