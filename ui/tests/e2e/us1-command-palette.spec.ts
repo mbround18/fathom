@@ -12,6 +12,11 @@ if (!POD) throw new Error('fixture')
 const dialog = (page: Page) => page.getByRole('dialog')
 const input = (page: Page) => page.locator('[cmdk-input]')
 
+// Radix unmounts a closing dialog only after its exit animation's `animationend`; on a CPU-starved
+// runner that event lags by seconds and `toBeHidden()` flaked. Reduced motion (effects.css) makes
+// the dialog unmount synchronously, so the close assertion tests the behaviour, not animation timing.
+test.use({ reducedMotion: 'reduce' })
+
 test.describe('Command palette', () => {
   test('Ctrl+K opens the palette; selecting a pod opens its inspector', async ({ page }) => {
     await open(page)

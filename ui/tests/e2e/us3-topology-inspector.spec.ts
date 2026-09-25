@@ -37,7 +37,16 @@ async function clickNear(page: Page, canvas: Locator): Promise<void> {
   for (const dx of offsets) {
     for (const dy of offsets) {
       await page.mouse.click(cx + dx, cy + dy)
-      if (await inspector(page).isVisible()) return
+      // A hit opens the inspector on a later React commit; an instant `isVisible()` reads false
+      // under load and the grid keeps clicking, landing on the inspector's own controls (Back
+      // closes it again). Give each click a moment to show its result before trying the next.
+      const shown = await inspector(page)
+        .waitFor({ state: 'visible', timeout: 250 })
+        .then(
+          () => true,
+          () => false,
+        )
+      if (shown) return
     }
   }
 }

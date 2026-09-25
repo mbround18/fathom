@@ -13,8 +13,6 @@ const KEYSTROKE_BUDGET_MS = 100
 const LONG_TASK_BUDGET_MS = 100
 
 test.describe('SC-004 perf 10k pods', () => {
-  // Wall-clock budgets are unreliable while parallel workers contend for CPU; run with PERF=1 (workers=1).
-  test.skip(!process.env.PERF, 'set PERF=1 to run the wall-clock perf budget')
   test.skip(
     ({ viewport }) => (viewport?.width ?? 0) < 1900 || (viewport?.width ?? 0) > 2200,
     'perf budget is measured on the wide project',
@@ -93,11 +91,10 @@ test.describe('SC-004 perf 10k pods', () => {
       return { longTasks: w.__longTasks, updates: w.__updates }
     })
     expect(updates).toBeGreaterThanOrEqual(4)
-    // The first keystroke pays one-time JIT/layout cost for the 10k-row list; budget the steady state.
-    expect(
-      Math.max(...latencies.slice(1)),
-      `keystroke latencies ${latencies.join(', ')}`,
-    ).toBeLessThan(KEYSTROKE_BUDGET_MS)
+    // Every keystroke, the first included, must meet the budget.
+    expect(Math.max(...latencies), `keystroke latencies ${latencies.join(', ')}`).toBeLessThan(
+      KEYSTROKE_BUDGET_MS,
+    )
     expect(Math.max(0, ...longTasks), `long tasks ${longTasks.join(', ')}`).toBeLessThan(
       LONG_TASK_BUDGET_MS,
     )
