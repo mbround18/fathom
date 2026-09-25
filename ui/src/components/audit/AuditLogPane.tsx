@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { AuditActionKind, AuditLogEntry } from '@/protocol/types'
 import { useStore } from '@/store'
-import { applyAuditFilter, isDefaultFilter } from '@/store/auditLogFilter'
+import { applyAuditFilter, hasActors, isDefaultFilter } from '@/store/auditLogFilter'
 
 import { Empty } from '../shell/PaneStates'
 
@@ -70,6 +70,11 @@ export function AuditLogPane() {
   const visible = useMemo(() => applyAuditFilter(entries, filter), [entries, filter])
   const contexts = useMemo(() => [...new Set(entries.map((e) => e.context))].sort(), [entries])
   const kinds = useMemo(() => [...new Set(entries.map((e) => e.action))].sort(), [entries])
+  const showActor = useMemo(() => hasActors(entries), [entries])
+  const actors = useMemo(
+    () => [...new Set(entries.flatMap((e) => (e.actor ? [e.actor.username] : [])))].sort(),
+    [entries],
+  )
   const filtered = !isDefaultFilter(filter)
 
   return (
@@ -131,6 +136,23 @@ export function AuditLogPane() {
             </option>
           ))}
         </select>
+        {showActor && (
+          <select
+            aria-label="Actor"
+            className={SELECT_CLASS}
+            value={filter.actor ?? ''}
+            onChange={(e) => {
+              setFilter({ actor: e.target.value === '' ? null : e.target.value })
+            }}
+          >
+            <option value="">All actors</option>
+            {actors.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        )}
         <Input
           type="datetime-local"
           aria-label="From"
@@ -157,6 +179,7 @@ export function AuditLogPane() {
                 context: null,
                 timeRange: {},
                 searchText: '',
+                actor: null,
               })
             }}
           >
@@ -195,6 +218,9 @@ export function AuditLogPane() {
                 <div className="truncate font-mono text-xs">{describeTarget(e)}</div>
                 <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                   <span className="hidden sm:inline">{e.context}</span>
+                  {showActor && (
+                    <span data-testid="audit-actor">{e.actor ? e.actor.username : '—'}</span>
+                  )}
                   <time dateTime={e.timestamp}>{new Date(e.timestamp).toLocaleString()}</time>
                 </div>
                 {e.outcome.type === 'Failure' && (

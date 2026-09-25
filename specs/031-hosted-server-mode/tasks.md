@@ -103,7 +103,7 @@
 - [ ] T048 [P] [B] [US3] `server/src/audit.rs`: `HostedAuditSink` (append-only JSONL, single writer mutex, 0600, structured tracing mirror, retention config) with tests incl. concurrent appends from two backends and corruption tolerance. Depends on T010.
 - [ ] T049 [B] [US3] Attach `Identity`-derived `AuditActor` at backend creation in `server/src/tenant.rs` and thread it into `audit_log::record`; impersonation mode still records the real user; refused mutations follow existing spec 026 outcome rules. Depends on T023, T048.
 - [ ] T050 [B] [US3] Hosted audit read path: filter entries by `actor.sub` unless a group in `audit_viewer_groups`; no edit/delete op exists (assert protocol has none); tests in `server/tests/audit_visibility.rs`. Depends on T049.
-- [ ] T051 [P] [C] [US3] UI: show `actor` column/field in the audit viewer (`ui/src/components/**` audit view + `ui/src/store/auditLogFilter.ts` filter by actor), hidden when absent (desktop); Vitest + `ui/tests/e2e/hosted-audit-actor.spec.ts`. Depends on T007, T010.
+- [X] T051 [P] [C] [US3] UI: show `actor` column/field in the audit viewer (`ui/src/components/**` audit view + `ui/src/store/auditLogFilter.ts` filter by actor), hidden when absent (desktop); Vitest + `ui/tests/e2e/hosted-audit-actor.spec.ts`. Depends on T007, T010.
 - [ ] T052 [E] [US3] Live audit test `ui/tests/hosted/audit.spec.ts` (bob mutates, alice does not; entry names bob in both models; alice sees none of bob's; refused attempt per rules) for both providers. Depends on T049-T051, T044.
 - [ ] T053 [B] [US3] Desktop regression test: `audit_log` default sink writes entries with `actor: None` and legacy `audit-log.json` still loads (Principle VI, FR-018/SC-003 scope). Depends on T010.
 
