@@ -249,6 +249,11 @@ pub fn require_role(
     let Some(identity) = identity else {
         return Ok(());
     };
+    // Bootstrap: while no admin group is configured nobody can be an admin, so anyone may
+    // administer (otherwise the role map could never be set). Mirrors the UI's `isAdmin`.
+    if required == FathomRole::Admin && map.admins_group.is_empty() {
+        return Ok(());
+    }
     match fathom_role(&identity.groups, map) {
         Some(have) if have >= required => Ok(()),
         have => {
@@ -427,6 +432,24 @@ mod tests {
             expires_at: 0,
             state: OidcIdentityState::SignedIn,
         }
+    }
+
+    #[test]
+    fn admin_required_bootstrap_and_enforced() {
+        let empty = FathomRoleMap {
+            admins_group: String::new(),
+            ..FathomRoleMap::default()
+        };
+        let id = ident(&[]);
+        assert!(require_role(Some(&id), &empty, FathomRole::Admin).is_ok());
+        // Bootstrap applies to Admin only.
+        assert!(require_role(Some(&id), &empty, FathomRole::Editor).is_err());
+        let map = FathomRoleMap {
+            admins_group: "adm".into(),
+            ..FathomRoleMap::default()
+        };
+        assert!(require_role(Some(&id), &map, FathomRole::Admin).is_err());
+        assert!(require_role(Some(&ident(&["adm"])), &map, FathomRole::Admin).is_ok());
     }
 
     #[test]

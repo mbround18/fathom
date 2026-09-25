@@ -305,8 +305,8 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (!descriptor) {
     return (
       <Empty
-        title="Not ported yet"
-        detail="This section still lives in the egui app; it arrives in a later milestone."
+        title="Section unavailable"
+        detail="This section has no view in this version of Fathom."
       />
     )
   }

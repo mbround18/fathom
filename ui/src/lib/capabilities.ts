@@ -201,7 +201,13 @@ export function Gated(props: GatedProps): ReactNode {
   })
 }
 
-const APPS = new Set(['deployments', 'statefulsets', 'daemonsets', 'replicasets'])
+const APPS = new Set([
+  'deployments',
+  'statefulsets',
+  'daemonsets',
+  'replicasets',
+  'controllerrevisions',
+])
 const BATCH = new Set(['jobs', 'cronjobs'])
 const RBAC = new Set(['roles', 'rolebindings', 'clusterroles', 'clusterrolebindings'])
 
@@ -221,6 +227,29 @@ const OTHER_GROUPS: Record<string, { resource: string; apiGroup: string }> = {
   poddisruptionbudgets: { resource: 'poddisruptionbudgets', apiGroup: 'policy' },
   priorityclasses: { resource: 'priorityclasses', apiGroup: 'scheduling.k8s.io' },
   runtimeclasses: { resource: 'runtimeclasses', apiGroup: 'node.k8s.io' },
+  endpointslices: { resource: 'endpointslices', apiGroup: 'discovery.k8s.io' },
+  csidrivers: { resource: 'csidrivers', apiGroup: 'storage.k8s.io' },
+  csinodes: { resource: 'csinodes', apiGroup: 'storage.k8s.io' },
+  csistoragecapacities: { resource: 'csistoragecapacities', apiGroup: 'storage.k8s.io' },
+  volumeattachments: { resource: 'volumeattachments', apiGroup: 'storage.k8s.io' },
+  certificatesigningrequests: {
+    resource: 'certificatesigningrequests',
+    apiGroup: 'certificates.k8s.io',
+  },
+  apiservices: { resource: 'apiservices', apiGroup: 'apiregistration.k8s.io' },
+  flowschemas: { resource: 'flowschemas', apiGroup: 'flowcontrol.apiserver.k8s.io' },
+  prioritylevelconfigurations: {
+    resource: 'prioritylevelconfigurations',
+    apiGroup: 'flowcontrol.apiserver.k8s.io',
+  },
+  validatingadmissionpolicies: {
+    resource: 'validatingadmissionpolicies',
+    apiGroup: 'admissionregistration.k8s.io',
+  },
+  validatingadmissionpolicybindings: {
+    resource: 'validatingadmissionpolicybindings',
+    apiGroup: 'admissionregistration.k8s.io',
+  },
   leases: { resource: 'leases', apiGroup: 'coordination.k8s.io' },
   mutatingwebhooks: {
     resource: 'mutatingwebhookconfigurations',

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import type { FathomRoleMap } from '@/protocol/types'
 import { useStore } from '@/store'
 
-import { isSignedIn } from './state'
+import { isFathomAdmin, isSignedIn } from './state'
 
 const ROWS: { key: keyof FathomRoleMap; label: string }[] = [
   { key: 'viewers_group', label: 'Viewer group' },
@@ -27,7 +27,7 @@ export function RoleMapEditor() {
   const identities = useStore((s) => s.identity.identities)
   const me = Object.values(identities).find(isSignedIn)
   // Editable only by a signed-in admin, or while no admin group is configured (bootstrap).
-  const isAdmin = !saved.admins_group || (!!me && me.groups.includes(saved.admins_group))
+  const isAdmin = isFathomAdmin(me, saved)
   const [edits, setEdits] = useState<Partial<FathomRoleMap>>({})
   const draft: FathomRoleMap = { ...blank(saved), ...edits }
   const dirty = ROWS.some((r) => draft[r.key] !== blank(saved)[r.key])

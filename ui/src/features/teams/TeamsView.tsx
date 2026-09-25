@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { useStore } from '@/store'
 
 import { Disconnected } from '../../components/shell/PaneStates'
-import { isSignedIn } from '../identity/state'
+import { isFathomAdmin, isSignedIn } from '../identity/state'
 
 const ROW_HEIGHT = 32
 
@@ -28,7 +28,7 @@ export function TeamsView() {
 
   const me = Object.values(identities).find(isSignedIn)
   const issuerId = me?.issuer_id
-  const isAdmin = !!me && me.groups.includes(roleMap.admins_group)
+  const isAdmin = isFathomAdmin(me, roleMap)
   const snapshot = issuerId ? directory[issuerId] : undefined
 
   const [keyInput, setKeyInput] = useState('')
