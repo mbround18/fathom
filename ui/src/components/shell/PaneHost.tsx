@@ -46,7 +46,6 @@ import {
   Empty,
   ErrorState,
   Loading,
-  MetricsUnavailable,
   NoKubeconfig,
 } from './PaneStates'
 
@@ -202,7 +201,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
     case 'inspector':
       return <Inspector pane={pane} />
     case 'tool':
-      if (pane.tool === 'metrics') return <MetricsUnavailable />
+      if (pane.tool === 'metrics') return <MetricsPanel />
       if (pane.tool === 'flux') return <FluxPanel />
       if (pane.tool === 'knative') return <KnativePanel />
       if (pane.tool === 'velero') return <VeleroPanel />
