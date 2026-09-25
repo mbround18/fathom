@@ -43,13 +43,7 @@ const PENDING: Record<string, string[]> = {
   D: [
     'config/resourcequotas',
     'config/limitranges',
-    'config/horizontalpodautoscalers',
     'config/poddisruptionbudgets',
-    'config/priorityclasses',
-    'config/runtimeclasses',
-    'config/leases',
-    'config/mutatingwebhooks',
-    'config/validatingwebhooks',
   ],
   E: ['namespaces'],
 }

@@ -14,6 +14,7 @@ import type {
   ServiceSummary,
 } from '../../src/protocol/types'
 import { PODS_500 } from './batches'
+import { BATCH_D_LIST_EVENTS } from './batchD'
 import { genDeployments } from './gen-pods'
 
 const APPLICATIONS: ApplicationSummary[] = [
@@ -108,6 +109,7 @@ export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/statefulsets': { type: 'StatefulSetsUpdated', data: genDeployments('kind-a') },
   'workloads/daemonsets': { type: 'DaemonSetsUpdated', data: genDeployments('kind-a') },
   nodes: { type: 'NodesUpdated', data: NODES },
+  ...BATCH_D_LIST_EVENTS,
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
   'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
   'network/services': { type: 'ServicesUpdated', data: SERVICES },

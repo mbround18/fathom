@@ -25,6 +25,14 @@ const NO_STATUS_OR_SPEC = new Set([
   'access/clusterroles',
   'access/rolebindings',
   'access/clusterrolebindings',
+  // Batch D: config kinds with no lifecycle status; their real state (replicas/conditions,
+  // priority value, handler, holder, hooks) has dedicated columns and sections.
+  'config/horizontalpodautoscalers',
+  'config/priorityclasses',
+  'config/runtimeclasses',
+  'config/leases',
+  'config/mutatingwebhooks',
+  'config/validatingwebhooks',
 ])
 
 describe.each(ALL_DESCRIPTORS.map((d) => [d.section, d] as const))('%s', (section, d) => {
