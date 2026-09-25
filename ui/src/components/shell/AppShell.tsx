@@ -52,9 +52,7 @@ export function AppShell() {
       <h1 className="sr-only">Fathom</h1>
       <TopBar widthClass={widthClass} />
       <div className="flex w-full shrink-0 items-center">
-        <div className="min-w-0 flex-1">
-          {!isHosted && <FederationContextSwitcher />}
-        </div>
+        <div className="min-w-0 flex-1">{!isHosted && <FederationContextSwitcher />}</div>
         <ClusterVersionBadge />
       </div>
       <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">

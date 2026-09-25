@@ -41,13 +41,7 @@ import { cn } from '@/lib/utils'
 import { detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
 
 import { paneTitle, TOOL_LABEL } from './labels'
-import {
-  Disconnected,
-  Empty,
-  ErrorState,
-  Loading,
-  NoKubeconfig,
-} from './PaneStates'
+import { Disconnected, Empty, ErrorState, Loading, NoKubeconfig } from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -297,7 +291,7 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === 'integrations/vulnerabilities') {
     return <TrivyPanel />
   }
-  if (section === SECTION.overview) return <OverviewPanel />
+  if (section === SECTION.overview) return <OverviewPanel paneId={pane.id} />
   if (section === SECTION.events) return <EventsPanel />
   if (section === SECTION.metrics) return <MetricsPanel />
   if (section === SECTION.grafana) return <GrafanaPanel />

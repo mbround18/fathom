@@ -21,21 +21,21 @@ export function GatedButton({ access, what, disabled, ...props }: GatedButtonPro
   if (title === undefined) return <Button disabled={disabled} {...props} />
   return (
     <TooltipProvider>
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          data-testid="access-denied-hint"
-          role="button"
-          aria-disabled="true"
-          aria-label={title}
-          className="inline-flex"
-          tabIndex={0}
-        >
-          <Button disabled {...props} />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{title}</TooltipContent>
-    </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            data-testid="access-denied-hint"
+            role="button"
+            aria-disabled="true"
+            aria-label={title}
+            className="inline-flex"
+            tabIndex={0}
+          >
+            <Button disabled {...props} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{title}</TooltipContent>
+      </Tooltip>
     </TooltipProvider>
   )
 }

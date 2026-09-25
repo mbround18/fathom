@@ -76,7 +76,10 @@ function InitContainersSection({
         Init Containers
       </h4>
       {initContainers.length === 0 ? (
-        <p data-testid="pod-lifecycle-init-containers-empty" className="text-xs text-muted-foreground">
+        <p
+          data-testid="pod-lifecycle-init-containers-empty"
+          className="text-xs text-muted-foreground"
+        >
           No init containers.
         </p>
       ) : (
@@ -114,15 +117,23 @@ function ProbesSection({
 }) {
   return (
     <div data-testid="pod-lifecycle-probes" className="flex flex-col gap-2">
-      <h4 className="font-display text-xs tracking-wider text-muted-foreground uppercase">Probes</h4>
+      <h4 className="font-display text-xs tracking-wider text-muted-foreground uppercase">
+        Probes
+      </h4>
       <ol className="flex flex-col gap-1.5">
         {containers.map((c) => {
           const entries = probeState(c, events)
           return (
-            <li key={c.name} className="flex flex-col gap-1 border-b border-border/50 pb-1.5 text-sm">
+            <li
+              key={c.name}
+              className="flex flex-col gap-1 border-b border-border/50 pb-1.5 text-sm"
+            >
               <span className="font-mono font-medium">{c.name}</span>
               {entries.length === 0 ? (
-                <p data-testid="pod-lifecycle-probes-empty" className="text-xs text-muted-foreground">
+                <p
+                  data-testid="pod-lifecycle-probes-empty"
+                  className="text-xs text-muted-foreground"
+                >
                   No probes configured.
                 </p>
               ) : (
@@ -169,9 +180,13 @@ function RestartHistorySection({ containers }: { containers: ContainerLifecycle[
           // restartPolicy: Never edge case — a terminated container with `restart_count === 0`
           // never populates `last_state`, so `state` itself carries the termination info.
           const last =
-            c.last_state ?? (c.restart_count === 0 && c.state.phase === 'terminated' ? c.state : null)
+            c.last_state ??
+            (c.restart_count === 0 && c.state.phase === 'terminated' ? c.state : null)
           return (
-            <li key={c.name} className="flex flex-col gap-1 border-b border-border/50 pb-1.5 text-sm">
+            <li
+              key={c.name}
+              className="flex flex-col gap-1 border-b border-border/50 pb-1.5 text-sm"
+            >
               <span className="flex flex-wrap items-center gap-x-2">
                 <span className="font-mono font-medium">{c.name}</span>
                 <span className="font-mono text-xs text-muted-foreground">
@@ -211,10 +226,16 @@ function HooksSection({
         {containers.map((c) => {
           const entries = hookState(c, events)
           return (
-            <li key={c.name} className="flex flex-col gap-1 border-b border-border/50 pb-1.5 text-sm">
+            <li
+              key={c.name}
+              className="flex flex-col gap-1 border-b border-border/50 pb-1.5 text-sm"
+            >
               <span className="font-mono font-medium">{c.name}</span>
               {entries.length === 0 ? (
-                <p data-testid="pod-lifecycle-hooks-empty" className="text-xs text-muted-foreground">
+                <p
+                  data-testid="pod-lifecycle-hooks-empty"
+                  className="text-xs text-muted-foreground"
+                >
                   No hooks configured.
                 </p>
               ) : (
@@ -251,9 +272,14 @@ function PodEventsTimeline({ events }: { events: readonly KubernetesEvent[] }) {
   )
   return (
     <div data-testid="pod-lifecycle-events-timeline" className="flex flex-col gap-2">
-      <h4 className="font-display text-xs tracking-wider text-muted-foreground uppercase">Events</h4>
+      <h4 className="font-display text-xs tracking-wider text-muted-foreground uppercase">
+        Events
+      </h4>
       {sorted.length === 0 ? (
-        <p data-testid="pod-lifecycle-events-timeline-empty" className="text-xs text-muted-foreground">
+        <p
+          data-testid="pod-lifecycle-events-timeline-empty"
+          className="text-xs text-muted-foreground"
+        >
           No events.
         </p>
       ) : (
@@ -267,7 +293,10 @@ function PodEventsTimeline({ events }: { events: readonly KubernetesEvent[] }) {
               >
                 <span
                   aria-hidden="true"
-                  className={cn('mt-0.5 shrink-0', warn ? 'text-status-warn' : 'text-muted-foreground')}
+                  className={cn(
+                    'mt-0.5 shrink-0',
+                    warn ? 'text-status-warn' : 'text-muted-foreground',
+                  )}
                 >
                   {warn ? '▲' : '●'}
                 </span>

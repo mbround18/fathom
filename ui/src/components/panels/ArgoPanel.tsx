@@ -65,7 +65,9 @@ export default function ArgoPanel() {
         <p className="text-xs text-muted-foreground">Not installed: {missing.join(', ')}.</p>
       )}
       {denied.length > 0 && (
-        <p className="text-xs text-muted-foreground">Permission denied listing: {denied.join(', ')}.</p>
+        <p className="text-xs text-muted-foreground">
+          Permission denied listing: {denied.join(', ')}.
+        </p>
       )}
       {rows.length === 0 ? (
         <p data-testid="argo-empty" className="text-sm text-muted-foreground">
@@ -85,7 +87,10 @@ export default function ArgoPanel() {
             </thead>
             <tbody>
               {rows.map(({ r, e }) => (
-                <tr key={`${r.kind}/${r.namespace ?? ''}/${r.name}`} className="border-b border-border/50">
+                <tr
+                  key={`${r.kind}/${r.namespace ?? ''}/${r.name}`}
+                  className="border-b border-border/50"
+                >
                   <td className="px-2 py-1 text-xs">{r.kind}</td>
                   <td className="px-2 py-1 font-mono">
                     <button

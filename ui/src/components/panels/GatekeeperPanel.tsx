@@ -59,7 +59,11 @@ export function GatekeeperPanel() {
   const tiles: SummaryTile[] = [
     { label: 'Constraints', value: String(constraints.length), tone: 'muted' },
     { label: 'Violating', value: String(withViolations), tone: withViolations > 0 ? 'err' : 'ok' },
-    { label: 'Violations', value: String(totalViolations), tone: totalViolations > 0 ? 'err' : 'ok' },
+    {
+      label: 'Violations',
+      value: String(totalViolations),
+      tone: totalViolations > 0 ? 'err' : 'ok',
+    },
   ]
 
   const rows: SummaryRow[] = constraints.map((c) => {

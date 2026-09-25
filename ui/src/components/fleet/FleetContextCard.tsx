@@ -70,7 +70,11 @@ export function FleetContextCard({
         </span>
       </span>
       {summary.error && (
-        <span data-testid="fleet-card-error" className="text-xs break-words text-red-400" title={summary.plugin_error?.hint ?? undefined}>
+        <span
+          data-testid="fleet-card-error"
+          className="text-xs break-words text-red-400"
+          title={summary.plugin_error?.hint ?? undefined}
+        >
           {summary.error}
         </span>
       )}

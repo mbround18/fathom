@@ -41,6 +41,7 @@ export function PortForwardsPanel() {
   }, [])
 
   const [stopTarget, setStopTarget] = useState<PortForward | undefined>(undefined)
+  const [removeTarget, setRemoveTarget] = useState<PortForward | undefined>(undefined)
   const [restartTarget, setRestartTarget] = useState<ForwardTarget | undefined>(undefined)
   const [restartOpen, setRestartOpen] = useState(false)
 
@@ -74,6 +75,9 @@ export function PortForwardsPanel() {
             onStop={() => {
               setStopTarget(row.pf)
             }}
+            onRemove={() => {
+              setRemoveTarget(row.pf)
+            }}
             onRestart={() => {
               setRestartTarget({
                 namespace: row.pf.namespace,
@@ -87,6 +91,30 @@ export function PortForwardsPanel() {
           />
         ))}
       </ul>
+
+      <ConfirmDialog
+        open={removeTarget !== undefined}
+        title="Remove port forward"
+        items={removeTarget ? [{ namespace: removeTarget.namespace, name: removeTarget.pod }] : []}
+        requireTypedCount={false}
+        confirmLabel="Remove forward"
+        detail={
+          removeTarget ? (
+            <span data-testid="port-forward-remove-detail">
+              Removes the saved forward from local port {removeTarget.local_port} to{' '}
+              {removeTarget.namespace}/{removeTarget.pod}:{removeTarget.remote_port}.
+            </span>
+          ) : undefined
+        }
+        onConfirm={() => {
+          if (!removeTarget) return
+          send({ type: 'DeletePortForward', data: { tunnel_id: removeTarget.id } })
+          setRemoveTarget(undefined)
+        }}
+        onCancel={() => {
+          setRemoveTarget(undefined)
+        }}
+      />
 
       <ConfirmDialog
         open={stopTarget !== undefined}
@@ -124,10 +152,12 @@ export function PortForwardsPanel() {
 function PortForwardRowItem({
   row,
   onStop,
+  onRemove,
   onRestart,
 }: {
   row: PortForwardRow
   onStop: () => void
+  onRemove: () => void
   onRestart: () => void
 }) {
   const send = useStore((s) => s.send)
@@ -217,7 +247,7 @@ function PortForwardRowItem({
             size="sm"
             variant="outline"
             data-testid="port-forward-delete"
-            onClick={() => send({ type: 'DeletePortForward', data: { tunnel_id: pf.id } })}
+            onClick={onRemove}
           >
             Remove
           </Button>

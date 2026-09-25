@@ -167,9 +167,7 @@ function ScaleBody({ kind, item, current, onConfirm }: ScaleDialogProps) {
         className="flex items-baseline justify-center gap-3 border border-border bg-background py-2 font-mono tabular-nums"
       >
         <span className="flex flex-col items-center">
-          <span className="text-xs tracking-wider text-muted-foreground uppercase">
-            current
-          </span>
+          <span className="text-xs tracking-wider text-muted-foreground uppercase">current</span>
           <span data-testid="scale-current" className="text-lg">
             {current}
           </span>

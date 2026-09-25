@@ -228,7 +228,8 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
           data-testid="rbac-binding-create-disabled"
           className="border border-status-warn/50 bg-status-warn/10 px-2 py-1.5 text-xs text-status-warn"
         >
-          {access.reason ?? `You don't have permission to ${verb} ${resource}${effectiveNamespace ? ` in ${effectiveNamespace}` : ''}.`}
+          {access.reason ??
+            `You don't have permission to ${verb} ${resource}${effectiveNamespace ? ` in ${effectiveNamespace}` : ''}.`}
         </p>
       )}
 

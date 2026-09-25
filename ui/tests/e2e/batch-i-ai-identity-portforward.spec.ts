@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { batch, globalRoute, list, system } from '../fixtures/builders'
 import type { PortForward } from '../../src/protocol/types'
-import { clearSent, emit, navigateTo, open, sent, sentTypes } from './helpers'
+import { clearSent, confirmDialog, emit, navigateTo, open, sent, sentTypes } from './helpers'
 
 const SETTINGS = {
   schema: 1 as const,
@@ -178,7 +178,11 @@ test.describe('OIDC role-map editor', () => {
       .toEqual({
         type: 'OidcSetRoleMap',
         data: {
-          role_map: { viewers_group: 'oidc:viewers', editors_group: '', admins_group: 'oidc:admins' },
+          role_map: {
+            viewers_group: 'oidc:viewers',
+            editors_group: '',
+            admins_group: 'oidc:admins',
+          },
         },
       })
   })
@@ -239,6 +243,8 @@ test.describe('port-forward delete', () => {
     await expect(active.getByTestId('port-forward-delete')).toHaveCount(0)
     await clearSent(page)
     await closed.getByTestId('port-forward-delete').click()
+    expect((await sent(page)).some((c) => c.type === 'DeletePortForward')).toBe(false)
+    await confirmDialog(page).getByTestId('confirm-submit').click()
     await expect
       .poll(async () => (await sent(page)).find((c) => c.type === 'DeletePortForward'))
       .toEqual({ type: 'DeletePortForward', data: { tunnel_id: 'pf-1' } })

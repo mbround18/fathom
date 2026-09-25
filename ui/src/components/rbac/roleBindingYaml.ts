@@ -38,9 +38,7 @@ function subjectToManifest(s: RoleBindingSubjectInput): Record<string, unknown> 
  * `roleRef.{apiGroup,kind,name}`/`subjects[].{kind,name,namespace?}` — the same fields
  * `RoleBindingDetails`/`ClusterRoleBindingDetails` represent.
  */
-export function buildRoleBindingManifest(
-  input: RoleBindingManifestInput,
-): Record<string, unknown> {
+export function buildRoleBindingManifest(input: RoleBindingManifestInput): Record<string, unknown> {
   const metadata: Record<string, unknown> = { name: input.name }
   if (input.kind === 'RoleBinding' && input.namespace) metadata.namespace = input.namespace
 

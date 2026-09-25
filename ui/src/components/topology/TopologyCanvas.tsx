@@ -17,7 +17,14 @@ import { NEUTRAL_TONE } from '@/topology/status'
 import { nodeId, type TopologyGraph, type TopologyNode } from '@/topology/types'
 import { deriveFocus, NAMESPACE_FOCUS_SCALE } from '@/topology/viewport'
 
-import { clampScale, hitTest, screenToWorld, worldToScreen, zoomAt, type Camera } from './TopologyCanvas.utils'
+import {
+  clampScale,
+  hitTest,
+  screenToWorld,
+  worldToScreen,
+  zoomAt,
+  type Camera,
+} from './TopologyCanvas.utils'
 
 const TONE_VAR: Record<TopologyNode['tone'], string> = {
   ok: '--status-ok',
@@ -51,7 +58,12 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
 
   const listKeyFor = useCallback(
     (section: string) =>
-      listKey(ctx, section, descriptorFor(section)?.namespaced === false ? 'Cluster' : 'Namespaced', null),
+      listKey(
+        ctx,
+        section,
+        descriptorFor(section)?.namespaced === false ? 'Cluster' : 'Namespaced',
+        null,
+      ),
     [ctx],
   )
   const detailKeyFor = useCallback(
@@ -171,7 +183,12 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
       for (const a of appRows.filter((r) => r.namespace === ns)) {
         send({
           type: 'RefreshRelatedResources',
-          data: { section: applications.section, kind: 'Application', namespace: a.namespace, name: a.instance },
+          data: {
+            section: applications.section,
+            kind: 'Application',
+            namespace: a.namespace,
+            name: a.instance,
+          },
         })
       }
     }
@@ -231,7 +248,8 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     for (const e of laidOut.edges) {
       const a = byId.get(e.source)
       const b = byId.get(e.target)
-      if (a?.x === undefined || a.y === undefined || b?.x === undefined || b.y === undefined) continue
+      if (a?.x === undefined || a.y === undefined || b?.x === undefined || b.y === undefined)
+        continue
       const from = worldToScreen(camera, a.x, a.y)
       const to = worldToScreen(camera, b.x, b.y)
       g.beginPath()
@@ -280,7 +298,9 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
   useEffect(() => draw(), [draw])
 
   // ---- pan/zoom input
-  const dragRef = useRef<{ startX: number; startY: number; camX: number; camY: number } | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; camX: number; camY: number } | null>(
+    null,
+  )
 
   const onWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -296,10 +316,13 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     [persistCamera],
   )
 
-  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId)
-    dragRef.current = { startX: e.clientX, startY: e.clientY, camX: camera.x, camY: camera.y }
-  }, [camera.x, camera.y])
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId)
+      dragRef.current = { startX: e.clientX, startY: e.clientY, camX: camera.x, camY: camera.y }
+    },
+    [camera.x, camera.y],
+  )
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -351,7 +374,11 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
   )
 
   return (
-    <div ref={containerRef} className="relative h-full w-full min-h-0 min-w-0" data-testid="topology-canvas-host">
+    <div
+      ref={containerRef}
+      className="relative h-full min-h-0 w-full min-w-0"
+      data-testid="topology-canvas-host"
+    >
       <canvas
         ref={canvasRef}
         data-testid="topology-canvas"

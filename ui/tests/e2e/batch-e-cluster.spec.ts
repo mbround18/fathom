@@ -227,10 +227,6 @@ test.describe('Overview panel', () => {
     await expect(warnings.getByText('FailedMount')).toBeVisible()
     await expect(warnings.getByText('Scheduled')).toHaveCount(0)
     await expectNoHorizontalScroll(page)
-    // APP BUG (reported, unfixed): on tablet the Overview nav section shows a fixed inspector
-    // slot, but openInspector without a `from` pane pushes onto the hidden stack, so the link
-    // click opens nothing visible.
-    test.skip(info.project.name.endsWith('-tablet'), 'Overview links dead at tablet width')
     await warnings.getByRole('button', { name: 'Open Pod/web-2' }).click()
     await expect(inspector(page)).toBeVisible()
     await expect(inspector(page)).toContainText('web-2')

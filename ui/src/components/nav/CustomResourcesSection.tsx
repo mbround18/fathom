@@ -94,10 +94,7 @@ function CrdCatalogList({
   if (!catalogLoaded) return <Loading rows={6} label="Discovering Custom Resource Definitions" />
   if (catalog.length === 0) {
     return (
-      <Empty
-        title="No Custom Resource Definitions"
-        detail="This cluster has no CRDs installed."
-      />
+      <Empty title="No Custom Resource Definitions" detail="This cluster has no CRDs installed." />
     )
   }
   return (
@@ -204,8 +201,7 @@ function CrdInstancesList({
       <tbody>
         {parsed.map(({ namespace, name }) => {
           const rowKey = namespace ? `${namespace}/${name}` : name
-          const active =
-            selectedInstance?.name === name && selectedInstance.namespace === namespace
+          const active = selectedInstance?.name === name && selectedInstance.namespace === namespace
           return (
             <tr
               key={rowKey}
@@ -234,7 +230,9 @@ function asCrdInstanceDetails(detail: DetailState | undefined): CrdInstanceDetai
     : undefined
 }
 
-function parseInstances(state: CrdInstancesState | undefined): { namespace: string | null; name: string }[] {
+function parseInstances(
+  state: CrdInstancesState | undefined,
+): { namespace: string | null; name: string }[] {
   if (!state) return []
   const out: { namespace: string | null; name: string }[] = []
   for (const raw of state.items) {

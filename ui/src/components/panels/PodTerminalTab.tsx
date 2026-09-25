@@ -45,7 +45,12 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
   const started = chosen !== undefined
 
   // 033 US5: the session only starts once the identity is verified to `create pods/exec`.
-  const canExec = useCapability({ verb: 'create', resource: 'pods', subresource: 'exec', namespace })
+  const canExec = useCapability({
+    verb: 'create',
+    resource: 'pods',
+    subresource: 'exec',
+    namespace,
+  })
 
   // 024-pod-exec-terminal gate: check access -> confirm -> only then StartPodExec.
   const container = containers.length > 1 ? (chosen ?? null) : null
@@ -64,21 +69,28 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
   // stale confirming/denied result is never reused (confirmation is never skipped). Adjusting
   // state during render (rather than in an effect) is React's documented reset pattern.
   if (run.key !== runKey) {
-    setRun({ key: runKey, baseline: access?.rev ?? 0, idle: false, confirmed: false, timedOut: false })
+    setRun({
+      key: runKey,
+      baseline: access?.rev ?? 0,
+      idle: false,
+      confirmed: false,
+      timedOut: false,
+    })
   }
   const fresh = access !== undefined && access.rev > run.baseline
 
-  const gate: Gate = !started || run.idle
-    ? 'idle'
-    : run.confirmed
-      ? 'open'
-      : fresh
-        ? access.allowed
-          ? 'confirming'
-          : 'denied'
-        : run.timedOut
-          ? 'denied'
-          : 'checking'
+  const gate: Gate =
+    !started || run.idle
+      ? 'idle'
+      : run.confirmed
+        ? 'open'
+        : fresh
+          ? access.allowed
+            ? 'confirming'
+            : 'denied'
+          : run.timedOut
+            ? 'denied'
+            : 'checking'
   const deniedReason = fresh ? access.reason : CHECK_FAILED_REASON
 
   const beginCheck = () => setAttempt((n) => n + 1)
@@ -98,7 +110,13 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
     phase: 'attaching',
   })
   const open = gate === 'open' && canExec.status === 'allowed'
-  const phase: Phase = !started ? 'picking' : gate !== 'open' ? gate : open ? status.phase : 'checking'
+  const phase: Phase = !started
+    ? 'picking'
+    : gate !== 'open'
+      ? gate
+      : open
+        ? status.phase
+        : 'checking'
 
   const cancelConfirm = () => {
     if (containers.length > 1) setPicked(undefined)

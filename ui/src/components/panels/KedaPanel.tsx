@@ -33,8 +33,7 @@ function Row({ row, selected }: { row: KedaResourceSummary; selected: boolean })
       </span>
       <span className="text-xs text-muted-foreground">
         {row.target_kind}/{row.target_name} · {String(row.current_replicas)} replicas (min{' '}
-        {String(row.min_replicas)}, max {String(row.max_replicas)})
-        {row.paused ? ' · paused' : ''}
+        {String(row.min_replicas)}, max {String(row.max_replicas)}){row.paused ? ' · paused' : ''}
       </span>
     </button>
   )
@@ -52,10 +51,13 @@ export function KedaPanel() {
 
   if (!overview) return <MetricsUnavailable detail="Waiting for the KEDA scan to complete." />
   if (!overview.installed) {
-    return <MetricsUnavailable detail="KEDA not detected: its CRDs were not found in this cluster." />
+    return (
+      <MetricsUnavailable detail="KEDA not detected: its CRDs were not found in this cluster." />
+    )
   }
 
-  const inScope = (r: KedaResourceSummary) => activeNamespace === null || r.namespace === activeNamespace
+  const inScope = (r: KedaResourceSummary) =>
+    activeNamespace === null || r.namespace === activeNamespace
   const rows = [...overview.scaled_objects, ...overview.scaled_jobs].filter(inScope)
 
   if (overview.scaled_objects.length === 0 && overview.scaled_jobs.length === 0) {

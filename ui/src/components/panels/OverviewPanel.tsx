@@ -5,7 +5,7 @@ import { Disconnected, Empty, NoKubeconfig } from '@/components/shell/PaneStates
 import { SECTION } from '@/protocol/commands'
 import type { NodeSummary, PodSummary, WorkloadSummary } from '@/protocol/types'
 import { statusTone } from '@/resources/search'
-import { listKey, useStore, type ListRow } from '@/store'
+import { listKey, useStore, type ListRow, type PaneId } from '@/store'
 
 import {
   asEvents,
@@ -57,7 +57,7 @@ export function summarize(
 }
 
 /** Cluster summary: counts, unhealthy tallies, namespaces, server version, recent warnings. */
-export default function OverviewPanel() {
+export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   const ctx = useStore((s) => s.session.activeContext)
   const gone = useStore((s) => s.conn.status === 'backend-gone')
   const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
@@ -130,7 +130,7 @@ export default function OverviewPanel() {
                   {ref ? (
                     <button
                       type="button"
-                      onClick={() => openInspector(ref)}
+                      onClick={() => openInspector(ref, paneId)}
                       aria-label={`Open ${label}`}
                       className="min-h-[var(--touch-target)] font-mono text-accent-neon hover:underline sm:min-h-[24px]"
                     >

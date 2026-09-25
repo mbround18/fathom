@@ -58,7 +58,12 @@ export function KnativeTrafficGraph({
     }
     for (const n of graph.nodes) {
       const p = pos(n.id)
-      const tone = { ok: '--status-ok', warn: '--status-warn', err: '--status-err', muted: '--muted-foreground' }[n.tone]
+      const tone = {
+        ok: '--status-ok',
+        warn: '--status-warn',
+        err: '--status-err',
+        muted: '--muted-foreground',
+      }[n.tone]
       g.fillStyle = color(style, tone, '#888')
       g.beginPath()
       g.arc(p.x, p.y, 8, 0, Math.PI * 2)

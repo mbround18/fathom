@@ -56,7 +56,9 @@ export function FederationContextSwitcher() {
         const pe = entry?.pluginError
         const cloud = cloudAuth[name]
         const provider =
-          cloud && cloud.provider !== 'none' ? ` [${cloud.provider}${cloud.installed === false ? ', plugin missing' : ''}]` : ''
+          cloud && cloud.provider !== 'none'
+            ? ` [${cloud.provider}${cloud.installed === false ? ', plugin missing' : ''}]`
+            : ''
         const title = pe
           ? `${pe.message}${pe.hint ? ` — ${pe.hint}` : ''}`
           : (entry?.error ?? STATUS_LABEL[statusAttr])

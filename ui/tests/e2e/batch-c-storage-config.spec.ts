@@ -1,6 +1,7 @@
 /** Batch C (storage + config core): list rendering, Secret masking, confirmed deletes. */
 import { expect, test } from '@playwright/test'
 
+import type { ResourceListEvent } from '@/protocol/generated/ResourceListEvent'
 import { batch, clusterRoute, list, nsRoute, read } from '../fixtures/builders'
 import { BATCH_C_LIST_EVENTS } from '../fixtures/batchCKinds'
 import {
@@ -15,15 +16,69 @@ import {
   sent,
 } from './helpers'
 
+function ev(section: string): ResourceListEvent {
+  const e = BATCH_C_LIST_EVENTS[section]
+  if (!e) throw new Error(`no fixture for ${section}`)
+  return e
+}
+
 const CASES = [
-  { label: 'Persistent Volumes', group: 'Storage', section: 'storage/persistentvolumes', key: 'pv-data', cluster: true },
-  { label: 'Persistent Volume Claims', group: 'Storage', section: 'storage/persistentvolumeclaims', key: 'default/data', cluster: false },
-  { label: 'Storage Classes', group: 'Storage', section: 'storage/storageclasses', key: 'standard', cluster: true },
-  { label: 'ConfigMaps', group: 'Config', section: 'config/configmaps', key: 'default/app-config', cluster: false },
-  { label: 'Secrets', group: 'Config', section: 'config/secrets', key: 'default/db-creds', cluster: false },
-  { label: 'Resource Quotas', group: 'Config', section: 'config/resourcequotas', key: 'default/compute', cluster: false },
-  { label: 'Limit Ranges', group: 'Config', section: 'config/limitranges', key: 'default/defaults', cluster: false },
-  { label: 'Pod Disruption Budgets', group: 'Config', section: 'config/poddisruptionbudgets', key: 'default/web-pdb', cluster: false },
+  {
+    label: 'Persistent Volumes',
+    group: 'Storage',
+    section: 'storage/persistentvolumes',
+    key: 'pv-data',
+    cluster: true,
+  },
+  {
+    label: 'Persistent Volume Claims',
+    group: 'Storage',
+    section: 'storage/persistentvolumeclaims',
+    key: 'default/data',
+    cluster: false,
+  },
+  {
+    label: 'Storage Classes',
+    group: 'Storage',
+    section: 'storage/storageclasses',
+    key: 'standard',
+    cluster: true,
+  },
+  {
+    label: 'ConfigMaps',
+    group: 'Config',
+    section: 'config/configmaps',
+    key: 'default/app-config',
+    cluster: false,
+  },
+  {
+    label: 'Secrets',
+    group: 'Config',
+    section: 'config/secrets',
+    key: 'default/db-creds',
+    cluster: false,
+  },
+  {
+    label: 'Resource Quotas',
+    group: 'Config',
+    section: 'config/resourcequotas',
+    key: 'default/compute',
+    cluster: false,
+  },
+  {
+    label: 'Limit Ranges',
+    group: 'Config',
+    section: 'config/limitranges',
+    key: 'default/defaults',
+    cluster: false,
+  },
+  {
+    label: 'Pod Disruption Budgets',
+    group: 'Config',
+    section: 'config/poddisruptionbudgets',
+    key: 'default/web-pdb',
+    cluster: false,
+  },
 ] as const
 
 for (const c of CASES) {
@@ -31,7 +86,7 @@ for (const c of CASES) {
     await open(page)
     await navigateTo(page, c.label, c.group)
     const route = c.cluster ? clusterRoute('kind-a', c.section) : nsRoute('kind-a', c.section)
-    await emit(page, batch([list(1, route, BATCH_C_LIST_EVENTS[c.section])]))
+    await emit(page, batch([list(1, route, ev(c.section))]))
     await expectRowCount(page, 1, c.section)
     await expect(row(page, c.key, c.section)).toBeVisible()
   })
@@ -41,7 +96,7 @@ test('Secrets show masked keys and never values', async ({ page }) => {
   const section = 'config/secrets'
   await open(page)
   await navigateTo(page, 'Secrets', 'Config')
-  await emit(page, batch([list(1, nsRoute('kind-a', section), BATCH_C_LIST_EVENTS[section])]))
+  await emit(page, batch([list(1, nsRoute('kind-a', section), ev(section))]))
   await row(page, 'default/db-creds', section).click()
   await emit(
     page,
@@ -91,10 +146,7 @@ for (const d of DELETES) {
   test(`${d.label}: delete is confirmed and sends the exact command`, async ({ page }) => {
     await open(page)
     await navigateTo(page, d.label, d.group)
-    await emit(
-      page,
-      batch([list(50, nsRoute('kind-a', d.section), BATCH_C_LIST_EVENTS[d.section])]),
-    )
+    await emit(page, batch([list(50, nsRoute('kind-a', d.section), ev(d.section))]))
     await check(page, d.key, d.section)
     await clearSent(page)
     await page.getByTestId('bulk-delete').click()

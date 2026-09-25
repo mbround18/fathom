@@ -80,7 +80,11 @@ export function buildTiles(o: VeleroOverview): SummaryTile[] {
   const count = (p: VeleroPhase) => o.backups.filter((b) => b.phase === p).length
   return [
     { label: 'Completed', value: String(count('Completed')), tone: 'ok' },
-    { label: 'Failed', value: String(count('Failed')), tone: count('Failed') > 0 ? 'err' : 'muted' },
+    {
+      label: 'Failed',
+      value: String(count('Failed')),
+      tone: count('Failed') > 0 ? 'err' : 'muted',
+    },
     { label: 'In progress', value: String(count('InProgress')), tone: 'warn' },
     { label: 'Schedules', value: String(o.schedules.length), tone: 'muted' },
     { label: 'Restores', value: String(o.restores.length), tone: 'muted' },

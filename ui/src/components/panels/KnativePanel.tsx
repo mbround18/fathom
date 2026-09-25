@@ -16,7 +16,15 @@ import { KnativeTrafficGraph } from './KnativeTrafficGraph'
 
 const DOT = { ok: 'bg-status-ok', err: 'bg-status-err', muted: 'bg-muted-foreground' } as const
 
-function Section({ title, testId, children }: { title: string; testId: string; children: ReactNode }) {
+function Section({
+  title,
+  testId,
+  children,
+}: {
+  title: string
+  testId: string
+  children: ReactNode
+}) {
   return (
     <section data-testid={testId} className="flex flex-col gap-1">
       <h4 className="font-display text-xs tracking-wider text-muted-foreground uppercase">
@@ -68,7 +76,10 @@ export function KnativePanel() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-3" data-testid="knative-panel">
+    <div
+      className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-3"
+      data-testid="knative-panel"
+    >
       <div className="flex items-center gap-2">
         <RocketLaunchIcon aria-hidden="true" className="size-4 text-accent-neon" />
         <h3 className="font-display text-xs font-semibold tracking-wider uppercase">Knative</h3>
@@ -86,7 +97,10 @@ export function KnativePanel() {
         ))}
       </Section>
 
-      <Section title={`Revisions (${String(overview.revisions.length)})`} testId="knative-revisions">
+      <Section
+        title={`Revisions (${String(overview.revisions.length)})`}
+        testId="knative-revisions"
+      >
         {overview.revisions.map((r) => (
           <Row
             key={`${r.namespace}/${r.name}`}
