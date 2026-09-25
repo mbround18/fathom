@@ -101,6 +101,12 @@ export const missingPdb: Rule = {
         }
       }
     }
-    return outcome(this, findings, checked, pending, missing.length ? missingReason(missing) : undefined)
+    return outcome(
+      this,
+      findings,
+      checked,
+      pending,
+      missing.length ? missingReason(missing) : undefined,
+    )
   },
 }

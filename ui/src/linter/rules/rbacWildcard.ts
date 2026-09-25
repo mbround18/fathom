@@ -1,6 +1,16 @@
 /** Roles/ClusterRoles granting wildcard verbs or resources. Built-in `system:*` roles and cluster-admin are exempt. */
 import type { Finding, Rule } from '../types'
-import { arr, isObj, makeFinding, missingReason, outcome, readyRows, ref, SECTIONS, skipped } from '../util'
+import {
+  arr,
+  isObj,
+  makeFinding,
+  missingReason,
+  outcome,
+  readyRows,
+  ref,
+  SECTIONS,
+  skipped,
+} from '../util'
 
 function isBuiltIn(name: string): boolean {
   return name.startsWith('system:') || name === 'cluster-admin'
@@ -60,6 +70,12 @@ export const rbacWildcard: Rule = {
       }
     }
     if (available === 0) return skipped(this, missingReason(missing))
-    return outcome(this, findings, checked, pending, missing.length ? missingReason(missing) : undefined)
+    return outcome(
+      this,
+      findings,
+      checked,
+      pending,
+      missing.length ? missingReason(missing) : undefined,
+    )
   },
 }

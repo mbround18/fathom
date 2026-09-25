@@ -12,10 +12,10 @@ Evidence method: `src/resources/nav.ts` section keys were grepped against `tests
 |---|---|---|---|
 | [x] | `pods.rs` | `src/resources/pods.tsx` (`workloads/pods`) | `us1-pods-list`, `us1-inspector`, `us1-pod-logs`, `perf-10k` |
 | [x] | `workloads.rs` (deployments) | `src/resources/deployments.ts` | `us3-scale`, `us3-bulk-delete`, `us1-namespace-filter` |
-| [ ] | `workloads.rs` (statefulsets) | `src/resources/statefulsets.ts` | none (unit only) |
-| [ ] | `workloads.rs` (daemonsets) | `src/resources/daemonsets.ts` | none (unit only) |
-| [ ] | `workloads.rs` (replicasets) | `src/resources/replicasets.tsx` | none (unit only) |
-| [ ] | `workloads.rs` (replication controllers) | `src/resources/replicationcontrollers.tsx` | none (unit only) |
+| [x] | `workloads.rs` (statefulsets) | `src/resources/statefulsets.ts` | `parity-kinds` |
+| [x] | `workloads.rs` (daemonsets) | `src/resources/daemonsets.ts` | `parity-kinds` |
+| [x] | `workloads.rs` (replicasets) | `src/resources/replicasets.tsx` | `parity-kinds` |
+| [x] | `workloads.rs` (replication controllers) | `src/resources/replicationcontrollers.tsx` | `parity-kinds` |
 | [x] | `jobs.rs` | `src/resources/jobs.tsx` | `batch-a-workloads` |
 | [x] | `cronjobs.rs` | `src/resources/cronjobs.tsx` | `batch-a-workloads` |
 | [x] | `nodes.rs` | `src/resources/nodes.tsx` | `batch-e-cluster`, `us2-node-actions`, `node-shell` |
@@ -39,11 +39,11 @@ Evidence method: `src/resources/nav.ts` section keys were grepped against `tests
 | [x] | `limitranges.rs` | `src/resources/configKinds.tsx` | `batch-c-storage-config` |
 | [x] | `horizontalpodautoscalers.rs` | `src/resources/horizontalpodautoscalers.tsx` | `batch-d-config` |
 | [x] | `poddisruptionbudgets.rs` | `src/resources/configKinds.tsx` | `batch-c-storage-config` |
-| [ ] | `priorityclasses.rs` | `src/resources/priorityclasses.tsx` | none (unit only: `batchD.test.tsx`) |
-| [ ] | `runtimeclasses.rs` | `src/resources/runtimeclasses.tsx` | none (unit only) |
-| [ ] | `leases.rs` | `src/resources/leases.tsx` | none (unit only: `batchD.test.tsx`) |
+| [x] | `priorityclasses.rs` | `src/resources/priorityclasses.tsx` | `parity-kinds` |
+| [x] | `runtimeclasses.rs` | `src/resources/runtimeclasses.tsx` | `parity-kinds` |
+| [x] | `leases.rs` | `src/resources/leases.tsx` | `parity-kinds` |
 | [x] | `mutatingwebhooks.rs` | `src/resources/webhooks.tsx` | `batch-d-config` |
-| [ ] | `validatingwebhooks.rs` | `src/resources/webhooks.tsx` | none (unit only; shares the file with mutating) |
+| [x] | `validatingwebhooks.rs` | `src/resources/webhooks.tsx` | `parity-kinds` |
 | [x] | `flux.rs` (Flux custom resources) | `src/components/panels/FluxPanel.tsx`, `src/resources/flux-resource.tsx` | `us1-applications-list`, `us2-application-inspector` |
 
 ## FR-002 mutating actions (each behind a confirmation)
@@ -52,7 +52,7 @@ Evidence method: `src/resources/nav.ts` section keys were grepped against `tests
 |---|---|---|---|
 | [x] | Delete (single and bulk) | `src/components/ConfirmDialog.tsx`, `src/resources/actions.ts` | `us3-bulk-delete` |
 | [x] | Scale | `src/components/ScaleDialog.tsx` | `us3-scale` |
-| [ ] | Restart (deployments, statefulsets, daemonsets, replicasets, RCs) | `src/resources/actions.ts` (`Restart<Kind>`) | none from the row menu; only Vitest (`batchA.test.tsx`) and MCP-agent restart (`us3-agent-ops-confirm`) |
+| [x] | Restart (statefulsets, daemonsets, replicasets, RCs) | `src/resources/actions.ts` (`Restart<Kind>`) | `parity-kinds` (row menu, confirm, exact `Restart<Kind>`). Deployments' Restart is only Vitest (`batchA.test.tsx`) plus MCP-agent restart (`us3-agent-ops-confirm`); it shares `restartAction` with the four kinds covered |
 | [x] | Create / stop port forward | `src/components/panels/PortForwardStartDialog.tsx`, `PortForwardsPanel.tsx` | `us1-port-forward-start`, `us2-port-forward-manage`, `us3-port-forward-port-picker` |
 
 ## FR-003 dashboards, streaming, settings
@@ -60,8 +60,8 @@ Evidence method: `src/resources/nav.ts` section keys were grepped against `tests
 | Done | Capability | New-UI equivalent | E2E spec(s) |
 |---|---|---|---|
 | [x] | Overview dashboard | `src/components/panels/OverviewPanel.tsx` | `batch-e-cluster` |
-| [ ] | Workload metrics charts | `src/components/panels/MetricsPanel.tsx` | `metrics-grafana` covers the Prometheus/Grafana settings; no spec asserts per-workload chart rendering (gap) |
-| [ ] | Log streaming with follow | `src/components/panels/PodLogsTab.tsx` | `us1-pod-logs` covers Start/Stop and chunk rendering; no spec asserts the follow toggle / scroll-stick (gap) |
+| [x] | Workload metrics charts | `src/components/panels/MetricsPanel.tsx` | `parity-metrics-logs` (pod meters and sparklines, workload aggregate row), `metrics-grafana` |
+| [x] | Log streaming with follow | `src/components/panels/PodLogsTab.tsx` | `us1-pod-logs`, `parity-metrics-logs` (stick to bottom, scroll-up stops follow, Jump to latest resumes) |
 | [x] | Port-forward management | `src/components/panels/PortForwardsPanel.tsx` | `us2-port-forward-manage`, `us4-port-forward-copy-address` |
 | [x] | Integrations settings | `src/components/panels/ClusterSettingsPanel.tsx`, `GrafanaPanel.tsx`, `MetricsPanel.tsx` | `metrics-grafana`, `us2-teams-cluster-settings` |
 | [x] | MCP settings | `src/components/panels/ClusterSettingsPanel.tsx` | `mcp-settings-persistence`, `mcp-agent-status` |
@@ -79,18 +79,11 @@ Evidence method: `src/resources/nav.ts` section keys were grepped against `tests
 | [x] | `navigation.rs` | `NavTree.tsx`, `src/resources/nav.ts` | `responsive-shell`, `us1-command-palette` |
 | [x] | `modal.rs` | `ConfirmDialog.tsx`, `ScaleDialog.tsx`, `PortForwardStartDialog.tsx` | `us3-scale`, `us3-bulk-delete`, `us1-port-forward-start` |
 | [x] | `detail_sections.rs` | `src/components/DetailSections.tsx` | `us1-inspector` |
-| [ ] | `placeholder.rs` | `src/components/panels/UnavailableSection.tsx` | none found by grep (gap 6) |
+| n/a | `placeholder.rs` | (removed) | `UnavailableSection.tsx` had no references and was deleted; every nav section has a real pane, so no placeholder exists to test |
 | n/a | `mod.rs`, `traits.rs` | `src/resources/index.ts`, `types.ts` (descriptor registry) | structural; covered by `tests/unit/descriptors.test.ts` |
 
-## Gaps (block sign-off; T124 and therefore T125 stay open)
+## Gaps
 
-Missing E2E, each a small spec following `batch-a-workloads.spec.ts` (open the section, assert rows and an inspector):
+All six gaps are closed: `parity-kinds.spec.ts` (gaps 1-3), `parity-metrics-logs.spec.ts` (gaps 4-5), and the unused `UnavailableSection` was deleted (gap 6). The new specs ran green on Chromium at phone, tablet, laptop, desktop and wide (100/100 together with `us6-settings`).
 
-1. StatefulSets, DaemonSets, ReplicaSets, ReplicationControllers (FR-001).
-2. PriorityClasses, RuntimeClasses, Leases, ValidatingWebhookConfigurations (FR-001).
-3. Row-menu Restart with confirmation (FR-002).
-4. Workload metrics chart rendering in `MetricsPanel` (FR-003).
-5. Log follow toggle in `PodLogsTab` (FR-003).
-6. UnavailableSection (placeholder for unsupported sections) has no E2E.
-
-Not verified by this checklist: that no egui-only behavior exists beyond what the view files name; WebKit runs (the Playwright WebKit browser here lacks system libs, so only Chromium was executed by the author of this checklist).
+Not verified by this checklist: that no egui-only behavior exists beyond what the view files name; WebKit runs (the Playwright WebKit browser here lacks system libs, so only Chromium was executed). The parity specs use the fake backend, so they prove UI wiring and emitted commands, not live-cluster behavior. Inspector detail-section content of the newly covered kinds is still Vitest-only (the specs assert list and `Select...` wiring).

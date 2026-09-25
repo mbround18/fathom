@@ -14,13 +14,7 @@ import { Button } from '@/components/ui/button'
 
 const MASK = '••••••••'
 
-export function SecretKeys({
-  keys,
-  values,
-}: {
-  keys: string[]
-  values?: Record<string, string>
-}) {
+export function SecretKeys({ keys, values }: { keys: string[]; values?: Record<string, string> }) {
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set())
   const remask = () => {
     setRevealed((prev) => (prev.size === 0 ? prev : new Set()))
@@ -53,7 +47,11 @@ export function SecretKeys({
         const shown = revealed.has(k)
         const value = values?.[k]
         return (
-          <div key={k} data-testid={`secret-key-${k}`} className="flex flex-wrap items-center gap-2">
+          <div
+            key={k}
+            data-testid={`secret-key-${k}`}
+            className="flex flex-wrap items-center gap-2"
+          >
             <span className="font-mono">{k}</span>
             <span
               data-testid={`secret-value-${k}`}

@@ -40,7 +40,10 @@ test.describe('Argo CD pane', () => {
         system(1, {
           type: 'CrdCatalogUpdated',
           data: {
-            entries: [entry('Application', 'applications'), entry('AppProject', 'appprojects', true)],
+            entries: [
+              entry('Application', 'applications'),
+              entry('AppProject', 'appprojects', true),
+            ],
           },
         }),
       ]),

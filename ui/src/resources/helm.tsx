@@ -59,7 +59,12 @@ function OriginLink({ origin }: { origin: GitOpsOriginRef }) {
       type="button"
       onClick={() => {
         openInspector(
-          { section: origin.section, kind: origin.kind, namespace: origin.namespace, name: origin.name },
+          {
+            section: origin.section,
+            kind: origin.kind,
+            namespace: origin.namespace,
+            name: origin.name,
+          },
           undefined,
           true,
         )
@@ -108,7 +113,9 @@ function RollbackAction({
   if (!isThisRevision) {
     const busy = session.status === 'previewing' || session.status === 'applying'
     return (
-      <GatedButton access={access} what="roll back Helm releases"
+      <GatedButton
+        access={access}
+        what="roll back Helm releases"
         data-testid={`helm-rollback-${revision.revision}`}
         size="sm"
         variant="outline"
@@ -208,7 +215,11 @@ const helmReleaseSections: DetailSection<HelmReleaseSummary, HelmReleaseDetails>
         { label: 'Name', value: detail?.name ?? row?.name ?? '', mono: true },
         { label: 'Namespace', value: detail?.namespace ?? row?.namespace ?? '', mono: true },
         { label: 'Chart', value: detail?.chart ?? row?.chart ?? '', mono: true },
-        { label: 'Chart version', value: detail?.chart_version ?? row?.chart_version ?? '', mono: true },
+        {
+          label: 'Chart version',
+          value: detail?.chart_version ?? row?.chart_version ?? '',
+          mono: true,
+        },
         { label: 'App version', value: detail?.app_version ?? row?.app_version ?? '—', mono: true },
         { label: 'Revision', value: String(detail?.revision ?? row?.revision ?? ''), mono: true },
       ]
@@ -230,7 +241,11 @@ const helmReleaseSections: DetailSection<HelmReleaseSummary, HelmReleaseDetails>
         type: 'fields',
         fields: [
           { label: 'Status', value: <StatusBadge status={helmReleaseStatusLabel(status)} /> },
-          { label: 'Updated', value: updated ? `${updated} (${formatAge(updated)} ago)` : '—', mono: true },
+          {
+            label: 'Updated',
+            value: updated ? `${updated} (${formatAge(updated)} ago)` : '—',
+            mono: true,
+          },
           { label: 'Degraded', value: degraded ? 'Yes — release storage undecodable' : 'No' },
         ],
       }
@@ -239,7 +254,8 @@ const helmReleaseSections: DetailSection<HelmReleaseSummary, HelmReleaseDetails>
   {
     id: 'values-user',
     title: 'Values (user-supplied)',
-    render: ({ detail }) => (detail ? { type: 'text', text: detail.values_user_supplied || '—' } : null),
+    render: ({ detail }) =>
+      detail ? { type: 'text', text: detail.values_user_supplied || '—' } : null,
   },
   {
     // `id: 'spec'` per the registry's cross-kind convention (`descriptors.test.ts`): the
@@ -247,7 +263,8 @@ const helmReleaseSections: DetailSection<HelmReleaseSummary, HelmReleaseDetails>
     // closest analogue to another kind's spec.
     id: 'spec',
     title: 'Values (effective)',
-    render: ({ detail }) => (detail ? { type: 'text', text: detail.values_effective || '—' } : null),
+    render: ({ detail }) =>
+      detail ? { type: 'text', text: detail.values_effective || '—' } : null,
   },
   {
     id: 'manifest',
@@ -267,8 +284,8 @@ const helmReleaseSections: DetailSection<HelmReleaseSummary, HelmReleaseDetails>
             <div className="flex items-center gap-2">
               <span className="font-mono text-[0.85em]">#{r.revision}</span>
               <StatusBadge status={helmReleaseStatusLabel(r.status)} />
-              <span className="text-muted-foreground text-[0.85em]">{r.chart_version}</span>
-              <span className="text-muted-foreground text-[0.85em]">{r.updated}</span>
+              <span className="text-[0.85em] text-muted-foreground">{r.chart_version}</span>
+              <span className="text-[0.85em] text-muted-foreground">{r.updated}</span>
               <RollbackAction
                 namespace={detail.namespace}
                 release={detail.name}
@@ -287,7 +304,10 @@ const helmReleaseSections: DetailSection<HelmReleaseSummary, HelmReleaseDetails>
     render: ({ detail }) => {
       if (!detail) return null
       if (!detail.origin) {
-        return { type: 'fields', fields: [{ label: 'Origin', value: 'Not managed by a GitOps controller' }] }
+        return {
+          type: 'fields',
+          fields: [{ label: 'Origin', value: 'Not managed by a GitOps controller' }],
+        }
       }
       const o = detail.origin
       return {
@@ -392,7 +412,8 @@ export const helm: ResourceDescriptor<HelmReleaseSummary, HelmReleaseDetails> = 
       status: true,
       cell: (r) => <StatusBadge status={helmReleaseStatusLabel(r.status)} />,
       text: (r) => helmReleaseStatusLabel(r.status),
-      sort: (a, b) => compareStatus(helmReleaseStatusLabel(a.status), helmReleaseStatusLabel(b.status)),
+      sort: (a, b) =>
+        compareStatus(helmReleaseStatusLabel(a.status), helmReleaseStatusLabel(b.status)),
     },
     {
       id: 'updated',

@@ -1,6 +1,16 @@
 /** Pods with no ownerReferences (not created by any controller). */
 import type { Finding, Rule } from '../types'
-import { makeFinding, missingReason, outcome, ownerRefs, parseRaw, readyRows, ref, SECTIONS, skipped } from '../util'
+import {
+  makeFinding,
+  missingReason,
+  outcome,
+  ownerRefs,
+  parseRaw,
+  readyRows,
+  ref,
+  SECTIONS,
+  skipped,
+} from '../util'
 
 export const nakedPod: Rule = {
   id: 'naked-pod',

@@ -51,12 +51,22 @@ export const probes: Rule = {
         }
         if (bad.length > 0) {
           findings.push(
-            makeFinding(this, ref(section, kind, row.namespace, row.name), `Missing probes (${bad.join('; ')})`),
+            makeFinding(
+              this,
+              ref(section, kind, row.namespace, row.name),
+              `Missing probes (${bad.join('; ')})`,
+            ),
           )
         }
       }
     }
     if (available === 0) return skipped(this, missingReason(missing))
-    return outcome(this, findings, checked, pending, missing.length ? missingReason(missing) : undefined)
+    return outcome(
+      this,
+      findings,
+      checked,
+      pending,
+      missing.length ? missingReason(missing) : undefined,
+    )
   },
 }

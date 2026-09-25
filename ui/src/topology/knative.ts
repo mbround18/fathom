@@ -24,7 +24,12 @@ export function buildKnativeTrafficGraph(
   const nodes: TopologyNode[] = [
     {
       id: routeId,
-      ref: { section: KNATIVE_SECTION, kind: 'Route', namespace: route.namespace, name: route.name },
+      ref: {
+        section: KNATIVE_SECTION,
+        kind: 'Route',
+        namespace: route.namespace,
+        name: route.name,
+      },
       kind: 'KnativeRoute',
       label: route.name,
       tone: route.ready === 'Ready' ? 'ok' : route.ready === 'NotReady' ? 'err' : 'muted',

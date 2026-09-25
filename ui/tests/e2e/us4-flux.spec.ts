@@ -5,7 +5,9 @@ import { batch, system } from '../fixtures/builders'
 import type { FluxOverview, FluxResourceSummary } from '../../src/protocol/types'
 import { emit, expectNoHorizontalScroll, navigateTo, open, sentTypes } from './helpers'
 
-function res(p: Partial<FluxResourceSummary> & { kind: string; name: string }): FluxResourceSummary {
+function res(
+  p: Partial<FluxResourceSummary> & { kind: string; name: string },
+): FluxResourceSummary {
   return {
     namespace: 'flux-system',
     ready: 'Ready',
@@ -55,7 +57,9 @@ test.describe('US4 Flux dashboard', () => {
     const failed = pane.locator('[data-tone="err"]')
     await expect(failed).toHaveCount(1)
     await expect(failed).toContainText('HelmRepository flux-system/bitnami')
-    await expect(pane.locator('[data-tone="warn"]')).toContainText('Kustomization flux-system/infra')
+    await expect(pane.locator('[data-tone="warn"]')).toContainText(
+      'Kustomization flux-system/infra',
+    )
     await expect(pane.locator('[data-tone="muted"]')).toContainText('HelmRelease flux-system/redis')
     await expect(pane).not.toContainText('GitRepository flux-system/fleet')
     await expectNoHorizontalScroll(page)

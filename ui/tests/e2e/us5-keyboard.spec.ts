@@ -74,6 +74,8 @@ test.describe('US5 keyboard', () => {
     await page.locator('body').click({ position: { x: 1, y: 1 } })
     await page.keyboard.press('g')
     await page.keyboard.press('d')
-    await expect(page.locator(`[data-testid="resource-table"][data-section="${DEPLOYMENTS}"]`).first()).toBeVisible()
+    await expect(
+      page.locator(`[data-testid="resource-table"][data-section="${DEPLOYMENTS}"]`).first(),
+    ).toBeVisible()
   })
 })

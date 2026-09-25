@@ -41,7 +41,7 @@ import { detailKey, listKey, useStore, type PaneId, type PaneState } from '@/sto
 
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
-import { paneTitle,TOOL_LABEL } from './labels'
+import { paneTitle, TOOL_LABEL } from './labels'
 import { Disconnected, Empty, ErrorState, Loading, NoKubeconfig } from './PaneStates'
 
 interface PaneHostProps {

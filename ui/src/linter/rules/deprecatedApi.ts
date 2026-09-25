@@ -52,11 +52,19 @@ export const deprecatedApi: Rule = {
         for (const mf of arr(metaOf(raw).managedFields)) {
           if (!isObj(mf) || typeof mf.apiVersion !== 'string') continue
           const dep = deprecationFor(mf.apiVersion, kind)
-          if (dep) hits.set(dep.apiVersion, `${dep.apiVersion} (removed in ${dep.removedIn}; use ${dep.replacement})`)
+          if (dep)
+            hits.set(
+              dep.apiVersion,
+              `${dep.apiVersion} (removed in ${dep.removedIn}; use ${dep.replacement})`,
+            )
         }
         if (hits.size > 0) {
           findings.push(
-            makeFinding(this, ref(section, kind, row.namespace, row.name), `Written via deprecated API: ${[...hits.values()].join(', ')}`),
+            makeFinding(
+              this,
+              ref(section, kind, row.namespace, row.name),
+              `Written via deprecated API: ${[...hits.values()].join(', ')}`,
+            ),
           )
         }
       }
