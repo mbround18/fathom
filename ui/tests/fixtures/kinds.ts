@@ -15,6 +15,7 @@ import type {
   ServiceSummary,
 } from '../../src/protocol/types'
 import { PODS_500 } from './batches'
+import { CRONJOBS, JOBS } from './batchA'
 import { genDeployments } from './gen-pods'
 
 const APPLICATIONS: ApplicationSummary[] = [
@@ -118,6 +119,13 @@ export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/deployments': { type: 'DeploymentsUpdated', data: genDeployments('kind-a') },
   'workloads/statefulsets': { type: 'StatefulSetsUpdated', data: genDeployments('kind-a') },
   'workloads/daemonsets': { type: 'DaemonSetsUpdated', data: genDeployments('kind-a') },
+  'workloads/replicasets': { type: 'ReplicaSetsUpdated', data: genDeployments('kind-a') },
+  'workloads/replicationcontrollers': {
+    type: 'ReplicationControllersUpdated',
+    data: genDeployments('kind-a'),
+  },
+  'workloads/jobs': { type: 'JobsUpdated', data: JOBS },
+  'workloads/cronjobs': { type: 'CronJobsUpdated', data: CRONJOBS },
   nodes: { type: 'NodesUpdated', data: NODES },
   namespaces: { type: 'NamespaceSummariesUpdated', data: NAMESPACES },
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },

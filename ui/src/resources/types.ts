@@ -94,7 +94,7 @@ export interface ActionStep<R> {
  * (constitution I): `confirm` → `ConfirmDialog`, `scale` → `ScaleDialog`.
  */
 export interface ActionDescriptor<R> {
-  id: 'delete' | 'scale' | 'restart' | 'debug'
+  id: 'delete' | 'scale' | 'restart' | 'debug' | 'suspend' | 'resume' | 'trigger'
   /** Menu and button label, e.g. `Delete`. */
   label: string
   /** Past tense for the result toast, e.g. `Deleted`. */

@@ -71,12 +71,17 @@ export function promptAction(
 
 const ACTION_VERB: Record<
   ActionDescriptor<unknown>['id'],
-  Pick<CapabilityTarget, 'verb' | 'subresource'>
+  Pick<CapabilityTarget, 'verb' | 'subresource'> &
+    Partial<Pick<CapabilityTarget, 'resource' | 'apiGroup'>>
 > = {
   delete: { verb: 'delete' },
   scale: { verb: 'update', subresource: 'scale' },
   restart: { verb: 'patch' },
   debug: { verb: 'patch', subresource: 'ephemeralcontainers' },
+  suspend: { verb: 'patch' },
+  resume: { verb: 'patch' },
+  // Triggering a CronJob creates a Job.
+  trigger: { verb: 'create', resource: 'jobs', apiGroup: 'batch' },
 }
 
 /**

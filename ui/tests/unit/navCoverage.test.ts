@@ -31,7 +31,7 @@ const UNAVAILABLE = new Set(['config/verticalpodautoscalers'])
  * the descriptor (this test fails if a listed key already resolves, so the list cannot go stale).
  */
 const PENDING: Record<string, string[]> = {
-  A: ['workloads/jobs', 'workloads/cronjobs'],
+  A: [],
   B: ['network/endpoints', 'network/ingress', 'network/ingressclasses', 'network/networkpolicies'],
   C: [
     'storage/persistentvolumes',
