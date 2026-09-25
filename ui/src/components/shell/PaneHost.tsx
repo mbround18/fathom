@@ -213,15 +213,15 @@ function PaneBody({ pane }: { pane: PaneState }) {
       if (pane.tool === 'daemon') return <DaemonTimelinePanel />
       if (pane.tool === 'linter') return <LinterPanel paneId={pane.id} />
       if (pane.tool === 'portforwards') return <PortForwardsPanel />
+      if (pane.tool === 'events') return <EventsPanel />
+      if (pane.tool === 'overview') return <OverviewPanel />
       return (
         <Empty
           title={pane.tool ? TOOL_LABEL[pane.tool] : 'Tool'}
           detail={
             pane.tool === 'logs'
               ? 'Select a pod to stream logs.'
-              : pane.tool === 'events'
-                ? 'Events appear here as the cluster reports them.'
-                : 'No data yet. Connect to a cluster to populate this view.'
+              : 'No data yet. Connect to a cluster to populate this view.'
           }
         />
       )

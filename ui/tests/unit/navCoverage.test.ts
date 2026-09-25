@@ -51,7 +51,6 @@ const PENDING: Record<string, string[]> = {
     'config/mutatingwebhooks',
     'config/validatingwebhooks',
   ],
-  E: ['namespaces'],
 }
 const PENDING_ALL = new Set(Object.values(PENDING).flat())
 

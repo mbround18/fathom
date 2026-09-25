@@ -25,6 +25,7 @@ const NO_STATUS_OR_SPEC = new Set([
   'access/clusterroles',
   'access/rolebindings',
   'access/clusterrolebindings',
+  'namespaces',
 ])
 
 describe.each(ALL_DESCRIPTORS.map((d) => [d.section, d] as const))('%s', (section, d) => {
