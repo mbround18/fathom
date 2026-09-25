@@ -85,6 +85,9 @@ export function OllamaPicker() {
     () => (state?.models ?? []).filter((m) => m.name.toLowerCase().includes(q.toLowerCase())),
     [state, q],
   )
+  const [endpoint, setEndpoint] = useState('')
+  const [allowLan, setAllowLan] = useState(false)
+  const ep = endpoint.trim()
   const probe = () => void request({ type: 'AiOllamaProbe', data: { endpoint: null } })
 
   let body
@@ -136,6 +139,53 @@ export function OllamaPicker() {
         <Button size="sm" variant="outline" data-testid="ollama-recheck" onClick={probe}>
           Re-check
         </Button>
+      </div>
+      <div data-testid="ollama-endpoint" className="flex flex-col gap-1 text-xs">
+        <label htmlFor="ollama-endpoint-input" className="text-muted-foreground">
+          Endpoint
+        </label>
+        <div>
+          <Input
+            id="ollama-endpoint-input"
+            data-testid="ollama-endpoint-input"
+            value={endpoint}
+            placeholder="http://localhost:11434"
+            onChange={(e) => setEndpoint(e.target.value)}
+          />
+        </div>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            data-testid="ollama-allow-lan"
+            checked={allowLan}
+            onChange={(e) => setAllowLan(e.target.checked)}
+          />
+          Allow a non-local (LAN) endpoint
+        </label>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="ollama-endpoint-test"
+            disabled={ep === ''}
+            onClick={() => void request({ type: 'AiOllamaProbe', data: { endpoint: ep } })}
+          >
+            Test
+          </Button>
+          <Button
+            size="sm"
+            data-testid="ollama-endpoint-save"
+            disabled={ep === ''}
+            onClick={() =>
+              void request({
+                type: 'AiSetOllamaEndpoint',
+                data: { endpoint: ep, allow_lan: allowLan },
+              })
+            }
+          >
+            Save
+          </Button>
+        </div>
       </div>
       {body}
     </div>

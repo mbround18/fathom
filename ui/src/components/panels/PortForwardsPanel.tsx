@@ -212,6 +212,17 @@ function PortForwardRowItem({
           </Button>
         )}
         {canRestart && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            data-testid="port-forward-delete"
+            onClick={() => send({ type: 'DeletePortForward', data: { tunnel_id: pf.id } })}
+          >
+            Remove
+          </Button>
+        )}
+        {canRestart && (
           <Gated verb="create" resource="pods" subresource="portforward" namespace={pf.namespace}>
             <Button type="button" size="sm" data-testid="port-forward-restart" onClick={onRestart}>
               Restart
