@@ -8,7 +8,7 @@
 
 ## What it is
 
-Fathom is a desktop Kubernetes dashboard written in Rust using [egui](https://github.com/emilk/egui). It gives platform engineers and operators a dense, responsive UI for navigating and managing Kubernetes clusters — without the sluggishness of web-based tools or the context-switching of raw `kubectl`.
+Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri](https://tauri.app) + React UI. It gives platform engineers and operators a dense, responsive UI for navigating and managing Kubernetes clusters — without the sluggishness of web-based tools or the context-switching of raw `kubectl`.
 
 **Goals:**
 - Single-pane observability: nodes, workloads, network, storage, access control, events — all in one app
@@ -191,9 +191,9 @@ Performance checks: `scripts/measure-idle-cpu.sh` (SC-005) and `scripts/measure-
 
 ### Architecture
 
-Fathom uses a two-thread model:
+Fathom pairs a Rust backend with a Tauri v2 webview UI (`ui/`):
 
-- **UI thread**: egui/eframe event loop — never blocks
+- **UI**: React webview hosted by the Tauri shell (`ui/src-tauri`) — never blocks the backend
 - **Backend thread**: tokio runtime — all Kubernetes API calls and async work
 
 Communication uses crossbeam channels:

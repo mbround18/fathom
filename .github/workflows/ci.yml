@@ -32,12 +32,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # egui/eframe (legacy UI) + Tauri v2 / webkit2gtk-4.1 (ui/src-tauri, fathom-desktop).
+      # Tauri v2 / webkit2gtk-4.1 (ui/src-tauri, fathom-desktop).
       - name: Install system deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libgtk-3-dev libssl-dev pkg-config \
             libxkbcommon-dev libssl-dev pkg-config \
             libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
 
@@ -52,7 +52,7 @@ jobs:
       - name: Cargo check
         run: cargo check --all-targets
 
-      - name: Cargo check (backend library without egui)
+      - name: Cargo check (backend library)
         run: cargo check --no-default-features --lib
 
       - name: Clippy
@@ -86,12 +86,12 @@ jobs:
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-test-
 
-      # egui/eframe (legacy UI) + Tauri v2 / webkit2gtk-4.1 (ui/src-tauri, fathom-desktop).
+      # Tauri v2 / webkit2gtk-4.1 (ui/src-tauri, fathom-desktop).
       - name: Install system deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libgtk-3-dev libssl-dev pkg-config \
             libxkbcommon-dev libssl-dev pkg-config \
             libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
 

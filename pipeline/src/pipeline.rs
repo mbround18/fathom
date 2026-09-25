@@ -7,7 +7,7 @@ const RUST_IMAGE: &str = "rust:1.97.1-bookworm";
 const NODE_IMAGE: &str = "node:24-bookworm";
 const DIST_DIR: &str = "dist";
 
-/// Native (non-cross) build dependencies for egui/eframe's GTK/X11 backend.
+/// Native (non-cross) build dependencies for the Tauri (GTK) build.
 const LINUX_NATIVE_PACKAGES: &[&str] = &[
     "libgtk-3-dev",
     "libxcb-render0-dev",

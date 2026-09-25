@@ -11,10 +11,10 @@
 
 ### Thread Model
 
-- **UI thread**: Runs eframe/egui event loop. Never blocks. Never awaits async code.
+- **UI thread**: React/Tauri webview (`ui/`). Talks to the backend only through the protocol bridge.
 - **Backend thread**: Owns tokio runtime. Handles all Kubernetes API calls and async operations.
 - **Communication**: Crossbeam unbounded channels for UI↔backend message passing.
-- **State**: UI state lives in `FathomApp`. Backend state lives in `BackendState`. No shared mutable state except explicitly synchronized (e.g., `Arc<RwLock<Vec<String>>>` for namespace filter).
+- **State**: UI state lives in the React store (`ui/src/store`). Backend state lives in `BackendState`. No shared mutable state except explicitly synchronized (e.g., `Arc<RwLock<Vec<String>>>` for namespace filter).
 
 ### Protocol Design
 
@@ -26,7 +26,7 @@
 
 ### Module Organization
 
-- `src/app/`: UI rendering logic (egui). Each `ui_*.rs` file is a render pass (top bar, left nav, center panel, right panel, status bar, modals).
+- `ui/`: React/TypeScript UI and the Tauri shell (`ui/src-tauri`).
 - `src/backend/`: Async Kubernetes operations. Each resource type gets its own module (e.g., `pods.rs`, `deployments.rs`).
 - `src/protocol/`: Shared data types for UI↔backend communication. Version under `v1/`.
 - `src/backend/state.rs`: Backend-owned state and helper functions for task lifecycle management.
@@ -132,7 +132,7 @@
 
 - **Unit tests**: Pure functions (e.g., protocol type conversions, filtering, sorting).
 - **Integration tests**: Mock `kube::Client` with `tower_test::mock` for backend handlers.
-- **UI tests**: Snapshot testing for egui rendering (if tooling becomes available).
+- **UI tests**: Vitest + Playwright under `ui/tests`.
 - **Edge cases**: RBAC failures, missing CRDs, malformed kubeconfig, empty clusters.
 
 ## Security and Secrets
@@ -187,7 +187,7 @@
 - **Do not** spawn threads directly; use `tokio::spawn()` for backend tasks.
 - **Do not** introduce new global state or `lazy_static!` without strong justification.
 - **Do not** add heavyweight dependencies (e.g., full ORM, large frameworks) without discussion.
-- **Do not** break the UI/backend thread boundary (no `await` in UI, no egui in backend).
+- **Do not** break the UI/backend thread boundary (no `await` in UI, no UI code in backend).
 - **Do not** assume Kubernetes resources exist (CRDs, namespaces, metrics API may be absent).
 - **Do not** add logging/tracing macros in hot loops (e.g., UI render pass).
 
