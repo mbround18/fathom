@@ -1,7 +1,7 @@
 /**
  * Navigator groups (T065), in the egui app's order, keyed by the backend's section keys
  * (src/protocol/v1/route.rs `section_keys`). Labels for ported kinds come from the descriptor
- * registry; the rest use the egui labels until their descriptors land (T068+).
+ * registry; the rest use fallback labels.
  */
 import type { SectionKey } from '@/protocol/types'
 

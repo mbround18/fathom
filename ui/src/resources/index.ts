@@ -1,9 +1,14 @@
 /**
- * The descriptor registry, keyed by `SectionKey` (T060). T068–T075 register the remaining kinds.
+ * The descriptor registry, keyed by `SectionKey`. New kinds go in batchA..E.ts.
  */
 import type { SectionKey } from '@/protocol/types'
 
 import { applications } from './applications'
+import { batchADescriptors } from './batchA'
+import { batchBDescriptors } from './batchB'
+import { batchCDescriptors } from './batchC'
+import { batchDDescriptors } from './batchD'
+import { batchEDescriptors } from './batchE'
 import { certificateResource } from './certificate-resource'
 import { clusterrolebindings } from './clusterrolebindings'
 import { clusterroles } from './clusterroles'
@@ -35,6 +40,11 @@ export const ALL_DESCRIPTORS: readonly AnyDescriptor[] = [
   clusterroles,
   rolebindings,
   clusterrolebindings,
+  ...batchADescriptors,
+  ...batchBDescriptors,
+  ...batchCDescriptors,
+  ...batchDDescriptors,
+  ...batchEDescriptors,
 ]
 
 /**
