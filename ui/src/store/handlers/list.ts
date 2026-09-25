@@ -4,7 +4,7 @@ import type { BackendEventEnvelope, PortForward, ResourceListEvent } from '@/pro
 import type { Draft } from '../draft'
 import { pendingPortForwardOriginKey } from '../index'
 import type { ListRow, ListState } from '../index'
-import { listKeyOf } from '../keys'
+import { listKey, listKeyOf } from '../keys'
 
 export function handleList(d: Draft, env: BackendEventEnvelope, event: ResourceListEvent): void {
   if (event.type === 'NamespacesUpdated') {
@@ -12,7 +12,12 @@ export function handleList(d: Draft, env: BackendEventEnvelope, event: ResourceL
     return
   }
 
-  const key = listKeyOf(env.route)
+  // The backend tags namespace summaries with the `system` section; the Namespaces list reads
+  // them under its own section key.
+  const key =
+    event.type === 'NamespaceSummariesUpdated'
+      ? listKey(env.route.context, 'namespaces', 'Cluster', null)
+      : listKeyOf(env.route)
   const prev = d.read('lists')[key]
   const incoming: readonly ListRow[] =
     event.type === 'EventsUpdated' ? event.data.events : event.data

@@ -8,6 +8,7 @@ import type {
   ClusterRoleSummary,
   HelmReleaseSummary,
   NodeSummary,
+  NamespaceSummary,
   ResourceListEvent,
   RoleBindingSummary,
   RoleSummary,
@@ -102,12 +103,23 @@ const CLUSTER_ROLE_BINDINGS: ClusterRoleBindingSummary[] = [
   { name: 'cluster-admins', role_ref: 'cluster-admin', subjects_count: 2 },
 ]
 
+const NAMESPACES: NamespaceSummary[] = [
+  {
+    name: 'default',
+    status: 'Active',
+    pod_count: 3,
+    deployment_count: 1,
+    creation_timestamp: '2024-01-01T00:00:00Z',
+  },
+]
+
 export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/pods': { type: 'PodsUpdated', data: PODS_500 },
   'workloads/deployments': { type: 'DeploymentsUpdated', data: genDeployments('kind-a') },
   'workloads/statefulsets': { type: 'StatefulSetsUpdated', data: genDeployments('kind-a') },
   'workloads/daemonsets': { type: 'DaemonSetsUpdated', data: genDeployments('kind-a') },
   nodes: { type: 'NodesUpdated', data: NODES },
+  namespaces: { type: 'NamespaceSummariesUpdated', data: NAMESPACES },
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
   'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
   'network/services': { type: 'ServicesUpdated', data: SERVICES },
