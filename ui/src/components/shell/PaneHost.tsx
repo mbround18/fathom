@@ -40,7 +40,9 @@ import { OidcConfigView } from '@/resources/oidcConfig'
 import { cn } from '@/lib/utils'
 import { detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
 
-import { paneTitle, TOOL_LABEL } from './labels'
+import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
+
+import { paneTitle,TOOL_LABEL } from './labels'
 import { Disconnected, Empty, ErrorState, Loading, NoKubeconfig } from './PaneStates'
 
 interface PaneHostProps {
@@ -95,7 +97,10 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
     >
-      <header className="flex h-[max(2rem,var(--touch-target))] shrink-0 items-center gap-2 border-b border-border bg-card px-2">
+      <header
+        className="flex h-[max(2rem,var(--touch-target))] shrink-0 items-center gap-2 border-b border-border bg-card px-2"
+        {...(pane.kind === 'list' && slotIndex !== undefined ? paneDragProps(pane.id) : {})}
+      >
         {slotIndex !== undefined && (
           <span aria-hidden="true" className="text-xs text-accent-neon">
             {String(slotIndex + 1).padStart(2, '0')}
@@ -112,6 +117,7 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
           {title}
         </h2>
         <span className="ml-auto" />
+        {pane.kind === 'list' && slotIndex !== undefined && <PaneSlotMenu paneId={pane.id} />}
         {pane.kind === 'list' && <ListActions pane={pane} />}
         {pane.kind === 'inspector' && pane.target && (
           <InspectorActions

@@ -496,6 +496,8 @@ export interface PrefsState {
   expandedGroups: string[]
   /** `auto_start.mcp_stdio`: whether the stdio MCP server (015) is enabled. Off by default. */
   mcpStdioEnabled: boolean
+  /** Bumped each time a saved `ui` config is applied, so the slot grid re-seeds its sizes. */
+  uiEpoch?: number
 }
 
 /** One in-flight or just-finished kind create/delete, keyed by its client `request_id`. */
@@ -1136,7 +1138,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
     }),
 
-  setProfile: (saved) =>
+  setProfile: (saved) => {
     set((s) => {
       const cls = s.layout.widthClass
       const profile = resolveProfile(cls, saved, s.layout.ultraPlus)
@@ -1146,7 +1148,10 @@ export const useStore = create<StoreState>()((set, get) => ({
         layout: { ...s.layout, profile, slotPanes, dockPanes },
         ui: { ...s.ui, layouts: { ...s.ui.layouts, [cls]: profile } },
       }
-    }),
+    })
+    // Only user-initiated changes reach here (drag end, pin/swap), so it is safe to persist.
+    scheduleUiSave(get)
+  },
 
   refreshAuditLog: () => {
     get().send({ type: 'RefreshAuditLog' })

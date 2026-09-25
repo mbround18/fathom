@@ -22,6 +22,8 @@ export function SlotGrid({ slotCount }: { slotCount?: number }) {
   const profile = useStore((s) => s.layout.profile)
   const slotPanes = useStore((s) => s.layout.slotPanes)
   const setProfile = useStore((s) => s.setProfile)
+  // Saved sizes arrive with `UiConfigLoaded` after first paint; remount once so they apply.
+  const uiLoaded = useStore((s) => s.prefs.uiEpoch ?? 0)
   const slots = profile.slots.slice(0, slotCount ?? profile.slots.length)
 
   const onRowLayout = useCallback(
@@ -39,7 +41,7 @@ export function SlotGrid({ slotCount }: { slotCount?: number }) {
 
   const row = (
     <ResizablePanelGroup
-      key={`${widthClass}-${slots.length}`}
+      key={`${widthClass}-${slots.length}-${String(uiLoaded)}`}
       orientation="horizontal"
       onLayoutChanged={onRowLayout}
     >

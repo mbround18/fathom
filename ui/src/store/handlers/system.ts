@@ -329,6 +329,7 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       const ui = event.data.ui
       if (ui === null) return
       d.put('ui', ui)
+      d.put('prefs', { ...d.read('prefs'), uiEpoch: (d.read('prefs').uiEpoch ?? 0) + 1 })
       const layout = d.read('layout')
       const profile = resolveProfile(
         layout.widthClass,

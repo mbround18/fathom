@@ -17,6 +17,7 @@ import { ScopeSheet } from './ScopeSheet'
 import { ToolsSheet } from './ToolsSheet'
 import { ClusterVersionBadge } from './ClusterVersionBadge'
 import { CommandPaletteHost } from './CommandPaletteHost'
+import { ShortcutsHost } from './ShortcutsHost'
 import { FederationContextSwitcher } from './FederationContextSwitcher'
 import { PhoneStack } from './PhoneStack'
 import { SlotGrid } from './SlotGrid'
@@ -78,6 +79,7 @@ export function AppShell() {
       )}
       <ActionDialogHost />
       <CommandPaletteHost />
+      <ShortcutsHost />
       <AskAiSheet />
       {widthClass === 'phone' && <ScopeSheet />}
       {widthClass === 'phone' && <MoreSheet />}
