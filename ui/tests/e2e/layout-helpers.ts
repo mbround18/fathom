@@ -11,9 +11,7 @@ export async function listScroll(
 ): Promise<number> {
   return page.evaluate(
     ([sec, t]) => {
-      const root = document.querySelector(
-        `[data-testid="resource-table"][data-section="${sec}"]`,
-      )
+      const root = document.querySelector(`[data-testid="resource-table"][data-section="${sec}"]`)
       const el = [...(root?.querySelectorAll<HTMLElement>('*') ?? [])].find((e) => {
         const oy = getComputedStyle(e).overflowY
         return (oy === 'auto' || oy === 'scroll') && e.scrollHeight > e.clientHeight
@@ -32,9 +30,7 @@ export async function listScroll(
  */
 export async function visibleRowKey(page: Page, section: string = PODS): Promise<string> {
   return page.evaluate((sec) => {
-    const root = document.querySelector(
-      `[data-testid="resource-table"][data-section="${sec}"]`,
-    )
+    const root = document.querySelector(`[data-testid="resource-table"][data-section="${sec}"]`)
     const rows = [...(root?.querySelectorAll<HTMLElement>('[role="row"][data-row-key]') ?? [])]
     const scroller = [...(root?.querySelectorAll<HTMLElement>('*') ?? [])].find((e) => {
       const oy = getComputedStyle(e).overflowY

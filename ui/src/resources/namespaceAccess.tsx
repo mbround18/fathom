@@ -54,7 +54,13 @@ function sameSubject(a: SubmittedSubject, b: NamespaceAccessResolved): boolean {
   )
 }
 
-function EntryTable({ entries, showNamespace }: { entries: NamespaceAccessEntry[]; showNamespace: boolean }) {
+function EntryTable({
+  entries,
+  showNamespace,
+}: {
+  entries: NamespaceAccessEntry[]
+  showNamespace: boolean
+}) {
   return (
     <table className="w-full border-collapse text-xs">
       <thead>
@@ -99,7 +105,11 @@ export function NamespaceAccessView() {
     }
     setError(undefined)
     const namespace = subjectNamespace.trim() === '' ? null : subjectNamespace.trim()
-    const data = { subject_kind: subjectKind, subject_name: trimmedName, subject_namespace: namespace }
+    const data = {
+      subject_kind: subjectKind,
+      subject_name: trimmedName,
+      subject_namespace: namespace,
+    }
     setSubmitted(data)
     setIsLoading(true)
     void request({ type: 'ResolveNamespaceAccess', data }).finally(() => {
@@ -145,7 +155,10 @@ export function NamespaceAccessView() {
           />
         </label>
 
-        <label htmlFor="rbac-namespace-access-subject-namespace" className="flex flex-col gap-1 text-xs">
+        <label
+          htmlFor="rbac-namespace-access-subject-namespace"
+          className="flex flex-col gap-1 text-xs"
+        >
           <span className="text-muted-foreground">Subject namespace (ServiceAccount only)</span>
           <Input
             id="rbac-namespace-access-subject-namespace"
@@ -158,13 +171,22 @@ export function NamespaceAccessView() {
           />
         </label>
 
-        <Button type="submit" size="sm" disabled={isLoading} data-testid="rbac-namespace-access-submit">
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isLoading}
+          data-testid="rbac-namespace-access-submit"
+        >
           {isLoading ? 'Looking up…' : 'Look up'}
         </Button>
       </form>
 
       {error && (
-        <p role="alert" data-testid="rbac-namespace-access-error" className="text-xs text-destructive">
+        <p
+          role="alert"
+          data-testid="rbac-namespace-access-error"
+          className="text-xs text-destructive"
+        >
           {error}
         </p>
       )}
@@ -201,15 +223,22 @@ export function NamespaceAccessView() {
           ) : (
             <>
               {showing.cluster_wide.length > 0 && (
-                <section data-testid="rbac-namespace-access-clusterwide" className="flex flex-col gap-2">
-                  <h3 className="text-xs font-semibold uppercase text-muted-foreground">Cluster-wide</h3>
+                <section
+                  data-testid="rbac-namespace-access-clusterwide"
+                  className="flex flex-col gap-2"
+                >
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase">
+                    Cluster-wide
+                  </h3>
                   <EntryTable entries={showing.cluster_wide} showNamespace={false} />
                 </section>
               )}
 
               {showing.per_namespace.length > 0 && (
                 <section className="flex flex-col gap-2">
-                  <h3 className="text-xs font-semibold uppercase text-muted-foreground">Per-namespace</h3>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase">
+                    Per-namespace
+                  </h3>
                   <EntryTable entries={showing.per_namespace} showNamespace={true} />
                 </section>
               )}

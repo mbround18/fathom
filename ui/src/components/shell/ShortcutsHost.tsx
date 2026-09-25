@@ -38,9 +38,9 @@ export function ShortcutsHost() {
       } else if (e.key === '/') {
         const { layout } = useStore.getState()
         const id = layout.focusedList ?? layout.slotPanes.find((p) => p.startsWith('list'))
-        const box = document
-          .querySelector(`[data-pane-id="${id ?? ''}"] input[type="search"]`)
-          ?? document.querySelector('[data-pane-kind="list"] input[type="search"]')
+        const box =
+          document.querySelector(`[data-pane-id="${id ?? ''}"] input[type="search"]`) ??
+          document.querySelector('[data-pane-kind="list"] input[type="search"]')
         if (box instanceof HTMLElement) {
           e.preventDefault()
           box.focus()

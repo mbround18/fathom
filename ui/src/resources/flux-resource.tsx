@@ -51,7 +51,10 @@ export const fluxResource: ResourceDescriptor<FluxResourceSummary, FluxResourceS
   // button ever targets it.
   refresh: () => ({ type: 'RefreshFlux' }),
   read: (ref) => [
-    { type: 'SelectFluxResource', data: { kind: ref.kind, namespace: ref.namespace ?? '', name: ref.name } },
+    {
+      type: 'SelectFluxResource',
+      data: { kind: ref.kind, namespace: ref.namespace ?? '', name: ref.name },
+    },
   ],
   detailSections: fluxResourceSections,
   actions: [],

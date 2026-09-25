@@ -4,7 +4,7 @@ import { useStore } from '@/store'
 
 import {
   BREAKPOINT_QUERIES,
-  DENSITY,
+  densityFor,
   visibleSlots,
   WIDTH_CLASSES,
   type WidthClass,
@@ -54,16 +54,17 @@ export function useWidthClass(): WidthClassInfo {
   const level = useSyncExternalStore(subscribe, readLevel, () => 0)
   const info = infoFromLevel(level)
   const setWidthClass = useStore((s) => s.setWidthClass)
+  const override = useStore((s) => s.ui.density.override)
 
   useEffect(() => {
     const root = document.documentElement
-    const d = DENSITY[info.widthClass]
+    const d = densityFor(info.widthClass, override ?? undefined)
     root.dataset.widthClass = info.widthClass
     root.style.setProperty('--row-height', `${d.rowHeight}px`)
     root.style.setProperty('--touch-target', `${d.touchTarget}px`)
     root.style.setProperty('--font-size-base', `${d.fontSize}px`)
     setWidthClass(info.widthClass, info.ultraPlus)
-  }, [info.widthClass, info.ultraPlus, setWidthClass])
+  }, [info.widthClass, info.ultraPlus, override, setWidthClass])
 
   return info
 }

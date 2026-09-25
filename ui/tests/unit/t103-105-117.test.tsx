@@ -74,6 +74,7 @@ describe('AppearanceSettings (T117)', () => {
     render(<AppearanceSettings />)
     expect(screen.getByTestId('shortcuts').textContent).toContain('Ctrl/Cmd + K')
     expect(screen.getByTestId('about')).toBeTruthy()
+    expect(screen.getByTestId('about-version').textContent).toBe('v9.8.7-test')
   })
 })
 

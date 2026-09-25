@@ -79,6 +79,12 @@ export const resourceLimits: Rule = {
       }
     }
     if (available === 0) return skipped(this, missingReason(missing))
-    return outcome(this, findings, checked, pending, missing.length ? missingReason(missing) : undefined)
+    return outcome(
+      this,
+      findings,
+      checked,
+      pending,
+      missing.length ? missingReason(missing) : undefined,
+    )
   },
 }

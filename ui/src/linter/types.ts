@@ -6,13 +6,7 @@ import type { ObjectRef } from '@/resources/types'
 export type Severity = 'high' | 'medium' | 'low'
 
 export type Category =
-  | 'resource-limits'
-  | 'probes'
-  | 'api-deprecation'
-  | 'unused-object'
-  | 'naked-pod'
-  | 'rbac'
-  | 'pdb'
+  'resource-limits' | 'probes' | 'api-deprecation' | 'unused-object' | 'naked-pod' | 'rbac' | 'pdb'
 
 export type RuleId =
   | 'resource-limits'

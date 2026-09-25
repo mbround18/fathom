@@ -7,6 +7,8 @@ export interface FindingFilter {
 
 export function filterFindings(findings: readonly Finding[], f: FindingFilter): Finding[] {
   return findings.filter(
-    (x) => (f.severity === null || x.severity === f.severity) && (f.category === null || x.category === f.category),
+    (x) =>
+      (f.severity === null || x.severity === f.severity) &&
+      (f.category === null || x.category === f.category),
   )
 }

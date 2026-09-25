@@ -94,7 +94,7 @@ export function AppearanceSettings() {
 
       <h3 className="mt-2 text-xs font-semibold tracking-wider uppercase">About</h3>
       <p className="text-xs" data-testid="about">
-        Fathom (desktop shell)
+        Fathom (desktop shell) <span data-testid="about-version">v{__APP_VERSION__}</span>
       </p>
     </fieldset>
   )

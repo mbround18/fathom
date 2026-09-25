@@ -365,7 +365,14 @@ interface ComparisonRow {
 //   GitOps view is "partial" (opt-in plugin), not built in by default. No Cilium/Hubble plugin exists.
 // - None of the compared tools ship a built-in eBPF/Cilium/Hubble flow view.
 // - K9s has no GUI at all (terminal-only), so several axes are simply not applicable.
-const COMPARISON_COLUMNS = ['Lens', 'OpenLens', 'Headlamp', 'K9s', 'Rancher Dashboard', 'K8s Dashboard']
+const COMPARISON_COLUMNS = [
+  'Lens',
+  'OpenLens',
+  'Headlamp',
+  'K9s',
+  'Rancher Dashboard',
+  'K8s Dashboard',
+]
 const COMPARISON_ROWS: ComparisonRow[] = [
   { axis: 'Native desktop app', fathom: 'yes', cells: ['no', 'no', 'no', 'yes', 'no', 'no'] },
   {
@@ -388,7 +395,11 @@ const COMPARISON_ROWS: ComparisonRow[] = [
     fathom: 'yes',
     cells: ['partial', 'partial', 'partial', 'no', 'partial', 'no'],
   },
-  { axis: 'Free / OSS, no paid tier', fathom: 'yes', cells: ['no', 'yes', 'yes', 'yes', 'yes', 'yes'] },
+  {
+    axis: 'Free / OSS, no paid tier',
+    fathom: 'yes',
+    cells: ['no', 'yes', 'yes', 'yes', 'yes', 'yes'],
+  },
 ]
 
 const CELL_GLYPH: Record<Cell, string> = { yes: '✓', no: '—', partial: '~' }
@@ -428,7 +439,13 @@ const WATERMARK_TILE_LIGHT = watermarkTileDataUri(PALETTE_LIGHT.mutedForeground)
 const WATERMARK_TILE_DARK = watermarkTileDataUri(PALETTE.mutedForeground)
 
 /** Small header/footer bar baked into every page: brand + internal label, date + page number. */
-function pageChrome(cls: string, inner: string, pageNum: number, totalPages: number, facts: Facts): string {
+function pageChrome(
+  cls: string,
+  inner: string,
+  pageNum: number,
+  totalPages: number,
+  facts: Facts,
+): string {
   return `
 <div class="page ${cls}">
   <div class="page-watermark" aria-hidden="true"></div>

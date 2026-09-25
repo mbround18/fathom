@@ -43,8 +43,6 @@ export function evaluate(input: LintInput): LintReport {
   const score = checked === 0 ? null : Math.round((100 * (checked - flagged)) / checked)
 
   const order: Record<Severity, number> = { high: 0, medium: 1, low: 2 }
-  findings.sort(
-    (a, b) => order[a.severity] - order[b.severity] || a.id.localeCompare(b.id),
-  )
+  findings.sort((a, b) => order[a.severity] - order[b.severity] || a.id.localeCompare(b.id))
   return { findings, rules, counts, score, pendingObjects }
 }

@@ -108,9 +108,9 @@ async function readOnlyBridge(
         } else {
           // The region renders immediately in a "waiting for data" state; wait for the panel's
           // own h3 (only rendered once real overview/summary data has arrived) before shooting.
-          await expect(
-            pg.getByRole('heading', { name: TOOL_LABEL[tool], level: 3 }),
-          ).toBeVisible({ timeout: 15_000 })
+          await expect(pg.getByRole('heading', { name: TOOL_LABEL[tool], level: 3 })).toBeVisible({
+            timeout: 15_000,
+          })
         }
       },
     },
@@ -134,8 +134,7 @@ export const test = live.extend<{ blockedWrites: string[]; toolPane: ToolPaneInj
   // bridge route it installs.
   toolPane: async ({ page, blockedWrites }, provide) => {
     if (blockedWrites.length > 0) throw new Error('unreachable')
-    const injector = (page as Page & { __toolPaneInjector?: ToolPaneInjector })
-      .__toolPaneInjector
+    const injector = (page as Page & { __toolPaneInjector?: ToolPaneInjector }).__toolPaneInjector
     if (!injector) throw new Error('toolPane fixture requires blockedWrites to run first')
     await provide(injector)
   },
@@ -147,7 +146,13 @@ export const test = live.extend<{ blockedWrites: string[]; toolPane: ToolPaneInj
  */
 export function redactions(): Array<[string, string]> {
   if (process.env.FATHOM_PROMO_REDACT === '0') return []
-  const nodes = [...new Set(listPods().map((p) => p.spec?.nodeName).filter(Boolean))] as string[]
+  const nodes = [
+    ...new Set(
+      listPods()
+        .map((p) => p.spec?.nodeName)
+        .filter(Boolean),
+    ),
+  ] as string[]
   return nodes.sort().map((n, i) => [n, `node-${String(i + 1)}`])
 }
 

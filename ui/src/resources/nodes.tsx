@@ -198,7 +198,6 @@ export const nodes: ResourceDescriptor<NodeSummary, NodeDetails> = {
   detailSections: nodeSections,
   actions: [],
   selectListEvent: (e) => (e.type === 'NodesUpdated' ? e.data : undefined),
-  selectDetail: (d) =>
-    d.eventType === 'NodeDetailsUpdated' ? (d.data as NodeDetails) : undefined,
+  selectDetail: (d) => (d.eventType === 'NodeDetailsUpdated' ? (d.data as NodeDetails) : undefined),
   rawJson: (d) => d.raw_json,
 }

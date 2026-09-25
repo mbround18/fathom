@@ -33,16 +33,21 @@ const PDB = 'config/poddisruptionbudgets'
 
 const dash = (v: string | null | undefined) => (v && v.length > 0 ? v : '—')
 const num = (n: number | null | undefined) => (n === null || n === undefined ? '—' : String(n))
-const ref =
-  (section: string, kind: string) =>
-  (r: { namespace: string; name: string }) => ({
-    section,
-    kind,
-    namespace: r.namespace,
-    name: r.name,
-  })
+const ref = (section: string, kind: string) => (r: { namespace: string; name: string }) => ({
+  section,
+  kind,
+  namespace: r.namespace,
+  name: r.name,
+})
 const readNs =
-  (type: 'SelectConfigMap' | 'SelectSecret' | 'SelectResourceQuota' | 'SelectLimitRange' | 'SelectPodDisruptionBudget') =>
+  (
+    type:
+      | 'SelectConfigMap'
+      | 'SelectSecret'
+      | 'SelectResourceQuota'
+      | 'SelectLimitRange'
+      | 'SelectPodDisruptionBudget',
+  ) =>
   (r: { namespace: string | null; name: string }) => [
     { type, data: { namespace: r.namespace ?? '', name: r.name } } as const,
     { type: 'RefreshEvents' } as const,
@@ -85,7 +90,7 @@ export const configMaps: ResourceDescriptor<ConfigMapSummary, ConfigMapDetails> 
               items: detail.keys.map((k) => (
                 <details key={k} data-testid={`configmap-key-${k}`}>
                   <summary className="cursor-pointer">{k}</summary>
-                  <pre className="mt-1 max-h-64 overflow-auto bg-muted/40 p-2 whitespace-pre-wrap break-all">
+                  <pre className="mt-1 max-h-64 overflow-auto bg-muted/40 p-2 break-all whitespace-pre-wrap">
                     {detail.data[k] ?? ''}
                   </pre>
                 </details>
@@ -149,7 +154,9 @@ export const secrets: ResourceDescriptor<SecretSummary, SecretDetails> = {
       title: 'Type',
       render: ({ row, detail }) => {
         const t = detail?.secret_type ?? row?.secret_type
-        return t ? { type: 'fields', fields: [{ label: 'Secret type', value: t, mono: true }] } : null
+        return t
+          ? { type: 'fields', fields: [{ label: 'Secret type', value: t, mono: true }] }
+          : null
       },
     },
     {

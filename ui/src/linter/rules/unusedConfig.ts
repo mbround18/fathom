@@ -54,7 +54,11 @@ export function collectRefs(spec: Obj | undefined, ns: string | null, out: Confi
   if (!spec) return
   for (const v of arr(spec.volumes)) if (isObj(v)) collectVolume(v, ns, out)
   for (const s of arr(spec.imagePullSecrets)) if (isObj(s)) add(out.secrets, ns, s.name)
-  const containers = [...containersOf(spec), ...arr(spec.initContainers).filter(isObj), ...arr(spec.ephemeralContainers).filter(isObj)]
+  const containers = [
+    ...containersOf(spec),
+    ...arr(spec.initContainers).filter(isObj),
+    ...arr(spec.ephemeralContainers).filter(isObj),
+  ]
   for (const c of containers) {
     for (const e of arr(c.envFrom)) {
       if (!isObj(e)) continue
@@ -63,7 +67,8 @@ export function collectRefs(spec: Obj | undefined, ns: string | null, out: Confi
     }
     for (const e of arr(c.env)) {
       if (!isObj(e) || !isObj(e.valueFrom)) continue
-      if (isObj(e.valueFrom.configMapKeyRef)) add(out.configMaps, ns, e.valueFrom.configMapKeyRef.name)
+      if (isObj(e.valueFrom.configMapKeyRef))
+        add(out.configMaps, ns, e.valueFrom.configMapKeyRef.name)
       if (isObj(e.valueFrom.secretKeyRef)) add(out.secrets, ns, e.valueFrom.secretKeyRef.name)
     }
   }
@@ -77,7 +82,8 @@ export const unusedConfig: Rule = {
   run(input) {
     const cms = readyRows(input, SECTIONS.configmaps)
     const secrets = readyRows(input, SECTIONS.secrets)
-    if (!cms && !secrets) return skipped(this, missingReason([SECTIONS.configmaps, SECTIONS.secrets]))
+    if (!cms && !secrets)
+      return skipped(this, missingReason([SECTIONS.configmaps, SECTIONS.secrets]))
     const refs: ConfigRefs = { configMaps: new Set(), secrets: new Set() }
     const missing: string[] = []
     let pending = 0
@@ -109,7 +115,11 @@ export const unusedConfig: Rule = {
       checked++
       if (settled && !refs.configMaps.has(`${row.namespace ?? '*'}/${row.name}`)) {
         findings.push(
-          makeFinding(this, ref(SECTIONS.configmaps, 'ConfigMap', row.namespace, row.name), 'ConfigMap is not referenced by any Pod or workload'),
+          makeFinding(
+            this,
+            ref(SECTIONS.configmaps, 'ConfigMap', row.namespace, row.name),
+            'ConfigMap is not referenced by any Pod or workload',
+          ),
         )
       }
     }
@@ -117,18 +127,32 @@ export const unusedConfig: Rule = {
     const secretType = new Map<string, string>()
     for (const r of rawSecrets) {
       if (isObj(r) && typeof r.name === 'string') {
-        secretType.set(`${String(r.namespace)}/${r.name}`, typeof r.secret_type === 'string' ? r.secret_type : '')
-      }
-    }
-    for (const row of secrets ?? []) {
-      if (EXEMPT_SECRET_TYPES.has(secretType.get(`${String(row.namespace)}/${row.name}`) ?? '')) continue
-      checked++
-      if (settled && !refs.secrets.has(`${row.namespace ?? '*'}/${row.name}`)) {
-        findings.push(
-          makeFinding(this, ref(SECTIONS.secrets, 'Secret', row.namespace, row.name), 'Secret is not referenced by any Pod or workload'),
+        secretType.set(
+          `${String(r.namespace)}/${r.name}`,
+          typeof r.secret_type === 'string' ? r.secret_type : '',
         )
       }
     }
-    return outcome(this, findings, checked, pending, missing.length ? missingReason(missing) : undefined)
+    for (const row of secrets ?? []) {
+      if (EXEMPT_SECRET_TYPES.has(secretType.get(`${String(row.namespace)}/${row.name}`) ?? ''))
+        continue
+      checked++
+      if (settled && !refs.secrets.has(`${row.namespace ?? '*'}/${row.name}`)) {
+        findings.push(
+          makeFinding(
+            this,
+            ref(SECTIONS.secrets, 'Secret', row.namespace, row.name),
+            'Secret is not referenced by any Pod or workload',
+          ),
+        )
+      }
+    }
+    return outcome(
+      this,
+      findings,
+      checked,
+      pending,
+      missing.length ? missingReason(missing) : undefined,
+    )
   },
 }

@@ -51,7 +51,9 @@ export const FONTS = {
   displaySemibold: fontDataUrl(
     '@fontsource/chakra-petch/files/chakra-petch-latin-600-normal.woff2',
   ),
-  monoRegular: fontDataUrl('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2'),
+  monoRegular: fontDataUrl(
+    '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2',
+  ),
   monoBold: fontDataUrl('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2'),
 } as const
 

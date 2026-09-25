@@ -22,13 +22,17 @@ import { compareStatus, compareText } from './search'
 import type { ResourceDescriptor } from './types'
 
 const dash = (v: string | null | undefined) => (v && v.length > 0 ? v : '—')
-const yn = (b: boolean | null | undefined) => (b === null || b === undefined ? '—' : b ? 'yes' : 'no')
+const yn = (b: boolean | null | undefined) =>
+  b === null || b === undefined ? '—' : b ? 'yes' : 'no'
 
 const PV = 'storage/persistentvolumes'
 const PVC = 'storage/persistentvolumeclaims'
 const SC = 'storage/storageclasses'
 
-export const persistentVolumes: ResourceDescriptor<PersistentVolumeSummary, PersistentVolumeDetails> = {
+export const persistentVolumes: ResourceDescriptor<
+  PersistentVolumeSummary,
+  PersistentVolumeDetails
+> = {
   section: PV,
   kind: 'PersistentVolume',
   label: 'Persistent Volumes',
@@ -137,11 +141,16 @@ export const persistentVolumes: ResourceDescriptor<PersistentVolumeSummary, Pers
     ...labelSections(),
   ],
   actions: [
-    gatedClusterDelete((name) => ({ type: 'DeletePersistentVolume', data: { name } }), 'persistentvolumes'),
+    gatedClusterDelete(
+      (name) => ({ type: 'DeletePersistentVolume', data: { name } }),
+      'persistentvolumes',
+    ),
   ],
   selectListEvent: (e) => (e.type === 'PersistentVolumesUpdated' ? e.data : undefined),
   selectDetail: (d) =>
-    d.eventType === 'PersistentVolumeDetailsUpdated' ? (d.data as PersistentVolumeDetails) : undefined,
+    d.eventType === 'PersistentVolumeDetailsUpdated'
+      ? (d.data as PersistentVolumeDetails)
+      : undefined,
   rawJson: (d) => d.raw_json,
 }
 
@@ -200,7 +209,12 @@ export const persistentVolumeClaims: ResourceDescriptor<
     },
   ],
   rowKey: (r) => `${r.namespace}/${r.name}`,
-  ref: (r) => ({ section: PVC, kind: 'PersistentVolumeClaim', namespace: r.namespace, name: r.name }),
+  ref: (r) => ({
+    section: PVC,
+    kind: 'PersistentVolumeClaim',
+    namespace: r.namespace,
+    name: r.name,
+  }),
   refresh: () => ({ type: 'RefreshPersistentVolumeClaims' }),
   read: (ref) => [
     {

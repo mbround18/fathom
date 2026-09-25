@@ -196,7 +196,19 @@ export function buildTopologyGraph(input: BuildInput): TopologyGraph {
           if (parent) parent.loading = true
           continue
         }
-        const pods = (detail.data as { pods?: { name: string; namespace: string; phase: string; ready: number; total: number; node: string }[] }).pods ?? []
+        const pods =
+          (
+            detail.data as {
+              pods?: {
+                name: string
+                namespace: string
+                phase: string
+                ready: number
+                total: number
+                node: string
+              }[]
+            }
+          ).pods ?? []
         for (const p of pods) {
           const podNodeId = nodeId('Pod', p.namespace, p.name)
           put({

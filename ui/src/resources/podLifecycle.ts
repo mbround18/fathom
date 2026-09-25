@@ -17,7 +17,12 @@
  * events don't carry a structured container reference), which is best-effort by design — an event
  * that doesn't mention the container by name won't be attributed to it.
  */
-import type { ContainerLifecycle, KubernetesEvent, LifecycleHookSpec, ProbeSpec } from '@/protocol/types'
+import type {
+  ContainerLifecycle,
+  KubernetesEvent,
+  LifecycleHookSpec,
+  ProbeSpec,
+} from '@/protocol/types'
 
 export interface ProbeStateEntry {
   probe: ProbeSpec

@@ -81,6 +81,20 @@ export const DENSITY: Readonly<Record<WidthClass, Density>> = {
   ultra: { rowHeight: 24, touchTarget: 24, fontSize: 13 },
 }
 
+/**
+ * Density for a width class, honouring the user's Settings override. Touch classes (phone,
+ * tablet) never go below the 44px touch target (FR-012), so `compact` only affects pointer classes.
+ */
+export function densityFor(widthClass: WidthClass, override?: 'comfortable' | 'compact'): Density {
+  const base = DENSITY[widthClass]
+  if (override === undefined) return base
+  const touch = widthClass === 'phone' || widthClass === 'tablet'
+  if (override === 'comfortable') {
+    return touch ? base : { rowHeight: 36, touchTarget: 32, fontSize: 14 }
+  }
+  return touch ? base : { rowHeight: 22, touchTarget: 24, fontSize: 12 }
+}
+
 /** Media queries whose match count identifies the class (and the ultra sub-step). */
 export const BREAKPOINT_QUERIES: readonly string[] = [
   ...WIDTH_CLASSES.slice(1).map((c) => `(min-width: ${MIN_WIDTH[c]}px)`),

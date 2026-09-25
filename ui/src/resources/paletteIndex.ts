@@ -50,10 +50,7 @@ export interface PaletteResult {
   /** Higher = stronger match. Set by `rankAndFilter`; candidates start at `0`. */
   matchScore: number
   payload:
-    | PaletteResourcePayload
-    | PaletteNamespacePayload
-    | PaletteSectionPayload
-    | PaletteToolPayload
+    PaletteResourcePayload | PaletteNamespacePayload | PaletteSectionPayload | PaletteToolPayload
 }
 
 /** Default cap on total results shown, per category, before ranking (FR-007). */
@@ -225,7 +222,10 @@ export function rankAndFilter(
       if (!fuzzyMatch(query.kind, kindText)) continue
     }
     if (!fuzzyMatch(query.name, candidate.label)) continue
-    const scored: PaletteResult = { ...candidate, matchScore: scoreMatch(query.name, candidate.label) }
+    const scored: PaletteResult = {
+      ...candidate,
+      matchScore: scoreMatch(query.name, candidate.label),
+    }
     const bucket = byCategory.get(candidate.category)
     if (bucket) bucket.push(scored)
     else byCategory.set(candidate.category, [scored])

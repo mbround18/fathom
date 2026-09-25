@@ -33,7 +33,13 @@
 /* 032-ui-shell-a11y: edge fades for horizontally scrolling tab strips (ui/scroll-fade). */
 @layer components {
   [data-slot='scroll-fade'][data-fade-start][data-fade-end] {
-    mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 1.5rem,
+      #000 calc(100% - 1.5rem),
+      transparent
+    );
   }
   [data-slot='scroll-fade'][data-fade-start]:not([data-fade-end]) {
     mask-image: linear-gradient(to right, transparent, #000 1.5rem);

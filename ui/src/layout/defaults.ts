@@ -9,7 +9,17 @@ import { hasDock, visibleSlots, type WidthClass } from './width-class'
 const DOCK: DockConfig = {
   open: true,
   heightPct: 30,
-  tabs: ['logs', 'events', 'topology', 'daemon', 'velero', 'certManager', 'knative', 'keda', 'linter'],
+  tabs: [
+    'logs',
+    'events',
+    'topology',
+    'daemon',
+    'velero',
+    'certManager',
+    'knative',
+    'keda',
+    'linter',
+  ],
 }
 
 const PROFILES: Readonly<Record<WidthClass, readonly SlotConfig[]>> = {

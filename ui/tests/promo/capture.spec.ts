@@ -40,7 +40,14 @@ function podOf(app: string): string {
   return name
 }
 
-async function ready(page: Page, app: { open(): Promise<void>; selectContext(): Promise<void>; selectNamespace(n: string): Promise<void> }): Promise<void> {
+async function ready(
+  page: Page,
+  app: {
+    open(): Promise<void>
+    selectContext(): Promise<void>
+    selectNamespace(n: string): Promise<void>
+  },
+): Promise<void> {
   await app.open()
   await app.selectContext()
   await app.selectNamespace(LIVE_NAMESPACE)
@@ -158,7 +165,11 @@ test.describe('wide', () => {
     await row(page, key(APP_INSTANCE), APPLICATIONS).click()
     const insp = inspector(page)
     await expect(insp.getByRole('heading', { name: APP_INSTANCE })).toBeVisible()
-    const podLink = insp.getByRole('button').filter({ hasText: 'owns' }).filter({ hasText: 'Pod' }).first()
+    const podLink = insp
+      .getByRole('button')
+      .filter({ hasText: 'owns' })
+      .filter({ hasText: 'Pod' })
+      .first()
     await expect(podLink).toBeVisible()
     const podName = (await podLink.locator('span').first().innerText()).split('/').pop()
     await podLink.click()
@@ -190,9 +201,7 @@ test.describe('wide', () => {
     await expect(insp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
     // Revision history streams in after the initial select; wait for both real revisions
     // (v1 install, v2 upgrade) before photographing.
-    await expect
-      .poll(async () => insp.getByText('#2', { exact: true }).count())
-      .toBeGreaterThan(0)
+    await expect.poll(async () => insp.getByText('#2', { exact: true }).count()).toBeGreaterThan(0)
     await shoot(page, 'wide-helm-inspector', pairs)
   })
 
@@ -273,7 +282,10 @@ test.describe('wide', () => {
     await openInspector(page, podOf('web'))
     const insp = inspector(page)
     await insp.getByRole('tab', { name: 'Forward' }).click()
-    await insp.getByTestId(/^port-forward-action-/).first().click()
+    await insp
+      .getByTestId(/^port-forward-action-/)
+      .first()
+      .click()
     const dialog = page.getByTestId('confirm-dialog')
     const detail = page.getByTestId('port-forward-start-dialog')
     await expect(detail).toBeVisible()
@@ -292,7 +304,9 @@ test.describe('wide', () => {
     await expect(panel).toBeVisible()
     // A real registry pull/inspect can take a while; wait for either the real result or its
     // honest error state, never the loading skeleton.
-    await expect(panel.getByTestId('image-inspect-ref').or(panel.getByTestId(/^image-inspect-error-/))).toBeVisible({
+    await expect(
+      panel.getByTestId('image-inspect-ref').or(panel.getByTestId(/^image-inspect-error-/)),
+    ).toBeVisible({
       timeout: 30_000,
     })
     await shoot(page, 'wide-image-inspect', pairs)
@@ -303,9 +317,12 @@ test.describe('wide', () => {
     await ready(page, app)
     await navigateTo(page, 'Role Bindings', 'Access Control')
     await expect
-      .poll(async () => Number(await table(page, 'access/rolebindings').getAttribute('data-row-count')), {
-        timeout: 30_000,
-      })
+      .poll(
+        async () => Number(await table(page, 'access/rolebindings').getAttribute('data-row-count')),
+        {
+          timeout: 30_000,
+        },
+      )
       .toBeGreaterThanOrEqual(1)
     await shoot(page, 'wide-rbac-rolebindings', pairs)
   })
@@ -316,10 +333,9 @@ test.describe('wide', () => {
     await openInspector(page, podOf('web'))
     const switcher = page.getByTestId('federation-context-switcher')
     await expect(switcher).toBeVisible()
-    await expect(page.getByTestId('federation-context-item').filter({ hasText: app.context })).toHaveAttribute(
-      'data-context-status',
-      'connected',
-    )
+    await expect(
+      page.getByTestId('federation-context-item').filter({ hasText: app.context }),
+    ).toHaveAttribute('data-context-status', 'connected')
     await shoot(page, 'wide-federation-context', pairs)
   })
 
@@ -408,10 +424,16 @@ test.describe('wide: 036 in-cluster daemon', () => {
         .toBeGreaterThan(3)
     })
     // Select the real cluster Node: the daemon replies with its metrics-server trend.
-    await page.getByRole('region', { name: 'Node', exact: true }).getByTestId('daemon-topology-node').first().click()
+    await page
+      .getByRole('region', { name: 'Node', exact: true })
+      .getByTestId('daemon-topology-node')
+      .first()
+      .click()
     await expect(page.getByTestId('daemon-topology-detail')).toBeVisible()
     await expect(page.getByTestId('daemon-sparkline').first()).toBeVisible({ timeout: 90_000 })
-    await page.getByTestId('daemon-topology-detail').evaluate((el) => { el.scrollTop = 0 })
+    await page.getByTestId('daemon-topology-detail').evaluate((el) => {
+      el.scrollTop = 0
+    })
     await page.getByTestId('daemon-sparkline').first().scrollIntoViewIfNeeded()
     await shoot(page, 'wide-daemon-topology', pairs)
   })

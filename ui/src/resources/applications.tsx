@@ -51,7 +51,9 @@ function ApplicationMetricsBlock({ namespace, instance }: { namespace: string; i
         {m.total_cpu_usage_percent === null ? '—' : `${m.total_cpu_usage_percent.toFixed(1)}%`}
       </dd>
       <dt className="text-muted-foreground">CPU requested</dt>
-      <dd className="font-mono text-[0.85em]">{formatMillicores(m.total_cpu_request_millicores)}</dd>
+      <dd className="font-mono text-[0.85em]">
+        {formatMillicores(m.total_cpu_request_millicores)}
+      </dd>
       <dt className="text-muted-foreground">Memory usage</dt>
       <dd className="font-mono text-[0.85em]">{formatMi(m.total_memory_usage_bytes)}</dd>
       <dt className="text-muted-foreground">Memory requested</dt>
@@ -70,7 +72,10 @@ const applicationSections: DetailSection<ApplicationSummary, ApplicationDetails>
         { label: 'Instance', value: detail?.instance ?? row?.instance ?? '', mono: true },
         { label: 'Application', value: detail?.name ?? row?.name ?? '', mono: true },
         { label: 'Namespace', value: detail?.namespace ?? row?.namespace ?? '', mono: true },
-        { label: 'Managed by', value: managedByLabel(detail?.managed_by ?? row?.managed_by ?? 'Helm') },
+        {
+          label: 'Managed by',
+          value: managedByLabel(detail?.managed_by ?? row?.managed_by ?? 'Helm'),
+        },
         { label: 'Version', value: detail?.version ?? row?.version ?? '—', mono: true },
       ]
       if (detail) {
@@ -88,7 +93,10 @@ const applicationSections: DetailSection<ApplicationSummary, ApplicationDetails>
     title: 'URLs',
     render: ({ detail }) => {
       if (!detail) return null
-      return { type: 'fields', fields: [{ label: 'URLs', value: detail.urls.join(', ') || '—', mono: true }] }
+      return {
+        type: 'fields',
+        fields: [{ label: 'URLs', value: detail.urls.join(', ') || '—', mono: true }],
+      }
     },
   },
   {

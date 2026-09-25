@@ -38,7 +38,9 @@ export function RelatedResourceLink({ r }: { r: RelatedResourceRef }) {
 
 /** A `DetailSection`'s `render` for a `related: RelatedResourceRef[]` list; `undefined` (not yet
  * fetched) renders the loading skeleton, an empty array renders "none". */
-export function relatedResourcesBlock(related: RelatedResourceRef[] | undefined): DetailBlock | null {
+export function relatedResourcesBlock(
+  related: RelatedResourceRef[] | undefined,
+): DetailBlock | null {
   if (!related) return null
   return {
     type: 'list',

@@ -10,10 +10,30 @@ export interface DeprecatedApi {
 }
 
 export const DEPRECATED_APIS: readonly DeprecatedApi[] = [
-  { apiVersion: 'extensions/v1beta1', kinds: ['Deployment', 'DaemonSet', 'ReplicaSet'], removedIn: '1.16', replacement: 'apps/v1' },
-  { apiVersion: 'apps/v1beta1', kinds: ['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet'], removedIn: '1.16', replacement: 'apps/v1' },
-  { apiVersion: 'apps/v1beta2', kinds: ['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet'], removedIn: '1.16', replacement: 'apps/v1' },
-  { apiVersion: 'policy/v1beta1', kinds: ['PodDisruptionBudget'], removedIn: '1.25', replacement: 'policy/v1' },
+  {
+    apiVersion: 'extensions/v1beta1',
+    kinds: ['Deployment', 'DaemonSet', 'ReplicaSet'],
+    removedIn: '1.16',
+    replacement: 'apps/v1',
+  },
+  {
+    apiVersion: 'apps/v1beta1',
+    kinds: ['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet'],
+    removedIn: '1.16',
+    replacement: 'apps/v1',
+  },
+  {
+    apiVersion: 'apps/v1beta2',
+    kinds: ['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet'],
+    removedIn: '1.16',
+    replacement: 'apps/v1',
+  },
+  {
+    apiVersion: 'policy/v1beta1',
+    kinds: ['PodDisruptionBudget'],
+    removedIn: '1.25',
+    replacement: 'policy/v1',
+  },
   { apiVersion: 'batch/v1beta1', kinds: ['CronJob'], removedIn: '1.25', replacement: 'batch/v1' },
   {
     apiVersion: 'rbac.authorization.k8s.io/v1beta1',
@@ -27,8 +47,18 @@ export const DEPRECATED_APIS: readonly DeprecatedApi[] = [
     removedIn: '1.22',
     replacement: 'rbac.authorization.k8s.io/v1',
   },
-  { apiVersion: 'autoscaling/v2beta1', kinds: ['HorizontalPodAutoscaler'], removedIn: '1.25', replacement: 'autoscaling/v2' },
-  { apiVersion: 'autoscaling/v2beta2', kinds: ['HorizontalPodAutoscaler'], removedIn: '1.26', replacement: 'autoscaling/v2' },
+  {
+    apiVersion: 'autoscaling/v2beta1',
+    kinds: ['HorizontalPodAutoscaler'],
+    removedIn: '1.25',
+    replacement: 'autoscaling/v2',
+  },
+  {
+    apiVersion: 'autoscaling/v2beta2',
+    kinds: ['HorizontalPodAutoscaler'],
+    removedIn: '1.26',
+    replacement: 'autoscaling/v2',
+  },
 ]
 
 export function deprecationFor(apiVersion: string, kind: string): DeprecatedApi | undefined {

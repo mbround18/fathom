@@ -99,7 +99,12 @@ export function containersOf(podSpec: Obj | undefined): Obj[] {
   return arr(podSpec?.containers).filter(isObj)
 }
 
-export function ref(section: string, kind: string, namespace: string | null, name: string): ObjectRef {
+export function ref(
+  section: string,
+  kind: string,
+  namespace: string | null,
+  name: string,
+): ObjectRef {
   return { section, kind, namespace, name }
 }
 
@@ -140,7 +145,8 @@ export function outcome(
   pending: number,
   reason?: string,
 ): RuleOutcome {
-  const flagged = new Set(findings.map((f) => `${f.ref.kind}|${f.ref.namespace}|${f.ref.name}`)).size
+  const flagged = new Set(findings.map((f) => `${f.ref.kind}|${f.ref.namespace}|${f.ref.name}`))
+    .size
   return {
     rule: rule.id,
     category: rule.category,
