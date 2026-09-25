@@ -212,10 +212,15 @@ describe('OverviewPanel', () => {
 })
 
 describe('namespaces', () => {
-  it('has a descriptor with row-driven detail and ingests summaries under the namespaces key', () => {
+  it('has a descriptor with a SelectNamespace read and ingests summaries under the namespaces key', () => {
     const d = descriptorFor('namespaces')
     expect(d?.kind).toBe('Namespace')
-    expect(d).not.toHaveProperty('read')
+    expect(
+      d?.read?.({ section: 'namespaces', kind: 'Namespace', namespace: null, name: 'x' })[0],
+    ).toEqual({
+      type: 'SelectNamespace',
+      data: { name: 'x' },
+    })
     const writes: Record<string, unknown> = {}
     const d2 = {
       read: () => ({}),

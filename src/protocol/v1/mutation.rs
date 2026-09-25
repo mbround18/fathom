@@ -53,6 +53,7 @@ impl BackendCmdV1 {
             | C::SetNamespaceFilter { .. }
             | C::RefreshNodes
             | C::SelectNode { .. }
+            | C::SelectNamespace { .. }
             | C::RefreshEvents
             | C::RefreshPods
             | C::SelectPod { .. }
@@ -466,7 +467,7 @@ impl BackendCmdV1 {
             | C::CheckCapability { .. }
             | C::PreviewRoleAssignment { .. }
             | C::RefreshOrphanedSubjects { .. } => return None,
-            C::RefreshNamespaces => section_keys::namespaces(),
+            C::RefreshNamespaces | C::SelectNamespace { .. } => section_keys::namespaces(),
             C::RefreshNodes
             | C::SelectNode { .. }
             | C::CordonNode { .. }
@@ -761,6 +762,7 @@ impl BackendCmdV1 {
             | C::SetNamespaceFilter { .. }
             | C::RefreshNodes
             | C::SelectNode { .. }
+            | C::SelectNamespace { .. }
             | C::RefreshEvents
             | C::RefreshPods
             | C::SelectPod { .. }
@@ -1396,6 +1398,7 @@ impl BackendCmdV1 {
             | C::SetNamespaceFilter { .. }
             | C::RefreshNodes
             | C::SelectNode { .. }
+            | C::SelectNamespace { .. }
             | C::CordonNode { .. }
             | C::UncordonNode { .. }
             | C::DrainNode { .. }
