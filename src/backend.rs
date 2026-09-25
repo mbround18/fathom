@@ -90,6 +90,7 @@ mod secrets;
 mod storageclasses;
 mod validatingwebhooks;
 mod velero;
+mod verticalpodautoscalers;
 
 use state::BackendState;
 

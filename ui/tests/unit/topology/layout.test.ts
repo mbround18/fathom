@@ -6,8 +6,22 @@ import type { TopologyGraph } from '@/topology/types'
 function graph(): TopologyGraph {
   return {
     nodes: [
-      { id: 'a', ref: { section: 'namespaces', kind: 'Namespace', namespace: null, name: 'a' }, kind: 'Namespace', label: 'a', tone: 'muted', tier: 'namespace' },
-      { id: 'b', ref: { section: 'namespaces', kind: 'Namespace', namespace: null, name: 'b' }, kind: 'Namespace', label: 'b', tone: 'muted', tier: 'namespace' },
+      {
+        id: 'a',
+        ref: { section: 'namespaces', kind: 'Namespace', namespace: null, name: 'a' },
+        kind: 'Namespace',
+        label: 'a',
+        tone: 'muted',
+        tier: 'namespace',
+      },
+      {
+        id: 'b',
+        ref: { section: 'namespaces', kind: 'Namespace', namespace: null, name: 'b' },
+        kind: 'Namespace',
+        label: 'b',
+        tone: 'muted',
+        tier: 'namespace',
+      },
     ],
     edges: [{ id: 'a|b', source: 'a', target: 'b', relations: ['owns'] }],
   }

@@ -28,8 +28,15 @@ export const good = {
   readinessProbe: {},
 }
 
-export function podTemplate(containers: unknown[], extra: Record<string, unknown> = {}, labels = { app: 'web' }) {
-  return { metadata: { name: 'w' }, spec: { template: { metadata: { labels }, spec: { containers, ...extra } } } }
+export function podTemplate(
+  containers: unknown[],
+  extra: Record<string, unknown> = {},
+  labels = { app: 'web' },
+) {
+  return {
+    metadata: { name: 'w' },
+    spec: { template: { metadata: { labels }, spec: { containers, ...extra } } },
+  }
 }
 
 export function must<T>(v: T | undefined): T {

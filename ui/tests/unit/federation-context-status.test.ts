@@ -36,9 +36,23 @@ describe('ContextStatusUpdated (federation-context-status)', () => {
 
   it('last write wins for a context whose status changes (Connecting -> Connected)', () => {
     ingest(federationContexts)
-    ingest(batch([system(5, { type: 'ContextStatusUpdated', data: { context: 'kind-a', status: 'Connecting', error: null, plugin_error: null } })]))
+    ingest(
+      batch([
+        system(5, {
+          type: 'ContextStatusUpdated',
+          data: { context: 'kind-a', status: 'Connecting', error: null, plugin_error: null },
+        }),
+      ]),
+    )
     expect(useStore.getState().session.contextStatuses['kind-a']).toEqual({ status: 'Connecting' })
-    ingest(batch([system(6, { type: 'ContextStatusUpdated', data: { context: 'kind-a', status: 'Connected', error: null, plugin_error: null } })]))
+    ingest(
+      batch([
+        system(6, {
+          type: 'ContextStatusUpdated',
+          data: { context: 'kind-a', status: 'Connected', error: null, plugin_error: null },
+        }),
+      ]),
+    )
     expect(useStore.getState().session.contextStatuses['kind-a']).toEqual({ status: 'Connected' })
   })
 
@@ -56,7 +70,12 @@ describe('ContextStatusUpdated (federation-context-status)', () => {
       batch([
         system(6, {
           type: 'ContextStatusUpdated',
-          data: { context: 'kind-b', status: 'Error', error: 'connection refused', plugin_error: null },
+          data: {
+            context: 'kind-b',
+            status: 'Error',
+            error: 'connection refused',
+            plugin_error: null,
+          },
         }),
       ]),
     )

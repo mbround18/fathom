@@ -42,7 +42,15 @@ function suggestion(overrides: Partial<SuggestedAction> = {}): SuggestedAction {
 }
 
 function dep(overrides: Partial<WorkloadSummary> = {}): WorkloadSummary {
-  return { name: 'api', namespace: 'default', desired: 2, ready: 2, updated: 2, available: 2, ...overrides }
+  return {
+    name: 'api',
+    namespace: 'default',
+    desired: 2,
+    ready: 2,
+    updated: 2,
+    available: 2,
+    ...overrides,
+  }
 }
 
 function must<T>(v: T | undefined, what: string): T {
@@ -85,7 +93,9 @@ describe('resolveSuggestedAction', () => {
   })
 
   it('resolves restart and delete too, for the kinds that actually support them', () => {
-    expect(resolveSuggestedAction(suggestion({ action_kind: 'restart' }))?.action.id).toBe('restart')
+    expect(resolveSuggestedAction(suggestion({ action_kind: 'restart' }))?.action.id).toBe(
+      'restart',
+    )
     expect(resolveSuggestedAction(suggestion({ action_kind: 'delete' }))?.action.id).toBe('delete')
   })
 
@@ -93,7 +103,10 @@ describe('resolveSuggestedAction', () => {
     // Pod has no 'restart' action (only 'delete') — the model inventing one must not force-fit.
     expect(
       resolveSuggestedAction(
-        suggestion({ action_kind: 'restart', target: { kind: 'Pod', namespace: 'default', name: 'api-0' } }),
+        suggestion({
+          action_kind: 'restart',
+          target: { kind: 'Pod', namespace: 'default', name: 'api-0' },
+        }),
       ),
     ).toBeUndefined()
   })
@@ -134,7 +147,9 @@ describe('findLiveRow', () => {
   })
 
   it('returns undefined when nothing has loaded that object yet', () => {
-    expect(findLiveRow(deployments, { kind: 'Deployment', namespace: 'default', name: 'api' })).toBeUndefined()
+    expect(
+      findLiveRow(deployments, { kind: 'Deployment', namespace: 'default', name: 'api' }),
+    ).toBeUndefined()
   })
 })
 
@@ -204,9 +219,12 @@ describe('decline: never a mutating command', () => {
     expect(sent).toEqual([
       { type: 'AgentDeclineSuggestedAction', data: { object: OBJECT, suggestion_id: 'sugg-1' } },
     ])
-    expect(sent.some((c) => c.type === 'ScaleDeployment' || c.type === 'DeletePod' || c.type === 'RestartDeployment')).toBe(
-      false,
-    )
+    expect(
+      sent.some(
+        (c) =>
+          c.type === 'ScaleDeployment' || c.type === 'DeletePod' || c.type === 'RestartDeployment',
+      ),
+    ).toBe(false)
   })
 })
 
@@ -280,7 +298,10 @@ describe('confirmAndExecuteSuggestedAction: runAction then AgentRecordExecutedAc
 
     await vi.waitFor(() => expect(sent).toHaveLength(1))
     const requestId = nextId - 1
-    commandFinished(requestId, { ok: false, error: 'deployments.apps "api" is forbidden: RBAC denies delete' })
+    commandFinished(requestId, {
+      ok: false,
+      error: 'deployments.apps "api" is forbidden: RBAC denies delete',
+    })
     await promise
 
     expect(sent[1]).toEqual({
@@ -289,7 +310,10 @@ describe('confirmAndExecuteSuggestedAction: runAction then AgentRecordExecutedAc
         object: OBJECT,
         suggestion_id: 'sugg-1',
         command_summary: 'Delete default/api',
-        outcome: { type: 'Error', data: { message: 'deployments.apps "api" is forbidden: RBAC denies delete' } },
+        outcome: {
+          type: 'Error',
+          data: { message: 'deployments.apps "api" is forbidden: RBAC denies delete' },
+        },
       },
     })
   })

@@ -100,6 +100,7 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.resourceQuotas]: { type: 'RefreshResourceQuotas' },
   [SECTION.limitRanges]: { type: 'RefreshLimitRanges' },
   [SECTION.horizontalPodAutoscalers]: { type: 'RefreshHorizontalPodAutoscalers' },
+  [SECTION.verticalPodAutoscalers]: { type: 'RefreshVerticalPodAutoscalers' },
   [SECTION.priorityClasses]: { type: 'RefreshPriorityClasses' },
   [SECTION.runtimeClasses]: { type: 'RefreshRuntimeClasses' },
   [SECTION.leases]: { type: 'RefreshLeases' },
@@ -150,7 +151,7 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectNode', data: { name } }
     case 'Service':
       return { type: 'SelectService', data: { namespace, name } }
-    // 034 batch0: remaining kinds with backend Select* commands (VPA has none).
+    // 034 batch0: remaining kinds with backend Select* commands.
     case 'ReplicationController':
       return { type: 'SelectReplicationController', data: { namespace, name } }
     case 'Job':
@@ -181,6 +182,8 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectLimitRange', data: { namespace, name } }
     case 'HorizontalPodAutoscaler':
       return { type: 'SelectHorizontalPodAutoscaler', data: { namespace, name } }
+    case 'VerticalPodAutoscaler':
+      return { type: 'SelectVerticalPodAutoscaler', data: { namespace, name } }
     case 'PriorityClass':
       return { type: 'SelectPriorityClass', data: { name } }
     case 'RuntimeClass':

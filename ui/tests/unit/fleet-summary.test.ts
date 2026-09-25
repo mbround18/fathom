@@ -13,7 +13,10 @@ beforeEach(() => {
   resetActions()
 })
 
-const summary = (context: string, over: Partial<FleetContextSummary> = {}): FleetContextSummary => ({
+const summary = (
+  context: string,
+  over: Partial<FleetContextSummary> = {},
+): FleetContextSummary => ({
   context,
   health: 'Healthy',
   error: null,

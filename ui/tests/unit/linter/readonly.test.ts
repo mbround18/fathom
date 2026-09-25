@@ -17,12 +17,30 @@ describe('linter is read-only (FR-003, SC-005)', () => {
     const src = [...files(join(root, 'linter')), join(root, 'components/panels/LinterPanel.tsx')]
       .map((f) => readFileSync(f, 'utf8'))
       .join('\n')
-    for (const banned of ['Delete', 'Apply', 'Patch', 'Scale', 'Restart', 'Cordon', 'Drain', 'Uninstall', 'Rollback', 'send(']) {
+    for (const banned of [
+      'Delete',
+      'Apply',
+      'Patch',
+      'Scale',
+      'Restart',
+      'Cordon',
+      'Drain',
+      'Uninstall',
+      'Rollback',
+      'send(',
+    ]) {
       expect(src).not.toContain(banned)
     }
   })
   it('command wiring resolves only Refresh*/Select* commands for the new sections and kinds', () => {
-    for (const s of [SECTION.configmaps, SECTION.secrets, SECTION.poddisruptionbudgets, SECTION.replicasets, SECTION.jobs, SECTION.cronjobs]) {
+    for (const s of [
+      SECTION.configmaps,
+      SECTION.secrets,
+      SECTION.poddisruptionbudgets,
+      SECTION.replicasets,
+      SECTION.jobs,
+      SECTION.cronjobs,
+    ]) {
       expect(refreshCmd(s)?.type).toMatch(/^Refresh/)
     }
     for (const k of ['StatefulSet', 'DaemonSet', 'ReplicaSet', 'PodDisruptionBudget']) {

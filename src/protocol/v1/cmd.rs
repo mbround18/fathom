@@ -592,6 +592,17 @@ pub enum BackendCmdV1 {
         name: String,
     },
 
+    // config_verticalpodautoscalers
+    RefreshVerticalPodAutoscalers,
+    SelectVerticalPodAutoscaler {
+        namespace: String,
+        name: String,
+    },
+    DeleteVerticalPodAutoscaler {
+        namespace: String,
+        name: String,
+    },
+
     // config_poddisruptionbudgets
     RefreshPodDisruptionBudgets,
     SelectPodDisruptionBudget {

@@ -7,7 +7,11 @@ import { useMutationAccess, deniedTitle } from '@/hooks/useMutationAccess'
 import { initialData, useStore } from '@/store'
 import { mergeAccessResults } from '@/store/handlers/rbacAccess'
 
-const res = (resource: string, allowed: boolean, reason: string | null = null): RbacAccessResult => ({
+const res = (
+  resource: string,
+  allowed: boolean,
+  reason: string | null = null,
+): RbacAccessResult => ({
   check: { verb: 'update', resource, namespace: null, group: '' },
   allowed,
   reason,
@@ -15,7 +19,10 @@ const res = (resource: string, allowed: boolean, reason: string | null = null): 
 
 describe('mergeAccessResults', () => {
   it('keeps unrelated results and replaces same-key results', () => {
-    const merged = mergeAccessResults([res('nodes', true), res('secrets', true)], [res('nodes', false)])
+    const merged = mergeAccessResults(
+      [res('nodes', true), res('secrets', true)],
+      [res('nodes', false)],
+    )
     expect(merged).toHaveLength(2)
     expect(merged.find((r) => r.check.resource === 'nodes')?.allowed).toBe(false)
     expect(merged.find((r) => r.check.resource === 'secrets')?.allowed).toBe(true)

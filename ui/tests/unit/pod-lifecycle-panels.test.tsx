@@ -26,11 +26,7 @@ beforeEach(() => {
 
 function renderPanels() {
   return render(
-    <PodLifecyclePanels
-      namespace={DETAIL_POD.namespace}
-      name={DETAIL_POD.name}
-      containers={[]}
-    />,
+    <PodLifecyclePanels namespace={DETAIL_POD.namespace} name={DETAIL_POD.name} containers={[]} />,
   )
 }
 
@@ -39,7 +35,11 @@ describe('PodLifecyclePanels', () => {
     ingest(podLifecycleEvents(DETAIL_POD))
     const { containers_lifecycle: containers } = podDetailsWithLifecycle(DETAIL_POD)
     render(
-      <PodLifecyclePanels namespace={DETAIL_POD.namespace} name={DETAIL_POD.name} containers={containers} />,
+      <PodLifecyclePanels
+        namespace={DETAIL_POD.namespace}
+        name={DETAIL_POD.name}
+        containers={containers}
+      />,
     )
 
     const init = screen.getByTestId('pod-lifecycle-init-containers')
@@ -82,7 +82,11 @@ describe('PodLifecyclePanels', () => {
       hooks: [],
     }
     render(
-      <PodLifecyclePanels namespace={DETAIL_POD.namespace} name={DETAIL_POD.name} containers={[container]} />,
+      <PodLifecyclePanels
+        namespace={DETAIL_POD.namespace}
+        name={DETAIL_POD.name}
+        containers={[container]}
+      />,
     )
     const restarts = screen.getByTestId('pod-lifecycle-restarts')
     expect(restarts).toHaveTextContent('Error')

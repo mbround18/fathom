@@ -9,8 +9,26 @@ describe('topology status tone', () => {
   })
 
   it('colors a fully-ready workload ok, an under-ready one warn', () => {
-    expect(workloadTone({ name: 'w', namespace: 'default', desired: 3, ready: 3, updated: 3, available: 3 })).toBe('ok')
-    expect(workloadTone({ name: 'w', namespace: 'default', desired: 3, ready: 1, updated: 1, available: 1 })).toBe('warn')
+    expect(
+      workloadTone({
+        name: 'w',
+        namespace: 'default',
+        desired: 3,
+        ready: 3,
+        updated: 3,
+        available: 3,
+      }),
+    ).toBe('ok')
+    expect(
+      workloadTone({
+        name: 'w',
+        namespace: 'default',
+        desired: 3,
+        ready: 1,
+        updated: 1,
+        available: 1,
+      }),
+    ).toBe('warn')
   })
 
   it('colors a ready node ok', () => {

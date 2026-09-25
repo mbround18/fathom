@@ -19,7 +19,6 @@ import { TrivyPanel } from '@/components/panels/TrivyPanel'
 import { KedaPanel } from '@/components/panels/KedaPanel'
 import { LinterPanel } from '@/components/panels/LinterPanel'
 import { TopologyPanel } from '@/components/panels/TopologyPanel'
-import { UnavailableSection } from '@/components/panels/UnavailableSection'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { ClusterSettingsPanel } from '@/components/panels/ClusterSettingsPanel'
@@ -297,9 +296,6 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.grafana) return <GrafanaPanel />
   if (section === SECTION.argo) return <ArgoPanel />
   if (section === SECTION.flux) return <FluxPanel />
-  if (section === SECTION.verticalPodAutoscalers) {
-    return <UnavailableSection label="Vertical Pod Autoscalers" />
-  }
   if (!descriptor) {
     return (
       <Empty

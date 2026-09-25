@@ -70,7 +70,11 @@ beforeEach(() => {
   })
 })
 
-function statusArrived(enabled: boolean, running: boolean, connectionCommand = '/usr/bin/fathom --only-mcp') {
+function statusArrived(
+  enabled: boolean,
+  running: boolean,
+  connectionCommand = '/usr/bin/fathom --only-mcp',
+) {
   useStore.setState({
     mcp: {
       ...useStore.getState().mcp,
@@ -159,7 +163,9 @@ describe('AvailableAgentsSection', () => {
 
   it('summarizes the assistant auth mode read-only, and never shows a key', () => {
     useStore.setState({
-      agentAuth: { mode: { type: 'Ollama', data: { endpoint: 'http://localhost:11434', model: 'mistral' } } },
+      agentAuth: {
+        mode: { type: 'Ollama', data: { endpoint: 'http://localhost:11434', model: 'mistral' } },
+      },
     })
     render(<AvailableAgentsSection />)
     const summary = screen.getByTestId('mcp-agent-auth-summary')

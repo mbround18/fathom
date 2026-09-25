@@ -10,6 +10,7 @@ use crate::backend::{
     limitranges, mutatingwebhooks, networkpolicies, persistentvolumeclaims, persistentvolumes,
     poddisruptionbudgets, priorityclasses, rbac_access, related, resourcequotas, rolebindings,
     roles, runtimeclasses, secrets, services, storageclasses, validatingwebhooks,
+    verticalpodautoscalers,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
 
@@ -686,6 +687,19 @@ async fn handle_policy_cmd(
             )
             .await?;
             horizontalpodautoscalers::refresh_horizontalpodautoscalers(state, sender).await?;
+        }
+        BackendCmd::RefreshVerticalPodAutoscalers => {
+            verticalpodautoscalers::refresh_verticalpodautoscalers(state, sender).await?;
+        }
+        BackendCmd::SelectVerticalPodAutoscaler { namespace, name } => {
+            verticalpodautoscalers::fetch_verticalpodautoscaler_details(
+                state, sender, &namespace, &name,
+            )
+            .await?;
+        }
+        BackendCmd::DeleteVerticalPodAutoscaler { namespace, name } => {
+            verticalpodautoscalers::delete_verticalpodautoscaler(state, sender, &namespace, &name)
+                .await?;
         }
         BackendCmd::RefreshPodDisruptionBudgets => {
             poddisruptionbudgets::refresh_poddisruptionbudgets(state, sender).await?;

@@ -31,7 +31,14 @@ function suggestion(overrides: Partial<SuggestedAction> = {}): SuggestedAction {
   }
 }
 
-const DEP: WorkloadSummary = { name: 'api', namespace: 'default', desired: 2, ready: 2, updated: 2, available: 2 }
+const DEP: WorkloadSummary = {
+  name: 'api',
+  namespace: 'default',
+  desired: 2,
+  ready: 2,
+  updated: 2,
+  available: 2,
+}
 const DEPLOYMENTS_KEY = listKey('kind-a', deployments.section, 'Namespaced', null)
 
 let sent: BackendCmd[]
@@ -83,7 +90,9 @@ describe('SuggestedActionCard', () => {
     expect(screen.queryByTestId('agent-ops-suggested-action-review')).toBeNull()
     expect(screen.getByTestId('agent-ops-suggested-action-decline')).toBeDisabled()
 
-    rerender(<SuggestedActionCard object={OBJECT} suggestion={suggestion({ status: 'Superseded' })} />)
+    rerender(
+      <SuggestedActionCard object={OBJECT} suggestion={suggestion({ status: 'Superseded' })} />,
+    )
     expect(screen.queryByTestId('agent-ops-suggested-action-review')).toBeNull()
     expect(screen.getByTestId('agent-ops-suggested-action-decline')).toBeDisabled()
   })

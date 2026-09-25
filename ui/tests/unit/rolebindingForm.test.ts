@@ -60,7 +60,11 @@ describe('buildRoleBindingManifest', () => {
       apiVersion: 'rbac.authorization.k8s.io/v1',
       kind: 'ClusterRoleBinding',
       metadata: { name: 'cluster-admins' },
-      roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: 'cluster-admin' },
+      roleRef: {
+        apiGroup: 'rbac.authorization.k8s.io',
+        kind: 'ClusterRole',
+        name: 'cluster-admin',
+      },
       subjects: [{ kind: 'Group', name: 'platform-admins' }],
     })
     expect(manifest.metadata).not.toHaveProperty('namespace')

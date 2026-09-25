@@ -342,6 +342,44 @@ fn sample_horizontal_pod_autoscaler_summary() -> HorizontalPodAutoscalerSummary 
     }
 }
 
+fn sample_vpa_recommendation() -> VpaContainerRecommendation {
+    let res = || VpaResources {
+        cpu: "s".to_owned(),
+        memory: "s".to_owned(),
+    };
+    VpaContainerRecommendation {
+        container: "s".to_owned(),
+        lower_bound: res(),
+        target: res(),
+        upper_bound: res(),
+    }
+}
+
+fn sample_vertical_pod_autoscaler_details() -> VerticalPodAutoscalerDetails {
+    VerticalPodAutoscalerDetails {
+        namespace: "s".to_owned(),
+        name: "s".to_owned(),
+        creation_timestamp: "s".to_owned(),
+        labels: BTreeMap::from([("k".to_owned(), "v".to_owned())]),
+        annotations: BTreeMap::from([("k".to_owned(), "v".to_owned())]),
+        target_ref: "s".to_owned(),
+        update_mode: "s".to_owned(),
+        recommendations: vec![sample_vpa_recommendation()],
+        conditions: vec!["s".to_owned()],
+        raw_json: "s".to_owned(),
+    }
+}
+
+fn sample_vertical_pod_autoscaler_summary() -> VerticalPodAutoscalerSummary {
+    VerticalPodAutoscalerSummary {
+        namespace: "s".to_owned(),
+        name: "s".to_owned(),
+        target_ref: "s".to_owned(),
+        update_mode: "s".to_owned(),
+        recommendations: vec![sample_vpa_recommendation()],
+    }
+}
+
 fn sample_ingress_class_details() -> IngressClassDetails {
     IngressClassDetails {
         name: "s".to_owned(),
@@ -1877,6 +1915,15 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::RefreshVerticalPodAutoscalers,
+        BackendCmd::SelectVerticalPodAutoscaler {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+        },
+        BackendCmd::DeleteVerticalPodAutoscaler {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+        },
         BackendCmd::RefreshPodDisruptionBudgets,
         BackendCmd::SelectPodDisruptionBudget {
             namespace: "s".to_owned(),
@@ -2358,6 +2405,9 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshHorizontalPodAutoscalers => {}
         BackendCmd::SelectHorizontalPodAutoscaler { .. } => {}
         BackendCmd::DeleteHorizontalPodAutoscaler { .. } => {}
+        BackendCmd::RefreshVerticalPodAutoscalers => {}
+        BackendCmd::SelectVerticalPodAutoscaler { .. } => {}
+        BackendCmd::DeleteVerticalPodAutoscaler { .. } => {}
         BackendCmd::RefreshPodDisruptionBudgets => {}
         BackendCmd::SelectPodDisruptionBudget { .. } => {}
         BackendCmd::DeletePodDisruptionBudget { .. } => {}
@@ -3055,6 +3105,9 @@ fn all_resource_list_events() -> Vec<ResourceListEvent> {
         ResourceListEvent::HorizontalPodAutoscalersUpdated(vec![
             sample_horizontal_pod_autoscaler_summary(),
         ]),
+        ResourceListEvent::VerticalPodAutoscalersUpdated(vec![
+            sample_vertical_pod_autoscaler_summary(),
+        ]),
         ResourceListEvent::PodDisruptionBudgetsUpdated(
             vec![sample_pod_disruption_budget_summary()],
         ),
@@ -3105,6 +3158,7 @@ fn all_resource_list_events_is_exhaustive(v: &ResourceListEvent) {
         ResourceListEvent::ResourceQuotasUpdated(..) => {}
         ResourceListEvent::LimitRangesUpdated(..) => {}
         ResourceListEvent::HorizontalPodAutoscalersUpdated(..) => {}
+        ResourceListEvent::VerticalPodAutoscalersUpdated(..) => {}
         ResourceListEvent::PodDisruptionBudgetsUpdated(..) => {}
         ResourceListEvent::PriorityClassesUpdated(..) => {}
         ResourceListEvent::RuntimeClassesUpdated(..) => {}
@@ -3160,6 +3214,9 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
         ResourceReadEvent::LimitRangeDetailsUpdated(sample_limit_range_details()),
         ResourceReadEvent::HorizontalPodAutoscalerDetailsUpdated(
             sample_horizontal_pod_autoscaler_details(),
+        ),
+        ResourceReadEvent::VerticalPodAutoscalerDetailsUpdated(
+            sample_vertical_pod_autoscaler_details(),
         ),
         ResourceReadEvent::PodDisruptionBudgetDetailsUpdated(sample_pod_disruption_budget_details()),
         ResourceReadEvent::PriorityClassDetailsUpdated(sample_priority_class_details()),
@@ -3356,6 +3413,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::ResourceQuotaDetailsUpdated(..) => {}
         ResourceReadEvent::LimitRangeDetailsUpdated(..) => {}
         ResourceReadEvent::HorizontalPodAutoscalerDetailsUpdated(..) => {}
+        ResourceReadEvent::VerticalPodAutoscalerDetailsUpdated(..) => {}
         ResourceReadEvent::PodDisruptionBudgetDetailsUpdated(..) => {}
         ResourceReadEvent::PriorityClassDetailsUpdated(..) => {}
         ResourceReadEvent::RuntimeClassDetailsUpdated(..) => {}

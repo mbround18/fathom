@@ -137,6 +137,8 @@ impl BackendCmdV1 {
             | C::SelectLimitRange { .. }
             | C::RefreshHorizontalPodAutoscalers
             | C::SelectHorizontalPodAutoscaler { .. }
+            | C::RefreshVerticalPodAutoscalers
+            | C::SelectVerticalPodAutoscaler { .. }
             | C::RefreshPodDisruptionBudgets
             | C::SelectPodDisruptionBudget { .. }
             | C::RefreshPriorityClasses
@@ -332,6 +334,7 @@ impl BackendCmdV1 {
             | C::DeleteResourceQuota { namespace, .. }
             | C::DeleteLimitRange { namespace, .. }
             | C::DeleteHorizontalPodAutoscaler { namespace, .. }
+            | C::DeleteVerticalPodAutoscaler { namespace, .. }
             | C::DeletePodDisruptionBudget { namespace, .. }
             | C::DeleteLease { namespace, .. } => MutationTarget::namespaced(namespace),
 
@@ -632,6 +635,11 @@ impl BackendCmdV1 {
             | C::DeleteHorizontalPodAutoscaler { .. } => {
                 section_keys::config_horizontalpodautoscalers()
             }
+            C::RefreshVerticalPodAutoscalers
+            | C::SelectVerticalPodAutoscaler { .. }
+            | C::DeleteVerticalPodAutoscaler { .. } => {
+                section_keys::config_verticalpodautoscalers()
+            }
             C::RefreshPodDisruptionBudgets
             | C::SelectPodDisruptionBudget { .. }
             | C::DeletePodDisruptionBudget { .. } => section_keys::config_poddisruptionbudgets(),
@@ -842,6 +850,8 @@ impl BackendCmdV1 {
             | C::SelectLimitRange { .. }
             | C::RefreshHorizontalPodAutoscalers
             | C::SelectHorizontalPodAutoscaler { .. }
+            | C::RefreshVerticalPodAutoscalers
+            | C::SelectVerticalPodAutoscaler { .. }
             | C::RefreshPodDisruptionBudgets
             | C::SelectPodDisruptionBudget { .. }
             | C::RefreshPriorityClasses
@@ -1078,6 +1088,12 @@ impl BackendCmdV1 {
             C::DeleteHorizontalPodAutoscaler { namespace, name } => summary(
                 AuditActionKind::Delete,
                 Some("HorizontalPodAutoscaler"),
+                Some(namespace),
+                Some(name),
+            ),
+            C::DeleteVerticalPodAutoscaler { namespace, name } => summary(
+                AuditActionKind::Delete,
+                Some("VerticalPodAutoscaler"),
                 Some(namespace),
                 Some(name),
             ),
@@ -1508,6 +1524,9 @@ impl BackendCmdV1 {
             | C::RefreshHorizontalPodAutoscalers
             | C::SelectHorizontalPodAutoscaler { .. }
             | C::DeleteHorizontalPodAutoscaler { .. }
+            | C::RefreshVerticalPodAutoscalers
+            | C::SelectVerticalPodAutoscaler { .. }
+            | C::DeleteVerticalPodAutoscaler { .. }
             | C::RefreshPodDisruptionBudgets
             | C::SelectPodDisruptionBudget { .. }
             | C::DeletePodDisruptionBudget { .. }
