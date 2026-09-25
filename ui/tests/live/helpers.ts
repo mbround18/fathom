@@ -18,7 +18,7 @@ import {
 
 import type { BackendCmd, DevBridgeClientMsg, DevBridgeServerMsg } from '../../src/protocol/types'
 import type {} from '../../src/protocol/ws-transport'
-import { listPane, navigateTo, row, table } from '../e2e/helpers'
+import { chooseScope, expectScope, listPane, navigateTo, row, table } from '../e2e/helpers'
 
 import { APP_ORIGIN, E2E_LABEL, ENV, LIVE_NAMESPACE, liveContext } from './env'
 
@@ -441,22 +441,16 @@ function makeApp(page: Page): LiveApp {
     bridge: `ws://127.0.0.1:${port}/`,
     token,
   }).toString()}`
-  const picker = (label: string) => page.getByRole('combobox', { name: label })
-  const pick = async (label: string, option: string) => {
-    await picker(label).click()
-    await page.getByRole('option', { name: option, exact: true }).click()
-    await expect(picker(label)).toContainText(option)
-  }
   return {
     context,
     url,
     async open() {
       await page.goto(url)
-      await expect(picker('Context')).toContainText(context, { timeout: 60_000 })
+      await expectScope(page, 'Context', context)
       await expect(page.locator('[data-pane-state="disconnected"]')).toHaveCount(0)
     },
-    selectContext: (name = context) => pick('Context', name),
-    selectNamespace: (name) => pick('Namespace', name),
+    selectContext: (name = context) => chooseScope(page, 'Context', name),
+    selectNamespace: (name) => chooseScope(page, 'Namespace', name),
   }
 }
 

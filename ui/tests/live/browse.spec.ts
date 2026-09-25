@@ -148,10 +148,10 @@ test.describe('live: browse fathom-dev (read-only)', () => {
     await expect(insp).toContainText(LIVE_NAMESPACE)
 
     await insp.getByRole('tab', { name: 'YAML' }).click()
-    const yaml = insp.locator('pre')
-    await expect(yaml).toContainText('kind: Pod')
-    await expect(yaml).toContainText(`name: ${name}`)
-    await expect(yaml).toContainText(`namespace: ${LIVE_NAMESPACE}`)
+    const yaml = insp.getByTestId('yaml-edit-textarea')
+    await expect(yaml).toHaveValue(/kind: Pod/)
+    await expect(yaml).toHaveValue(new RegExp(`name: ${name}`))
+    await expect(yaml).toHaveValue(new RegExp(`namespace: ${LIVE_NAMESPACE}`))
 
     const events = insp.getByRole('tab', { name: 'Events' })
     await events.click()
@@ -161,9 +161,12 @@ test.describe('live: browse fathom-dev (read-only)', () => {
 
   test('switching the namespace filter away and back does not leak rows', async ({ page, app }) => {
     // Another namespace from the picker (the UI's own list; kubectl stays fenced to fathom-dev).
+    const chip = page.getByTestId('scope-chip')
+    if (await chip.isVisible()) await chip.click()
     await page.getByRole('combobox', { name: 'Namespace' }).click()
     const options = await page.getByRole('option').allInnerTexts()
     await page.keyboard.press('Escape')
+    if (await chip.isVisible()) await page.keyboard.press('Escape')
     const others = options.map((o) => o.trim()).filter((o) => o !== LIVE_NAMESPACE && o !== 'all')
     const other = others.includes('kube-system') ? 'kube-system' : others[0]
     test.skip(other === undefined, 'the cluster lists no namespace besides fathom-dev')
