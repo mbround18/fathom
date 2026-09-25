@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import type { OidcIssuerConfig } from '@/protocol/types'
 import { useStore } from '@/store'
 
+import { RoleMapEditor } from './RoleMapEditor'
 import { SignInPanel } from './SignInPanel'
 
 const EMPTY_ISSUER: OidcIssuerConfig = {
@@ -88,6 +89,8 @@ export function IssuerSettings() {
           <SignInPanel issuer={issuer} />
         </section>
       ))}
+
+      <RoleMapEditor />
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Field
