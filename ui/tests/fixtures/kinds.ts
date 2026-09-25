@@ -17,6 +17,7 @@ import type {
 import { PODS_500 } from './batches'
 import { CRONJOBS, JOBS } from './batchA'
 import { BATCH_C_LIST_EVENTS } from './batchCKinds'
+import { BATCH_D_LIST_EVENTS } from './batchD'
 import { genDeployments } from './gen-pods'
 import { NETWORK_LIST_EVENTS } from './network'
 
@@ -130,6 +131,7 @@ export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   'workloads/cronjobs': { type: 'CronJobsUpdated', data: CRONJOBS },
   nodes: { type: 'NodesUpdated', data: NODES },
   namespaces: { type: 'NamespaceSummariesUpdated', data: NAMESPACES },
+  ...BATCH_D_LIST_EVENTS,
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
   'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
   'network/services': { type: 'ServicesUpdated', data: SERVICES },

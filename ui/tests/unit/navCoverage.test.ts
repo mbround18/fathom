@@ -34,14 +34,7 @@ const PENDING: Record<string, string[]> = {
   A: [],
   B: [],
   C: [],
-  D: [
-    'config/horizontalpodautoscalers',
-    'config/priorityclasses',
-    'config/runtimeclasses',
-    'config/leases',
-    'config/mutatingwebhooks',
-    'config/validatingwebhooks',
-  ],
+  D: [],
 }
 const PENDING_ALL = new Set(Object.values(PENDING).flat())
 
