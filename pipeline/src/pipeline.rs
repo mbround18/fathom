@@ -1,12 +1,10 @@
 use dagger_sdk::{Container, ContainerWithExecOpts, HostDirectoryOpts, Query, ReturnType};
 
-use crate::targets::{ALL, LINUX_X86_64, Target};
+use crate::targets::{LINUX_X86_64, Target};
 
 const RUST_IMAGE: &str = "rust:1.97.1-bookworm";
 /// Node LTS, copied into the Rust image for the `ui/` checks (research R9).
 const NODE_IMAGE: &str = "node:24-bookworm";
-const DIST_DIR: &str = "dist";
-
 /// Native (non-cross) build dependencies for the Tauri (GTK) build.
 const LINUX_NATIVE_PACKAGES: &[&str] = &[
     "libgtk-3-dev",
@@ -28,19 +26,6 @@ const TAURI_LINUX_PACKAGES: &[&str] = &[
 
 /// Committed ts-rs output that `tests/export_bindings.rs` regenerates.
 const GENERATED_BINDINGS: &str = "ui/src/protocol/generated";
-
-/// arm64 counterparts installed alongside the native amd64 toolchain via
-/// Debian multiarch, so pkg-config can resolve headers/libs for the cross target.
-const LINUX_ARM64_PACKAGES: &[&str] = &[
-    "gcc-aarch64-linux-gnu",
-    "libgtk-3-dev:arm64",
-    "libxcb-render0-dev:arm64",
-    "libxcb-shape0-dev:arm64",
-    "libxcb-xfixes0-dev:arm64",
-    "libxkbcommon-dev:arm64",
-    "libssl-dev:arm64",
-    "pkg-config",
-];
 
 fn source(client: &Query) -> dagger_sdk::Directory {
     client.host().directory_opts(
@@ -137,19 +122,6 @@ fn toolchain(client: &Query, target: &Target) -> Container {
     match target.triple {
         "x86_64-unknown-linux-gnu" => apt_install(container, LINUX_NATIVE_PACKAGES),
 
-        "aarch64-unknown-linux-gnu" => {
-            let container = container.with_exec(vec!["dpkg", "--add-architecture", "arm64"]);
-            let container = apt_install(container, LINUX_ARM64_PACKAGES);
-            container
-                .with_exec(vec!["rustup", "target", "add", "aarch64-unknown-linux-gnu"])
-                .with_env_variable("PKG_CONFIG_ALLOW_CROSS", "1")
-                .with_env_variable("PKG_CONFIG_PATH", "/usr/lib/aarch64-linux-gnu/pkgconfig")
-                .with_env_variable(
-                    "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER",
-                    "aarch64-linux-gnu-gcc",
-                )
-        }
-
         other => unreachable!("no toolchain wired up for target {other}"),
     }
 }
@@ -219,103 +191,6 @@ fn pnpm_ui(args: &[&str]) -> Vec<String> {
         .collect()
 }
 
-fn cargo_out_dir(target: &Target, release: bool) -> String {
-    format!(
-        "target/{}/{}",
-        target.triple,
-        if release { "release" } else { "debug" }
-    )
-}
-
-/// Builds `target`, then copies the produced binary out of the cache-mounted
-/// `target/` dir into `/output` - Dagger cannot export a file that still
-/// lives inside a cache volume mount, so this step is required before any
-/// `.file(..).export(..)` call downstream.
-async fn build_target(client: &Query, target: &Target, release: bool) -> eyre::Result<Container> {
-    let mut args = vec!["cargo".to_string(), "build".to_string()];
-    if release {
-        args.push("--release".to_string());
-    }
-    args.push("--target".to_string());
-    args.push(target.triple.to_string());
-
-    let container = exec_checked(&toolchain(client, target), target.label, args).await?;
-
-    let out_dir = cargo_out_dir(target, release);
-    let copy = vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        format!(
-            "mkdir -p /output && cp {out_dir}/{} /output/{}",
-            target.binary_name, target.binary_name
-        ),
-    ];
-    exec_checked(&container, target.label, copy).await
-}
-
-/// Packages the staged `/output/<binary>` into a tar.gz/zip and exports the
-/// archive to `dist/`.
-async fn package_and_export(container: &Container, target: &Target) -> eyre::Result<()> {
-    let archive_name = format!("fathom-{}.{}", target.label, target.archive_ext);
-    let archive_path = format!("/output/{archive_name}");
-
-    let packaged = if target.archive_ext == "zip" {
-        let container = apt_install(container.clone(), &["zip"]);
-        exec_checked(
-            &container,
-            target.label,
-            vec![
-                "sh".to_string(),
-                "-c".to_string(),
-                format!("cd /output && zip {archive_name} {}", target.binary_name),
-            ],
-        )
-        .await?
-    } else {
-        exec_checked(
-            container,
-            target.label,
-            vec![
-                "sh".to_string(),
-                "-c".to_string(),
-                format!(
-                    "cd /output && tar czf {archive_name} {}",
-                    target.binary_name
-                ),
-            ],
-        )
-        .await?
-    };
-
-    packaged
-        .file(archive_path)
-        .export(format!("{DIST_DIR}/{archive_name}"))
-        .await?;
-
-    Ok(())
-}
-
-/// Quick multi-target debug build; exports raw binaries (no archives) to
-/// `dist/debug/<target-label>/`.
-///
-/// Targets build sequentially rather than concurrently: they share a single
-/// cargo registry cache volume, and concurrent `cargo build` processes race
-/// unpacking the same crate into that shared cache (`.cargo-ok` file exists).
-pub async fn build(client: &Query) -> eyre::Result<()> {
-    for target in ALL {
-        let container = build_target(client, target, false).await?;
-        let export_path = format!("{DIST_DIR}/debug/{}/{}", target.label, target.binary_name);
-        container
-            .file(format!("/output/{}", target.binary_name))
-            .export(export_path.clone())
-            .await?;
-        println!("build: {} -> {export_path}", target.label);
-    }
-
-    println!("build: debug binaries exported to {DIST_DIR}/debug/");
-    Ok(())
-}
-
 /// The Principle III gates, mirroring the `check`, `test`, and `ui` jobs in
 /// .github/workflows/ci.yml:
 ///
@@ -324,7 +199,7 @@ pub async fn build(client: &Query) -> eyre::Result<()> {
 ///    Playwright e2e suite in Chromium and WebKit
 /// 3. `cargo clippy -D warnings` for `fathom` and `fathom-desktop` (the latter
 ///    embeds `ui/dist`, so it runs after the UI build)
-/// 4. `cargo check --no-default-features --lib` (the egui-free backend library)
+/// 4. `cargo check --no-default-features --lib` (the backend library)
 /// 5. `cargo test --all`
 /// 6. Bindings drift: regenerate `ui/src/protocol/generated` and fail if it
 ///    differs from the committed copy. `.git` isn't mounted, so this diffs
@@ -405,18 +280,5 @@ pub async fn test(client: &Query) -> eyre::Result<()> {
     }
 
     println!("test: fmt, ui checks + e2e, clippy, tests, and bindings drift passed");
-    Ok(())
-}
-
-/// Release builds + packaged archives for every target in `targets::ALL`,
-/// exported to `dist/`. Sequential for the same reason as `build()`.
-pub async fn release(client: &Query) -> eyre::Result<()> {
-    for target in ALL {
-        let container = build_target(client, target, true).await?;
-        package_and_export(&container, target).await?;
-        println!("release: {} packaged", target.label);
-    }
-
-    println!("release: archives exported to {DIST_DIR}/");
     Ok(())
 }
