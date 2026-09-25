@@ -4,6 +4,7 @@
  */
 import type { ReactNode } from 'react'
 
+import { InspectorMetrics, METRICS_KINDS } from '@/components/InspectorMetrics'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { RelatedResourceRef } from '@/protocol/types'
@@ -18,6 +19,8 @@ interface DetailSectionsProps {
   hiddenColumns?: readonly string[]
   /** US3: `RefreshRelatedResources`'s reply for the current target, if it requested one. */
   related?: RelatedResourceRef[]
+  /** T105: when set (Node/Pod/workload), a Metrics section is appended. */
+  metricsTarget?: { kind: string; namespace?: string | null | undefined; name: string }
 }
 
 export function DetailSections({
@@ -26,6 +29,7 @@ export function DetailSections({
   detail,
   hiddenColumns,
   related,
+  metricsTarget,
 }: DetailSectionsProps) {
   const extra =
     row && hiddenColumns && hiddenColumns.length > 0
@@ -42,6 +46,11 @@ export function DetailSections({
           <Block block={s.render({ row, detail, related })} />
         </Section>
       ))}
+      {metricsTarget && METRICS_KINDS.has(metricsTarget.kind) && (
+        <Section title="Metrics">
+          <InspectorMetrics target={metricsTarget} />
+        </Section>
+      )}
       {extra.length > 0 && row && (
         <Section title="More columns">
           <Block

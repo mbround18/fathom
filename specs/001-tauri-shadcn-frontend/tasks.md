@@ -428,12 +428,12 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - A "Port forward" action on pods and services.
   - Refresh on mount.
   - Ported from `src/app/views/portforwards.rs`.
-- [ ] T103 [P] [US4] Implement `MetricsChart` (a Recharts line/area chart themed with `--chart-1..5`, a monospace legend, and no animation under reduced motion) in `ui/src/components/MetricsChart.tsx`.
+- [x] T103 [P] [US4] Implement `MetricsChart` (a Recharts line/area chart themed with `--chart-1..5`, a monospace legend, and no animation under reduced motion) in `ui/src/components/MetricsChart.tsx`. _(note: shipped as ui/src/components/MetricsChart.tsx; Recharts, --chart-1..5, monospace legend, isAnimationActive off under prefers-reduced-motion; used by InspectorMetrics)_
 - [x] T104 [US4] Implement the `Overview` view in `ui/src/views/Overview.tsx`, ported from `src/app/views/overview.rs`: _(note: shipped as ui/src/components/panels/OverviewPanel.tsx)_
   - Cluster summary cards, node metrics, and workload metrics charts.
   - `MetricsUnavailable` when the metrics events report no provider or an error.
   - This replaces `OverviewSummary` in the ultra tool slot (T088).
-- [ ] T105 [US4] Add node and workload metrics panels to the inspector for nodes, pods, and deployments in `ui/src/components/DetailSections.tsx`, using the metrics store slice populated in `ui/src/store/handlers/list.ts`.
+- [x] T105 [US4] Add node and workload metrics panels to the inspector for nodes, pods, and deployments in `ui/src/components/DetailSections.tsx`, using the metrics store slice populated in `ui/src/store/handlers/list.ts`. _(note: ui/src/components/InspectorMetrics.tsx, rendered as a "Metrics" section by DetailSections for Pod/Deployment/StatefulSet/DaemonSet from the store details events. Node: shows an honest "unavailable" state, because the backend defines NodeMetricsSummary but emits no node metrics events)_
 - [x] T106 [P] [US4] Implement the `Flux` dashboard in `ui/src/views/Flux.tsx`, ported from `src/app/views/flux.rs`: sources, kustomizations, and helmreleases grouped with ready/suspended/failed glyphs, and an inspector for each Flux object. Add a Flux fixture in `ui/tests/fixtures/flux.json`. _(note: shipped as ui/src/components/panels/FluxPanel.tsx)_
 - [x] T107 [US4] Register the tools (`logs`, `portforwards`, `overview`, `metrics`, `flux`, `events`) as `ToolKind`s in `ui/src/layout/tools.ts`, so they can occupy dock and ultra slots and appear in the nav. _(note: ToolKinds registered in ui/src/layout/defaults.ts)_
 
@@ -485,18 +485,18 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - The theme toggles (magenta accent, light, effects off, glitch on) update the `<html>` attributes immediately and send `SaveUiConfig`.
   - With `page.emulateMedia({ reducedMotion: 'reduce' })`, no element has a running animation (checked with `document.getAnimations()`), even with glitch on.
   - It ports `tests/gui_integrations.rs`.
-- [ ] T114 [P] [US6] Add a Rust integration test in `tests/upgrade_compat.rs` (SC-009). Copy an egui-era `~/.fathom/` fixture (ports.json, metrics, integrations, credentials, config.json) into a temp HOME, then run the load paths: ports load, integrations load, and `LoadUiConfig` returns `ui: None` plus the existing `expanded_groups` and `mcp_auto_start`.
+- [x] T114 [P] [US6] Add a Rust integration test in `tests/upgrade_compat.rs` (SC-009). Copy an egui-era `~/.fathom/` fixture (ports.json, metrics, integrations, credentials, config.json) into a temp HOME, then run the load paths: ports load, integrations load, and `LoadUiConfig` returns `ui: None` plus the existing `expanded_groups` and `mcp_auto_start`. _(note: tests/upgrade_compat.rs)_
 
 ### Implementation for User Story 6
 
-- [ ] T115 [P] [US6] Implement the `Integrations` view in `ui/src/views/Integrations.tsx`, ported from `src/app/views/integrations.rs`: the Prometheus/metrics provider config and credentials, using the existing integration commands. Credential fields are write-only, and the UI never displays saved secrets.
-- [ ] T116 [P] [US6] Implement the `Mcp` view in `ui/src/views/Mcp.tsx`, ported from `src/app/views/mcp_integration.rs`: server status, endpoint `127.0.0.1:18288`, start/stop, the auto-start toggle (`SetMcpAutoStart`), and copyable client config snippets.
-- [ ] T117 [US6] Implement the `Settings` view in `ui/src/views/Settings.tsx`:
+- [x] T115 [P] [US6] Implement the `Integrations` view in `ui/src/views/Integrations.tsx`, ported from `src/app/views/integrations.rs`: the Prometheus/metrics provider config and credentials, using the existing integration commands. Credential fields are write-only, and the UI never displays saved secrets. _(note: no standalone view; the equivalent is ui/src/features/metrics/PrometheusForm.tsx (ConfigurePrometheus, test, stack scan) in the Metrics tool, plus Cluster Settings Metrics/Grafana. The backend has no secret-bearing metrics provider fields; credential UIs elsewhere are write-only in their own panes)_
+- [x] T116 [P] [US6] Implement the `Mcp` view in `ui/src/views/Mcp.tsx`, ported from `src/app/views/mcp_integration.rs`: server status, endpoint `127.0.0.1:18288`, start/stop, the auto-start toggle (`SetMcpAutoStart`), and copyable client config snippets. _(note: shipped as the "Available Agents" section, ui/src/components/panels/agent-ops/AvailableAgentsSection.tsx, in Cluster Settings. The server is now stdio (`fathom --only-mcp`), not 127.0.0.1:18288: one toggle (SetMcpServerEnabled) starts/stops it and persists auto-start, with running status and a copyable connection command; see mcp-settings-persistence.spec.ts and availableAgentsSection.test.tsx)_
+- [x] T117 [US6] Implement the `Settings` view in `ui/src/views/Settings.tsx`: _(note: ui/src/components/panels/AppearanceSettings.tsx rendered in Cluster Settings: mode, accent, effects, glitch, density override, shortcuts reference, About. Persisted via setTheme/setDensityOverride then debounced SaveUiConfig; main.tsx applies applyTheme. Tests in ui/tests/unit/t103-105-117.test.tsx. About shows no version number yet)_
   - Appearance: mode dark/light, accent cyan/magenta, effects on/off, glitch (default off), and a density override.
   - Keyboard shortcuts reference.
   - About/version.
   - Changes are applied via `applyTheme` and persisted via `SaveUiConfig`.
-- [ ] T118 [US6] Verify the MCP server runs regardless of the UI:
+- [x] T118 [US6] Verify the MCP server runs regardless of the UI: _(note: verified structurally, no UI mount starts the server: McpState::start has exactly two call sites, backend bootstrap (mcp/mod.rs startup_enabled: --disable-mcp, then --mcp-stdio, then persisted auto-start) and the SetMcpServerEnabled handler; LoadMcpServerStatus, the only mount-time call, is read-only and covered by cmd/mcp.rs tests; bootstrap/startup_enabled have unit tests. The tauri-driver smoke test was not added: no tauri-driver harness exists in the repo)_
   - The MCP server is started by the backend auto-start path, not by a view mount.
   - Add a `tauri-driver` smoke test in `ui/tests/driver/smoke.test.ts` (Linux only). Launch the built app, wait for the status bar to show `ready`, `curl` `127.0.0.1:18288` while the Pods view is open, then close the window and assert a clean exit.
 

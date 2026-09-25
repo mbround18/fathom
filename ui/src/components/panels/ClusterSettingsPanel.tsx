@@ -23,6 +23,7 @@ import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
 
 import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
 import { KindClusterPanel } from './KindClusterPanel'
+import { AppearanceSettings } from '@/components/panels/AppearanceSettings'
 import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
 import { CloudAuthSection } from './CloudAuthSection'
 import { NodeShellSettingsSection } from './NodeShellSettingsSection'
@@ -188,6 +189,8 @@ export function ClusterSettingsPanel() {
           {rejectionMessage(rejection)}
         </p>
       )}
+
+      <AppearanceSettings />
 
       <fieldset className="flex flex-col gap-3">
         <legend className="text-xs font-semibold tracking-wider uppercase">Metrics</legend>

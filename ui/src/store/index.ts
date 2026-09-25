@@ -62,6 +62,7 @@ import type {
   TeamPublishRejection,
   TeamStoreStatus,
   ThemePrefs,
+  Density,
   ToolKind,
   FleetContextSummary,
   CloudAuthInfo,
@@ -751,6 +752,8 @@ export interface StoreState extends StoreData {
   /** Persist a resized/rearranged profile for the current class. */
   setProfile: (profile: LayoutProfile) => void
   setTheme: (patch: Partial<ThemePrefs>) => void
+  /** Set (or clear with `undefined`) the density override; persisted via `SaveUiConfig`. */
+  setDensityOverride: (density: Density | undefined) => void
   /** 026: refresh the audit log, and track whether its pane is visible. */
   refreshAuditLog: () => void
   setAuditVisible: (visible: boolean) => void
@@ -917,6 +920,15 @@ export interface StoreState extends StoreData {
 /** Debounce for persisting navigator state (typing-speed toggles coalesce into one write). */
 export const SAVE_DEBOUNCE_MS = 500
 let saveTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Debounced `SaveUiConfig` of the current `ui` prefs + expanded groups. */
+function scheduleUiSave(get: () => StoreState): void {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    const s = get()
+    s.send({ type: 'SaveUiConfig', data: { ui: s.ui, expanded_groups: s.prefs.expandedGroups } })
+  }, SAVE_DEBOUNCE_MS)
+}
 
 /** Lists the backend refreshes after a context or namespace change (src/backend.rs). */
 export const CONTEXT_LISTS: readonly SectionKey[] = [SECTION.pods, SECTION.deployments]
@@ -1142,7 +1154,19 @@ export const useStore = create<StoreState>()((set, get) => ({
   setAuditVisible: (visible) => set((s) => ({ audit: { ...s.audit, visible } })),
   setAuditFilter: (patch) =>
     set((s) => ({ audit: { ...s.audit, filter: { ...s.audit.filter, ...patch } } })),
-  setTheme: (patch) => set((s) => ({ ui: { ...s.ui, theme: { ...s.ui.theme, ...patch } } })),
+  setTheme: (patch) => {
+    set((s) => ({ ui: { ...s.ui, theme: { ...s.ui.theme, ...patch } } }))
+    scheduleUiSave(get)
+  },
+  setDensityOverride: (density) => {
+    set((s) => ({
+      ui: {
+        ...s.ui,
+        density: density === undefined ? {} : { ...s.ui.density, override: density },
+      },
+    }))
+    scheduleUiSave(get)
+  },
 
   updatePane: (id, patch) =>
     set((s) => {
@@ -1630,11 +1654,7 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   setExpandedGroups: (groups) => {
     set((s) => ({ prefs: { ...s.prefs, expandedGroups: groups } }))
-    clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      const s = get()
-      s.send({ type: 'SaveUiConfig', data: { ui: s.ui, expanded_groups: s.prefs.expandedGroups } })
-    }, SAVE_DEBOUNCE_MS)
+    scheduleUiSave(get)
   },
 
   closeInspector: () =>
