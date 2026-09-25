@@ -38,6 +38,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ['workloads/deployments', 'Deployments'],
     ['workloads/statefulsets', 'StatefulSets'],
     ['workloads/daemonsets', 'DaemonSets'],
+    ['workloads/replicasets', 'ReplicaSets'],
+    ['workloads/replicationcontrollers', 'ReplicationControllers'],
     ['workloads/jobs', 'Jobs'],
     ['workloads/cronjobs', 'CronJobs'],
   ]),

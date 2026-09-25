@@ -12,6 +12,9 @@ import {
   ArrowClockwiseIcon,
   ArrowsOutLineVerticalIcon,
   BugIcon,
+  LightningIcon,
+  PauseIcon,
+  PlayIcon,
   DotsThreeVerticalIcon,
   TrashIcon,
   XIcon,
@@ -48,6 +51,9 @@ const ICON: Record<ActionDescriptor<unknown>['id'], Icon> = {
   scale: ArrowsOutLineVerticalIcon,
   restart: ArrowClockwiseIcon,
   debug: BugIcon,
+  suspend: PauseIcon,
+  resume: PlayIcon,
+  trigger: LightningIcon,
 }
 
 type AnyAction = ActionDescriptor<ListRow>

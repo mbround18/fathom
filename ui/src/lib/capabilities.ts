@@ -202,6 +202,7 @@ export function Gated(props: GatedProps): ReactNode {
 }
 
 const APPS = new Set(['deployments', 'statefulsets', 'daemonsets', 'replicasets'])
+const BATCH = new Set(['jobs', 'cronjobs'])
 const RBAC = new Set(['roles', 'rolebindings', 'clusterroles', 'clusterrolebindings'])
 
 /** The (resource, apiGroup) a navigator section's objects live under. */
@@ -209,6 +210,7 @@ export function capabilityForSection(section: string): { resource: string; apiGr
   if (section === 'helm/releases') return { resource: 'secrets' }
   const resource = section.split('/').pop() ?? section
   if (APPS.has(resource)) return { resource, apiGroup: 'apps' }
+  if (BATCH.has(resource)) return { resource, apiGroup: 'batch' }
   if (RBAC.has(resource)) return { resource, apiGroup: 'rbac.authorization.k8s.io' }
   return { resource }
 }

@@ -32,6 +32,10 @@ function detailFor(
   if (action.id === 'restart') {
     return 'Starts a rolling restart: the controller replaces the pods one by one.'
   }
+  if (action.id === 'trigger') {
+    return 'Creates a new Job from this CronJob now, outside its schedule.'
+  }
+  if (action.id === 'suspend') return 'No new Jobs will be scheduled until it is resumed.'
   if (action.id === 'delete' && rows.length > 1) {
     const plural = descriptor.label.toLowerCase()
     return action.plan(rows, {}).length === 1
