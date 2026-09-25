@@ -69,6 +69,8 @@ pnpm -C ui tauri icon ../assets/icon.png
 | V12 | SC-009 | Run the new build against an existing `~/.fathom/` from the egui build | Ports, metrics, integrations, and nav groups all load. No prompt appears. |
 | V13 | SC-005 | Leave the app idle on Pods for 5 min | < 2% of one core, and the bridge thread is blocked in `recv`. |
 
+V13 procedure (Linux): launch the release build, open Pods, then run `scripts/measure-idle-cpu.sh --attach <pid> --settle 10 --window 300` (it sums utime+stime from `/proc/<pid>/stat` for the app and its WebKit children and prints the percentage of one core; exit status 1 at or above 2%). Without `--attach` the script launches the binary itself and measures the launch view, which is not the Pods view. The automated `ui/tests/driver/idle.test.ts` (tauri-driver) is not written yet. On macOS and Windows, watch Activity Monitor or Task Manager, or `Get-Counter`, for the same 5 minutes.
+
 ## Live e2e (real backend, real cluster, `fathom-dev` only)
 
 An opt-in Playwright suite (`ui/tests/live/`, config `ui/playwright.live.config.ts`) runs the real UI against the real Rust backend through `tools/devbridge`. It is never part of `pnpm e2e`. Every write is confined to the `fathom-dev` sandbox namespace, both by the bridge's write guard and by the fenced `kubectl()` helper the specs use.

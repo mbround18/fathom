@@ -12,46 +12,53 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # One tauri-action build per Tier 1 target that GitHub hosts a runner for. Windows 11, Ubuntu 26.04
+  # and macOS 26 are validated by hand before publishing (specs/001-tauri-shadcn-frontend, T126).
+  # tauri-action creates the release (first job wins, the rest attach) and uploads each bundle
+  # renamed by `assetNamePattern` to fathom-<version>-<os>-<arch>.<ext> (FR-024).
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact: fathom
-            archive: fathom-linux-x86_64.tar.gz
-
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact: fathom
-            archive: fathom-linux-aarch64.tar.gz
-            cross: true
-
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact: fathom
-            archive: fathom-macos-x86_64.tar.gz
-
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: fathom
-            archive: fathom-macos-aarch64.tar.gz
-
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: fathom.exe
-            archive: fathom-windows-x86_64.zip
+          # deb, rpm, AppImage. The arm64 runner is native: AppImage cannot be cross-compiled.
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            args: ''
+          - name: linux-aarch64
+            os: ubuntu-22.04-arm
+            args: ''
+          # dmg
+          - name: macos-aarch64
+            os: macos-latest
+            args: '--target aarch64-apple-darwin'
+            rust_targets: aarch64-apple-darwin
+          - name: macos-x86_64
+            os: macos-latest
+            args: '--target x86_64-apple-darwin'
+            rust_targets: x86_64-apple-darwin
+          # msi, nsis (WebView2 download bootstrapper is the Tauri default)
+          - name: windows-x86_64
+            os: windows-latest
+            args: ''
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev pkg-config build-essential curl wget file
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust_targets }}
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -60,63 +67,31 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.name }}-tauri-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install system deps (Linux native)
-        if: runner.os == 'Linux' && !matrix.cross
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxkbcommon-dev libssl-dev pkg-config
-
-      - name: Install cross (Linux cross-compile)
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build (native)
-        if: '!matrix.cross'
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
-
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.archive }} ${{ matrix.artifact }}
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd target/${{ matrix.target }}/release
-          Compress-Archive -Path ${{ matrix.artifact }} -DestinationPath ../../../${{ matrix.archive }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: pnpm/action-setup@v4
         with:
-          name: ${{ matrix.archive }}
-          path: ${{ matrix.archive }}
+          package_json_file: ui/package.json
 
-  release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          path: dist/
-          merge-multiple: true
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Install UI dependencies
+        run: pnpm -C ui install --frozen-lockfile
+
+      - name: Build and publish bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: dist/*
-          generate_release_notes: true
-          draft: false
+          projectPath: ui
+          tagName: ${{ github.ref_name }}
+          releaseName: Fathom ${{ github.ref_name }}
+          releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          generateReleaseNotes: true
+          assetNamePattern: fathom-[version]-[platform]-[arch][ext]
+          args: ${{ matrix.args }}

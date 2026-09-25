@@ -185,3 +185,17 @@ This section was revised on 2026-09-21 after a branding review, and it supersede
 - exec credential plugins (aws, gke, kubelogin) can't be spawned on iOS or Android.
 - Local port-forwarding has limited value on mobile.
 - Desktop-only plugins (global-shortcut, window-state, updater, tray) must be gated by `platforms` in capabilities.
+
+## Baselines
+
+Measured on the author's Linux dev box (Ubuntu, Wayland session, WebKitGTK 2.52.6) with the release build `target/release/fathom-desktop`, three kubeconfig contexts, none of them reachable through the app at measurement time. Only what was actually measured is recorded.
+
+| Metric | Method | Result |
+|---|---|---|
+| Tauri: launch to backend context-list handoff (5 runs) | `scripts/measure-startup.sh --runs 5` (spawn to the `Sending N contexts to UI` log line) | 920, 946, 922, 918, 931 ms; median 922 ms |
+| Tauri: idle CPU, launch view, 60 s after a 10 s settle | `scripts/measure-idle-cpu.sh` (utime+stime of the app and its WebKit child processes, % of one core) | 0.95% (budget < 2%) |
+| SC-003 proper: launch to populated Pods, egui baseline vs Tauri | not measured | needs a reachable cluster plus tauri-driver (Tauri) and a stopwatch or screen capture (egui); the egui binary was not built for this run |
+| SC-005 proper: idle on the Pods view | not measured | needs tauri-driver or a manual run; the number above is for the launch view, not Pods |
+| SC-004 (10,000 pods, 250 ms updates): keystroke under 100 ms, no long task over 100 ms | `ui/tests/e2e/perf-10k.spec.ts`, `chromium-wide` | passes (budgets asserted, per-run values not recorded); `webkit-wide` not run, WebKit here lacks a system library (`libevent-2.1-7t64`) |
+
+The two scripts take `--binary`, so the same commands measure the egui binary for the SC-003 comparison once it is built.
