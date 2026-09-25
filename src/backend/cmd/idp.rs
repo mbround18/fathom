@@ -26,6 +26,14 @@ pub(super) fn active_identity(state: &BackendState) -> Option<OidcIdentity> {
         .find(|i| i.issuer_id == issuer)
 }
 
+/// Refusal reason when the active identity lacks the Fathom Admin role (bootstrap: anyone while
+/// no admins group is configured). `None` means allowed.
+pub(super) fn admin_refusal(state: &BackendState) -> Option<String> {
+    let identity = active_identity(state);
+    let map = persistence::load_oidc_config().role_map;
+    idp_directory::require_role(identity.as_ref(), &map, idp_directory::FathomRole::Admin).err()
+}
+
 /// Handles the IdP directory commands; returns the command back if it belongs to another family.
 pub(super) async fn handle(
     cmd: BackendCmd,
@@ -34,6 +42,18 @@ pub(super) async fn handle(
 ) -> anyhow::Result<Option<BackendCmd>> {
     match cmd {
         BackendCmd::IdpSetAdminKey { issuer_id, api_key } => {
+            if let Some(reason) = admin_refusal(state) {
+                emit(
+                    state,
+                    sender,
+                    SystemEvent::OidcError {
+                        issuer_id,
+                        stage: "forbidden".to_owned(),
+                        message: reason,
+                    },
+                );
+                return Ok(None);
+            }
             let creds = state.oidc.credentials();
             let key = api_key.trim();
             if key.is_empty() {

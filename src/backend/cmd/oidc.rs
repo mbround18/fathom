@@ -48,6 +48,10 @@ pub(super) async fn handle(
             emit_identity_cleared(state, sender, &issuer_id);
         }
         BackendCmd::OidcSetRoleMap { role_map } => {
+            if let Some(reason) = super::idp::admin_refusal(state) {
+                emit_error(state, sender, "", "forbidden", &reason);
+                return Ok(None);
+            }
             let mut config = persistence::load_oidc_config();
             config.role_map = role_map;
             persist_and_emit(state, sender, "", config);

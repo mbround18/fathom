@@ -68,3 +68,15 @@ export function reduceIdentity(s: IdentityState, event: SystemEvent): boolean {
 export function isSignedIn(i: OidcIdentity | undefined): boolean {
   return !!i && i.state.type !== 'SignedOut'
 }
+
+/**
+ * Whether the operator may administer Fathom-level settings: any signed-in user while no
+ * admins group is configured (bootstrap), otherwise only members of it. Mirrors the backend's
+ * `require_role(.., Admin)`, which is the real gate.
+ */
+export function isFathomAdmin(
+  me: OidcIdentity | undefined,
+  roleMap: { admins_group: string },
+): boolean {
+  return !roleMap.admins_group || (!!me && me.groups.includes(roleMap.admins_group))
+}
