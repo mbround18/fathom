@@ -26,6 +26,9 @@ pub enum BackendCmdV1 {
     SetNamespaceFilter {
         namespaces: Vec<String>,
     },
+    SelectNamespace {
+        name: String,
+    },
     RefreshNodes,
     SelectNode {
         name: String,

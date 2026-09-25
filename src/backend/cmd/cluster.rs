@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::backend::state::BackendState;
 use crate::backend::{
     context_status, daemon_ctl, deployments, events, federation, fleet, integrations, kube,
-    metrics, nodes, pods, sync,
+    metrics, namespaces, nodes, pods, sync,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, ContextConnectionStatus, Correlation,
@@ -59,6 +59,9 @@ pub(super) async fn handle(
         BackendCmd::SetContext { context } => set_context(state, sender, context).await?,
         BackendCmd::RefreshNamespaces => sync::refresh_namespaces(state, sender).await?,
         BackendCmd::RefreshNodes => nodes::refresh_nodes(state, sender).await,
+        BackendCmd::SelectNamespace { name } => {
+            namespaces::select_namespace(state, sender, &name).await?;
+        }
         BackendCmd::SelectNode { name } => nodes::select_node(state, sender, &name).await?,
         BackendCmd::CordonNode { name } => nodes::cordon_node(state, sender, &name).await?,
         BackendCmd::UncordonNode { name } => nodes::uncordon_node(state, sender, &name).await?,

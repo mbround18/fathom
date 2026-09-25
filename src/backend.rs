@@ -50,6 +50,7 @@ mod longhorn;
 mod mcp;
 mod metrics;
 mod metrics_provider;
+mod namespaces;
 mod networkpolicies;
 mod node_shell;
 mod nodes;

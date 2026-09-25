@@ -1,16 +1,17 @@
 /**
- * Namespaces (batch E): cluster-scoped list fed by `NamespaceSummariesUpdated`. The protocol has
- * no `SelectNamespace` command, so the inspector is driven by the list row alone (no read).
+ * Namespaces (batch E): cluster-scoped list fed by `NamespaceSummariesUpdated`; the inspector
+ * reads via `SelectNamespace` -> `NamespaceDetailsUpdated` (labels, annotations, YAML).
  */
 import { StatusBadge } from '@/components/StatusBadge'
-import type { NamespaceSummary } from '@/protocol/types'
+import { selectCmd } from '@/protocol/commands'
+import type { NamespaceDetails, NamespaceSummary } from '@/protocol/types'
 
 import { compareNumber, compareStatus, compareText } from './search'
 import type { DetailSection, ResourceDescriptor } from './types'
 
 const SECTION = 'namespaces'
 
-const sections: DetailSection<NamespaceSummary>[] = [
+const sections: DetailSection<NamespaceSummary, NamespaceDetails>[] = [
   {
     id: 'metadata',
     title: 'Metadata',
@@ -28,17 +29,41 @@ const sections: DetailSection<NamespaceSummary>[] = [
           }
         : null,
   },
-  ...(['labels', 'annotations'] as const).map((id): DetailSection<NamespaceSummary> => ({
-    id,
-    title: id === 'labels' ? 'Labels' : 'Annotations',
-    render: ({ row }) =>
-      row
-        ? { type: 'text', text: `Not available: the backend has no namespace read command.` }
+  {
+    id: 'quotas',
+    title: 'Quotas & limits',
+    render: ({ detail }) =>
+      detail
+        ? {
+            type: 'fields',
+            fields: [
+              {
+                label: 'Resource quotas',
+                value: detail.resource_quota_names.join(', ') || '—',
+                mono: true,
+              },
+              {
+                label: 'Limit ranges',
+                value: detail.limit_range_names.join(', ') || '—',
+                mono: true,
+              },
+            ],
+          }
         : null,
-  })),
+  },
+  {
+    id: 'labels',
+    title: 'Labels',
+    render: ({ detail }) => (detail ? { type: 'map', entries: detail.labels } : null),
+  },
+  {
+    id: 'annotations',
+    title: 'Annotations',
+    render: ({ detail }) => (detail ? { type: 'map', entries: detail.annotations } : null),
+  },
 ]
 
-export const namespaces: ResourceDescriptor<NamespaceSummary> = {
+export const namespaces: ResourceDescriptor<NamespaceSummary, NamespaceDetails> = {
   section: SECTION,
   kind: 'Namespace',
   label: 'Namespaces',
@@ -97,8 +122,14 @@ export const namespaces: ResourceDescriptor<NamespaceSummary> = {
   rowKey: (r) => r.name,
   ref: (r) => ({ section: SECTION, kind: 'Namespace', namespace: null, name: r.name }),
   refresh: () => ({ type: 'RefreshNamespaces' }),
+  read: (ref) => {
+    const cmd = selectCmd('Namespace', '', ref.name)
+    return [...(cmd ? [cmd] : []), { type: 'RefreshEvents' }]
+  },
   detailSections: sections,
   actions: [],
   selectListEvent: (e) => (e.type === 'NamespaceSummariesUpdated' ? e.data : undefined),
-  selectDetail: () => undefined,
+  selectDetail: (d) =>
+    d.eventType === 'NamespaceDetailsUpdated' ? (d.data as NamespaceDetails) : undefined,
+  rawJson: (d) => d.raw_json,
 }

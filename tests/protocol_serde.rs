@@ -496,15 +496,8 @@ fn sample_namespace_details() -> NamespaceDetails {
         labels: BTreeMap::from([("k".to_owned(), "v".to_owned())]),
         annotations: BTreeMap::from([("k".to_owned(), "v".to_owned())]),
         creation_timestamp: "s".to_owned(),
-        pod_count: 7,
-        deployment_count: 7,
-        statefulset_count: 7,
-        daemonset_count: 7,
-        job_count: 7,
-        cronjob_count: 7,
-        service_count: 7,
-        configmap_count: 7,
-        secret_count: 7,
+        resource_quota_names: vec!["s".to_owned()],
+        limit_range_names: vec!["s".to_owned()],
         raw_json: "s".to_owned(),
     }
 }
@@ -1442,6 +1435,9 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespaces: vec!["s".to_owned()],
         },
         BackendCmd::RefreshNodes,
+        BackendCmd::SelectNamespace {
+            name: "s".to_owned(),
+        },
         BackendCmd::SelectNode {
             name: "s".to_owned(),
         },
@@ -2210,6 +2206,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshNamespaces => {}
         BackendCmd::SetNamespaceFilter { .. } => {}
         BackendCmd::RefreshNodes => {}
+        BackendCmd::SelectNamespace { .. } => {}
         BackendCmd::SelectNode { .. } => {}
         BackendCmd::CordonNode { .. } => {}
         BackendCmd::UncordonNode { .. } => {}

@@ -146,6 +146,8 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectReplicaSet', data: { namespace, name } }
     case 'PodDisruptionBudget':
       return { type: 'SelectPodDisruptionBudget', data: { namespace, name } }
+    case 'Namespace':
+      return { type: 'SelectNamespace', data: { name } }
     case 'Node':
       return { type: 'SelectNode', data: { name } }
     case 'Service':

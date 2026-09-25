@@ -1,7 +1,7 @@
 /** Batch E: Namespaces list, Events panel and cluster Overview panel. */
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
-import { batch, clusterRoute, list } from '../fixtures/builders'
+import { batch, clusterRoute, list, read } from '../fixtures/builders'
 import type { KubernetesEvent, NamespaceSummary } from '../../src/protocol/types'
 import {
   emit,
@@ -150,6 +150,53 @@ test.describe('Namespaces list', () => {
     await expect(row(page, 'default', 'namespaces')).toBeVisible()
     await expect(row(page, 'old', 'namespaces')).toContainText('Terminating')
     await expect(row(page, 'kube-system', 'namespaces')).toContainText('kube-system')
+  })
+
+  test('opening a namespace reads it and shows labels and annotations', async ({ page }) => {
+    await open(page)
+    await navigateTo(page, 'Namespaces', 'Overview')
+    await expect.poll(() => sentTypes(page)).toContain('RefreshNamespaces')
+    const route = clusterRoute('kind-a', 'namespaces')
+    await emit(
+      page,
+      batch([
+        list(1, clusterRoute('kind-a', 'system'), {
+          type: 'NamespaceSummariesUpdated',
+          data: NAMESPACES,
+        }),
+      ]),
+    )
+    await row(page, 'default', 'namespaces').click()
+    await expect.poll(() => sentTypes(page)).toContain('SelectNamespace')
+    await emit(
+      page,
+      batch([
+        read(2, route, {
+          type: 'NamespaceDetailsUpdated',
+          data: {
+            name: 'default',
+            status: 'Active',
+            labels: { 'team.example/owner': 'platform' },
+            annotations: { 'note.example/purpose': 'shared-sandbox' },
+            creation_timestamp: '2024-01-01T00:00:00Z',
+            resource_quota_names: ['compute-quota'],
+            limit_range_names: [],
+            raw_json: '{"kind":"Namespace"}',
+          },
+        }),
+      ]),
+    )
+    const insp = inspector(page)
+    await expect(insp).toBeVisible()
+    await expect(insp.getByRole('heading', { name: 'Labels' })).toBeVisible()
+    await expect(insp.getByRole('heading', { name: 'Annotations' })).toBeVisible()
+    await expect(insp).toContainText('team.example/owner')
+    await expect(insp).toContainText('platform')
+    await expect(insp).toContainText('note.example/purpose')
+    await expect(insp).toContainText('shared-sandbox')
+    await expect(insp).not.toContainText('Not available')
+    await insp.getByRole('tab', { name: 'YAML' }).click()
+    await expect(insp).toContainText('Namespace')
   })
 })
 
