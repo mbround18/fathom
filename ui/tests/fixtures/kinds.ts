@@ -15,6 +15,7 @@ import type {
 } from '../../src/protocol/types'
 import { PODS_500 } from './batches'
 import { genDeployments } from './gen-pods'
+import { NETWORK_LIST_EVENTS } from './network'
 
 const APPLICATIONS: ApplicationSummary[] = [
   {
@@ -111,6 +112,7 @@ export const KIND_LIST_EVENTS: Record<string, ResourceListEvent> = {
   applications: { type: 'ApplicationsUpdated', data: APPLICATIONS },
   'helm/releases': { type: 'HelmReleasesUpdated', data: HELM_RELEASES },
   'network/services': { type: 'ServicesUpdated', data: SERVICES },
+  ...NETWORK_LIST_EVENTS,
   // 011-rbac-oidc-administration
   'access/roles': { type: 'RolesUpdated', data: ROLES },
   'access/clusterroles': { type: 'ClusterRolesUpdated', data: CLUSTER_ROLES },

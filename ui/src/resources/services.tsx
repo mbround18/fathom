@@ -8,6 +8,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { selectCmd } from '@/protocol/commands'
 import type { ServiceDetails, ServiceSummary } from '@/protocol/types'
 
+import { deleteAction } from './actions'
 import { relatedResourcesBlock } from './related'
 import { compareNumber, compareStatus, compareText } from './search'
 import type { DetailSection, ResourceDescriptor } from './types'
@@ -166,7 +167,12 @@ export const services: ResourceDescriptor<ServiceSummary, ServiceDetails> = {
     ]
   },
   detailSections: serviceSections,
-  actions: [],
+  actions: [
+    deleteAction<ServiceSummary>((namespace, name) => ({
+      type: 'DeleteService',
+      data: { namespace, name },
+    })),
+  ],
   selectListEvent: (e) => (e.type === 'ServicesUpdated' ? e.data : undefined),
   selectDetail: (d) =>
     d.eventType === 'ServiceDetailsUpdated' ? (d.data as ServiceDetails) : undefined,
