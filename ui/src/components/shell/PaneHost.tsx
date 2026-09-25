@@ -4,6 +4,11 @@ import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
 import { Inspector } from '@/components/Inspector'
 import { CertManagerPanel } from '@/components/panels/CertManagerPanel'
+import OverviewPanel from '@/components/panels/OverviewPanel'
+import EventsPanel from '@/components/panels/EventsPanel'
+import MetricsPanel from '@/components/panels/MetricsPanel'
+import GrafanaPanel from '@/components/panels/GrafanaPanel'
+import ArgoPanel from '@/components/panels/ArgoPanel'
 import { FluxPanel } from '@/components/panels/FluxPanel'
 import { KnativePanel } from '@/components/panels/KnativePanel'
 import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
@@ -292,6 +297,12 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === 'integrations/vulnerabilities') {
     return <TrivyPanel />
   }
+  if (section === SECTION.overview) return <OverviewPanel />
+  if (section === SECTION.events) return <EventsPanel />
+  if (section === SECTION.metrics) return <MetricsPanel />
+  if (section === SECTION.grafana) return <GrafanaPanel />
+  if (section === SECTION.argo) return <ArgoPanel />
+  if (section === SECTION.flux) return <FluxPanel />
   if (!descriptor) {
     return (
       <Empty

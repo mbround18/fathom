@@ -8,6 +8,29 @@ import type { BackendCmd, SectionKey } from './types'
 
 export const SECTION = {
   system: 'system',
+  replicationcontrollers: 'workloads/replicationcontrollers',
+  endpoints: 'network/endpoints',
+  ingresses: 'network/ingress',
+  ingressClasses: 'network/ingressclasses',
+  networkPolicies: 'network/networkpolicies',
+  persistentVolumes: 'storage/persistentvolumes',
+  persistentVolumeClaims: 'storage/persistentvolumeclaims',
+  storageClasses: 'storage/storageclasses',
+  resourceQuotas: 'config/resourcequotas',
+  limitRanges: 'config/limitranges',
+  horizontalPodAutoscalers: 'config/horizontalpodautoscalers',
+  verticalPodAutoscalers: 'config/verticalpodautoscalers',
+  priorityClasses: 'config/priorityclasses',
+  runtimeClasses: 'config/runtimeclasses',
+  leases: 'config/leases',
+  mutatingWebhooks: 'config/mutatingwebhooks',
+  validatingWebhooks: 'config/validatingwebhooks',
+  overview: 'overview',
+  helmReleases: 'helm/releases',
+  argo: 'integrations/argo',
+  metrics: 'integrations/metrics',
+  grafana: 'integrations/grafana',
+  flux: 'integrations/flux',
   events: 'events',
   namespaces: 'namespaces',
   pods: 'workloads/pods',
@@ -66,6 +89,22 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.secrets]: { type: 'RefreshSecrets' },
   [SECTION.poddisruptionbudgets]: { type: 'RefreshPodDisruptionBudgets' },
   [SECTION.events]: { type: 'RefreshEvents' },
+  [SECTION.replicationcontrollers]: { type: 'RefreshReplicationControllers' },
+  [SECTION.endpoints]: { type: 'RefreshEndpoints' },
+  [SECTION.ingresses]: { type: 'RefreshIngresses' },
+  [SECTION.ingressClasses]: { type: 'RefreshIngressClasses' },
+  [SECTION.networkPolicies]: { type: 'RefreshNetworkPolicies' },
+  [SECTION.persistentVolumes]: { type: 'RefreshPersistentVolumes' },
+  [SECTION.persistentVolumeClaims]: { type: 'RefreshPersistentVolumeClaims' },
+  [SECTION.storageClasses]: { type: 'RefreshStorageClasses' },
+  [SECTION.resourceQuotas]: { type: 'RefreshResourceQuotas' },
+  [SECTION.limitRanges]: { type: 'RefreshLimitRanges' },
+  [SECTION.horizontalPodAutoscalers]: { type: 'RefreshHorizontalPodAutoscalers' },
+  [SECTION.priorityClasses]: { type: 'RefreshPriorityClasses' },
+  [SECTION.runtimeClasses]: { type: 'RefreshRuntimeClasses' },
+  [SECTION.leases]: { type: 'RefreshLeases' },
+  [SECTION.mutatingWebhooks]: { type: 'RefreshMutatingWebhookConfigurations' },
+  [SECTION.validatingWebhooks]: { type: 'RefreshValidatingWebhookConfigurations' },
   [SECTION.namespaces]: { type: 'RefreshNamespaces' },
   // US3: the CRD catalog itself; instance lists/reads are sent directly by
   // CustomResourcesSection (they need a group/kind/version the section chooses).
@@ -111,6 +150,47 @@ export function selectCmd(kind: string, namespace: string, name: string): Backen
       return { type: 'SelectNode', data: { name } }
     case 'Service':
       return { type: 'SelectService', data: { namespace, name } }
+    // 034 batch0: remaining kinds with backend Select* commands (VPA has none).
+    case 'ReplicationController':
+      return { type: 'SelectReplicationController', data: { namespace, name } }
+    case 'Job':
+      return { type: 'SelectJob', data: { namespace, name } }
+    case 'CronJob':
+      return { type: 'SelectCronJob', data: { namespace, name } }
+    case 'Endpoint':
+      return { type: 'SelectEndpoint', data: { namespace, name } }
+    case 'Ingress':
+      return { type: 'SelectIngress', data: { namespace, name } }
+    case 'IngressClass':
+      return { type: 'SelectIngressClass', data: { name } }
+    case 'NetworkPolicy':
+      return { type: 'SelectNetworkPolicy', data: { namespace, name } }
+    case 'PersistentVolume':
+      return { type: 'SelectPersistentVolume', data: { name } }
+    case 'PersistentVolumeClaim':
+      return { type: 'SelectPersistentVolumeClaim', data: { namespace, name } }
+    case 'StorageClass':
+      return { type: 'SelectStorageClass', data: { name } }
+    case 'ConfigMap':
+      return { type: 'SelectConfigMap', data: { namespace, name } }
+    case 'Secret':
+      return { type: 'SelectSecret', data: { namespace, name } }
+    case 'ResourceQuota':
+      return { type: 'SelectResourceQuota', data: { namespace, name } }
+    case 'LimitRange':
+      return { type: 'SelectLimitRange', data: { namespace, name } }
+    case 'HorizontalPodAutoscaler':
+      return { type: 'SelectHorizontalPodAutoscaler', data: { namespace, name } }
+    case 'PriorityClass':
+      return { type: 'SelectPriorityClass', data: { name } }
+    case 'RuntimeClass':
+      return { type: 'SelectRuntimeClass', data: { name } }
+    case 'Lease':
+      return { type: 'SelectLease', data: { namespace, name } }
+    case 'MutatingWebhookConfiguration':
+      return { type: 'SelectMutatingWebhookConfiguration', data: { name } }
+    case 'ValidatingWebhookConfiguration':
+      return { type: 'SelectValidatingWebhookConfiguration', data: { name } }
     // 011-rbac-oidc-administration: cross-link support (e.g. an Event's involvedObject) for
     // the four RBAC kinds; the descriptors themselves build these same commands directly in
     // their own `read()` (see `resources/roles.tsx` etc.), this is only the generic fallback.
