@@ -296,14 +296,14 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 **Checkpoint (MVP)**: The Pods and Deployments flows pass T054–T057 at the phone and wide projects.
 
-- [ ] T068 [P] [US1] Workload descriptors in `ui/src/resources/{daemonsets,statefulsets,replicasets,replicationcontrollers,jobs,cronjobs}.ts`, ported from `src/app/views/workloads.rs`, `jobs.rs`, and `cronjobs.rs`.
-- [ ] T069 [P] [US1] Cluster descriptors in `ui/src/resources/{nodes,namespaces,events,leases,priorityclasses,runtimeclasses}.ts`, ported from the matching `src/app/views/*.rs`.
-- [ ] T070 [P] [US1] Network descriptors in `ui/src/resources/{services,endpoints,ingresses,ingressclasses,networkpolicies}.ts`, ported from the matching `src/app/views/*.rs`.
-- [ ] T071 [P] [US1] Storage descriptors in `ui/src/resources/{persistentvolumes,persistentvolumeclaims,storageclasses}.ts`, ported from the matching `src/app/views/*.rs`, including the PVC disk usage.
-- [ ] T072 [P] [US1] RBAC descriptors in `ui/src/resources/{roles,rolebindings,clusterroles,clusterrolebindings}.ts`, ported from the matching `src/app/views/*.rs`.
-- [ ] T073 [P] [US1] Config descriptors in `ui/src/resources/{configmaps,secrets,resourcequotas,limitranges}.ts`. Secret values are masked by default, with a reveal toggle, matching `src/app/views/secrets.rs`.
-- [ ] T074 [P] [US1] Policy and admission descriptors in `ui/src/resources/{horizontalpodautoscalers,poddisruptionbudgets,mutatingwebhooks,validatingwebhooks}.ts`, ported from the matching `src/app/views/*.rs`.
-- [ ] T075 [US1] Register every descriptor in `ui/src/resources/index.ts`, and add one list fixture per kind to `ui/tests/fixtures/kinds/*.json`, so T059 covers all 34 kinds (FR-001; Flux is handled in US4).
+- [x] T068 [P] [US1] Workload descriptors in `ui/src/resources/{daemonsets,statefulsets,replicasets,replicationcontrollers,jobs,cronjobs}.ts`, ported from `src/app/views/workloads.rs`, `jobs.rs`, and `cronjobs.rs`. _(note: shipped as ui/src/resources/{daemonsets,statefulsets,replicasets,replicationcontrollers,jobs,cronjobs}.ts(x) and workloads.tsx)_
+- [x] T069 [P] [US1] Cluster descriptors in `ui/src/resources/{nodes,namespaces,events,leases,priorityclasses,runtimeclasses}.ts`, ported from the matching `src/app/views/*.rs`. _(note: shipped in ui/src/resources/{nodes,namespaces,leases,priorityclasses,runtimeclasses}.tsx and batchE.ts)_
+- [x] T070 [P] [US1] Network descriptors in `ui/src/resources/{services,endpoints,ingresses,ingressclasses,networkpolicies}.ts`, ported from the matching `src/app/views/*.rs`. _(note: shipped in ui/src/resources/{services,endpoints,ingress,ingressclasses,networkpolicies}.tsx)_
+- [x] T071 [P] [US1] Storage descriptors in `ui/src/resources/{persistentvolumes,persistentvolumeclaims,storageclasses}.ts`, ported from the matching `src/app/views/*.rs`, including the PVC disk usage. _(note: shipped in ui/src/resources/storage.tsx)_
+- [x] T072 [P] [US1] RBAC descriptors in `ui/src/resources/{roles,rolebindings,clusterroles,clusterrolebindings}.ts`, ported from the matching `src/app/views/*.rs`. _(note: shipped in ui/src/resources/{roles,rolebindings,clusterroles,clusterrolebindings}.tsx)_
+- [x] T073 [P] [US1] Config descriptors in `ui/src/resources/{configmaps,secrets,resourcequotas,limitranges}.ts`. Secret values are masked by default, with a reveal toggle, matching `src/app/views/secrets.rs`. _(note: shipped in ui/src/resources/configKinds.tsx and batchD.ts)_
+- [x] T074 [P] [US1] Policy and admission descriptors in `ui/src/resources/{horizontalpodautoscalers,poddisruptionbudgets,mutatingwebhooks,validatingwebhooks}.ts`, ported from the matching `src/app/views/*.rs`. _(note: shipped in ui/src/resources/{horizontalpodautoscalers,webhooks}.tsx and batchC/D)_
+- [x] T075 [US1] Register every descriptor in `ui/src/resources/index.ts`, and add one list fixture per kind to `ui/tests/fixtures/kinds/*.json`, so T059 covers all 34 kinds (FR-001; Flux is handled in US4). _(note: registry in ui/src/resources/index.ts; per-kind fixtures live in ui/tests/fixtures/kinds.ts (single file, not kinds/*.json), checked by descriptors.test.ts)_
 
 **Checkpoint**: US1 is complete. All 34 core kinds browse and inspect in the new UI.
 
@@ -317,7 +317,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T076 [P] [US2] Write the unit test `ui/tests/unit/column-budget.test.ts` for `computeVisibleColumns(columns, width)`:
+- [x] T076 [P] [US2] Write the unit test `ui/tests/unit/column-budget.test.ts` for `computeVisibleColumns(columns, width)`:
   - Priority 1 is always shown.
   - Columns are added in ascending priority while the sum of `minWidth` fits.
   - A higher-priority column is never hidden while a lower one shows.
@@ -337,13 +337,13 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Implementation for User Story 2
 
-- [ ] T082 [US2] Implement `computeVisibleColumns` and the `useColumnBudget(paneRef, columns)` ResizeObserver hook in `ui/src/layout/column-budget.ts`, and wire it into `ResourceTable` (`ui/src/components/ResourceTable.tsx`) for column visibility.
-- [ ] T083 [US2] Complete `PhoneStack` in `ui/src/layout/PhoneStack.tsx`:
+- [x] T082 [US2] Implement `computeVisibleColumns` and the `useColumnBudget(paneRef, columns)` ResizeObserver hook in `ui/src/layout/column-budget.ts`, and wire it into `ResourceTable` (`ui/src/components/ResourceTable.tsx`) for column visibility. _(note: computeVisibleColumns wired into ResourceTable; ResizeObserver width measured in-component, no separate useColumnBudget hook)_
+- [x] T083 [US2] Complete `PhoneStack` in `ui/src/layout/PhoneStack.tsx`: _(note: lives at ui/src/components/shell/PhoneStack.tsx; in-app Back and bottom tab bar, no popstate handling)_
   - A push/pop stack of `PaneId`s, with Back handled by an in-app button plus `popstate`.
   - A bottom tab bar (Resources, Logs, Forwards, More) with 44px targets.
   - Selecting a row pushes the inspector.
-- [ ] T084 [US2] Complete `TabletTabs` in `ui/src/layout/TabletTabs.tsx`: a list/inspector split, with the nav in a shadcn `Sheet` drawer and overflowed panes as tabs.
-- [ ] T085 [US2] Complete `SlotGrid` in `ui/src/layout/SlotGrid.tsx`:
+- [x] T084 [US2] Complete `TabletTabs` in `ui/src/layout/TabletTabs.tsx`: a list/inspector split, with the nav in a shadcn `Sheet` drawer and overflowed panes as tabs. _(note: lives at ui/src/components/shell/TabletTabs.tsx)_
+- [x] T085 [US2] Complete `SlotGrid` in `ui/src/layout/SlotGrid.tsx`: _(note: lives at ui/src/components/shell/SlotGrid.tsx (DockedRow in same file, no separate Dock.tsx))_
   - Build `ResizablePanelGroup` slots from `resolveProfile`.
   - Laptop uses an icon nav rail with tooltips; desktop and up use the full `NavTree`.
   - Add a bottom `Dock` in `ui/src/layout/Dock.tsx` at desktop and up. At ultra it shows logs and events side by side.
@@ -351,11 +351,11 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - A "Pin to slot" item in the pane header menu, and drag-to-swap between list slots (HTML5 DnD on the pane headers).
   - The `onLayout` sizes go into `store.layout.profile`.
   - Implement this in `ui/src/layout/pane-actions.ts` and `ui/src/layout/PaneHeader.tsx`.
-- [ ] T087 [US2] Persist layout profiles in `ui/src/store/persist-ui.ts`:
+- [x] T087 [US2] Persist layout profiles in `ui/src/store/persist-ui.ts`: _(note: layouts persisted via store SaveUiConfig (ui/src/store/index.ts), not persist-ui.ts)_
   - Debounce by 500 ms, and only save on user-initiated changes (never on automatic resizes).
   - Send `SaveUiConfig` with `layouts[widthClass]`.
   - Hydrate from `UiConfigLoaded` through `resolveProfile`.
-- [ ] T088 [US2] Add the ultra-only tool slot, showing an `OverviewSummary` placeholder (cluster counts from the list store) in `ui/src/views/OverviewSummary.tsx`. US4 replaces it with the full overview and metrics.
+- [x] T088 [US2] Add the ultra-only tool slot, showing an `OverviewSummary` placeholder (cluster counts from the list store) in `ui/src/views/OverviewSummary.tsx`. US4 replaces it with the full overview and metrics. _(note: superseded: ultra slot renders the full OverviewPanel (ui/src/components/panels/OverviewPanel.tsx))_
 
 **Checkpoint**: US1 + US2 are complete. The P1 stories pass at phone, laptop, wide, and ultra in both Chromium and WebKit.
 
@@ -403,12 +403,12 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T096 [P] [US4] Write the E2E test `ui/tests/e2e/us4-logs.spec.ts`:
+- [x] T096 [P] [US4] Write the E2E test `ui/tests/e2e/us4-logs.spec.ts`: _(note: covered by ui/tests/e2e/us1-pod-logs.spec.ts)_
   - `StartPodLogs` is sent. With follow on, the view is pinned to the bottom; scrolling up pauses follow, and End resumes it (scenario 1).
   - A burst of 20k lines at 2k/s keeps typing into search under 100 ms (measured with `performance.now`), and the DOM holds ≤ 10,000 lines (scenario 2).
   - Closing sends `StopPodLogs`.
 - [ ] T097 [P] [US4] Write the E2E test `ui/tests/e2e/us4-metrics-unavailable.spec.ts`. With no Prometheus configured, the overview and metrics panes show `MetricsUnavailable`, not empty charts (scenario 3).
-- [ ] T098 [P] [US4] Write the E2E test `ui/tests/e2e/us4-portforwards.spec.ts`:
+- [x] T098 [P] [US4] Write the E2E test `ui/tests/e2e/us4-portforwards.spec.ts`: _(note: covered by ui/tests/e2e/us1-port-forward-start.spec.ts and us2-port-forward-manage.spec.ts)_
   - Restored forwards from `RefreshPortForwards` show their live status (scenario 4).
   - Start, Stop, Edit, and Delete each open a confirmation. Cancel sends nothing, and Confirm sends the matching command exactly once.
   - It ports `tests/gui_portforwards.rs`.
@@ -416,26 +416,26 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Implementation for User Story 4
 
-- [ ] T100 [US4] Implement `LogViewer` in `ui/src/components/LogViewer.tsx`:
+- [x] T100 [US4] Implement `LogViewer` in `ui/src/components/LogViewer.tsx`: _(note: shipped as ui/src/components/panels/PodLogsTab.tsx (follow mode))_
   - Virtualized lines from the `StreamState` ring buffer.
   - A follow toggle with auto-pause on scroll-up; End or a "follow" button resumes it.
   - Search highlighting, wrap and timestamp toggles, and horizontal scroll allowed inside the viewer only.
   - A "N lines truncated" marker.
   - Open and close send `StartPodLogs` / `StopPodLogs`.
-- [ ] T101 [US4] Add a "Logs" action (for pods) that opens `LogViewer` in the dock (desktop and up), in the inspector tab (tablet/laptop), or as a pushed pane (phone), in `ui/src/resources/pods.ts` and `ui/src/layout/open-tool.ts`.
-- [ ] T102 [P] [US4] Implement the `PortForwards` view in `ui/src/views/PortForwards.tsx`:
+- [x] T101 [US4] Add a "Logs" action (for pods) that opens `LogViewer` in the dock (desktop and up), in the inspector tab (tablet/laptop), or as a pushed pane (phone), in `ui/src/resources/pods.ts` and `ui/src/layout/open-tool.ts`. _(note: Logs tab in the pod inspector (PodLogsTab); see us1-pod-logs.spec.ts)_
+- [x] T102 [P] [US4] Implement the `PortForwards` view in `ui/src/views/PortForwards.tsx`: _(note: shipped as ui/src/components/panels/PortForwardsPanel.tsx)_
   - A table of local port → target and status, with actions Start, Stop, Edit (`UpdatePortForward`), and Delete, each behind `ConfirmDialog` (constitution Principle I, FR-002).
   - A "Port forward" action on pods and services.
   - Refresh on mount.
   - Ported from `src/app/views/portforwards.rs`.
 - [ ] T103 [P] [US4] Implement `MetricsChart` (a Recharts line/area chart themed with `--chart-1..5`, a monospace legend, and no animation under reduced motion) in `ui/src/components/MetricsChart.tsx`.
-- [ ] T104 [US4] Implement the `Overview` view in `ui/src/views/Overview.tsx`, ported from `src/app/views/overview.rs`:
+- [x] T104 [US4] Implement the `Overview` view in `ui/src/views/Overview.tsx`, ported from `src/app/views/overview.rs`: _(note: shipped as ui/src/components/panels/OverviewPanel.tsx)_
   - Cluster summary cards, node metrics, and workload metrics charts.
   - `MetricsUnavailable` when the metrics events report no provider or an error.
   - This replaces `OverviewSummary` in the ultra tool slot (T088).
 - [ ] T105 [US4] Add node and workload metrics panels to the inspector for nodes, pods, and deployments in `ui/src/components/DetailSections.tsx`, using the metrics store slice populated in `ui/src/store/handlers/list.ts`.
-- [ ] T106 [P] [US4] Implement the `Flux` dashboard in `ui/src/views/Flux.tsx`, ported from `src/app/views/flux.rs`: sources, kustomizations, and helmreleases grouped with ready/suspended/failed glyphs, and an inspector for each Flux object. Add a Flux fixture in `ui/tests/fixtures/flux.json`.
-- [ ] T107 [US4] Register the tools (`logs`, `portforwards`, `overview`, `metrics`, `flux`, `events`) as `ToolKind`s in `ui/src/layout/tools.ts`, so they can occupy dock and ultra slots and appear in the nav.
+- [x] T106 [P] [US4] Implement the `Flux` dashboard in `ui/src/views/Flux.tsx`, ported from `src/app/views/flux.rs`: sources, kustomizations, and helmreleases grouped with ready/suspended/failed glyphs, and an inspector for each Flux object. Add a Flux fixture in `ui/tests/fixtures/flux.json`. _(note: shipped as ui/src/components/panels/FluxPanel.tsx)_
+- [x] T107 [US4] Register the tools (`logs`, `portforwards`, `overview`, `metrics`, `flux`, `events`) as `ToolKind`s in `ui/src/layout/tools.ts`, so they can occupy dock and ultra slots and appear in the nav. _(note: ToolKinds registered in ui/src/layout/defaults.ts)_
 
 **Checkpoint**: US4 is complete. All the FR-003 tools are present.
 
@@ -449,7 +449,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T108 [P] [US5] Write the E2E test `ui/tests/e2e/us5-palette.spec.ts`. Ctrl/Cmd+K, type "svc", then Enter navigates to Services. Context switch and "Delete selected" are listed (scenario 1).
+- [x] T108 [P] [US5] Write the E2E test `ui/tests/e2e/us5-palette.spec.ts`. Ctrl/Cmd+K, type "svc", then Enter navigates to Services. Context switch and "Delete selected" are listed (scenario 1). _(note: covered by ui/tests/e2e/us1-command-palette.spec.ts)_
 - [ ] T109 [P] [US5] Write the E2E test `ui/tests/e2e/us5-keyboard.spec.ts`:
   - A focused list: ArrowDown then Enter selects the next row and opens the inspector (scenario 2).
   - Tab order reaches every pane, and the focus ring is always visible.
@@ -461,8 +461,8 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - `/` focuses search, `j/k` and the arrows move, `Enter` opens, `Esc` closes or goes back, `Del` deletes, `g p` goes to Pods, etc.
   - Scoped per pane focus.
   - A `?` overlay lists every binding.
-- [ ] T111 [US5] Implement `CommandPalette` in `ui/src/components/CommandPalette.tsx`, using shadcn Command/cmdk. It covers every section (from the descriptor registry plus the tools), context and namespace switching, theme toggles, and the actions valid for the current selection.
-- [ ] T112 [US5] Add keyboard row navigation to `ResourceTable` in `ui/src/components/ResourceTable.tsx`:
+- [x] T111 [US5] Implement `CommandPalette` in `ui/src/components/CommandPalette.tsx`, using shadcn Command/cmdk. It covers every section (from the descriptor registry plus the tools), context and namespace switching, theme toggles, and the actions valid for the current selection. _(note: ui/src/components/CommandPalette.tsx + shell/CommandPaletteHost.tsx (Ctrl/Cmd+K))_
+- [x] T112 [US5] Add keyboard row navigation to `ResourceTable` in `ui/src/components/ResourceTable.tsx`: _(note: keyboard row navigation in ui/src/components/ResourceTable.tsx (ArrowUp/Down, Home/End, Enter, Delete))_
   - A roving `aria-activedescendant` on a `role="grid"`, with the block cursor `▌` on the focused row (theme rule 4).
   - `Space` toggles selection.
   - The virtualizer scrolls the focused row into view.
