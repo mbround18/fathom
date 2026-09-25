@@ -206,7 +206,10 @@ function ObjectLink({
       type="button"
       onClick={() => onOpen(ref)}
       aria-label={`Open ${label}`}
-      className={cn('truncate text-left font-mono text-accent-neon hover:underline', className)}
+      className={cn(
+        'min-h-[24px] truncate text-left font-mono text-accent-neon hover:underline',
+        className,
+      )}
     >
       {label}
     </button>

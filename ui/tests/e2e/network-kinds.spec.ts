@@ -1,7 +1,7 @@
 /** Batch B (034): Endpoints, Ingresses, IngressClasses, NetworkPolicies list views. */
 import { expect, test } from '@playwright/test'
 
-import { batch, list, nsRoute } from '../fixtures/builders'
+import { batch, clusterRoute, list, nsRoute } from '../fixtures/builders'
 import { ENDPOINTS, INGRESSES, INGRESS_CLASSES, NETPOLS } from '../fixtures/network'
 import { emit, expectRowCount, navigateTo, open, row, sentTypes } from './helpers'
 
@@ -15,7 +15,7 @@ const CASES = [
     key: 'default/web',
   },
   {
-    label: 'Ingress',
+    label: 'Ingresses',
     section: 'network/ingress',
     refresh: 'RefreshIngresses',
     event: { type: 'IngressesUpdated', data: INGRESSES },
@@ -23,7 +23,7 @@ const CASES = [
     key: 'default/web',
   },
   {
-    label: 'IngressClasses',
+    label: 'Ingress classes',
     section: 'network/ingressclasses',
     refresh: 'RefreshIngressClasses',
     event: { type: 'IngressClassesUpdated', data: INGRESS_CLASSES },
@@ -31,7 +31,7 @@ const CASES = [
     key: 'nginx',
   },
   {
-    label: 'NetworkPolicies',
+    label: 'Network policies',
     section: 'network/networkpolicies',
     refresh: 'RefreshNetworkPolicies',
     event: { type: 'NetworkPoliciesUpdated', data: NETPOLS },
@@ -45,7 +45,18 @@ for (const c of CASES) {
     await open(page)
     await navigateTo(page, c.label, 'Network')
     await expect.poll(() => sentTypes(page)).toContain(c.refresh)
-    await emit(page, batch([list(1, nsRoute('kind-a', c.section), c.event)]))
+    await emit(
+      page,
+      batch([
+        list(
+          1,
+          c.section === 'network/ingressclasses'
+            ? clusterRoute('kind-a', c.section)
+            : nsRoute('kind-a', c.section),
+          c.event,
+        ),
+      ]),
+    )
     await expectRowCount(page, c.count, c.section)
     await expect(row(page, c.key, c.section)).toBeVisible()
   })

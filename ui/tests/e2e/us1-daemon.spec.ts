@@ -115,7 +115,7 @@ test.describe('timeline', () => {
     await expect(
       entries.filter({ hasText: 'ProgressDeadlineExceeded' }).getByTestId('daemon-origin-badge'),
     ).toHaveText('Derived')
-    await expect(page.getByText('Back-off restarting failed container')).toBeVisible()
+    await expect(tl.getByText('Back-off restarting failed container')).toBeVisible()
     await expectNoHorizontalScroll(page)
   })
 })

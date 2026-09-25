@@ -6,14 +6,14 @@ import { expect, test } from '@playwright/test'
 
 import { batch, list, nsRoute } from '../fixtures/builders'
 import { CRONJOBS, JOBS } from '../fixtures/batchA'
-import { check, clearSent, confirmDialog, emit, open, row, sent, showList } from './helpers'
+import { check, clearSent, confirmDialog, emit, open, navigateTo, row, sent } from './helpers'
 
 const JOBS_SECTION = 'workloads/jobs'
 const CRON_SECTION = 'workloads/cronjobs'
 
 test('jobs: delete is confirmed and sends DeleteJob', async ({ page }) => {
   await open(page)
-  await showList(page, JOBS_SECTION, 'Jobs')
+  await navigateTo(page, 'Jobs')
   await emit(
     page,
     batch([list(50, nsRoute('kind-a', JOBS_SECTION), { type: 'JobsUpdated', data: JOBS })]),
@@ -30,7 +30,7 @@ test('jobs: delete is confirmed and sends DeleteJob', async ({ page }) => {
 
 test('cronjobs: suspended state is shown', async ({ page }) => {
   await open(page)
-  await showList(page, CRON_SECTION, 'CronJobs')
+  await navigateTo(page, 'CronJobs')
   await emit(
     page,
     batch([list(51, nsRoute('kind-a', CRON_SECTION), { type: 'CronJobsUpdated', data: CRONJOBS })]),

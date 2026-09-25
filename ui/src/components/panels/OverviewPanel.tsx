@@ -132,7 +132,7 @@ export default function OverviewPanel() {
                       type="button"
                       onClick={() => openInspector(ref)}
                       aria-label={`Open ${label}`}
-                      className="min-h-[var(--touch-target)] font-mono text-accent-neon hover:underline sm:min-h-0"
+                      className="min-h-[var(--touch-target)] font-mono text-accent-neon hover:underline sm:min-h-[24px]"
                     >
                       {label}
                     </button>
