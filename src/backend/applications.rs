@@ -212,9 +212,18 @@ pub(super) async fn list_owned_workloads(
     Ok(out)
 }
 
-/// Flux `status.lastAppliedRevision` per (namespace, name) of every Kustomization/HelmRelease,
-/// used to fill `ApplicationSummary.version` for Flux-attributed applications (data-model.md).
-async fn flux_revisions(client: &kube::Client) -> BTreeMap<(String, String), String> {
+/// One Flux Kustomization/HelmRelease, keyed by (namespace, name) in [`flux_apps`].
+#[derive(Debug, Clone)]
+struct FluxApp {
+    /// `status.lastAppliedRevision`, the `ApplicationSummary.version` of a Flux application.
+    revision: Option<String>,
+    creation_timestamp: String,
+}
+
+/// Every Kustomization/HelmRelease by (namespace, name): its `status.lastAppliedRevision` fills
+/// `ApplicationSummary.version` for Flux-attributed applications (data-model.md), and its mere
+/// existence keeps a Flux application listed after its last workload is gone (FR-016).
+async fn flux_apps(client: &kube::Client) -> BTreeMap<(String, String), FluxApp> {
     let mut out = BTreeMap::new();
     let Ok((kustomizations, helmreleases)) =
         flux::list_kustomizations_and_helmreleases(client).await
@@ -224,16 +233,47 @@ async fn flux_revisions(client: &kube::Client) -> BTreeMap<(String, String), Str
     for obj in kustomizations.into_iter().chain(helmreleases) {
         let namespace = obj.metadata.namespace.clone().unwrap_or_default();
         let name = obj.metadata.name.clone().unwrap_or_default();
-        if let Some(rev) = obj
+        let revision = obj
             .data
             .get("status")
             .and_then(|s| s.get("lastAppliedRevision"))
             .and_then(|v| v.as_str())
-        {
-            out.insert((namespace, name), rev.to_owned());
-        }
+            .map(str::to_owned);
+        out.insert(
+            (namespace, name),
+            FluxApp {
+                revision,
+                creation_timestamp: workload_common::creation_timestamp(&obj.metadata),
+            },
+        );
     }
     out
+}
+
+/// FR-016: a Flux Kustomization/HelmRelease with no workload currently attributed to it is still
+/// an application, listed with zero workloads (the UI shows "No workloads"). Bare Helm releases
+/// can't get the same treatment: FR-019 forbids reading Helm's release storage, so once their
+/// last labelled workload is gone nothing live identifies them.
+fn add_flux_only_groups(
+    groups: &mut Vec<AppGroup>,
+    flux: &BTreeMap<(String, String), FluxApp>,
+) {
+    for ((namespace, name), app) in flux {
+        if groups
+            .iter()
+            .any(|g| &g.namespace == namespace && &g.instance == name)
+        {
+            continue;
+        }
+        groups.push(AppGroup {
+            instance: name.clone(),
+            namespace: namespace.clone(),
+            managed_by: ApplicationManagedBy::Flux,
+            workloads: Vec::new(),
+            creation_timestamp: app.creation_timestamp.clone(),
+            labels: BTreeMap::new(),
+        });
+    }
 }
 
 pub(super) struct AppGroup {
@@ -287,8 +327,9 @@ pub(super) async fn refresh_applications(
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
     let workloads = list_owned_workloads(state).await?;
-    let revisions = flux_revisions(&client).await;
-    let groups = group_workloads(&workloads);
+    let flux = flux_apps(&client).await;
+    let mut groups = group_workloads(&workloads);
+    add_flux_only_groups(&mut groups, &flux);
 
     let mut summaries: Vec<ApplicationSummary> = groups
         .into_iter()
@@ -304,9 +345,9 @@ pub(super) async fn refresh_applications(
             let ready_count = g.workloads.iter().filter(|&&i| workloads[i].ready).count() as i32;
             let total_count = g.workloads.len() as i32;
             let version = match g.managed_by {
-                ApplicationManagedBy::Flux => revisions
+                ApplicationManagedBy::Flux => flux
                     .get(&(g.namespace.clone(), g.instance.clone()))
-                    .cloned(),
+                    .and_then(|f| f.revision.clone()),
                 ApplicationManagedBy::Helm => g.labels.get(APP_VERSION_LABEL).cloned(),
                 ApplicationManagedBy::LabelHeuristic => None,
             };
@@ -355,8 +396,9 @@ pub(super) async fn select_application(
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
     let workloads = list_owned_workloads(state).await?;
-    let revisions = flux_revisions(&client).await;
-    let groups = group_workloads(&workloads);
+    let flux = flux_apps(&client).await;
+    let mut groups = group_workloads(&workloads);
+    add_flux_only_groups(&mut groups, &flux);
 
     let Some(group) = groups
         .into_iter()
@@ -369,9 +411,9 @@ pub(super) async fn select_application(
     };
 
     let version = match group.managed_by {
-        ApplicationManagedBy::Flux => revisions
+        ApplicationManagedBy::Flux => flux
             .get(&(group.namespace.clone(), group.instance.clone()))
-            .cloned(),
+            .and_then(|f| f.revision.clone()),
         ApplicationManagedBy::Helm => group.labels.get(APP_VERSION_LABEL).cloned(),
         ApplicationManagedBy::LabelHeuristic => None,
     };
@@ -627,5 +669,44 @@ mod tests {
             workload_owns_ref(&w).status_hint.as_deref(),
             Some("NotReady")
         );
+    }
+
+    #[test]
+    fn flux_object_without_workloads_is_still_an_application() {
+        let w = workload(
+            "Deployment",
+            &[
+                (FLUX_HELMRELEASE_NAME_LABEL, "podinfo"),
+                (FLUX_HELMRELEASE_NAMESPACE_LABEL, "default"),
+            ],
+            &[],
+        );
+        let workloads = vec![w];
+        let mut groups = group_workloads(&workloads);
+        let flux: BTreeMap<(String, String), FluxApp> = [
+            ("default", "podinfo"),
+            ("default", "emptied"),
+        ]
+        .into_iter()
+        .map(|(ns, name)| {
+            (
+                (ns.to_owned(), name.to_owned()),
+                FluxApp {
+                    revision: Some("1.0.0".to_owned()),
+                    creation_timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                },
+            )
+        })
+        .collect();
+        add_flux_only_groups(&mut groups, &flux);
+
+        assert_eq!(groups.len(), 2, "no duplicate for the app that has a workload");
+        let podinfo = groups.iter().find(|g| g.instance == "podinfo").unwrap();
+        assert_eq!(podinfo.workloads, vec![0]);
+        let emptied = groups.iter().find(|g| g.instance == "emptied").unwrap();
+        assert!(emptied.workloads.is_empty());
+        assert_eq!(emptied.managed_by, ApplicationManagedBy::Flux);
+        assert_eq!(emptied.namespace, "default");
+        assert_eq!(emptied.creation_timestamp, "2026-01-01T00:00:00Z");
     }
 }
