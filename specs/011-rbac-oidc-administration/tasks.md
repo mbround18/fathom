@@ -111,7 +111,7 @@ verify create is disabled when self-access-review says not allowed.
 
 ### Tests for User Story 2
 
-- [ ] T020 [P] [US2] Rust unit test in `src/backend/rbac_access.rs` (new module, see T024):
+- [x] T020 [P] [US2] Rust unit test in `src/backend/rbac_access.rs` (new module, see T024): _(done: wiremock-backed kube::Client tests in rbac_access.rs for allowed, denied, evaluation-error and request-failure mappings)_
       `SelfSubjectAccessReview` result → `RbacAccessResult` mapping, using a fixture
       `kube::Client` test-double or the project's existing pattern for testing backend logic
       without a live cluster (check how `src/backend/apply.rs` or another backend module is
@@ -276,7 +276,7 @@ diff-preview pattern.
 
 ### Tests for User Story 5
 
-- [ ] T041 [P] [US5] Rust unit test for the kubeadm-detection read in
+- [x] T041 [P] [US5] Rust unit test for the kubeadm-detection read in _(done: detect_kubeadm tests for present, not found, forbidden/5xx and unreachable. Note: per data-model.md, a 404 is a definite "no" ({detected:false, checked:true}); only failed or forbidden reads are {false,false}, which is the implemented behavior. This task text differs on the 404 case)_
       `src/backend/rbac_access.rs`: ConfigMap present → `{detected: true, checked: true}`;
       not found/forbidden/any error → `{detected: false, checked: false}`, never an error
       notification
@@ -321,11 +321,11 @@ diff-preview pattern.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T050 [P] `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
+- [x] T050 [P] `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test` _(done: cargo fmt/clippy clean; cargo test --workspace 927 passed, 0 failed; pnpm typecheck clean, lint 0 errors (27 pre-existing warnings), Vitest 1288/1288; Chromium e2e 2433 passed, 2 failed (a node-actions phone/tablet request-id race, since fixed and 75/75 green on re-run; perf-10k keystroke budget missed at load avg ~70), 190 skipped)_
       clean
-- [ ] T051 [P] `pnpm -C ui typecheck && pnpm -C ui lint` clean
-- [ ] T052 [P] `pnpm -C ui test` (Vitest) clean
-- [ ] T053 Run full Playwright suite for the 5 new `us{1..5}-rbac-*.spec.ts` files, clean
+- [x] T051 [P] `pnpm -C ui typecheck && pnpm -C ui lint` clean _(done: typecheck clean, lint 0 errors)_
+- [x] T052 [P] `pnpm -C ui test` (Vitest) clean _(done: Vitest 83 files, 1288 passed)_
+- [x] T053 Run full Playwright suite for the 5 new `us{1..5}-rbac-*.spec.ts` files, clean _(done: all us{1..5}-rbac-*.spec.ts pass across every Chromium project in the full run)_
 - [ ] T054 Run `specs/011-rbac-oidc-administration/quickstart.md` manually against a real
       cluster/context once, confirming each story's independent-test criterion
 - [x] T055 Update `docs/MVP.md`'s RBAC/OIDC row (line ~33, "Access Control (RBAC/OAuth/OIDC,
