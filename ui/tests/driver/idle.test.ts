@@ -8,7 +8,7 @@ const skip = prerequisitesMissing() ?? false
 const HZ = 100 // CLK_TCK on Linux
 const WINDOW_S = Number(process.env.IDLE_WINDOW_S ?? 60)
 
-test('idle CPU on the Pods view is under 2% of one core', { skip, timeout: 240_000 }, async () => {
+void test('idle CPU on the Pods view is under 2% of one core', { skip, timeout: 240_000 }, async () => {
   const s = await startSession()
   try {
     await s.waitFor<number>(PODS_ROWS_JS, (n) => n > 0, 90_000)

@@ -7,7 +7,7 @@ import { PODS_ROWS_JS, prerequisitesMissing, startSession } from './harness.ts'
 
 const skip = prerequisitesMissing() ?? false
 
-test('app launches and the Pods view populates', { skip, timeout: 120_000 }, async () => {
+void test('app launches and the Pods view populates', { skip, timeout: 120_000 }, async () => {
   const s = await startSession()
   try {
     const rows = await s.waitFor<number>(PODS_ROWS_JS, (n) => n > 0, 90_000)
