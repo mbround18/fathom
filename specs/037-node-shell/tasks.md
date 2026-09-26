@@ -44,7 +44,7 @@ Format: `[ID] [P?] [Story] description (path)`. [P] = parallelizable (different 
 - [x] T027 [P] Disable action with reason for Windows nodes; test (view helper unit-tested in Vitest; no Playwright test)
 - [X] T028 [P] Accessibility, keyboard, reduced-motion pass; verify no horizontal scroll at supported widths (keyboard, labels and reduced-motion asserted in node-shell.spec.ts; no horizontal scroll checked at all widths)
 - [x] T029 Update docs/MVP.md Node Shell status and section text
-- [ ] T030 Run quickstart on Tier 1 platforms; full CI gates (PARTIAL, not done: Linux only; live kind run via an ignored test; Ubuntu 26/Win11/macOS not run)
+- [ ] T030 Run quickstart on Tier 1 platforms; full CI gates (PARTIAL: Linux (Pop!_OS 24.04) quickstart steps 1-7 run live on 2026-09-26 against a throwaway kind cluster, all pass, see checklists/live-validation.md; gates pass: cargo fmt/clippy/test, pnpm lint/typecheck/vitest, Playwright Chromium projects (WebKit projects blocked on this host by missing libevent-2.1-7t64). Ubuntu 26, Windows 11 and macOS 26 not run.)
 - [x] T031 Brochure screenshots of the new screens (final step per project convention) (Done: node-shell panel + confirmation dialog, real; no live session is started by the read-only promo run.)
 
 ## Dependencies

@@ -160,6 +160,10 @@ test.describe('030 kind cluster provisioning', () => {
       }),
     )
     await expect(panel(page).getByTestId('kind-progress')).toContainText('Starting control-plane')
+    // kind is silent for ~10 s here on a real host: the elapsed counter keeps moving (SC-004).
+    const elapsed = panel(page).getByTestId('kind-progress-elapsed')
+    const first = await elapsed.textContent()
+    await expect(elapsed).not.toHaveText(first ?? '', { timeout: 3000 })
 
     await emit(
       page,

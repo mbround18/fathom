@@ -78,7 +78,7 @@ out had to happen outside the app.
   — check first whether the Inspector already composites this before speccing; may be a
   no-op.
 
-## Reversed decision: in-app local KinD cluster provisioning (now spec 030)
+## Reversed decision: in-app local KinD cluster provisioning (shipped, spec 030)
 
 Originally declined below as "cluster lifecycle/provisioning" on the grounds that Fathom
 federates arbitrary kubeconfig contexts transparently and doesn't need a provisioning UI.
@@ -90,6 +90,12 @@ general remote cluster lifecycle/provisioning (still declined) and not Rancher-s
 state (still declined, see below). See `specs/030-kind-cluster-provisioning/`. Distinct from
 the separate `scripts/dev-cluster` KinD harness (dev/CI tooling, not product UI) already in
 flight — the two should share install-profile logic where sensible rather than duplicating it.
+
+**Status (2026-09-26): shipped.** Spec 030 landed (prerequisite detection, create with the
+`bare`/`custom_yaml` profiles, streamed progress, delete, context hand-off) and was
+live-validated against real `kind` + Docker on Ubuntu (see
+`specs/030-kind-cluster-provisioning/checklists/live-validation.md`). The carve-out stays
+narrow: general remote cluster lifecycle remains declined below.
 
 ## Queued follow-on: in-app CLI toolchain manager (future spec, after 030 lands)
 

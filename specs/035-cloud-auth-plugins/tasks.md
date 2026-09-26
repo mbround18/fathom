@@ -42,7 +42,7 @@ description: "Task list for Managed-Cloud Auth Plugins"
 
 ## Phase 7: Polish
 - [X] T024 Justify/add any new deps (`which`, `secrecy`) in research.md
-- [ ] T025 Run quickstart manual checks on Ubuntu 26.04, Windows 11, macOS 26
+- [ ] T025 Run quickstart manual checks on Ubuntu 26.04, Windows 11, macOS 26 (Partial: Linux (Pop!_OS 24.04) run 2026-09-26 with fake kubelogin/generic plugins and the real `aws` CLI against a kind API server. Detection spawns nothing; pluginMissing, credentialExpired, pluginBlocked then allowAll, GUI-PATH resolution, a 0-spawn cache over 95s of fleet polling and the leak check all passed. No real EKS/GKE/AKS cluster was available (prod uses a cert/token, not exec). Windows 11 and macOS 26 were not run. See checklists/live-validation.md.)
 - [X] T026 Update docs/MVP.md Tier D P3 status
 - [X] T027 fmt, clippy -D warnings, cargo test, UI lint/typecheck/vitest/playwright green
 - [ ] T028 (last, per project convention) brochure screenshots of new UI surfaces

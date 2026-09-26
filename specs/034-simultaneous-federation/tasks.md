@@ -58,8 +58,8 @@ description: "Task list for Simultaneous Multi-Context Federation"
 
 ## Phase 6: Polish
 
-- [ ] T030 [P] Idle-CPU/soak check with 5 federated contexts against local kind (SC-002); record the result in research.md
-- [ ] T031 [P] Reachability recovery test (SC-004) against a stopped/started kind control plane
+- [ ] T030 [P] Idle-CPU/soak check with 5 federated contexts against local kind (SC-002); record the result in research.md (Partial: backend measured live at 0.092% of one core, debug build, 5 kind contexts, 120s window under loadavg ~15-26; the WebKitGTK webview's idle cost and the 100ms input target were not measured because no WebDriver is available on this host; see checklists/live-validation.md)
+- [x] T031 [P] Reachability recovery test (SC-004) against a stopped/started kind control plane (live 2026-09-26: the first run found the error surfacing about 30s after failure; fixed `UNREACHABLE_AFTER` 30s->10s and `DEGRADED_TICK` 5s->2s; rerun showed the error 10.1s after failure and recovery 9.0s after the apiserver was ready; see checklists/live-validation.md)
 - [X] T032 Update `docs/MVP.md` §14 Tier D and the status table (P2 shipped) and note federation in the fleet docs
 - [X] T033 Run quickstart.md end to end (gates only; not exercised against a live cluster); `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `pnpm -C ui lint typecheck test`, Playwright
 - [x] T034 Brochure/marketing screenshots of the Federation view (final step of the batch) (Done: wide-federation-fleet, real two-context capture.)
