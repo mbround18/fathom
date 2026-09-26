@@ -68,8 +68,25 @@ function PrerequisitesBanner() {
   )
 }
 
+/**
+ * Seconds since the operation view mounted, ticking once a second while `active`. kind prints
+ * nothing for ~10 s while the control plane starts (measured live, T050), so a moving counter
+ * keeps the view from looking frozen between stage lines (SC-004).
+ */
+function useElapsedSeconds(active: boolean): number {
+  const [startedAt] = useState(() => Date.now())
+  const [now, setNow] = useState(startedAt)
+  useEffect(() => {
+    if (!active) return
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [active])
+  return Math.max(0, Math.floor((now - startedAt) / 1000))
+}
+
 function ProgressView({ op }: { op: KindOperation }) {
   const request = useStore((s) => s.request)
+  const elapsed = useElapsedSeconds(op.status === 'in-progress')
   return (
     <div
       className="flex items-center justify-between gap-2 text-xs"
@@ -80,6 +97,14 @@ function ProgressView({ op }: { op: KindOperation }) {
       <span>
         {op.kind === 'create' ? 'Creating' : 'Deleting'} {op.clusterName}:{' '}
         {op.status === 'in-progress' && (op.stage ?? 'Starting…')}
+        {op.status === 'in-progress' && (
+          <span
+            className="ml-1 text-muted-foreground tabular-nums"
+            data-testid="kind-progress-elapsed"
+          >
+            ({elapsed}s)
+          </span>
+        )}
         {op.status === 'complete' && 'done'}
         {op.status === 'cancelled' && 'cancelled'}
         {op.status === 'failed' && (

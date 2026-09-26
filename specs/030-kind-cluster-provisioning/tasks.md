@@ -280,11 +280,14 @@ prompt blocks until confirmed, and the cluster disappears from both the panel an
       violations introduced by `src/backend/kind.rs` and `src/protocol/v1/kind_cluster.rs`.
 - [x] T049 Run `cargo test` and `pnpm -C ui test:e2e` (or the project's Playwright invocation)
       for the full new suite; confirm all tasks' tests pass.
-- [ ] T050 Execute quickstart.md's manual validation scenarios end-to-end against a real local
+- [x] T050 Execute quickstart.md's manual validation scenarios end-to-end against a real local
       `kind` + Docker/Podman install, at least once, to confirm the automated tests match real
       tool behavior (kind's actual progress-line wording, actual `kind get clusters` output
-      format).
-- [ ] T051 [P] Update `docs/FEATURE_BACKLOG.md` if needed to note that local kind provisioning
+      format). (Done 2026-09-26 against real kind v0.27.0 + Docker via the headless real backend;
+      all 5 scenarios passed; the 9.4s silent control-plane start led to an elapsed counter in the
+      progress view. UI dialogs covered by the fake-backend e2e; Podman not tried. See
+      checklists/live-validation.md.)
+- [x] T051 [P] Update `docs/FEATURE_BACKLOG.md` if needed to note that local kind provisioning
       (narrower than the previously-declined general cluster lifecycle scope) has shipped, per
       the task's context about reversing part of an earlier scoping call.
 
