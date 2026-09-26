@@ -26,6 +26,7 @@
     "vitest.config.ts",
     "playwright.config.ts",
     "playwright.live.config.ts",
+    "playwright.hosted.config.ts",
     "playwright.promo.config.ts",
     "eslint.config.js"
   ]
