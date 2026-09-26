@@ -22,10 +22,30 @@ Requires: docker, kind, kubectl (with kustomize), helm.
 ```
 PROVIDER=rauthy   k8s/cluster.sh up-hosted   # kind cluster fathom-oidc-rauthy: OIDC API server + ingress-nginx + Rauthy + RBAC fixtures
 PROVIDER=keycloak k8s/cluster.sh up-hosted   # kind cluster fathom-oidc-keycloak (API-server OIDC flags are fixed at create time)
+PROVIDER=... k8s/cluster.sh install-hosted          # rebuild + kind load the image, helm upgrade --install (SKIP_BUILD=1 to reuse)
+PROVIDER=... k8s/cluster.sh test-hosted-lifecycle   # helm upgrade (both access models) + uninstall; asserts nothing is left
 PROVIDER=... k8s/cluster.sh down-hosted
+PROVIDER=... [FATHOM_HOSTED_IP=<node ip>] pnpm -C ui e2e:hosted   # live login/RBAC/exec/port-forward suite
 ```
 
+`up-hosted` ends with `helm upgrade --install fathom deploy/helm/fathom -n fathom -f overlays/hosted/values-$PROVIDER.yaml`
+(image `HOSTED_IMAGE`, default `fathom-server:hosted-dev`, built from `deploy/Dockerfile` and `kind load`ed; `SKIP_INSTALL=1`
+stops after the IdP). It waits for the rollout and for `/readyz` through the ingress, then prints the users.
+
 - Hostnames `auth.localtest.me`, `keycloak.localtest.me`, `fathom.localtest.me` resolve to 127.0.0.1 publicly; host ports 80/443 are bound, so run one provider cluster at a time.
+- DNS: `*.localtest.me` is public wildcard DNS for 127.0.0.1, so a browser on the host reaches the ingress through the host
+  ports. Inside the cluster the same names must reach ingress-nginx instead: the API server (host network) via node `/etc/hosts`
+  entries, pods (fathom-server doing OIDC discovery/token calls) via CoreDNS `rewrite` rules. The issuer URL is therefore identical
+  for the browser, fathom-server and the API server, which is what OIDC requires.
+- Host ports: `HOST_PORTS=auto` (default) binds 80/443 only when they are free. When another hosted cluster owns them, the
+  cluster is created without host ports and is reached on the kind node's docker IP (printed by the script): Chromium via
+  `--host-resolver-rules` (set `FATHOM_HOSTED_IP` for `e2e:hosted`), curl via `--resolve name:443:<ip>`. This lets a Rauthy
+  and a Keycloak cluster run side by side.
+- CA: the throwaway CA signs one leaf for all three names (secret `idp-tls` in the IdP namespace and in `fathom`). fathom-server
+  trusts it through Helm `oidc.caSecret` (secret `fathom-oidc-ca`, created by the script); the API server through
+  `--oidc-ca-file`; browsers either import `k8s/.tmp/ca.crt` or (the e2e suite) ignore certificate errors.
+- Provider differences are values only (`overlays/hosted/values-<provider>.yaml`, FR-020). Keycloak rejects unknown scopes, so
+  its values drop the `groups` scope (the realm's group mapper adds the claim).
 - `.tmp/` (git-ignored) holds a throwaway CA + leaf cert; the script mounts the CA into the API server (`--oidc-ca-file`), injects node `/etc/hosts` entries (API server) and CoreDNS `rewrite` rules (pods) pointing the names at ingress-nginx.
 - Issuers: Rauthy `https://auth.localtest.me/auth/v1/` (trailing slash is part of the issuer), Keycloak `https://keycloak.localtest.me/realms/fathom`. Client `fathom` (confidential, PKCE S256, 60 s token lifetime), secret in `addons/<provider>`.
 - Users `alice` (group `fathom-viewers`, view everywhere), `bob` (`fathom-editors`, edit in `demo`), `carol` (no group), all with password `FathomDemo#2026-Pw1`; IdP admin `admin@fathom.test`/`admin` with `FathomAdmin#2026-Pw1`. RBAC: `samples/hosted-rbac.yaml`. Dev-only static secrets, disposable clusters only.

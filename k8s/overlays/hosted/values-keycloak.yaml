@@ -1,0 +1,33 @@
+# Helm values for the kind hosted overlay with Keycloak (spec 031, T044/T045). Used by
+#   PROVIDER=keycloak k8s/cluster.sh up-hosted   (helm upgrade --install fathom deploy/helm/fathom -f <this>)
+# Dev-only static client secret: disposable kind clusters only. Provider differences live in these
+# values files, never in code (FR-020).
+externalUrl: https://fathom.localtest.me
+oidc:
+  issuer: https://keycloak.localtest.me/realms/fathom
+  clientId: fathom
+  clientSecret: fathomdevclientsecretfathomdevclientsecretfathomdevclientsecretf
+  caSecret: fathom-oidc-ca                   # created by cluster.sh from k8s/.tmp/ca.crt
+  # Keycloak rejects unknown scopes (`invalid_scope`); `groups` comes from the client's group mapper
+  scopes: [openid, profile, email]
+accessModel: passthrough
+kubeToken: id
+accessProbeNamespaces: [demo]   # bob's RoleBinding lives in demo
+image:
+  repository: fathom-server                  # cluster.sh overrides from HOSTED_IMAGE
+  tag: hosted-dev
+  pullPolicy: Never                          # kind load'ed by cluster.sh
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    # WebSocket: keep idle /ws connections open (ingress-nginx default read timeout is 60 s)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  tls: [{hosts: [fathom.localtest.me], secretName: idp-tls}]
+session:
+  refreshGraceSeconds: 60
+  revalidateSeconds: 30                      # short: revocation tests (SC-005) observe it quickly
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 2Gi}

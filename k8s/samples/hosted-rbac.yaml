@@ -18,7 +18,9 @@ spec:
       containers:
         - name: sleep
           image: busybox:1.37
-          command: [sleep, infinity]
+          # exec target (busybox sh) and port-forward target: answers `fathom-pf-ok` on 8080
+          command: [sh, -c, "while true; do echo fathom-pf-ok | nc -l -p 8080; done"]
+          ports: [{name: echo, containerPort: 8080}]
           resources: {requests: {cpu: 10m, memory: 16Mi}}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
