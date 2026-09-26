@@ -34,10 +34,10 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Port-forward rich UI (backend already shipped, no frontend panel yet) | ✅ | 009-port-forward-ui |
 | Container image layer inspection | ✅ | see §9a |
 | Access Control (RBAC/OAuth/OIDC, role-scoped UI) | ✅ | 011-rbac-oidc-administration (cluster-admin RBAC browse/create/edit/delete + namespace-access lookup + OIDC issuer config generator; see §14 Tier C) plus 033-rauthy-oidc-teams-users (OIDC sign-in, per-context bearer auth, capability-scoped UI, IdP directory; live cluster validation partial, see §14 Tier B) |
-| In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | 🚧 | P1 (multi-context sidebar + live status) and P2 (034 simultaneous federation, live cross-cluster overview) shipped — see §14 Tier D; 036 in-cluster daemon shipped (aggregated API, per-user filtering, live topology, metrics ring); cloud-auth plugins live-cloud verification still open |
+| In-cluster context daemon / multi-cloud federation (AKS/GKE/EKS) | 🚧 | P1 (multi-context sidebar + live status) and P2 (034 simultaneous federation, live cross-cluster overview) shipped — see §14 Tier D; 036 in-cluster daemon shipped (aggregated API, per-user filtering, live topology, metrics ring, warm pod/event snapshots with snapshot-then-delta client: first pod list 810 ms vs 1,311 ms direct at 5k pods; render peaks 156–179 MiB still exceed the 150 MiB budget); cloud-auth plugins live-cloud verification still open |
 | Agent SDK ops (AI-assist troubleshooting, BYOK/local) | ✅ | 013-agent-sdk-ops |
 | Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) delivered by 033-rauthy-oidc-teams-users (automated tests only; live multi-user validation not run) — see §14 Tier F |
-| Hosted server mode (in-cluster web UI, OIDC sign-in, per-user RBAC) | 🚧 | 031-hosted-server-mode — `fathom-server` + Helm chart; pass-through and impersonation access models; per-user backends with isolated state; attributed, append-only audit log (own entries, or all for `audit.viewerGroups`); security review done (`specs/031-hosted-server-mode/security-review.md`); operator guide `docs/HOSTED.md`; remaining: live provider suites (Rauthy/Keycloak), upgrade/uninstall e2e, soak test |
+| Hosted server mode (in-cluster web UI, OIDC sign-in, per-user RBAC) | 🚧 | 031-hosted-server-mode — `fathom-server` + Helm chart; pass-through and impersonation access models; per-user backends with isolated state; attributed, append-only audit log (own entries, or all for `audit.viewerGroups`); security review done (`specs/031-hosted-server-mode/security-review.md`); operator guide `docs/HOSTED.md`; live Chromium login/RBAC/revocation suite passes on Rauthy and Keycloak (2026-09-26); remaining: 25-user soak (written, not run), Helm upgrade/uninstall check (written, not run), WebKit pass, distroless-image verification, ~79 cluster-wide `Api::all` call sites that fail for namespace-only users |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ✅ | 038-sdk-login-ollama (GitHub device flow, Claude/OpenAI keys in the OS keyring, Ollama detection and model picker, offline mode; provider calls verified against mocks only, no live credentials) |
 | Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | 🚧 | `037-node-shell` — privileged debug pod pinned to a node with confirm, SSAR pre-check, guaranteed cleanup and orphan sweep; shipped incl. settings and a11y e2e; validated on kind (Linux only); remaining: T030 Tier 1 platform runs; brochure shots captured |
 | Command palette | ✅ | 016-command-palette |
@@ -51,7 +51,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Fleet rollup dashboard (per-context health cards) | ✅ | 027-fleet-rollup-dashboard |
 | Knative pane | ✅ | 028-knative-pane |
 | In-app local kind cluster provisioning | ✅ | 030-kind-cluster-provisioning |
-| Hosted server mode (in-cluster web app with OIDC login) | 🚧 | 031-hosted-server-mode — core server, OIDC login, per-user tenancy shipped; hosted audit sink, live multi-provider login suite, soak test, security review and operator guide still open |
+| Hosted server mode (in-cluster web app with OIDC login) | 🚧 | 031-hosted-server-mode — server, OIDC login, per-user tenancy, audit sink, security review and operator guide shipped; live suite passes on Rauthy and Keycloak; soak, upgrade/uninstall and WebKit runs still open (see Status Summary) |
 | Managed-cloud auth plugins (EKS/GKE/AKS exec credentials) | 🚧 | 035-cloud-auth-plugins — implemented; live EKS/GKE/AKS and Windows/macOS manual checks pending |
 | Observability settings persistence (Prometheus/Grafana, secrets in OS keyring) | ✅ | 039-observability-settings |
 
@@ -669,3 +669,12 @@ All ten originally suggested slices (Applications, interlinking, Helm read and m
 2. **Release pipeline** — `release.yml` builds Linux x64/arm64, macOS and Windows bundles via `tauri-action`, but has no code signing or notarization and no release has been tagged (version `0.1.0`).
 3. **Tier 1 platform validation** — `001` T126 (quickstart on Ubuntu 26.04, Windows 11, macOS 26) is deferred pending funding; several features (`035`, `037`) are validated on Linux/kind only.
 4. **Hosted server mode (`031`)** — optional for a desktop MVP; the open items are listed in the Status Summary row.
+5. **E2E stability** — the full Playwright suite (14 Chromium/WebKit projects) runs about 4,740 passed with 15–29 failures under parallel load, all in the same areas: WebKit clipboard, node actions and node shell, the `perf-10k` budget and the topology camera. Most pass on a serial re-run. These must be fixed or quarantined before CI can go green.
+
+### Live validation, 2026-09-26 (local kind)
+
+- **Passed live:** 002 T034 (after fixing terminal keystroke order, orphaned shells, initial PTY size and a log stop/start race), 004 T058, 021 T045, 026 T035, 039 T023, 033 T023, 030. 034 SC-004 fixed; SC-002 measured at 0.092% idle CPU.
+- **Partial (the rest is covered by unit tests only):** 002 T031 (promo: Hubble and daemon scenes need those installed), 006 T036, 026 T036, 039 T024.
+- **Fixed along the way:** every `helm` call is now pinned to Fathom's selected context (it previously followed the kubeconfig's current context); Helm rollback now changes the cluster; Trivy reports for Deployment pods are found.
+- **031:** see the Status Summary row. **036:** T033–T036 and T052 done; T037 partial (render peaks over budget).
+- **035 / 037:** validated on Linux only.
