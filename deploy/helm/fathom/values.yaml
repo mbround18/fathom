@@ -13,6 +13,9 @@ claims:
   groupsPrefix: "oidc:"
 accessModel: passthrough   # or impersonation
 kubeToken: id
+# Namespaces (besides `default` and the release namespace) where the sign-in access probe
+# looks for namespace-scoped permissions before showing a user the no-access state.
+accessProbeNamespaces: []
 impersonation:
   resourceNames: []        # optional: restrict impersonate to these names
 ingress:

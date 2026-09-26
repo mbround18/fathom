@@ -25,6 +25,7 @@
     },
     "accessModel": {"enum": ["passthrough", "impersonation"]},
     "kubeToken": {"enum": ["id", "access"]},
+    "accessProbeNamespaces": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "impersonation": {"type": "object", "properties": {"resourceNames": {"type": "array", "items": {"type": "string"}}}},
     "ingress": {"type": "object", "properties": {
       "enabled": {"type": "boolean"}, "className": {"type": "string"},
