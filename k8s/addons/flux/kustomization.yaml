@@ -1,0 +1,7 @@
+# Flux v2 controllers (source, kustomize, helm, notification) in flux-system.
+# Needed by dev/sandbox/helm.yaml (the Flux-managed `podinfo` HelmRelease) and by the
+# Applications (004) / Helm mutate (006) GitOps-attribution scenarios.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/fluxcd/flux2/releases/download/v2.9.5/install.yaml

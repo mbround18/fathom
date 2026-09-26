@@ -18,7 +18,7 @@ import { expect, type Page, test } from '@playwright/test'
 
 import type { KubeadmDetectionResult } from '../../src/protocol/types'
 import { batch, globalRoute, read } from '../fixtures/builders'
-import { emit, navigateTo, open, sent } from './helpers'
+import { emit, navigateTo, open, prepareClipboard, readClipboard, sent } from './helpers'
 
 const SECTION = 'access/oidc-config'
 
@@ -74,8 +74,8 @@ test.describe('US5 OIDC config generator', () => {
     await expect(output.getByTestId('rbac-oidc-provider-aks')).toBeVisible()
   })
 
-  test('copy button copies the flags to the clipboard', async ({ page, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  test('copy button copies the flags to the clipboard', async ({ page, context, browserName }) => {
+    await prepareClipboard(page, context, browserName)
     const view = await openGenerator(page)
     await fillForm(page, view)
     await view.getByTestId('rbac-oidc-generate').click()
@@ -85,7 +85,7 @@ test.describe('US5 OIDC config generator', () => {
     await expect(copyButton).toBeEnabled()
     await copyButton.click()
 
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
+    const clipboardText = await readClipboard(page, browserName)
     expect(clipboardText).toContain('--oidc-issuer-url=https://accounts.example.com')
   })
 

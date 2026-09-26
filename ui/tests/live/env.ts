@@ -6,7 +6,16 @@ export const SANDBOX_LABEL = ['fathom.dev/sandbox', 'true'] as const
 /** Every object a live spec creates carries this label; `restoreBaseline` deletes them. */
 export const E2E_LABEL = ['fathom.dev/e2e', 'true'] as const
 
-export const APP_ORIGIN = 'http://localhost:4174'
+/**
+ * Port of the `--mode live` UI preview (default 4174). `FATHOM_LIVE_UI_PORT` moves it, so two
+ * worktrees can run the live or promo suite at the same time.
+ */
+export const APP_PORT = Number(process.env.FATHOM_LIVE_UI_PORT ?? 4174)
+export const APP_ORIGIN = `http://localhost:${String(APP_PORT)}`
+/** Build and serve the live bundle on `APP_PORT` (playwright webServer command). */
+export const LIVE_SERVE_COMMAND =
+  'pnpm exec vite build --mode live --outDir dist-live && ' +
+  `pnpm exec vite preview --outDir dist-live --port ${String(APP_PORT)} --strictPort`
 
 /** Process env the global setup fills in for the workers (never written to disk). */
 export const ENV = {

@@ -10,13 +10,10 @@ use std::io::Read;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
-use k8s_openapi::ByteString;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::{
     Client, ResourceExt,
-    api::{Api, ListParams, Patch, PatchParams, PostParams},
-    core::ObjectMeta,
+    api::{Api, ListParams},
 };
 use serde_json::Value;
 
@@ -43,15 +40,6 @@ const FLUX_HELMRELEASE_NAMESPACE_LABEL: &str = "helm.toolkit.fluxcd.io/namespace
 const FLUX_KUSTOMIZATION_NAME_LABEL: &str = "kustomize.toolkit.fluxcd.io/name";
 const FLUX_KUSTOMIZATION_NAMESPACE_LABEL: &str = "kustomize.toolkit.fluxcd.io/namespace";
 
-/// Which Kubernetes object kind backs a release's storage entry — Helm 3 defaults to `Secret`
-/// but supports `ConfigMap` storage too; rollback writes must target whichever kind the
-/// release already uses (data-model.md).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StorageKind {
-    Secret,
-    ConfigMap,
-}
-
 /// One Helm release-storage object, decoded far enough to attribute and sort it, with its full
 /// payload lazily available for the currently-selected revision only.
 struct StorageObject {
@@ -61,10 +49,6 @@ struct StorageObject {
     status_label: String,
     /// `Some` once base64/gzip/JSON decode succeeded; `None` means `degraded: true`.
     payload: Option<Value>,
-    /// The underlying Secret/ConfigMap's own `metadata.name` (needed to patch it, e.g. when
-    /// superseding it on rollback).
-    object_name: String,
-    kind: StorageKind,
 }
 
 /// base64-decode, gunzip, then JSON-parse Helm's release-storage payload. Unit-testable
@@ -166,8 +150,6 @@ fn storage_object_from_secret(secret: &Secret) -> Option<StorageObject> {
         revision,
         status_label,
         payload,
-        object_name: secret.name_any(),
-        kind: StorageKind::Secret,
     })
 }
 
@@ -191,8 +173,6 @@ fn storage_object_from_configmap(cm: &ConfigMap) -> Option<StorageObject> {
         revision,
         status_label,
         payload,
-        object_name: cm.name_any(),
-        kind: StorageKind::ConfigMap,
     })
 }
 
@@ -574,10 +554,6 @@ pub async fn helm_binary_available() -> bool {
         .is_ok_and(|out| out.status.success())
 }
 
-fn helm_storage_object_name(release: &str, revision: i64) -> String {
-    format!("sh.helm.release.v1.{release}.v{revision}")
-}
-
 fn infra_failure(
     action: HelmMutationAction,
     stage: HelmMutationStage,
@@ -749,34 +725,6 @@ fn check_uninstall_preconditions(
     Ok(())
 }
 
-/// Clones `source`'s decoded release payload for a new revision (rollback semantics: chart,
-/// values/config, and manifest carry over verbatim from the target revision; only `version`
-/// and `info` are updated) — pure, unit-testable without a cluster.
-fn payload_for_new_revision(source: &Value, new_revision: i64, description: String) -> Value {
-    let mut payload = source.clone();
-    if let Some(obj) = payload.as_object_mut() {
-        obj.insert("version".to_owned(), serde_json::json!(new_revision));
-        let now = k8s_openapi::chrono::Utc::now().to_rfc3339();
-        let info = obj
-            .entry("info")
-            .or_insert_with(|| Value::Object(Default::default()));
-        if let Some(info_obj) = info.as_object_mut() {
-            info_obj.insert("status".to_owned(), serde_json::json!("deployed"));
-            info_obj.insert("last_deployed".to_owned(), serde_json::json!(now));
-            info_obj.insert("description".to_owned(), serde_json::json!(description));
-        }
-    }
-    payload
-}
-
-fn encode_release_payload(payload: &Value) -> anyhow::Result<String> {
-    let json_bytes = serde_json::to_vec(payload)?;
-    let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
-    std::io::Write::write_all(&mut encoder, &json_bytes)?;
-    let gz_bytes = encoder.finish()?;
-    Ok(BASE64.encode(gz_bytes))
-}
-
 /// Computes the rollback diff-preview for `release`/`target_revision` without mutating
 /// anything (FR-002). Reuses `resolve_release_origin` unmodified for `gitops_warning`
 /// (research.md R5).
@@ -823,9 +771,14 @@ pub(super) async fn preview_helm_rollback(
 }
 
 /// Applies a previously previewed rollback (FR-001/FR-002): re-checks `base_revision`
-/// against the release's live revision (stale-preview guard, T012), then writes a new
-/// release-storage revision entry cloned from the target revision's payload — standard Helm
-/// rollback semantics (creates a new revision, does not delete intervening ones).
+/// against the release's live revision (stale-preview guard, T012) and that the target
+/// revision's payload decodes, then runs `helm rollback` pinned to the selected context.
+///
+/// Deviation from research.md R4 ("rollback needs no helm binary"): writing only a new
+/// release-storage entry recorded the rollback in Helm's history but never applied the target
+/// manifest to the cluster (the workloads kept running the rolled-back-from revision), and left
+/// the previous revision's payload `deployed`. `helm rollback` performs both, with Helm's own
+/// hook and supersede semantics.
 pub(super) async fn apply_helm_rollback(
     state: &BackendState,
     namespace: &str,
@@ -835,6 +788,20 @@ pub(super) async fn apply_helm_rollback(
 ) -> Result<HelmMutationApplied, HelmMutationFailed> {
     let action = HelmMutationAction::Rollback;
     let apply_stage = HelmMutationStage::Apply;
+    guard_helm_available(
+        namespace,
+        release,
+        action,
+        apply_stage,
+        helm_binary_available().await,
+    )?;
+    let target_ctx = HelmTarget::for_context(
+        state.cluster.current_context.as_deref(),
+        namespace,
+        release,
+        action,
+        apply_stage,
+    )?;
 
     let client = state
         .cluster
@@ -862,7 +829,7 @@ pub(super) async fn apply_helm_rollback(
 
     check_base_revision(action, namespace, release, current.revision, base_revision)?;
 
-    let Some(target_payload) = &target.payload else {
+    if target.payload.is_none() {
         return Err(HelmMutationFailed {
             namespace: namespace.to_owned(),
             release: release.to_owned(),
@@ -875,23 +842,38 @@ pub(super) async fn apply_helm_rollback(
         });
     };
 
-    let new_revision = current.revision + 1;
-    let description = format!("Rollback to {target_revision}");
-    let new_payload = payload_for_new_revision(target_payload, new_revision, description);
-    let encoded = encode_release_payload(&new_payload)
-        .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
-
-    write_new_revision(
-        &client,
-        namespace,
-        release,
-        current.kind,
-        &current.object_name,
-        new_revision,
-        &encoded,
-    )
-    .await
-    .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
+    let output = tokio::process::Command::new("helm")
+        .args(rollback_args(
+            &target_ctx,
+            namespace,
+            release,
+            target_revision,
+        ))
+        .output()
+        .await
+        .map_err(|e| {
+            mutation_failed(
+                namespace,
+                release,
+                action,
+                apply_stage,
+                format!("Failed to run `helm rollback`: {e}"),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(mutation_failed(
+            namespace,
+            release,
+            action,
+            apply_stage,
+            helm_error_message(&output),
+        ));
+    }
+    let new_revision = current_release_revision(&client, namespace, release)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(current.revision + 1);
 
     Ok(HelmMutationApplied {
         namespace: namespace.to_owned(),
@@ -899,81 +881,6 @@ pub(super) async fn apply_helm_rollback(
         action,
         new_revision: Some(new_revision),
     })
-}
-
-/// Writes a new release-storage object for `new_revision` (matching the release's existing
-/// `Secret`/`ConfigMap` storage kind) and marks the previous current object as `superseded`.
-async fn write_new_revision(
-    client: &Client,
-    namespace: &str,
-    release: &str,
-    kind: StorageKind,
-    current_object_name: &str,
-    new_revision: i64,
-    encoded_payload: &str,
-) -> anyhow::Result<()> {
-    let object_name = helm_storage_object_name(release, new_revision);
-    let mut labels = std::collections::BTreeMap::new();
-    labels.insert(HELM_OWNER_LABEL.to_owned(), HELM_OWNER_VALUE.to_owned());
-    labels.insert(HELM_NAME_LABEL.to_owned(), release.to_owned());
-    labels.insert(HELM_STATUS_LABEL.to_owned(), "deployed".to_owned());
-    labels.insert(HELM_VERSION_LABEL.to_owned(), new_revision.to_string());
-
-    let supersede_patch = serde_json::json!({
-        "metadata": { "labels": { HELM_STATUS_LABEL: "superseded" } }
-    });
-
-    match kind {
-        StorageKind::Secret => {
-            let api: Api<Secret> = Api::namespaced(client.clone(), namespace);
-            let mut data = std::collections::BTreeMap::new();
-            data.insert(
-                HELM_RELEASE_DATA_KEY.to_owned(),
-                ByteString(encoded_payload.as_bytes().to_vec()),
-            );
-            let secret = Secret {
-                metadata: ObjectMeta {
-                    name: Some(object_name),
-                    namespace: Some(namespace.to_owned()),
-                    labels: Some(labels),
-                    ..Default::default()
-                },
-                type_: Some("helm.sh/release.v1".to_owned()),
-                data: Some(data),
-                ..Default::default()
-            };
-            api.create(&PostParams::default(), &secret).await?;
-            api.patch(
-                current_object_name,
-                &PatchParams::default(),
-                &Patch::Merge(&supersede_patch),
-            )
-            .await?;
-        }
-        StorageKind::ConfigMap => {
-            let api: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
-            let mut data = std::collections::BTreeMap::new();
-            data.insert(HELM_RELEASE_DATA_KEY.to_owned(), encoded_payload.to_owned());
-            let cm = ConfigMap {
-                metadata: ObjectMeta {
-                    name: Some(object_name),
-                    namespace: Some(namespace.to_owned()),
-                    labels: Some(labels),
-                    ..Default::default()
-                },
-                data: Some(data),
-                ..Default::default()
-            };
-            api.create(&PostParams::default(), &cm).await?;
-            api.patch(
-                current_object_name,
-                &PatchParams::default(),
-                &Patch::Merge(&supersede_patch),
-            )
-            .await?;
-        }
-    }
-    Ok(())
 }
 
 /// The current (highest-`version`) revision for `(namespace, release)`, or `None` if no
@@ -997,6 +904,7 @@ async fn current_release_revision(
 /// step exists for uninstall (data-model.md), so this goes straight from guard to subprocess.
 pub(super) async fn uninstall_helm_release(
     client: &Client,
+    target: &HelmTarget,
     namespace: &str,
     release: &str,
     base_revision: i64,
@@ -1045,7 +953,7 @@ pub(super) async fn uninstall_helm_release(
     )?;
 
     let output = tokio::process::Command::new("helm")
-        .args(["uninstall", release, "-n", namespace])
+        .args(uninstall_args(target, namespace, release))
         .output()
         .await
         .map_err(|e| HelmMutationFailed {
@@ -1078,6 +986,55 @@ pub(super) async fn uninstall_helm_release(
         action: HelmMutationAction::Uninstall,
         new_revision: None,
     })
+}
+
+/// Which cluster a `helm` subprocess acts on. Every mutating `helm` shell-out MUST carry one, so
+/// that it targets Fathom's selected context instead of whatever the kubeconfig's
+/// `current-context` happens to be (another tool, or another Fathom window, may have switched it,
+/// possibly to a production cluster).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct HelmTarget {
+    pub(super) kube_context: String,
+    /// The kubeconfig file Fathom itself loaded (first readable `KUBECONFIG` entry, else
+    /// `~/.kube/config`), so `helm` resolves the context name from the same file.
+    pub(super) kubeconfig: Option<std::path::PathBuf>,
+}
+
+impl HelmTarget {
+    /// Resolves the target from Fathom's active context; refuses (instead of falling back to the
+    /// kubeconfig default) when no context is selected.
+    pub(super) fn for_context(
+        current_context: Option<&str>,
+        namespace: &str,
+        release: &str,
+        action: HelmMutationAction,
+        stage: HelmMutationStage,
+    ) -> Result<Self, HelmMutationFailed> {
+        match current_context {
+            Some(ctx) if !ctx.trim().is_empty() => Ok(Self {
+                kube_context: ctx.to_owned(),
+                kubeconfig: super::kube::kubeconfig_path(),
+            }),
+            _ => Err(mutation_failed(
+                namespace,
+                release,
+                action,
+                stage,
+                "No active Kubernetes context is selected; refusing to run helm against the kubeconfig default.",
+            )),
+        }
+    }
+
+    /// Global `helm` flags pinning the subprocess to this target.
+    fn args(&self) -> Vec<std::ffi::OsString> {
+        let mut args: Vec<std::ffi::OsString> =
+            vec!["--kube-context".into(), self.kube_context.clone().into()];
+        if let Some(path) = &self.kubeconfig {
+            args.push("--kubeconfig".into());
+            args.push(path.clone().into_os_string());
+        }
+        args
+    }
 }
 
 fn mutation_failed(
@@ -1115,7 +1072,7 @@ fn guard_helm_available(
         release,
         action,
         stage,
-        "The `helm` binary was not found on PATH. Upgrade requires helm to be installed and reachable.",
+        "The `helm` binary was not found on PATH. Helm upgrade, rollback and uninstall require helm to be installed and reachable.",
     ))
 }
 
@@ -1278,6 +1235,7 @@ fn write_chart_file(root: &std::path::Path, file: &Value) -> anyhow::Result<()> 
 /// `values_yaml` via stdin (integrations.rs:352-style async subprocess shellout — spawn, no
 /// blocking calls). `dry_run` selects preview vs. real apply.
 async fn run_helm_upgrade(
+    target: &HelmTarget,
     release: &str,
     chart_dir: &std::path::Path,
     namespace: &str,
@@ -1287,16 +1245,7 @@ async fn run_helm_upgrade(
     use tokio::io::AsyncWriteExt;
 
     let mut cmd = tokio::process::Command::new("helm");
-    cmd.arg("upgrade")
-        .arg(release)
-        .arg(chart_dir)
-        .arg("-n")
-        .arg(namespace)
-        .arg("-f")
-        .arg("-");
-    if dry_run {
-        cmd.arg("--dry-run");
-    }
+    cmd.args(upgrade_args(target, release, chart_dir, namespace, dry_run));
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
@@ -1312,6 +1261,53 @@ async fn run_helm_upgrade(
         }
     }
     Ok(child.wait_with_output().await?)
+}
+
+/// Argument vector for `helm upgrade`, always pinned to `target` (see [`HelmTarget`]).
+fn upgrade_args(
+    target: &HelmTarget,
+    release: &str,
+    chart_dir: &std::path::Path,
+    namespace: &str,
+    dry_run: bool,
+) -> Vec<std::ffi::OsString> {
+    let mut args = target.args();
+    args.push("upgrade".into());
+    args.push(release.into());
+    args.push(chart_dir.as_os_str().to_owned());
+    args.extend(["-n", namespace, "-f", "-"].map(std::ffi::OsString::from));
+    if dry_run {
+        args.push("--dry-run".into());
+    }
+    args
+}
+
+/// Argument vector for `helm uninstall`, always pinned to `target` (see [`HelmTarget`]).
+fn uninstall_args(target: &HelmTarget, namespace: &str, release: &str) -> Vec<std::ffi::OsString> {
+    let mut args = target.args();
+    args.extend(["uninstall", release, "-n", namespace].map(std::ffi::OsString::from));
+    args
+}
+
+/// Argument vector for `helm rollback`, always pinned to `target` (see [`HelmTarget`]).
+fn rollback_args(
+    target: &HelmTarget,
+    namespace: &str,
+    release: &str,
+    revision: i64,
+) -> Vec<std::ffi::OsString> {
+    let mut args = target.args();
+    args.extend(
+        [
+            "rollback".to_owned(),
+            release.to_owned(),
+            revision.to_string(),
+            "-n".to_owned(),
+            namespace.to_owned(),
+        ]
+        .map(std::ffi::OsString::from),
+    );
+    args
 }
 
 /// `helm`'s own stderr, verbatim (Constitution Principle I); falls back to stdout for the rare
@@ -1350,6 +1346,7 @@ fn extract_revision(stdout: &str) -> Option<i64> {
 /// current release state, without mutating anything (FR-004). Split from `preview_helm_upgrade`
 /// so the shellout/render logic is unit-testable (T021) without a live cluster.
 async fn render_upgrade_preview(
+    target: &HelmTarget,
     namespace: &str,
     release: &str,
     current: CurrentReleaseState,
@@ -1387,17 +1384,24 @@ async fn render_upgrade_preview(
         )
     })?;
 
-    let output = run_helm_upgrade(release, chart_dir.path(), namespace, values_yaml, true)
-        .await
-        .map_err(|e| {
-            mutation_failed(
-                namespace,
-                release,
-                action,
-                stage,
-                format!("Failed to run helm: {e}"),
-            )
-        })?;
+    let output = run_helm_upgrade(
+        target,
+        release,
+        chart_dir.path(),
+        namespace,
+        values_yaml,
+        true,
+    )
+    .await
+    .map_err(|e| {
+        mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            format!("Failed to run helm: {e}"),
+        )
+    })?;
 
     if !output.status.success() {
         return Err(mutation_failed(
@@ -1452,6 +1456,13 @@ pub(super) async fn preview_helm_upgrade(
         stage,
         helm_binary_available().await,
     )?;
+    let target = HelmTarget::for_context(
+        state.cluster.current_context.as_deref(),
+        namespace,
+        release,
+        action,
+        stage,
+    )?;
 
     let current = current_release_state(state, namespace, release)
         .await
@@ -1474,13 +1485,22 @@ pub(super) async fn preview_helm_upgrade(
             )
         })?;
 
-    render_upgrade_preview(namespace, release, current, values_yaml, chart_version).await
+    render_upgrade_preview(
+        &target,
+        namespace,
+        release,
+        current,
+        values_yaml,
+        chart_version,
+    )
+    .await
 }
 
 /// T025: apply a previously previewed upgrade for real (no `--dry-run`) against an already-known
 /// current release state. Split out like `render_upgrade_preview` for the same testability
 /// reason.
 async fn apply_upgrade_with_state(
+    target: &HelmTarget,
     namespace: &str,
     release: &str,
     current: CurrentReleaseState,
@@ -1518,17 +1538,24 @@ async fn apply_upgrade_with_state(
         )
     })?;
 
-    let output = run_helm_upgrade(release, chart_dir.path(), namespace, values_yaml, false)
-        .await
-        .map_err(|e| {
-            mutation_failed(
-                namespace,
-                release,
-                action,
-                stage,
-                format!("Failed to run helm: {e}"),
-            )
-        })?;
+    let output = run_helm_upgrade(
+        target,
+        release,
+        chart_dir.path(),
+        namespace,
+        values_yaml,
+        false,
+    )
+    .await
+    .map_err(|e| {
+        mutation_failed(
+            namespace,
+            release,
+            action,
+            stage,
+            format!("Failed to run helm: {e}"),
+        )
+    })?;
 
     if !output.status.success() {
         return Err(mutation_failed(
@@ -1568,6 +1595,13 @@ pub(super) async fn apply_helm_upgrade(
         stage,
         helm_binary_available().await,
     )?;
+    let target = HelmTarget::for_context(
+        state.cluster.current_context.as_deref(),
+        namespace,
+        release,
+        action,
+        stage,
+    )?;
 
     let current = current_release_state(state, namespace, release)
         .await
@@ -1592,12 +1626,122 @@ pub(super) async fn apply_helm_upgrade(
 
     check_base_revision_fresh(namespace, release, action, current.revision, base_revision)?;
 
-    apply_upgrade_with_state(namespace, release, current, values_yaml, chart_version).await
+    apply_upgrade_with_state(
+        &target,
+        namespace,
+        release,
+        current,
+        values_yaml,
+        chart_version,
+    )
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_target() -> HelmTarget {
+        HelmTarget {
+            kube_context: "kind-test".to_owned(),
+            kubeconfig: Some(std::path::PathBuf::from("/tmp/kubeconfig")),
+        }
+    }
+
+    fn strs(args: Vec<std::ffi::OsString>) -> Vec<String> {
+        args.into_iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn upgrade_args_pin_the_selected_context_and_kubeconfig() {
+        let args = upgrade_args(
+            &test_target(),
+            "redis",
+            std::path::Path::new("/tmp/chart"),
+            "apps",
+            true,
+        );
+        assert_eq!(
+            strs(args),
+            [
+                "--kube-context",
+                "kind-test",
+                "--kubeconfig",
+                "/tmp/kubeconfig",
+                "upgrade",
+                "redis",
+                "/tmp/chart",
+                "-n",
+                "apps",
+                "-f",
+                "-",
+                "--dry-run"
+            ]
+        );
+    }
+
+    #[test]
+    fn rollback_args_pin_the_selected_context() {
+        assert_eq!(
+            strs(rollback_args(&test_target(), "apps", "redis", 1)),
+            [
+                "--kube-context",
+                "kind-test",
+                "--kubeconfig",
+                "/tmp/kubeconfig",
+                "rollback",
+                "redis",
+                "1",
+                "-n",
+                "apps"
+            ]
+        );
+    }
+
+    #[test]
+    fn uninstall_args_pin_the_selected_context() {
+        let target = HelmTarget {
+            kube_context: "ctx-a".to_owned(),
+            kubeconfig: None,
+        };
+        assert_eq!(
+            strs(uninstall_args(&target, "apps", "redis")),
+            [
+                "--kube-context",
+                "ctx-a",
+                "uninstall",
+                "redis",
+                "-n",
+                "apps"
+            ]
+        );
+    }
+
+    #[test]
+    fn helm_target_refuses_without_an_active_context() {
+        for ctx in [None, Some(""), Some("  ")] {
+            let err = HelmTarget::for_context(
+                ctx,
+                "apps",
+                "redis",
+                HelmMutationAction::Uninstall,
+                HelmMutationStage::Apply,
+            )
+            .unwrap_err();
+            assert!(err.message.contains("No active Kubernetes context"));
+        }
+        let ok = HelmTarget::for_context(
+            Some("kind-x"),
+            "apps",
+            "redis",
+            HelmMutationAction::Upgrade,
+            HelmMutationStage::Preview,
+        )
+        .unwrap();
+        assert_eq!(ok.kube_context, "kind-x");
+    }
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use std::io::Write;
@@ -1650,8 +1794,6 @@ mod tests {
                 revision: 1,
                 status_label: "superseded".to_owned(),
                 payload: None,
-                object_name: "sh.helm.release.v1.redis.v1".to_owned(),
-                kind: StorageKind::Secret,
             },
             StorageObject {
                 namespace: "default".to_owned(),
@@ -1659,8 +1801,6 @@ mod tests {
                 revision: 3,
                 status_label: "deployed".to_owned(),
                 payload: None,
-                object_name: "sh.helm.release.v1.redis.v3".to_owned(),
-                kind: StorageKind::Secret,
             },
             StorageObject {
                 namespace: "default".to_owned(),
@@ -1668,8 +1808,6 @@ mod tests {
                 revision: 2,
                 status_label: "superseded".to_owned(),
                 payload: None,
-                object_name: "sh.helm.release.v1.redis.v2".to_owned(),
-                kind: StorageKind::Secret,
             },
         ];
         let current = current_per_release(&objects);
@@ -1685,8 +1823,6 @@ mod tests {
             revision: 1,
             status_label: "deployed".to_owned(),
             payload: None,
-            object_name: "sh.helm.release.v1.redis.v1".to_owned(),
-            kind: StorageKind::Secret,
         };
         let summary = summary_from_storage_object(&obj);
         assert!(summary.degraded);
@@ -1913,9 +2049,16 @@ mod tests {
             origin: None,
         };
 
-        let err = render_upgrade_preview("default", "redis", current, "not: [valid", None)
-            .await
-            .expect_err("invalid values must fail preview");
+        let err = render_upgrade_preview(
+            &test_target(),
+            "default",
+            "redis",
+            current,
+            "not: [valid",
+            None,
+        )
+        .await
+        .expect_err("invalid values must fail preview");
 
         assert_eq!(err.namespace, "default");
         assert_eq!(err.release, "redis");
@@ -2006,8 +2149,6 @@ mod tests {
             revision,
             status_label: "deployed".to_owned(),
             payload: Some(payload),
-            object_name: helm_storage_object_name("redis", revision),
-            kind: StorageKind::Secret,
         }
     }
 
@@ -2018,8 +2159,6 @@ mod tests {
             revision,
             status_label: "superseded".to_owned(),
             payload: None,
-            object_name: helm_storage_object_name("redis", revision),
-            kind: StorageKind::Secret,
         }
     }
 
@@ -2127,33 +2266,6 @@ mod tests {
         let (current, target) = find_current_and_target(&objects, "redis", 99);
         assert!(current.is_some());
         assert!(target.is_none());
-    }
-
-    #[test]
-    fn payload_for_new_revision_updates_version_and_status_keeps_manifest() {
-        let source = serde_json::json!({
-            "name": "redis",
-            "info": {"status": "superseded", "last_deployed": "2024-01-01T00:00:00Z", "description": "old"},
-            "chart": {"metadata": {"name": "redis", "version": "1.2.3"}, "values": {}},
-            "config": {},
-            "manifest": "kind: Service",
-            "version": 1,
-        });
-        let new_payload = payload_for_new_revision(&source, 4, "Rollback to 1".to_owned());
-        assert_eq!(new_payload["version"], 4);
-        assert_eq!(new_payload["info"]["status"], "deployed");
-        assert_eq!(new_payload["info"]["description"], "Rollback to 1");
-        assert_eq!(new_payload["manifest"], "kind: Service");
-        assert_eq!(new_payload["chart"]["metadata"]["version"], "1.2.3");
-    }
-
-    #[test]
-    fn encode_release_payload_roundtrips_through_decode_release_payload() {
-        let payload = serde_json::json!({"name": "redis", "version": 4});
-        let encoded = encode_release_payload(&payload).expect("encode");
-        let decoded = decode_release_payload(&encoded).expect("decode");
-        assert_eq!(decoded["name"], "redis");
-        assert_eq!(decoded["version"], 4);
     }
 
     // --- Helm mutate (006) US3: uninstall precondition guards (T029/T030). These exercise the

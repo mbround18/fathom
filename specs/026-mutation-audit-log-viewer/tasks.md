@@ -284,10 +284,11 @@ entry corresponds to a Kubernetes-API-server-originated event Fathom didn't init
       T012, T017-T028, T031.
 - [x] T034 Run `cargo build --workspace --all-targets` and `cargo test`; confirm all new and
       existing tests pass.
-- [ ] T035 Run `pnpm -C ui test` (Vitest) and the full Playwright suite including
-      `ui/tests/e2e/audit-log.spec.ts`; confirm all pass.
+- [x] T035 Run `pnpm -C ui test` (Vitest) and the full Playwright suite including
+      `ui/tests/e2e/audit-log.spec.ts`; confirm all pass. _(2026-09-26: vitest 1283/1283. All 14 Playwright projects (7 chromium + 7 webkit) gave 4743 passed, 380 skipped and 15 failed at 10-12 workers. 13 of the failures pass when re-run serially (load flakes). The other 2 were a WebKit clipboard harness bug (`grantPermissions` names), now fixed and passing. audit-log.spec.ts passed on every project.)_
 - [ ] T036 Execute the manual validation steps in `quickstart.md` end-to-end at least once against
       a real dev cluster to confirm the automated tests match observed behavior.
+  - (Partial, 2026-09-26: US1 and US2 pass live on kind-fathom-dev via `ui/tests/live/qs-026-audit-log.spec.ts`. Scaling replaced the node cordon, because the devbridge refuses cluster-scoped writes, and a real 404 delete provided the failure. US3.3 (no API-server audit requested) passes. US3 retention (>500 entries) was not driven live and is covered by unit tests only. See checklists/live-validation.md.)
 - [x] T037 Update any relevant top-level docs that enumerate shipped features (e.g.
       `docs/MVP.md` if it exists and is the convention used by prior specs 001-015) to mark
       026-mutation-audit-log-viewer as shipped, following the same pattern as the

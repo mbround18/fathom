@@ -99,6 +99,7 @@ description: "Task list for Pod Logs & Terminal"
 - [x] T029 [US3] Capture one staged Terminal screenshot by hand (interactively, against the existing `web` Deployment pod in `dev/sandbox/workloads.yaml` — `nginxinc/nginx-unprivileged:stable-alpine`, has `/bin/sh` — never the shared live demo cluster used for automated capture) and save it to `ui/tests/promo/assets/terminal-shot.png` (research.md R6, FR-015)
 - [x] T030 [US3] Add Logs (live shot) and Terminal (staged asset) entries to `SHOT_META`/pages in `ui/tests/promo/compose.spec.ts`, following the brochure's existing branded header/footer/watermark/page-numbering treatment (FR-016)
 - [ ] T031 [US3] Run `FATHOM_LIVE_CONTEXT=<demo-context> pnpm -C ui promo`, confirm zero writes reported by the existing `WRITE_CMD`/`expectNoWrites` guard (unchanged), regenerate `promo-out/fathom-promo.pdf` (SC-004)
+  - (Partial, 2026-09-26: ran against kind-fathom-dev with 30 passed, 1 flaky and 4 failed. The failures were environmental: Hubble scenes with no Hubble on kind, and 036 daemon scenes with the daemon not installed. The guard recorded **zero writes**. `WRITE_CMD` was widened to also count `Uninstall*`, `StartPodExec`, `SendPodExecInput` and `StartNodeShell`. The PDF was not regenerated, because brochure work was out of scope for this pass. See checklists/live-validation.md.)
 
 **Checkpoint**: All three user stories independently functional; brochure regenerated.
 
@@ -108,7 +109,7 @@ description: "Task list for Pod Logs & Terminal"
 
 - [x] T032 [P] `cargo clippy --all-targets -- -D warnings` and `cargo test` clean _(done: clippy clean; cargo test --workspace 927 passed)_
 - [x] T033 [P] `pnpm -C ui typecheck` and `pnpm -C ui lint` clean _(done: typecheck clean, lint 0 errors)_
-- [ ] T034 Run all `quickstart.md` validation scenarios end-to-end against a real cluster, confirming SC-001 through SC-004
+- [x] T034 Run all `quickstart.md` validation scenarios end-to-end against a real cluster, confirming SC-001 through SC-004 _(2026-09-26, kind-fathom-dev, `ui/tests/live/qs-002-logs-terminal.spec.ts` 6/6 after fixing keystroke ordering, orphaned exec processes, the initial pty size and the log stop/start race; SC-004 promo zero-writes per T031; results in checklists/live-validation.md)_
 - [x] T035 Verify GPG commit signing is active (`git config commit.gpgsign`/`user.signingkey`, global + no local override) before committing, per standing repo rule _(note: signing verified: commit.gpgsign=true, user.signingkey set)_
 
 ---

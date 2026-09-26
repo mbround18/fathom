@@ -54,9 +54,11 @@ description: "Task list for 039 observability settings"
 
 - [x] T021 Live e2e in `ui/tests/live/` (kind-fathom-dev): save Grafana URL and key, reopen, key shown set, switch context isolation; devbridge pins one context and builds without os-keyring, so live covers URL persistence and re-select, key-set checks run only with a real store
 - [x] T022 Protocol round-trip tests and ts-rs drift check pass (`cargo test --workspace`, regenerated bindings committed)
-- [ ] T023 Gate: `cargo fmt --check`, clippy `--workspace --all-targets`, `cargo test --workspace`, ui typecheck/lint/prettier/vitest, chromium e2e on phone/tablet/laptop/wide
+- [x] T023 Gate: `cargo fmt --check`, clippy `--workspace --all-targets`, `cargo test --workspace`, ui typecheck/lint/prettier/vitest, chromium e2e on phone/tablet/laptop/wide
   - Follow-up (gaps fixed): keyring write is now verified by read-back (FR-010); auto-discover no longer drops a legacy Grafana key; devbridge uses a debug-only memory secret store (FATHOM_DEV_MEMORY_SECRETS). Rust gate green; UI gate and live spec NOT run in this pass (no cluster, no node_modules).
+  - 2026-09-26: full gate green. fmt, clippy -D warnings, cargo test --workspace (921 passed), typecheck, eslint (0 errors), prettier and vitest (1283) all pass. Playwright chromium phone/tablet/laptop/wide + webkit-laptop: 1658 passed; the 3 load flakes pass serially, and the 2 WebKit clipboard harness failures are fixed. See checklists/live-validation.md.
 - [ ] T024 Run `quickstart.md` steps 1-5 including the manual secrecy grep of `~/.fathom/integrations.json` and logs
+  - (Partial, 2026-09-26: steps 1-5 run and pass. Step 1's filter matched 0 tests and is corrected to `settings_tests` (17/17). Step 5 count-only greps found the key 0 times in integrations.json, the debug devbridge log and ~/.fathom. Step 4 did not cover switching to a *different* context or the real OS keyring, because the devbridge pins one context and uses the in-memory store; isolation is covered by unit and fake e2e only. See checklists/live-validation.md.)
 
 ## Dependencies
 

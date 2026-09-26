@@ -118,6 +118,7 @@ description: "Task list for Helm Mutate (Upgrade, Rollback, Uninstall) with GitO
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [ ] T036 [P] Run `quickstart.md`'s manual validation scenarios end-to-end against the dev sandbox (`podinfo` Flux-managed release for GitOps-warning cases, a bare `helm install` release for the no-warning cases), including the `helm`-binary-absent degraded path for upgrade/uninstall.
+  - (Partial, 2026-09-26: S1/S1.6/S2/S2.5/S3 all pass live on kind-fathom-dev via `ui/tests/live/qs-006-helm-mutate.spec.ts`, after fixing helm running against the kubeconfig's current context instead of the selected one, and rollback never reaching the cluster. The helm-binary-absent path was not run live and is covered by unit tests only. See checklists/live-validation.md.)
 - [X] T037 [P] `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test` clean (Constitution Principle III CI gate).
 - [X] T038 [P] `pnpm -C ui lint && pnpm -C ui typecheck && pnpm -C ui test && pnpm -C ui e2e` clean.
 - [X] T039 Update `docs/MVP.md` §5a "Mutate" status from "planned next" to "✅ Shipped" (mirroring the doc-fix pattern already used for 004/005 in this repo), referencing `006-helm-mutate`.

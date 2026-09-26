@@ -33,6 +33,23 @@ pub(super) fn load_kubeconfig() -> anyhow::Result<Kubeconfig> {
     Kubeconfig::read().map_err(|e| anyhow::anyhow!("Failed to load kubeconfig: {}", e))
 }
 
+/// Path of the kubeconfig file `load_kubeconfig` reads (first readable `KUBECONFIG` entry, else
+/// `~/.kube/config`), so subprocesses such as `helm` resolve context names from the same file.
+pub(super) fn kubeconfig_path() -> Option<PathBuf> {
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    if let Ok(list) = std::env::var("KUBECONFIG") {
+        let found = list
+            .split(separator)
+            .map(|p| PathBuf::from(p.trim()))
+            .find(|p| !p.as_os_str().is_empty() && p.exists() && Kubeconfig::read_from(p).is_ok());
+        if found.is_some() {
+            return found;
+        }
+    }
+    let home = dirs::home_dir()?.join(".kube").join("config");
+    home.exists().then_some(home)
+}
+
 /// First readable kubeconfig listed in the KUBECONFIG env var, if any.
 fn load_kubeconfig_from_env() -> Option<Kubeconfig> {
     let kubeconfig_path = std::env::var("KUBECONFIG").ok()?;

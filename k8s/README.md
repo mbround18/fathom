@@ -10,7 +10,7 @@ k8s/cluster.sh apply         # re-apply after editing manifests
 k8s/cluster.sh down          # blow it away; `up` recreates it identically
 ```
 
-- `addons/<name>` — cert-manager, keda, knative (+kourier), gatekeeper, trivy (Helm), velero (Helm + RustFS store)
+- `addons/<name>` — cert-manager, keda, knative (+kourier), gatekeeper, trivy (Helm), velero (Helm + RustFS store), flux (v2 controllers; the fathom-dev sandbox podinfo HelmRelease needs it)
 - `overlays/{full,minimal}` — which addons to install
 - `samples/` — workloads/CRs that populate every pane (apply after addons; CRDs must exist)
 

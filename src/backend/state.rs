@@ -64,14 +64,36 @@ pub(super) struct ExecSessionState {
     pub(super) resize_tx: Option<futures::channel::mpsc::Sender<kube::api::TerminalSize>>,
 }
 
+/// Written to the shell before the exec stream is torn down: Ctrl-C ends the foreground job and
+/// clears the line, then Ctrl-D (EOF on that empty line) ends the shell itself.
+pub(super) const EXEC_HANGUP_INPUT: &[u8] = b"\x03\x04";
+
 impl ExecSessionState {
+    /// Ends the session (FR-011). Closing the exec stream alone is not enough: the container
+    /// runtime keeps an exec'd process (and whatever it started) running after the client
+    /// disconnects, which the live 002 quickstart caught as an orphaned `sleep`. So the shell is
+    /// first asked to exit ([`EXEC_HANGUP_INPUT`]), and the stream is aborted shortly after.
     pub(super) fn stop(&mut self) {
-        if let Some(p) = self.attached.take() {
-            p.abort();
-        }
         abort_task(&mut self.relay_task);
-        self.stdin_writer = None;
         self.resize_tx = None;
+        let attached = self.attached.take();
+        let writer = self.stdin_writer.take();
+        match (attached, writer, tokio::runtime::Handle::try_current()) {
+            (Some(process), Some(mut writer), Ok(rt)) => {
+                rt.spawn(async move {
+                    use tokio::io::AsyncWriteExt;
+                    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+                        writer.write_all(EXEC_HANGUP_INPUT).await?;
+                        writer.flush().await
+                    })
+                    .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    process.abort();
+                });
+            }
+            (Some(process), _, _) => process.abort(),
+            (None, _, _) => {}
+        }
     }
 }
 
