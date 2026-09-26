@@ -16,6 +16,8 @@ const APP_ORIGIN = 'http://localhost:4174'
 
 export default defineConfig({
   testDir: './tests/live',
+  // The prod RBAC specs have their own opt-in config (playwright.prod-rbac.config.ts).
+  testIgnore: /rbac-prod-scoped-.*\.spec\.ts/,
   // The specs share one real namespace (and one backend): strictly one at a time.
   workers: 1,
   fullyParallel: false,

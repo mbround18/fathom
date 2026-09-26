@@ -2,11 +2,64 @@
 
 use fathom::protocol::{BackendCmd, MutationTarget};
 
+/// One object a strict-mode bridge may *create* (never replace, patch or delete).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateTarget {
+    pub kind: String,
+    /// `None` for a cluster-scoped object.
+    pub namespace: Option<String>,
+    pub name: String,
+}
+
+impl CreateTarget {
+    /// Parse `Kind/name` (cluster-scoped) or `Kind/namespace/name` (namespaced).
+    pub fn parse(spec: &str) -> Result<Self, String> {
+        let parts: Vec<&str> = spec.split('/').collect();
+        if parts.iter().any(|p| p.trim().is_empty()) {
+            return Err(format!(
+                "'{spec}': empty segment (expected Kind/name or Kind/namespace/name)"
+            ));
+        }
+        match parts.as_slice() {
+            [kind, name] => Ok(Self {
+                kind: (*kind).to_owned(),
+                namespace: None,
+                name: (*name).to_owned(),
+            }),
+            [kind, ns, name] => Ok(Self {
+                kind: (*kind).to_owned(),
+                namespace: Some((*ns).to_owned()),
+                name: (*name).to_owned(),
+            }),
+            _ => Err(format!(
+                "'{spec}': expected Kind/name or Kind/namespace/name"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for CreateTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.namespace {
+            Some(ns) => write!(f, "{}/{ns}/{}", self.kind, self.name),
+            None => write!(f, "{}/{}", self.kind, self.name),
+        }
+    }
+}
+
 /// Confines cluster writes to one context and one sandbox namespace.
+///
+/// Strict mode (`create_only: Some(..)`, set by `--read-only` / `--allow-create`) replaces the
+/// namespace rule: every cluster write is refused except a `CreateResourceYaml` whose exact
+/// kind/namespace/name is on the allow-list (an empty list is fully read-only). It lets a bridge
+/// be pointed at a non-sandbox cluster for one narrowly scoped, create-only setup (see
+/// `ui/tests/live/rbac-prod-scoped-setup.spec.ts`). `CreateResourceYaml` never replaces an
+/// existing object, and the backend rejects YAML whose identity differs from the declared one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteGuard {
     pub context: String,
     pub write_namespace: String,
+    pub create_only: Option<Vec<CreateTarget>>,
 }
 
 impl WriteGuard {
@@ -14,7 +67,41 @@ impl WriteGuard {
         Self {
             context: context.into(),
             write_namespace: write_namespace.into(),
+            create_only: None,
         }
+    }
+
+    /// Strict mode: only creates of exactly `targets` pass (empty = read-only).
+    #[must_use]
+    pub fn create_only(mut self, targets: Vec<CreateTarget>) -> Self {
+        self.create_only = Some(targets);
+        self
+    }
+
+    fn check_strict(cmd: &BackendCmd, targets: &[CreateTarget]) -> Result<(), String> {
+        if let BackendCmd::CreateResourceYaml {
+            kind,
+            namespace,
+            name,
+            ..
+        } = cmd
+        {
+            let wanted = CreateTarget {
+                kind: kind.clone(),
+                namespace: namespace.clone(),
+                name: name.clone(),
+            };
+            if targets.contains(&wanted) {
+                return Ok(());
+            }
+            return Err(format!(
+                "CreateResourceYaml {wanted} is not on this bridge's --allow-create list"
+            ));
+        }
+        Err(format!(
+            "{} is a cluster write; this bridge is create-only/read-only",
+            variant_name(cmd)
+        ))
     }
 
     /// `Ok` if `cmd` may be forwarded, otherwise the reason it is refused.
@@ -44,6 +131,14 @@ impl WriteGuard {
         }
         match cmd.mutation_target() {
             MutationTarget::ReadOnly | MutationTarget::Local => Ok(()),
+            MutationTarget::ContextSwitch { context } if context == self.context => Ok(()),
+            MutationTarget::ContextSwitch { context } => Err(format!(
+                "SetContext to '{context}' refused; this bridge is pinned to context '{}'",
+                self.context
+            )),
+            _ if self.create_only.is_some() => {
+                Self::check_strict(cmd, self.create_only.as_deref().unwrap_or_default())
+            }
             MutationTarget::ClusterScoped => Err(format!(
                 "{} writes a cluster-scoped resource; only namespace '{}' is writable",
                 variant_name(cmd),
@@ -66,11 +161,6 @@ impl WriteGuard {
                     ))
                 }
             }
-            MutationTarget::ContextSwitch { context } if context == self.context => Ok(()),
-            MutationTarget::ContextSwitch { context } => Err(format!(
-                "SetContext to '{context}' refused; this bridge is pinned to context '{}'",
-                self.context
-            )),
         }
     }
 }
@@ -255,6 +345,109 @@ mod tests {
         ] {
             assert!(g.check(&cmd).is_err(), "{cmd:?}");
         }
+    }
+
+    fn create(kind: &str, namespace: Option<&str>, name: &str) -> BackendCmd {
+        BackendCmd::CreateResourceYaml {
+            api_version: s("rbac.authorization.k8s.io/v1"),
+            kind: s(kind),
+            namespace: namespace.map(s),
+            name: s(name),
+            yaml: String::new(),
+        }
+    }
+
+    #[test]
+    fn create_target_parses_both_scopes() {
+        assert_eq!(
+            CreateTarget::parse("ClusterRoleBinding/x").unwrap(),
+            CreateTarget {
+                kind: s("ClusterRoleBinding"),
+                namespace: None,
+                name: s("x")
+            }
+        );
+        let t = CreateTarget::parse("RoleBinding/ns/x").unwrap();
+        assert_eq!(t.namespace.as_deref(), Some("ns"));
+        assert_eq!(t.to_string(), "RoleBinding/ns/x");
+        for bad in ["", "x", "a//b", "a/b/c/d", "RoleBinding/ns/"] {
+            assert!(CreateTarget::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn strict_mode_allows_only_listed_creates() {
+        let g = guard().create_only(vec![
+            CreateTarget::parse("ClusterRoleBinding/fathom-agent-view").unwrap(),
+            CreateTarget::parse("RoleBinding/fathom-e2e/fathom-agent-admin").unwrap(),
+        ]);
+        assert_eq!(
+            g.check(&create("ClusterRoleBinding", None, "fathom-agent-view")),
+            Ok(())
+        );
+        assert_eq!(
+            g.check(&create("RoleBinding", Some("fathom-e2e"), "fathom-agent-admin")),
+            Ok(())
+        );
+        // Same name, other kind/scope/namespace: refused.
+        for cmd in [
+            create("ClusterRoleBinding", None, "cluster-admin"),
+            create("RoleBinding", Some("default"), "fathom-agent-admin"),
+            create("RoleBinding", Some("fathom-dev"), "fathom-agent-admin"),
+            create("ClusterRole", None, "fathom-agent-view"),
+        ] {
+            assert!(g.check(&cmd).is_err(), "{cmd:?}");
+        }
+        // Every other write is refused, even inside the sandbox namespace.
+        for cmd in [
+            BackendCmd::ScaleDeployment {
+                namespace: s("fathom-dev"),
+                name: s("scale-me"),
+                replicas: 2,
+            },
+            BackendCmd::DeleteClusterRoleBinding {
+                name: s("fathom-agent-view"),
+            },
+            BackendCmd::ApplyResourceYaml {
+                api_version: s("rbac.authorization.k8s.io/v1"),
+                kind: s("ClusterRoleBinding"),
+                namespace: None,
+                name: s("fathom-agent-view"),
+                yaml: String::new(),
+                expected_resource_version: s("1"),
+            },
+        ] {
+            assert!(g.check(&cmd).is_err(), "{cmd:?}");
+        }
+        // Reads and the pinned context still pass.
+        assert_eq!(g.check(&BackendCmd::RefreshClusterRoles), Ok(()));
+        assert_eq!(
+            g.check(&BackendCmd::SetContext {
+                context: s("kind-dev")
+            }),
+            Ok(())
+        );
+        assert!(
+            g.check(&BackendCmd::SetContext { context: s("prod") })
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn read_only_mode_refuses_every_write() {
+        let g = guard().create_only(vec![]);
+        assert!(
+            g.check(&create("RoleBinding", Some("fathom-dev"), "x"))
+                .is_err()
+        );
+        assert!(
+            g.check(&BackendCmd::DeletePod {
+                namespace: s("fathom-dev"),
+                name: s("p")
+            })
+            .is_err()
+        );
+        assert_eq!(g.check(&BackendCmd::RefreshPods), Ok(()));
     }
 
     #[test]

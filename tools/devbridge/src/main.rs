@@ -11,7 +11,7 @@ use fathom::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, CmdRequest, Correlation, SystemEvent,
 };
 use fathom::startup::{init_tracing, install_crypto_provider};
-use fathom_devbridge::guard::WriteGuard;
+use fathom_devbridge::guard::{CreateTarget, WriteGuard};
 use fathom_devbridge::server::{Bridge, WsHub, serve};
 use fathom_devbridge::{DEFAULT_PORT, sandbox};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -41,6 +41,20 @@ struct Cli {
     /// `fathom.dev/sandbox=true`.
     #[arg(long)]
     write_namespace: String,
+
+    /// Strict mode: refuse every cluster write (the namespace rule no longer applies).
+    #[arg(long, conflicts_with = "allow_create")]
+    read_only: bool,
+
+    /// Strict mode: refuse every cluster write except creating exactly this object, as
+    /// `Kind/name` (cluster-scoped) or `Kind/namespace/name`. Repeatable. Creates never
+    /// replace an existing object.
+    #[arg(long, value_name = "KIND/[NS/]NAME", value_parser = parse_create_target)]
+    allow_create: Vec<CreateTarget>,
+}
+
+fn parse_create_target(spec: &str) -> Result<CreateTarget, String> {
+    CreateTarget::parse(spec)
 }
 
 /// What startup learns from the pump about its initial `SetContext`.
@@ -111,7 +125,15 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("startup wait panicked")??;
 
-    let guard = WriteGuard::new(cli.context.clone(), cli.write_namespace.clone());
+    let mut guard = WriteGuard::new(cli.context.clone(), cli.write_namespace.clone());
+    if cli.read_only || !cli.allow_create.is_empty() {
+        let list: Vec<String> = cli.allow_create.iter().map(ToString::to_string).collect();
+        tracing::warn!(
+            "devbridge: STRICT mode, every cluster write refused except creating: [{}]",
+            list.join(", ")
+        );
+        guard = guard.create_only(cli.allow_create);
+    }
     let bridge = Arc::new(Bridge {
         link,
         hub,
