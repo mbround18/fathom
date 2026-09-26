@@ -23,10 +23,19 @@ pub(super) async fn refresh_pods(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<Pod> = Api::all(client);
-
-    let pods = api.list(&ListParams::default()).await?;
-    let summaries = pods_to_summaries(pods.items, &state.cluster.namespace_filter);
+    // 036 US4: the daemon's warm snapshot when a session runs for this context, else LIST.
+    let pods = match super::daemon_ctl::snapshot_source(state) {
+        Some(src) => {
+            super::warm_lists::list_with_daemon::<Pod>(&client, Some(&src), "pods")
+                .await?
+                .items
+        }
+        None => {
+            let api: Api<Pod> = Api::all(client);
+            api.list(&ListParams::default()).await?.items
+        }
+    };
+    let summaries = pods_to_summaries(pods, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

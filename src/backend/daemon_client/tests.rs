@@ -53,6 +53,7 @@ pub(crate) fn ev_frame(seq: u64) -> String {
 pub(crate) struct Fake {
     pub caps: Mutex<Result<String, TransportError>>,
     pub topology: Option<String>,
+    pub snapshot: Option<Result<String, TransportError>>,
     pub lines: Mutex<Vec<String>>,
     pub hold_open: bool,
     pub requests: AtomicUsize,
@@ -64,6 +65,7 @@ impl Fake {
         Arc::new(Self {
             caps: Mutex::new(caps),
             topology: None,
+            snapshot: None,
             lines: Mutex::new(lines),
             hold_open: true,
             requests: AtomicUsize::new(0),
@@ -77,6 +79,12 @@ impl DaemonTransport for Fake {
     async fn get_text(&self, path: &str) -> Result<String, TransportError> {
         self.requests.fetch_add(1, Ordering::SeqCst);
         self.paths.lock().unwrap().push(path.to_owned());
+        if path.contains("/v1/snapshot/") {
+            return self.snapshot.clone().unwrap_or(Err(TransportError::Http {
+                code: 404,
+                message: "no".into(),
+            }));
+        }
         if path.ends_with("/v1/topology") {
             return self.topology.clone().ok_or(TransportError::Http {
                 code: 404,
@@ -271,7 +279,7 @@ fn session(
         timeline: Arc::new(Mutex::new(VecDeque::new())),
         cursor,
         timings: Timings::default(),
-        caps: Arc::new(Mutex::new(None)),
+        caps: caps_cell(),
     };
     (s, rx)
 }
@@ -450,4 +458,165 @@ async fn topology_snapshot_loaded_when_advertised() {
 
 pub(crate) fn caps_json() -> String {
     serde_json::to_string(&caps(1, false)).unwrap()
+}
+
+// ---- T033 (client): warm snapshot use and fallback ----
+
+fn snap_body(age_ms: u64, synced: bool, rv: Option<&str>) -> String {
+    serde_json::json!({
+        "kind": "pods",
+        "resourceVersion": rv,
+        "ageMs": age_ms,
+        "synced": synced,
+        "items": [{"metadata": {"name": "p", "namespace": "a", "uid": "u"}}]
+    })
+    .to_string()
+}
+
+fn caps_with_snapshots(kinds: &[&str]) -> DaemonCapabilities {
+    let mut c = caps(1, false);
+    c.snapshots = kinds.iter().map(|k| k.to_string()).collect();
+    c
+}
+
+type SnapResult = Result<DaemonSnapshot<k8s_openapi::api::core::v1::Pod>, SnapshotFallback>;
+
+async fn fetch_with(
+    probe: ProbeState,
+    snapshot: Option<Result<String, TransportError>>,
+) -> (SnapResult, Arc<Fake>) {
+    let mut fake = Fake::new(Ok(caps_json()), vec![]);
+    Arc::get_mut(&mut fake).unwrap().snapshot = snapshot;
+    let cell = caps_cell();
+    cell.send_replace(probe);
+    let r = fetch_snapshot(fake.as_ref(), &cell, "pods", SnapshotBudget::default()).await;
+    (r, fake)
+}
+
+type Val = serde_json::Value;
+
+#[test]
+fn parse_snapshot_threshold_is_30s() {
+    let ok = parse_snapshot::<Val>(&snap_body(29_999, true, Some("7")), SNAPSHOT_MAX_AGE).unwrap();
+    assert_eq!(ok.resource_version, "7");
+    assert_eq!(ok.items.len(), 1);
+    assert_eq!(
+        parse_snapshot::<Val>(&snap_body(30_000, true, Some("7")), SNAPSHOT_MAX_AGE).unwrap_err(),
+        SnapshotFallback::Stale { age_ms: 30_000 }
+    );
+    assert_eq!(
+        parse_snapshot::<Val>(&snap_body(0, false, Some("7")), SNAPSHOT_MAX_AGE).unwrap_err(),
+        SnapshotFallback::NotSynced
+    );
+    assert!(matches!(
+        parse_snapshot::<Val>(&snap_body(0, true, None), SNAPSHOT_MAX_AGE),
+        Err(SnapshotFallback::Unreadable(_))
+    ));
+    assert!(matches!(
+        parse_snapshot::<Val>("not json", SNAPSHOT_MAX_AGE),
+        Err(SnapshotFallback::Unreadable(_))
+    ));
+}
+
+#[tokio::test]
+async fn fetch_snapshot_uses_fresh_snapshot() {
+    let (r, fake) = fetch_with(
+        ProbeState::Available(caps_with_snapshots(&["pods", "events"])),
+        Some(Ok(snap_body(10, true, Some("42")))),
+    )
+    .await;
+    let s = r.unwrap();
+    assert_eq!(s.resource_version, "42");
+    assert_eq!(s.items[0].metadata.name.as_deref(), Some("p"));
+    assert_eq!(
+        fake.paths.lock().unwrap().as_slice(),
+        ["/apis/daemon.fathom.dev/v1/v1/snapshot/pods"]
+    );
+}
+
+#[tokio::test]
+async fn fetch_snapshot_falls_back() {
+    let fresh = || Some(Ok(snap_body(10, true, Some("42"))));
+    let avail = || ProbeState::Available(caps_with_snapshots(&["pods"]));
+    // Not advertised: no request at all.
+    let (r, fake) = fetch_with(ProbeState::Available(caps_with_snapshots(&[])), fresh()).await;
+    assert_eq!(r.unwrap_err(), SnapshotFallback::NotOffered);
+    assert_eq!(fake.requests.load(Ordering::SeqCst), 0);
+    // No daemon.
+    let (r, fake) = fetch_with(ProbeState::Unavailable, fresh()).await;
+    assert_eq!(r.unwrap_err(), SnapshotFallback::NotOffered);
+    assert_eq!(fake.requests.load(Ordering::SeqCst), 0);
+    // Stale (>= 30 s) and unsynced snapshots are rejected.
+    let (r, _) = fetch_with(avail(), Some(Ok(snap_body(31_000, true, Some("1"))))).await;
+    assert_eq!(r.unwrap_err(), SnapshotFallback::Stale { age_ms: 31_000 });
+    let (r, _) = fetch_with(
+        avail(),
+        Some(Err(TransportError::Http {
+            code: 503,
+            message: "not synced".into(),
+        })),
+    )
+    .await;
+    assert_eq!(r.unwrap_err(), SnapshotFallback::NotSynced);
+    // HTTP errors and timeouts.
+    let (r, _) = fetch_with(
+        avail(),
+        Some(Err(TransportError::Http {
+            code: 403,
+            message: "noAccess".into(),
+        })),
+    )
+    .await;
+    assert!(matches!(r.unwrap_err(), SnapshotFallback::Http(m) if m.contains("403")));
+    let (r, _) = fetch_with(avail(), Some(Err(TransportError::Timeout))).await;
+    assert_eq!(r.unwrap_err(), SnapshotFallback::Timeout);
+}
+
+#[tokio::test(start_paused = true)]
+async fn fetch_snapshot_waits_briefly_for_probe() {
+    // Probe never finishes: give up after the probe wait, without a request.
+    let (r, fake) = fetch_with(ProbeState::Probing, None).await;
+    assert_eq!(r.unwrap_err(), SnapshotFallback::Probing);
+    assert_eq!(fake.requests.load(Ordering::SeqCst), 0);
+
+    // Probe finishes within the wait: the snapshot is used.
+    let mut fake = Fake::new(Ok(caps_json()), vec![]);
+    Arc::get_mut(&mut fake).unwrap().snapshot = Some(Ok(snap_body(0, true, Some("5"))));
+    let cell = caps_cell();
+    let c2 = cell.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        c2.send_replace(ProbeState::Available(caps_with_snapshots(&["pods"])));
+    });
+    let r: SnapResult =
+        fetch_snapshot(fake.as_ref(), &cell, "pods", SnapshotBudget::default()).await;
+    assert_eq!(r.unwrap().resource_version, "5");
+}
+
+#[tokio::test(start_paused = true)]
+async fn session_publishes_probe_state() {
+    let fake = Fake::new(
+        Ok(serde_json::to_string(&caps_with_snapshots(&["pods"])).unwrap()),
+        vec![],
+    );
+    let (s, _rx) = session(fake, None, 1, 1);
+    let cell = s.caps.clone();
+    let h = tokio::spawn(s.run());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(matches!(&*cell.borrow(), ProbeState::Available(c) if c.snapshots == ["pods"]));
+    h.abort();
+
+    let fake = Fake::new(
+        Err(TransportError::Http {
+            code: 404,
+            message: "nf".into(),
+        }),
+        vec![],
+    );
+    let (s, _rx) = session(fake, None, 1, 1);
+    let cell = s.caps.clone();
+    let h = tokio::spawn(s.run());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(matches!(&*cell.borrow(), ProbeState::Unavailable));
+    h.abort();
 }

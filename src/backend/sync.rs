@@ -1,6 +1,6 @@
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, Correlation, NamespaceSummary, ResourceListEvent, Route,
-    SystemEvent, section_keys,
+    BackendEvent, BackendEventEnvelope, Correlation, DaemonMode, NamespaceSummary,
+    ResourceListEvent, Route, SystemEvent, section_keys,
 };
 use crossbeam_channel::Sender;
 use futures_util::StreamExt;
@@ -17,9 +17,49 @@ use std::time::Duration;
 
 use super::state::BackendState;
 use super::{
-    cert_manager, cluster_version, deployments, events, flux, gatekeeper, hubble, keda, knative,
-    pods, trivy, velero,
+    cert_manager, cluster_version, daemon_ctl, deployments, events, flux, gatekeeper, hubble, keda,
+    knative, pods, trivy, velero, warm_lists,
 };
+
+/// Spawn the background pod watch for the active context. With the daemon preference `auto`
+/// it is the snapshot-then-delta watcher (036 US4); otherwise the legacy watcher, unchanged.
+fn spawn_pod_watch(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    client: kube::Client,
+) {
+    let (filter, seq, ctx) = (
+        state.cluster.namespace_filter_shared.clone(),
+        state.cluster.seq.clone(),
+        state.cluster.current_context.clone(),
+    );
+    let task = if daemon_ctl::active_mode(state) == DaemonMode::Auto {
+        tokio::spawn(warm_lists::watch_pods_delta(
+            client,
+            filter,
+            seq,
+            sender.clone(),
+            ctx,
+            state.daemon.snapshot_slot.clone(),
+        ))
+    } else {
+        tokio::spawn(watch_pods(client, filter, seq, sender.clone(), ctx))
+    };
+    if let Some(old) = state.watch_tasks.pod_watch_task.replace(task) {
+        old.abort();
+    }
+}
+
+/// After the daemon preference changes, switch an already-running pod watch to the matching
+/// implementation. No-op when background sync is not running.
+pub(super) fn respawn_pod_watch(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
+    if state.watch_tasks.pod_watch_task.is_none() {
+        return;
+    }
+    if let Some(client) = state.cluster.client.clone() {
+        spawn_pod_watch(state, sender, client);
+    }
+}
 
 pub(super) async fn ensure_background_sync(
     state: &mut BackendState,
@@ -39,13 +79,7 @@ pub(super) async fn ensure_background_sync(
     state.watch_tasks.abort_all();
 
     // Pod watcher: watch for pod changes with exponential backoff retry
-    state.watch_tasks.pod_watch_task = Some(tokio::spawn(watch_pods(
-        client.clone(),
-        state.cluster.namespace_filter_shared.clone(),
-        state.cluster.seq.clone(),
-        sender.clone(),
-        state.cluster.current_context.clone(),
-    )));
+    spawn_pod_watch(state, sender, client.clone());
 
     // Deployment watcher: the Deployments list converges after scale/restart without a refresh.
     state.watch_tasks.deployment_watch_task = Some(tokio::spawn(watch_deployments(
