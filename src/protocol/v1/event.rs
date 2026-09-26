@@ -147,6 +147,14 @@ pub enum SystemEvent {
         message: String,
     },
 
+    /// 039-observability-settings: saved non-secret settings for `context`. There is
+    /// deliberately no field that can carry the Grafana API key, only `key_set`.
+    ObservabilitySettings {
+        context: String,
+        prometheus: Option<PrometheusSettings>,
+        grafana: Option<GrafanaSettings>,
+    },
+
     MetricsStackScanned(crate::protocol::MetricsStackScanResult),
 
     PortAvailability {
@@ -498,6 +506,22 @@ pub struct CrdInstanceDetails {
 pub enum CrdScope {
     Namespaced,
     Cluster,
+}
+
+/// 039: saved Prometheus endpoint for a context (non-secret).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PrometheusSettings {
+    pub namespace: String,
+    pub service: String,
+    pub port: u16,
+}
+
+/// 039: saved Grafana settings for a context. The API key is never included, only whether one
+/// is stored in the credential store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GrafanaSettings {
+    pub base_url: String,
+    pub key_set: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -274,6 +274,8 @@ pub(super) struct BackendState {
     pub(super) audit: Arc<dyn AuditSink>,
     /// 031: the signed-in user behind this backend (hosted only; `None` on desktop).
     pub(super) identity: Option<Identity>,
+    /// 039: credential store for the Grafana API key (OS keyring; in-memory in tests).
+    pub(super) secrets: Arc<dyn crate::backend::secret_store::SecretStore>,
 }
 
 impl BackendState {
@@ -293,6 +295,7 @@ impl BackendState {
             access,
             audit,
             identity,
+            secrets: Arc::new(crate::backend::secret_store::keyring_store()),
             cluster: ClusterContext {
                 client: None,
                 current_context: None,

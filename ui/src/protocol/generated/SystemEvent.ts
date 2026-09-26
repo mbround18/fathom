@@ -22,6 +22,7 @@ import type { FederationContextRollup } from "./FederationContextRollup";
 import type { FleetContextSummary } from "./FleetContextSummary";
 import type { FluxOverview } from "./FluxOverview";
 import type { GatekeeperOverview } from "./GatekeeperOverview";
+import type { GrafanaSettings } from "./GrafanaSettings";
 import type { HelmMutationApplied } from "./HelmMutationApplied";
 import type { HelmMutationFailed } from "./HelmMutationFailed";
 import type { HelmMutationPreviewReady } from "./HelmMutationPreviewReady";
@@ -46,6 +47,7 @@ import type { OrgClusterSettings } from "./OrgClusterSettings";
 import type { OrphanedNodeShellPod } from "./OrphanedNodeShellPod";
 import type { OrphanedSubject } from "./OrphanedSubject";
 import type { PluginError } from "./PluginError";
+import type { PrometheusSettings } from "./PrometheusSettings";
 import type { Provider } from "./Provider";
 import type { ProviderStatus } from "./ProviderStatus";
 import type { SessionEndReason } from "./SessionEndReason";
@@ -66,7 +68,7 @@ error: string | null,
 /**
  * 035: typed cloud-auth plugin failure behind `error`, when that is what failed.
  */
-plugin_error: PluginError | null, } } | { "type": "CloudAuthDetected", "data": { infos: Array<CloudAuthInfo>, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "KnativeOverviewUpdated", "data": KnativeOverview } | { "type": "ClusterVersionUpdated", "data": ClusterVersionSummary } | { "type": "VeleroOverviewUpdated", "data": VeleroOverview } | { "type": "CertManagerOverviewUpdated", "data": CertManagerOverview } | { "type": "CertificateChainUpdated", "data": CertificateChain } | { "type": "TrivyOverviewUpdated", "data": TrivyOverview } | { "type": "KedaOverviewUpdated", "data": KedaOverview } | { "type": "KedaResourceDetailsUpdated", "data": KedaResourceDetails } | { "type": "KedaResourceNotFound", "data": { kind: string, namespace: string, name: string, } } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "GatekeeperOverviewUpdated", "data": GatekeeperOverview } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, 
+plugin_error: PluginError | null, } } | { "type": "CloudAuthDetected", "data": { infos: Array<CloudAuthInfo>, } } | { "type": "NamespaceFilterChanged", "data": { namespaces: Array<string>, } } | { "type": "PrometheusConnectionTest", "data": { success: boolean, message: string, } } | { "type": "GrafanaConnectionTest", "data": { success: boolean, message: string, } } | { "type": "ObservabilitySettings", "data": { context: string, prometheus: PrometheusSettings | null, grafana: GrafanaSettings | null, } } | { "type": "MetricsStackScanned", "data": MetricsStackScanResult } | { "type": "PortAvailability", "data": { port: number, available: boolean, } } | { "type": "DiskUsageUpdated", "data": Array<DiskUsage> } | { "type": "FluxOverviewUpdated", "data": FluxOverview } | { "type": "KnativeOverviewUpdated", "data": KnativeOverview } | { "type": "ClusterVersionUpdated", "data": ClusterVersionSummary } | { "type": "VeleroOverviewUpdated", "data": VeleroOverview } | { "type": "CertManagerOverviewUpdated", "data": CertManagerOverview } | { "type": "CertificateChainUpdated", "data": CertificateChain } | { "type": "TrivyOverviewUpdated", "data": TrivyOverview } | { "type": "KedaOverviewUpdated", "data": KedaOverview } | { "type": "KedaResourceDetailsUpdated", "data": KedaResourceDetails } | { "type": "KedaResourceNotFound", "data": { kind: string, namespace: string, name: string, } } | { "type": "HubbleTrafficUpdated", "data": HubbleTrafficSummary } | { "type": "GatekeeperOverviewUpdated", "data": GatekeeperOverview } | { "type": "HelmMutationPreviewReady", "data": HelmMutationPreviewReady } | { "type": "HelmMutationApplied", "data": HelmMutationApplied } | { "type": "HelmMutationFailed", "data": HelmMutationFailed } | { "type": "UiConfigLoaded", "data": { ui: UiConfig | null, expanded_groups: Array<string>, 
 /**
  * `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
  * (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
