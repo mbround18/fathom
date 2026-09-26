@@ -346,6 +346,22 @@ pub(super) async fn scan_trivy(client: &Client) -> anyhow::Result<TrivyOverview>
     }
 }
 
+/// Whether a report belongs to this Pod. Trivy labels a report with whichever hop of the owner
+/// chain it scanned: the ReplicaSet for a Deployment's Pod, the CronJob for a CronJob's Job,
+/// the StatefulSet/DaemonSet/Job directly, or the bare Pod. So a report matches on the Pod
+/// itself, its direct controller, or the top owner [`resolve_owner`] found.
+fn report_matches_pod(
+    attrib: &ReportAttribution,
+    namespace: &str,
+    pod_name: &str,
+    direct_owner: Option<(&str, &str)>,
+    top_owner: (&str, &str),
+) -> bool {
+    let is = |(kind, name): (&str, &str)| attrib.kind == kind && attrib.name == name;
+    attrib.namespace == namespace
+        && (is(("Pod", pod_name)) || direct_owner.is_some_and(is) || is(top_owner))
+}
+
 /// Owner-chain attribution (research.md R1): walk at most two hops of `ownerReferences`
 /// (Pod -> ReplicaSet -> Deployment, or Pod -> Job -> CronJob), falling back to the Pod itself
 /// when no recognized owner chain applies - the same bounded-hop approach the Applications
@@ -425,13 +441,22 @@ pub(super) async fn inspect_pod_vulnerabilities(
         Ok(Some(items)) => dedup_latest(items),
     };
 
+    let direct_owner = pod
+        .metadata
+        .owner_references
+        .as_ref()
+        .and_then(|o| o.first())
+        .map(|o| (o.kind.as_str(), o.name.as_str()));
     let matching: Vec<&DynamicObject> = reports
         .iter()
         .filter(|obj| {
-            let attrib = attribution(obj);
-            attrib.namespace == namespace
-                && ((attrib.kind == owner_kind && attrib.name == owner_name)
-                    || (attrib.kind == "Pod" && attrib.name == *pod_name))
+            report_matches_pod(
+                &attribution(obj),
+                namespace,
+                pod_name,
+                direct_owner,
+                (&owner_kind, &owner_name),
+            )
         })
         .collect();
 
@@ -581,6 +606,80 @@ mod tests {
                 }
             }),
         }
+    }
+
+    #[test]
+    fn deployment_pod_matches_the_replicaset_report_trivy_writes() {
+        let rs_report = make_report(
+            "fathom-dev",
+            "replicaset-web-64dbd76659-nginx",
+            "ReplicaSet",
+            "web-64dbd76659",
+            "nginx",
+            "2026-01-01T00:00:00Z",
+            &["HIGH"],
+        );
+        let attrib = attribution(&rs_report);
+        let direct = Some(("ReplicaSet", "web-64dbd76659"));
+        let top = ("Deployment", "web");
+        assert!(report_matches_pod(
+            &attrib,
+            "fathom-dev",
+            "web-64dbd76659-jtdwx",
+            direct,
+            top
+        ));
+        // A different rollout's ReplicaSet, or another namespace, does not match.
+        assert!(!report_matches_pod(
+            &attrib,
+            "fathom-dev",
+            "web-597467fbc6-abcde",
+            Some(("ReplicaSet", "web-597467fbc6")),
+            top
+        ));
+        assert!(!report_matches_pod(
+            &attrib,
+            "other",
+            "web-64dbd76659-jtdwx",
+            direct,
+            top
+        ));
+    }
+
+    #[test]
+    fn cronjob_pod_matches_the_cronjob_report_and_bare_pod_its_own() {
+        let cj = attribution(&make_report(
+            "ns",
+            "cronjob-nightly-report-main",
+            "CronJob",
+            "nightly-report",
+            "main",
+            "2026-01-01T00:00:00Z",
+            &[],
+        ));
+        assert!(report_matches_pod(
+            &cj,
+            "ns",
+            "nightly-report-29000000-x",
+            Some(("Job", "nightly-report-29000000")),
+            ("CronJob", "nightly-report")
+        ));
+        let bare = attribution(&make_report(
+            "ns",
+            "pod-lonely-main",
+            "Pod",
+            "lonely",
+            "main",
+            "2026-01-01T00:00:00Z",
+            &[],
+        ));
+        assert!(report_matches_pod(
+            &bare,
+            "ns",
+            "lonely",
+            None,
+            ("Pod", "lonely")
+        ));
     }
 
     #[test]
