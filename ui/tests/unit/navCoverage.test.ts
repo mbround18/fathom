@@ -1,27 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { descriptorFor } from '@/resources'
-import { NAV_GROUPS } from '@/resources/nav'
-
-/** Sections PaneHost renders directly (panel components), no descriptor needed. */
-const PANEL_SECTIONS = new Set([
-  'overview',
-  'events',
-  'integrations/metrics',
-  'integrations/grafana',
-  'integrations/argo',
-  'integrations/flux',
-  'custom-resources',
-  'network/portforwards',
-  'integrations/gatekeeper',
-  'integrations/cluster-settings',
-  'team/teams',
-  'team/profiles',
-  'audit-log',
-  'access/namespace-access',
-  'access/oidc-config',
-  'integrations/vulnerabilities',
-])
+import { NAV_GROUPS, PANEL_SECTIONS } from '@/resources/nav'
 
 /**
  * TODO by batch: still without a descriptor. Each batch REMOVES its keys here when it registers

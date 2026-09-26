@@ -81,11 +81,16 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   g('Custom Resources', '拡', [['custom-resources', 'Custom Resources']]),
   g('Integrations', '連', [
     ['integrations/argo', 'Argo'],
+    ['integrations/flux', 'Flux'],
+    ['integrations/knative', 'Knative'],
+    ['integrations/keda', 'KEDA Autoscalers'],
+    ['integrations/velero', 'Velero'],
+    ['integrations/cert-manager', 'Certificates'],
+    ['integrations/gatekeeper', 'Gatekeeper'],
+    ['integrations/hubble', 'Hubble'],
+    ['integrations/vulnerabilities', 'Vulnerabilities'],
     ['integrations/metrics', 'Metrics'],
     ['integrations/grafana', 'Grafana'],
-    ['integrations/flux', 'Flux'],
-    ['integrations/gatekeeper', 'Gatekeeper'],
-    ['integrations/vulnerabilities', 'Vulnerabilities'],
   ]),
   // 014-teams-organizations: local §10 Cluster Settings (+ org-level sync affordances) and
   // shared, non-secret connection profiles.
@@ -97,6 +102,37 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ['audit-log', 'Audit Log'],
   ]),
 ]
+
+/**
+ * Sections PaneHost renders with a dedicated panel component instead of a descriptor table.
+ * They are first-class, so the navigator must not style them as "unported".
+ */
+export const PANEL_SECTIONS: ReadonlySet<SectionKey> = new Set([
+  'overview',
+  'events',
+  'custom-resources',
+  'network/portforwards',
+  'access/namespace-access',
+  'access/oidc-config',
+  'integrations/argo',
+  'integrations/flux',
+  'integrations/knative',
+  'integrations/keda',
+  'integrations/velero',
+  'integrations/cert-manager',
+  'integrations/gatekeeper',
+  'integrations/hubble',
+  'integrations/vulnerabilities',
+  'integrations/metrics',
+  'integrations/grafana',
+  'integrations/cluster-settings',
+  'team/teams',
+  'team/profiles',
+  'audit-log',
+])
+
+/** Tools kept in the navigator's Tools list (integrations now live under Integrations). */
+export const NAV_TOOLS: readonly string[] = ['logs', 'topology', 'linter']
 
 /** Groups open on first run, before `UiConfigLoaded` says otherwise. */
 export const DEFAULT_EXPANDED_GROUPS: readonly string[] = ['Overview', 'Workloads']
