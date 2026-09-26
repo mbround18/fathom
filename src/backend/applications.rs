@@ -254,10 +254,7 @@ async fn flux_apps(client: &kube::Client) -> BTreeMap<(String, String), FluxApp>
 /// an application, listed with zero workloads (the UI shows "No workloads"). Bare Helm releases
 /// can't get the same treatment: FR-019 forbids reading Helm's release storage, so once their
 /// last labelled workload is gone nothing live identifies them.
-fn add_flux_only_groups(
-    groups: &mut Vec<AppGroup>,
-    flux: &BTreeMap<(String, String), FluxApp>,
-) {
+fn add_flux_only_groups(groups: &mut Vec<AppGroup>, flux: &BTreeMap<(String, String), FluxApp>) {
     for ((namespace, name), app) in flux {
         if groups
             .iter()
@@ -683,24 +680,26 @@ mod tests {
         );
         let workloads = vec![w];
         let mut groups = group_workloads(&workloads);
-        let flux: BTreeMap<(String, String), FluxApp> = [
-            ("default", "podinfo"),
-            ("default", "emptied"),
-        ]
-        .into_iter()
-        .map(|(ns, name)| {
-            (
-                (ns.to_owned(), name.to_owned()),
-                FluxApp {
-                    revision: Some("1.0.0".to_owned()),
-                    creation_timestamp: "2026-01-01T00:00:00Z".to_owned(),
-                },
-            )
-        })
-        .collect();
+        let flux: BTreeMap<(String, String), FluxApp> =
+            [("default", "podinfo"), ("default", "emptied")]
+                .into_iter()
+                .map(|(ns, name)| {
+                    (
+                        (ns.to_owned(), name.to_owned()),
+                        FluxApp {
+                            revision: Some("1.0.0".to_owned()),
+                            creation_timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                        },
+                    )
+                })
+                .collect();
         add_flux_only_groups(&mut groups, &flux);
 
-        assert_eq!(groups.len(), 2, "no duplicate for the app that has a workload");
+        assert_eq!(
+            groups.len(),
+            2,
+            "no duplicate for the app that has a workload"
+        );
         let podinfo = groups.iter().find(|g| g.instance == "podinfo").unwrap();
         assert_eq!(podinfo.workloads, vec![0]);
         let emptied = groups.iter().find(|g| g.instance == "emptied").unwrap();
