@@ -17,8 +17,8 @@ use crate::protocol::{
 };
 
 use super::daemon_client::{
-    API_BASE, CursorSaver, DaemonTransport, Emitter, KubeTransport, Session, Timeline, Timings,
-    fetch_metrics,
+    API_BASE, CursorSaver, DaemonTransport, Emitter, KubeTransport, Session, SnapshotSlot,
+    SnapshotSource, Timeline, Timings, caps_cell, fetch_metrics,
 };
 use super::events;
 use super::persistence::{self, DaemonFile};
@@ -41,6 +41,8 @@ pub(super) struct DaemonRuntime {
     next_session: u64,
     /// Override of `~/.fathom/daemon.json` (tests only).
     pub(super) path: Option<PathBuf>,
+    /// The running session's snapshot source (US4), shared with long-lived watch tasks.
+    pub(super) snapshot_slot: SnapshotSlot,
 }
 
 impl DaemonRuntime {
@@ -49,12 +51,20 @@ impl DaemonRuntime {
             h.current.store(0, Ordering::SeqCst);
             h.task.abort();
         }
+        if let Ok(mut s) = self.snapshot_slot.lock() {
+            *s = None;
+        }
     }
 
     fn stop(&mut self, context: &str) {
         if let Some(h) = self.handles.remove(context) {
             h.current.store(0, Ordering::SeqCst);
             h.task.abort();
+        }
+        if let Ok(mut s) = self.snapshot_slot.lock()
+            && s.as_ref().is_some_and(|s| s.context == context)
+        {
+            *s = None;
         }
     }
 
@@ -122,6 +132,22 @@ fn emit_status(
     });
 }
 
+/// The active context's daemon snapshot source, when a session runs for it (preference `auto`).
+pub(super) fn snapshot_source(state: &BackendState) -> Option<SnapshotSource> {
+    super::daemon_client::source_for(
+        &state.daemon.snapshot_slot,
+        state.cluster.current_context.as_deref(),
+    )
+}
+
+/// The saved preference for the active context (`off` when there is none).
+pub(super) fn active_mode(state: &BackendState) -> DaemonMode {
+    match state.cluster.current_context.as_deref() {
+        Some(ctx) => load(file_path(state).as_ref()).mode_for(ctx),
+        None => DaemonMode::Off,
+    }
+}
+
 /// Called from every connect / context-switch path. Never blocks and never fails the connect.
 pub(super) fn sync_active(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
     let Some(ctx) = state.cluster.current_context.clone() else {
@@ -164,6 +190,7 @@ pub(super) fn start_with(
     let id = state.daemon.next_session;
     let current = Arc::new(AtomicU64::new(id));
     let timeline: Timeline = Arc::new(Mutex::new(VecDeque::new()));
+    let caps = caps_cell();
     let path = file_path(state);
     let cursor = load(path.as_ref()).cursors.get(context).cloned();
     let ctx_owned = context.to_owned();
@@ -185,8 +212,15 @@ pub(super) fn start_with(
         timeline: timeline.clone(),
         cursor,
         timings,
-        caps: Arc::new(Mutex::new(None)),
+        caps: caps.clone(),
     };
+    if let Ok(mut s) = state.daemon.snapshot_slot.lock() {
+        *s = Some(SnapshotSource {
+            context: context.to_owned(),
+            transport: transport.clone(),
+            caps,
+        });
+    }
     let task = tokio::spawn(session.run());
     state.daemon.handles.insert(
         context.to_owned(),

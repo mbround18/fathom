@@ -42,6 +42,9 @@ pub(super) async fn handle(
         // 036-incluster-daemon: optional daemon client (off by default; no requests when off).
         BackendCmd::SetDaemonPreference { context, mode } => {
             daemon_ctl::set_preference(state, sender, &context, mode);
+            if state.cluster.current_context.as_deref() == Some(context.as_str()) {
+                sync::respawn_pod_watch(state, sender);
+            }
         }
         BackendCmd::RefreshDaemon { context } => daemon_ctl::refresh(state, sender, &context),
         BackendCmd::RequestDaemonTimeline { context, limit } => {
@@ -396,11 +399,21 @@ async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelo
     // Capture the context at request start so a late result keeps its origin (FR-016).
     let context = state.cluster.current_context.clone();
     use k8s_openapi::api::core::v1::Event;
-    let api = ::kube::Api::<Event>::all(client.clone());
-    match api.list(&Default::default()).await {
-        Ok(event_list) => {
-            let summaries: Vec<crate::protocol::v1::KubernetesEvent> = event_list
-                .items
+    // 036 US4: the daemon's warm snapshot when a session runs for this context, else LIST.
+    let listed = match daemon_ctl::snapshot_source(state) {
+        Some(src) => {
+            crate::backend::warm_lists::list_with_daemon::<Event>(client, Some(&src), "events")
+                .await
+                .map(|l| l.items)
+        }
+        None => ::kube::Api::<Event>::all(client.clone())
+            .list(&Default::default())
+            .await
+            .map(|l| l.items),
+    };
+    match listed {
+        Ok(items) => {
+            let summaries: Vec<crate::protocol::v1::KubernetesEvent> = items
                 .into_iter()
                 .take(100) // Limit to last 100 events for performance
                 .map(kubernetes_event_summary)

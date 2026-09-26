@@ -23,10 +23,14 @@ echo "$caps" | jq -e '.protocolMajor == 1 and (.kinds | length > 0) and .perUser
 ok "capabilities"
 
 # generate events, then read the stream (bounded) and remember the last seq/epoch
-"${K[@]}" -n daemon-demo rollout restart deploy/rollout-demo   # always changes something, so a re-run still emits events
-sleep 10
-stream() { "${K[@]}" get --raw "$API/v1/stream$1" --request-timeout=8s 2>/dev/null | jq -Rc 'fromjson? // empty' || true; }
-first=$(stream "")
+stream() { "${K[@]}" get --raw "$API/v1/stream$1" --request-timeout="${2:-8s}" 2>/dev/null | jq -Rc 'fromjson? // empty' || true; }
+# `after` omitted is live-only, so open the stream first and then change something (a restart always does)
+sfile=$(mktemp)
+stream "" 15s >"$sfile" &
+sleep 2
+"${K[@]}" -n daemon-demo rollout restart deploy/rollout-demo
+wait
+first=$(cat "$sfile"); rm -f "$sfile"
 last_seq=$(echo "$first" | jq -s '[.[] | .seq? // empty] | max')
 epoch=$(echo "$first" | jq -rs '[.[] | .capabilities.epoch? // empty][0]')
 [ -n "$last_seq" ] && [ "$last_seq" != null ] || die "no sequenced frames in stream"
@@ -51,6 +55,40 @@ b=$(as_user bob | jq -s '[.[] | select(.type=="event" or .type=="topologyDelta")
 [ "$a" -gt 0 ] || die "alice (view on daemon-demo) saw no frames"
 [ "$b" = 0 ] || die "bob (no access) saw $b frames"
 ok "per-user filtering (alice $a frames, bob 0)"
+
+# topology per user (US5/T052): alice sees only daemon-demo nodes and edges between them; bob sees nothing
+topo() { "${K[@]}" --as="$1" --as-group=system:authenticated get --raw "$API/v1/topology" --request-timeout=10s; }
+all_ns=$("${K[@]}" get --raw "$API/v1/topology" | jq '[.nodes[].namespace] | unique | length')
+ta=$(topo alice) || die "alice topology"
+echo "$ta" | jq -e '(.nodes | length > 0) and all(.nodes[]; .namespace == "daemon-demo")' >/dev/null || die "alice topology not scoped to daemon-demo"
+echo "$ta" | jq -e '([.nodes[].uid]) as $u | all(.edges[]; (.from as $f | $u | index($f)) != null and (.to as $t | $u | index($t)) != null)' >/dev/null \
+  || die "alice topology has edges to nodes outside her scope"
+tb=$(topo bob) || die "bob topology"
+echo "$tb" | jq -e '(.nodes | length == 0) and (.edges | length == 0)' >/dev/null || die "bob sees topology: $(echo "$tb" | jq -c '{n: (.nodes|length), e: (.edges|length)}')"
+ok "topology scoping (admin $all_ns namespaces; alice $(echo "$ta" | jq '.nodes|length') nodes / $(echo "$ta" | jq '.edges|length') edges in daemon-demo; bob 0)"
+
+# topology change reaches alice's stream within 5 s (SC-007)
+tfile=$(mktemp)
+"${K[@]}" --as=alice --as-group=system:authenticated get --raw "$API/v1/stream" --request-timeout=25s 2>/dev/null \
+  | while IFS= read -r l; do printf '%s\t%s\n' "$(date +%s%3N)" "$l"; done >"$tfile" &
+spid=$!
+sleep 4
+t0=$(date +%s%3N)
+"${K[@]}" -n daemon-demo scale deploy/rollout-demo --replicas=3 >/dev/null
+for _ in $(seq 1 30); do
+  first=$(awk -F'\t' -v t0="$t0" '$1 >= t0 && $2 ~ /"type":"topologyDelta"/ && $2 ~ /daemon-demo/ { print $1; exit }' "$tfile")
+  [ -n "$first" ] && break
+  sleep 0.5
+done
+kill "$spid" 2>/dev/null || true
+"${K[@]}" -n daemon-demo scale deploy/rollout-demo --replicas=2 >/dev/null
+leak=$(awk -F'\t' '$2 ~ /"type":"topologyDelta"/' "$tfile" | cut -f2- | jq -s '[.[] | .added[]? | select(.namespace != "daemon-demo")] | length')
+rm -f "$tfile"
+[ -n "$first" ] || die "no daemon-demo topologyDelta on alice's stream within 15 s of scaling"
+lat=$((first - t0))
+[ "$lat" -le 5000 ] || die "topology change took ${lat} ms (> 5 s, SC-007)"
+[ "$leak" = 0 ] || die "alice's topologyDelta frames carried $leak out-of-scope nodes"
+ok "topology change on alice's stream in ${lat} ms (<= 5 s), no out-of-scope nodes"
 
 # truncation: a restart starts a new epoch, so the old cursor must yield an explicit truncation marker
 "${K[@]}" -n fathom-daemon rollout restart deploy/fathom-daemon

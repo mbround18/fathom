@@ -88,3 +88,28 @@ async fn timeline_request_replays_buffer() {
         other => panic!("{other:?}"),
     }
 }
+
+/// US4: the snapshot source follows the active session; off / other contexts get none.
+#[tokio::test(start_paused = true)]
+async fn snapshot_source_follows_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut state, tx, _rx) = setup(&dir);
+    assert!(snapshot_source(&state).is_none());
+    assert_eq!(active_mode(&state), DaemonMode::Off);
+    let fake = Fake::new(Ok(caps_json()), vec![]);
+    start_with(&mut state, &tx, "ctx", fake, Timings::default());
+    assert_eq!(
+        snapshot_source(&state).map(|s| s.context),
+        Some("ctx".into())
+    );
+    state.cluster.current_context = Some("other".into());
+    assert!(
+        snapshot_source(&state).is_none(),
+        "never used for another context"
+    );
+    state.cluster.current_context = Some("ctx".into());
+    set_preference(&mut state, &tx, "ctx", DaemonMode::Off);
+    assert!(snapshot_source(&state).is_none());
+    set_preference(&mut state, &tx, "ctx", DaemonMode::Auto);
+    assert_eq!(active_mode(&state), DaemonMode::Auto);
+}

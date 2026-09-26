@@ -7,6 +7,7 @@ use crate::hub::{Hub, SyncTracker};
 use crate::identity::{CallerIdentity, PeerVerified, identity_from_headers};
 use crate::metrics_ring::MetricsAvailability;
 use crate::series_store::SeriesStore;
+use crate::snapshot::{SnapshotError, SnapshotSource};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -69,9 +70,24 @@ pub struct AppState {
     pub sync: Arc<SyncTracker>,
     pub cfg: HttpConfig,
     permits: Arc<Semaphore>,
+    /// Warm snapshot kinds (US4); empty = the endpoint answers 404 for every kind.
+    snapshots: Arc<Vec<Arc<dyn SnapshotSource>>>,
+    /// Bounds concurrent snapshot renders: each holds a full encoded body (~13 MiB for 5,000
+    /// pods), so unbounded fan-in would blow the pod's memory limit.
+    renders: Arc<Semaphore>,
 }
 
+/// Snapshot renders allowed at once; further callers queue (a render takes tens of ms).
+pub const MAX_CONCURRENT_RENDERS: usize = 2;
+
 impl AppState {
+    /// Serve `/v1/snapshot/{kind}` for these sources and advertise them in capabilities.
+    #[must_use]
+    pub fn with_snapshots(mut self, sources: Vec<Arc<dyn SnapshotSource>>) -> Self {
+        self.snapshots = Arc::new(sources);
+        self
+    }
+
     pub fn new(
         hub: Arc<Hub>,
         resolver: Arc<ScopeResolver>,
@@ -89,6 +105,8 @@ impl AppState {
             sync,
             cfg,
             permits,
+            snapshots: Arc::default(),
+            renders: Arc::new(Semaphore::new(MAX_CONCURRENT_RENDERS)),
         }
     }
 
@@ -101,7 +119,11 @@ impl AppState {
             kinds: self.cfg.kinds.clone(),
             scope: self.cfg.scope.clone(),
             retention: self.cfg.retention,
-            snapshots: vec![],
+            snapshots: self
+                .snapshots
+                .iter()
+                .map(|s| s.kind().to_string())
+                .collect(),
             synced: self.sync.is_synced(),
             topology: true,
             metrics: if self.metrics.get() {
@@ -398,11 +420,56 @@ async fn stream(
         .into_response())
 }
 
-async fn snapshot(Path(kind): Path<String>) -> ApiError {
-    ApiError::new(
-        StatusCode::NOT_FOUND,
-        format!("snapshot for {kind:?} is not supported by this daemon"),
-    )
+/// Warm snapshot (US4). Identity first (fail closed), then the kind, then the caller's scope
+/// for exactly that kind, so the result matches what a direct `list` would return them.
+async fn snapshot(
+    State(st): State<AppState>,
+    Path(kind): Path<String>,
+    headers: HeaderMap,
+    peer: Peer,
+) -> Result<Response, ApiError> {
+    let id = identity(&headers, peer_of(peer))?;
+    let Some(src) = st.snapshots.iter().find(|s| s.kind() == kind).cloned() else {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            format!("snapshot for {kind:?} is not supported by this daemon"),
+        ));
+    };
+    let mut universe = st.hub.known_namespaces();
+    universe.extend(src.namespaces());
+    universe.sort();
+    universe.dedup();
+    let scope = st
+        .resolver
+        .resolve_for(&id, &universe, src.access())
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::FORBIDDEN,
+                format!("noAccess: access review failed: {e:#}"),
+            )
+        })?;
+    // Serializing thousands of objects is CPU work; keep it off the async workers.
+    let permit = st
+        .renders
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let body = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        src.render(&scope, Utc::now())
+    })
+    .await
+    .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    match body {
+        Ok(b) => Ok(([(header::CONTENT_TYPE, "application/json")], b).into_response()),
+        Err(SnapshotError::NotSynced) => Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("snapshot for {kind:?} is not synced yet"),
+        )),
+        Err(SnapshotError::Encode(e)) => Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
 }
 
 async fn not_found() -> ApiError {

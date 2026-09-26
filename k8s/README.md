@@ -63,7 +63,10 @@ k8s/test-daemon.sh                                    # kind integration test (n
 - TLS trust: `addons/fathom-daemon/gen-certs.sh` makes a CA + serving cert (Secret `fathom-daemon-tls`) and patches the APIService `caBundle`; `insecureSkipTLSVerify` is only true between a bare apply and that patch. `up-daemon` re-patches after every apply.
 - Everything carries `app.kubernetes.io/name=fathom-daemon`, including the cluster-scoped objects and the kube-system Role/RoleBinding. Manual uninstall: delete the `apiservice` first, then `clusterrole,clusterrolebinding,role,rolebinding,namespace -A -l app.kubernetes.io/name=fathom-daemon` (a stale APIService makes namespace deletion hang).
 - `daemon-namespaced` swaps cluster-wide reads for per-namespace Roles (edit `overlays/daemon-namespaced/role.yaml` and `FATHOM_DAEMON_NAMESPACES` together).
-- Image: `docker build -f deploy/Dockerfile --target fathom-daemon -t fathom-daemon:dev .`
+- Image: `docker build -f deploy/Dockerfile --target fathom-daemon -t fathom-daemon:dev .` Another tag: `DAEMON_IMAGE=fathom-daemon:mytag`, which `up-daemon` swaps into the Deployment.
+- Warm snapshots: `/v1/snapshot/{pods,events}` serve the reflector stores (filtered per caller). With the daemon preference on `auto`, the app's pod/event lists take the snapshot and then WATCH from its `resourceVersion`. It falls back to a direct LIST when the daemon is absent, unsynced, or the snapshot is 30 s old or more. Check: `kubectl get --raw /apis/daemon.fathom.dev/v1/v1/snapshot/pods | jq '{resourceVersion, ageMs, n: (.items|length)}'`.
+- `test-daemon.sh` also runs the two-user topology check: alice (view on `daemon-demo`) sees only `daemon-demo` nodes/edges, bob sees none, and a `scale` reaches alice's stream in 5 s or less (SC-007).
+- Scale fixture (benchmarks in `specs/036-incluster-daemon/research.md`): use a dedicated cluster (e.g. `CLUSTER=fathom-daemon-bench`), run `k8s/bench-fixture.sh` ([kwok](https://kwok.sigs.k8s.io) v0.8.0 fake nodes plus 5,000 pods pinned to them). kindnet's 50Mi limit OOMs at that size, so raise it (`kubectl -n kube-system set resources ds/kindnet --limits=memory=512Mi`).
 
 ## Metrics / observability stacks (spec 036)
 

@@ -175,6 +175,8 @@ daemon_up() {  # $1 = overlay (daemon | daemon-namespaced)
   build_apply "overlays/${1:-daemon}"
   KUBECTL="${K[*]}" addons/fathom-daemon/gen-certs.sh --patch   # re-applied after every apply (apply resets it)
   "${K[@]}" apply -f samples/daemon-events.yaml
+  # the manifest pins fathom-daemon:dev; a different tag (e.g. a benchmark build) is swapped in here
+  [ "$DAEMON_IMAGE" = fathom-daemon:dev ] || "${K[@]}" -n fathom-daemon set image deploy/fathom-daemon fathom-daemon="$DAEMON_IMAGE"
   "${K[@]}" -n fathom-daemon rollout status deploy/fathom-daemon --timeout=120s || true
 }
 daemon_down() {  # uninstall by label: leaves no fathom-daemon object (cluster-scoped, kube-system, namespace)

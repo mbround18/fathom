@@ -619,3 +619,254 @@ async fn metrics_filtered_per_caller_and_flags() {
     assert_eq!(st, StatusCode::BAD_REQUEST);
     let _ = &f.sync;
 }
+
+// ---- T033: warm snapshots (US4) ----
+
+use fathom_daemon::authz::{EVENTS_ONLY, PODS_ONLY};
+use fathom_daemon::snapshot::{SnapshotSource, SnapshotStore};
+use k8s_openapi::api::core::v1::{Event as KEvent, Pod};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+
+fn spod(ns: &str, name: &str, rv: &str) -> Arc<Pod> {
+    Arc::new(Pod {
+        metadata: ObjectMeta {
+            namespace: Some(ns.into()),
+            name: Some(name.into()),
+            uid: Some(format!("{ns}/{name}")),
+            resource_version: Some(rv.into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+type SnapFx = (Fx, Arc<SnapshotStore<Pod>>, Arc<SnapshotStore<KEvent>>);
+
+fn snap_fx(parts: &[&str]) -> SnapFx {
+    let parts: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+    let pods = Arc::new(SnapshotStore::<Pod>::new("pods", &PODS_ONLY, &parts, now()));
+    let events = Arc::new(SnapshotStore::<KEvent>::new(
+        "events",
+        &EVENTS_ONLY,
+        &["Event".to_string()],
+        now(),
+    ));
+    let mut f = fx();
+    let sources: Vec<Arc<dyn SnapshotSource>> = vec![pods.clone(), events.clone()];
+    f.state = f.state.clone().with_snapshots(sources);
+    (f, pods, events)
+}
+
+async fn snap(f: &Fx, kind: &str, user: Option<&str>) -> (StatusCode, serde_json::Value) {
+    json(
+        verified(&f.state)
+            .oneshot(get(&format!("/v1/snapshot/{kind}"), user))
+            .await
+            .unwrap(),
+    )
+    .await
+}
+
+fn names(body: &serde_json::Value) -> Vec<String> {
+    body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| {
+            format!(
+                "{}/{}",
+                i["metadata"]["namespace"].as_str().unwrap(),
+                i["metadata"]["name"].as_str().unwrap()
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn snapshot_capability_unknown_kind_and_identity() {
+    let (f, _, _) = snap_fx(&["Pod"]);
+    let (st, caps) = json(
+        verified(&f.state)
+            .oneshot(get("/v1/capabilities", Some("alice")))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(caps["snapshots"], serde_json::json!(["pods", "events"]));
+    let (st, body) = snap(&f, "secrets", Some("alice")).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    assert!(body["error"].is_string());
+    let (st, _) = snap(&f, "pods", None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn snapshot_unsynced_is_503_until_every_partition_lists() {
+    let (f, pods, _) = snap_fx(&["Pod/a", "Pod/b"]);
+    let (st, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body["error"].as_str().unwrap().contains("not synced"));
+    pods.init("Pod/a");
+    pods.init_apply("Pod/a", spod("a", "p1", "10"));
+    pods.init_done("Pod/a", Some("10".into()));
+    let (st, _) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE, "Pod/b not listed yet");
+    pods.init("Pod/b");
+    pods.init_done("Pod/b", Some("12".into()));
+    let (st, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(body["synced"], true);
+    // Oldest partition version: a watch from it may replay, never skip.
+    assert_eq!(body["resourceVersion"], "10");
+}
+
+#[tokio::test]
+async fn snapshot_synced_is_filtered_sorted_and_tracks_version() {
+    let (f, pods, _) = snap_fx(&["Pod"]);
+    pods.init("Pod");
+    for (ns, n) in [("b", "z"), ("a", "y"), ("a", "x"), ("c", "w")] {
+        pods.init_apply("Pod", spod(ns, n, "5"));
+    }
+    pods.init_done("Pod", Some("100".into()));
+    pods.established("Pod");
+    let (st, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(body["kind"], "pods");
+    assert_eq!(body["ageMs"], 0);
+    assert_eq!(body["resourceVersion"], "100");
+    assert_eq!(names(&body), ["a/x", "a/y"]);
+    let (_, body) = snap(&f, "pods", Some("bob")).await;
+    assert_eq!(names(&body), ["b/z"]);
+    // A caller with no access gets an empty list, like a direct list would be filtered.
+    let (st, body) = snap(&f, "pods", Some("eve")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(names(&body).is_empty());
+    // Events, deletes and bookmarks move the version forward, never backwards.
+    pods.apply("Pod", spod("a", "v", "101"));
+    pods.delete("Pod", &spod("a", "x", "102"));
+    pods.bookmark("Pod", "150".into());
+    pods.bookmark("Pod", "140".into());
+    let (_, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(names(&body), ["a/v", "a/y"]);
+    assert_eq!(body["resourceVersion"], "150");
+    assert_eq!(pods.len(), 4);
+}
+
+#[tokio::test]
+async fn snapshot_age_grows_while_watch_is_down() {
+    let (f, pods, _) = snap_fx(&["Pod"]);
+    pods.init("Pod");
+    pods.init_done("Pod", Some("1".into()));
+    // Listed, but no watch established yet: age counts from store creation.
+    let (_, body) = snap(&f, "pods", Some("alice")).await;
+    assert!(body["ageMs"].as_u64().unwrap() < 5_000);
+    pods.established("Pod");
+    let (_, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(body["ageMs"], 0);
+    pods.lost("Pod", now() - CDur::seconds(45));
+    pods.lost("Pod", now()); // the first loss time is kept
+    let (st, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(st, StatusCode::OK);
+    let age = body["ageMs"].as_u64().unwrap();
+    assert!((45_000..60_000).contains(&age), "age {age}");
+    pods.established("Pod");
+    let (_, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(body["ageMs"], 0);
+}
+
+#[tokio::test]
+async fn snapshot_relist_swaps_atomically() {
+    let (f, pods, _) = snap_fx(&["Pod"]);
+    pods.init("Pod");
+    pods.init_apply("Pod", spod("a", "old", "1"));
+    pods.init_done("Pod", Some("1".into()));
+    pods.init("Pod"); // relist after 410
+    pods.init_apply("Pod", spod("a", "new", "9"));
+    let (_, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(
+        names(&body),
+        ["a/old"],
+        "a half-listed relist is never served"
+    );
+    pods.init_done("Pod", Some("9".into()));
+    let (_, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(names(&body), ["a/new"]);
+    assert_eq!(body["resourceVersion"], "9");
+}
+
+struct PodsOnlyForCarol;
+
+#[async_trait]
+impl AccessReviewer for PodsOnlyForCarol {
+    async fn allowed(&self, id: &CallerIdentity, c: &AccessCheck) -> Result<bool> {
+        Ok(id.user == "carol" && c.resource == "pods")
+    }
+}
+
+#[tokio::test]
+async fn snapshot_access_is_per_kind_and_fails_closed() {
+    let (mut f, pods, events) = snap_fx(&["Pod"]);
+    f.state.resolver = Arc::new(ScopeResolver::new(
+        Arc::new(PodsOnlyForCarol),
+        Duration::from_secs(60),
+        64,
+    ));
+    pods.init("Pod");
+    pods.init_apply("Pod", spod("a", "p", "1"));
+    pods.init_done("Pod", Some("1".into()));
+    events.init("Event");
+    events.init_done("Event", Some("1".into()));
+    // carol may list pods but not the other watched kinds: the pods snapshot still matches
+    // what her own direct pod list would return (namespace "a" is only known via the store).
+    let (st, body) = snap(&f, "pods", Some("carol")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(names(&body), ["a/p"]);
+    let (st, body) = snap(&f, "events", Some("carol")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(names(&body).is_empty());
+
+    let (f, pods, _) = snap_fx(&["Pod"]);
+    pods.init("Pod");
+    pods.init_done("Pod", Some("1".into()));
+    f.mock.fail.store(true, Ordering::SeqCst);
+    let (st, body) = snap(&f, "pods", Some("alice")).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    assert!(body["error"].as_str().unwrap().contains("sar boom"));
+}
+
+/// Renders are bounded (memory), not rejected: more concurrent callers than render permits all
+/// get the same full body; a second render reuses the learned per-item size.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn snapshot_concurrent_callers_queue_and_all_succeed() {
+    let (f, pods, _) = snap_fx(&["Pod"]);
+    pods.init("Pod");
+    for i in 0..200 {
+        pods.init_apply("Pod", spod("a", &format!("p{i:03}"), "5"));
+    }
+    pods.init_done("Pod", Some("100".into()));
+    pods.established("Pod");
+    let n = fathom_daemon::http::MAX_CONCURRENT_RENDERS * 4;
+    let mut set = tokio::task::JoinSet::new();
+    for _ in 0..n {
+        let state = f.state.clone();
+        set.spawn(async move {
+            json(
+                verified(&state)
+                    .oneshot(get("/v1/snapshot/pods", Some("alice")))
+                    .await
+                    .unwrap(),
+            )
+            .await
+        });
+    }
+    let mut bodies = Vec::new();
+    while let Some(r) = set.join_next().await {
+        let (st, body) = r.unwrap();
+        assert_eq!(st, StatusCode::OK);
+        bodies.push(body);
+    }
+    assert_eq!(bodies.len(), n);
+    assert_eq!(names(&bodies[0]).len(), 200);
+    assert!(bodies.iter().all(|b| b == &bodies[0]));
+}

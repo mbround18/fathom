@@ -12,6 +12,7 @@ pub mod hub;
 pub mod identity;
 pub mod metrics_ring;
 pub mod series_store;
+pub mod snapshot;
 pub mod tls;
 pub mod topology;
 pub mod watchers;

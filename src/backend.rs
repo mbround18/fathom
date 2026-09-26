@@ -68,6 +68,7 @@ mod statefulsets;
 mod sync;
 mod team_store;
 mod trivy;
+mod warm_lists;
 mod workload_common;
 
 mod capabilities;

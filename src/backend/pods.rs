@@ -24,7 +24,16 @@ pub(super) async fn refresh_pods(
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
     let filter = &state.cluster.namespace_filter;
-    let pods = super::kube::list_in_filter::<Pod>(client, filter).await?;
+    // 036 US4: the daemon's warm snapshot when a session runs for this context, else a LIST
+    // scoped to the namespace filter (031: namespace-bound users can't list cluster-wide).
+    let pods = match super::daemon_ctl::snapshot_source(state) {
+        Some(src) => {
+            super::warm_lists::list_with_daemon::<Pod>(&client, Some(&src), "pods")
+                .await?
+                .items
+        }
+        None => super::kube::list_in_filter::<Pod>(client, filter).await?,
+    };
     let summaries = pods_to_summaries(pods, filter);
     events::emit(
         state.cluster.seq.as_ref(),

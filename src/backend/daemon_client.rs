@@ -266,8 +266,9 @@ pub(super) struct Session {
     pub timeline: Timeline,
     pub cursor: Option<EventCursor>,
     pub timings: Timings,
-    /// Latest capabilities once available (used by on-demand requests).
-    pub caps: Arc<Mutex<Option<DaemonCapabilities>>>,
+    /// Probe outcome, shared with snapshot consumers (US4) so they can tell "probing" from
+    /// "not available" without issuing their own probe.
+    pub caps: CapsCell,
 }
 
 impl Session {
@@ -345,6 +346,7 @@ impl Session {
     pub(super) async fn run(mut self) {
         let mut attempt: u32 = 0;
         while self.live() {
+            self.caps.send_replace(ProbeState::Probing);
             self.status(DaemonState::Probing, None, None, None);
             let probe = match tokio::time::timeout(
                 self.timings.probe_timeout,
@@ -358,6 +360,7 @@ impl Session {
             };
             let c = classify_probe(probe);
             if c.state != DaemonState::Available {
+                self.caps.send_replace(ProbeState::Unavailable);
                 let wait = self.backoff(attempt);
                 attempt = attempt.saturating_add(1);
                 self.status(c.state, c.detail, None, Some(wait));
@@ -366,14 +369,13 @@ impl Session {
             }
             attempt = 0;
             let caps = c.capabilities.expect("available carries capabilities");
-            if let Ok(mut g) = self.caps.lock() {
-                *g = Some(caps.clone());
-            }
+            self.caps.send_replace(ProbeState::Available(caps.clone()));
             self.status(DaemonState::Available, None, Some(caps.clone()), None);
             if caps.topology {
                 self.load_topology().await;
             }
             let reason = self.stream(&caps).await;
+            self.caps.send_replace(ProbeState::Unavailable);
             if !self.live() {
                 return;
             }
@@ -593,6 +595,196 @@ pub(super) async fn fetch_metrics(
         .await
         .ok()?;
     parse_metrics(uid, metric, &text)
+}
+
+// ---------------------------------------------------------------------------------------
+// Warm snapshots (US4, research R6)
+// ---------------------------------------------------------------------------------------
+
+/// A snapshot at least this old (or not synced) is never used; the caller goes direct.
+pub(super) const SNAPSHOT_MAX_AGE: Duration = Duration::from_secs(30);
+/// How long a snapshot consumer waits for an in-flight probe before going direct. Bounded so
+/// the daemon path can never be much slower than a direct LIST when the probe hangs.
+pub(super) const SNAPSHOT_PROBE_WAIT: Duration = Duration::from_secs(1);
+/// Whole-request budget for fetching a snapshot.
+pub(super) const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Latest probe outcome of the active session.
+#[derive(Debug, Clone)]
+pub(super) enum ProbeState {
+    Probing,
+    Available(DaemonCapabilities),
+    Unavailable,
+}
+
+pub(super) type CapsCell = Arc<tokio::sync::watch::Sender<ProbeState>>;
+
+pub(super) fn caps_cell() -> CapsCell {
+    Arc::new(tokio::sync::watch::Sender::new(ProbeState::Probing))
+}
+
+/// Why a daemon snapshot was not used (the caller then does its own LIST).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SnapshotFallback {
+    /// The probe had not finished within [`SNAPSHOT_PROBE_WAIT`].
+    Probing,
+    /// No daemon, or it does not offer this kind.
+    NotOffered,
+    NotSynced,
+    Stale {
+        age_ms: u64,
+    },
+    Http(String),
+    Unreadable(String),
+    Timeout,
+}
+
+impl std::fmt::Display for SnapshotFallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Probing => write!(f, "daemon probe still in progress"),
+            Self::NotOffered => write!(f, "snapshot not offered"),
+            Self::NotSynced => write!(f, "snapshot not synced"),
+            Self::Stale { age_ms } => write!(f, "snapshot is stale ({age_ms} ms)"),
+            Self::Http(m) => write!(f, "snapshot request failed: {m}"),
+            Self::Unreadable(m) => write!(f, "snapshot unreadable: {m}"),
+            Self::Timeout => write!(f, "snapshot request timed out"),
+        }
+    }
+}
+
+/// A usable daemon snapshot: `items` as of `resource_version`, from which the caller watches.
+#[derive(Debug)]
+pub(super) struct DaemonSnapshot<K> {
+    pub resource_version: String,
+    pub age_ms: u64,
+    pub items: Vec<K>,
+}
+
+/// Parse and vet a `/v1/snapshot/{kind}` body: unsynced, stale (`ageMs >= max_age`) or
+/// version-less snapshots are rejected so the caller falls back to a direct LIST.
+pub(super) fn parse_snapshot<K: serde::de::DeserializeOwned>(
+    text: &str,
+    max_age: Duration,
+) -> Result<DaemonSnapshot<K>, SnapshotFallback> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Body<K> {
+        resource_version: Option<String>,
+        age_ms: u64,
+        synced: bool,
+        items: Vec<K>,
+    }
+    let b: Body<K> =
+        serde_json::from_str(text).map_err(|e| SnapshotFallback::Unreadable(e.to_string()))?;
+    if !b.synced {
+        return Err(SnapshotFallback::NotSynced);
+    }
+    if u128::from(b.age_ms) >= max_age.as_millis() {
+        return Err(SnapshotFallback::Stale { age_ms: b.age_ms });
+    }
+    let Some(rv) = b.resource_version.filter(|r| !r.is_empty()) else {
+        return Err(SnapshotFallback::Unreadable("no resourceVersion".into()));
+    };
+    Ok(DaemonSnapshot {
+        resource_version: rv,
+        age_ms: b.age_ms,
+        items: b.items,
+    })
+}
+
+/// Budgets for [`fetch_snapshot`]; tests shrink them.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct SnapshotBudget {
+    pub probe_wait: Duration,
+    pub timeout: Duration,
+    pub max_age: Duration,
+}
+
+impl Default for SnapshotBudget {
+    fn default() -> Self {
+        Self {
+            probe_wait: SNAPSHOT_PROBE_WAIT,
+            timeout: SNAPSHOT_TIMEOUT,
+            max_age: SNAPSHOT_MAX_AGE,
+        }
+    }
+}
+
+/// Fetch the daemon's warm snapshot of `kind` (`pods`, `events`) if the active session is
+/// available and offers it. Any failure is a [`SnapshotFallback`]; never retried here.
+pub(super) async fn fetch_snapshot<K: serde::de::DeserializeOwned>(
+    transport: &dyn DaemonTransport,
+    caps: &CapsCell,
+    kind: &str,
+    budget: SnapshotBudget,
+) -> Result<DaemonSnapshot<K>, SnapshotFallback> {
+    let mut rx = caps.subscribe();
+    let state = match tokio::time::timeout(
+        budget.probe_wait,
+        rx.wait_for(|s| !matches!(s, ProbeState::Probing)),
+    )
+    .await
+    {
+        Ok(Ok(s)) => s.clone(),
+        Ok(Err(_)) => return Err(SnapshotFallback::NotOffered),
+        Err(_) => return Err(SnapshotFallback::Probing),
+    };
+    let ProbeState::Available(c) = state else {
+        return Err(SnapshotFallback::NotOffered);
+    };
+    if !c.snapshots.iter().any(|k| k == kind) {
+        return Err(SnapshotFallback::NotOffered);
+    }
+    let text = match tokio::time::timeout(
+        budget.timeout,
+        transport.get_text(&format!("{API_BASE}/v1/snapshot/{kind}")),
+    )
+    .await
+    {
+        Err(_) | Ok(Err(TransportError::Timeout)) => return Err(SnapshotFallback::Timeout),
+        Ok(Err(TransportError::Http { code: 503, .. })) => {
+            return Err(SnapshotFallback::NotSynced);
+        }
+        Ok(Err(e)) => return Err(SnapshotFallback::Http(e.to_string())),
+        Ok(Ok(t)) => t,
+    };
+    parse_snapshot(&text, budget.max_age)
+}
+
+/// The active context's daemon session, as seen by snapshot consumers.
+#[derive(Clone)]
+pub(crate) struct SnapshotSource {
+    pub(super) context: String,
+    pub(super) transport: Arc<dyn DaemonTransport>,
+    pub(super) caps: CapsCell,
+}
+
+impl SnapshotSource {
+    pub(super) async fn fetch<K: serde::de::DeserializeOwned>(
+        &self,
+        kind: &str,
+    ) -> Result<DaemonSnapshot<K>, SnapshotFallback> {
+        fetch_snapshot(
+            self.transport.as_ref(),
+            &self.caps,
+            kind,
+            SnapshotBudget::default(),
+        )
+        .await
+    }
+}
+
+/// Shared "current snapshot source" slot, updated as daemon sessions start and stop, read by
+/// long-lived watch tasks at each (re)snapshot.
+pub(crate) type SnapshotSlot = Arc<Mutex<Option<SnapshotSource>>>;
+
+/// The slot's source when it belongs to `context`.
+pub(super) fn source_for(slot: &SnapshotSlot, context: Option<&str>) -> Option<SnapshotSource> {
+    let g = slot.lock().ok()?;
+    g.as_ref()
+        .filter(|s| Some(s.context.as_str()) == context)
+        .cloned()
 }
 
 #[cfg(test)]
