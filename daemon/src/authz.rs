@@ -36,6 +36,36 @@ pub const CLUSTER_RESOURCES: &[(&str, &str)] = &[("", "nodes")];
 
 const SAR_CONCURRENCY: usize = 16;
 
+/// A set of kinds a scope is resolved over. `cache_tag` distinguishes cache slots; the
+/// default (all watched kinds) uses the bare identity key.
+#[derive(Debug, Clone, Copy)]
+pub struct ResourceSet {
+    pub namespaced: &'static [(&'static str, &'static str)],
+    pub cluster: &'static [(&'static str, &'static str)],
+    pub cache_tag: &'static str,
+}
+
+/// Every kind the daemon exposes (events, topology, metrics).
+pub const ALL_KINDS: ResourceSet = ResourceSet {
+    namespaced: NAMESPACED_RESOURCES,
+    cluster: CLUSTER_RESOURCES,
+    cache_tag: "",
+};
+
+/// Only `list pods` (the pods snapshot).
+pub const PODS_ONLY: ResourceSet = ResourceSet {
+    namespaced: &[("", "pods")],
+    cluster: &[],
+    cache_tag: "pods",
+};
+
+/// Only `list events` (the events snapshot).
+pub const EVENTS_ONLY: ResourceSet = ResourceSet {
+    namespaced: &[("", "events")],
+    cluster: &[],
+    cache_tag: "events",
+};
+
 /// One `list` access question. `namespace: None` on a namespaced resource means all namespaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccessCheck {
@@ -173,15 +203,32 @@ impl ScopeResolver {
     /// Resolve the caller's visible scope over `universe` (known namespaces). `Err` => the
     /// caller must return nothing (fail closed); errors are not cached.
     pub async fn resolve(&self, id: &CallerIdentity, universe: &[String]) -> Result<VisibleScope> {
+        self.resolve_for(id, universe, &ALL_KINDS).await
+    }
+
+    /// Like [`Self::resolve`] for an explicit resource set: a namespace is visible when the
+    /// caller may `list` every one of `set.namespaced` there; `cluster_scoped` needs `list` on
+    /// every one of `set.cluster` and is `false` when that is empty. The warm snapshots use a
+    /// single-kind set so they match what a direct `list` of that kind returns.
+    pub async fn resolve_for(
+        &self,
+        id: &CallerIdentity,
+        universe: &[String],
+        set: &ResourceSet,
+    ) -> Result<VisibleScope> {
         let key = id.key();
-        let slot = self.slot(&key);
+        let slot_key = match set.cache_tag {
+            "" => key.clone(),
+            tag => format!("{key}|{tag}"),
+        };
+        let slot = self.slot(&slot_key);
         let mut guard = slot.lock().await;
         if let Some(c) = guard.as_ref()
             && Instant::now().duration_since(c.at) < self.ttl
         {
             return Ok(c.scope.clone());
         }
-        let scope = self.compute(id, &key, universe).await?;
+        let scope = self.compute(id, &key, universe, set).await?;
         *guard = Some(Cached {
             at: Instant::now(),
             scope: scope.clone(),
@@ -206,8 +253,10 @@ impl ScopeResolver {
         id: &CallerIdentity,
         key: &str,
         universe: &[String],
+        set: &ResourceSet,
     ) -> Result<VisibleScope> {
-        let cluster_checks = CLUSTER_RESOURCES
+        let cluster_checks: Vec<AccessCheck> = set
+            .cluster
             .iter()
             .map(|(g, r)| AccessCheck {
                 group: g,
@@ -216,10 +265,11 @@ impl ScopeResolver {
                 cluster_scoped: true,
             })
             .collect();
-        let cluster_scoped = self.all_allowed(id, cluster_checks).await?;
+        let cluster_scoped =
+            !cluster_checks.is_empty() && self.all_allowed(id, cluster_checks).await?;
 
         let ns_checks = |ns: Option<&str>| -> Vec<AccessCheck> {
-            NAMESPACED_RESOURCES
+            set.namespaced
                 .iter()
                 .map(|(g, r)| AccessCheck {
                     group: g,

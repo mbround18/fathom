@@ -11,7 +11,7 @@ use fathom_daemon::metrics_ring::{
     DEFAULT_MAX_BYTES, DEFAULT_SAMPLES_PER_SERIES, MetricsAvailability, MetricsRing, run_sampler,
 };
 use fathom_daemon::tls;
-use fathom_daemon::watchers::{Ctx, WATCHED_KINDS, spawn_all, sync_keys};
+use fathom_daemon::watchers::{Ctx, Snapshots, WATCHED_KINDS, spawn_all, sync_keys};
 use k8s_openapi::api::core::v1::ConfigMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -95,6 +95,7 @@ async fn main() -> Result<()> {
         },
         ..HttpConfig::default()
     };
+    let snaps = Snapshots::new(&cfg);
     let state = AppState::new(
         hub.clone(),
         resolver,
@@ -102,14 +103,15 @@ async fn main() -> Result<()> {
         avail.clone(),
         sync.clone(),
         http_cfg,
-    );
+    )
+    .with_snapshots(snaps.sources());
 
     let ctx = Arc::new(Ctx {
         hub: hub.clone(),
         sync,
         coalescer: Mutex::new(Coalescer::new(cfg.coalesce)),
     });
-    spawn_all(client.clone(), &cfg, ctx);
+    spawn_all(client.clone(), &cfg, ctx, &snaps);
     tokio::spawn(run_sampler(client, hub, ring, avail));
 
     let health = TcpListener::bind(&cfg.health_listen)
