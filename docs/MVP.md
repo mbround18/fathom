@@ -54,6 +54,9 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Hosted server mode (in-cluster web app with OIDC login) | 🚧 | 031-hosted-server-mode — server, OIDC login, per-user tenancy, audit sink, security review and operator guide shipped; live suite passes on Rauthy and Keycloak; soak, upgrade/uninstall and WebKit runs still open (see Status Summary) |
 | Managed-cloud auth plugins (EKS/GKE/AKS exec credentials) | 🚧 | 035-cloud-auth-plugins — implemented; live EKS/GKE/AKS and Windows/macOS manual checks pending |
 | Observability settings persistence (Prometheus/Grafana, secrets in OS keyring) | ✅ | 039-observability-settings |
+| Manifest export (copy/download YAML per resource, bundles, clean-for-re-apply, manifest before every apply, kubeconfig export) | ✅ | 040-manifest-export (live re-apply dry run on kind; ServiceAccount-kubeconfig minting and namespace bundles deferred to the backlog) |
+| Observability auto-connect (Prometheus via API server proxy, Open Grafana via Fathom port-forward, Topology tool sheet renders) | ✅ | 041-observability-autoconnect (live on kind-fathom-dev) |
+| Nav completeness: every nav section and tool loads real data or states why not | ✅ | nav walk 2026-09-26: `ui/tests/e2e/nav-walk.spec.ts` (mock, every section and tool) and `ui/tests/live/nav-walk.spec.ts` (10/10 on kind-fathom-dev); fixed Overview node count, false DANGLING role refs, Logs tool pod picker, Argo/Metrics/Grafana probes, honest integration empty states; post-connect discovery moved out of the backend lock (no more "Loading" behind Initialize); Gatekeeper ScanFailed state. Dev addons: Argo CD, Grafana, optional Cilium/Hubble cluster (`k8s/cluster.sh up-cilium`) |
 
 ---
 
