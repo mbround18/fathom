@@ -8,3 +8,5 @@ resources:
   - ../../addons/trivy
   - ../../addons/velero
   - ../../addons/flux
+  - ../../addons/argocd
+  - ../../addons/grafana
