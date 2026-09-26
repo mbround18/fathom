@@ -37,6 +37,19 @@ out had to happen outside the app.
   token` + printf pipeline used to build `~/.kube/fathom-agent.yaml` for prod testing.
   Never show the token on screen. Offer write-to-file or merge-into-`~/.kube/config`, with a
   diff preview of the merge.
+- **Shipped in 040 (`specs/040-manifest-export/`)**: per-resource Copy/Download YAML in the
+  Inspector YAML tab and the row menu, with "clean for re-apply" on by default (also drops
+  `last-applied-configuration`; Secrets stay redacted); bundle export of a multi-selection as
+  one multi-document YAML (cap 500); a manifest view with Copy/Download in the YAML edit,
+  RoleBinding form, role assignment, Helm upgrade/rollback and kind create flows; kubeconfig
+  export of the active or a chosen context to a `0600` file after an explicit confirm.
+  Embedded credentials are flagged and opt-in, `exec`/auth-provider entries are kept as they
+  are, and the UI only ever sees a redacted preview. A live check re-applied the exports on
+  `kind-fathom-dev` with a server dry run.
+- **Still open from the items above**: minting a scoped ServiceAccount kubeconfig
+  (TokenRequest with a TTL), merging into `~/.kube/config` with a diff preview, bundles for a
+  whole namespace or an Application, zip output, and manifests for node shell (037) and debug
+  containers (025).
 - **Future — OIDC login → kubeconfig sync**: after a 033 OIDC sign-in, optionally write or
   refresh the matching kubeconfig context automatically, so kubectl and other tools get the
   same identity and later logins are faster. Prefer an `exec` credential entry (e.g. a
