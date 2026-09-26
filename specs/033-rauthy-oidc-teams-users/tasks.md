@@ -36,7 +36,7 @@
 - [x] T020 [US2] Implement bearer layer in `src/backend/kube.rs` for OIDC-opted contexts; `SetContextAuthMode` command
 - [x] T021 [P] [US2] UI: per-context "authenticate with OIDC" control and verbatim-error panel linking to the 011 generator
 - [x] T022 [US2] Prefill 011 OIDC generator from discovery document (issuer, client id, claims, prefixes) + test; offer the kube-apiserver `AuthenticationConfiguration` (v1beta1) form as well as the legacy flags (T004: it is what the lab uses; supports multiple audiences)
-- [ ] T023 [US2] Live validation per quickstart section 2 on kind (manual, record result) NOT RUN headlessly: needs an interactive browser sign-in against Rauthy and an API server started with the AuthenticationConfiguration; run manually per quickstart section 2. Bearer layer covered by tests/oidc_kube_bearer.rs.
+- [x] T023 [US2] Live validation per quickstart section 2 on kind (manual, record result) (Done 2026-09-26 on `kind-fathom-oidc-rauthy`: real Rauthy browser login driven by Playwright through the real backend. alice and bob get their `oidc:` group RBAC. The break case gives a verbatim 401 with no kubeconfig fallback; after sign-out the context fails, with no fallback. See checklists/live-validation.md.)
 
 ## Phase 5: US5 RBAC-scoped UI (P2, before US3/US4)
 
