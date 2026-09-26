@@ -44,14 +44,16 @@ pub fn check_mutation(
         && csrf_token_valid(session_csrf, header_csrf)
 }
 
-/// Accept only same-origin absolute paths; anything else becomes `/`.
+/// Accept only same-origin absolute paths; anything else becomes `/`. The result is used
+/// verbatim as a `Location` header, so it must be visible ASCII only (no CR/LF header
+/// injection, and no byte `HeaderValue` would reject: that would panic in `Redirect::to`).
 pub fn safe_return_path(raw: Option<&str>) -> String {
     let Some(p) = raw else { return "/".into() };
     let ok = p.starts_with('/')
         && !p.starts_with("//")
         && !p.starts_with("/\\")
         && !p.contains('\\')
-        && !p.chars().any(|c| c.is_control())
+        && p.chars().all(|c| c.is_ascii_graphic())
         && !p.contains("://");
     if ok { p.to_string() } else { "/".into() }
 }
@@ -134,6 +136,10 @@ mod tests {
             "/redir?u=http://evil.io",
             "javascript:alert(1)",
             "",
+            // Non-ASCII and spaces would be invalid in a `Location` header value.
+            "/caf\u{e9}",
+            "/a b",
+            "/x\u{7f}",
         ] {
             assert_eq!(safe_return_path(Some(bad)), "/", "{bad}");
         }

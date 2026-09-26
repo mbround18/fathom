@@ -174,11 +174,16 @@ impl UserBackend {
     /// Start the backend and event pump on dedicated threads. The backend's Tokio runtime has
     /// two workers: per-user isolation without a thread pool per signed-in user.
     pub fn spawn(p: SpawnParams) -> anyhow::Result<Arc<Self>> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder
             .worker_threads(2)
             .thread_name("fathom-user-rt")
-            .enable_all()
-            .build()?;
+            .enable_all();
+        // Every thread of this user's runtime resolves state paths under the user's own root.
+        if let Some(root) = p.access.state_root() {
+            fathom::backend::persistence::scope_runtime_to_state_root(&mut builder, root);
+        }
+        let runtime = builder.build()?;
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
         let (gui_tx, gui_rx) = crossbeam_channel::unbounded();
         let link = BackendLink::new(cmd_tx);

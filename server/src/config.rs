@@ -54,6 +54,8 @@ pub struct HostedConfig {
     pub access_model: AccessModel,
     pub kube_token: KubeTokenKind,
     pub audit_viewer_groups: Vec<String>,
+    /// Entries kept by the hosted audit log (`FATHOM_AUDIT_RETENTION`).
+    pub audit_retention: usize,
     pub limits: SessionLimits,
     pub session_absolute: Duration,
     pub session_idle: Duration,
@@ -308,6 +310,11 @@ impl HostedConfig {
             access_model,
             kube_token,
             audit_viewer_groups: list(get("FATHOM_AUDIT_VIEWER_GROUPS")),
+            audit_retention: parse_num(
+                "FATHOM_AUDIT_RETENTION",
+                get("FATHOM_AUDIT_RETENTION"),
+                crate::audit::DEFAULT_AUDIT_RETENTION,
+            )?,
             limits,
             session_absolute: parse_secs(
                 "FATHOM_SESSION_ABSOLUTE",
@@ -488,6 +495,12 @@ mod tests {
         let c = parse(&m, false).unwrap();
         assert_eq!(c.oidc.scopes, ["openid", "email"]);
         assert_eq!(c.audit_viewer_groups, ["admins", "auditors"]);
+        assert_eq!(c.audit_retention, crate::audit::DEFAULT_AUDIT_RETENTION);
+        m.insert("FATHOM_AUDIT_RETENTION", "250".into());
+        assert_eq!(parse(&m, false).unwrap().audit_retention, 250);
+        m.insert("FATHOM_AUDIT_RETENTION", "0".into());
+        assert!(parse(&m, false).is_err());
+        m.remove("FATHOM_AUDIT_RETENTION");
         m.insert("FATHOM_OIDC_SCOPES", "email".into());
         assert!(parse(&m, false).is_err());
     }

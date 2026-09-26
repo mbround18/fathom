@@ -474,12 +474,12 @@ async fn logout_requires_csrf_and_origin_then_ends_the_session() {
             .any(|c| c.starts_with("__Host-fathom_session=;") && c.contains("Max-Age=0"))
     );
     let b: serde_json::Value = ok.json().await.unwrap();
-    assert!(
-        b["endSessionUrl"]
-            .as_str()
-            .unwrap()
-            .contains("id_token_hint=")
-    );
+    let end = b["endSessionUrl"].as_str().unwrap();
+    // Default pass-through with ID-token bearers: the ID token is the cluster credential, so
+    // it must never be handed to the browser in the logout URL.
+    assert!(!end.contains("id_token_hint="), "{end}");
+    assert!(end.contains("client_id="), "{end}");
+    assert!(end.contains("post_logout_redirect_uri="), "{end}");
     assert_eq!(
         h.http
             .get(format!("{}/api/session", h.base))

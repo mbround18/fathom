@@ -1,4 +1,5 @@
 //! Hosted server shell (spec 031).
+pub mod audit;
 pub mod config;
 pub mod csrf;
 pub mod filter;

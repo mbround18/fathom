@@ -17,6 +17,9 @@ use fathom_server::session::SessionStore;
 async fn main() -> ExitCode {
     install_crypto_provider();
     init_tracing();
+    // Several users' backends share this process: a state path must always resolve under the
+    // calling user's own root, never the process-wide `~/.fathom` fallback.
+    fathom::backend::persistence::require_scoped_state_root();
 
     let cfg = match HostedConfig::from_env() {
         Ok(c) => Arc::new(c),

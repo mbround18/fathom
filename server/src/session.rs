@@ -66,7 +66,8 @@ impl Default for SessionConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+/// `Debug` redacts `id` (the session cookie value) and `csrf`; tokens redact themselves.
+#[derive(Clone)]
 pub struct Session {
     pub id: String,
     pub csrf: String,
@@ -78,6 +79,22 @@ pub struct Session {
     pub absolute_deadline: Instant,
     /// Successful token refreshes so far (exposed as `refreshCount` in `/api/session`).
     pub refresh_count: u64,
+}
+
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("id", &"[redacted]")
+            .field("csrf", &"[redacted]")
+            .field("identity", &self.identity)
+            .field("user_key", &self.user_key)
+            .field("tokens", &self.tokens)
+            .field("created_at", &self.created_at)
+            .field("last_seen", &self.last_seen)
+            .field("absolute_deadline", &self.absolute_deadline)
+            .field("refresh_count", &self.refresh_count)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]

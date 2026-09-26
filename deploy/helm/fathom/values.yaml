@@ -28,7 +28,8 @@ limits:
   maxTabsPerUser: 5
   streamRecycleMinutes: 4
 audit:
-  viewerGroups: []
+  viewerGroups: []         # members see every user's entries; others see only their own
+  retention: 10000         # newest entries kept in <state>/audit/audit-log.jsonl
 session:
   absolute: ""
   idle: ""

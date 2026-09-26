@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use fathom::backend::access::Identity as BackendIdentity;
-use fathom::backend::audit_log::LocalFileSink;
+use fathom::backend::audit_log::AuditSink;
 use fathom::protocol::{
     BackendCmd, BridgeError, DevBridgeServerMsg, EventBatch, PublicLimits, RequestId,
     SubscriptionInfo,
@@ -19,6 +19,7 @@ use tokio::sync::Notify;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 
+use crate::audit::HostedAuditSink;
 use crate::config::{AccessModel, HostedConfig, KubeTokenKind};
 use crate::kubeauth::{self, AuthError, Credentials, Impersonation, TokenCell};
 use crate::oidc::OidcClient;
@@ -97,6 +98,8 @@ pub struct HostedTenantHost {
     refreshers: Mutex<HashMap<String, JoinHandle<()>>>,
     client: tokio::sync::OnceCell<kube::Client>,
     refresh_cfg: RefreshConfig,
+    /// One attributed audit log shared by every user's backend (single writer).
+    audit: Arc<dyn AuditSink>,
 }
 
 impl HostedTenantHost {
@@ -120,7 +123,13 @@ impl HostedTenantHost {
             recycle: Duration::from_secs(cfg.limits.stream_recycle_minutes * 60),
             ..RefreshConfig::default()
         };
+        let audit: Arc<dyn AuditSink> = Arc::new(HostedAuditSink::new(
+            &cfg.state_dir,
+            cfg.audit_retention,
+            cfg.audit_viewer_groups.clone(),
+        ));
         let host = Arc::new(Self {
+            audit,
             cfg,
             oidc,
             sessions,
@@ -255,7 +264,7 @@ impl HostedTenantHost {
                     access,
                     token_cell: Some(cell.clone()),
                     limits: self.cfg.limits.clone(),
-                    audit: Arc::new(LocalFileSink),
+                    audit: self.audit.clone(),
                 })
             })
             .map_err(|e| AttachError::Unavailable(e.to_string()))
