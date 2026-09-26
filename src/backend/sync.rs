@@ -191,24 +191,21 @@ async fn poll_gatekeeper_overview(
     let mut ticker = tokio::time::interval(Duration::from_secs(20));
     loop {
         ticker.tick().await;
-        match gatekeeper::scan_gatekeeper(&client).await {
-            Ok(overview) => {
-                events::emit(
-                    seq.as_ref(),
-                    &sender,
-                    Route::cluster(section_keys::integrations_gatekeeper(), context.clone()),
-                    Correlation::None,
-                    BackendEvent::System(SystemEvent::GatekeeperOverviewUpdated(overview)),
-                );
-            }
-            Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background Gatekeeper scan failed: {}", e),
-                );
-            }
-        }
+        // A failure reaches the pane as a `ScanFailed` overview (with a retry) rather than a
+        // toast every 20s; the log keeps the history.
+        let overview = gatekeeper::scan_gatekeeper_overview(&client)
+            .await
+            .unwrap_or_else(|(overview, message)| {
+                tracing::warn!("Background Gatekeeper scan failed: {message}");
+                overview
+            });
+        events::emit(
+            seq.as_ref(),
+            &sender,
+            Route::cluster(section_keys::integrations_gatekeeper(), context.clone()),
+            Correlation::None,
+            BackendEvent::System(SystemEvent::GatekeeperOverviewUpdated(overview)),
+        );
     }
 }
 

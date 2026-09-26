@@ -9,8 +9,8 @@ use crate::backend::{
     trivy, velero,
 };
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SectionKey, SystemEvent,
-    section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, GatekeeperOverview, Route,
+    SectionKey, SystemEvent, section_keys,
 };
 
 /// Handles integration commands; returns the command back if it belongs to another family.
@@ -337,30 +337,36 @@ async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope
     }
 }
 
+/// Rescan Gatekeeper now. Every outcome, including a failure or no connection, ends in a
+/// `GatekeeperOverviewUpdated` so the pane never stays on "Scanning"; a failure also fails the
+/// command.
 async fn refresh_gatekeeper(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
     crate::backend::sync::ensure_gatekeeper_poll(state, sender).await;
     let context = state.cluster.current_context.clone();
-    let Some(client) = &state.cluster.client else {
+    let result = match &state.cluster.client {
+        Some(client) => gatekeeper::scan_gatekeeper_overview(client).await,
+        None => {
+            let message = "Not connected to a cluster.".to_owned();
+            Err((GatekeeperOverview::scan_failed(message.clone()), message))
+        }
+    };
+    let (overview, error) = match result {
+        Ok(overview) => (overview, None),
+        Err((overview, message)) => (overview, Some(message)),
+    };
+    emit_cluster_system(
+        state,
+        sender,
+        section_keys::integrations_gatekeeper(),
+        context,
+        SystemEvent::GatekeeperOverviewUpdated(overview),
+    );
+    if let Some(message) = error {
         events::notify_error(
             state.cluster.seq.as_ref(),
             sender,
-            "Not connected to a cluster.".to_owned(),
+            format!("Failed to scan cluster for Gatekeeper constraints: {message}"),
         );
-        return;
-    };
-    match gatekeeper::scan_gatekeeper(client).await {
-        Ok(overview) => emit_cluster_system(
-            state,
-            sender,
-            section_keys::integrations_gatekeeper(),
-            context,
-            SystemEvent::GatekeeperOverviewUpdated(overview),
-        ),
-        Err(e) => events::notify_error(
-            state.cluster.seq.as_ref(),
-            sender,
-            format!("Failed to scan cluster for Gatekeeper constraints: {}", e),
-        ),
     }
 }
 

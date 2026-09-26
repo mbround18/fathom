@@ -3,7 +3,9 @@
  * (SystemEvent::GatekeeperOverviewUpdated) through `IntegrationSummary`. State arrives from a 20s
  * backend scan (see `sync.rs::ensure_gatekeeper_poll`); opening the pane also sends
  * `RefreshGatekeeper`. Read-only: selecting a constraint lists its violating resources, each of
- * which links out to the existing Inspector. Every install state renders its own message.
+ * which links out to the existing Inspector. Every install state renders its own message; a
+ * failed scan (`ScanFailed`) renders the verbatim error with a Retry that shows "Scanning" again
+ * until the next overview arrives.
  */
 import { ShieldCheckIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
@@ -12,7 +14,7 @@ import type { GatekeeperConstraintSummary } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { IntegrationSummary, type SummaryRow, type SummaryTile } from './IntegrationSummary'
-import { MetricsUnavailable } from '../shell/PaneStates'
+import { ErrorState, MetricsUnavailable } from '../shell/PaneStates'
 
 const constraintKey = (c: GatekeeperConstraintSummary) => `${c.kind}/${c.name}`
 
@@ -31,14 +33,29 @@ export function GatekeeperPanel() {
   const refreshGatekeeper = useStore((s) => s.refreshGatekeeper)
   const openInspector = useStore((s) => s.openInspector)
   const [selected, setSelected] = useState<string | null>(null)
+  // The failed overview a Retry was sent for: until a newer overview replaces it, the pane shows
+  // "Scanning" again rather than the old error.
+  const [retriedFrom, setRetriedFrom] = useState<typeof overview>(undefined)
 
   useEffect(() => {
     refreshGatekeeper()
   }, [refreshGatekeeper])
 
-  if (!overview) {
+  if (!overview || overview === retriedFrom) {
     return (
       <MetricsUnavailable title="Scanning" detail="Waiting for the Gatekeeper scan to complete." />
+    )
+  }
+  if (overview.state === 'ScanFailed') {
+    return (
+      <ErrorState
+        title="Scan failed"
+        detail={`Could not scan for Gatekeeper constraints: ${overview.error}`}
+        onRetry={() => {
+          setRetriedFrom(overview)
+          refreshGatekeeper()
+        }}
+      />
     )
   }
   if (overview.state === 'NotInstalled') {

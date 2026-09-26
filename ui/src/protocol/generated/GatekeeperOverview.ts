@@ -7,6 +7,7 @@ import type { GatekeeperInstallState } from "./GatekeeperInstallState";
  */
 export type GatekeeperOverview = { state: GatekeeperInstallState, 
 /**
- * Verbatim backend error text when `state == PermissionDenied`; empty otherwise.
+ * Verbatim backend error text when `state` is `PermissionDenied` or `ScanFailed`; empty
+ * otherwise.
  */
 error: string, constraints: Array<GatekeeperConstraintSummary>, };
