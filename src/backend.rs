@@ -60,6 +60,8 @@ pub mod oidc;
 pub mod persistence;
 mod pods;
 mod portforward;
+#[cfg(test)]
+mod post_connect_tests;
 mod related;
 mod replicasets;
 mod replicationcontrollers;
@@ -293,7 +295,12 @@ async fn run_cmd(
     let CmdRequest { id, cmd } = request;
     let route = finished_route(&cmd);
     let scope_route = cmd.section().map(|_| route.clone());
-    events::in_cmd_scope(id, scope_route, async move {
+    let post_connect = match &cmd {
+        BackendCmd::Initialize => Some(cmd::PostConnect::Initialize),
+        BackendCmd::SetContext { .. } => Some(cmd::PostConnect::SetContext),
+        _ => None,
+    };
+    let ok = events::in_cmd_scope(id, scope_route, async move {
         // 026: summarize before `cmd` is consumed by dispatch.
         let audit_summary = cmd.audit_summary();
         let request_id = events::current_request_id_string();
@@ -326,8 +333,13 @@ async fn run_cmd(
             Correlation::None, // → the command's Request correlation
             BackendEvent::CommandFinished { ok, error },
         );
+        ok
     })
     .await;
+    // Optional integration discovery runs after the lock is released (see `post_connect`).
+    if let (true, Some(kind)) = (ok, post_connect) {
+        cmd::post_connect(state, sender, kind).await;
+    }
 }
 
 /// Route of a command's `CommandFinished`: its section, namespaced to the target

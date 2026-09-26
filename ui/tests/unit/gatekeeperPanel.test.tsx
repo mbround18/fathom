@@ -2,7 +2,7 @@
  * 020-gatekeeper-policy-pane: `gatekeeper` store slice + `GatekeeperPanel` rendering
  * (all four install states, awaiting-status vs zero, drill-down, truncation, Inspector link-out).
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
@@ -86,6 +86,32 @@ describe('GatekeeperPanel', () => {
     })
     render(<GatekeeperPanel />)
     expect(screen.getByText(/forbidden: cannot list K8sFoo/)).toBeTruthy()
+  })
+
+  it('shows a failed scan with its error and retries back to scanning', () => {
+    setOverview({ state: 'ScanFailed', error: 'connection refused', constraints: [] })
+    const { container } = render(<GatekeeperPanel />)
+    expect(container.querySelector('[data-pane-state="error"]')).toBeTruthy()
+    expect(screen.getByText(/connection refused/)).toBeTruthy()
+    expect(screen.queryByText(/Waiting for the Gatekeeper scan/)).toBeNull()
+
+    send.mockReset()
+    fireEvent.click(screen.getByRole('button', { name: /Retry/ }))
+    expect(send).toHaveBeenCalledWith({ type: 'RefreshGatekeeper' })
+    expect(screen.getByText(/Waiting for the Gatekeeper scan/)).toBeTruthy()
+
+    // The next overview (even another failure) replaces the scanning state.
+    act(() => {
+      ingest(
+        batch([
+          system(2, {
+            type: 'GatekeeperOverviewUpdated',
+            data: { state: 'ScanFailed', error: 'timed out', constraints: [] },
+          }),
+        ]),
+      )
+    })
+    expect(screen.getByText(/timed out/)).toBeTruthy()
   })
 
   it('distinguishes awaiting status from a real count', () => {

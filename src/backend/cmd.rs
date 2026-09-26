@@ -11,6 +11,7 @@ mod agent;
 mod ai;
 mod cloud_auth;
 mod cluster;
+pub(super) use cluster::{PostConnect, post_connect};
 mod idp;
 mod integrations;
 mod kind_cluster;

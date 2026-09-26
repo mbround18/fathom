@@ -1,8 +1,9 @@
 /**
- * 020-gatekeeper-policy-pane: two scenarios against the scripted fake backend.
+ * 020-gatekeeper-policy-pane: three scenarios against the scripted fake backend.
  *  A. an Active overview renders its violation and clicking the violating resource opens the
  *     Inspector on that exact object;
- *  B. NotInstalled renders the explicit "not installed" message.
+ *  B. NotInstalled renders the explicit "not installed" message;
+ *  C. ScanFailed renders the error pane, and Retry sends RefreshGatekeeper and rescans.
  */
 import { expect, test } from '@playwright/test'
 
@@ -71,5 +72,39 @@ test.describe('Gatekeeper policy pane', () => {
       ]),
     )
     await expect(page.getByText(/OPA Gatekeeper is not installed on this cluster/)).toBeVisible()
+  })
+
+  test('shows a failed scan with a retry instead of scanning forever', async ({ page }) => {
+    await openGatekeeper(page)
+    await emit(
+      page,
+      batch([
+        system(1, {
+          type: 'GatekeeperOverviewUpdated',
+          data: { state: 'ScanFailed', error: 'connection refused', constraints: [] },
+        }),
+      ]),
+    )
+    const error = page.locator('[data-pane-state="error"]')
+    await expect(error).toContainText('connection refused')
+    await expect(page.getByText(/Waiting for the Gatekeeper scan/)).toHaveCount(0)
+
+    await clearSent(page)
+    await error.getByRole('button', { name: /Retry/ }).click()
+    await expect
+      .poll(async () => (await sent(page)).some((c) => c.type === 'RefreshGatekeeper'))
+      .toBe(true)
+    await expect(page.getByText(/Waiting for the Gatekeeper scan/)).toBeVisible()
+
+    await emit(
+      page,
+      batch([
+        system(2, {
+          type: 'GatekeeperOverviewUpdated',
+          data: { state: 'InstalledNoConstraints', error: '', constraints: [] },
+        }),
+      ]),
+    )
+    await expect(page.getByText(/installed but no constraints are defined/)).toBeVisible()
   })
 })

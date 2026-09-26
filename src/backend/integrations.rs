@@ -23,6 +23,7 @@ use kube::api::Api;
 use kube::api::ListParams;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrometheusConfig {
@@ -424,13 +425,15 @@ pub async fn detect_disk_provider(client: &Client, context: Option<&str>) -> Dis
 }
 
 /// Fetch disk usage using the detected provider and emit a System event with the results
+/// `context` is captured at request start so a late result keeps its origin (FR-016);
+/// `base_url` is [`prometheus_base_url`] at that moment. Needs no state lock.
 pub(super) async fn fetch_disk_usage(
     client: &Client,
-    state: &mut BackendState,
+    seq: &AtomicU64,
+    context: Option<String>,
+    base_url: Option<String>,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    // Capture the context at request start so a late result keeps its origin (FR-016).
-    let context = state.cluster.current_context.clone();
     let provider = detect_disk_provider(client, context.as_deref()).await;
     let route = Route::cluster(section_keys::integrations_metrics(), context);
 
@@ -440,7 +443,7 @@ pub(super) async fn fetch_disk_usage(
                 .await
                 .unwrap_or_default();
             events::emit(
-                state.cluster.seq.as_ref(),
+                seq,
                 sender,
                 route,
                 Correlation::None,
@@ -450,8 +453,7 @@ pub(super) async fn fetch_disk_usage(
         DiskUsageProvider::Prometheus => {
             // Basic query for persistent volume claim usage available from kubelet metrics
             // This will return time series with labels `persistentvolumeclaim` and `namespace`
-            let base =
-                prometheus_base_url(state).unwrap_or_else(|| "http://localhost:9090".to_string());
+            let base = base_url.unwrap_or_else(|| "http://localhost:9090".to_string());
             let query = "kubelet_volume_stats_used_bytes";
             if let Ok(json) = query_prometheus(&base, query, "").await
                 && let Some(results) = json
@@ -492,7 +494,7 @@ pub(super) async fn fetch_disk_usage(
                     });
                 }
                 events::emit(
-                    state.cluster.seq.as_ref(),
+                    seq,
                     sender,
                     route,
                     Correlation::None,
@@ -503,7 +505,7 @@ pub(super) async fn fetch_disk_usage(
         DiskUsageProvider::None => {
             // Nothing available; emit info to user
             events::notify_info(
-                state.cluster.seq.as_ref(),
+                seq,
                 sender,
                 "No disk usage provider detected (no Longhorn CRDs and no Prometheus).".to_owned(),
             );
@@ -514,36 +516,39 @@ pub(super) async fn fetch_disk_usage(
 }
 // --- Prometheus auto-discovery and port-forward helpers extracted from backend.rs ---
 
+/// Auto-start a Prometheus port forward for the active context, best-effort.
+///
+/// Called after a connect without the command lock held: every cluster lookup runs unlocked and
+/// the lock is taken only to read config and to register a forward, so pane refreshes are never
+/// queued behind this discovery. Stops quietly once `still_current` says the connection that
+/// `client` belongs to has been replaced.
 pub(super) async fn ensure_metrics_port_forward(
-    state: &mut BackendState,
+    state: &tokio::sync::Mutex<BackendState>,
     sender: &Sender<BackendEventEnvelope>,
-) -> anyhow::Result<()> {
-    let client = state
-        .cluster
-        .client
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("No Kubernetes client"))?;
+    client: &Client,
+    context: Option<&str>,
+    still_current: impl Fn(&BackendState) -> bool,
+) {
+    let candidates = {
+        let s = state.lock().await;
+        if !still_current(&s) {
+            return;
+        }
+        prometheus_candidates(&s)
+    };
 
-    for (namespace, service, port) in prometheus_candidates(state) {
-        // Check if a pod matching the service exists
-        match find_pod_for_service(&client, &namespace, &service).await {
-            Ok(Some(pod_name)) => {
-                let target = ForwardTarget {
-                    namespace: &namespace,
-                    pod_name: &pod_name,
-                    port,
-                    verb: "Auto-started",
-                };
-                if start_prometheus_forward(state, sender, &client, target).await {
-                    return Ok(());
-                }
-            }
-            Ok(None) => {
-                tracing::debug!("No pod found for service {}/{}", namespace, service);
-            }
-            Err(e) => {
-                tracing::debug!("Error finding pod for {}/{}: {}", namespace, service, e);
-            }
+    for (namespace, service, port) in candidates {
+        let Some(pod_name) = service_pod(client, &namespace, &service).await else {
+            continue;
+        };
+        let target = ForwardTarget {
+            namespace: &namespace,
+            pod_name: &pod_name,
+            port,
+            verb: "Auto-started",
+        };
+        if forward_while_current(state, sender, client, target, &still_current).await {
+            return;
         }
     }
 
@@ -551,30 +556,67 @@ pub(super) async fn ensure_metrics_port_forward(
     if portforward::is_local_port_available(9090) {
         // Try to find any Prometheus pod in common namespaces
         for namespace in &["monitoring", "prometheus", "kube-monitoring", "default"] {
-            if let Ok(Some(pod_name)) = find_any_prometheus_pod(&client, namespace).await {
-                let target = ForwardTarget {
-                    namespace,
-                    pod_name: &pod_name,
-                    port: 9090,
-                    verb: "Auto-discovered",
-                };
-                if start_prometheus_forward(state, sender, &client, target).await {
-                    return Ok(());
-                }
+            let Ok(Some(pod_name)) = find_any_prometheus_pod(client, namespace).await else {
+                continue;
+            };
+            let target = ForwardTarget {
+                namespace,
+                pod_name: &pod_name,
+                port: 9090,
+                verb: "Auto-discovered",
+            };
+            if forward_while_current(state, sender, client, target, &still_current).await {
+                return;
             }
         }
     }
 
     // Attempt to fetch disk usage after auto-discovery/port-forward attempts.
-    let _ = fetch_disk_usage(&client, state, sender).await;
+    let (seq, base_url) = {
+        let s = state.lock().await;
+        if !still_current(&s) {
+            return;
+        }
+        (s.cluster.seq.clone(), prometheus_base_url(&s))
+    };
+    let _ = fetch_disk_usage(client, &seq, context.map(str::to_owned), base_url, sender).await;
 
     events::notify_info(
-        state.cluster.seq.as_ref(),
+        &seq,
         sender,
         "Prometheus auto port-forward not started (no matching service/pod found). Configure a port forward under Network > Port Forwards or adjust Prometheus settings under Integrations.".to_owned(),
     );
+}
 
-    Ok(())
+/// A pod backing `namespace/service`, if one exists (lookup failures are only logged).
+async fn service_pod(client: &Client, namespace: &str, service: &str) -> Option<String> {
+    match find_pod_for_service(client, namespace, service).await {
+        Ok(Some(pod_name)) => Some(pod_name),
+        Ok(None) => {
+            tracing::debug!("No pod found for service {}/{}", namespace, service);
+            None
+        }
+        Err(e) => {
+            tracing::debug!("Error finding pod for {}/{}: {}", namespace, service, e);
+            None
+        }
+    }
+}
+
+/// Take the lock briefly and start `target`'s forward, unless the connection was replaced.
+/// Returns `true` when discovery should stop (stale connection, or a forward exists/started).
+async fn forward_while_current(
+    state: &tokio::sync::Mutex<BackendState>,
+    sender: &Sender<BackendEventEnvelope>,
+    client: &Client,
+    target: ForwardTarget<'_>,
+    still_current: &impl Fn(&BackendState) -> bool,
+) -> bool {
+    let mut s = state.lock().await;
+    if !still_current(&s) {
+        return true;
+    }
+    start_prometheus_forward(&mut s, sender, client, target).await
 }
 
 /// `(namespace, service, port)` candidates: the user-configured Prometheus for the

@@ -103,28 +103,36 @@ pub(super) async fn ensure_background_sync(
 
 /// Best-effort: if a `hubble-relay` Service is present, start (or keep running) a
 /// background poll of `Observer.GetFlows` every 20s, emitting `HubbleTrafficUpdated`.
-/// Does nothing if Hubble isn't installed or a poll task is already running.
+/// Does nothing if a poll task is already running.
+///
+/// Detection (a cluster-wide Service LIST) runs inside the spawned task, not under the command
+/// lock, so `Initialize`/`SetContext` do not hold the lock through it. When Hubble is absent the
+/// task ends at once, and the next call detects again.
 pub(super) async fn ensure_hubble_poll(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) {
-    if state.watch_tasks.hubble_poll_task.is_some() {
+    if state
+        .watch_tasks
+        .hubble_poll_task
+        .as_ref()
+        .is_some_and(|task| !task.is_finished())
+    {
         return;
     }
     let Some(client) = state.cluster.client.clone() else {
         return;
     };
-    let Some(cfg) = hubble::detect_hubble(&client).await else {
-        return;
-    };
 
-    state.watch_tasks.hubble_poll_task = Some(tokio::spawn(poll_hubble_traffic(
-        client,
-        cfg,
-        state.cluster.seq.clone(),
-        sender.clone(),
-        state.cluster.current_context.clone(),
-    )));
+    let seq = state.cluster.seq.clone();
+    let sender = sender.clone();
+    let context = state.cluster.current_context.clone();
+    state.watch_tasks.hubble_poll_task = Some(tokio::spawn(async move {
+        let Some(cfg) = hubble::detect_hubble(&client).await else {
+            return;
+        };
+        poll_hubble_traffic(client, cfg, seq, sender, context).await;
+    }));
 }
 
 /// Best-effort: start (or keep running) a background scan of Flux GitOps Toolkit
@@ -183,24 +191,21 @@ async fn poll_gatekeeper_overview(
     let mut ticker = tokio::time::interval(Duration::from_secs(20));
     loop {
         ticker.tick().await;
-        match gatekeeper::scan_gatekeeper(&client).await {
-            Ok(overview) => {
-                events::emit(
-                    seq.as_ref(),
-                    &sender,
-                    Route::cluster(section_keys::integrations_gatekeeper(), context.clone()),
-                    Correlation::None,
-                    BackendEvent::System(SystemEvent::GatekeeperOverviewUpdated(overview)),
-                );
-            }
-            Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background Gatekeeper scan failed: {}", e),
-                );
-            }
-        }
+        // A failure reaches the pane as a `ScanFailed` overview (with a retry) rather than a
+        // toast every 20s; the log keeps the history.
+        let overview = gatekeeper::scan_gatekeeper_overview(&client)
+            .await
+            .unwrap_or_else(|(overview, message)| {
+                tracing::warn!("Background Gatekeeper scan failed: {message}");
+                overview
+            });
+        events::emit(
+            seq.as_ref(),
+            &sender,
+            Route::cluster(section_keys::integrations_gatekeeper(), context.clone()),
+            Correlation::None,
+            BackendEvent::System(SystemEvent::GatekeeperOverviewUpdated(overview)),
+        );
     }
 }
 

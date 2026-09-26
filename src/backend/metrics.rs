@@ -32,6 +32,16 @@ pub(super) async fn probe_metrics_api(
 
     let client = state.cluster.client_or_err()?;
     let availability = detect_metrics_api(&client).await;
+    record_metrics_availability(state, sender, availability);
+    Ok(())
+}
+
+/// Store a metrics-API probe result and tell the user (once) when it is missing or forbidden.
+pub(super) fn record_metrics_availability(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    availability: MetricsAvailability,
+) {
     state.metrics.availability = availability;
 
     match availability {
@@ -61,11 +71,9 @@ pub(super) async fn probe_metrics_api(
         }
         MetricsAvailability::Unknown => {}
     }
-
-    Ok(())
 }
 
-async fn detect_metrics_api(client: &Client) -> MetricsAvailability {
+pub(super) async fn detect_metrics_api(client: &Client) -> MetricsAvailability {
     // Discovery-by-use: attempt a cheap list against the PodMetrics resource.
     // - 404 => metrics API group not served
     // - 403 => served but not permitted

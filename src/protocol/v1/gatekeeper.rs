@@ -9,9 +9,10 @@ use ts_rs::TS;
 
 use super::SectionKey;
 
-/// The four honest states this pane can be in (FR-002). Kept as an enum rather than a
-/// bare `installed: bool` (unlike `FluxOverview`) because this feature has an extra
-/// state Flux's overview doesn't need: `PermissionDenied`.
+/// The honest states this pane can be in (FR-002). Kept as an enum rather than a bare
+/// `installed: bool` (unlike `FluxOverview`) because this feature has states Flux's overview
+/// doesn't need: `PermissionDenied`, and `ScanFailed` so a failed scan is never shown as
+/// "Scanning" forever.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum GatekeeperInstallState {
     /// Neither `constrainttemplates.templates.gatekeeper.sh` nor any CRD in the
@@ -25,6 +26,10 @@ pub enum GatekeeperInstallState {
     /// with a permission error. `GatekeeperOverview.error` carries the verbatim backend
     /// error text (Principle I: errors reach the operator verbatim).
     PermissionDenied,
+    /// The scan itself failed (API unreachable, timeout, a non-permission API error, or no
+    /// cluster connection). `GatekeeperOverview.error` carries the verbatim error text so the
+    /// pane can show it with a retry instead of "Scanning" forever.
+    ScanFailed,
 }
 
 /// One entry from a `Constraint`'s `.status.violations[]`, enriched with a resolved
@@ -77,9 +82,21 @@ pub struct GatekeeperConstraintSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct GatekeeperOverview {
     pub state: GatekeeperInstallState,
-    /// Verbatim backend error text when `state == PermissionDenied`; empty otherwise.
+    /// Verbatim backend error text when `state` is `PermissionDenied` or `ScanFailed`; empty
+    /// otherwise.
     pub error: String,
     pub constraints: Vec<GatekeeperConstraintSummary>,
+}
+
+impl GatekeeperOverview {
+    /// A failed scan, carrying the verbatim error (Principle I).
+    pub fn scan_failed(error: impl Into<String>) -> Self {
+        Self {
+            state: GatekeeperInstallState::ScanFailed,
+            error: error.into(),
+            constraints: Vec::new(),
+        }
+    }
 }
 
 impl Default for GatekeeperOverview {
@@ -165,6 +182,7 @@ mod tests {
         roundtrip(&GatekeeperInstallState::InstalledNoConstraints);
         roundtrip(&GatekeeperInstallState::Active);
         roundtrip(&GatekeeperInstallState::PermissionDenied);
+        roundtrip(&GatekeeperInstallState::ScanFailed);
     }
 
     #[test]
@@ -211,5 +229,7 @@ mod tests {
                 .to_owned(),
             constraints: Vec::new(),
         });
+
+        roundtrip(&GatekeeperOverview::scan_failed("connection refused"));
     }
 }
