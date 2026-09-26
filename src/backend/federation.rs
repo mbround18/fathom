@@ -44,10 +44,14 @@ const BACKOFF_CAP: Duration = Duration::from_secs(60);
 /// Bound on building a client and reading the version during (re)connect.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// A running connection failing continuously this long is reported `Unreachable`.
-const UNREACHABLE_AFTER: Duration = Duration::from_secs(30);
+///
+/// SC-004 wants the error on screen within 15 s. Live validation (T031) measured the watch
+/// error arriving within ~1 s of the control plane dying, so the budget is this threshold plus
+/// one `DEGRADED_TICK`; the old 30 s showed the error only after ~30 s.
+const UNREACHABLE_AFTER: Duration = Duration::from_secs(10);
 /// Recompute cadence: keeps the 1 h warning window and the pending-age rule moving.
 const IDLE_TICK: Duration = Duration::from_secs(60);
-const DEGRADED_TICK: Duration = Duration::from_secs(5);
+const DEGRADED_TICK: Duration = Duration::from_secs(2);
 const PENDING_UNHEALTHY_AFTER: chrono::Duration = chrono::Duration::minutes(5);
 
 // ---------------------------------------------------------------------------------------
@@ -1199,5 +1203,12 @@ mod tests {
         polled.sort();
         assert_eq!(polled, vec!["a", "b"]);
         state.fleet.abort_all();
+    }
+
+    #[test]
+    fn unreachable_error_surfaces_within_sc004_budget() {
+        // Worst case: the failure starts just after a tick, so the state flips on the first
+        // degraded tick at or after `UNREACHABLE_AFTER` (SC-004: error within 15 s).
+        assert!(UNREACHABLE_AFTER + DEGRADED_TICK <= Duration::from_secs(15));
     }
 }
