@@ -1,8 +1,9 @@
 /**
  * T119 (SC-004): with 10,000 pods loaded and list updates streaming every 250 ms, a search
  * keystroke renders in under 100 ms and no long task exceeds 100 ms. The budget is a
- * desktop-class one, so only the `wide` project of each engine runs it (`chromium-wide`,
- * `webkit-wide`).
+ * desktop-class, wall-clock one, so only the serial `chromium-perf` / `webkit-perf` projects run
+ * it (wide viewport, after every functional project, one worker: playwright.config.ts). Under the
+ * functional suite's parallel workers the same code measured 110-470 ms from CPU contention alone.
  */
 import { expect, test } from '@playwright/test'
 
@@ -13,11 +14,6 @@ const KEYSTROKE_BUDGET_MS = 100
 const LONG_TASK_BUDGET_MS = 100
 
 test.describe('SC-004 perf 10k pods', () => {
-  test.skip(
-    ({ viewport }) => (viewport?.width ?? 0) < 1900 || (viewport?.width ?? 0) > 2200,
-    'perf budget is measured on the wide project',
-  )
-
   test('search keystroke-to-render < 100 ms and no long task > 100 ms under 250 ms updates', async ({
     page,
   }) => {
@@ -90,6 +86,12 @@ test.describe('SC-004 perf 10k pods', () => {
       const w = window as unknown as { __longTasks: number[]; __updates: number }
       return { longTasks: w.__longTasks, updates: w.__updates }
     })
+    test
+      .info()
+      .annotations.push(
+        { type: 'keystroke latencies (ms)', description: latencies.map(Math.round).join(', ') },
+        { type: 'long tasks (ms)', description: longTasks.map(Math.round).join(', ') || 'none' },
+      )
     expect(updates).toBeGreaterThanOrEqual(4)
     // Every keystroke, the first included, must meet the budget.
     expect(Math.max(...latencies), `keystroke latencies ${latencies.join(', ')}`).toBeLessThan(
