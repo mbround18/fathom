@@ -10,6 +10,8 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type SimulationNodeDatum,
 } from 'd3-force'
 
@@ -52,8 +54,13 @@ export function layoutTopologyGraph(
         .distance(60)
         .strength(0.4),
     )
-    .force('charge', forceManyBody().strength(-120))
+    // Bounded repulsion plus a weak pull to the middle keep disconnected groups (namespaces with
+    // no edges between them) together; without them every re-layout pushed them further apart
+    // and auto-fit shrank the graph to dots.
+    .force('charge', forceManyBody().strength(-120).distanceMax(300))
     .force('center', forceCenter(size.width / 2, size.height / 2))
+    .force('x', forceX(size.width / 2).strength(0.05))
+    .force('y', forceY(size.height / 2).strength(0.05))
     .force(
       'collide',
       forceCollide((d) => NODE_RADIUS[d.tier] + 4),

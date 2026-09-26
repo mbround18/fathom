@@ -19,8 +19,10 @@ import { deriveFocus, NAMESPACE_FOCUS_SCALE } from '@/topology/viewport'
 
 import {
   clampScale,
+  fitCamera,
   hitTest,
   screenToWorld,
+  tokenColor,
   worldToScreen,
   zoomAt,
   type Camera,
@@ -34,9 +36,11 @@ const TONE_VAR: Record<TopologyNode['tone'], string> = {
 }
 
 function toneColor(style: CSSStyleDeclaration, tone: TopologyNode['tone']): string {
-  const v = style.getPropertyValue(TONE_VAR[tone]).trim()
-  return v ? `oklch(${v})` : '#888'
+  return tokenColor(style.getPropertyValue(TONE_VAR[tone]), '#888')
 }
+
+/** Below this many nodes every label is drawn, whatever the zoom (a namespace-scoped graph). */
+const ALWAYS_LABEL_MAX_NODES = 150
 
 export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -52,7 +56,13 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
   const openInspector = useStore((s) => s.openInspector)
   const send = useStore((s) => s.send)
   const ctx = useStore((s) => s.session.activeContext)
-  const namespaces = useStore((s) => s.session.namespaces)
+  const allNamespaces = useStore((s) => s.session.namespaces)
+  // The graph follows the app's namespace selector: one namespace when one is active, else all.
+  const activeNamespace = useStore((s) => s.session.activeNamespace)
+  const namespaces = useMemo(
+    () => (activeNamespace ? [activeNamespace] : allNamespaces),
+    [activeNamespace, allNamespaces],
+  )
   const lists = useStore((s) => s.lists)
   const details = useStore((s) => s.details)
 
@@ -75,6 +85,9 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
   // targets `size.width/2, size.height/2`), so the identity camera (`scale: 1, x: 0, y: 0`)
   // already centers the graph on first paint — no extra translation needed.
   const [camera, setCamera] = useState<Camera>(() => pane?.topology ?? { scale: 1, x: 0, y: 0 })
+  // Until the operator pans or zooms (or a camera was persisted), every re-layout and resize
+  // re-fits the camera so the whole graph is on screen, however narrow the host is.
+  const userCamera = useRef(pane?.topology !== undefined)
 
   // ---- responsive size (ResizeObserver, no continuous polling)
   useEffect(() => {
@@ -94,17 +107,17 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
   }, [])
 
   // ---- namespace focus is a pure function of scale + the namespace list (no dependency on the
-  // heavier workload/pod tiers), so it can be derived before the first graph build.
-  const namespaceFocus = useMemo(
-    () =>
-      deriveFocus({
-        scale: camera.scale,
-        namespaceNodes: namespaces.map((n) => ({ label: n })),
-        workloadNodes: [],
-        namespaceIdToName: new Map(),
-      }).namespaceFocus,
-    [camera.scale, namespaces],
-  )
+  // heavier workload/pod tiers), so it can be derived before the first graph build. A single
+  // active namespace is always in focus: its workloads are what the operator asked to see.
+  const namespaceFocus = useMemo(() => {
+    const derived = deriveFocus({
+      scale: camera.scale,
+      namespaceNodes: namespaces.map((n) => ({ label: n })),
+      workloadNodes: [],
+      namespaceIdToName: new Map(),
+    }).namespaceFocus
+    return activeNamespace ? new Set([...derived, activeNamespace]) : derived
+  }, [camera.scale, namespaces, activeNamespace])
 
   // ---- pass 1: namespace/app/helm/node tiers + workload tier for focused namespaces, no pods
   // yet, so workload focus can be derived from *this* build's actual workload nodes.
@@ -163,10 +176,26 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     const out = layoutTopologyGraph(graph, priorPositions.current, size)
     priorPositions.current = snapshotPositions(out)
     setLaidOut(out)
+    if (measured && !userCamera.current) setCamera(fitCamera(out.nodes, size.width, size.height))
     // `size` intentionally excluded: a resize alone should not re-run the (expensive-ish)
     // simulation, only a graph change (or the first real measurement) should.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, measured])
+
+  // ---- keep an untouched camera fitted when the host resizes (sheet open animation, rotation)
+  useEffect(() => {
+    if (measured && !userCamera.current)
+      setCamera(fitCamera(laidOut.nodes, size.width, size.height))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refit on resize only
+  }, [size.width, size.height])
+
+  const persistCameraRef = useRef<((c: Camera) => void) | null>(null)
+  const fit = useCallback(() => {
+    userCamera.current = false
+    const next = fitCamera(laidOut.nodes, size.width, size.height)
+    setCamera(next)
+    persistCameraRef.current?.(next)
+  }, [laidOut.nodes, size.width, size.height])
 
   // ---- lazy fetch on entering focus (T032): namespace focus -> RefreshRelatedResources per
   // Application in that namespace (for the Application -> workload edge); workload focus ->
@@ -225,6 +254,9 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     },
     [paneId, updatePane],
   )
+  useEffect(() => {
+    persistCameraRef.current = persistCamera
+  }, [persistCamera])
 
   // ---- draw
   const draw = useCallback(() => {
@@ -257,9 +289,8 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
       g.lineTo(to.x, to.y)
       g.stroke()
       if (e.label) {
-        const fg = style.getPropertyValue('--foreground').trim()
         g.globalAlpha = 1
-        g.fillStyle = fg ? `oklch(${fg})` : '#eee'
+        g.fillStyle = tokenColor(style.getPropertyValue('--foreground'), '#eee')
         g.font = '10px sans-serif'
         g.textAlign = 'center'
         g.fillText(e.label, (from.x + to.x) / 2, (from.y + to.y) / 2 - 4)
@@ -279,10 +310,12 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
       g.globalAlpha = n.loading ? 0.4 : 1
       g.fill()
       g.globalAlpha = 1
-      if (camera.scale >= NAMESPACE_FOCUS_SCALE / 2) {
-        g.fillStyle = style.getPropertyValue('--foreground').trim()
-          ? `oklch(${style.getPropertyValue('--foreground').trim()})`
-          : '#eee'
+      if (
+        camera.scale >= NAMESPACE_FOCUS_SCALE / 2 ||
+        n.tier === 'namespace' ||
+        laidOut.nodes.length <= ALWAYS_LABEL_MAX_NODES
+      ) {
+        g.fillStyle = tokenColor(style.getPropertyValue('--foreground'), '#eee')
         g.font = '10px sans-serif'
         g.textAlign = 'center'
         g.fillText(n.label, p.x, p.y + r + 12, 120)
@@ -307,6 +340,7 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
       e.preventDefault()
       const rect = e.currentTarget.getBoundingClientRect()
       const factor = Math.exp(-e.deltaY * 0.001)
+      userCamera.current = true
       setCamera((c) => {
         const next = zoomAt(c, factor, e.clientX - rect.left, e.clientY - rect.top)
         persistCamera(next)
@@ -328,6 +362,7 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const drag = dragRef.current
       if (!drag) return
+      userCamera.current = true
       setCamera((c) => {
         const next: Camera = {
           scale: c.scale,
@@ -391,9 +426,21 @@ export function TopologyCanvas({ paneId }: { paneId: PaneId }) {
         onPointerUp={onPointerUp}
         onClick={onClick}
       />
-      <div className="pointer-events-none absolute right-2 bottom-2 font-mono text-xs text-muted-foreground">
-        {Math.round(clampScale(camera.scale) * 100)}%
+      <div className="absolute right-2 bottom-2 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={fit}
+          data-testid="topology-fit"
+          className="min-h-6 border border-border bg-card px-2 font-display tracking-wider uppercase hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          Fit
+        </button>
+        <span className="pointer-events-none">{Math.round(clampScale(camera.scale) * 100)}%</span>
       </div>
+      <p className="sr-only" data-testid="topology-summary">
+        {`${laidOut.nodes.length} nodes, ${laidOut.edges.length} edges`}
+        {activeNamespace ? ` in namespace ${activeNamespace}` : ' across all namespaces'}
+      </p>
     </div>
   )
 }
