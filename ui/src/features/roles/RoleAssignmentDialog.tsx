@@ -9,6 +9,8 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { exportFilename } from '@/features/manifest-export/clean'
+import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import { Gated } from '@/lib/capabilities'
 import type { RoleAssignmentSubject, RoleRefKind } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
@@ -144,6 +146,12 @@ function Body({ onClose, namespace, issuerId, setIssuerId, source }: BodyProps) 
             </span>
           </p>
           <YamlDiffView session={session} />
+          {/* 040 US3 (FR-018): the full manifest Apply sends. */}
+          <ManifestActions
+            text={session.editedYaml}
+            filename={exportFilename(kind, [{ namespace, name: bindingName.trim() }])}
+            what="manifest"
+          />
           {(blocked || session.status === 'error') && session.lastError && (
             <p
               data-testid="yaml-apply-error"

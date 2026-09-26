@@ -23,6 +23,8 @@ import { Gated } from '@/lib/capabilities'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
+import { exportFilename } from '@/features/manifest-export/clean'
+import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import type {
   ClusterRoleBindingDetails,
   ClusterRoleSummary,
@@ -107,6 +109,8 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
   const [labelsText, setLabelsText] = useState('')
   const parsedLabels = parseLabels(labelsText)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // 040 US3 (FR-019): the review shows the diff or the complete manifest.
+  const [reviewView, setReviewView] = useState<'diff' | 'manifest'>('diff')
   // Edit mode's session key is derived, not stored: it is fully determined by `existing` (stable
   // for the life of this form instance), so deriving it avoids a `setState` call inside the
   // seeding effect below (react-hooks/set-state-in-effect). Create mode's key only exists once
@@ -241,7 +245,37 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
 
       {session && showDiff ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <YamlDiffView session={session} />
+          <div role="group" aria-label="Review view" className="flex shrink-0 gap-1">
+            {(['diff', 'manifest'] as const).map((v) => (
+              <Button
+                key={v}
+                size="sm"
+                variant={reviewView === v ? 'secondary' : 'ghost'}
+                aria-pressed={reviewView === v}
+                data-testid={`rbac-binding-view-${v}`}
+                onClick={() => setReviewView(v)}
+              >
+                {v === 'diff' ? 'Diff' : 'Manifest'}
+              </Button>
+            ))}
+          </div>
+          {reviewView === 'diff' ? (
+            <YamlDiffView session={session} />
+          ) : (
+            <pre
+              data-testid="rbac-binding-manifest"
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard reachable
+              tabIndex={0}
+              className="min-h-0 flex-1 overflow-auto border border-border bg-background p-2 font-mono text-xs leading-relaxed whitespace-pre"
+            >
+              {session.editedYaml}
+            </pre>
+          )}
+          <ManifestActions
+            text={session.editedYaml}
+            filename={exportFilename(kind, [{ namespace: effectiveNamespace ?? null, name }])}
+            what="manifest"
+          />
           {blocked || session.status === 'error' ? (
             <div className="flex flex-col gap-1 text-xs text-destructive">
               {session.lastError && (

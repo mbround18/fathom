@@ -7,6 +7,9 @@
  * Test hooks: `list-actions`, `inspector-actions`, `row-actions` (triggers), `row-action-menu`,
  * `action-delete` / `action-scale` / `action-restart` (menu items), `selection-bar`,
  * `selection-count`, `bulk-delete` / `bulk-restart` / `bulk-scale`, `selection-clear`.
+ *
+ * 040: exportable kinds also get `action-export-yaml` (menus) and `bulk-export` (selection bar),
+ * even when the kind has no mutating actions. Export is read-only, so it is not `Gated`.
  */
 import {
   ArrowClockwiseIcon,
@@ -16,6 +19,7 @@ import {
   PauseIcon,
   PlayIcon,
   DotsThreeVerticalIcon,
+  FileCodeIcon,
   TrashIcon,
   XIcon,
   type Icon,
@@ -32,6 +36,8 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { isExportable } from '@/features/manifest-export/kinds'
+import { openManifestExport } from '@/features/manifest-export/dialog-stores'
 import { Gated } from '@/lib/capabilities'
 import { cn } from '@/lib/utils'
 import {
@@ -69,6 +75,7 @@ function ActionItems({
 }) {
   const actions = actionsFor(descriptor.actions, rows.length)
   if (actions.length === 0) {
+    if (isExportable(descriptor)) return null
     return <DropdownMenuLabel>No actions for {rows.length} objects</DropdownMenuLabel>
   }
   return actions.map((a, i) => {
@@ -94,6 +101,32 @@ function ActionItems({
       </div>
     )
   })
+}
+
+/** 040 (FR-002): read-only, so shown for every exportable kind and never capability-gated. */
+function ExportItem({
+  descriptor,
+  rows,
+  onPick,
+}: {
+  descriptor: AnyDescriptor
+  rows: readonly ListRow[]
+  onPick: () => void
+}) {
+  if (!isExportable(descriptor) || rows.length === 0) return null
+  return (
+    <>
+      {actionsFor(descriptor.actions, rows.length).length > 0 && <DropdownMenuSeparator />}
+      <DropdownMenuItem
+        data-testid="action-export-yaml"
+        onSelect={onPick}
+        className="min-h-[max(2rem,var(--touch-target))] font-display text-xs font-semibold tracking-wider uppercase"
+      >
+        <FileCodeIcon aria-hidden="true" />
+        Export YAML{rows.length > 1 ? ` ${String(rows.length)}` : ''}…
+      </DropdownMenuItem>
+    </>
+  )
 }
 
 function MenuHeading({
@@ -135,7 +168,9 @@ export function PaneActionMenu({
 }: PaneActionMenuProps) {
   const trigger = useRef<HTMLButtonElement>(null)
   const picked = useRef(false)
-  const available = actionsFor(descriptor.actions, rows.length).length > 0
+  const available =
+    actionsFor(descriptor.actions, rows.length).length > 0 ||
+    (isExportable(descriptor) && rows.length > 0)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -177,6 +212,14 @@ export function PaneActionMenu({
               ...(paneId !== undefined ? { paneId } : {}),
               returnFocus: trigger.current,
             })
+          }}
+        />
+        <ExportItem
+          descriptor={descriptor}
+          rows={rows}
+          onPick={() => {
+            picked.current = true
+            openManifestExport(descriptor, rows, trigger.current)
           }}
         />
       </DropdownMenuContent>
@@ -254,6 +297,14 @@ export function RowActionMenu({
             promptAction(descriptor, a, rows, { paneId, returnFocus })
           }}
         />
+        <ExportItem
+          descriptor={descriptor}
+          rows={rows}
+          onPick={() => {
+            picked.current = true
+            openManifestExport(descriptor, rows, returnFocus)
+          }}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -311,6 +362,18 @@ export function SelectionBar({
           </Gated>
         )
       })}
+      {isExportable(descriptor) && (
+        <Button
+          variant="ghost"
+          data-testid="bulk-export"
+          onClick={(e) => openManifestExport(descriptor, checked, focusGrid() ?? e.currentTarget)}
+          className="h-[max(2rem,var(--touch-target))] px-2.5"
+        >
+          <FileCodeIcon aria-hidden="true" data-icon="inline-start" />
+          Export YAML
+          {checked.length > 1 ? ` ${String(checked.length)}` : ''}
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="icon"
@@ -347,7 +410,7 @@ export function ListActions({ pane }: { pane: PaneState }) {
     const open = rows.find((r) => descriptor.rowKey(r) === pane.selection)
     return open ? [open] : []
   }, [checked, descriptor, pane.selection, rows])
-  if (!descriptor || descriptor.actions.length === 0) return null
+  if (!descriptor || (descriptor.actions.length === 0 && !isExportable(descriptor))) return null
   return (
     <PaneActionMenu descriptor={descriptor} rows={target} paneId={pane.id} testId="list-actions" />
   )
@@ -366,7 +429,7 @@ export function InspectorActions({ target, source }: { target: ObjectRef; source
       : undefined
     return row ? [row] : []
   }, [descriptor, list, rowKey])
-  if (!descriptor || descriptor.actions.length === 0) return null
+  if (!descriptor || (descriptor.actions.length === 0 && !isExportable(descriptor))) return null
   return (
     <PaneActionMenu
       descriptor={descriptor}

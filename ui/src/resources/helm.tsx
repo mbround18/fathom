@@ -16,6 +16,8 @@ import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
+import { exportFilename } from '@/features/manifest-export/clean'
+import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/GatedButton'
@@ -149,6 +151,15 @@ function RollbackAction({
           <YamlDiffView
             currentManifest={preview.current_manifest}
             targetManifest={preview.target_manifest}
+          />
+          {/* 040 US3 (FR-018): the manifest the rollback restores. */}
+          <ManifestActions
+            idPrefix="helm-rollback-manifest"
+            text={preview.target_manifest}
+            filename={exportFilename('helm', [
+              { namespace, name: `${release}-rev${String(revision.revision)}` },
+            ])}
+            what="manifest"
           />
           <div className="flex justify-end gap-2">
             <Button

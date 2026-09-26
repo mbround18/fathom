@@ -2,6 +2,7 @@
 import { reduceIdentity } from '@/features/identity/state'
 import { reduceTeams } from '@/features/teams/state'
 import { reduceRoles } from '@/features/roles/state'
+import { reduceManifestExport } from '@/features/manifest-export/state'
 import { resolveProfile } from '@/layout/defaults'
 import { ingestCapabilityChecked, ingestCapabilitySet, resetCapabilities } from '@/lib/capabilities'
 import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
@@ -592,6 +593,12 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'RoleAssignmentPreview':
     case 'OrphanedSubjectsUpdated': {
       reduceRoles(d.edit('roles'), event)
+      return
+    }
+    case 'ManifestsFetched':
+    case 'KubeconfigExportPreviewed':
+    case 'KubeconfigExportFinished': {
+      reduceManifestExport(d.edit('manifestExport'), event)
       return
     }
 

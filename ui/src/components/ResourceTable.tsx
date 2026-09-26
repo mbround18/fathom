@@ -40,6 +40,7 @@ import {
 
 import { RowActionMenu, type RowMenuState } from '@/components/ActionMenu'
 import { actionTarget, promptAction } from '@/components/action-utils'
+import { isExportable } from '@/features/manifest-export/kinds'
 import { isAllowedNow } from '@/lib/capabilities'
 import { computeVisibleColumns } from '@/layout/column-budget'
 import { cn } from '@/lib/utils'
@@ -226,7 +227,8 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
   const checkedSet = useMemo(() => new Set(checked), [checked])
   const gridRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<RowMenuState | undefined>(undefined)
-  const hasActions = descriptor.actions.length > 0
+  // 040: exportable kinds get the row menu for "Export YAML…" even without mutating actions.
+  const hasActions = descriptor.actions.length > 0 || isExportable(descriptor)
   const openMenu = useCallback<OpenRowMenu>((rowKey, x, y, peek) => {
     setMenu({ rowKey, x, y, ...(peek !== undefined ? { peek } : {}) })
   }, [])

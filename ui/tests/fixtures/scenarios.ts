@@ -25,6 +25,11 @@ import {
 } from './batches'
 import { batch, system } from './builders'
 import { genDeployments, genPods, type FixtureContext } from './gen-pods'
+import {
+  exportKubeconfigReply,
+  fetchManifestsReply,
+  previewKubeconfigReply,
+} from './manifest-export'
 
 /** Mutable backend-side state the fake keeps between commands. */
 export interface FakeBackendState {
@@ -123,6 +128,11 @@ function cluster(podRows: () => PodSummary[] = () => PODS_500): Replies {
       const first = s.context === 'kind-b' ? PODS_KIND_B[0] : podRows()[0]
       return first && s.context ? [clusterEvents(first, 55, s.context)] : []
     },
+    // 040-manifest-export: read-only fetches and the kubeconfig export (see manifest-export.ts).
+    FetchManifests: (cmd, s) =>
+      fetchManifestsReply(cmd, s.context, s.context === 'kind-b' ? PODS_KIND_B : podRows()),
+    PreviewKubeconfigExport: (cmd) => previewKubeconfigReply(cmd),
+    ExportKubeconfig: (cmd) => exportKubeconfigReply(cmd),
   }
 }
 
