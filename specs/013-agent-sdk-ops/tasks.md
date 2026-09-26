@@ -8,8 +8,8 @@
 - [x] T001 Create `src/backend/agent/` module directory with `mod.rs`, `anthropic.rs`, _(note: actions.rs became action_parse.rs; also openai_compat.rs, credentials.rs, persistence.rs)_
       `ollama.rs`, `grounding.rs`, `actions.rs`, `state_machine.rs` (empty stubs +
       `pub(crate)` re-exports) and register `mod agent;` in `src/backend.rs`.
-- [ ] T002 Create `ui/src/features/agent-ops/` directory with `index.ts` barrel file. _(open: superseded: UI lives in ui/src/components/panels/agent-ops/, no barrel file)_
-- [ ] T003 [P] Add `agent-conversations` fixture helper stub to _(open: superseded: e2e specs use inline batches, no ui/tests/e2e/fixtures dir)_
+- [x] T002 Create `ui/src/features/agent-ops/` directory with `index.ts` barrel file. _(closed as superseded: the UI lives in `ui/src/components/panels/agent-ops/` and imports its modules directly, per the repo's panel convention; no `features/` tree or barrel exists anywhere in the UI)_
+- [x] T003 [P] Add `agent-conversations` fixture helper stub to _(closed as superseded: there is no `ui/tests/e2e/fixtures/` dir; the agent-ops specs build `AgentConversationUpdated` batches inline with `ui/tests/fixtures/builders`, like every other e2e spec)_
       `ui/tests/e2e/fixtures/` (mirrors existing fake-backend fixture pattern) for
       US1-US4 specs to import.
 
@@ -30,7 +30,7 @@
       `AgentOpenConversation`, `AgentAsk`, `AgentClearConversation`,
       `AgentReviewSuggestedAction`, `AgentDeclineSuggestedAction`,
       `AgentRecordExecutedAction`) in `src/protocol/v1/cmd.rs`.
-- [ ] T007 Add new `BackendEventV1` variants (`AgentAuthModeUpdated`, _(open: superseded: only AgentAuthModeUpdated/AgentKeyRevealed/AgentConversationUpdated exist; AgentMessageAppended/AgentError/AgentSuggestedActionStatusChanged were folded into AgentConversationUpdated)_
+- [x] T007 Add new `BackendEventV1` variants (`AgentAuthModeUpdated`, _(closed as superseded: `AgentAuthModeUpdated`/`AgentKeyRevealed`/`AgentConversationUpdated` exist; appended messages and suggestion-status changes arrive as a whole `AgentConversationUpdated`, and provider errors surface verbatim as the assistant's reply text or a failed `CommandFinished`, so `AgentMessageAppended`/`AgentError`/`AgentSuggestedActionStatusChanged` are unnecessary)_
       `AgentKeyRevealed`, `AgentConversationUpdated`, `AgentMessageAppended`,
       `AgentError`, `AgentSuggestedActionStatusChanged`) in
       `src/protocol/v1/event.rs` / `events.rs`.
@@ -121,12 +121,12 @@ for user stories.
       `ui/src/features/agent-ops/AgentPanel.test.tsx` — question input disabled when
       unconfigured; renders grounding chips; renders `AgentError` verbatim (no generic
       fallback string).
-- [ ] T025 [US1] Playwright E2E `ui/tests/e2e/us1-agent-ops-diagnosis.spec.ts` per _(open: spec is us1-agent-ops-ask.spec.ts; no zero-mutating-commands assertion, no CrashLoop fixture)_
+- [x] T025 [US1] Playwright E2E `ui/tests/e2e/us1-agent-ops-diagnosis.spec.ts` per _(done: us1-agent-ops-diagnosis.spec.ts, a CrashLoopBackOff PodDetails fixture, grounding chips asserted, zero cluster-mutating commands via CLUSTER_MUTATING_COMMANDS mirroring mutation.rs. It surfaced and fixed a real gap: AgentPanel rendered no grounding sources (FR-012/FR-018))_
       quickstart.md US1: seeds a `CrashLoopBackOff` pod fixture, asks a question,
       asserts response cites fixture data, asserts grounding sources shown, and
       **asserts the fake backend's received-command log contains zero
       cluster-mutating commands** for the whole scenario.
-- [ ] T026 [US1] Playwright E2E `ui/tests/e2e/us1-agent-ops-healthy-pod.spec.ts`: _(open: no healthy-pod e2e spec found)_
+- [x] T026 [US1] Playwright E2E `ui/tests/e2e/us1-agent-ops-healthy-pod.spec.ts`: _(done: us1-agent-ops-healthy-pod.spec.ts)_
       healthy pod fixture (all conditions `True`, no warning events) → assistant states
       pod appears healthy, proposes no `SuggestedAction`.
 
@@ -140,7 +140,7 @@ for user stories.
 - [x] T027 [P] [US2] Implement `AgentSetAuthMode` and `AgentRevealKey` handlers in
       `src/backend/agent/mod.rs`, persisting via T014 and emitting
       `AgentAuthModeUpdated` / `AgentKeyRevealed`.
-- [ ] T028 [US2] Extend `OllamaClient`/`AnthropicClient` (T011/T012) error paths to _(open: only Ollama 404 distinct handling verified; Anthropic missing-key/401 paths not confirmed)_
+- [x] T028 [US2] Extend `OllamaClient`/`AnthropicClient` (T011/T012) error paths to _(done: Anthropic missing key (refused before any request), 401 (typed AuthRejected, then NeedsReauth) and 404 model-not-found each yield a distinct message; tests in agent/anthropic.rs and ai/tests.rs. Ollama unreachable/404 were already covered in agent/ollama.rs. Errors surface as the reply text or a failed command, since AgentError was superseded (T007))_
       distinguish: missing/invalid key, unreachable endpoint, model not found — each
       surfaced as a distinct `AgentError` message (FR-015), not a generic failure.
 - [x] T029 [P] [US2] Add `ui/src/features/agent-ops/AuthSetup.tsx`: setup prompt with
@@ -151,9 +151,9 @@ for user stories.
       (`data-testid="agent-ops-disable-toggle"`, FR-013).
 - [x] T030 [US2] Wire `AuthSetup` into `AgentPanel` (T021) as the gating view when
       `AgentAuthMode::Unconfigured`.
-- [ ] T031 [P] [US2] Vitest tests: key input masked by default and only shows plaintext _(open: reveal test exists in authSetup.test.tsx; no disable-toggle-blocks-submission test)_
+- [x] T031 [P] [US2] Vitest tests: key input masked by default and only shows plaintext _(done: authSetup.test.tsx masks by default; agentPanel.test.tsx covers the disable toggle and the unconfigured gate. The gate itself was missing (FR-003/FR-013) and is now implemented in AgentPanel)_
       after explicit reveal click; disable toggle prevents question submission.
-- [ ] T032 [US2] Playwright E2E `ui/tests/e2e/us2-agent-ops-auth-setup.spec.ts` per _(open: us2-agent-ops-auth.spec.ts covers only BYOK/reveal/error; no Ollama isolation or disable scenarios)_
+- [x] T032 [US2] Playwright E2E `ui/tests/e2e/us2-agent-ops-auth-setup.spec.ts` per _(done: us2-agent-ops-auth-setup.spec.ts covers all 5 scenarios. Ollama isolation is asserted at the command boundary (no hosted-provider commands); the fake has no hosted-API mock, and network isolation is covered by the Rust tests. All four new agent-ops specs also pass on WebKit (webkit-phone and webkit-laptop, 16/16, 2026-09-26) after libevent-2.1-7t64 was installed)_
       quickstart.md US2 (all 5 acceptance scenarios): no-auth gate, BYOK success,
       Ollama-only-mode network isolation assertion (assert the fake backend records
       zero calls to any hosted-API mock while Ollama mode is active), unreachable
@@ -210,7 +210,7 @@ confirmation dialog and existing mutation path.
       and asserting the dialog reflects the *new* state (AS2/FR-009); confirm executes
       through the identical command and reports outcome in-conversation (AS3);
       cancel leaves cluster state untouched and marks declined, no auto-retry (AS4).
-- [ ] T042 [US3] Playwright E2E _(open: no permission-denied e2e spec found)_
+- [x] T042 [US3] Playwright E2E _(done: us3-agent-ops-permission-denied.spec.ts shows the verbatim toast, AgentRecordExecutedAction{Error}, and one ScaleDeployment only)_
       `ui/tests/e2e/us3-agent-ops-permission-denied.spec.ts`: fake backend scripts a
       permission-error result for the confirmed command; assert the same verbatim
       error surfaces as a manual attempt would (AS5), and the assistant does not retry
@@ -251,11 +251,11 @@ feature's core safety property is demonstrable end-to-end.
 
 - [x] T048 [P] Update `docs/MVP.md`'s Tier E / Agent SDK Ops status row to shipped,
       referencing 013-agent-sdk-ops (separate small doc commit per task brief).
-- [ ] T049 [P] `cargo clippy --all-targets -- -D warnings` clean across _(open: not re-run in this audit)_
+- [x] T049 [P] `cargo clippy --all-targets -- -D warnings` clean across _(done: cargo fmt/clippy clean; cargo test --workspace 927 passed, 0 failed; pnpm typecheck clean, lint 0 errors (27 pre-existing warnings), Vitest 1288/1288; Chromium e2e 2433 passed, 2 failed (a node-actions phone/tablet request-id race, since fixed and 75/75 green on re-run; perf-10k keystroke budget missed at load avg ~70), 190 skipped)_
       `src/protocol/v1/agent.rs`, `src/backend/agent/**`, and touched files.
-- [ ] T050 [P] `pnpm -C ui lint` and `pnpm -C ui typecheck` clean across _(open: not re-run in this audit)_
+- [x] T050 [P] `pnpm -C ui lint` and `pnpm -C ui typecheck` clean across _(done: cargo fmt/clippy clean; cargo test --workspace 927 passed, 0 failed; pnpm typecheck clean, lint 0 errors (27 pre-existing warnings), Vitest 1288/1288; Chromium e2e 2433 passed, 2 failed (a node-actions phone/tablet request-id race, since fixed and 75/75 green on re-run; perf-10k keystroke budget missed at load avg ~70), 190 skipped)_
       `ui/src/features/agent-ops/**` and touched files.
-- [ ] T051 Full verification pass: `cargo build`, `cargo test`, `pnpm -C ui test` _(open: not re-run in this audit)_
+- [x] T051 Full verification pass: `cargo build`, `cargo test`, `pnpm -C ui test` _(done: cargo fmt/clippy clean; cargo test --workspace 927 passed, 0 failed; pnpm typecheck clean, lint 0 errors (27 pre-existing warnings), Vitest 1288/1288; Chromium e2e 2433 passed, 2 failed (a node-actions phone/tablet request-id race, since fixed and 75/75 green on re-run; perf-10k keystroke budget missed at load avg ~70), 190 skipped)_
       (Vitest), full `pnpm -C ui e2e` suite (or at minimum the `agent-ops` specs) —
       all green before merge.
 

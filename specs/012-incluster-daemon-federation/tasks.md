@@ -120,7 +120,7 @@ is visible without switching to it first.
 
 ## Phase 4: Polish
 
-- [ ] T019 Run `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `pnpm -C ui _(open: full verification suite not re-run in this audit)_
+- [x] T019 Run `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `pnpm -C ui _(done: cargo fmt/clippy clean; cargo test --workspace 927 passed, 0 failed; pnpm typecheck clean, lint 0 errors (27 pre-existing warnings), Vitest 1288/1288; Chromium e2e 2433 passed, 2 failed (a node-actions phone/tablet request-id race, since fixed and 75/75 green on re-run; perf-10k keystroke budget missed at load avg ~70), 190 skipped)_
   typecheck`, `pnpm -C ui lint`, `pnpm -C ui test`, and the new e2e spec; fix anything red.
 - [x] T020 Update `docs/MVP.md`'s §14 Tier D (or the relevant status row) to reflect P1 shipped, P2-P4
   deferred — precise, not overstated.

@@ -84,6 +84,17 @@ describe('AuthSetup', () => {
     })
   })
 
+  it('masks the key input by default: a password field, never plaintext text', async () => {
+    const user = userEvent.setup()
+    render(<AuthSetup />)
+    const input = screen.getByTestId('agent-ops-byok-key-input')
+    expect(input).toHaveAttribute('type', 'password')
+    await user.type(input, 'sk-ant-typed-secret')
+    // Typing does not unmask it, and nothing renders the typed value as text.
+    expect(input).toHaveAttribute('type', 'password')
+    expect(screen.queryByText('sk-ant-typed-secret')).toBeNull()
+  })
+
   it('does not show a reveal-key control until a key is configured', () => {
     render(<AuthSetup />)
     expect(screen.queryByTestId('agent-ops-reveal-key')).toBeNull()

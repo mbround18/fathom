@@ -48,6 +48,18 @@ export async function sentMutations(page: Page): Promise<BackendCmd[]> {
 }
 
 /**
+ * Commands sent excluding node-metrics polling start/stop. Releasing the poll is debounced
+ * (1.5s, `features/metrics/nodePolling.ts`), so when a layout hides the Nodes list after a row
+ * click (phone/tablet) the `StopNodeMetricsPolling` lands after a test's `clearSent` and races
+ * the node-flow assertions it has nothing to do with.
+ */
+export async function sentIgnoringNodePoll(page: Page): Promise<BackendCmd[]> {
+  return (await sent(page)).filter(
+    (c) => c.type !== 'StartNodeMetricsPolling' && c.type !== 'StopNodeMetricsPolling',
+  )
+}
+
+/**
  * Wait for the fake scenario's own async replies (queued by `setTimeout` at `send` time) to be
  * delivered. Timers with equal delay fire FIFO, so a page-side `setTimeout(0)` queued now lands
  * after them; without this an injected `emit` can be overwritten by a late canned reply.
@@ -258,4 +270,76 @@ export async function openFleet(page: Page): Promise<void> {
 export async function openHosted(page: Page, qs = 'user=alice&groups=dev,ops'): Promise<void> {
   await page.goto(`/?scenario=default&mode=hosted&${qs}`)
   await page.waitForFunction(() => window.__fathomFake !== undefined)
+}
+
+/**
+ * Every command `src/protocol/v1/mutation.rs` classifies as cluster-mutating (its `Namespaced`,
+ * `ClusterScoped` and object-scoped arms — Helm previews included, since they run against the
+ * cluster). Used by the 013 agent-ops specs to prove a scenario sent none of them.
+ */
+export const CLUSTER_MUTATING_COMMANDS: ReadonlySet<string> = new Set([
+  'AddEphemeralContainer',
+  'StartPodExec',
+  'DeletePod',
+  'ScaleDeployment',
+  'RestartDeployment',
+  'DeleteDeployment',
+  'RestartDaemonSet',
+  'DeleteDaemonSet',
+  'ScaleStatefulSet',
+  'RestartStatefulSet',
+  'DeleteStatefulSet',
+  'ScaleReplicaSet',
+  'RestartReplicaSet',
+  'DeleteReplicaSet',
+  'ScaleReplicationController',
+  'RestartReplicationController',
+  'DeleteReplicationController',
+  'DeleteJob',
+  'SuspendCronJob',
+  'TriggerCronJob',
+  'DeleteCronJob',
+  'DeleteService',
+  'DeleteIngress',
+  'DeleteNetworkPolicy',
+  'DeletePersistentVolumeClaim',
+  'DeleteRole',
+  'DeleteRoleBinding',
+  'DeleteConfigMap',
+  'DeleteSecret',
+  'DeleteResourceQuota',
+  'DeleteLimitRange',
+  'DeleteHorizontalPodAutoscaler',
+  'DeleteVerticalPodAutoscaler',
+  'DeletePodDisruptionBudget',
+  'DeleteLease',
+  'StartNodeShell',
+  'StopNodeShell',
+  'DeleteNodeShellOrphans',
+  'BulkDelete',
+  'DeletePersistentVolume',
+  'DeleteStorageClass',
+  'DeleteClusterRole',
+  'DeleteClusterRoleBinding',
+  'DeletePriorityClass',
+  'DeleteRuntimeClass',
+  'DeleteMutatingWebhookConfiguration',
+  'DeleteValidatingWebhookConfiguration',
+  'CordonNode',
+  'UncordonNode',
+  'DrainNode',
+  'CancelDrainNode',
+  'TaintNode',
+  'ApplyResourceYaml',
+  'CreateResourceYaml',
+  'PreviewHelmRollback',
+  'ApplyHelmRollback',
+  'PreviewHelmUpgrade',
+  'ApplyHelmUpgrade',
+  'UninstallHelmRelease',
+])
+
+/** The cluster-mutating commands sent since the last `clearSent`. */
+export async function clusterMutations(page: Page): Promise<string[]> {
+  return (await sentTypes(page)).filter((t) => CLUSTER_MUTATING_COMMANDS.has(t))
 }

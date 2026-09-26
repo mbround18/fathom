@@ -106,8 +106,8 @@ description: "Task list for Pod Logs & Terminal"
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T032 [P] `cargo clippy --all-targets -- -D warnings` and `cargo test` clean
-- [ ] T033 [P] `pnpm -C ui typecheck` and `pnpm -C ui lint` clean
+- [x] T032 [P] `cargo clippy --all-targets -- -D warnings` and `cargo test` clean _(done: clippy clean; cargo test --workspace 927 passed)_
+- [x] T033 [P] `pnpm -C ui typecheck` and `pnpm -C ui lint` clean _(done: typecheck clean, lint 0 errors)_
 - [ ] T034 Run all `quickstart.md` validation scenarios end-to-end against a real cluster, confirming SC-001 through SC-004
 - [x] T035 Verify GPG commit signing is active (`git config commit.gpgsign`/`user.signingkey`, global + no local override) before committing, per standing repo rule _(note: signing verified: commit.gpgsign=true, user.signingkey set)_
 

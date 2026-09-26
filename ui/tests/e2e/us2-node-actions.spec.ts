@@ -16,7 +16,7 @@ import {
   inspector,
   nextRequestId,
   open,
-  sent,
+  sentIgnoringNodePoll,
   sentTypes,
 } from './helpers'
 
@@ -51,6 +51,10 @@ async function goToNode(page: Page): Promise<void> {
   // Expanding the nav group persists a debounced `SaveUiConfig`; let it settle before the
   // test starts asserting on `sent()`, or it pollutes the very next assertion.
   await expect.poll(() => sentTypes(page, true)).toContain('SaveUiConfig')
+  // On phone/tablet the row click hides the Nodes list, and its node-metrics poll is released
+  // 1.5s later (`nodePolling.ts`). That `StopNodeMetricsPolling` consumes a request id, so it
+  // must land before a test predicts one with `nextRequestId`.
+  await page.waitForTimeout(1600)
 }
 
 test.describe('US2 node actions', () => {
@@ -66,7 +70,7 @@ test.describe('US2 node actions', () => {
     await dialog.getByTestId('confirm-submit').click()
     await expect(dialog).toBeHidden()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([{ type: 'CordonNode', data: { name: NODE_A.name } }])
     await finish(page, cordonId, true)
     await expect(actionToast(page, 'success').first()).toContainText('Cordon')
@@ -77,10 +81,10 @@ test.describe('US2 node actions', () => {
     const uncordonId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([{ type: 'UncordonNode', data: { name: NODE_A.name } }])
     await finish(page, uncordonId, true)
-    await expect(actionToast(page, 'success').first()).toContainText('Uncordon')
+    await expect(actionToast(page, 'success').filter({ hasText: 'Uncordon' })).toBeVisible()
   })
 
   test('T028/T029: drain shows incremental progress and a PDB-blocked pod verbatim', async ({
@@ -96,7 +100,7 @@ test.describe('US2 node actions', () => {
     const drainId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         {
           type: 'DrainNode',
@@ -199,7 +203,7 @@ test.describe('US2 node actions', () => {
     await clearSent(page)
     await page.getByTestId('node-action-cancel-drain').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         { type: 'CancelDrainNode', data: { name: NODE_A.name, request_id: String(drainId) } },
       ])
@@ -222,7 +226,7 @@ test.describe('US2 node actions', () => {
     const addId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         {
           type: 'TaintNode',
@@ -244,7 +248,7 @@ test.describe('US2 node actions', () => {
     await expect(dialog).toBeVisible()
     await dialog.getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         {
           type: 'TaintNode',
@@ -258,6 +262,6 @@ test.describe('US2 node actions', () => {
         },
       ])
     await finish(page, removeId, true)
-    await expect(actionToast(page, 'success').first()).toContainText('Remove taint')
+    await expect(actionToast(page, 'success').filter({ hasText: 'Remove taint' })).toBeVisible()
   })
 })
