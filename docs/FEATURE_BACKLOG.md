@@ -48,6 +48,17 @@ out had to happen outside the app.
   values) or a kustomize base/overlay from a selection. Needs a templating-heuristics
   decision (which fields become values), so spike it before spec-kit.
 
+## Frontend search: unify on FlexSearch
+
+Replace the hand-rolled matchers with [FlexSearch](https://github.com/nextapps-de/flexsearch):
+`ui/src/resources/search.ts` (per-pane prefix filter) and `ui/src/resources/paletteIndex.ts`
+(command-palette scoring across resources, namespaces, sections and tools). One indexed engine
+gives typo tolerance, better ranking and less custom code. Watch-outs: the 10k-row lists update
+every tick, so the index must add/update/remove incrementally, keyed on the row key (no
+rebuilding on each update), and must stay inside the SC-004 keystroke budget (`perf-10k.spec.ts`).
+The palette's ranking tests will need to be re-baselined, and bundle size needs checking (use the
+light build if it suffices).
+
 ## Tier 4 — needs an architecture spike before spec-kit
 
 - **Plugin/extension API** — the mechanism behind Lens's marketplace and every Headlamp
