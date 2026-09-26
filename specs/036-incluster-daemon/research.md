@@ -81,3 +81,64 @@ Verified 2026-09-24 on the local kind cluster (Kubernetes v1.32.2 node, kubectl 
 - **APIService** (`apiregistration.k8s.io/v1`, `insecureSkipTLSVerify` for the probe only), request via `/apis/<group>/v1/...`: the backend received `x-remote-user`, `x-remote-group` and `x-remote-extra-*` set by the aggregator, and the APIService reported `Available=True`.
 
 Conclusion: per-user filtering must use the APIService path; the daemon must never take identity from anything but front-proxy headers on a mutually-verified connection. Not covered: the requestheader client certificate itself (the probe echo server did not request one), so client-cert verification against the requestheader CA is unit/handshake tested locally but not yet exercised through a real aggregator. The probe namespace and APIService were deleted afterwards.
+
+## R15. Warm-snapshot benchmark and resource budget (T036, T037, T052)
+
+Measured 2026-09-26 on a dedicated kind cluster (`fathom-daemon-bench`, Kubernetes v1.32.2, 1 real node plus 50 kwok nodes; fixture `k8s/bench-fixture.sh`). The cluster held 5,019 pods, 122 workloads (Deployment/ReplicaSet/Job/...), about 240 Events and 51 Nodes: roughly 5,400 watched objects. The host (32 threads) was shared with other agents' builds and had a load average of 27 to 45 during the client runs, so absolute times are noisy. Off and auto runs were interleaved to keep the comparison fair. Images were `fathom-daemon:bench036` and, after the render fix below, `bench036b`. The client was the real backend (`live_driver` example, release build).
+
+**T036: time to first populated list.** First, the raw endpoint via `kubectl get --raw` (20 runs, milliseconds, includes kubectl start-up of about 30 to 40 ms):
+
+| Path | min | p50 | max | Body |
+|---|---|---|---|---|
+| Direct `GET /api/v1/pods` (admin) | 199 | 216 | 296 | 21.2 MB |
+| Direct `GET /api/v1/pods?resourceVersion=0` (watch cache) | 193 | 204 | 273 | 21.2 MB |
+| Daemon `/v1/snapshot/pods` (admin) | 133 | 149 | 177 | 13.2 MB |
+| Direct pods (user `carol`, cluster-wide `view`) | 194 | 203 | 275 | 21.2 MB |
+| Daemon pods (`carol`, SubjectAccessReview-filtered) | 142 | 163 | 193 | 13.2 MB |
+| Direct `GET /api/v1/events` | 43 | 46 | 52 | 257 kB |
+| Daemon `/v1/snapshot/events` | 38 | 44 | 53 | 178 kB |
+
+The snapshot body is about 38% smaller because the daemon strips `managedFields`.
+
+Second, in the app (10 interleaved runs each, from `SetContext` to the first `PodsUpdated` carrying all 5,019 pods):
+
+| Preference | Total p50 (min to max) | Pod stage p50 (min to max) |
+|---|---|---|
+| `off` (direct LIST) | 2,617 ms (1,510 to 3,564) | 1,311 ms (676 to 1,746) |
+| `auto` (daemon snapshot) | 2,302 ms (1,180 to 2,765) | 810 ms (372 to 1,026) |
+
+The pod stage runs from `NamespacesUpdated` to `PodsUpdated`. Every `auto` run was served from the snapshot (`age_ms=0` in the debug log). The daemon path was faster at min, p50 and max, so it was never worse than direct. About 1.1 to 1.3 s of the total happens before the pod list starts, in both modes (context start, then the namespace list), and the daemon does not change it. With the daemon uninstalled, `auto` probes `notInstalled` and falls back to the direct LIST, which returned the full list (3.7 s under load).
+
+**T037: daemon budget.** RSS was read from `/proc` in the kind node; idle CPU is utime+stime over 60 to 120 s.
+
+| State | RSS |
+|---|---|
+| Synced, no snapshot served yet | 146.4 MiB |
+| After one pods snapshot | 146.6 MiB (high-water mark 156 MiB during the render) |
+| After 20 concurrent pods snapshots | 146.9 MiB (high-water mark 179 MiB) |
+| metrics-server installed, ring sampling for 5 min | 144.2 MiB |
+
+Idle CPU was 0.05 to 0.09% of one core, against a target under 2%.
+
+Before the fix, 10 concurrent pods snapshots OOM-killed the daemon at its 256Mi limit. Each render holds a full ~13 MiB body, and a doubling `Vec` briefly doubles that. Now at most `MAX_CONCURRENT_RENDERS` (2) renders run at once; more callers queue and are never rejected. The buffer is also sized up front from the previous render's bytes per item.
+
+So steady-state RSS is under 150 MiB at about 5,400 objects, but only just, and the budget has two gaps:
+- **Transient peaks exceed it** while snapshots are served.
+- **The metrics ring was barely exercised.** kwok pods have no metrics, so only the ~14 real pods had series. At 5,000 real pods the ring grows toward its 32 MiB cap (`DEFAULT_MAX_BYTES`), which would put the daemon over budget. Meeting 150 MiB there needs a lower ring cap, or leaner stored objects (for example, projecting pods to the fields the snapshot and topology need).
+
+**T037: client idle CPU with the stream open.** The same backend, idle for 120 s after the first list. The cluster was not silent: a CronJob, a failing Job and kwok status updates were running.
+
+| Preference | Backend CPU | RSS | List re-emits in the window |
+|---|---|---|---|
+| `auto` (snapshot + one WATCH + daemon stream) | 3.2% of one core | 842 MB | 8 |
+| `off` (legacy pod watcher, re-LISTs every event) | 64.9% of one core | 1.5 GB | 114 |
+
+Both modes also include the add-on overview pollers (cert-manager, Flux and others).
+
+**T052 (SC-007).** `k8s/test-daemon.sh` on this cluster, 2 full passes:
+- Alice (`view` on `daemon-demo`) sees only `daemon-demo` topology: 14 to 18 nodes and 11 to 15 edges, every edge between her own nodes.
+- Bob sees nothing.
+- The admin sees 16 to 17 namespaces.
+- Scaling `rollout-demo` reached Alice's stream as a `topologyDelta` in 50 ms and 430 ms (target 5 s or less), with no out-of-scope nodes.
+
+These runs also exercised the front-proxy mTLS path through a real aggregator (see R14).
