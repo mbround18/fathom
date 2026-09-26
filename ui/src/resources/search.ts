@@ -8,6 +8,23 @@ export interface Searchable {
   namespace?: string | null
 }
 
+/**
+ * Compile `q` once for a whole list pass: the trim/lowercase of the query is hoisted out of the
+ * per-row loop (10k rows x every keystroke and update tick).
+ */
+export function compileQuery(q: string): (name: string, namespace?: string | null) => boolean {
+  const query = q.trim().toLowerCase()
+  if (query === '') return () => true
+  return (rawName, rawNamespace) => {
+    const name = rawName.toLowerCase()
+    if (name.startsWith(query)) return true
+    const ns = rawNamespace?.toLowerCase()
+    if (ns === undefined || ns === '') return false
+    if (ns.startsWith(query)) return true
+    return `${ns}/${name}`.startsWith(query)
+  }
+}
+
 /** True when `row` matches the pane's filter text `q` (blank matches everything). */
 export function matchesQuery(row: Searchable, q: string): boolean {
   const query = q.trim().toLowerCase()

@@ -68,18 +68,21 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const openInspector = useStore((s) => s.openInspector)
   const selectNamespace = useStore((s) => s.selectNamespace)
   const navigate = useStore((s) => s.navigate)
-  const slotPanes = useStore((s) => s.layout.slotPanes)
-  const panes = useStore((s) => s.panes)
   const openTool = useOpenTool()
 
+  // The index (every loaded row of the active context) is only built while the palette is open:
+  // building it on each list update / keystroke cost tens of ms with 10k rows for nothing.
   const candidates = useMemo(
-    () => [
-      ...buildResourceCandidates(lists, activeContext),
-      ...buildNamespaceCandidates(namespaces),
-      ...buildSectionCandidates(),
-      ...buildToolCandidates(),
-    ],
-    [lists, activeContext, namespaces],
+    () =>
+      !open
+        ? []
+        : [
+            ...buildResourceCandidates(lists, activeContext),
+            ...buildNamespaceCandidates(namespaces),
+            ...buildSectionCandidates(),
+            ...buildToolCandidates(),
+          ],
+    [open, lists, activeContext, namespaces],
   )
 
   const results = useMemo(() => {
@@ -97,7 +100,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     if (result.category === 'resource') {
       // Pass a visible slot list pane as `from`: on laptop/tablet the store only retargets the
       // fixed inspector slot when the jump originates from a pane in the visible row.
-      const from = slotPanes.find((id) => panes[id]?.kind === 'list')
+      const { layout, panes } = useStore.getState()
+      const from = layout.slotPanes.find((id) => panes[id]?.kind === 'list')
       openInspector((result.payload as PaletteResourcePayload).ref, from)
     } else if (result.category === 'namespace') {
       selectNamespace((result.payload as PaletteNamespacePayload).namespace)

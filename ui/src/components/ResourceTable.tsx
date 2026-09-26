@@ -44,7 +44,7 @@ import { isAllowedNow } from '@/lib/capabilities'
 import { computeVisibleColumns } from '@/layout/column-budget'
 import { cn } from '@/lib/utils'
 import type { AnyDescriptor, ColumnDef } from '@/resources'
-import { matchesQuery } from '@/resources/search'
+import { compileQuery } from '@/resources/search'
 import { useStore, type ListRow, type PaneState } from '@/store'
 
 import { Empty } from './shell/PaneStates'
@@ -99,17 +99,28 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
 
   // ---- filtering (client side; the backend also filters by namespace)
   const query = useDeferredValue(pane.search)
+  // Boxed items are reused per row object: `reuseRows` keeps unchanged rows referentially stable
+  // across list updates, so a 250 ms tick re-boxes only the rows that changed instead of 10k.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new descriptor (rowKey) resets the cache
+  const items = useMemo(() => new WeakMap<object, Item>(), [descriptor])
   const data = useMemo(() => {
     const out: Item[] = []
+    const matches = compileQuery(query)
     for (const r of rows) {
       const nn = nameAndNamespace(r)
       if (activeNamespace !== null && descriptor.namespaced && nn.namespace !== activeNamespace) {
         continue
       }
-      if (matchesQuery(nn, query)) out.push({ key: descriptor.rowKey(r), row: r })
+      if (!matches(nn.name, nn.namespace)) continue
+      let item = typeof r === 'object' ? items.get(r) : undefined
+      if (!item) {
+        item = { key: descriptor.rowKey(r), row: r }
+        if (typeof r === 'object') items.set(r, item)
+      }
+      out.push(item)
     }
     return out
-  }, [rows, query, activeNamespace, descriptor])
+  }, [rows, query, activeNamespace, descriptor, items])
 
   // ---- column budget
   const bodyRef = useRef<HTMLDivElement>(null)
