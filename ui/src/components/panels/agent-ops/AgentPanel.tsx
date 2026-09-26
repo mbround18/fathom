@@ -18,7 +18,12 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
-import type { AgentMessage, AgentObjectRef, ExecutedAction } from '@/protocol/types'
+import type {
+  AgentMessage,
+  AgentObjectRef,
+  ExecutedAction,
+  GroundingSource,
+} from '@/protocol/types'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 import { agentConversationKey } from '@/store/handlers/agent'
@@ -31,6 +36,14 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
   const key = agentConversationKey(object.kind, object.namespace, object.name)
   const conversation = useStore((s) => s.agentConversations[key])
   const messages = conversation?.messages ?? []
+  // FR-003/FR-013: with no assistant configured, or the assistant disabled, no question can be
+  // submitted — the panel shows a setup prompt instead. Known only once the mode has loaded; a
+  // provider the 013 mode cannot represent (038's GitHub/OpenAI) still counts as configured.
+  const blocked = useStore(
+    (s) =>
+      (s.agentAuth.mode?.type === 'Unconfigured' || s.agentAuth.mode?.type === 'Disabled') &&
+      !(s.ai.loaded && s.ai.active !== null),
+  )
 
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
@@ -61,7 +74,7 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
 
   const submit = () => {
     const trimmed = question.trim()
-    if (!trimmed || asking) return
+    if (!trimmed || asking || blocked) return
     setAsking(true)
     setError(undefined)
     setQuestion('')
@@ -122,6 +135,26 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
           onCancel={() => setConfirmingClear(false)}
         />
       )}
+      {blocked && !showAuthSetup && (
+        <div
+          data-testid="agent-ops-setup-required"
+          className="flex shrink-0 flex-col items-start gap-2 rounded-md border border-border p-2 text-xs"
+        >
+          <p className="text-muted-foreground">
+            The assistant is disabled or not set up. Enter an Anthropic API key or use a local
+            Ollama model to ask questions.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="agent-ops-setup-open"
+            onClick={() => setShowAuthSetup(true)}
+          >
+            Set up assistant
+          </Button>
+        </div>
+      )}
       {showAuthSetup && (
         <div className="shrink-0 border-b border-border pb-3">
           <AuthSetup />
@@ -174,14 +207,14 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
               submit()
             }
           }}
-          disabled={asking}
+          disabled={asking || blocked}
         />
         <div>
           <Button
             type="button"
             size="sm"
             data-testid="agent-ops-submit"
-            disabled={asking || question.trim().length === 0}
+            disabled={asking || blocked || question.trim().length === 0}
             onClick={submit}
           >
             {asking ? 'Asking…' : 'Ask'}
@@ -214,6 +247,24 @@ function MessageBubble({
         {isOperator ? 'You' : 'Assistant'}
       </span>
       <p className="whitespace-pre-wrap text-foreground/90">{message.text}</p>
+      {message.grounding.length > 0 && (
+        <ul
+          data-testid="agent-ops-grounding-sources"
+          aria-label="Grounded in"
+          className="flex flex-wrap gap-1"
+        >
+          {message.grounding.map((g, i) => (
+            <li
+              key={i}
+              data-testid="agent-ops-grounding-source"
+              data-source={g.type}
+              className="rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            >
+              {groundingLabel(g)}
+            </li>
+          ))}
+        </ul>
+      )}
       {message.suggested_actions.length > 0 && (
         <div className="flex flex-col gap-2 pt-1">
           {message.suggested_actions.map((sa) => (
@@ -230,4 +281,20 @@ function MessageBubble({
       )}
     </div>
   )
+}
+
+/** FR-012: which data grounded an answer; FR-018: a truncated log tail says so. */
+function groundingLabel(g: GroundingSource): string {
+  switch (g.type) {
+    case 'Events':
+      return 'Events'
+    case 'Conditions':
+      return 'Conditions'
+    case 'ContainerStatuses':
+      return 'Container statuses'
+    case 'Logs':
+      return g.data.truncated ? 'Logs (truncated)' : 'Logs'
+    case 'Lifecycle':
+      return 'Lifecycle'
+  }
 }
