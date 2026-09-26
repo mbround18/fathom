@@ -58,6 +58,9 @@ spec:
             - {name: FATHOM_GROUPS_PREFIX, value: {{ .Values.claims.groupsPrefix | quote }}}
             - {name: FATHOM_ACCESS_MODEL, value: {{ .Values.accessModel | quote }}}
             - {name: FATHOM_KUBE_TOKEN, value: {{ .Values.kubeToken | quote }}}
+            {{- with .Values.accessProbeNamespaces }}
+            - {name: FATHOM_ACCESS_PROBE_NAMESPACES, value: {{ join "," . | quote }}}
+            {{- end }}
             {{- with .Values.audit.viewerGroups }}
             - {name: FATHOM_AUDIT_VIEWER_GROUPS, value: {{ join "," . | quote }}}
             {{- end }}
@@ -103,6 +106,13 @@ spec:
             {{- if .Values.oidc.caSecret }}
             - {name: ca, mountPath: /etc/fathom/ca, readOnly: true}
             {{- end }}
+            {{- if ne .Values.accessModel "impersonation" }}
+            # pass-through: the API server CA and namespace, but NO ServiceAccount token
+            # (automount is off), so every request carries only the user's own token
+            - name: kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -117,4 +127,16 @@ spec:
         - name: ca
           secret:
             secretName: {{ .Values.oidc.caSecret }}
+        {{- end }}
+        {{- if ne .Values.accessModel "impersonation" }}
+        - name: kube-api
+          projected:
+            sources:
+              - configMap:
+                  name: kube-root-ca.crt
+                  items: [{key: ca.crt, path: ca.crt}]
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef: {fieldPath: metadata.namespace}
         {{- end }}

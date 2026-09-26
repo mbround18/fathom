@@ -15,7 +15,10 @@ WORKDIR /src
 COPY . .
 ENV CARGO_BUILD_JOBS=2 RUSTFLAGS="-C target-feature=+crt-static"
 # explicit --target keeps crt-static off the host (proc-macro/build-script) artifacts
-RUN cargo build --release -p fathom-server --target x86_64-unknown-linux-musl \
+# BuildKit cache mounts keep dependency artifacts across builds (local iteration); the binary
+# is copied out in the same step because the mounted target/ is not part of the layer
+RUN --mount=type=cache,target=/src/target --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build --release -p fathom-server --target x86_64-unknown-linux-musl \
     && cp target/x86_64-unknown-linux-musl/release/fathom-server /fathom-server
 
 # ---- spec 036: in-cluster daemon. Build with: docker build -f deploy/Dockerfile --target fathom-daemon -t fathom-daemon .
@@ -25,7 +28,10 @@ RUN apk add --no-cache musl-dev g++ cmake perl make linux-headers
 WORKDIR /src
 COPY . .
 ENV CARGO_BUILD_JOBS=2 RUSTFLAGS="-C target-feature=+crt-static"
-RUN cargo build --release -p fathom-daemon --target x86_64-unknown-linux-musl \
+# BuildKit cache mounts keep dependency artifacts across builds (local iteration); the binary
+# is copied out in the same step because the mounted target/ is not part of the layer
+RUN --mount=type=cache,target=/src/target --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build --release -p fathom-daemon --target x86_64-unknown-linux-musl \
     && cp target/x86_64-unknown-linux-musl/release/fathom-daemon /fathom-daemon
 
 FROM gcr.io/distroless/static-debian12:nonroot AS fathom-daemon

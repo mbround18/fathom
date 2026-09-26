@@ -112,6 +112,25 @@ pub(super) fn load_and_send_contexts(
     Ok((contexts, current))
 }
 
+/// Like [`load_and_send_contexts`], but a backend without local features (the hosted server,
+/// 031) has no kubeconfig: its only context is the access's fixed home context. Without this
+/// the hosted UI would see an empty context list, which it reads as "no access" for everyone.
+pub(super) fn send_contexts_for(
+    access: &dyn super::access::ClusterAccess,
+    seq: &AtomicU64,
+    selected_context: Option<String>,
+    sender: &Sender<BackendEventEnvelope>,
+) -> anyhow::Result<(Vec<String>, Option<String>)> {
+    if !access.allows_local_features()
+        && let Some(home) = access.home_context()
+    {
+        let contexts = vec![home.clone()];
+        emit_contexts(seq, sender, contexts.clone(), Some(home.clone()));
+        return Ok((contexts, Some(home)));
+    }
+    load_and_send_contexts(seq, selected_context, sender)
+}
+
 /// Sorted context names plus the effective current context (explicit selection wins
 /// over kubeconfig's `current-context`).
 fn contexts_from_kubeconfig(
@@ -273,6 +292,66 @@ pub fn build_oidc_client(mut config: Config, source: TokenSource) -> anyhow::Res
     Ok(client)
 }
 
+/// List `K` in the namespaces of `filter` (one namespaced list each), or cluster-wide when the
+/// filter is empty. A user whose permissions are namespace-scoped (a `RoleBinding`, common
+/// on the hosted server, 031) can list inside their namespace but not at cluster scope.
+pub(super) async fn list_in_filter<K>(client: Client, filter: &[String]) -> kube::Result<Vec<K>>
+where
+    K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>
+        + Clone
+        + serde::de::DeserializeOwned
+        + std::fmt::Debug,
+    K::DynamicType: Default,
+{
+    let params = kube::api::ListParams::default();
+    if filter.is_empty() {
+        return Ok(kube::Api::<K>::all(client).list(&params).await?.items);
+    }
+    let mut items = Vec::new();
+    for ns in filter {
+        let api = kube::Api::<K>::namespaced(client.clone(), ns);
+        items.extend(api.list(&params).await?.items);
+    }
+    Ok(items)
+}
+
 pub(super) fn read_kubeconfig_current_context() -> Option<String> {
     load_kubeconfig().ok().and_then(|kc| kc.current_context)
+}
+
+#[cfg(test)]
+mod hosted_context_tests {
+    use super::*;
+    use crate::backend::access::ClusterAccess;
+    use async_trait::async_trait;
+
+    struct HomeOnly;
+
+    #[async_trait]
+    impl ClusterAccess for HomeOnly {
+        async fn build_client(&self, _context: Option<&str>) -> anyhow::Result<Client> {
+            anyhow::bail!("not used")
+        }
+        fn home_context(&self) -> Option<String> {
+            Some("in-cluster".into())
+        }
+        fn allows_local_features(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn hosted_access_reports_its_home_context_without_a_kubeconfig() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let seq = AtomicU64::new(0);
+        let (contexts, current) = send_contexts_for(&HomeOnly, &seq, None, &tx).unwrap();
+        assert_eq!(contexts, vec!["in-cluster".to_owned()]);
+        assert_eq!(current.as_deref(), Some("in-cluster"));
+        let env = rx.try_recv().unwrap();
+        assert!(matches!(
+            env.event,
+            BackendEvent::System(SystemEvent::ContextsUpdated { ref contexts, current: Some(ref c) })
+                if contexts == &["in-cluster".to_owned()] && c == "in-cluster"
+        ));
+    }
 }

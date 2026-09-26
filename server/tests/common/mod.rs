@@ -30,6 +30,8 @@ pub enum RefreshMode {
     Ok,
     InvalidGrant,
     ServerError,
+    /// A 400 OAuth error response with this (possibly non-standard) `error` code.
+    Error(&'static str),
 }
 
 #[derive(Clone, Debug)]
@@ -199,6 +201,9 @@ async fn token(
                 )
                     .into_response(),
                 RefreshMode::ServerError => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                RefreshMode::Error(code) => {
+                    (StatusCode::BAD_REQUEST, Json(json!({ "error": code }))).into_response()
+                }
             }
         }
         _ => (

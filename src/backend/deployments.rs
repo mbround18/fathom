@@ -19,10 +19,9 @@ pub(super) async fn refresh_deployments(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<Deployment> = Api::all(client);
-
-    let deployments = api.list(&ListParams::default()).await?;
-    let summaries = deployments_to_summaries(deployments.items, &state.cluster.namespace_filter);
+    let filter = &state.cluster.namespace_filter;
+    let deployments = super::kube::list_in_filter::<Deployment>(client, filter).await?;
+    let summaries = deployments_to_summaries(deployments, filter);
 
     events::emit(
         state.cluster.seq.as_ref(),

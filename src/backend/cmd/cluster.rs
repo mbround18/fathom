@@ -133,7 +133,8 @@ async fn initialize(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     // Contexts can be loaded even before we connect.
-    let contexts_result = kube::load_and_send_contexts(
+    let contexts_result = kube::send_contexts_for(
+        state.access.as_ref(),
         state.cluster.seq.as_ref(),
         state.cluster.current_context.clone(),
         sender,

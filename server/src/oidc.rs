@@ -264,7 +264,8 @@ impl OidcClient {
     }
 
     /// Refresh-token grant. The (possibly rotated) refresh token replaces the old one; when the IdP
-    /// does not rotate, the previous one is kept. `invalid_grant` => `RefreshRejected`.
+    /// does not rotate, the previous one is kept. An OAuth error response => `RefreshRejected`
+    /// (except `temporarily_unavailable`/`server_error`); transport/5xx failures => transient.
     pub async fn refresh(&self, refresh_token: &SecretString) -> Result<Tokens, OidcError> {
         let client = self.client();
         let http = self.http_fn();
@@ -277,14 +278,15 @@ impl OidcClient {
             .await
             .map_err(|e| match e {
                 openidconnect::RequestTokenError::ServerResponse(r) => {
+                    // A well-formed OAuth error is the IdP's answer, not an outage: only its
+                    // explicit try-later codes are transient. Anything else (`invalid_grant`,
+                    // or a provider-specific code such as Rauthy's `Disabled` for a disabled
+                    // user) ends the session now instead of after the unreachable-IdP grace.
                     let code = r.error().to_string();
-                    if code.contains("invalid_grant")
-                        || code.contains("invalid_client")
-                        || code.contains("unauthorized_client")
-                    {
-                        OidcError::RefreshRejected(code)
-                    } else {
+                    if code.contains("temporarily_unavailable") || code.contains("server_error") {
                         OidcError::RefreshTransient(code)
+                    } else {
+                        OidcError::RefreshRejected(code)
                     }
                 }
                 other => OidcError::RefreshTransient(other.to_string()),
@@ -383,6 +385,7 @@ pub fn map_identity(
             .map(str::to_string)
             .collect(),
         Some(Value::String(s)) => vec![s.clone()],
+        None if !cfg.groups_required => Vec::new(),
         _ => return Err(OidcError::MissingGroups(cfg.groups.clone())),
     };
     Ok(Identity {
@@ -411,6 +414,7 @@ mod tests {
             groups: "groups".into(),
             username_prefix: up.into(),
             groups_prefix: gp.into(),
+            groups_required: true,
         }
     }
 
@@ -431,10 +435,29 @@ mod tests {
             groups: "roles".into(),
             username_prefix: "oidc:".into(),
             groups_prefix: "oidc:".into(),
+            groups_required: true,
         };
         let i = map_identity("iss", &c, &cfg).unwrap();
         assert_eq!(i.username, "oidc:bob@corp");
         assert_eq!(i.groups, ["oidc:admin"]);
+    }
+
+    #[test]
+    fn missing_groups_means_no_groups_when_not_required() {
+        let c = json!({"sub":"s","preferred_username":"carol"});
+        let cfg = ClaimsConfig {
+            groups_required: false,
+            ..cc("oidc:", "oidc:")
+        };
+        let i = map_identity("i", &c, &cfg).unwrap();
+        assert_eq!(i.username, "oidc:carol");
+        assert!(i.groups.is_empty());
+        // a present but malformed claim is still an error
+        let bad = json!({"sub":"s","preferred_username":"carol","groups":42});
+        assert!(matches!(
+            map_identity("i", &bad, &cfg),
+            Err(OidcError::MissingGroups(_))
+        ));
     }
 
     #[test]

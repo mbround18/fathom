@@ -11,7 +11,7 @@ use k8s_openapi::api::core::v1::{
 };
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams, LogParams, Patch, PatchParams},
+    api::{Api, DeleteParams, LogParams, Patch, PatchParams},
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -23,10 +23,9 @@ pub(super) async fn refresh_pods(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<Pod> = Api::all(client);
-
-    let pods = api.list(&ListParams::default()).await?;
-    let summaries = pods_to_summaries(pods.items, &state.cluster.namespace_filter);
+    let filter = &state.cluster.namespace_filter;
+    let pods = super::kube::list_in_filter::<Pod>(client, filter).await?;
+    let summaries = pods_to_summaries(pods, filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

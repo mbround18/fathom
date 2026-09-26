@@ -6,13 +6,16 @@
 #   k8s/cluster.sh down             delete the cluster (blow it away)
 #   PROVIDER=rauthy|keycloak k8s/cluster.sh up-hosted    OIDC-aware kind cluster + ingress + IdP + RBAC fixtures (spec 031)
 #   k8s/cluster.sh up-metrics <stack> / down-metrics <stack|all>   metrics stacks (see README); k8s/test-metrics.sh <stack>
-#   PROVIDER=... k8s/cluster.sh down-hosted              delete that cluster (+ generated certs when none remain)
+#   PROVIDER=... k8s/cluster.sh install-hosted           (re)build + kind load the server image, helm upgrade --install fathom
+#   PROVIDER=... k8s/cluster.sh test-hosted-lifecycle    helm upgrade/uninstall e2e: asserts no leftover cluster-scoped objects
+#   PROVIDER=... k8s/cluster.sh down-hosted              delete that cluster
 # Env: CLUSTER (default fathom-dev; up-hosted defaults to fathom-oidc-$PROVIDER). Every kubectl call is pinned
-# to --context kind-$CLUSTER. Hosted clusters bind host ports 80/443, so run one at a time.
+# to --context kind-$CLUSTER. Hosted env: HOSTED_IMAGE (default fathom-server:hosted-dev), SKIP_BUILD=1 (reuse
+# the image), SKIP_INSTALL=1 (IdP only), HOST_PORTS=1|0|auto (bind host 80/443; auto = only when free).
 set -euo pipefail
 cd "$(dirname "$0")"
 PROVIDER="${PROVIDER:-rauthy}"
-case "${1:-}" in up-hosted|down-hosted) CLUSTER="${CLUSTER:-fathom-oidc-$PROVIDER}" ;; esac
+case "${1:-}" in up-hosted|down-hosted|install-hosted|test-hosted-lifecycle) CLUSTER="${CLUSTER:-fathom-oidc-$PROVIDER}" ;; esac
 CLUSTER="${CLUSTER:-fathom-dev}"
 CTX="kind-$CLUSTER"
 K=(kubectl --context "$CTX")
@@ -57,7 +60,13 @@ gen_certs() {  # one CA + one leaf covering all hosted hostnames; reused across 
 hosted_up() {
   gen_certs
   if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
-    sed "s#__ISSUER__#$ISSUER#; s#__CA_DIR__#$TMP#" kind-oidc.yaml | kind create cluster --name "$CLUSTER" --config -
+    local ports="${HOST_PORTS:-auto}" strip=""
+    if [ "$ports" = auto ]; then
+      if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq '[:.](80|443)$'; then ports=0; else ports=1; fi
+    fi
+    # without host ports (another hosted cluster owns 80/443) the node is reached on its docker IP; see README
+    [ "$ports" = 1 ] || { strip='/hostPort: \(80\|443\)/d'; echo "host ports 80/443 not bound (HOST_PORTS=$ports)"; }
+    sed "s#__ISSUER__#$ISSUER#; s#__CA_DIR__#$TMP#; $strip" kind-oidc.yaml | kind create cluster --name "$CLUSTER" --config -
   fi
   # names must resolve to the ingress from the API server (host network on the node): node /etc/hosts
   local node ip h
@@ -85,8 +94,71 @@ hosted_up() {
   "${K[@]}" -n ingress-nginx wait --for=condition=Available deploy --all --timeout=300s
   build_apply "overlays/hosted-$PROVIDER"
   "${K[@]}" -n "$IDP_NS" wait --for=condition=Available deploy --all --timeout=600s
+  [ -n "${SKIP_INSTALL:-}" ] || hosted_install
   echo "cluster $CLUSTER ready. Issuer: $ISSUER  (CA: $TMP/ca.crt)"
   echo "users alice/bob/carol password: FathomDemo#2026-Pw1   (IdP admin: see addons/$PROVIDER)"
+  hosted_access_hint
+}
+
+HOSTED_IMAGE="${HOSTED_IMAGE:-fathom-server:hosted-dev}"
+HELM=(helm --kube-context "$CTX" -n fathom)
+node_ip() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CLUSTER-control-plane"; }
+hosted_access_hint() {
+  local ip; ip=$(node_ip)
+  if docker port "$CLUSTER-control-plane" 443 >/dev/null 2>&1; then
+    echo "open https://fathom.localtest.me (host ports bound)"
+  else
+    echo "host ports not bound: reach the ingress on the node IP $ip, e.g."
+    echo "  curl --cacert $TMP/ca.crt --resolve fathom.localtest.me:443:$ip https://fathom.localtest.me/readyz"
+    echo "  FATHOM_HOSTED_IP=$ip PROVIDER=$PROVIDER pnpm -C ui e2e:hosted"
+  fi
+}
+hosted_curl() {  # $1 = path on fathom.localtest.me; prints the HTTP status
+  curl -s -o /dev/null -w '%{http_code}' --cacert "$TMP/ca.crt" --resolve "fathom.localtest.me:443:$(node_ip)" \
+    "https://fathom.localtest.me$1"
+}
+hosted_install() {  # build + load image, CA secret, helm upgrade --install with the provider values
+  if [ -z "${SKIP_BUILD:-}" ]; then
+    docker build -f ../deploy/Dockerfile -t "$HOSTED_IMAGE" ..
+  fi
+  kind load docker-image "$HOSTED_IMAGE" --name "$CLUSTER"
+  "${K[@]}" create ns fathom --dry-run=client -o yaml | "${K[@]}" apply -f -
+  "${K[@]}" -n fathom create secret generic fathom-oidc-ca --from-file=ca.crt="$TMP/ca.crt" --dry-run=client -o yaml \
+    | "${K[@]}" apply -f -
+  "${HELM[@]}" upgrade --install fathom ../deploy/helm/fathom -f "overlays/hosted/values-$PROVIDER.yaml" \
+    --set image.repository="${HOSTED_IMAGE%:*}" --set image.tag="${HOSTED_IMAGE##*:}" "$@" --wait --timeout 5m
+  "${K[@]}" -n fathom rollout status deploy/fathom-fathom --timeout=180s
+  local i; for i in $(seq 1 30); do [ "$(hosted_curl /readyz)" = 200 ] && break; sleep 2; done
+  [ "$(hosted_curl /readyz)" = 200 ] || { echo "fathom /readyz not 200 through the ingress" >&2; return 1; }
+  echo "fathom installed: https://fathom.localtest.me ($PROVIDER, image $HOSTED_IMAGE)"
+}
+
+# helm upgrade/uninstall e2e (T047): the impersonation model is the only one with cluster-scoped objects,
+# so switch to it, back, and to it again before uninstalling; nothing labelled for the release may remain.
+hosted_lifecycle() {
+  local sel=app.kubernetes.io/instance=fathom left
+  fail() { echo "FAIL: $*" >&2; exit 1; }
+  cluster_scoped() { "${K[@]}" get clusterrole,clusterrolebinding -l "$sel" -o name; }
+  "${HELM[@]}" status fathom >/dev/null 2>&1 || SKIP_BUILD=1 hosted_install
+  echo "== upgrade: accessModel=impersonation"
+  "${HELM[@]}" upgrade fathom ../deploy/helm/fathom --reuse-values --set accessModel=impersonation --wait --timeout 5m
+  "${K[@]}" -n fathom rollout status deploy/fathom-fathom --timeout=180s
+  [ "$(cluster_scoped | wc -l)" -eq 2 ] || fail "impersonation should create 1 ClusterRole + 1 ClusterRoleBinding"
+  [ "$(hosted_curl /readyz)" = 200 ] || fail "not ready after upgrade to impersonation"
+  echo "== upgrade: accessModel=passthrough (cluster-scoped objects must be pruned)"
+  "${HELM[@]}" upgrade fathom ../deploy/helm/fathom --reuse-values --set accessModel=passthrough --wait --timeout 5m
+  "${K[@]}" -n fathom rollout status deploy/fathom-fathom --timeout=180s
+  left=$(cluster_scoped); [ -z "$left" ] || fail "left after downgrade to passthrough: $left"
+  [ "$(hosted_curl /readyz)" = 200 ] || fail "not ready after upgrade to passthrough"
+  echo "== uninstall (from impersonation)"
+  "${HELM[@]}" upgrade fathom ../deploy/helm/fathom --reuse-values --set accessModel=impersonation --wait --timeout 5m
+  "${HELM[@]}" uninstall fathom --wait --timeout 5m
+  left=$(cluster_scoped); [ -z "$left" ] || fail "cluster-scoped leftovers after uninstall: $left"
+  left=$("${K[@]}" -n fathom get all,ingress,secret,serviceaccount,configmap,pvc,networkpolicy,pdb -l "$sel" -o name)
+  [ -z "$left" ] || fail "namespaced leftovers after uninstall: $left"
+  echo "== reinstall (restores the passthrough install)"
+  SKIP_BUILD=1 hosted_install
+  echo "lifecycle OK"
 }
 
 # ---- in-cluster daemon (spec 036) ---------------------------------------------------------------------
@@ -166,6 +238,8 @@ case "${1:-}" in
   up-daemon) daemon_up "${2:-daemon}" ;;
   down-daemon) daemon_down ;;
   up-hosted) hosted_up ;;
+  install-hosted) hosted_install ;;
+  test-hosted-lifecycle) hosted_lifecycle ;;
   down-hosted) kind delete cluster --name "$CLUSTER" ;;
   up)
     kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER"

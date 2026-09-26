@@ -42,6 +42,10 @@ pub struct ClaimsConfig {
     pub groups: String,
     pub username_prefix: String,
     pub groups_prefix: String,
+    /// A missing groups claim is a sign-in error only when Fathom must assert the groups itself
+    /// (impersonation). In pass-through the API server reads the token and, like it, a missing
+    /// claim means no groups: Keycloak's group mapper omits the claim for a user in no groups.
+    pub groups_required: bool,
 }
 
 pub use crate::limits::SessionLimits;
@@ -306,6 +310,7 @@ impl HostedConfig {
                 groups: get("FATHOM_CLAIM_GROUPS").unwrap_or_else(|| "groups".into()),
                 username_prefix: get("FATHOM_USERNAME_PREFIX").unwrap_or_default(),
                 groups_prefix: get("FATHOM_GROUPS_PREFIX").unwrap_or_default(),
+                groups_required: access_model == AccessModel::Impersonation,
             },
             access_model,
             kube_token,
