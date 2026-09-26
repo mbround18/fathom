@@ -79,6 +79,17 @@ const NODE_ROW = {
   memory_allocatable_bytes: 4_000_000_000,
 }
 
+/**
+ * Commands sent other than the node-metrics poll. Leaving the Node inspector releases its
+ * metrics poll after a 1.5s debounce (`features/metrics/nodePolling.ts`); that
+ * `StopNodeMetricsPolling` is teardown, not a re-fetch, and can land after `clearSent`.
+ */
+async function refetches(page: Page): Promise<string[]> {
+  return (await sentMutations(page))
+    .map((c) => c.type)
+    .filter((t) => t !== 'StartNodeMetricsPolling' && t !== 'StopNodeMetricsPolling')
+}
+
 async function openWebApplication(page: Page): Promise<void> {
   await open(page)
   await navigateTo(page, 'Applications', 'Overview')
@@ -190,7 +201,7 @@ test.describe('US3 drill-down back-stack', () => {
     await expect(breadcrumb).toContainText('web')
     await expect(breadcrumb).toContainText(POD_NAME)
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).not.toContainText(NODE_NAME)
-    expect((await sentMutations(page)).map((c) => c.type)).toEqual([])
+    expect(await refetches(page)).toEqual([])
 
     // Back again: restores the Application; breadcrumb disappears (root, no history left).
     await page
@@ -199,7 +210,7 @@ test.describe('US3 drill-down back-stack', () => {
       .click()
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
     await expect(insp).toContainText('web')
-    expect((await sentMutations(page)).map((c) => c.type)).toEqual([])
+    expect(await refetches(page)).toEqual([])
   })
 
   test('T036: a related link to a since-deleted target shows "not found" within its list reply', async ({

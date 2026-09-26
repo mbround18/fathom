@@ -64,8 +64,8 @@ test.describe('US4 port forward copy address', () => {
     await copyButton.click()
 
     await expect(page.getByTestId('port-forward-copy-toast').first()).toBeVisible()
-    const clipboardText = await readClipboard(page, browserName)
-    expect(clipboardText).toBe('localhost:8080')
+    // The copy handler writes asynchronously; wait for the write rather than reading once.
+    await expect.poll(() => readClipboard(page, browserName)).toBe('localhost:8080')
   })
 
   test('Scenario 2: a Connecting row disables the copy action rather than copying silently', async ({

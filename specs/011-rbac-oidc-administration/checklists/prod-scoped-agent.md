@@ -138,6 +138,19 @@ No write was sent.
    the launcher never rendered. An identical rerun loaded the pane immediately and created the
    binding. The flake was not reproduced; worth a look at how the list status handles an empty
    namespace-scoped list right after a namespace switch.
+   - **Root cause (2026-09-26):** not the empty namespace. The UI and reply list keys match, and
+     `refresh_role_bindings` always emits, even an empty list. The backend runs every command under
+     one `BackendState` mutex (`src/backend.rs` `run_cmd`). The page's bootstrap `Initialize` holds
+     that mutex through the metrics probe, Prometheus discovery, port-forward restore and
+     `ensure_metrics_port_forward` (5s HTTP timeout) before it refreshes the core lists.
+     `app.open()` returns once `ContextsUpdated` fills the combobox, so `SetNamespaceFilter` and
+     `RefreshRoleBindings` queue behind a cold `Initialize` that can take over 20s. A warm rerun is
+     fast.
+   - **Fixed in the spec:** `createThroughUi` waits up to 90s for the launcher, which is the real
+     reply.
+   - **Still open (product):** `Initialize` should not hold the command lock through optional
+     integration work. Run the core lists first and move the integrations to a follow-up
+     command.
 4. **Minor: noisy 403 toast for a restricted identity.** As the agent, the status bar shows
    "Background Hubble traffic poll failed … 403 Forbidden". The background pollers should treat
    403 as "not permitted" and stay quiet.

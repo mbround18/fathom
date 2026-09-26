@@ -65,7 +65,13 @@ async function createThroughUi(page: Page, tap: BridgeTap, b: PlannedBinding): P
   // The "New RoleBinding" launcher is gated on the active namespace (selected by the caller).
   await navigateTo(page, isRb ? 'Role Bindings' : 'Cluster Role Bindings', 'Access Control')
   const launcher = page.getByTestId('rbac-binding-create-open')
-  await expect(launcher).toHaveAttribute('data-capability', 'allowed')
+  // The backend runs every command under one state lock (src/backend.rs `run_cmd`), and the
+  // page's bootstrap `Initialize` holds it through metrics/Prometheus discovery and port-forward
+  // restore before its core-list refresh. On a cold cluster that can exceed 20s, and
+  // `RefreshRoleBindings` queues behind it: the pane shows "Loading Role Bindings" until then
+  // (the "Loading Role Bindings hang" in checklists/prod-scoped-agent.md). Wait for the real
+  // reply, with room for a cold Initialize.
+  await expect(launcher).toHaveAttribute('data-capability', 'allowed', { timeout: 90_000 })
   await launcher.click()
 
   const form = page.getByTestId('rbac-binding-form')
