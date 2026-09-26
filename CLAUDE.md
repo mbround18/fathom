@@ -16,3 +16,7 @@ cleanup as part of finishing a task, not as optional housekeeping.
 - **Check**: run `scripts/hygiene.sh` before reporting a batch done, and after merging agent work.
   It exits 1 when something dangles. `scripts/hygiene.sh clean` removes only what is provably
   safe; items marked `review` need a human (or you) to salvage first.
+- **Parallel agents share one machine** (32 cores, 31GB RAM). A full Playwright suite at default
+  parallelism uses ~12GB of browsers, so two at once run the box out of memory. When other agents
+  are active, use `--workers=6` or fewer and `CARGO_BUILD_JOBS=4`. Run full-parallel suites one at
+  a time, only after `free -g` shows at least 8GB available.
