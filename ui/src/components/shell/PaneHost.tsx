@@ -8,6 +8,7 @@ import OverviewPanel from '@/components/panels/OverviewPanel'
 import EventsPanel from '@/components/panels/EventsPanel'
 import MetricsPanel from '@/components/panels/MetricsPanel'
 import GrafanaPanel from '@/components/panels/GrafanaPanel'
+import LogsToolPanel from '@/components/panels/LogsToolPanel'
 import ArgoPanel from '@/components/panels/ArgoPanel'
 import { FluxPanel } from '@/components/panels/FluxPanel'
 import { KnativePanel } from '@/components/panels/KnativePanel'
@@ -41,7 +42,7 @@ import { detailKey, listKey, useStore, type PaneId, type PaneState } from '@/sto
 
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
-import { paneTitle, TOOL_LABEL } from './labels'
+import { paneTitle } from './labels'
 import { Disconnected, Empty, ErrorState, Loading, NoKubeconfig } from './PaneStates'
 
 interface PaneHostProps {
@@ -92,6 +93,7 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       data-pane-kind={pane.kind}
       data-pane-id={pane.id}
       data-section={pane.route?.section}
+      data-tool={pane.kind === 'tool' ? pane.tool : undefined}
       onPointerDownCapture={onFocusWithin}
       onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
@@ -214,15 +216,9 @@ function PaneBody({ pane }: { pane: PaneState }) {
       if (pane.tool === 'portforwards') return <PortForwardsPanel />
       if (pane.tool === 'events') return <EventsPanel />
       if (pane.tool === 'overview') return <OverviewPanel />
+      if (pane.tool === 'logs') return <LogsToolPanel />
       return (
-        <Empty
-          title={pane.tool ? TOOL_LABEL[pane.tool] : 'Tool'}
-          detail={
-            pane.tool === 'logs'
-              ? 'Select a pod to stream logs.'
-              : 'No data yet. Connect to a cluster to populate this view.'
-          }
-        />
+        <Empty title="Tool" detail="No data yet. Connect to a cluster to populate this view." />
       )
   }
 }

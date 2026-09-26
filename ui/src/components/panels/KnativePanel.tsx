@@ -69,10 +69,17 @@ export function KnativePanel() {
   }, [refreshKnative])
 
   if (!overview) {
-    return <MetricsUnavailable detail="Waiting for the Knative scan to complete." />
+    return (
+      <MetricsUnavailable title="Scanning" detail="Waiting for the Knative scan to complete." />
+    )
   }
   if (!overview.installed) {
-    return <MetricsUnavailable detail="Knative Serving CRDs were not found in this cluster." />
+    return (
+      <MetricsUnavailable
+        title="Not installed"
+        detail="Knative Serving CRDs were not found in this cluster. Install Knative Serving to see services and revisions here."
+      />
+    )
   }
 
   return (

@@ -53,4 +53,49 @@ describe('integrationInstalled', () => {
     d.flux = { overview: { installed: true, sources: [], kustomizations: [], helmreleases: [] } }
     expect(integrationInstalled(d, SECTION.flux)).toBe(true)
   })
+
+  it('probes Argo CD from the CRD catalog once it is loaded', () => {
+    const d = initialData()
+    expect(integrationInstalled(d, 'integrations/argo')).toBeUndefined()
+    d.crds = { ...d.crds, catalogLoaded: true }
+    expect(integrationInstalled(d, 'integrations/argo')).toBe(false)
+    d.crds = {
+      ...d.crds,
+      catalog: [
+        {
+          group: 'argoproj.io',
+          kind: 'Application',
+          plural: 'applications',
+          versions: ['v1alpha1'],
+          scope: 'Namespaced',
+          permission_denied: false,
+        },
+      ],
+    }
+    expect(integrationInstalled(d, 'integrations/argo')).toBe(true)
+  })
+
+  it('probes Prometheus and Grafana from the metrics stack scan', () => {
+    const d = initialData()
+    expect(integrationInstalled(d, 'integrations/metrics')).toBeUndefined()
+    expect(integrationInstalled(d, 'integrations/grafana')).toBeUndefined()
+    d.metrics = {
+      ...d.metrics,
+      stackScan: { tier: 'None', components: [], suggested_endpoint: null },
+    }
+    expect(integrationInstalled(d, 'integrations/metrics')).toBe(false)
+    expect(integrationInstalled(d, 'integrations/grafana')).toBe(false)
+    const grafana = {
+      kind: 'Grafana' as const,
+      namespace: 'grafana',
+      service: 'grafana',
+      port: 3000,
+    }
+    d.metrics = {
+      ...d.metrics,
+      stackScan: { tier: 'Partial', components: [grafana], suggested_endpoint: null },
+    }
+    expect(integrationInstalled(d, 'integrations/metrics')).toBe(true)
+    expect(integrationInstalled(d, 'integrations/grafana')).toBe(true)
+  })
 })

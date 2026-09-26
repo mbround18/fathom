@@ -80,6 +80,18 @@ export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   useEffect(() => {
     refreshEvents()
   }, [refreshEvents, ctx])
+  // The counts read the Nodes/Pods/Deployments lists, which are otherwise only fetched by their
+  // own panes: without this, Nodes read 0 until the Nodes pane had been opened once.
+  const refreshSection = useStore((s) => s.refreshSection)
+  const missingNodes = nodeRows === undefined
+  const missingPods = podRows === undefined
+  const missingDeps = depRows === undefined
+  useEffect(() => {
+    if (ctx === undefined) return
+    if (missingNodes) refreshSection(SECTION.nodes)
+    if (missingPods) refreshSection(SECTION.pods)
+    if (missingDeps) refreshSection(SECTION.deployments)
+  }, [ctx, missingNodes, missingPods, missingDeps, refreshSection])
 
   const counts = useMemo(() => summarize(nodeRows, podRows, depRows), [nodeRows, podRows, depRows])
   const warnings = useMemo(

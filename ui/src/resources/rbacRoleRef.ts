@@ -13,22 +13,41 @@
  */
 
 export interface DanglingRoleRefOptions {
-  /** Names of Roles in the binding's own namespace (RoleBinding only; omit for ClusterRoleBinding). */
+  /**
+   * Names of Roles in the binding's own namespace (RoleBinding only; omit for ClusterRoleBinding).
+   * `undefined` for a RoleBinding means "Roles not loaded yet".
+   */
   roleNames?: ReadonlySet<string>
-  /** Names of ClusterRoles cluster-wide. Always checked. */
-  clusterRoleNames: ReadonlySet<string>
+  /** Names of ClusterRoles cluster-wide; `undefined` = not loaded yet. */
+  clusterRoleNames: ReadonlySet<string> | undefined
 }
 
 /**
- * True when `roleRef` resolves against neither `roleNames` nor `clusterRoleNames`.
+ * Split the backend's `Kind/name` role_ref (`src/backend/*rolebindings.rs`). A bare name (no
+ * kind) is accepted too and may resolve against either set.
+ */
+export function parseRoleRef(roleRef: string): { kind?: 'Role' | 'ClusterRole'; name: string } {
+  const slash = roleRef.indexOf('/')
+  if (slash > 0) {
+    const kind = roleRef.slice(0, slash)
+    if (kind === 'Role' || kind === 'ClusterRole') return { kind, name: roleRef.slice(slash + 1) }
+  }
+  return { name: roleRef }
+}
+
+/**
+ * True only when `roleRef` provably resolves to nothing: every set it could resolve against is
+ * loaded and none contains it. Unknown (a needed list not loaded yet) is not dangling.
  *
- * - RoleBinding: pass both `roleNames` (its own namespace's Roles) and `clusterRoleNames` — the
- *   ref resolves if it matches either.
+ * - RoleBinding: pass both `roleNames` (its own namespace's Roles) and `clusterRoleNames`.
  * - ClusterRoleBinding: pass only `clusterRoleNames` (omit `roleNames`) — the ref only ever
  *   resolves against ClusterRoles.
  */
 export function isDanglingRoleRef(roleRef: string, options: DanglingRoleRefOptions): boolean {
-  if (options.roleNames?.has(roleRef)) return false
-  if (options.clusterRoleNames.has(roleRef)) return false
-  return true
+  const { kind, name } = parseRoleRef(roleRef)
+  const { roleNames, clusterRoleNames } = options
+  if (kind === 'Role') return roleNames !== undefined && !roleNames.has(name)
+  if (kind === 'ClusterRole') return clusterRoleNames !== undefined && !clusterRoleNames.has(name)
+  if (roleNames?.has(name) || clusterRoleNames?.has(name)) return false
+  return clusterRoleNames !== undefined && ('roleNames' in options ? roleNames !== undefined : true)
 }

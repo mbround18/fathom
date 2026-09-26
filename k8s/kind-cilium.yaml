@@ -1,0 +1,7 @@
+# kind cluster without the default CNI, for Cilium + Hubble (k8s/cluster.sh up-cilium).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+nodes:
+  - role: control-plane

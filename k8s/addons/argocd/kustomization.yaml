@@ -1,0 +1,9 @@
+# Argo CD v3 (non-HA) in namespace argocd: lights up the Integrations > Argo pane
+# (argoproj.io Application / ApplicationSet / AppProject CRDs, read through the CRD catalog).
+# Sample Application: samples/argocd.yaml (guestbook from argoproj/argocd-example-apps).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml

@@ -8,9 +8,11 @@ k8s/cluster.sh up            # create kind cluster fathom-dev + all addons + sam
 k8s/cluster.sh up minimal    # cert-manager + KEDA only
 k8s/cluster.sh apply         # re-apply after editing manifests
 k8s/cluster.sh down          # blow it away; `up` recreates it identically
+k8s/cluster.sh up-cilium     # separate kind cluster fathom-cilium: Cilium replaces kindnet, Hubble Relay + sample traffic
+k8s/cluster.sh down-cilium   # delete fathom-cilium
 ```
 
-- `addons/<name>` — cert-manager, keda, knative (+kourier), gatekeeper, trivy (Helm), velero (Helm + RustFS store), flux (v2 controllers; the fathom-dev sandbox podinfo HelmRelease needs it)
+- `addons/<name>` — cert-manager, keda, knative (+kourier), gatekeeper, trivy (Helm), velero (Helm + RustFS store), flux (v2 controllers; the fathom-dev sandbox podinfo HelmRelease needs it), argocd (v3.5.3 upstream install; `samples/argocd.yaml` adds a synced guestbook app and a deliberately broken one), grafana (13.2.2, admin/`fathom-dev`, Prometheus datasource for the `prometheus` metrics stack; port-forward `svc/grafana 3000` in namespace `grafana`), cilium (Helm, used only by `up-cilium`)
 - `overlays/{full,minimal}` — which addons to install
 - `samples/` — workloads/CRs that populate every pane (apply after addons; CRDs must exist)
 
@@ -97,7 +99,7 @@ k8s/test-metrics.sh <stack>           # install, wait, assert the query surface,
 Licence policy (spec 036): bundled/sidecar defaults must be permissive, so only metrics-server, Prometheus, VictoriaMetrics, Thanos and RustFS are candidates. Mimir and OpenObserve are AGPL-3.0 and are strictly remote-adapter targets (they are only installed here as separate test workloads, never shipped with Fathom).
 
 Caveats:
-- Grafana + Loki + Tempo are NOT packaged: Loki and Tempo are logs/traces (not metrics) and Grafana/Loki/Tempo are AGPL-3.0 too; "lgtm-lite" is Mimir only, as the metrics query surface is what Fathom needs.
+- Grafana + Loki + Tempo are NOT packaged as a metrics stack (`addons/grafana` is only a dev-cluster test workload for the Integrations > Grafana pane): Loki and Tempo are logs/traces (not metrics) and Grafana/Loki/Tempo are AGPL-3.0 too; "lgtm-lite" is Mimir only, as the metrics query surface is what Fathom needs.
 - OpenObserve logs some `ArrowJsonEncodeError ... __hash__` 400s on remote_write for a few series (it still ingests the cAdvisor/KSM/node series the tests query); treat OpenObserve PromQL coverage as partial until an adapter is tested against more series.
 - Thanos: the sidecar only uploads completed 2h blocks, so on a short-lived kind cluster the object store stays empty and Query is served by the live sidecar. Store Gateway / Compactor are not packaged.
 - Prometheus retention is 2h (6h for Thanos), VictoriaMetrics 1d (its minimum), Mimir/OpenObserve default.

@@ -30,13 +30,23 @@ export function TrivyPanel() {
   }, [refresh])
 
   if (!overview) {
-    return <MetricsUnavailable detail="Waiting for the Trivy scan to complete." />
+    return <MetricsUnavailable title="Scanning" detail="Waiting for the Trivy scan to complete." />
   }
   if (!overview.installed) {
-    return <MetricsUnavailable detail="Trivy Operator CRDs were not found in this cluster." />
+    return (
+      <MetricsUnavailable
+        title="Not installed"
+        detail="Trivy Operator CRDs were not found in this cluster. Install the Trivy Operator to see vulnerability reports here."
+      />
+    )
   }
   if (overview.forbidden) {
-    return <MetricsUnavailable detail="Permission denied reading Trivy VulnerabilityReports." />
+    return (
+      <MetricsUnavailable
+        title="Not permitted"
+        detail="Permission denied reading Trivy VulnerabilityReports."
+      />
+    )
   }
   if (overview.workloads.length === 0) {
     return (

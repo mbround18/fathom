@@ -70,7 +70,7 @@ describe('GatekeeperPanel', () => {
   it('renders distinct messages for each non-active state', () => {
     setOverview({ state: 'NotInstalled', error: '', constraints: [] })
     const { unmount } = render(<GatekeeperPanel />)
-    expect(screen.getByText('OPA Gatekeeper is not installed on this cluster')).toBeTruthy()
+    expect(screen.getByText(/OPA Gatekeeper is not installed on this cluster/)).toBeTruthy()
     unmount()
 
     setOverview({ state: 'InstalledNoConstraints', error: '', constraints: [] })

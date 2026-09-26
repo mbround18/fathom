@@ -1,0 +1,26 @@
+# Argo CD samples for the Integrations > Argo pane: one synced app, one that can never sync
+# (bad path), so both healthy and degraded rows show.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: guestbook, namespace: argocd}
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: guestbook
+  destination: {server: https://kubernetes.default.svc, namespace: argo-guestbook}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: broken-path, namespace: argocd}
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: does-not-exist
+  destination: {server: https://kubernetes.default.svc, namespace: argo-broken}

@@ -35,10 +35,15 @@ export function FluxPanel() {
   }, [refreshFlux])
 
   if (!overview) {
-    return <MetricsUnavailable detail="Waiting for the Flux scan to complete." />
+    return <MetricsUnavailable title="Scanning" detail="Waiting for the Flux scan to complete." />
   }
   if (!overview.installed) {
-    return <MetricsUnavailable detail="Flux GitOps Toolkit CRDs were not found in this cluster." />
+    return (
+      <MetricsUnavailable
+        title="Not installed"
+        detail="Flux GitOps Toolkit CRDs were not found in this cluster. Install Flux (flux install) to see sources, Kustomizations and HelmReleases here."
+      />
+    )
   }
 
   const tiles: SummaryTile[] = [

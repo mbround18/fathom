@@ -4,6 +4,7 @@
 #   k8s/cluster.sh apply [overlay]  re-apply addons + samples to the existing cluster
 #   k8s/cluster.sh samples          apply only samples/
 #   k8s/cluster.sh down             delete the cluster (blow it away)
+#   k8s/cluster.sh up-cilium / down-cilium   separate kind cluster fathom-cilium (no default CNI) + Cilium/Hubble + traffic
 #   PROVIDER=rauthy|keycloak k8s/cluster.sh up-hosted    OIDC-aware kind cluster + ingress + IdP + RBAC fixtures (spec 031)
 #   k8s/cluster.sh up-metrics <stack> / down-metrics <stack|all>   metrics stacks (see README); k8s/test-metrics.sh <stack>
 #   PROVIDER=... k8s/cluster.sh install-hosted           (re)build + kind load the server image, helm upgrade --install fathom
@@ -16,6 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 PROVIDER="${PROVIDER:-rauthy}"
 case "${1:-}" in up-hosted|down-hosted|install-hosted|test-hosted-lifecycle) CLUSTER="${CLUSTER:-fathom-oidc-$PROVIDER}" ;; esac
+case "${1:-}" in up-cilium|down-cilium) CLUSTER="${CLUSTER:-fathom-cilium}" ;; esac
 CLUSTER="${CLUSTER:-fathom-dev}"
 CTX="kind-$CLUSTER"
 K=(kubectl --context "$CTX")
@@ -31,7 +33,7 @@ build_apply() {  # $1 = kustomize dir; retry because CRDs/webhooks race on first
 
 wait_ready() {
   local ns
-  for ns in cert-manager keda knative-serving kourier-system gatekeeper-system trivy-system velero; do
+  for ns in cert-manager keda knative-serving kourier-system gatekeeper-system trivy-system velero argocd grafana; do
     "${K[@]}" get ns "$ns" >/dev/null 2>&1 && "${K[@]}" -n "$ns" wait --for=condition=Available deploy --all --timeout=300s || true
   done
 }
@@ -234,7 +236,20 @@ metrics_down() {  # $1 = stack | all; uninstall by label; leaves nothing behind
   "${K[@]}" delete namespace -l "$sel" --ignore-not-found
 }
 
+# ---- Cilium + Hubble (Integrations > Hubble) ----------------------------------------------------------
+# Cilium must replace kindnet, so it gets its own cluster (CLUSTER defaults to fathom-cilium here).
+cilium_up() {
+  kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --config kind-cilium.yaml
+  build_apply addons/cilium
+  "${K[@]}" -n kube-system rollout status ds/cilium --timeout=300s
+  "${K[@]}" -n kube-system rollout status deploy/hubble-relay --timeout=300s
+  "${K[@]}" apply -f samples/hubble-traffic.yaml
+  echo "cluster $CLUSTER ready: select context $CTX in Fathom and open Integrations > Hubble"
+}
+
 case "${1:-}" in
+  up-cilium) cilium_up ;;
+  down-cilium) kind delete cluster --name "$CLUSTER" ;;
   up-metrics) metrics_up "${2:-}" ;;
   down-metrics) metrics_down "${2:-all}" ;;
   up-daemon) daemon_up "${2:-daemon}" ;;
@@ -249,6 +264,6 @@ case "${1:-}" in
   apply) build_apply "overlays/${2:-full}"; wait_ready; build_apply samples ;;
   samples) build_apply samples ;;
   down) kind delete cluster --name "$CLUSTER" ;;
-  *) sed -n 2,7p "$0"; echo "  up-daemon [daemon|daemon-namespaced] / down-daemon   in-cluster daemon (spec 036)"
+  *) sed -n 2,8p "$0"; echo "  up-daemon [daemon|daemon-namespaced] / down-daemon   in-cluster daemon (spec 036)"
      echo "  up-metrics <stack> / down-metrics <stack|all>   metrics stacks: $METRICS_STACKS"; exit 2 ;;
 esac

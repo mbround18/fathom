@@ -1,0 +1,10 @@
+# Grafana OSS for the Integrations > Grafana pane. Dev/test only: Grafana is AGPL-3.0, so it is
+# never shipped with Fathom, only installed on the local kind cluster. The metrics-stack scan
+# finds it by its Service name (`grafana`, port 3000).
+# Datasource: the Prometheus stack (k8s/cluster.sh up-metrics prometheus).
+# Admin login admin / fathom-dev (dev-only static secret, disposable cluster).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: grafana
+resources:
+  - grafana.yaml

@@ -107,7 +107,7 @@ export function VeleroPanel() {
   }, [refreshVelero])
 
   if (!overview) {
-    return <MetricsUnavailable detail="Waiting for the Velero scan to complete." />
+    return <MetricsUnavailable title="Scanning" detail="Waiting for the Velero scan to complete." />
   }
   if (!overview.installed) {
     return (

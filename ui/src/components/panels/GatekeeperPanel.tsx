@@ -37,20 +37,33 @@ export function GatekeeperPanel() {
   }, [refreshGatekeeper])
 
   if (!overview) {
-    return <MetricsUnavailable detail="Waiting for the Gatekeeper scan to complete." />
+    return (
+      <MetricsUnavailable title="Scanning" detail="Waiting for the Gatekeeper scan to complete." />
+    )
   }
   if (overview.state === 'NotInstalled') {
-    return <MetricsUnavailable detail="OPA Gatekeeper is not installed on this cluster" />
+    return (
+      <MetricsUnavailable
+        title="Not installed"
+        detail="OPA Gatekeeper is not installed on this cluster. Install OPA Gatekeeper to see constraints and violations here."
+      />
+    )
   }
   if (overview.state === 'PermissionDenied') {
     return (
       <MetricsUnavailable
+        title="Not permitted"
         detail={`Not permitted to read Gatekeeper constraints: ${overview.error}`}
       />
     )
   }
   if (overview.state === 'InstalledNoConstraints') {
-    return <MetricsUnavailable detail="Gatekeeper is installed but no constraints are defined" />
+    return (
+      <MetricsUnavailable
+        title="No constraints"
+        detail="Gatekeeper is installed but no constraints are defined. Add a ConstraintTemplate and a Constraint to see violations here."
+      />
+    )
   }
 
   const constraints = overview.constraints

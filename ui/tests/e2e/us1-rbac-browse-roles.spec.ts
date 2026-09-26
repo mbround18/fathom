@@ -234,7 +234,12 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
     await goTo(page, 'Cluster Role Bindings')
     await expect.poll(() => sentTypes(page)).toContain('RefreshClusterRoleBindings')
 
-    const binding = { name: 'cluster-admins', role_ref: 'cluster-admin', subjects_count: 2 }
+    // The backend's `Kind/name` role_ref form (src/backend/clusterrolebindings.rs).
+    const binding = {
+      name: 'cluster-admins',
+      role_ref: 'ClusterRole/cluster-admin',
+      subjects_count: 2,
+    }
     await emit(
       page,
       batch([
@@ -247,8 +252,25 @@ test.describe('US1 RBAC browse Roles/ClusterRoles/RoleBindings/ClusterRoleBindin
     )
     await expectRowCount(page, 1, CLUSTER_ROLE_BINDINGS)
     await expect(row(page, binding.name, CLUSTER_ROLE_BINDINGS)).toContainText('cluster-admin')
-    // No ClusterRoles list has been loaded in this test, so this roleRef cannot be resolved and
-    // is shown as dangling.
+    // No ClusterRoles list is loaded yet: the roleRef is unknown, not dangling.
+    await expect(
+      row(page, binding.name, CLUSTER_ROLE_BINDINGS).getByTestId('rbac-dangling-badge'),
+    ).toHaveCount(0)
+
+    // Once ClusterRoles are known and none is cluster-admin, it is dangling.
+    await goTo(page, 'Cluster Roles')
+    await emit(
+      page,
+      batch([
+        list(
+          2,
+          { section: CLUSTER_ROLES, scope: 'Cluster', context: 'kind-a', namespace: null },
+          { type: 'ClusterRolesUpdated', data: [VIEW] },
+        ),
+      ]),
+    )
+    await expectRowCount(page, 1, CLUSTER_ROLES)
+    await goTo(page, 'Cluster Role Bindings')
     await expect(
       row(page, binding.name, CLUSTER_ROLE_BINDINGS).getByTestId('rbac-dangling-badge'),
     ).toBeVisible()

@@ -146,12 +146,22 @@ export function NoKubeconfig({ detail }: { detail?: ReactNode }) {
   )
 }
 
-export function MetricsUnavailable({ detail }: { detail?: ReactNode }) {
+/**
+ * Also the integration panes' "scanning" / "not installed" / "nothing configured" state: pass a
+ * `title` there so the heading does not claim metrics are the problem.
+ */
+export function MetricsUnavailable({
+  detail,
+  title = 'Metrics unavailable',
+}: {
+  detail?: ReactNode
+  title?: string
+}) {
   return (
     <StateFrame
       kind="metrics-unavailable"
       icon={GaugeIcon}
-      title="Metrics unavailable"
+      title={title}
       detail={detail ?? 'metrics-server is not installed or not reachable in this cluster.'}
     />
   )
