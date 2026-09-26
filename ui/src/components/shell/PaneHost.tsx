@@ -293,7 +293,7 @@ function ListBody({ pane }: { pane: PaneState }) {
     return <OidcConfigView />
   }
   // 021-trivy-vulnerability-pane: cluster-wide summary, no descriptor (renders itself).
-  if (section === 'integrations/vulnerabilities') {
+  if (section === SECTION.vulnerabilities) {
     return <TrivyPanel />
   }
   if (section === SECTION.overview) return <OverviewPanel paneId={pane.id} />
@@ -302,6 +302,11 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.grafana) return <GrafanaPanel />
   if (section === SECTION.argo) return <ArgoPanel />
   if (section === SECTION.flux) return <FluxPanel />
+  if (section === SECTION.knative) return <KnativePanel />
+  if (section === SECTION.keda) return <KedaPanel />
+  if (section === SECTION.velero) return <VeleroPanel />
+  if (section === SECTION.certManager) return <CertManagerPanel />
+  if (section === SECTION.hubble) return <HubblePanel />
   if (!descriptor) {
     return (
       <Empty
