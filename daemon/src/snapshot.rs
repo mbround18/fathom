@@ -18,6 +18,7 @@ use fathom::protocol::v1::VisibleScope;
 use kube::{Resource, ResourceExt};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Why a snapshot cannot be served.
@@ -96,6 +97,9 @@ pub struct SnapshotStore<K> {
     kind: &'static str,
     access: &'static ResourceSet,
     parts: Mutex<HashMap<String, Partition<K>>>,
+    /// Average encoded size of one item in the previous render, used to size the next buffer
+    /// in one allocation (a doubling `Vec` briefly holds ~2x a multi-MiB body).
+    bytes_per_item: AtomicUsize,
 }
 
 impl<K> SnapshotStore<K>
@@ -118,6 +122,7 @@ where
                     .map(|p| (p.clone(), Partition::new(now)))
                     .collect(),
             ),
+            bytes_per_item: AtomicUsize::new(0),
         }
     }
 
@@ -253,7 +258,14 @@ where
             synced: true,
             items: items.iter().map(|a| a.as_ref()).collect(),
         };
-        serde_json::to_vec(&body).map_err(|e| SnapshotError::Encode(e.to_string()))
+        let n = body.items.len();
+        let per_item = self.bytes_per_item.load(Ordering::Relaxed);
+        let mut out = Vec::with_capacity(256 + n * (per_item + per_item / 16));
+        serde_json::to_writer(&mut out, &body).map_err(|e| SnapshotError::Encode(e.to_string()))?;
+        if let Some(avg) = out.len().checked_div(n) {
+            self.bytes_per_item.store(avg, Ordering::Relaxed);
+        }
+        Ok(out)
     }
 
     fn namespaces(&self) -> Vec<String> {

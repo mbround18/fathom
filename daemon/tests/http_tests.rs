@@ -834,3 +834,39 @@ async fn snapshot_access_is_per_kind_and_fails_closed() {
     assert_eq!(st, StatusCode::FORBIDDEN);
     assert!(body["error"].as_str().unwrap().contains("sar boom"));
 }
+
+/// Renders are bounded (memory), not rejected: more concurrent callers than render permits all
+/// get the same full body; a second render reuses the learned per-item size.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn snapshot_concurrent_callers_queue_and_all_succeed() {
+    let (f, pods, _) = snap_fx(&["Pod"]);
+    pods.init("Pod");
+    for i in 0..200 {
+        pods.init_apply("Pod", spod("a", &format!("p{i:03}"), "5"));
+    }
+    pods.init_done("Pod", Some("100".into()));
+    pods.established("Pod");
+    let n = fathom_daemon::http::MAX_CONCURRENT_RENDERS * 4;
+    let mut set = tokio::task::JoinSet::new();
+    for _ in 0..n {
+        let state = f.state.clone();
+        set.spawn(async move {
+            json(
+                verified(&state)
+                    .oneshot(get("/v1/snapshot/pods", Some("alice")))
+                    .await
+                    .unwrap(),
+            )
+            .await
+        });
+    }
+    let mut bodies = Vec::new();
+    while let Some(r) = set.join_next().await {
+        let (st, body) = r.unwrap();
+        assert_eq!(st, StatusCode::OK);
+        bodies.push(body);
+    }
+    assert_eq!(bodies.len(), n);
+    assert_eq!(names(&bodies[0]).len(), 200);
+    assert!(bodies.iter().all(|b| b == &bodies[0]));
+}

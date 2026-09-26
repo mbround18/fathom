@@ -23,10 +23,14 @@ echo "$caps" | jq -e '.protocolMajor == 1 and (.kinds | length > 0) and .perUser
 ok "capabilities"
 
 # generate events, then read the stream (bounded) and remember the last seq/epoch
-"${K[@]}" -n daemon-demo rollout restart deploy/rollout-demo   # always changes something, so a re-run still emits events
-sleep 10
-stream() { "${K[@]}" get --raw "$API/v1/stream$1" --request-timeout=8s 2>/dev/null | jq -Rc 'fromjson? // empty' || true; }
-first=$(stream "")
+stream() { "${K[@]}" get --raw "$API/v1/stream$1" --request-timeout="${2:-8s}" 2>/dev/null | jq -Rc 'fromjson? // empty' || true; }
+# `after` omitted is live-only, so open the stream first and then change something (a restart always does)
+sfile=$(mktemp)
+stream "" 15s >"$sfile" &
+sleep 2
+"${K[@]}" -n daemon-demo rollout restart deploy/rollout-demo
+wait
+first=$(cat "$sfile"); rm -f "$sfile"
 last_seq=$(echo "$first" | jq -s '[.[] | .seq? // empty] | max')
 epoch=$(echo "$first" | jq -rs '[.[] | .capabilities.epoch? // empty][0]')
 [ -n "$last_seq" ] && [ "$last_seq" != null ] || die "no sequenced frames in stream"

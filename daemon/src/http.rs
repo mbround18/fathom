@@ -72,7 +72,13 @@ pub struct AppState {
     permits: Arc<Semaphore>,
     /// Warm snapshot kinds (US4); empty = the endpoint answers 404 for every kind.
     snapshots: Arc<Vec<Arc<dyn SnapshotSource>>>,
+    /// Bounds concurrent snapshot renders: each holds a full encoded body (~13 MiB for 5,000
+    /// pods), so unbounded fan-in would blow the pod's memory limit.
+    renders: Arc<Semaphore>,
 }
+
+/// Snapshot renders allowed at once; further callers queue (a render takes tens of ms).
+pub const MAX_CONCURRENT_RENDERS: usize = 2;
 
 impl AppState {
     /// Serve `/v1/snapshot/{kind}` for these sources and advertise them in capabilities.
@@ -100,6 +106,7 @@ impl AppState {
             cfg,
             permits,
             snapshots: Arc::default(),
+            renders: Arc::new(Semaphore::new(MAX_CONCURRENT_RENDERS)),
         }
     }
 
@@ -443,9 +450,18 @@ async fn snapshot(
             )
         })?;
     // Serializing thousands of objects is CPU work; keep it off the async workers.
-    let body = tokio::task::spawn_blocking(move || src.render(&scope, Utc::now()))
+    let permit = st
+        .renders
+        .clone()
+        .acquire_owned()
         .await
         .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let body = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        src.render(&scope, Utc::now())
+    })
+    .await
+    .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     match body {
         Ok(b) => Ok(([(header::CONTENT_TYPE, "application/json")], b).into_response()),
         Err(SnapshotError::NotSynced) => Err(ApiError::new(
