@@ -72,6 +72,14 @@ rebuilding on each update), and must stay inside the SC-004 keystroke budget (`p
 The palette's ranking tests will need to be re-baselined, and bundle size needs checking (use the
 light build if it suffices).
 
+## Follow-up: guessed CRD plurals in integration scanners
+
+The Gatekeeper scan 404ed because kube-rs guessed the plural from the kind
+(`K8sAllowedRepos` became `k8sallowedreposes`). Gatekeeper now takes the plural from API
+discovery. Audit the other integration scanners (Flux, Velero, KEDA, Knative, cert-manager,
+Trivy, Argo) for `ApiResource::from_gvk` or other plural guessing on CRDs with irregular plurals,
+and switch them to discovery too.
+
 ## Tier 4 — needs an architecture spike before spec-kit
 
 - **Plugin/extension API** — the mechanism behind Lens's marketplace and every Headlamp
