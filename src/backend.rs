@@ -183,6 +183,20 @@ pub fn init_with<C>(
     // Use a channel to coordinate task completions for shutdown
     let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
 
+    // Terminal commands run one at a time, in arrival order, on a single task. Spawning a task
+    // per command (below) lets them race for the state lock, which reordered keystrokes typed
+    // into a pod terminal ("echo" reached the shell as "ehco").
+    let (ordered_tx, mut ordered_rx) = tokio::sync::mpsc::unbounded_channel::<CmdRequest>();
+    {
+        let state = state.clone();
+        let sender = sender.clone();
+        rt.spawn(async move {
+            while let Some(request) = ordered_rx.recv().await {
+                run_cmd(request, &state, &sender).await;
+            }
+        });
+    }
+
     // Receive commands until the channel closes
     while let Ok(request) = receiver.recv() {
         let request: CmdRequest = request.into();
@@ -191,6 +205,11 @@ pub fn init_with<C>(
             request.id,
             std::mem::discriminant(&request.cmd)
         );
+
+        if is_order_sensitive(&request.cmd) {
+            let _ = ordered_tx.send(request);
+            continue;
+        }
 
         let state = state.clone();
         let sender = sender.clone();
@@ -230,6 +249,18 @@ pub fn init_with<C>(
             "Backend thread stopped.".to_owned(),
         );
     });
+}
+
+/// Commands whose relative order matters to the remote end: a pod terminal's session start,
+/// keystrokes, resizes and stop must be applied exactly in the order they were sent.
+fn is_order_sensitive(cmd: &BackendCmd) -> bool {
+    matches!(
+        cmd,
+        BackendCmd::StartPodExec { .. }
+            | BackendCmd::SendPodExecInput { .. }
+            | BackendCmd::ResizePodExec { .. }
+            | BackendCmd::StopPodExec
+    )
 }
 
 /// Dispatch one command under the state lock, then emit its `CommandFinished`.
@@ -605,3 +636,21 @@ async fn find_pod_for_service(
 // - emit_port_forward_list(state, sender)
 // - save_port_forwards_to_disk(state)
 // Port check helper centralized in backend/portforward.rs
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_commands_take_the_ordered_lane() {
+        assert!(is_order_sensitive(&BackendCmd::SendPodExecInput {
+            data: "ZQ==".to_owned()
+        }));
+        assert!(is_order_sensitive(&BackendCmd::ResizePodExec {
+            cols: 80,
+            rows: 24
+        }));
+        assert!(is_order_sensitive(&BackendCmd::StopPodExec));
+        assert!(!is_order_sensitive(&BackendCmd::StopPodLogs));
+    }
+}
