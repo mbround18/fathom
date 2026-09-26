@@ -51,6 +51,10 @@ async function goToNode(page: Page): Promise<void> {
   // Expanding the nav group persists a debounced `SaveUiConfig`; let it settle before the
   // test starts asserting on `sent()`, or it pollutes the very next assertion.
   await expect.poll(() => sentTypes(page, true)).toContain('SaveUiConfig')
+  // On phone/tablet the row click hides the Nodes list, and its node-metrics poll is released
+  // 1.5s later (`nodePolling.ts`). That `StopNodeMetricsPolling` consumes a request id, so it
+  // must land before a test predicts one with `nextRequestId`.
+  await page.waitForTimeout(1600)
 }
 
 test.describe('US2 node actions', () => {
