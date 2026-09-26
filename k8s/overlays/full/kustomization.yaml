@@ -7,3 +7,4 @@ resources:
   - ../../addons/gatekeeper
   - ../../addons/trivy
   - ../../addons/velero
+  - ../../addons/flux
