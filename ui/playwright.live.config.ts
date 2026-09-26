@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { APP_ORIGIN, LIVE_SERVE_COMMAND } from './tests/live/env.js'
+
 /**
  * Opt-in LIVE suite: the real UI (a `--mode live` bundle, ws transport) against the real Rust
  * backend through `tools/devbridge`, against a real cluster, confined to the `fathom-dev`
@@ -12,7 +14,6 @@ import { defineConfig, devices } from '@playwright/test'
  * namespace carries `fathom.dev/sandbox=true`; it then starts the bridge, and the specs reach it
  * through the `app` fixture (tests/live/helpers.ts).
  */
-const APP_ORIGIN = 'http://localhost:4174'
 
 export default defineConfig({
   testDir: './tests/live',
@@ -50,7 +51,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm e2e:live:serve',
+    command: LIVE_SERVE_COMMAND,
     url: APP_ORIGIN,
     reuseExistingServer: false,
     timeout: 120_000,

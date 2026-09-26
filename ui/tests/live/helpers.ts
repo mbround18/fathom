@@ -413,7 +413,7 @@ export function restoreBaseline(): void {
 export interface LiveApp {
   /** The kube context the bridge is pinned to (`$FATHOM_LIVE_CONTEXT`). */
   readonly context: string
-  /** `http://localhost:4174/?bridge=ws://127.0.0.1:<port>/&token=<t>` */
+  /** `http://localhost:<FATHOM_LIVE_UI_PORT, default 4174>/?bridge=ws://127.0.0.1:<port>/&token=<t>` */
   readonly url: string
   /** Load the app and wait until it is connected to the bridge's context. */
   open(): Promise<void>

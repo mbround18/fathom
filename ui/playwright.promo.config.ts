@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { APP_ORIGIN, LIVE_SERVE_COMMAND } from './tests/live/env.js'
+
 /**
  * Promo capture: the real UI against the real backend (same devbridge and `--mode live` bundle as
  * the live suite), photographing the `fathom-dev` sandbox and composing the shots into a branded
@@ -10,7 +12,6 @@ import { defineConfig, devices } from '@playwright/test'
  *
  * Output: ui/promo-out/ (fathom-promo.pdf, brochure.html, shots/*.png, facts.json).
  */
-const APP_ORIGIN = 'http://localhost:4174'
 
 export default defineConfig({
   testDir: './tests/promo',
@@ -36,7 +37,7 @@ export default defineConfig({
   },
   projects: [{ name: 'promo' }],
   webServer: {
-    command: 'pnpm e2e:live:serve',
+    command: LIVE_SERVE_COMMAND,
     url: APP_ORIGIN,
     reuseExistingServer: false,
     timeout: 120_000,
