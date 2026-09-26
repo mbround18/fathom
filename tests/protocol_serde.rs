@@ -1789,6 +1789,8 @@ fn all_cmds() -> Vec<BackendCmd> {
             base_url: "s".to_owned(),
             api_key: "s".to_owned(),
         },
+        BackendCmd::GetObservabilitySettings,
+        BackendCmd::ClearGrafanaKey,
         BackendCmd::RefreshFlux,
         BackendCmd::RefreshKnative,
         BackendCmd::RefreshGatekeeper,
@@ -2369,6 +2371,8 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::ConfigurePrometheus { .. } => {}
         BackendCmd::TestPrometheusConnection { .. } => {}
         BackendCmd::ConfigureGrafana { .. } => {}
+        BackendCmd::GetObservabilitySettings => {}
+        BackendCmd::ClearGrafanaKey => {}
         BackendCmd::TestGrafanaConnection { .. } => {}
         BackendCmd::RefreshFlux => {}
         BackendCmd::RefreshKnative => {}
@@ -2565,6 +2569,18 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::GrafanaConnectionTest {
             success: true,
             message: "s".to_owned(),
+        },
+        SystemEvent::ObservabilitySettings {
+            context: "s".to_owned(),
+            prometheus: Some(fathom::protocol::PrometheusSettings {
+                namespace: "s".to_owned(),
+                service: "s".to_owned(),
+                port: 7,
+            }),
+            grafana: Some(fathom::protocol::GrafanaSettings {
+                base_url: "s".to_owned(),
+                key_set: true,
+            }),
         },
         SystemEvent::MetricsStackScanned(sample_metrics_stack_scan_result()),
         SystemEvent::PortAvailability {
@@ -3032,6 +3048,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::NamespaceFilterChanged { .. } => {}
         SystemEvent::PrometheusConnectionTest { .. } => {}
         SystemEvent::GrafanaConnectionTest { .. } => {}
+        SystemEvent::ObservabilitySettings { .. } => {}
         SystemEvent::MetricsStackScanned(..) => {}
         SystemEvent::PortAvailability { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}

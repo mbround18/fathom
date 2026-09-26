@@ -107,6 +107,7 @@ impl BackendCmdV1 {
             | C::StopWorkloadMetricsPolling
             | C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
+            | C::GetObservabilitySettings
             | C::RefreshFlux
             | C::RefreshVelero
             | C::RefreshTrivyOverview
@@ -220,6 +221,7 @@ impl BackendCmdV1 {
             | C::UpdatePortForward { .. }
             | C::ConfigurePrometheus { .. }
             | C::ConfigureGrafana { .. }
+            | C::ClearGrafanaKey
             | C::SaveUiConfig { .. }
             // 014-teams-organizations: writes `cluster-settings.json`/`team.json`, or
             // the self-hosted shared config store — never the cluster itself.
@@ -585,7 +587,10 @@ impl BackendCmdV1 {
             | C::RemoveConnectionProfile { .. }
             | C::LinkTeamProfile { .. }
             | C::UnlinkTeamProfile { .. } => section_keys::team_profiles(),
-            C::ConfigureGrafana { .. } | C::TestGrafanaConnection { .. } => {
+            C::ConfigureGrafana { .. }
+            | C::ClearGrafanaKey
+            | C::GetObservabilitySettings
+            | C::TestGrafanaConnection { .. } => {
                 section_keys::integrations_grafana()
             }
             C::RefreshFlux => section_keys::integrations_flux(),
@@ -813,6 +818,7 @@ impl BackendCmdV1 {
             | C::StopWorkloadMetricsPolling
             | C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
+            | C::GetObservabilitySettings
             | C::RefreshFlux
             | C::RefreshKnative
             | C::RefreshHubble
@@ -917,7 +923,7 @@ impl BackendCmdV1 {
                 Some(namespace),
                 Some(service),
             ),
-            C::ConfigureGrafana { .. } => {
+            C::ConfigureGrafana { .. } | C::ClearGrafanaKey => {
                 summary(AuditActionKind::SettingsChange, None, None, None)
             }
             C::SaveClusterSettings { context, .. } => summary(
@@ -1325,6 +1331,8 @@ impl BackendCmdV1 {
             C::StartFleetPolling | C::StopFleetPolling => HostedPolicy::Denied(HostedDenial::Fleet),
             C::ConfigurePrometheus { .. }
             | C::ConfigureGrafana { .. }
+            | C::ClearGrafanaKey
+            | C::GetObservabilitySettings
             | C::LoadUiConfig
             | C::SaveUiConfig { .. }
             | C::LoadClusterSettings { .. }
@@ -1627,6 +1635,7 @@ mod tests {
             BackendCmdV1::RefreshKindClusters,
             BackendCmdV1::RefreshPods,
             BackendCmdV1::RefreshVelero,
+            BackendCmdV1::GetObservabilitySettings,
             BackendCmdV1::SelectDeployment {
                 namespace: s("kube-system"),
                 name: s("coredns"),
@@ -1681,6 +1690,7 @@ mod tests {
                 base_url: s("http://g"),
                 api_key: s("k"),
             },
+            BackendCmdV1::ClearGrafanaKey,
         ] {
             assert_eq!(cmd.mutation_target(), MutationTarget::Local, "{cmd:?}");
         }
@@ -1880,6 +1890,22 @@ mod tests {
     #[test]
     fn sections() {
         assert_eq!(BackendCmdV1::Initialize.section(), None);
+        for cmd in [
+            BackendCmdV1::GetObservabilitySettings,
+            BackendCmdV1::ClearGrafanaKey,
+            BackendCmdV1::ConfigureGrafana {
+                base_url: s("http://g"),
+                api_key: s("k"),
+            },
+        ] {
+            assert_eq!(cmd.section(), Some(section_keys::integrations_grafana()));
+        }
+        assert!(
+            BackendCmdV1::GetObservabilitySettings
+                .audit_summary()
+                .is_none()
+        );
+        assert!(BackendCmdV1::ClearGrafanaKey.audit_summary().is_some());
         assert_eq!(
             BackendCmdV1::ScaleDeployment {
                 namespace: s("a"),

@@ -61,6 +61,7 @@ mod portforward;
 mod related;
 mod replicasets;
 mod replicationcontrollers;
+pub mod secret_store;
 mod services;
 mod state;
 mod statefulsets;

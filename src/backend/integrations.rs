@@ -5,13 +5,16 @@
 use super::longhorn;
 use super::persistence;
 use crate::backend::events;
+use crate::backend::oidc::store::Secret;
 use crate::backend::portforward;
+use crate::backend::secret_store::{GRAFANA_SERVICE, SecretStore, grafana_key_set};
 use crate::backend::state::BackendState;
 use crate::protocol::BackendEventEnvelope;
 use crate::protocol::{
     BackendEvent, Correlation, DetectedMetricsComponent, DiskUsage, MetricsComponentKind,
     MetricsStackScanResult, MetricsStackTier, Route, SystemEvent, section_keys,
 };
+use crate::protocol::{GrafanaSettings, PrometheusSettings};
 use anyhow::Result;
 use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::Service;
@@ -19,6 +22,7 @@ use kube::Client;
 use kube::api::Api;
 use kube::api::ListParams;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrometheusConfig {
@@ -32,7 +36,10 @@ pub struct PrometheusConfig {
 pub struct GrafanaConfig {
     pub enabled: bool,
     pub base_url: String,
-    pub api_key: String, // Stored encrypted
+    /// Legacy plaintext key from files written before 039. Read-only: it is migrated into the
+    /// credential store and is never serialized (`skip_serializing`).
+    #[serde(default, skip_serializing)]
+    pub api_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,51 +54,246 @@ pub struct FluxConfig {
     pub namespace: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IntegrationConfig {
-    pub context: String,
+/// 039: one context's observability settings, stored under `by_context`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContextIntegrations {
+    #[serde(default)]
     pub prometheus: Option<PrometheusConfig>,
+    #[serde(default)]
     pub grafana: Option<GrafanaConfig>,
+}
+
+/// The file format is additive: the legacy top-level `context`/`prometheus`/`grafana`/`argo`/
+/// `flux` record stays readable (and is still refreshed for the context last saved, so an
+/// older build keeps working), and `by_context` holds per-context settings.
+///
+/// A value returned by [`IntegrationConfig::load`] is already resolved for one context:
+/// `context`, `prometheus` and `grafana` describe that context only.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct IntegrationConfig {
+    #[serde(default)]
+    pub context: String,
+    #[serde(default)]
+    pub prometheus: Option<PrometheusConfig>,
+    #[serde(default)]
+    pub grafana: Option<GrafanaConfig>,
+    #[serde(default)]
     pub argo: Option<ArgoConfig>,
+    #[serde(default)]
     pub flux: Option<FluxConfig>,
+    #[serde(default)]
+    pub by_context: std::collections::BTreeMap<String, ContextIntegrations>,
 }
 
 impl IntegrationConfig {
-    /// Load integrations config from ~/.fathom/integrations.json
-    pub fn load(context: &str) -> Result<Self> {
-        match persistence::load_integrations() {
-            Ok(json) => {
-                if let Ok(config) = serde_json::from_value::<IntegrationConfig>(json) {
-                    Ok(config)
-                } else {
-                    // If parsing fails, return new default config
-                    Ok(IntegrationConfig {
-                        context: context.to_string(),
-                        prometheus: None,
-                        grafana: None,
-                        argo: None,
-                        flux: None,
-                    })
-                }
-            }
-            Err(_) => {
-                // File doesn't exist, return new default config
-                Ok(IntegrationConfig {
-                    context: context.to_string(),
-                    prometheus: None,
-                    grafana: None,
-                    argo: None,
-                    flux: None,
-                })
-            }
+    fn empty(context: &str) -> Self {
+        Self {
+            context: context.to_owned(),
+            ..Self::default()
         }
     }
 
-    /// Save integrations config to ~/.fathom/integrations.json
+    /// Load the settings for `context` from ~/.fathom/integrations.json.
+    pub fn load(context: &str) -> Result<Self> {
+        match persistence::integrations_config_path() {
+            Ok(path) => Self::load_from(&path, context),
+            Err(_) => Ok(Self::empty(context)),
+        }
+    }
+
+    /// Resolve `context` from the file at `path`. A missing or unreadable file yields empty
+    /// settings and is never modified (Constitution VI).
+    pub fn load_from(path: &Path, context: &str) -> Result<Self> {
+        let file = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<IntegrationConfig>(&text).ok());
+        let Some(file) = file else {
+            return Ok(Self::empty(context));
+        };
+        let legacy_applies = file.context == context;
+        let entry = file.by_context.get(context).cloned().unwrap_or_default();
+        let mut grafana = entry
+            .grafana
+            .or_else(|| legacy_applies.then(|| file.grafana.clone()).flatten());
+        if let Some(g) = grafana.as_mut()
+            && g.api_key.is_empty()
+            && legacy_applies
+            && let Some(legacy) = file.grafana.as_ref()
+        {
+            g.api_key = legacy.api_key.clone();
+        }
+        let prometheus = entry
+            .prometheus
+            .or_else(|| legacy_applies.then(|| file.prometheus.clone()).flatten());
+        Ok(Self {
+            context: context.to_owned(),
+            prometheus,
+            grafana,
+            argo: file.argo,
+            flux: file.flux,
+            by_context: file.by_context,
+        })
+    }
+
+    /// Save to ~/.fathom/integrations.json.
     pub fn save(&self) -> Result<()> {
-        let json = serde_json::to_value(self)?;
-        persistence::save_integrations(&json)?;
+        self.save_to(&persistence::integrations_config_path()?)
+    }
+
+    /// Merge this context's settings into the file at `path`, keeping every other context.
+    /// Refuses (and leaves the file untouched) if the existing file is not valid JSON.
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        let mut raw = match std::fs::read_to_string(path) {
+            Ok(text) => serde_json::from_str::<serde_json::Value>(&text).map_err(|e| {
+                anyhow::anyhow!("{} is unreadable, not overwriting: {e}", path.display())
+            })?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+            Err(e) => return Err(e.into()),
+        };
+        let Some(obj) = raw.as_object_mut() else {
+            anyhow::bail!("{} is not a JSON object, not overwriting", path.display());
+        };
+        let entry = ContextIntegrations {
+            prometheus: self.prometheus.clone(),
+            grafana: self.grafana.clone(),
+        };
+        let by_context = obj
+            .entry("by_context")
+            .or_insert_with(|| serde_json::json!({}));
+        if !by_context.is_object() {
+            *by_context = serde_json::json!({});
+        }
+        by_context
+            .as_object_mut()
+            .expect("object")
+            .insert(self.context.clone(), serde_json::to_value(entry)?);
+        // Keep the legacy record current for the context last saved, unless it still holds
+        // another context's un-migrated record.
+        let legacy_ctx = obj.get("context").and_then(|v| v.as_str()).unwrap_or("");
+        if legacy_ctx.is_empty() || legacy_ctx == self.context {
+            obj.insert("context".into(), self.context.clone().into());
+            obj.insert("prometheus".into(), serde_json::to_value(&self.prometheus)?);
+            obj.insert("grafana".into(), serde_json::to_value(&self.grafana)?);
+            obj.insert("argo".into(), serde_json::to_value(&self.argo)?);
+            obj.insert("flux".into(), serde_json::to_value(&self.flux)?);
+        }
+        persistence::save_json_file_atomic(path, &raw)?;
         Ok(())
+    }
+}
+
+/// 039: the non-secret settings event payload for `cfg` (already resolved for its context).
+pub fn observability_settings_event(
+    cfg: &IntegrationConfig,
+    store: &dyn SecretStore,
+) -> SystemEvent {
+    SystemEvent::ObservabilitySettings {
+        context: cfg.context.clone(),
+        prometheus: cfg.prometheus.as_ref().map(|p| PrometheusSettings {
+            namespace: p.namespace.clone(),
+            service: p.service.clone(),
+            port: p.port,
+        }),
+        grafana: cfg.grafana.as_ref().map(|g| GrafanaSettings {
+            base_url: g.base_url.clone(),
+            key_set: grafana_key_set(store, &cfg.context),
+        }),
+    }
+}
+
+/// 039 T005: move a legacy plaintext Grafana key into the secret store, then rewrite the file
+/// without it. On any failure the file is left as it was so the key is not lost.
+pub fn migrate_legacy_grafana_key(
+    path: &Path,
+    cfg: &mut IntegrationConfig,
+    store: &dyn SecretStore,
+) {
+    let Some(g) = cfg.grafana.as_mut() else {
+        return;
+    };
+    if g.api_key.is_empty() {
+        return;
+    }
+    if store
+        .set(
+            GRAFANA_SERVICE,
+            &cfg.context,
+            &Secret::new(g.api_key.clone()),
+        )
+        .is_err()
+    {
+        return;
+    }
+    g.api_key.clear();
+    if cfg.save_to(path).is_err() {
+        tracing::warn!("could not rewrite integrations.json after migrating the Grafana key");
+    }
+}
+
+/// Result of a settings command: the event to emit and an error to notify, if any.
+pub struct SettingsOutcome {
+    pub event: SystemEvent,
+    pub error: Option<String>,
+}
+
+/// `GetObservabilitySettings` core.
+pub fn read_settings(path: &Path, context: &str, store: &dyn SecretStore) -> SettingsOutcome {
+    let mut cfg = IntegrationConfig::load_from(path, context)
+        .unwrap_or_else(|_| IntegrationConfig::empty(context));
+    migrate_legacy_grafana_key(path, &mut cfg, store);
+    SettingsOutcome {
+        event: observability_settings_event(&cfg, store),
+        error: None,
+    }
+}
+
+/// `ConfigureGrafana` core (FR-002, FR-010). A non-empty key replaces the stored one, a blank
+/// key keeps it. If the credential store fails the URL is still saved, `key_set` reports the
+/// truth and an error is returned for notification. The error text never contains the key.
+pub fn configure_grafana(
+    path: &Path,
+    context: &str,
+    store: &dyn SecretStore,
+    base_url: &str,
+    api_key: &str,
+) -> SettingsOutcome {
+    let mut cfg = IntegrationConfig::load_from(path, context)
+        .unwrap_or_else(|_| IntegrationConfig::empty(context));
+    cfg.context = context.to_owned();
+    // Move any legacy plaintext key first so saving cannot drop it.
+    migrate_legacy_grafana_key(path, &mut cfg, store);
+    cfg.grafana = Some(GrafanaConfig {
+        enabled: true,
+        base_url: base_url.trim().to_owned(),
+        api_key: String::new(),
+    });
+    let mut error = None;
+    if let Err(e) = cfg.save_to(path) {
+        error = Some(format!("Failed to save Grafana config: {e}"));
+    } else if !api_key.is_empty()
+        && let Err(e) = store.set(GRAFANA_SERVICE, context, &Secret::new(api_key))
+    {
+        error = Some(format!(
+            "Grafana URL saved, but the API key could not be stored in the credential store: {e}"
+        ));
+    }
+    SettingsOutcome {
+        event: observability_settings_event(&cfg, store),
+        error,
+    }
+}
+
+/// `ClearGrafanaKey` core.
+pub fn clear_grafana_key(path: &Path, context: &str, store: &dyn SecretStore) -> SettingsOutcome {
+    let cfg = IntegrationConfig::load_from(path, context)
+        .unwrap_or_else(|_| IntegrationConfig::empty(context));
+    let error = store
+        .delete(GRAFANA_SERVICE, context)
+        .err()
+        .map(|e| format!("Failed to clear the Grafana API key: {e}"));
+    SettingsOutcome {
+        event: observability_settings_event(&cfg, store),
+        error,
     }
 }
 
@@ -857,5 +1059,203 @@ mod metrics_stack_tests {
     fn suggested_endpoint_none_when_neither_present() {
         let neither = vec![component(MetricsComponentKind::Grafana)];
         assert!(pick_suggested_endpoint(&neither).is_none());
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    use crate::backend::oidc::store::BackendError;
+    use crate::backend::secret_store::memory_store;
+
+    const KEY: &str = "glsa_SUPERSECRET_1234";
+
+    fn tmp() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("integrations.json");
+        (dir, path)
+    }
+
+    fn grafana_of(event: &SystemEvent) -> Option<GrafanaSettings> {
+        match event {
+            SystemEvent::ObservabilitySettings { grafana, .. } => grafana.clone(),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// A store whose every operation fails, like a locked or absent keyring.
+    struct Broken;
+    impl SecretStore for Broken {
+        fn get(&self, _: &str, _: &str) -> Result<Option<Secret>, BackendError> {
+            Err(BackendError("locked".into()))
+        }
+        fn set(&self, _: &str, _: &str, _: &Secret) -> Result<(), BackendError> {
+            Err(BackendError("locked".into()))
+        }
+        fn delete(&self, _: &str, _: &str) -> Result<(), BackendError> {
+            Err(BackendError("locked".into()))
+        }
+    }
+
+    #[test]
+    fn settings_are_isolated_per_context() {
+        let (_d, path) = tmp();
+        let store = memory_store();
+        configure_grafana(&path, "a", &store, "http://a", KEY);
+        configure_grafana(&path, "b", &store, "http://b", "");
+        let a = grafana_of(&read_settings(&path, "a", &store).event).unwrap();
+        let b = grafana_of(&read_settings(&path, "b", &store).event).unwrap();
+        assert_eq!((a.base_url.as_str(), a.key_set), ("http://a", true));
+        assert_eq!((b.base_url.as_str(), b.key_set), ("http://b", false));
+        assert!(grafana_of(&read_settings(&path, "c", &store).event).is_none());
+
+        let mut cfg = IntegrationConfig::load_from(&path, "a").unwrap();
+        cfg.prometheus = Some(PrometheusConfig {
+            enabled: true,
+            namespace: "m".into(),
+            service: "p".into(),
+            port: 9090,
+        });
+        cfg.save_to(&path).unwrap();
+        let b_cfg = IntegrationConfig::load_from(&path, "b").unwrap();
+        assert!(b_cfg.prometheus.is_none());
+        let a_cfg = IntegrationConfig::load_from(&path, "a").unwrap();
+        assert!(a_cfg.prometheus.is_some());
+    }
+
+    #[test]
+    fn legacy_file_loads_for_its_context_only() {
+        let (_d, path) = tmp();
+        std::fs::write(
+            &path,
+            r#"{"context":"old","prometheus":{"enabled":true,"namespace":"m","service":"p","port":9091},"grafana":null,"argo":null,"flux":null}"#,
+        )
+        .unwrap();
+        let old = IntegrationConfig::load_from(&path, "old").unwrap();
+        assert_eq!(old.prometheus.unwrap().port, 9091);
+        let other = IntegrationConfig::load_from(&path, "other").unwrap();
+        assert!(other.prometheus.is_none());
+        // Saving another context keeps the legacy record readable.
+        let mut other = other;
+        other.grafana = Some(GrafanaConfig {
+            enabled: true,
+            base_url: "http://g".into(),
+            api_key: String::new(),
+        });
+        other.save_to(&path).unwrap();
+        let old = IntegrationConfig::load_from(&path, "old").unwrap();
+        assert_eq!(old.prometheus.unwrap().port, 9091);
+    }
+
+    #[test]
+    fn corrupt_file_falls_back_without_deletion() {
+        let (_d, path) = tmp();
+        std::fs::write(&path, "{ not json").unwrap();
+        let cfg = IntegrationConfig::load_from(&path, "a").unwrap();
+        assert!(cfg.prometheus.is_none() && cfg.grafana.is_none());
+        assert!(cfg.save_to(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+        let out = configure_grafana(&path, "a", &memory_store(), "http://g", KEY);
+        assert!(out.error.is_some());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    #[test]
+    fn legacy_plaintext_key_migrates_and_is_stripped() {
+        let (_d, path) = tmp();
+        let text = format!(
+            r#"{{"context":"a","prometheus":null,"grafana":{{"enabled":true,"base_url":"http://g","api_key":"{KEY}"}},"argo":null,"flux":null}}"#
+        );
+        std::fs::write(&path, text).unwrap();
+        let store = memory_store();
+        let out = read_settings(&path, "a", &store);
+        assert!(grafana_of(&out.event).unwrap().key_set);
+        let stored = store.get(GRAFANA_SERVICE, "a").unwrap().unwrap();
+        assert_eq!(stored.expose(), KEY);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains(KEY));
+    }
+
+    #[test]
+    fn legacy_key_stays_in_file_if_store_fails() {
+        let (_d, path) = tmp();
+        let text = format!(
+            r#"{{"context":"a","grafana":{{"enabled":true,"base_url":"http://g","api_key":"{KEY}"}}}}"#
+        );
+        std::fs::write(&path, &text).unwrap();
+        read_settings(&path, "a", &Broken);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn no_secret_in_serialized_output() {
+        let (_d, path) = tmp();
+        let store = memory_store();
+        let out = configure_grafana(&path, "a", &store, "http://g", KEY);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains(KEY));
+        let cfg = IntegrationConfig::load_from(&path, "a").unwrap();
+        assert!(!serde_json::to_string(&cfg).unwrap().contains(KEY));
+        assert!(!format!("{:?}", out.event).contains(KEY));
+    }
+
+    #[test]
+    fn blank_key_keeps_and_clear_removes() {
+        let (_d, path) = tmp();
+        let store = memory_store();
+        configure_grafana(&path, "a", &store, "http://g", KEY);
+        let out = configure_grafana(&path, "a", &store, "http://g2", "");
+        let g = grafana_of(&out.event).unwrap();
+        assert_eq!((g.base_url.as_str(), g.key_set), ("http://g2", true));
+        let out = clear_grafana_key(&path, "a", &store);
+        assert!(out.error.is_none());
+        let g = grafana_of(&out.event).unwrap();
+        assert_eq!((g.base_url.as_str(), g.key_set), ("http://g2", false));
+    }
+
+    #[test]
+    fn keyring_failure_keeps_url_reports_unset_and_errors_without_the_key() {
+        let (_d, path) = tmp();
+        let out = configure_grafana(&path, "a", &Broken, "http://g", KEY);
+        let g = grafana_of(&out.event).unwrap();
+        assert_eq!((g.base_url.as_str(), g.key_set), ("http://g", false));
+        let err = out.error.expect("error notification");
+        assert!(!err.contains(KEY));
+        let reread = read_settings(&path, "a", &Broken);
+        assert_eq!(grafana_of(&reread.event).unwrap().base_url, "http://g");
+    }
+
+    /// Captures everything `tracing` emits while Grafana saves run.
+    #[derive(Clone, Default)]
+    struct Capture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Capture {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+        type Writer = Capture;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn logs_never_contain_the_key() {
+        let (_d, path) = tmp();
+        let cap = Capture::default();
+        let sub = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(cap.clone())
+            .finish();
+        tracing::subscriber::with_default(sub, || {
+            configure_grafana(&path, "a", &memory_store(), "http://g", KEY);
+            configure_grafana(&path, "a", &Broken, "http://g", KEY);
+            read_settings(&path, "a", &Broken);
+        });
+        let logged = String::from_utf8(cap.0.lock().unwrap().clone()).unwrap();
+        assert!(!logged.contains(KEY), "{logged}");
     }
 }

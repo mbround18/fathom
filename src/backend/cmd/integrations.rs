@@ -30,16 +30,29 @@ pub(super) async fn handle(
             service: _,
             port,
         } => test_prometheus_connection(state, sender, port).await,
-        BackendCmd::ConfigureGrafana {
-            base_url,
-            api_key: _,
-        } => {
-            // TODO: Configure Grafana integration
-            events::notify_info(
-                state.cluster.seq.as_ref(),
-                sender,
-                format!("Configured Grafana: {}", base_url),
-            );
+        BackendCmd::ConfigureGrafana { base_url, api_key } => {
+            let context = active_context(state);
+            let store = state.secrets.clone();
+            let outcome = with_config_path(|path| {
+                integrations::configure_grafana(path, &context, store.as_ref(), &base_url, &api_key)
+            });
+            emit_settings(state, sender, outcome);
+        }
+        BackendCmd::GetObservabilitySettings => {
+            let context = active_context(state);
+            let store = state.secrets.clone();
+            let outcome = with_config_path(|path| {
+                integrations::read_settings(path, &context, store.as_ref())
+            });
+            emit_settings(state, sender, outcome);
+        }
+        BackendCmd::ClearGrafanaKey => {
+            let context = active_context(state);
+            let store = state.secrets.clone();
+            let outcome = with_config_path(|path| {
+                integrations::clear_grafana_key(path, &context, store.as_ref())
+            });
+            emit_settings(state, sender, outcome);
         }
         BackendCmd::TestGrafanaConnection { base_url, api_key } => {
             test_grafana_connection(state, sender, &base_url, &api_key).await;
@@ -77,13 +90,15 @@ async fn configure_prometheus(
         .clone()
         .unwrap_or_else(|| "default".to_owned());
 
-    let mut cfg = IntegrationConfig::load(&context).unwrap_or(IntegrationConfig {
+    let mut cfg = IntegrationConfig::load(&context).unwrap_or_else(|_| IntegrationConfig {
         context: context.clone(),
-        prometheus: None,
-        grafana: None,
-        argo: None,
-        flux: None,
+        ..Default::default()
     });
+    // A legacy plaintext Grafana key must reach the credential store before this save, or the
+    // rewrite would drop it.
+    if let Ok(path) = crate::backend::persistence::integrations_config_path() {
+        integrations::migrate_legacy_grafana_key(&path, &mut cfg, state.secrets.as_ref());
+    }
 
     cfg.context = context.clone();
     cfg.prometheus = Some(PrometheusConfig {
@@ -101,6 +116,18 @@ async fn configure_prometheus(
         );
         return Ok(());
     }
+
+    let settings = integrations::read_settings(
+        &crate::backend::persistence::integrations_config_path()?,
+        &context,
+        state.secrets.as_ref(),
+    );
+    emit_system(
+        state,
+        sender,
+        section_keys::integrations_metrics(),
+        settings.event,
+    );
 
     // Start port-forward to Prometheus service
     let client = state.cluster.client_or_err()?;
@@ -129,6 +156,47 @@ async fn configure_prometheus(
     };
     events::notify_info(state.cluster.seq.as_ref(), sender, message);
     Ok(())
+}
+
+fn active_context(state: &BackendState) -> String {
+    state
+        .cluster
+        .current_context
+        .clone()
+        .unwrap_or_else(|| "default".to_owned())
+}
+
+fn with_config_path(
+    f: impl FnOnce(&std::path::Path) -> integrations::SettingsOutcome,
+) -> integrations::SettingsOutcome {
+    match crate::backend::persistence::integrations_config_path() {
+        Ok(path) => f(&path),
+        Err(e) => integrations::SettingsOutcome {
+            event: SystemEvent::ObservabilitySettings {
+                context: String::new(),
+                prometheus: None,
+                grafana: None,
+            },
+            error: Some(format!("Could not locate the settings file: {e}")),
+        },
+    }
+}
+
+/// Emit the settings event (and an error notification when persistence partly failed).
+fn emit_settings(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    outcome: integrations::SettingsOutcome,
+) {
+    if let Some(error) = outcome.error {
+        events::notify_error(state.cluster.seq.as_ref(), sender, error);
+    }
+    emit_system(
+        state,
+        sender,
+        section_keys::integrations_grafana(),
+        outcome.event,
+    );
 }
 
 /// Test Prometheus connection via localhost (assumes port-forward is established).
@@ -539,4 +607,75 @@ fn emit_cluster_system(
         Correlation::None,
         BackendEvent::System(event),
     );
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    use crate::backend::oidc::store::{BackendError, Secret};
+    use crate::backend::secret_store::{SecretStore, memory_store};
+
+    /// Handler boundary: save, read and clear emit only the non-secret event, never the key.
+    #[test]
+    fn emitted_events_never_carry_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("integrations.json");
+        let store = memory_store();
+        let state = BackendState::new();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let key = "glsa_TOPSECRET";
+        let saved = integrations::configure_grafana(&path, "ctx", &store, "http://g", key);
+        emit_settings(&state, &tx, saved);
+        emit_settings(
+            &state,
+            &tx,
+            integrations::read_settings(&path, "ctx", &store),
+        );
+        emit_settings(
+            &state,
+            &tx,
+            integrations::clear_grafana_key(&path, "ctx", &store),
+        );
+        let envs: Vec<_> = rx.try_iter().collect();
+        assert_eq!(envs.len(), 3);
+        for env in &envs {
+            assert!(!format!("{:?}", env.event).contains(key));
+        }
+        let keyset = |i: usize| match &envs[i].event {
+            BackendEvent::System(SystemEvent::ObservabilitySettings { grafana, .. }) => {
+                grafana.clone().unwrap().key_set
+            }
+            other => panic!("unexpected {other:?}"),
+        };
+        assert!(keyset(0) && keyset(1) && !keyset(2));
+    }
+
+    #[test]
+    fn keyring_failure_emits_error_notification_and_key_not_set() {
+        struct Locked;
+        impl SecretStore for Locked {
+            fn get(&self, _: &str, _: &str) -> Result<Option<Secret>, BackendError> {
+                Ok(None)
+            }
+            fn set(&self, _: &str, _: &str, _: &Secret) -> Result<(), BackendError> {
+                Err(BackendError("locked".into()))
+            }
+            fn delete(&self, _: &str, _: &str) -> Result<(), BackendError> {
+                Ok(())
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("integrations.json");
+        let state = BackendState::new();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let saved = integrations::configure_grafana(&path, "ctx", &Locked, "http://g", "k");
+        emit_settings(&state, &tx, saved);
+        let envs: Vec<_> = rx.try_iter().collect();
+        assert_eq!(envs.len(), 2, "error notification plus settings event");
+        assert!(matches!(
+            &envs[1].event,
+            BackendEvent::System(SystemEvent::ObservabilitySettings { grafana: Some(g), .. })
+                if !g.key_set && g.base_url == "http://g"
+        ));
+    }
 }

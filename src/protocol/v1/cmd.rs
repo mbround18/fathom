@@ -415,6 +415,11 @@ pub enum BackendCmdV1 {
         base_url: String,
         api_key: String,
     },
+    /// 039-observability-settings: read the saved, non-secret Prometheus and Grafana settings
+    /// for the active context; answered with `SystemEvent::ObservabilitySettings`.
+    GetObservabilitySettings,
+    /// 039: remove the stored Grafana API key for the active context.
+    ClearGrafanaKey,
     RefreshFlux,
     RefreshKnative,
     /// 022-velero-backup-pane: immediate re-scan, so opening the pane doesn't wait out the

@@ -123,6 +123,8 @@ mod tests {
             "DismissOrgClusterSettings",
             "ConfigurePrometheus",
             "ConfigureGrafana",
+            "ClearGrafanaKey",
+            "GetObservabilitySettings",
             "TestPrometheusConnection",
             "TestGrafanaConnection",
             "SimulateSlowCall",
