@@ -11,7 +11,14 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { batch, globalRoute, list } from '../fixtures/builders'
 import type { PortForward } from '../../src/protocol/types'
-import { emit, navigateTo, sentTypes, open as openApp } from './helpers'
+import {
+  emit,
+  navigateTo,
+  prepareClipboard,
+  readClipboard,
+  sentTypes,
+  open as openApp,
+} from './helpers'
 
 function pf(overrides: Partial<PortForward> = {}): PortForward {
   return {
@@ -38,8 +45,9 @@ test.describe('US4 port forward copy address', () => {
   test('Scenario 1: copying an Active row copies exactly localhost:<local_port> and confirms', async ({
     page,
     context,
+    browserName,
   }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await prepareClipboard(page, context, browserName)
     await openPortForwardsPanel(page)
     await emit(
       page,
@@ -56,7 +64,7 @@ test.describe('US4 port forward copy address', () => {
     await copyButton.click()
 
     await expect(page.getByTestId('port-forward-copy-toast').first()).toBeVisible()
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText())
+    const clipboardText = await readClipboard(page, browserName)
     expect(clipboardText).toBe('localhost:8080')
   })
 

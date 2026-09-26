@@ -2,7 +2,13 @@
  * Shared Playwright helpers for the US1 specs: drive the fake backend (`window.__fathomFake`)
  * and find panes and tables by their test hooks (contracts/layout.md § Test hooks).
  */
-import { expect, type Locator, type Page, type TestInfo } from '@playwright/test'
+import {
+  expect,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from '@playwright/test'
 
 import type { ScenarioName } from '../fixtures'
 import type { BackendCmd, EventBatch } from '../../src/protocol/types'
@@ -258,4 +264,34 @@ export async function openFleet(page: Page): Promise<void> {
 export async function openHosted(page: Page, qs = 'user=alice&groups=dev,ops'): Promise<void> {
   await page.goto(`/?scenario=default&mode=hosted&${qs}`)
   await page.waitForFunction(() => window.__fathomFake !== undefined)
+}
+
+/**
+ * Make copied text readable by the test. Chromium reads the real clipboard once granted; WebKit
+ * has no clipboard permission names and refuses `readText()` headless, so there the text handed
+ * to `navigator.clipboard.writeText` is recorded instead. Call before the page is opened.
+ */
+export async function prepareClipboard(
+  page: Page,
+  context: BrowserContext,
+  browserName: string,
+): Promise<void> {
+  if (browserName === 'chromium') {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    return
+  }
+  await page.addInitScript(() => {
+    const clipboard = navigator.clipboard
+    const write = clipboard.writeText.bind(clipboard)
+    clipboard.writeText = (text: string) => {
+      ;(window as unknown as { __copiedText?: string }).__copiedText = text
+      return write(text).catch(() => undefined)
+    }
+  })
+}
+
+/** The text last copied (see {@link prepareClipboard}). */
+export async function readClipboard(page: Page, browserName: string): Promise<string> {
+  if (browserName === 'chromium') return page.evaluate(() => navigator.clipboard.readText())
+  return page.evaluate(() => (window as unknown as { __copiedText?: string }).__copiedText ?? '')
 }
