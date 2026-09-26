@@ -69,6 +69,8 @@ import type {
   PluginError,
   TunnelStatus,
   UiConfig,
+  GrafanaSettings,
+  PrometheusSettings,
 } from '@/protocol/types'
 
 import { descriptorFor } from '@/resources'
@@ -407,9 +409,16 @@ export interface ImageInspectState {
   updatedAt: number
 }
 
+export interface ObservabilitySettingsEntry {
+  prometheus: PrometheusSettings | null
+  grafana: GrafanaSettings | null
+}
+
 export interface IntegrationsState {
   prometheusTest?: { success: boolean; message: string }
   grafanaTest?: { success: boolean; message: string }
+  /** 039: last `ObservabilitySettings` per context; absent until the backend has answered. */
+  settings?: Record<string, ObservabilitySettingsEntry>
   portAvailability: Record<number, boolean>
 }
 

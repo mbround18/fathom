@@ -208,6 +208,20 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'GrafanaConnectionTest':
       d.edit('integrations').grafanaTest = event.data
       return
+    case 'ObservabilitySettings': {
+      // 039: settings are per context; a late reply for a previous context is dropped.
+      const active = d.read('session').activeContext ?? 'default'
+      if (event.data.context !== active) return
+      const integrations = d.edit('integrations')
+      integrations.settings = {
+        ...integrations.settings,
+        [event.data.context]: {
+          prometheus: event.data.prometheus,
+          grafana: event.data.grafana,
+        },
+      }
+      return
+    }
     case 'PortAvailability': {
       const integrations = d.edit('integrations')
       integrations.portAvailability = {
