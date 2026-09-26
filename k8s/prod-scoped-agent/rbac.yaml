@@ -1,0 +1,116 @@
+# Scoped RBAC for the Fathom test/agent identity `system:serviceaccount:fathom-e2e:fathom-agent`.
+#
+# Grants:
+#   - cluster-wide read (`view` + `fathom-agent-cluster-read`), no Secrets (view excludes them);
+#   - `admin` only in the `fathom-dev` and `fathom-e2e` namespaces.
+# It can NOT write outside those two namespaces and can NOT create cluster-scoped RBAC.
+#
+# Reproduce without the UI (create-only, never modifies an existing object):
+#   kubectl --context <ctx> create -f k8s/prod-scoped-agent/rbac.yaml
+# (`fathom-dev` must already exist; it is the Fathom sandbox namespace, see scripts/sandbox.sh.)
+# Or through Fathom's own RBAC UI (011): ui/tests/live/rbac-prod-scoped-setup.spec.ts.
+# The token/kubeconfig for the ServiceAccount is minted by the operator, never by automation.
+# Record: specs/011-rbac-oidc-administration/checklists/prod-scoped-agent.md
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fathom-e2e
+  labels:
+    app.kubernetes.io/managed-by: fathom-rbac-setup
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fathom-agent
+  namespace: fathom-e2e
+  labels:
+    app.kubernetes.io/managed-by: fathom-rbac-setup
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fathom-agent-cluster-read
+  labels:
+    app.kubernetes.io/managed-by: fathom-rbac-setup
+rules:
+  - apiGroups: [""]
+    resources: [nodes, namespaces, persistentvolumes]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [apiregistration.k8s.io]
+    resources: [apiservices]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings, roles, rolebindings]
+    verbs: [get, list, watch]
+  # metrics-server (present on k3s); drop this rule on clusters without metrics.k8s.io.
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fathom-agent-view
+  labels:
+    app.kubernetes.io/managed-by: fathom-rbac-setup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: fathom-agent
+    namespace: fathom-e2e
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fathom-agent-cluster-read
+  labels:
+    app.kubernetes.io/managed-by: fathom-rbac-setup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fathom-agent-cluster-read
+subjects:
+  - kind: ServiceAccount
+    name: fathom-agent
+    namespace: fathom-e2e
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fathom-agent-admin
+  namespace: fathom-dev
+  labels:
+    app.kubernetes.io/managed-by: fathom-rbac-setup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: fathom-agent
+    namespace: fathom-e2e
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fathom-agent-admin
+  namespace: fathom-e2e
+  labels:
+    app.kubernetes.io/managed-by: fathom-rbac-setup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: fathom-agent
+    namespace: fathom-e2e

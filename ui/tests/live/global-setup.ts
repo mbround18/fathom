@@ -109,6 +109,19 @@ function portOpen(port: number): Promise<boolean> {
 }
 
 export default async function globalSetup(): Promise<void> {
+  await startBridge()
+}
+
+/**
+ * Build and start the bridge pinned to `$FATHOM_LIVE_CONTEXT` (whose `fathom-dev` must carry the
+ * sandbox label), publishing its port/token/pid to `process.env` for the workers. `extraArgs`
+ * are appended to the bridge's argv (e.g. `--read-only`, `--allow-create ...`); `describe` is
+ * the log line's summary of what the bridge may write.
+ */
+export async function startBridge(
+  extraArgs: readonly string[] = [],
+  describe = `writes only in '${LIVE_NAMESPACE}'`,
+): Promise<void> {
   const context = liveContext()
   checkSandboxLabel(context)
   const binary = buildDevbridge()
@@ -118,11 +131,19 @@ export default async function globalSetup(): Promise<void> {
 
   console.log(
     `[live e2e] starting fathom-devbridge on 127.0.0.1:${String(port)} ` +
-      `(context '${context}', writes only in '${LIVE_NAMESPACE}')`,
+      `(context '${context}', ${describe})`,
   )
   const child = spawn(
     binary,
-    ['--context', context, '--write-namespace', LIVE_NAMESPACE, '--port', String(port)],
+    [
+      '--context',
+      context,
+      '--write-namespace',
+      LIVE_NAMESPACE,
+      '--port',
+      String(port),
+      ...extraArgs,
+    ],
     {
       cwd: REPO_ROOT,
       // The token goes through the environment, never argv (visible in `ps`).
