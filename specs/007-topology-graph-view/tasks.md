@@ -122,5 +122,5 @@ Feature dir: `specs/007-topology-graph-view/` | Branch: `007-topology-graph-view
       `chromium-phone`/`chromium-tablet` projects, including click-to-inspect via `PhoneStack`)
 - [X] T062 Run `cargo build && cargo clippy --all-targets -- -D warnings && cargo test`
 - [X] T063 Run `pnpm -C ui typecheck && pnpm -C ui lint && pnpm -C ui test && pnpm -C ui e2e`
-- [ ] T064 Update `docs/MVP.md` Status Summary row for Topology Graph View to shipped, matching
+- [x] T064 Update `docs/MVP.md` Status Summary row for Topology Graph View to shipped, matching
       006-helm-mutate's row format

@@ -39,6 +39,20 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Teams & organizations (self-hosted multi-user) | 🚧 | 014-teams-organizations — shared non-secret connection profiles (Story 1) and local §10 Cluster Settings + org-level sync (expanded Story 2) shipped; per-user RBAC-scoped views (Story 3) delivered by 033-rauthy-oidc-teams-users (automated tests only; live multi-user validation not run) — see §14 Tier F |
 | SDK login (GitHub/Claude/OpenAI) + local Ollama inference | ✅ | 038-sdk-login-ollama (GitHub device flow, Claude/OpenAI keys in the OS keyring, Ollama detection and model picker, offline mode; provider calls verified against mocks only, no live credentials) |
 | Node Shell (on-demand ephemeral debug pod, distinct from pod exec) | 🚧 | `037-node-shell` — privileged debug pod pinned to a node with confirm, SSAR pre-check, guaranteed cleanup and orphan sweep; shipped incl. settings and a11y e2e; validated on kind (Linux only); remaining: T030 Tier 1 platform runs; brochure shots captured |
+| Command palette | ✅ | 016-command-palette |
+| Proactive RBAC-aware mutation UI (disable/hide actions the identity can't perform) | ✅ | 018-rbac-aware-mutation-ui, extended per-user in 033 |
+| Cluster version badge | ✅ | 019-cluster-version-badge |
+| Security & Policy panes — Gatekeeper, Trivy Operator vulnerabilities | ✅ | 020-gatekeeper-policy-pane, 021-trivy-vulnerability-pane |
+| Velero backup pane | ✅ | 022-velero-backup-pane |
+| cert-manager Certificates pane | ✅ | 023-cert-manager-certificates-pane |
+| Pod exec session gate (confirmation + RBAC pre-check) | ✅ | 024-pod-exec-terminal |
+| Local mutation audit-log viewer | ✅ | 026-mutation-audit-log-viewer |
+| Fleet rollup dashboard (per-context health cards) | ✅ | 027-fleet-rollup-dashboard |
+| Knative pane | ✅ | 028-knative-pane |
+| In-app local kind cluster provisioning | ✅ | 030-kind-cluster-provisioning |
+| Hosted server mode (in-cluster web app with OIDC login) | 🚧 | 031-hosted-server-mode — core server, OIDC login, per-user tenancy shipped; hosted audit sink, live multi-provider login suite, soak test, security review and operator guide still open |
+| Managed-cloud auth plugins (EKS/GKE/AKS exec credentials) | 🚧 | 035-cloud-auth-plugins — implemented; live EKS/GKE/AKS and Windows/macOS manual checks pending |
+| Observability settings persistence (Prometheus/Grafana, secrets in OS keyring) | ✅ | 039-observability-settings |
 
 ---
 
@@ -101,7 +115,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 #### Cluster Root
 
 * Overview ✅
-* Applications ⬜ *(see §5)*
+* Applications ✅ *(`004-applications-interlinking`, see §5)*
 * Nodes ✅
 * Workloads ✅
 * Config ✅
@@ -109,7 +123,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 * Storage ✅
 * Namespaces ✅
 * Helm ✅ read path *(see §5a)*
-* Access Control ⬜ *(future tier — see §14)*
+* Access Control ✅ *(`011-rbac-oidc-administration`, `033-rauthy-oidc-teams-users` — see §14)*
 * Custom Resources ✅ *(generic, `003-yaml-node-crd-parity`)*
 * Events ✅
 * Settings ✅
@@ -169,7 +183,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 
 ## 5. Applications View
 
-*Status: ⬜ Not started — next planned feature.*
+*Status: ✅ Shipped — `004-applications-interlinking` (Flux/Helm/label attribution, inspector, drill-down via the related-resources resolver in §5b).*
 
 An "application" is a logical grouping of workloads under one Helm release, Flux/Argo GitOps unit, or operator-managed bundle — not a native Kubernetes kind, so this view is synthesized from ownership/label metadata already visible to the backend (`app.kubernetes.io/*` labels, Helm release secrets, Flux `Kustomization`/`HelmRelease` inventories already read by `src/backend/flux.rs`).
 
@@ -479,7 +493,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 
 ## 10. Configuration & Settings
 
-*Status: 🚧 Partial — cluster settings/preferences shipped in `001-tauri-shadcn-frontend`; Node Shell not built.*
+*Status: ✅ Done — cluster settings/preferences in `001-tauri-shadcn-frontend`, Node Shell in `037-node-shell`, port-forward UI in `009-port-forward-ui`, observability settings persistence in `039-observability-settings`.*
 
 ### Cluster Settings
 
@@ -520,7 +534,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 
 ## 11. Integration Expectations
 
-*Status: 🚧 Partial — Kubernetes API, Prometheus, CRDs, GitOps (Flux), and Helm metadata (see §5a) integrations done; logs done (`002`).*
+*Status: ✅ Required integrations done — Kubernetes API, Prometheus, CRDs, GitOps (Flux), Helm metadata (§5a), logs (`002`); Grafana settings persisted (`039`). Optional Alertmanager and tracing integrations are not started and are post-MVP.*
 
 ### Required Integrations
 
@@ -555,7 +569,7 @@ A "download and inspect layers" affordance on a container's image reference, wit
 
 ### Security
 
-* RBAC-aware UI *(⬜ not started — see §14)*
+* RBAC-aware UI ✅ *(`018-rbac-aware-mutation-ui`, per-user in `033` — see §14)*
 * No privilege escalation
 * Read-only by default
 
@@ -584,7 +598,7 @@ Carried over from roadmap discussion, in priority order:
 
 ### Tier A — Live/SDK-auth features
 
-*Status: 🚧 Partial — port-forwarding and the MCP server shipped; SDK-based login and Ollama-backed inference not started.*
+*Status: ✅ Shipped — port-forwarding, the MCP server (`015`), the fleet rollup (`027`), SDK login and Ollama inference (`038`).*
 
 * Port-forwarding — ✅ already shipped (`src/backend/portforward.rs`)
 * **✅ MCP server (`015-mcp-agent-exposure`) — local stdio, off by default, RBAC-scoped.** Exposes the cluster context Fathom is already connected to to an external MCP client (Claude Code, Claude Desktop, any MCP-speaking agent) over **stdio on the local machine** — `rmcp` 0.12's `serve_server_with_ct` over `rmcp::transport::io::stdio()`, no network listener and no HTTP surface. This *replaced* the earlier prototype rather than extending it: the `axum` server on port 18288 and its ungated `restart_deployment` tool were deleted outright (`src/mcp_server.rs`, `src/app/views/mcp_integration.rs`, three superseded `docs/mcp/*.md`), so there is no second MCP surface left to reason about.
@@ -595,7 +609,7 @@ Carried over from roadmap discussion, in priority order:
   * **The connection command is the real entry point**: an external client launches `fathom --only-mcp`, which runs the backend headless with the process's own stdin/stdout *as* the MCP channel, connects to the kubeconfig's current context, serves its client, and exits when the client disconnects — no orphaned process. With the toggle off the same command refuses on stderr with a stated reason instead of hanging. `tracing` writes to stderr so a log line can never corrupt the JSON-RPC framing.
   * **"Launch example chat"** spawns a real local `claude` CLI subprocess pre-wired to this Fathom's MCP server via ephemeral `--mcp-config`/`--strict-mcp-config` (nothing is written into the operator's own Claude Code config). Detection is a fresh `PATH` scan on every call with no cache; when there is no `claude`, or the server is off, the panel says so and shows setup instructions. There is no simulated or mocked chat window in any state (FR-009/FR-011).
 * **✅ Fleet Rollup Dashboard (`027-fleet-rollup-dashboard`)** — read-only per-context health cards (nodes ready/total, unhealthy pods, version, Flux status) for every kubeconfig context at once, opened from the top bar. Backend pollers (`src/backend/fleet.rs`, 30s interval, 10s timeout) exist only while the view is open and never touch the active context.
-* SDK-based login (GitHub / Claude / OpenAI SDKs) — ⬜
+* SDK-based login (GitHub / Claude / OpenAI SDKs) — ✅ (038; GitHub device flow, Claude/OpenAI keys in the OS keyring; verified against mocks, no live credentials)
 * Local LLM inference via Ollama for the MCP/AI-assist surface — ✅ (038; detection, model picker and offline mode; verified against a mock server)
 
 ### Tier B — Enterprise auth / access
@@ -617,7 +631,7 @@ Carried over from roadmap discussion, in priority order:
 
 ### Tier D — In-cluster context daemon & multi-cloud federation
 
-*Status: 🚧 Partial — 012-incluster-daemon-federation P1 and 034-simultaneous-federation (P2) shipped (see below); P3-P4 still exploratory/not started.*
+*Status: 🚧 Mostly shipped — P1 (012), P2 (034) and P4 (036) shipped; P3 (035 cloud-auth plugins) implemented with live EKS/GKE/AKS verification pending.*
 
 * **✅ P1 (012-incluster-daemon-federation): always-visible multi-context sidebar with live per-context connection status.** Every kubeconfig context is listed at once (not just the active one), with a live `connected` / `connecting` / `error` / `not-connected` indicator — the active context's status is driven by its real connect attempt, every other context gets a lightweight, bounded (`apiserver_version()` + 5s timeout) background reachability probe triggered on `Initialize`/`RefreshContexts`/`SetContext`, never a periodic poll. An unreachable context's error is inspectable without switching to it. Switching contexts still uses the existing single-active-client model and reconnect path unchanged. Delivered via an additive `SystemEvent::ContextStatusUpdated`; no new command, no new dependency.
 * **✅ P2 (034-simultaneous-federation): true simultaneous federation** — an opt-in, persisted set (`~/.fathom/federation.json`, names only, soft cap 8) of contexts each held live with its own persistent client and bounded watches (Pods, Nodes, Deployments, Warning Events) reduced to counters, plus a cross-cluster aggregate overview in the Fleet dialog. A context is either polled (027) or live, never both; federated contexts also render on the 027 fleet cards with a Live marker. Read-only; the active-context model is unchanged. Added `FederateContext`/`UnfederateContext`/`RequestFederationSnapshot` and `FederationStateUpdated`/`FederationRollupUpdated` (additive, protocol v1). Automated tests only; the idle-CPU soak (SC-002) and reachability-recovery (SC-004) checks against local kind have not been run.
@@ -626,10 +640,10 @@ Carried over from roadmap discussion, in priority order:
 
 ### Tier E — Agent SDK ops (AI-assist troubleshooting)
 
-*Status: ⬜ Not started, exploratory. MCP server already shipped (Tier A) — this is the natural next layer on top of it.*
+*Status: ✅ Shipped — `013-agent-sdk-ops` (in-app AI-assist troubleshooting grounded in streamed store data, BYOK Anthropic key or local Ollama, proposals go through the normal confirmation gate), auth extended by `038-sdk-login-ollama`.*
 
 * An in-app "what's wrong with this pod/cluster" assistant built on the Claude Agent SDK, grounded in data already streamed to the store (events, conditions, logs, the Pod-lifecycle detail from §7's gap) rather than a separate scraping/ingestion path — the assistant reads the same protocol events the UI renders.
-* Auth modes chosen per the operator, not hardcoded: bring-your-own API key (Anthropic key entered locally, self-hosted-first, matches Fathom's no-cloud-dependency default) or local inference via Ollama (already ⬜ in Tier A) for a fully offline mode.
+* Auth modes chosen per the operator, not hardcoded: bring-your-own API key (Anthropic key entered locally, self-hosted-first, matches Fathom's no-cloud-dependency default) or local inference via Ollama (✅ `038`, Tier A) for a fully offline mode.
 * Built against the Agent SDK's public interface (not its internals) specifically so a future hosted/cloud-ops mode is a different auth/config path later, not a rewrite — "cloud-ops ready" without requiring a cloud dependency today.
 * Explicit non-goal for v1: autonomous/unattended mutation — any action the assistant proposes still goes through the same diff-preview + confirmation gate as a human-initiated one (Principle I applies to agent-initiated actions exactly as it does to operator-initiated ones).
 
@@ -646,15 +660,11 @@ Carried over from roadmap discussion, in priority order:
 
 ---
 
-## Suggested Next Slices (in order)
+## Remaining to MVP Release
 
-1. **Applications view (§5)**, read-only first — aggregates data already available (labels, Flux inventories); no new backend integration required beyond what `003` and the Flux panel already stream.
-2. **Rich interlinking (§5b)** — build this *as part of* the Applications view rather than after it, since Applications is the first place drill-down is needed; the generic relationship resolver then also benefits every existing inspector (Node → Pods, Service → Pods, etc.) for free.
-3. **Helm (§5a)**, read-only (list + inspector + revision history) — new backend surface (release Secret/ConfigMap parsing), feeds Applications' "Managed By: Helm" rows with real data instead of a label guess.
-4. **Helm mutate** (upgrade/rollback/uninstall) — once read path is solid, follows the same diff-preview + confirmation pattern as `003`'s YAML apply.
-5. **Topology graph (§5c)** — once §5b's relationship model exists and is exercised by real UI, extend it into a zoomable graph rather than modeling relationships twice.
-6. **Pod lifecycle/probes/hooks polish (§7)** — cheapest remaining gap: the data (`initContainers`, probes, hook config, `ContainerStatus.lastState`) is already on objects the app already reads, this is purely a rendering gap, no new backend integration.
-7. **Port-forward rich UI (§10)** — backend (`portforward.rs`) and protocol types already exist; this is a frontend-only panel, same shape of work as the Flux/Hubble panels that already shipped.
-8. **Container image inspection (§9a)** — new but small backend surface (one OCI-registry-client crate, manifest/config fetch only, no layer pulls).
-9. **RBAC/OIDC administration (§14 Tier C)** — the foundational piece for both Tier B's RBAC-scoped UI and Tier F's teams/orgs work; do this before either, not after, since both depend on identity + role resolution existing first.
-10. **In-cluster daemon / multi-cloud federation (§14 Tier D)** and **Agent SDK ops (§14 Tier E)** — largest, most exploratory items; sequence after Tier C since both benefit from (E) or assume (D's federation) a resolved identity/role model.
+All ten originally suggested slices (Applications, interlinking, Helm read and mutate, topology, pod lifecycle, port-forward UI, image inspection, RBAC/OIDC administration, daemon/federation, Agent SDK ops) have shipped. Feature scope for a desktop MVP is complete; what remains is release engineering and validation:
+
+1. **CI** — automatic runs are disabled (manual dispatch only, 2026-09-26) because the Rust `Test` job was running out of runner disk and the Chromium/WebKit E2E job was failing. Re-enable once both are fixed and the suite is sharded to a reasonable wall-clock.
+2. **Release pipeline** — `release.yml` builds Linux x64/arm64, macOS and Windows bundles via `tauri-action`, but has no code signing or notarization and no release has been tagged (version `0.1.0`).
+3. **Tier 1 platform validation** — `001` T126 (quickstart on Ubuntu 26.04, Windows 11, macOS 26) is deferred pending funding; several features (`035`, `037`) are validated on Linux/kind only.
+4. **Hosted server mode (`031`)** — optional for a desktop MVP; the open items are listed in the Status Summary row.
