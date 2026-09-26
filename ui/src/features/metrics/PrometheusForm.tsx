@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useStore } from '@/store'
 
+import { useObservabilitySettings } from './useObservabilitySettings'
+
 /** Configure + test the in-cluster Prometheus service; also shows the stack scan result. */
 export function PrometheusForm() {
   const send = useStore((s) => s.send)
@@ -12,6 +14,17 @@ export function PrometheusForm() {
   const [namespace, setNamespace] = useState('monitoring')
   const [service, setService] = useState('prometheus')
   const [port, setPort] = useState('9090')
+  const settings = useObservabilitySettings()
+  const saved = settings?.prometheus ?? null
+  const [hydratedFrom, setHydratedFrom] = useState<typeof settings>(undefined)
+  if (settings !== undefined && settings !== hydratedFrom) {
+    setHydratedFrom(settings)
+    if (settings.prometheus) {
+      setNamespace(settings.prometheus.namespace)
+      setService(settings.prometheus.service)
+      setPort(String(settings.prometheus.port))
+    }
+  }
   const portNum = Number(port)
   const valid =
     namespace.trim() !== '' &&
@@ -25,6 +38,9 @@ export function PrometheusForm() {
   return (
     <section aria-label="Prometheus connection" className="flex flex-col gap-2 p-3">
       <h3 className="text-sm font-medium">Prometheus</h3>
+      <p data-testid="prometheus-configured" className="text-xs text-muted-foreground">
+        {saved ? 'Configured' : 'Not configured (showing defaults)'}
+      </p>
       <form
         className="grid grid-cols-1 gap-2 sm:grid-cols-3"
         onSubmit={(e) => {

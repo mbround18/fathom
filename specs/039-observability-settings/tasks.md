@@ -30,29 +30,29 @@ description: "Task list for 039 observability settings"
 - [x] T007 [US1] Implement `ConfigureGrafana` in `src/backend/cmd/integrations.rs`: persist URL for active context, non-empty key replaces stored key, blank keeps it, keyring failure keeps URL, reports `key_set: false` and emits an error notification (FR-010); remove the TODO stub
 - [x] T008 [US1] Implement `GetObservabilitySettings` and `ClearGrafanaKey` handlers in `src/backend/cmd/integrations.rs`; emit `ObservabilitySettings` after read, configure, and clear
 - [x] T009 [P] [US1] Backend tests in `src/backend/cmd/integrations.rs` using the in-memory store: save then read, blank key keeps, clear removes, keyring failure path, event never contains the key
-- [ ] T010 [US1] Store slice in `ui/src/store/` (`integrations.settings` keyed by context) and handler for `ObservabilitySettings`; ignore events whose `context` differs from the active context; request `GetObservabilitySettings` on panel open and on context change
-- [ ] T011 [US1] Update `ui/src/components/panels/GrafanaPanel.tsx`: prefill URL from store, "configured"/"not configured" indicator, key shown as set/unset (input never prefilled), blank key on save keeps existing, keep existing validation and gating
-- [ ] T012 [P] [US1] Vitest for the store handler and GrafanaPanel hydration in `ui/tests/unit/`
-- [ ] T013 [US1] Fake-mode e2e `ui/tests/e2e/observability-settings.spec.ts`: Grafana save then reopen, context switch isolation, phone and laptop, no horizontal scroll
+- [x] T010 [US1] Store slice in `ui/src/store/` (`integrations.settings` keyed by context) and handler for `ObservabilitySettings`; ignore events whose `context` differs from the active context; request `GetObservabilitySettings` on panel open and on context change
+- [x] T011 [US1] Update `ui/src/components/panels/GrafanaPanel.tsx`: prefill URL from store, "configured"/"not configured" indicator, key shown as set/unset (input never prefilled), blank key on save keeps existing, keep existing validation and gating
+- [x] T012 [P] [US1] Vitest for the store handler and GrafanaPanel hydration in `ui/tests/unit/`
+- [x] T013 [US1] Fake-mode e2e `ui/tests/e2e/observability-settings.spec.ts`: Grafana save then reopen, context switch isolation, phone and laptop, no horizontal scroll
 
 **Checkpoint**: Grafana is usable end to end.
 
 ## Phase 4: User Story 2 - Prometheus form remembers its endpoint (P1)
 
 - [x] T014 [US2] Emit `ObservabilitySettings` after `ConfigurePrometheus` and include saved Prometheus in reads in `src/backend/cmd/integrations.rs`
-- [ ] T015 [US2] Update `ui/src/features/metrics/PrometheusForm.tsx`: prefill saved namespace/service/port, indicator, defaults marked "not configured", keep validation
-- [ ] T016 [P] [US2] Vitest for PrometheusForm hydration in `ui/tests/unit/`
-- [ ] T017 [US2] Extend `ui/tests/e2e/observability-settings.spec.ts` with Prometheus prefill, edit, and re-save cases
+- [x] T015 [US2] Update `ui/src/features/metrics/PrometheusForm.tsx`: prefill saved namespace/service/port, indicator, defaults marked "not configured", keep validation
+- [x] T016 [P] [US2] Vitest for PrometheusForm hydration in `ui/tests/unit/`
+- [x] T017 [US2] Extend `ui/tests/e2e/observability-settings.spec.ts` with Prometheus prefill, edit, and re-save cases
 
 ## Phase 5: User Story 3 - Secrets stay in the credential store (P2)
 
-- [ ] T018 [US3] Add Clear key control to `ui/src/components/panels/GrafanaPanel.tsx` sending `ClearGrafanaKey`; indicator flips to "key not set"
-- [ ] T019 [P] [US3] Secrecy tests: protocol serialization test asserting no key field in any settings payload, log-capture test in `src/backend/cmd/integrations.rs` tests, and e2e assertion that the key text never appears in the DOM or sent frames (backend half done: protocol serialization and log-capture tests; e2e assertion pending)
-- [ ] T020 [US3] Fake-mode e2e cases for clear key and keyring-unavailable error in `ui/tests/e2e/observability-settings.spec.ts`
+- [x] T018 [US3] Add Clear key control to `ui/src/components/panels/GrafanaPanel.tsx` sending `ClearGrafanaKey`; indicator flips to "key not set"
+- [x] T019 [P] [US3] Secrecy tests: protocol serialization test asserting no key field in any settings payload, log-capture test in `src/backend/cmd/integrations.rs` tests, and e2e assertion that the key text never appears in the DOM or sent frames (backend half done: protocol serialization and log-capture tests; e2e assertion done in ui/tests/e2e/observability-settings.spec.ts)
+- [x] T020 [US3] Fake-mode e2e cases for clear key and keyring-unavailable error in `ui/tests/e2e/observability-settings.spec.ts`
 
 ## Phase 6: Polish and Live
 
-- [ ] T021 Live e2e in `ui/tests/live/` (kind-fathom-dev): save Grafana URL and key, reopen, key shown set, switch context isolation
+- [x] T021 Live e2e in `ui/tests/live/` (kind-fathom-dev): save Grafana URL and key, reopen, key shown set, switch context isolation; devbridge pins one context and builds without os-keyring, so live covers URL persistence and re-select, key-set checks run only with a real store
 - [x] T022 Protocol round-trip tests and ts-rs drift check pass (`cargo test --workspace`, regenerated bindings committed)
 - [ ] T023 Gate: `cargo fmt --check`, clippy `--workspace --all-targets`, `cargo test --workspace`, ui typecheck/lint/prettier/vitest, chromium e2e on phone/tablet/laptop/wide
 - [ ] T024 Run `quickstart.md` steps 1-5 including the manual secrecy grep of `~/.fathom/integrations.json` and logs
