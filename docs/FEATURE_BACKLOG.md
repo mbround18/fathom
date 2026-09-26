@@ -13,6 +13,27 @@ Tier 2 (Gatekeeper/Trivy/Velero/cert-manager panes), Tier 3 (pod-exec terminal, 
 debug containers, mutation audit-log viewer, Fleet-style multi-context rollup, Knative pane,
 KEDA pane). See `specs/016-*` through `specs/029-*` once created.
 
+## Priority principle: never blackbox the cluster — manifest export (user, 2026-09-26)
+
+Fathom should always get the operator close to the underlying manifests. Anything the app
+shows or creates must be exportable as plain Kubernetes YAML, so the cluster never becomes
+something only Fathom can explain. Found while using Fathom's RBAC UI to set up a scoped
+prod ServiceAccount: the objects were created, but getting the equivalent manifests back
+out had to happen outside the app.
+
+- **Priority — per-resource export**: a Copy YAML / Download YAML action on every inspector
+  and resource row. Offer a "clean for re-apply" option that strips `status`,
+  `managedFields`, `resourceVersion`, `uid` and `creationTimestamp`. Today YAML is only
+  reachable through the edit/apply flow.
+- **Priority — multi-select / bundle export**: export a selection, a namespace, or an
+  Application (004 attribution) as one multi-document YAML file.
+- **Priority — "show me the manifest" before every mutation**: every create/edit flow
+  (RBAC 011, Helm 006, node shell 037, debug containers 025, kind provisioning 030) exposes
+  the exact manifest it will apply, copyable, next to the existing diff preview.
+- **Later (huge boon, not a priority)**: generate a Helm chart (Chart.yaml + templated
+  values) or a kustomize base/overlay from a selection. Needs a templating-heuristics
+  decision (which fields become values), so spike it before spec-kit.
+
 ## Tier 4 — needs an architecture spike before spec-kit
 
 - **Plugin/extension API** — the mechanism behind Lens's marketplace and every Headlamp
