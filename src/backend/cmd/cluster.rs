@@ -201,29 +201,91 @@ async fn initialize(
 
     events::notify_info(state.cluster.seq.as_ref(), sender, "Connected.".to_owned());
 
-    // Discover optional backing services.
-    metrics::probe_metrics_api(state, sender).await?;
-    auto_discover_prometheus(state).await;
-
-    // Restore saved port forwards from last session
-    if let Err(e) = crate::backend::restore_saved_port_forwards(state, sender).await {
-        events::notify_info(
-            state.cluster.seq.as_ref(),
-            sender,
-            format!("Note: Could not restore port forwards: {}", e),
-        );
-    }
-
-    // Ensure metrics are accessible via port forward
-    if let Err(e) = integrations::ensure_metrics_port_forward(state, sender).await {
-        events::notify_info(
-            state.cluster.seq.as_ref(),
-            sender,
-            format!("Note: Could not auto-setup metrics port forward: {}", e),
-        );
-    }
-
+    // Optional backing services (metrics API, Prometheus, saved port forwards) are discovered by
+    // `post_connect` after this command releases the state lock.
     refresh_core_resources(state, sender).await
+}
+
+/// What [`post_connect`] should do after a successful connect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::backend) enum PostConnect {
+    /// `Initialize`: probe metrics/Prometheus, restore saved forwards, auto-forward Prometheus.
+    Initialize,
+    /// `SetContext`: probe metrics/Prometheus for the new context.
+    SetContext,
+}
+
+/// Optional integration discovery after `Initialize` / `SetContext`, run once the command has
+/// finished and released the state lock.
+///
+/// On a cold cluster this work (metrics API probe, Prometheus discovery, port-forward restore,
+/// Prometheus auto-forward) took over 20 s, and while `Initialize` held the lock through it
+/// every pane refresh queued behind it and looked stuck on "Loading". Now each network call
+/// runs unlocked and the lock is taken only briefly to record a result; if the active context
+/// changes meanwhile, the stale results are dropped.
+pub(in crate::backend) async fn post_connect(
+    state: &tokio::sync::Mutex<BackendState>,
+    sender: &Sender<BackendEventEnvelope>,
+    kind: PostConnect,
+) {
+    let (client, context, epoch, secrets, probe) = {
+        let s = state.lock().await;
+        let Some(client) = s.cluster.client.clone() else {
+            return;
+        };
+        let probe = s.metrics.availability == crate::backend::state::MetricsAvailability::Unknown;
+        (
+            client,
+            s.cluster.current_context.clone(),
+            s.cluster.connection_epoch,
+            s.secrets.clone(),
+            probe,
+        )
+    };
+    let still_current = |s: &BackendState| {
+        s.cluster.connection_epoch == epoch && s.cluster.current_context == context
+    };
+
+    if probe {
+        let availability = metrics::detect_metrics_api(&client).await;
+        let mut s = state.lock().await;
+        if !still_current(&s) {
+            return;
+        }
+        metrics::record_metrics_availability(&mut s, sender, availability);
+    }
+
+    if let Some(ctx) = &context {
+        let _ = integrations::auto_discover_prometheus(&client, ctx, secrets.as_ref()).await;
+    }
+
+    if kind != PostConnect::Initialize {
+        return;
+    }
+
+    {
+        let mut s = state.lock().await;
+        if !still_current(&s) {
+            return;
+        }
+        // Restore saved port forwards from last session (local listeners; no cluster round trip).
+        if let Err(e) = crate::backend::restore_saved_port_forwards(&mut s, sender).await {
+            events::notify_info(
+                s.cluster.seq.as_ref(),
+                sender,
+                format!("Note: Could not restore port forwards: {}", e),
+            );
+        }
+    }
+
+    integrations::ensure_metrics_port_forward(
+        state,
+        sender,
+        &client,
+        context.as_deref(),
+        still_current,
+    )
+    .await;
 }
 
 async fn set_context(
@@ -299,9 +361,7 @@ async fn set_context(
         fleet::sync_pollers(state, sender);
     }
 
-    metrics::probe_metrics_api(state, sender).await?;
-    auto_discover_prometheus(state).await;
-
+    // Metrics API and Prometheus discovery run in `post_connect`, after the lock is released.
     refresh_core_resources(state, sender).await?;
 
     events::notify_info(
@@ -316,6 +376,7 @@ async fn set_context(
 async fn connect_and_share_client(state: &mut BackendState) -> anyhow::Result<()> {
     let client = kube::connect_client_for_current_context(state).await?;
     state.cluster.client = Some(client);
+    state.cluster.connection_epoch = state.cluster.connection_epoch.wrapping_add(1);
     // 015-mcp-agent-exposure: keep whatever stdio MCP server is running pointed at the cluster
     // Fathom itself is on. Published unconditionally — the handle exists whether or not the
     // server is enabled, so this never starts anything (FR-002).
@@ -336,15 +397,6 @@ fn emit_context_changed(state: &BackendState, sender: &Sender<BackendEventEnvelo
             current: state.cluster.current_context.clone(),
         }),
     );
-}
-
-/// Auto-discover Prometheus services in the monitoring namespace (best-effort).
-async fn auto_discover_prometheus(state: &BackendState) {
-    if let Some(client) = &state.cluster.client
-        && let Some(ctx) = &state.cluster.current_context
-    {
-        let _ = integrations::auto_discover_prometheus(client, ctx, state.secrets.as_ref()).await;
-    }
 }
 
 /// Refresh namespaces, pods and deployments, then make sure background sync runs.

@@ -26,6 +26,10 @@ pub(super) struct ClusterContext {
     /// Last catalog discovered by `RefreshCrds` (US3), consulted by `RefreshCrdInstances`/
     /// `SelectCrdInstance` to resolve a CRD's `plural`/`Scope` without re-listing every CRD.
     pub(super) crd_catalog: Vec<CrdCatalogEntry>,
+    /// Bumped on every (re)connect. Work that runs outside the command lock (`post_connect`)
+    /// compares it, with `current_context`, to drop results for a connection that has since
+    /// been replaced, including a switch away and back to the same context.
+    pub(super) connection_epoch: u64,
 }
 
 impl ClusterContext {
@@ -325,6 +329,7 @@ impl BackendState {
                 namespace_filter_shared: Arc::new(RwLock::new(Vec::new())),
                 seq: Arc::new(AtomicU64::new(0)),
                 crd_catalog: Vec::new(),
+                connection_epoch: 0,
             },
             log_stream: LogStreamState { log_task: None },
             exec_session: ExecSessionState {

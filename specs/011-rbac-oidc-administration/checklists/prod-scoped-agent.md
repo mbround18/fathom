@@ -146,8 +146,14 @@ No write was sent.
      `app.open()` returns once `ContextsUpdated` fills the combobox, so `SetNamespaceFilter` and
      `RefreshRoleBindings` queue behind a cold `Initialize` that can take over 20s. A warm rerun is
      fast.
-   - **Fixed in the spec:** `createThroughUi` waits up to 90s for the launcher, which is the real
-     reply.
+   - **Worked around in the spec first:** `createThroughUi` waited up to 90s for the launcher.
+   - **Fixed in the backend (2026-09-26):** `Initialize` and `SetContext` now do only the required
+     work (contexts, client, core lists) under the lock. Metrics-API probing, Prometheus
+     discovery, saved port-forward restore and the Prometheus auto-forward run in `post_connect`
+     (`src/backend/cmd/cluster.rs`) after `run_cmd` releases the lock, re-taking it only briefly
+     to record results and dropping them if the context changed meanwhile. The spec is back on
+     the default expect timeout. Guarded by the Rust test
+     `refresh_is_not_blocked_behind_slow_post_connect_discovery`.
    - **Still open (product):** `Initialize` should not hold the command lock through optional
      integration work. Run the core lists first and move the integrations to a follow-up
      command.
