@@ -53,28 +53,58 @@ impl AutoStartConfig {
     }
 }
 
-/// Process-wide state-directory override (031-hosted-server-mode). Set at most once, when a
-/// backend is started with a `ClusterAccess` that supplies a `state_root` (the hosted server);
-/// desktop and devbridge never set it, so their paths stay `~/.fathom`.
-static STATE_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-
-/// Install the state-directory override. First call wins; later calls are ignored.
-pub fn set_state_root(root: PathBuf) {
-    let _ = STATE_ROOT.set(root);
+thread_local! {
+    /// Per-thread state-directory override (031-hosted-server-mode). The hosted server runs one
+    /// backend per signed-in user in the same process, each with its own state root, so the
+    /// override is scoped to that backend's threads (its `fathom-backend` thread plus every
+    /// worker and blocking thread of its Tokio runtime, see [`scope_runtime_to_state_root`]).
+    /// Desktop and devbridge never set it, so their paths stay `~/.fathom`.
+    static THREAD_STATE_ROOT: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
 }
 
-/// `override_root` if given, else `<home>/.fathom`.
-fn config_dir_with(override_root: Option<&Path>) -> Result<PathBuf> {
+/// Set once by a multi-tenant process (the hosted server): a thread with no scoped state root
+/// must fail instead of falling back to a directory shared by every user.
+static REQUIRE_SCOPED_ROOT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Install the state-directory override for the current thread.
+pub fn set_thread_state_root(root: PathBuf) {
+    THREAD_STATE_ROOT.with(|r| *r.borrow_mut() = Some(root));
+}
+
+/// Make every thread `builder`'s runtime starts (workers and the blocking pool) use `root`.
+pub fn scope_runtime_to_state_root(builder: &mut tokio::runtime::Builder, root: PathBuf) {
+    builder.on_thread_start(move || set_thread_state_root(root.clone()));
+}
+
+/// Refuse the `~/.fathom` fallback process-wide (hosted server). Irreversible.
+pub fn require_scoped_state_root() {
+    REQUIRE_SCOPED_ROOT.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// `override_root` if given, else `<home>/.fathom`, unless `require_scoped` forbids the
+/// shared fallback.
+fn config_dir_resolved(override_root: Option<&Path>, require_scoped: bool) -> Result<PathBuf> {
     if let Some(root) = override_root {
         return Ok(root.to_path_buf());
+    }
+    if require_scoped {
+        return Err(anyhow!(
+            "no per-user state directory on this thread; refusing the shared fallback"
+        ));
     }
     let home = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
     Ok(home.join(".fathom"))
 }
 
-/// Get the Fathom config directory (~/.fathom/, or the hosted state root)
+/// Get the Fathom config directory (~/.fathom/, or this backend's hosted state root)
 pub fn fathom_config_dir() -> Result<PathBuf> {
-    config_dir_with(STATE_ROOT.get().map(PathBuf::as_path))
+    let scoped = THREAD_STATE_ROOT.with(|r| r.borrow().clone());
+    config_dir_resolved(
+        scoped.as_deref(),
+        REQUIRE_SCOPED_ROOT.load(std::sync::atomic::Ordering::Acquire),
+    )
 }
 
 /// Ensure the Fathom config directory exists
@@ -746,11 +776,54 @@ mod tests {
     #[test]
     fn state_root_override_and_default() {
         let custom = std::path::Path::new("/var/lib/fathom");
-        assert_eq!(config_dir_with(Some(custom)).unwrap(), custom);
-        let default = config_dir_with(None).unwrap();
+        assert_eq!(config_dir_resolved(Some(custom), false).unwrap(), custom);
+        assert_eq!(config_dir_resolved(Some(custom), true).unwrap(), custom);
+        let default = config_dir_resolved(None, false).unwrap();
         assert!(default.ends_with(".fathom"));
-        // No test installs the process-wide override, so the public path is the default.
+        // A multi-tenant process never falls back to the shared directory.
+        assert!(config_dir_resolved(None, true).is_err());
+        // No test installs an override on this thread, so the public path is the default.
         assert_eq!(fathom_config_dir().unwrap(), default);
+    }
+
+    #[test]
+    fn state_root_is_scoped_to_its_threads() {
+        let a = std::env::temp_dir().join("fathom-root-a");
+        let b = std::env::temp_dir().join("fathom-root-b");
+        let (a2, b2) = (a.clone(), b.clone());
+        let got_a = std::thread::spawn(move || {
+            set_thread_state_root(a2);
+            fathom_config_dir().unwrap()
+        })
+        .join()
+        .unwrap();
+        let got_b = std::thread::spawn(move || {
+            set_thread_state_root(b2);
+            fathom_config_dir().unwrap()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(got_a, a);
+        assert_eq!(got_b, b);
+        // Neither leaked onto this thread.
+        assert!(fathom_config_dir().unwrap().ends_with(".fathom"));
+
+        // Every thread of a scoped runtime (workers and blocking pool) sees the root.
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.worker_threads(2).enable_all();
+        scope_runtime_to_state_root(&mut builder, a.clone());
+        let rt = builder.build().unwrap();
+        let (worker, blocking) = rt.block_on(async {
+            let w = tokio::spawn(async { fathom_config_dir().unwrap() })
+                .await
+                .unwrap();
+            let b = tokio::task::spawn_blocking(|| fathom_config_dir().unwrap())
+                .await
+                .unwrap();
+            (w, b)
+        });
+        assert_eq!(worker, a);
+        assert_eq!(blocking, a);
     }
 
     #[test]

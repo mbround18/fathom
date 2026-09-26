@@ -129,10 +129,20 @@ pub fn init_with<C>(
 ) where
     C: Into<CmdRequest>,
 {
-    let rt = runtime.unwrap_or_else(|| Runtime::new().expect("Failed to create Tokio runtime"));
-
-    if let Some(root) = access.state_root() {
-        persistence::set_state_root(root);
+    // 031: a hosted backend's state root is scoped to its own threads (this one and its
+    // runtime's), never process-wide: several users' backends share the process. A caller
+    // that supplies its own runtime scopes it with `persistence::scope_runtime_to_state_root`.
+    let state_root = access.state_root();
+    let rt = runtime.unwrap_or_else(|| {
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.enable_all();
+        if let Some(root) = state_root.clone() {
+            persistence::scope_runtime_to_state_root(&mut builder, root);
+        }
+        builder.build().expect("Failed to create Tokio runtime")
+    });
+    if let Some(root) = state_root {
+        persistence::set_thread_state_root(root);
     }
     let local_features = access.allows_local_features();
     let home_context = access.home_context();
@@ -153,8 +163,8 @@ pub fn init_with<C>(
     state.mcp.disabled = args.disable_mcp || !local_features;
 
     // Clear metrics history on startup to begin fresh collection. Skipped for hosted access:
-    // the state directory is shared by every user's backend, so one user signing in must not
-    // wipe another's history.
+    // a user's backend is re-created on every sign-in after idle teardown, and history is
+    // kept across those restarts.
     if local_features && let Err(e) = persistence::clear_metrics_history() {
         tracing::warn!("Failed to clear metrics history on startup: {}", e);
     }
