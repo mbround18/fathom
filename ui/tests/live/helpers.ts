@@ -465,7 +465,7 @@ export interface BridgeTap {
 }
 
 const WRITE_CMD =
-  /^(Delete|BulkDelete|Scale|Restart|Rollback|Cordon|Uncordon|Drain|Evict|Apply|Create|Patch|Update|Edit|Suspend|Resume|Trigger)/
+  /^(Delete|BulkDelete|Scale|Restart|Rollback|Cordon|Uncordon|Drain|Evict|Apply|Create|Patch|Update|Edit|Suspend|Resume|Trigger|Uninstall|StartPodExec|SendPodExecInput|StartNodeShell)/
 
 /**
  * Route the page's bridge WebSocket through Playwright (install BEFORE `app.open()`): every

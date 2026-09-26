@@ -27,7 +27,7 @@ export const OUT_DIR = fileURLToPath(new URL('../../promo-out/', import.meta.url
 export const SHOTS_DIR = `${OUT_DIR}shots/`
 
 const WRITE_CMD =
-  /^(Delete|BulkDelete|Scale|Restart|Rollback|Cordon|Uncordon|Drain|Evict|Apply|Create|Patch|Update|Edit|Suspend|Resume|Trigger)/
+  /^(Delete|BulkDelete|Scale|Restart|Rollback|Cordon|Uncordon|Drain|Evict|Apply|Create|Patch|Update|Edit|Suspend|Resume|Trigger|Uninstall|StartPodExec|SendPodExecInput|StartNodeShell)/
 
 /** Opens a tool pane by injecting a client-only `UiConfigLoaded` frame; sends no command. */
 export interface ToolPaneInjector {
