@@ -417,7 +417,22 @@ async fn handle_uninstall_helm_release(
         }
     };
 
-    match helm::uninstall_helm_release(&client, &namespace, &release, base_revision).await {
+    let target = match helm::HelmTarget::for_context(
+        state.cluster.current_context.as_deref(),
+        &namespace,
+        &release,
+        crate::protocol::HelmMutationAction::Uninstall,
+        crate::protocol::HelmMutationStage::Apply,
+    ) {
+        Ok(target) => target,
+        Err(failed) => {
+            emit_helm_mutation_failed(state, sender, route, namespace, release, failed.message);
+            return Ok(());
+        }
+    };
+
+    match helm::uninstall_helm_release(&client, &target, &namespace, &release, base_revision).await
+    {
         Ok(applied) => {
             crate::backend::events::emit(
                 state.cluster.seq.as_ref(),
