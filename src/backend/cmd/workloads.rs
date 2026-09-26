@@ -203,6 +203,18 @@ async fn bulk_delete_pods(
     pods::refresh_pods(state, sender).await
 }
 
+/// Post-mutation refresh. The write already succeeded; the follow-up list (cluster-wide when no
+/// namespace filter is set) can be forbidden to a namespace-scoped user (hosted per-user RBAC),
+/// which must not turn a successful write into a failed command.
+async fn refresh_deployments_best_effort(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    if let Err(e) = deployments::refresh_deployments(state, sender).await {
+        tracing::warn!("post-mutation deployments refresh failed: {e:#}");
+    }
+}
+
 async fn handle_deployment_daemonset_cmd(
     cmd: BackendCmd,
     state: &mut BackendState,
@@ -219,15 +231,15 @@ async fn handle_deployment_daemonset_cmd(
             replicas,
         } => {
             deployments::scale_deployment(state, sender, &namespace, &name, replicas).await?;
-            deployments::refresh_deployments(state, sender).await?;
+            refresh_deployments_best_effort(state, sender).await;
         }
         BackendCmd::RestartDeployment { namespace, name } => {
             deployments::restart_deployment(state, sender, &namespace, &name).await?;
-            deployments::refresh_deployments(state, sender).await?;
+            refresh_deployments_best_effort(state, sender).await;
         }
         BackendCmd::DeleteDeployment { namespace, name } => {
             deployments::delete_deployment(state, sender, &namespace, &name).await?;
-            deployments::refresh_deployments(state, sender).await?;
+            refresh_deployments_best_effort(state, sender).await;
         }
         BackendCmd::RefreshDaemonSets => daemonsets::refresh_daemonsets(state, sender).await?,
         BackendCmd::SelectDaemonSet { namespace, name } => {

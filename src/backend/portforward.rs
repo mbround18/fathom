@@ -19,6 +19,38 @@ use tokio::io::copy_bidirectional;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 
+/// Refuse up front when the caller may not `create pods/portforward`, so a denied user sees an
+/// error instead of a tunnel that only fails on first connection. Review failures are not fatal.
+async fn ensure_portforward_allowed(client: &Client, namespace: &str, pod: &str) -> Result<()> {
+    use k8s_openapi::api::authorization::v1::{
+        ResourceAttributes, SelfSubjectAccessReview, SelfSubjectAccessReviewSpec,
+    };
+    use kube::api::PostParams;
+    let review = SelfSubjectAccessReview {
+        spec: SelfSubjectAccessReviewSpec {
+            resource_attributes: Some(ResourceAttributes {
+                namespace: Some(namespace.to_string()),
+                verb: Some("create".into()),
+                resource: Some("pods".into()),
+                subresource: Some("portforward".into()),
+                name: Some(pod.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let api: Api<SelfSubjectAccessReview> = Api::all(client.clone());
+    if let Ok(r) = api.create(&PostParams::default(), &review).await
+        && r.status.is_some_and(|s| !s.allowed)
+    {
+        return Err(anyhow!(
+            "forbidden: you may not port-forward to pod {namespace}/{pod}"
+        ));
+    }
+    Ok(())
+}
+
 /// Pipe data bidirectionally between two async streams until one side closes.
 async fn pipe_streams<S1, S2>(a: &mut S1, b: &mut S2) -> Result<()>
 where
@@ -58,6 +90,7 @@ impl PortForwardManager {
         remote_port: u16,
         container: Option<String>,
     ) -> Result<String> {
+        ensure_portforward_allowed(client, namespace, pod).await?;
         let tunnel_id = format!("pf-{}", self.next_tunnel_id);
         self.next_tunnel_id += 1;
 
