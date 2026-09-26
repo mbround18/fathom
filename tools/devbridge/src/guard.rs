@@ -386,7 +386,11 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            g.check(&create("RoleBinding", Some("fathom-e2e"), "fathom-agent-admin")),
+            g.check(&create(
+                "RoleBinding",
+                Some("fathom-e2e"),
+                "fathom-agent-admin"
+            )),
             Ok(())
         );
         // Same name, other kind/scope/namespace: refused.
