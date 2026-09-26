@@ -178,6 +178,70 @@ mod tests {
         assert!(msg.contains("Anthropic rejected the API key"), "{msg}");
         assert!(msg.contains("401"), "{msg}");
         assert!(msg.contains("invalid x-api-key"), "{msg}");
+        // FR-015: an invalid key is a distinct typed failure (drives NeedsReauth), not a
+        // generic error.
+        assert!(
+            matches!(
+                err.downcast_ref::<TurnFailure>(),
+                Some(TurnFailure::AuthRejected {
+                    provider: crate::protocol::v1::Provider::Claude,
+                    ..
+                })
+            ),
+            "{err:?}"
+        );
+    }
+
+    /// FR-015: a missing key is refused before any request is made, with its own message
+    /// (distinct from a rejected key, an unreachable endpoint and a missing model).
+    #[tokio::test]
+    async fn missing_key_is_refused_without_a_request() {
+        let server = MockServer::start().await;
+        let client = AnthropicClient::new_with_base_url(
+            "   ".to_owned(),
+            format!("{}/v1/messages", server.uri()),
+        );
+        let err = client
+            .send_turn("system prompt", &[])
+            .await
+            .expect_err("missing key must be an error");
+        assert_eq!(err.to_string(), "Anthropic API key is not configured");
+        assert!(err.downcast_ref::<TurnFailure>().is_none(), "{err:?}");
+        assert!(
+            server
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .is_empty(),
+            "no request may be sent without a key"
+        );
+    }
+
+    /// FR-015: a model-not-found 404 carries its own hint and is not mistaken for an auth
+    /// failure.
+    #[tokio::test]
+    async fn surfaces_model_not_found_distinctly() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(404).set_body_string(
+                r#"{"type":"error","error":{"type":"not_found_error","message":"model: claude-ghost"}}"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let client = AnthropicClient::new_with_base_url(
+            "sk-ant-test".to_owned(),
+            format!("{}/v1/messages", server.uri()),
+        );
+        let err = client
+            .send_turn("system prompt", &[])
+            .await
+            .expect_err("404 must be an error");
+        let msg = err.to_string();
+        assert!(msg.starts_with("Anthropic model not found. "), "{msg}");
+        assert!(msg.contains("model: claude-ghost"), "{msg}");
+        assert!(err.downcast_ref::<TurnFailure>().is_none(), "{err:?}");
     }
 
     /// Same for a 429 rate-limit response.

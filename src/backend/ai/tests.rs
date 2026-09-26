@@ -340,6 +340,61 @@ async fn empty_key_is_refused_without_network() {
     assert!(r.http.recorded().is_empty());
 }
 
+/// 013 T028 / FR-015: Claude selected but no key stored -> the turn is refused with its own
+/// "not signed in" message before any request is made.
+#[tokio::test]
+async fn claude_turn_without_a_stored_key_is_refused_without_network() {
+    let r = rig(endpoints("http://127.0.0.1:1"));
+    r.rt.session().settings.active_provider = Some(Provider::Claude);
+    let err = r.rt.turn_client().await.err().expect("no key must refuse");
+    assert!(err.to_string().contains("is not signed in"), "{err}");
+    assert!(r.http.recorded().is_empty());
+}
+
+/// 013 T028 / FR-015: a stored Claude key rejected with 401 mid-turn surfaces the verbatim
+/// provider text as a typed `AuthRejected`, which flips the provider to NeedsReauth.
+#[tokio::test]
+async fn claude_401_during_a_turn_is_typed_and_needs_reauth() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(401).set_body_string(
+            r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#,
+        ))
+        .mount(&server)
+        .await;
+    let r = rig(endpoints(&server.uri()));
+    r.rt.submit_api_key(
+        Provider::Claude,
+        ApiKeyInput("sk-ant-revoked".into()),
+        &r.em,
+    )
+    .await;
+    r.rt.set_active_provider(Some(Provider::Claude), &r.em)
+        .await;
+    let err =
+        r.rt.turn_client()
+            .await
+            .ok()
+            .expect("claude client")
+            .send_turn("s", &[])
+            .await
+            .unwrap_err();
+    assert!(err.to_string().contains("invalid x-api-key"), "{err}");
+    match err.downcast_ref::<crate::backend::agent::TurnFailure>() {
+        Some(crate::backend::agent::TurnFailure::AuthRejected { provider, .. }) => {
+            r.rt.mark_needs_reauth(*provider, &r.em);
+        }
+        other => panic!("expected AuthRejected, got {other:?}"),
+    }
+    assert_eq!(r.status(Provider::Claude).state, ProviderState::NeedsReauth);
+}
+
 #[tokio::test]
 async fn sign_out_deletes_credential_and_github_says_revoke_is_manual() {
     let server = MockServer::start().await;
