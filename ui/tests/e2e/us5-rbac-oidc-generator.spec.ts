@@ -85,8 +85,10 @@ test.describe('US5 OIDC config generator', () => {
     await expect(copyButton).toBeEnabled()
     await copyButton.click()
 
-    const clipboardText = await readClipboard(page, browserName)
-    expect(clipboardText).toContain('--oidc-issuer-url=https://accounts.example.com')
+    // The copy handler writes asynchronously; wait for the write rather than reading once.
+    await expect
+      .poll(() => readClipboard(page, browserName))
+      .toContain('--oidc-issuer-url=https://accounts.example.com')
   })
 
   test('export button downloads a file with the flags and instructions', async ({ page }) => {

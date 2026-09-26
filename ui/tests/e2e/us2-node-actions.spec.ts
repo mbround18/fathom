@@ -14,8 +14,8 @@ import {
   emit,
   finish,
   inspector,
-  nextRequestId,
   open,
+  requestIdOf,
   sentIgnoringNodePoll,
   sentTypes,
 } from './helpers'
@@ -52,9 +52,9 @@ async function goToNode(page: Page): Promise<void> {
   // test starts asserting on `sent()`, or it pollutes the very next assertion.
   await expect.poll(() => sentTypes(page, true)).toContain('SaveUiConfig')
   // On phone/tablet the row click hides the Nodes list, and its node-metrics poll is released
-  // 1.5s later (`nodePolling.ts`). That `StopNodeMetricsPolling` consumes a request id, so it
-  // must land before a test predicts one with `nextRequestId`.
-  await page.waitForTimeout(1600)
+  // 1.5s later (`nodePolling.ts`); that `StopNodeMetricsPolling` can land at any point in a test.
+  // So tests read the id the fake actually assigned (`requestIdOf`) instead of predicting one,
+  // and compare sent commands with `sentIgnoringNodePoll`.
 }
 
 test.describe('US2 node actions', () => {
@@ -66,24 +66,22 @@ test.describe('US2 node actions', () => {
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('confirm-typed-count')).toHaveCount(0)
-    const cordonId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect(dialog).toBeHidden()
     await expect
       .poll(() => sentIgnoringNodePoll(page))
       .toEqual([{ type: 'CordonNode', data: { name: NODE_A.name } }])
-    await finish(page, cordonId, true)
+    await finish(page, await requestIdOf(page, 'CordonNode'), true)
     await expect(actionToast(page, 'success').first()).toContainText('Cordon')
 
     await clearSent(page)
     await page.getByTestId('node-action-uncordon').click()
     await expect(dialog).toBeVisible()
-    const uncordonId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
       .poll(() => sentIgnoringNodePoll(page))
       .toEqual([{ type: 'UncordonNode', data: { name: NODE_A.name } }])
-    await finish(page, uncordonId, true)
+    await finish(page, await requestIdOf(page, 'UncordonNode'), true)
     await expect(actionToast(page, 'success').filter({ hasText: 'Uncordon' })).toBeVisible()
   })
 
@@ -97,7 +95,6 @@ test.describe('US2 node actions', () => {
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('confirm-typed-count')).toHaveCount(0)
-    const drainId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
       .poll(() => sentIgnoringNodePoll(page))
@@ -107,6 +104,7 @@ test.describe('US2 node actions', () => {
           data: { name: NODE_A.name, ignore_daemonsets: true, force_delete_empty_dir: false },
         },
       ])
+    const drainId = await requestIdOf(page, 'DrainNode')
 
     await emit(
       page,
@@ -153,9 +151,9 @@ test.describe('US2 node actions', () => {
 
     await page.getByTestId('node-action-drain').click()
     const dialog = confirmDialog(page)
-    const drainId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect.poll(() => sentTypes(page)).toContain('DrainNode')
+    const drainId = await requestIdOf(page, 'DrainNode')
 
     await emit(
       page,
@@ -179,9 +177,9 @@ test.describe('US2 node actions', () => {
 
     await page.getByTestId('node-action-drain').click()
     const dialog = confirmDialog(page)
-    const drainId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect.poll(() => sentTypes(page)).toContain('DrainNode')
+    const drainId = await requestIdOf(page, 'DrainNode')
 
     await emit(
       page,
@@ -223,7 +221,6 @@ test.describe('US2 node actions', () => {
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTestId('confirm-typed-count')).toHaveCount(0)
-    const addId = await nextRequestId(page)
     await dialog.getByTestId('confirm-submit').click()
     await expect
       .poll(() => sentIgnoringNodePoll(page))
@@ -239,11 +236,10 @@ test.describe('US2 node actions', () => {
           },
         },
       ])
-    await finish(page, addId, true)
+    await finish(page, await requestIdOf(page, 'TaintNode'), true)
     await expect(actionToast(page, 'success').first()).toContainText('Add taint')
 
     await clearSent(page)
-    const removeId = await nextRequestId(page)
     await page.getByTestId('node-action-taint-remove').click()
     await expect(dialog).toBeVisible()
     await dialog.getByTestId('confirm-submit').click()
@@ -261,7 +257,7 @@ test.describe('US2 node actions', () => {
           },
         },
       ])
-    await finish(page, removeId, true)
+    await finish(page, await requestIdOf(page, 'TaintNode'), true)
     await expect(actionToast(page, 'success').filter({ hasText: 'Remove taint' })).toBeVisible()
   })
 })
