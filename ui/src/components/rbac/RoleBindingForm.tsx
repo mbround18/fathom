@@ -34,7 +34,7 @@ import { RBAC_GROUP, useMutationAccess } from '@/hooks/useMutationAccess'
 import { detailKey, listKey, useStore } from '@/store'
 
 import { SubjectEditor, subjectsValid } from './SubjectEditor'
-import { patchRoleBindingSubjects, roleBindingManifestYaml } from './roleBindingYaml'
+import { parseLabels, patchRoleBindingSubjects, roleBindingManifestYaml } from './roleBindingYaml'
 
 export type RoleBindingKind = 'RoleBinding' | 'ClusterRoleBinding'
 type RoleRefKind = 'Role' | 'ClusterRole'
@@ -102,6 +102,10 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
     existing ? parseRoleRef(existing.role_ref).name : '',
   )
   const [subjects, setSubjects] = useState<SubjectSummary[]>(existing?.subjects ?? [])
+  // Create mode only: `key=value, ...` for metadata.labels (edit mode carries the live labels
+  // through untouched via `raw_json`).
+  const [labelsText, setLabelsText] = useState('')
+  const parsedLabels = parseLabels(labelsText)
   const [confirmOpen, setConfirmOpen] = useState(false)
   // Edit mode's session key is derived, not stored: it is fully determined by `existing` (stable
   // for the life of this form instance), so deriving it avoids a `setState` call inside the
@@ -192,7 +196,8 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
     name.trim().length > 0 &&
     roleRefName.trim().length > 0 &&
     (kind === 'ClusterRoleBinding' || namespace.trim().length > 0) &&
-    validSubjects
+    validSubjects &&
+    parsedLabels.ok
 
   const review = () => {
     if (mode === 'create') {
@@ -203,6 +208,7 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
         roleRefKind,
         roleRefName,
         subjects,
+        labels: parsedLabels.ok ? parsedLabels.labels : undefined,
       })
       const key = openCreateEditSession(
         { apiVersion: 'rbac.authorization.k8s.io/v1', kind, namespace: effectiveNamespace, name },
@@ -345,6 +351,24 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
           </div>
 
           <SubjectEditor subjects={subjects} onChange={setSubjects} />
+
+          {mode === 'create' && (
+            <label htmlFor="rbac-binding-labels-input" className="flex flex-col gap-1 text-xs">
+              Labels (optional, key=value, comma-separated)
+              <Input
+                id="rbac-binding-labels-input"
+                data-testid="rbac-binding-labels"
+                placeholder="app.kubernetes.io/managed-by=fathom"
+                value={labelsText}
+                onChange={(e) => setLabelsText(e.target.value)}
+              />
+              {!parsedLabels.ok && (
+                <span data-testid="rbac-binding-labels-error" className="text-destructive">
+                  {parsedLabels.error}
+                </span>
+              )}
+            </label>
+          )}
 
           <div className="flex shrink-0 items-center justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={onClose}>

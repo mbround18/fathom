@@ -19,6 +19,40 @@ export interface RoleBindingManifestInput {
   roleRefKind: 'Role' | 'ClusterRole'
   roleRefName: string
   subjects: readonly RoleBindingSubjectInput[]
+  /** Optional `metadata.labels` (create mode). Omitted from the manifest when empty. */
+  labels?: Readonly<Record<string, string>>
+}
+
+/** A label key: optional DNS-subdomain prefix + `/`, then a 1-63 char name (k8s rules). */
+const LABEL_KEY =
+  /^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/
+/** A label value: empty, or 1-63 chars, alphanumeric at both ends. */
+const LABEL_VALUE = /^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/
+
+/**
+ * Parse the form's `key=value, key2=value2` labels field. Returns the labels, or an error
+ * naming the first invalid entry. Blank input is `{}`.
+ */
+export function parseLabels(
+  input: string,
+): { ok: true; labels: Record<string, string> } | { ok: false; error: string } {
+  const labels: Record<string, string> = {}
+  for (const raw of input.split(',')) {
+    const entry = raw.trim()
+    if (entry === '') continue
+    const eq = entry.indexOf('=')
+    if (eq <= 0) return { ok: false, error: `'${entry}' is not key=value` }
+    const key = entry.slice(0, eq).trim()
+    const value = entry.slice(eq + 1).trim()
+    if (key.length > 316 || !LABEL_KEY.test(key)) {
+      return { ok: false, error: `'${key}' is not a valid label key` }
+    }
+    if (!LABEL_VALUE.test(value)) {
+      return { ok: false, error: `'${value}' is not a valid label value` }
+    }
+    labels[key] = value
+  }
+  return { ok: true, labels }
 }
 
 const API_VERSION = 'rbac.authorization.k8s.io/v1'
@@ -41,6 +75,7 @@ function subjectToManifest(s: RoleBindingSubjectInput): Record<string, unknown> 
 export function buildRoleBindingManifest(input: RoleBindingManifestInput): Record<string, unknown> {
   const metadata: Record<string, unknown> = { name: input.name }
   if (input.kind === 'RoleBinding' && input.namespace) metadata.namespace = input.namespace
+  if (input.labels && Object.keys(input.labels).length > 0) metadata.labels = { ...input.labels }
 
   return {
     apiVersion: API_VERSION,

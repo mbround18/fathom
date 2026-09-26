@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildRoleBindingManifest,
+  parseLabels,
   patchRoleBindingSubjects,
   roleBindingManifestYaml,
 } from '@/components/rbac/roleBindingYaml'
@@ -111,5 +112,45 @@ describe('patchRoleBindingSubjects (edit mode)', () => {
 
   it('falls back to an empty base object on unparsable rawJson rather than throwing', () => {
     expect(() => patchRoleBindingSubjects('not json', 'Role', 'x', [])).not.toThrow()
+  })
+})
+
+describe('labels (create mode)', () => {
+  it('parseLabels: blank is empty, key=value pairs parse, whitespace is trimmed', () => {
+    expect(parseLabels('')).toEqual({ ok: true, labels: {} })
+    expect(parseLabels(' app.kubernetes.io/managed-by = fathom-rbac-setup , tier=a,')).toEqual({
+      ok: true,
+      labels: { 'app.kubernetes.io/managed-by': 'fathom-rbac-setup', tier: 'a' },
+    })
+    expect(parseLabels('empty=')).toEqual({ ok: true, labels: { empty: '' } })
+  })
+
+  it('parseLabels: rejects entries without =, bad keys, bad values', () => {
+    expect(parseLabels('novalue').ok).toBe(false)
+    expect(parseLabels('=v').ok).toBe(false)
+    expect(parseLabels('bad key=v').ok).toBe(false)
+    expect(parseLabels('k=has space').ok).toBe(false)
+    expect(parseLabels(`k=${'x'.repeat(64)}`).ok).toBe(false)
+  })
+
+  it('buildRoleBindingManifest: labels land in metadata.labels, omitted when empty', () => {
+    const base = {
+      kind: 'ClusterRoleBinding' as const,
+      name: 'fathom-agent-view',
+      namespace: null,
+      roleRefKind: 'ClusterRole' as const,
+      roleRefName: 'view',
+      subjects: [{ kind: 'ServiceAccount', name: 'fathom-agent', namespace: 'fathom-e2e' }],
+    }
+    const labelled = buildRoleBindingManifest({
+      ...base,
+      labels: { 'app.kubernetes.io/managed-by': 'fathom-rbac-setup' },
+    })
+    expect(labelled.metadata).toEqual({
+      name: 'fathom-agent-view',
+      labels: { 'app.kubernetes.io/managed-by': 'fathom-rbac-setup' },
+    })
+    expect(buildRoleBindingManifest({ ...base, labels: {} }).metadata).not.toHaveProperty('labels')
+    expect(buildRoleBindingManifest(base).metadata).not.toHaveProperty('labels')
   })
 })
