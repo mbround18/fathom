@@ -10,10 +10,12 @@ import { useEffect, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { exportFilename } from '@/features/manifest-export/clean'
+import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import type { KindClusterProfileId } from '@/protocol/types'
 import { useStore, type KindOperation } from '@/store'
 
-import { validateKindClusterName } from './kind-validation'
+import { KIND_BARE_CONFIG, validateKindClusterName } from './kind-validation'
 
 const INSTALL_URL = 'https://kind.sigs.k8s.io/docs/user/quick-start/#installation'
 
@@ -307,12 +309,26 @@ export function KindClusterPanel() {
         title="Create local cluster"
         items={[{ namespace: null, name }]}
         detail={
-          <span data-testid="kind-create-summary">
-            Creates kind cluster “{name}” — profile:{' '}
-            {profile === 'bare' ? 'bare single-node' : 'custom YAML'}, nodes:{' '}
-            {profile === 'bare' ? 1 : 'as defined by your config'}. This adds a kubeconfig context
-            named kind-{name}.
-          </span>
+          <div className="flex flex-col gap-2">
+            <span data-testid="kind-create-summary">
+              Creates kind cluster “{name}” — profile:{' '}
+              {profile === 'bare' ? 'bare single-node' : 'custom YAML'}, nodes:{' '}
+              {profile === 'bare' ? 1 : 'as defined by your config'}. This adds a kubeconfig context
+              named kind-{name}.
+            </span>
+            <pre
+              data-testid="kind-config-preview"
+              className="max-h-48 overflow-auto border border-border bg-background p-2 font-mono text-xs whitespace-pre text-foreground"
+            >
+              {profile === 'bare' ? KIND_BARE_CONFIG : customYaml}
+            </pre>
+            <ManifestActions
+              idPrefix="kind-config"
+              what="kind config"
+              text={profile === 'bare' ? KIND_BARE_CONFIG : customYaml}
+              filename={exportFilename('kind', [{ namespace: null, name: name || 'cluster' }])}
+            />
+          </div>
         }
         confirmLabel="Create cluster"
         onConfirm={confirmCreate}

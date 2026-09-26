@@ -11,3 +11,10 @@ export function validateKindClusterName(name: string, existing: readonly string[
   if (existing.includes(name)) return `A kind cluster named '${name}' already exists.`
   return null
 }
+
+/**
+ * 040 US3 (FR-018): the config the bare profile passes to `kind create cluster`, shown before
+ * create. Mirrors `BARE_CONFIG` in `src/backend/kind.rs` (a unit test guards drift).
+ */
+export const KIND_BARE_CONFIG =
+  'kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n- role: control-plane\n'

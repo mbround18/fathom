@@ -14,6 +14,7 @@ mod cluster;
 mod idp;
 mod integrations;
 mod kind_cluster;
+mod manifest_export;
 mod mcp;
 mod node_shell;
 mod oidc;
@@ -78,6 +79,10 @@ pub async fn dispatch_cmd(
         other => other,
     };
 
+    // 040-manifest-export: YAML fetch for export and kubeconfig export.
+    let Some(cmd) = manifest_export::handle(cmd, state, sender) else {
+        return Ok(false);
+    };
     let Some(cmd) = port_forwards::handle(cmd, state, sender).await else {
         return Ok(false);
     };

@@ -335,6 +335,24 @@ pub enum SystemEvent {
         query: CapabilityQuery,
         result: CapabilityResult,
     },
+    /// Reply to `FetchManifests` (040). Every requested index appears in exactly one of
+    /// `manifests` or `errors`, except an over-cap request (one error, index 0).
+    ManifestsFetched {
+        request_id: String,
+        manifests: Vec<super::FetchedManifest>,
+        errors: Vec<super::ManifestFetchError>,
+    },
+    /// Reply to `PreviewKubeconfigExport` (040). Contains no credential value.
+    KubeconfigExportPreviewed(super::KubeconfigExportPreview),
+    /// Result of `ExportKubeconfig`, or a failed preview (040). `message` never carries a
+    /// credential value.
+    KubeconfigExportFinished {
+        context: String,
+        ok: bool,
+        path: Option<String>,
+        embedded_credentials_written: bool,
+        message: Option<String>,
+    },
     RoleAssignmentPreview {
         yaml: String,
         rendered_subject_name: String,
@@ -1010,6 +1028,45 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         let back: SystemEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(format!("{back:?}"), format!("{event:?}"));
+    }
+
+    #[test]
+    fn manifest_export_events_roundtrip() {
+        use crate::protocol::v1::{
+            FetchedManifest, KubeconfigCredentialKind, KubeconfigExportPreview, ManifestFetchError,
+        };
+        system_roundtrip(SystemEvent::ManifestsFetched {
+            request_id: "exp-1".to_owned(),
+            manifests: vec![FetchedManifest {
+                index: 0,
+                raw_json: "{\"kind\":\"Deployment\"}".to_owned(),
+            }],
+            errors: vec![ManifestFetchError {
+                index: 1,
+                message: "not found".to_owned(),
+            }],
+        });
+        system_roundtrip(SystemEvent::KubeconfigExportPreviewed(
+            KubeconfigExportPreview {
+                context: "c".to_owned(),
+                redacted_yaml: "apiVersion: v1\n".to_owned(),
+                credential: KubeconfigCredentialKind::Exec {
+                    command: "kubelogin".to_owned(),
+                },
+                embedded_secret_fields: vec!["token".to_owned()],
+                file_references: vec![],
+                warnings: vec![],
+                suggested_path: "/home/u/.kube/fathom-c.yaml".to_owned(),
+                source_path: "/home/u/.kube/config".to_owned(),
+            },
+        ));
+        system_roundtrip(SystemEvent::KubeconfigExportFinished {
+            context: "c".to_owned(),
+            ok: true,
+            path: Some("/home/u/.kube/fathom-c.yaml".to_owned()),
+            embedded_credentials_written: false,
+            message: None,
+        });
     }
 
     #[test]

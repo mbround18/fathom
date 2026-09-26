@@ -19,6 +19,7 @@ import type { DaemonTimelineEntry } from "./DaemonTimelineEntry";
 import type { DiskUsage } from "./DiskUsage";
 import type { FederationCombinedRollup } from "./FederationCombinedRollup";
 import type { FederationContextRollup } from "./FederationContextRollup";
+import type { FetchedManifest } from "./FetchedManifest";
 import type { FleetContextSummary } from "./FleetContextSummary";
 import type { FluxOverview } from "./FluxOverview";
 import type { GatekeeperOverview } from "./GatekeeperOverview";
@@ -31,8 +32,10 @@ import type { IdpDirectorySnapshot } from "./IdpDirectorySnapshot";
 import type { KedaOverview } from "./KedaOverview";
 import type { KedaResourceDetails } from "./KedaResourceDetails";
 import type { KnativeOverview } from "./KnativeOverview";
+import type { KubeconfigExportPreview } from "./KubeconfigExportPreview";
 import type { LimitKind } from "./LimitKind";
 import type { LoginFlow } from "./LoginFlow";
+import type { ManifestFetchError } from "./ManifestFetchError";
 import type { MetricSeries } from "./MetricSeries";
 import type { MetricsStackScanResult } from "./MetricsStackScanResult";
 import type { NodeShellAccessCheck } from "./NodeShellAccessCheck";
@@ -81,7 +84,7 @@ ollama_model: string | null, } } | { "type": "AiLoginFlowUpdate", "data": { flow
 /**
  * Current identity per signed-in issuer (empty when nobody is signed in).
  */
-identities: Array<OidcIdentity>, } } | { "type": "OidcSignInProgress", "data": { issuer_id: string, stage: OidcSignInStage, } } | { "type": "OidcIdentityUpdated", "data": { issuer_id: string, identity: OidcIdentity | null, } } | { "type": "OidcSessionEnded", "data": { issuer_id: string, reason: string, } } | { "type": "OidcError", "data": { issuer_id: string, stage: string, message: string, } } | { "type": "IdpAdminKeyStatus", "data": { issuer_id: string, present: boolean, } } | { "type": "IdpDirectoryUpdated", "data": IdpDirectorySnapshot } | { "type": "TeamLinksUpdated", "data": { links: Array<TeamLink>, } } | { "type": "CapabilitiesResolved", "data": CapabilitySet } | { "type": "CapabilityChecked", "data": { query: CapabilityQuery, result: CapabilityResult, } } | { "type": "RoleAssignmentPreview", "data": { yaml: string, rendered_subject_name: string, warnings: Array<string>, } } | { "type": "OrphanedSubjectsUpdated", "data": { orphans: Array<OrphanedSubject>, } } | { "type": "ConnectionProfilesUpdated", "data": { 
+identities: Array<OidcIdentity>, } } | { "type": "OidcSignInProgress", "data": { issuer_id: string, stage: OidcSignInStage, } } | { "type": "OidcIdentityUpdated", "data": { issuer_id: string, identity: OidcIdentity | null, } } | { "type": "OidcSessionEnded", "data": { issuer_id: string, reason: string, } } | { "type": "OidcError", "data": { issuer_id: string, stage: string, message: string, } } | { "type": "IdpAdminKeyStatus", "data": { issuer_id: string, present: boolean, } } | { "type": "IdpDirectoryUpdated", "data": IdpDirectorySnapshot } | { "type": "TeamLinksUpdated", "data": { links: Array<TeamLink>, } } | { "type": "CapabilitiesResolved", "data": CapabilitySet } | { "type": "CapabilityChecked", "data": { query: CapabilityQuery, result: CapabilityResult, } } | { "type": "ManifestsFetched", "data": { request_id: string, manifests: Array<FetchedManifest>, errors: Array<ManifestFetchError>, } } | { "type": "KubeconfigExportPreviewed", "data": KubeconfigExportPreview } | { "type": "KubeconfigExportFinished", "data": { context: string, ok: boolean, path: string | null, embedded_credentials_written: boolean, message: string | null, } } | { "type": "RoleAssignmentPreview", "data": { yaml: string, rendered_subject_name: string, warnings: Array<string>, } } | { "type": "OrphanedSubjectsUpdated", "data": { orphans: Array<OrphanedSubject>, } } | { "type": "ConnectionProfilesUpdated", "data": { 
 /**
  * Profiles this operator has adopted locally (still-shared or not).
  */

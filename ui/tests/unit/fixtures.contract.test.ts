@@ -93,6 +93,26 @@ describe('scenario replies are valid batches', () => {
       data: { namespace: PODS_500[0]?.namespace ?? '', name: PODS_500[0]?.name ?? '' },
     },
     { type: 'RefreshEvents' },
+    {
+      type: 'FetchManifests',
+      data: {
+        request_id: 'r1',
+        objects: [
+          { api_version: 'apps/v1', kind: 'Deployment', namespace: 'default', name: 'api' },
+          { api_version: 'apps/v1', kind: 'Deployment', namespace: 'default', name: 'missing' },
+        ],
+      },
+    },
+    { type: 'PreviewKubeconfigExport', data: { context: 'kind-a' } },
+    {
+      type: 'ExportKubeconfig',
+      data: {
+        context: 'kind-b',
+        path: '/tmp/k.yaml',
+        include_embedded_credentials: false,
+        overwrite: false,
+      },
+    },
     { type: 'SetContext', data: { context: 'kind-b' } },
   ]
   const names = Object.keys(SCENARIOS) as ScenarioName[]

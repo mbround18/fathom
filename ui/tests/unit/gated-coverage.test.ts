@@ -20,6 +20,8 @@ const MUTATING =
 const NOT_CLUSTER_MUTATING: Record<string, string> = {
   'port-forward-stop': 'tears down a local tunnel; writes nothing to the cluster',
   'node-action-cancel-drain': 'cancels an in-flight drain; only stops further evictions',
+  'action-export-yaml': '040: read-only manifest export, offered to read-only identities too',
+  'bulk-export': '040: read-only bundle export of the selection, offered to read-only identities',
 }
 
 /** Controls that MUST be found (guards against the scan silently matching nothing). */

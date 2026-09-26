@@ -22,6 +22,8 @@ import { detailKey, useStore } from '@/store'
 import { cn } from '@/lib/utils'
 
 import { YamlDiffView } from './YamlDiffView'
+import { exportFilename } from '@/features/manifest-export/clean'
+import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 
 const STATUS_LABEL: Record<string, string> = {
   conflict: 'Someone else changed this object first',
@@ -121,7 +123,17 @@ export function YamlEditTab({ target, raw }: { target: ObjectRef; raw: string | 
         )}
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-3 py-2">
+        {showDiff && (
+          // 040 US3 (FR-018): the full manifest that Apply sends, not only the diff.
+          <ManifestActions
+            idPrefix="review-manifest"
+            text={session.editedYaml}
+            filename={exportFilename(target.kind, [target])}
+            what="manifest"
+            className="mr-auto"
+          />
+        )}
         {session.dirty && (
           <Button
             data-testid="yaml-discard"

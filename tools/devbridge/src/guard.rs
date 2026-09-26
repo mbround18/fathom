@@ -129,6 +129,18 @@ impl WriteGuard {
                     .to_owned(),
             );
         }
+        // 040-manifest-export: the kubeconfig export reads credentials of any context in the
+        // kubeconfig, so a bridge pinned to one context only exports that one.
+        if let BackendCmd::PreviewKubeconfigExport { context }
+        | BackendCmd::ExportKubeconfig { context, .. } = cmd
+            && *context != self.context
+        {
+            return Err(format!(
+                "{} for context '{context}' refused; this bridge is pinned to context '{}'",
+                variant_name(cmd),
+                self.context
+            ));
+        }
         match cmd.mutation_target() {
             MutationTarget::ReadOnly | MutationTarget::Local => Ok(()),
             MutationTarget::ContextSwitch { context } if context == self.context => Ok(()),
@@ -434,6 +446,30 @@ mod tests {
         assert!(
             g.check(&BackendCmd::SetContext { context: s("prod") })
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn kubeconfig_export_is_pinned_to_the_bridge_context() {
+        let g = WriteGuard::new("kind-dev", "fathom-dev");
+        assert_eq!(
+            g.check(&BackendCmd::PreviewKubeconfigExport {
+                context: s("kind-dev")
+            }),
+            Ok(())
+        );
+        assert!(
+            g.check(&BackendCmd::PreviewKubeconfigExport { context: s("prod") })
+                .is_err()
+        );
+        assert!(
+            g.check(&BackendCmd::ExportKubeconfig {
+                context: s("prod"),
+                path: s("/tmp/k"),
+                include_embedded_credentials: false,
+                overwrite: false,
+            })
+            .is_err()
         );
     }
 

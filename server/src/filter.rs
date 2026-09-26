@@ -94,6 +94,8 @@ mod tests {
         const DENIED: &[&str] = &[
             "Shutdown",
             "RefreshContexts",
+            "PreviewKubeconfigExport",
+            "ExportKubeconfig",
             "SetContext",
             "RefreshKindPrerequisites",
             "RefreshKindClusters",

@@ -14,6 +14,8 @@ import { Gated } from '@/lib/capabilities'
 import { Input } from '@/components/ui/input'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
+import { exportFilename } from '@/features/manifest-export/clean'
+import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import type { HelmReleaseDetails } from '@/protocol/types'
 import { useStore } from '@/store'
 import { reset as resetSession, startApply, startPreview } from '@/store/helmMutation'
@@ -166,6 +168,13 @@ export function HelmUpgradePanel({
           <YamlDiffView
             currentManifest={preview.current_manifest}
             targetManifest={preview.target_manifest}
+          />
+          {/* 040 US3 (FR-018): the rendered manifest the upgrade applies. */}
+          <ManifestActions
+            idPrefix="helm-upgrade-manifest"
+            text={preview.target_manifest}
+            filename={exportFilename('helm', [{ namespace, name: `${release}-upgrade` }])}
+            what="manifest"
           />
           <Gated verb="update" resource="secrets" namespace={namespace}>
             <Button

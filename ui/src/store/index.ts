@@ -10,6 +10,10 @@ import { create } from 'zustand'
 import { initialIdentityState, type IdentityState } from '@/features/identity/state'
 import { initialTeamsState, type TeamsState } from '@/features/teams/state'
 import { initialRolesState, type RolesState } from '@/features/roles/state'
+import {
+  initialManifestExportState,
+  type ManifestExportState,
+} from '@/features/manifest-export/state'
 import { resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
@@ -709,6 +713,8 @@ export interface StoreData {
   teams: TeamsState
   /** 033 US4: role-assignment preview, orphaned subjects, IdP directory cache. */
   roles: RolesState
+  /** 040: manifest fetches for export and the kubeconfig export preview/result. */
+  manifestExport: ManifestExportState
   /** 037-node-shell: debug-pod session, access check, orphan sweep and settings. */
   nodeShell: NodeShellState
   /** Helm release uninstalls (006 US3), by `namespace/release`. */
@@ -1078,6 +1084,7 @@ export function initialData(): StoreData {
     identity: initialIdentityState(),
     teams: initialTeamsState(),
     roles: initialRolesState(),
+    manifestExport: initialManifestExportState(),
     nodeShell: {},
     execAccess: {},
     rbacAccess: {},

@@ -7,6 +7,8 @@ import {
 } from '@/components/ui/sheet'
 import { ActionDialogHost } from '@/components/ActionDialogHost'
 import { NavTree } from '@/components/NavTree'
+import { KubeconfigExportDialogHost } from '@/features/manifest-export/KubeconfigExportDialog'
+import { ManifestExportDialogHost } from '@/features/manifest-export/ManifestExportDialog'
 import { Toaster } from '@/components/ui/sonner'
 import { useWidthClass } from '@/layout/use-width-class'
 import { useStore } from '@/store'
@@ -78,6 +80,8 @@ export function AppShell() {
         </Sheet>
       )}
       <ActionDialogHost />
+      <ManifestExportDialogHost />
+      <KubeconfigExportDialogHost />
       <CommandPaletteHost />
       <ShortcutsHost />
       <AskAiSheet />
