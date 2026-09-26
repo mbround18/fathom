@@ -60,10 +60,10 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 
 ## Phase 6: US4 — warm snapshots (P3)
 
-- [ ] T033 [P] [US4] Tests: snapshot endpoint (synced/unsynced, age), client staleness threshold 30 s and fallback — `daemon/tests/http_tests.rs`, `src/backend/daemon_client.rs`
-- [ ] T034 [US4] Daemon `/v1/snapshot/{pods,events}` from reflector stores — `daemon/src/snapshot.rs`
-- [ ] T035 [US4] Client snapshot-then-delta source with transparent fallback to direct LIST+WATCH — `src/backend/daemon_client.rs`, `src/backend/pods.rs`, `src/backend/events.rs`
-- [ ] T036 [US4] Benchmark time-to-first-populated-list with/without daemon on a 5,000-pod kind fixture; record in research.md (never worse than direct)
+- [X] T033 [P] [US4] Tests: snapshot endpoint (synced/unsynced, age), client staleness threshold 30 s and fallback — `daemon/tests/http_tests.rs`, `src/backend/daemon_client.rs`
+- [X] T034 [US4] Daemon `/v1/snapshot/{pods,events}` from reflector stores — `daemon/src/snapshot.rs`
+- [X] T035 [US4] Client snapshot-then-delta source with transparent fallback to direct LIST+WATCH — `src/backend/daemon_client.rs`, `src/backend/pods.rs`, `src/backend/events.rs` (events take their list from the snapshot via `refresh_events` in `src/backend/cmd/cluster.rs`)
+- [X] T036 [US4] Benchmark time-to-first-populated-list with/without daemon on a 5,000-pod kind fixture; record in research.md (never worse than direct)
 
 ## Phase 6b: US5 — near-real-time topology and short metrics history (P3)
 
@@ -74,13 +74,13 @@ Tasks marked (needs 031) depend on `k8s/` and `deploy/Dockerfile` from spec 031 
 - [X] T049 [P] [US5] Protocol: `RequestDaemonTopology`, `RequestDaemonMetrics`, `DaemonTopologyUpdated`, `DaemonMetricsUpdated`, new frames/types with round-trip tests; regenerate bindings — `src/protocol/v1/`
 - [X] T050 [US5] Client: topology/metrics stream consumption with session tagging and batching — `src/backend/daemon_client.rs`
 - [X] T051 [US5] UI: topology pane fed by the daemon (falls back to the existing client-built topology when off/absent) and per-object trend sparkline with truncation marker; Playwright vs fake backend at all widths — `ui/src/`, `ui/tests/`
-- [ ] T052 [US5] kind test with two users: only in-scope nodes/edges visible; topology change in <= 5 s (SC-007) — `k8s/test-daemon.sh`
+- [X] T052 [US5] kind test with two users: only in-scope nodes/edges visible; topology change in <= 5 s (SC-007) — `k8s/test-daemon.sh`
 
 ## Phase 7: Polish
 
-- [ ] T037 [P] Perf/budget check (150 MiB incl. topology and ring): daemon RSS and idle CPU at 5,000 objects (SC-004); client idle CPU with stream open
-- [ ] T038 [P] Update `docs/MVP.md` §14 Tier D P4 status and add a short section to `k8s/README.md`
-- [ ] T039 Run `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, UI lint/typecheck/Vitest/Playwright; execute quickstart end to end
+- [ ] T037 [P] Perf/budget check (150 MiB incl. topology and ring): daemon RSS and idle CPU at 5,000 objects (SC-004); client idle CPU with stream open (Partial: numbers in research.md R15. Steady-state RSS is 146 MiB and idle CPU is under 0.1%, but renders peak at 156 to 179 MiB, and the metrics ring was not exercised at 5,000 real pods; at its 32 MiB cap it would exceed the budget)
+- [ ] T038 [P] Update `docs/MVP.md` §14 Tier D P4 status and add a short section to `k8s/README.md` (Partial: the `k8s/README.md` section is done; another agent owns `docs/MVP.md`)
+- [ ] T039 Run `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, UI lint/typecheck/Vitest/Playwright; execute quickstart end to end (Partial: fmt, clippy, cargo test, lint, typecheck and Vitest (1,283) pass; the quickstart passed end to end on kind, 9/9 in-app checks plus `k8s/test-daemon.sh`; `us1-daemon.spec.ts` passes on all 22 projects (146 passed). The full Playwright suite, including WebKit, gave 4,729 passed and 29 failed on a heavily loaded host, all outside 036: WebKit clipboard copy (port-forward, OIDC generator), node actions and node shell, perf-10k and topology camera. One us1-daemon webkit-tablet failure did not reproduce on rerun.)
 - [x] T040 Marketing-PDF screenshots of the timeline and status chip (final step, per project convention) (Done: wide-daemon-chip, wide-daemon-timeline, wide-daemon-topology, captured against a real kind daemon.)
 
 ## Dependencies
