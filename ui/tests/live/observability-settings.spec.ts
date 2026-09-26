@@ -29,20 +29,9 @@ test('Grafana URL and key persist, hydrate after reload, and the key never comes
   await page.getByLabel('API key').fill(KEY)
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByTestId('grafana-configured')).toContainText('Configured')
-  // The key lives in the OS credential store. The devbridge builds the backend without the
-  // `os-keyring` feature (tools/devbridge/Cargo.toml: default-features = false), so the keyring
-  // crate's mock store accepts the write but never returns it, and the key stays unset. The URL
-  // and secrecy checks always run; the key-set checks run only where a real store is wired in.
-  const keyring = await expect(page.getByTestId('grafana-key-state'))
-    .toHaveText('Key set', { timeout: 5_000 })
-    .then(() => true)
-    .catch(() => false)
-  if (!keyring) {
-    test
-      .info()
-      .annotations.push({ type: 'keyring', description: 'unavailable: key checks skipped' })
-  }
-  const keyState = keyring ? 'Key set' : 'Key not set'
+  // The devbridge runs with an in-memory secret store (FATHOM_DEV_MEMORY_SECRETS, debug only).
+  await expect(page.getByTestId('grafana-key-state')).toHaveText('Key set')
+  const keyState = 'Key set'
 
   // Reload: a fresh page hydrates from the backend, the key input stays empty.
   await app.open()
@@ -60,8 +49,6 @@ test('Grafana URL and key persist, hydrate after reload, and the key never comes
   expect(await page.content()).not.toContain(KEY)
   expect(received.filter((f) => f.includes(KEY))).toEqual([])
 
-  if (keyring) {
-    await page.getByRole('button', { name: 'Clear key' }).click()
-    await expect(page.getByTestId('grafana-key-state')).toHaveText('Key not set')
-  }
+  await page.getByRole('button', { name: 'Clear key' }).click()
+  await expect(page.getByTestId('grafana-key-state')).toHaveText('Key not set')
 })

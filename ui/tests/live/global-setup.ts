@@ -126,7 +126,9 @@ export default async function globalSetup(): Promise<void> {
     {
       cwd: REPO_ROOT,
       // The token goes through the environment, never argv (visible in `ps`).
-      env: { ...process.env, FATHOM_DEVBRIDGE_TOKEN: token },
+      // The devbridge has no OS keyring; a debug-only in-memory secret store lets the Grafana
+      // key specs run (release builds ignore this variable).
+      env: { ...process.env, FATHOM_DEVBRIDGE_TOKEN: token, FATHOM_DEV_MEMORY_SECRETS: '1' },
       stdio: ['ignore', 'inherit', 'inherit'],
     },
   )

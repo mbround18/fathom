@@ -339,7 +339,7 @@ async fn auto_discover_prometheus(state: &BackendState) {
     if let Some(client) = &state.cluster.client
         && let Some(ctx) = &state.cluster.current_context
     {
-        let _ = integrations::auto_discover_prometheus(client, ctx).await;
+        let _ = integrations::auto_discover_prometheus(client, ctx, state.secrets.as_ref()).await;
     }
 }
 

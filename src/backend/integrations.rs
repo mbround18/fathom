@@ -7,7 +7,7 @@ use super::persistence;
 use crate::backend::events;
 use crate::backend::oidc::store::Secret;
 use crate::backend::portforward;
-use crate::backend::secret_store::{GRAFANA_SERVICE, SecretStore, grafana_key_set};
+use crate::backend::secret_store::{GRAFANA_SERVICE, SecretStore, grafana_key_set, set_verified};
 use crate::backend::state::BackendState;
 use crate::protocol::BackendEventEnvelope;
 use crate::protocol::{
@@ -214,13 +214,13 @@ pub fn migrate_legacy_grafana_key(
     if g.api_key.is_empty() {
         return;
     }
-    if store
-        .set(
-            GRAFANA_SERVICE,
-            &cfg.context,
-            &Secret::new(g.api_key.clone()),
-        )
-        .is_err()
+    if set_verified(
+        store,
+        GRAFANA_SERVICE,
+        &cfg.context,
+        &Secret::new(g.api_key.clone()),
+    )
+    .is_err()
     {
         return;
     }
@@ -271,7 +271,7 @@ pub fn configure_grafana(
     if let Err(e) = cfg.save_to(path) {
         error = Some(format!("Failed to save Grafana config: {e}"));
     } else if !api_key.is_empty()
-        && let Err(e) = store.set(GRAFANA_SERVICE, context, &Secret::new(api_key))
+        && let Err(e) = set_verified(store, GRAFANA_SERVICE, context, &Secret::new(api_key))
     {
         error = Some(format!(
             "Grafana URL saved, but the API key could not be stored in the credential store: {e}"
@@ -903,7 +903,36 @@ pub(super) async fn scan_metrics_stack(client: &Client) -> anyhow::Result<Metric
     })
 }
 
-pub(super) async fn auto_discover_prometheus(client: &Client, context: &str) -> anyhow::Result<()> {
+/// Record a discovered Prometheus service for `context` in the file at `path`, migrating a
+/// legacy plaintext Grafana key into `store` first. `api_key` is never serialized, so if the
+/// migration fails nothing is saved (returns false) and the file keeps the legacy key.
+pub fn record_discovered_prometheus(
+    path: &Path,
+    context: &str,
+    service: &str,
+    store: &dyn SecretStore,
+) -> bool {
+    let Ok(mut cfg) = IntegrationConfig::load_from(path, context) else {
+        return false;
+    };
+    migrate_legacy_grafana_key(path, &mut cfg, store);
+    if cfg.grafana.as_ref().is_some_and(|g| !g.api_key.is_empty()) {
+        return false;
+    }
+    cfg.prometheus = Some(PrometheusConfig {
+        enabled: true,
+        namespace: "monitoring".to_string(),
+        service: service.to_owned(),
+        port: 9090,
+    });
+    cfg.save_to(path).is_ok()
+}
+
+pub(super) async fn auto_discover_prometheus(
+    client: &Client,
+    context: &str,
+    store: &dyn SecretStore,
+) -> anyhow::Result<()> {
     use ::kube::Api;
     use k8s_openapi::api::core::v1::Service;
 
@@ -921,14 +950,9 @@ pub(super) async fn auto_discover_prometheus(client: &Client, context: &str) -> 
                     tracing::info!("Auto-discovered Prometheus service: monitoring/{}", name);
 
                     // Update or create integration config
-                    if let Ok(mut cfg) = IntegrationConfig::load(context) {
-                        cfg.prometheus = Some(PrometheusConfig {
-                            enabled: true,
-                            namespace: "monitoring".to_string(),
-                            service: name.clone(),
-                            port: 9090,
-                        });
-                        let _ = cfg.save();
+                    if let Ok(path) = persistence::integrations_config_path()
+                        && record_discovered_prometheus(&path, context, name, store)
+                    {
                         return Ok(());
                     }
                 }
@@ -1209,6 +1233,49 @@ mod settings_tests {
         assert!(out.error.is_none());
         let g = grafana_of(&out.event).unwrap();
         assert_eq!((g.base_url.as_str(), g.key_set), ("http://g2", false));
+    }
+
+    /// A store that accepts writes and returns nothing, like the keyring crate's mock.
+    struct Dropping;
+    impl SecretStore for Dropping {
+        fn get(&self, _: &str, _: &str) -> Result<Option<Secret>, BackendError> {
+            Ok(None)
+        }
+        fn set(&self, _: &str, _: &str, _: &Secret) -> Result<(), BackendError> {
+            Ok(())
+        }
+        fn delete(&self, _: &str, _: &str) -> Result<(), BackendError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn silently_dropping_store_is_a_failure_without_the_key() {
+        let (_d, path) = tmp();
+        let out = configure_grafana(&path, "a", &Dropping, "http://g", KEY);
+        let g = grafana_of(&out.event).unwrap();
+        assert_eq!((g.base_url.as_str(), g.key_set), ("http://g", false));
+        let err = out.error.expect("error notification");
+        assert!(!err.contains(KEY));
+    }
+
+    #[test]
+    fn auto_discover_keeps_unmigrated_legacy_key_or_migrates_it() {
+        let (_d, path) = tmp();
+        std::fs::write(
+            &path,
+            r#"{"context":"a","grafana":{"enabled":true,"base_url":"http://g","api_key":"legacy-k"}}"#,
+        )
+        .unwrap();
+        // Migration fails: the legacy key must stay in the file.
+        assert!(!record_discovered_prometheus(&path, "a", "prom", &Dropping));
+        assert!(std::fs::read_to_string(&path).unwrap().contains("legacy-k"));
+        // Migration works: the key moves to the store and leaves the file.
+        let s = memory_store();
+        assert!(record_discovered_prometheus(&path, "a", "prom", &s));
+        assert!(grafana_key_set(&s, "a"));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("legacy-k") && text.contains("prom"));
     }
 
     #[test]
