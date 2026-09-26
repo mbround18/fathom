@@ -251,12 +251,16 @@ pub fn init_with<C>(
     });
 }
 
-/// Commands whose relative order matters to the remote end: a pod terminal's session start,
-/// keystrokes, resizes and stop must be applied exactly in the order they were sent.
+/// Commands whose relative order matters: a pod terminal's session start, keystrokes, resizes
+/// and stop must reach the shell exactly in the order they were sent, and the singleton log
+/// stream's stop/start pair on a container switch must not swap (a late `StopPodLogs` would
+/// kill the stream that was just started).
 fn is_order_sensitive(cmd: &BackendCmd) -> bool {
     matches!(
         cmd,
-        BackendCmd::StartPodExec { .. }
+        BackendCmd::StartPodLogs { .. }
+            | BackendCmd::StopPodLogs
+            | BackendCmd::StartPodExec { .. }
             | BackendCmd::SendPodExecInput { .. }
             | BackendCmd::ResizePodExec { .. }
             | BackendCmd::StopPodExec
@@ -642,7 +646,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terminal_commands_take_the_ordered_lane() {
+    fn stream_commands_take_the_ordered_lane() {
         assert!(is_order_sensitive(&BackendCmd::SendPodExecInput {
             data: "ZQ==".to_owned()
         }));
@@ -651,6 +655,7 @@ mod tests {
             rows: 24
         }));
         assert!(is_order_sensitive(&BackendCmd::StopPodExec));
-        assert!(!is_order_sensitive(&BackendCmd::StopPodLogs));
+        assert!(is_order_sensitive(&BackendCmd::StopPodLogs));
+        assert!(!is_order_sensitive(&BackendCmd::StopMetricsPolling));
     }
 }
