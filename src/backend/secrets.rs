@@ -87,10 +87,18 @@ pub(super) async fn fetch_secret_details(
     Ok(())
 }
 
+const LAST_APPLIED: &str = "kubectl.kubernetes.io/last-applied-configuration";
+
 /// Clones the secret and redacts all values in `.data` / `.string_data` so
 /// the raw JSON never leaks decoded or base64 secret material.
 fn redacted_raw_json(secret: &Secret) -> String {
     let mut redacted = secret.clone();
+
+    // 040 FR-011: `kubectl apply` stores the whole manifest, plaintext values included, in
+    // this annotation. Drop it so the raw view and exports never carry it.
+    if let Some(annotations) = redacted.metadata.annotations.as_mut() {
+        annotations.remove(LAST_APPLIED);
+    }
 
     if let Some(data) = redacted.data.as_mut() {
         for value in data.values_mut() {
@@ -118,7 +126,8 @@ fn secret_to_details(secret: Secret) -> SecretDetails {
         .unwrap_or_default();
 
     let labels = secret.labels().clone();
-    let annotations = secret.annotations().clone();
+    let mut annotations = secret.annotations().clone();
+    annotations.remove(LAST_APPLIED);
     let secret_type = secret.type_.clone().unwrap_or_default();
 
     let mut keys: Vec<String> = Vec::new();
@@ -169,4 +178,43 @@ pub(super) async fn delete_secret(
 
     refresh_secrets(state, sender).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn applied_secret() -> Secret {
+        let mut s = Secret::default();
+        s.metadata.name = Some("db".into());
+        s.metadata.namespace = Some("default".into());
+        s.metadata.annotations = Some(BTreeMap::from([
+            (
+                LAST_APPLIED.to_owned(),
+                r#"{"stringData":{"password":"hunter2"}}"#.to_owned(),
+            ),
+            ("team".to_owned(), "a".to_owned()),
+        ]));
+        s.data = Some(BTreeMap::from([(
+            "password".to_owned(),
+            k8s_openapi::ByteString(b"hunter2".to_vec()),
+        )]));
+        s
+    }
+
+    #[test]
+    fn raw_json_drops_values_and_last_applied() {
+        let raw = redacted_raw_json(&applied_secret());
+        assert!(!raw.contains("hunter2"), "{raw}");
+        assert!(!raw.contains(LAST_APPLIED), "{raw}");
+        assert!(raw.contains("\"team\""), "{raw}");
+    }
+
+    #[test]
+    fn details_annotations_drop_last_applied() {
+        let details = secret_to_details(applied_secret());
+        assert!(!details.annotations.contains_key(LAST_APPLIED));
+        assert!(!details.raw_json.contains("hunter2"));
+    }
 }

@@ -156,6 +156,9 @@ impl BackendCmdV1 {
             | C::RefreshValidatingWebhookConfigurations
             | C::SelectValidatingWebhookConfiguration { .. }
             | C::LoadUiConfig
+            // 040-manifest-export: reads objects / the local kubeconfig for export.
+            | C::FetchManifests { .. }
+            | C::PreviewKubeconfigExport { .. }
             | C::RefreshCrds
             | C::SelectCrdKind { .. }
             | C::RefreshCrdInstances { .. }
@@ -293,7 +296,9 @@ impl BackendCmdV1 {
             // 037-node-shell: persists per-context settings only.
             | C::SetNodeShellSettings { .. }
             // 035-cloud-auth-plugins: persists a per-context exec policy only.
-            | C::SetExecPolicy { .. } => MutationTarget::Local,
+            | C::SetExecPolicy { .. }
+            // 040-manifest-export: writes a kubeconfig file on the operator's machine.
+            | C::ExportKubeconfig { .. } => MutationTarget::Local,
 
             C::SetContext { context } => MutationTarget::ContextSwitch {
                 context: context.clone(),
@@ -430,6 +435,10 @@ impl BackendCmdV1 {
             | C::RequestDaemonMetrics { .. }
             | C::SaveUiConfig { .. }
             | C::ApplyResourceYaml { .. }
+            // 040-manifest-export: replies are global (dialogs, not a section).
+            | C::FetchManifests { .. }
+            | C::PreviewKubeconfigExport { .. }
+            | C::ExportKubeconfig { .. }
             // Agent SDK Ops (013): not tied to one existing UI section (a conversation
             // is scoped to an arbitrary object ref, not a section key) — global, like
             // `ApplyResourceYaml`.
@@ -911,7 +920,11 @@ impl BackendCmdV1 {
             | C::ResizeMcpDemoChat { .. }
             | C::AgentClearConversation { .. }
             | C::AgentDeclineSuggestedAction { .. }
-            | C::AgentRecordExecutedAction { .. } => None,
+            | C::AgentRecordExecutedAction { .. }
+            // 040-manifest-export: reads, and a local file write with no cluster target.
+            | C::FetchManifests { .. }
+            | C::PreviewKubeconfigExport { .. }
+            | C::ExportKubeconfig { .. } => None,
 
             // Local settings/state changes worth recording.
             C::SaveUiConfig { .. } => {
@@ -1321,7 +1334,10 @@ impl BackendCmdV1 {
             | C::CreateKindCluster { .. }
             | C::CancelCreateKindCluster { .. }
             | C::DeleteKindCluster { .. } => HostedPolicy::Denied(HostedDenial::Kind),
-            C::RefreshContexts => HostedPolicy::Denied(HostedDenial::Contexts),
+            // 040-manifest-export: the hosted server's kubeconfig is never exported.
+            C::RefreshContexts
+            | C::PreviewKubeconfigExport { .. }
+            | C::ExportKubeconfig { .. } => HostedPolicy::Denied(HostedDenial::Contexts),
             C::LoadMcpServerStatus
             | C::SetMcpServerEnabled { .. }
             | C::StartMcpDemoChat
@@ -1566,6 +1582,8 @@ impl BackendCmdV1 {
             | C::DeleteValidatingWebhookConfiguration { .. }
             | C::ApplyResourceYaml { .. }
             | C::CreateResourceYaml { .. }
+            // 040-manifest-export: read-only, as the signed-in user.
+            | C::FetchManifests { .. }
             | C::RefreshCrds
             | C::SelectCrdKind { .. }
             | C::RefreshCrdInstances { .. }

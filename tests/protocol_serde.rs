@@ -2008,6 +2008,24 @@ fn all_cmds() -> Vec<BackendCmd> {
             name: "s".to_owned(),
             yaml: "roleRef: {}\n".to_owned(),
         },
+        BackendCmd::FetchManifests {
+            request_id: "s".to_owned(),
+            objects: vec![ManifestObjectRef {
+                api_version: "apps/v1".to_owned(),
+                kind: "Deployment".to_owned(),
+                namespace: Some("s".to_owned()),
+                name: "s".to_owned(),
+            }],
+        },
+        BackendCmd::PreviewKubeconfigExport {
+            context: "s".to_owned(),
+        },
+        BackendCmd::ExportKubeconfig {
+            context: "s".to_owned(),
+            path: "/s".to_owned(),
+            include_embedded_credentials: false,
+            overwrite: false,
+        },
         BackendCmd::RefreshCrds,
         BackendCmd::SelectCrdKind {
             group: "s".to_owned(),
@@ -2453,6 +2471,9 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::SaveUiConfig { .. } => {}
         BackendCmd::ApplyResourceYaml { .. } => {}
         BackendCmd::CreateResourceYaml { .. } => {}
+        BackendCmd::FetchManifests { .. } => {}
+        BackendCmd::PreviewKubeconfigExport { .. } => {}
+        BackendCmd::ExportKubeconfig { .. } => {}
         BackendCmd::RefreshCrds => {}
         BackendCmd::SelectCrdKind { .. } => {}
         BackendCmd::RefreshCrdInstances { .. } => {}
@@ -2522,6 +2543,34 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
 #[allow(clippy::too_many_lines)] // a single exhaustive sample list is the point; it cannot be split
 fn all_system_events() -> Vec<SystemEvent> {
     vec![
+        SystemEvent::ManifestsFetched {
+            request_id: "s".to_owned(),
+            manifests: vec![FetchedManifest {
+                index: 0,
+                raw_json: "{}".to_owned(),
+            }],
+            errors: vec![ManifestFetchError {
+                index: 1,
+                message: "s".to_owned(),
+            }],
+        },
+        SystemEvent::KubeconfigExportPreviewed(KubeconfigExportPreview {
+            context: "s".to_owned(),
+            redacted_yaml: "s".to_owned(),
+            credential: KubeconfigCredentialKind::Token,
+            embedded_secret_fields: vec!["token".to_owned()],
+            file_references: vec![],
+            warnings: vec![],
+            suggested_path: "/s".to_owned(),
+            source_path: "/s".to_owned(),
+        }),
+        SystemEvent::KubeconfigExportFinished {
+            context: "s".to_owned(),
+            ok: false,
+            path: None,
+            embedded_credentials_written: false,
+            message: Some("s".to_owned()),
+        },
         SystemEvent::BackendStarted,
         SystemEvent::SessionEnded {
             reason: SessionEndReason::Revoked,
@@ -3038,6 +3087,9 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::CapabilitiesResolved { .. } => {}
         SystemEvent::CapabilityChecked { .. } => {}
         SystemEvent::RoleAssignmentPreview { .. } => {}
+        SystemEvent::ManifestsFetched { .. } => {}
+        SystemEvent::KubeconfigExportPreviewed(_) => {}
+        SystemEvent::KubeconfigExportFinished { .. } => {}
         SystemEvent::SessionEnded { .. } => {}
         SystemEvent::LimitReached { .. } => {}
         SystemEvent::Notification { .. } => {}

@@ -847,6 +847,26 @@ pub enum BackendCmdV1 {
         yaml: String,
     },
 
+    // 040-manifest-export: read objects fresh for YAML export (read-only). Replied to with
+    // exactly one `SystemEvent::ManifestsFetched` carrying the same `request_id`.
+    FetchManifests {
+        request_id: String,
+        objects: Vec<super::ManifestObjectRef>,
+    },
+    // 040-manifest-export: redacted preview of a standalone kubeconfig for one context.
+    // Desktop only; refused in hosted mode.
+    PreviewKubeconfigExport {
+        context: String,
+    },
+    // 040-manifest-export: write the standalone kubeconfig (0600) after UI confirmation.
+    // Embedded credentials are omitted unless `include_embedded_credentials`.
+    ExportKubeconfig {
+        context: String,
+        path: String,
+        include_embedded_credentials: bool,
+        overwrite: bool,
+    },
+
     // Custom Resource Definition browsing (generic, read-only)
     RefreshCrds,
     SelectCrdKind {
@@ -1237,6 +1257,36 @@ mod tests {
             namespace: "default".to_owned(),
             name: "web-0".to_owned(),
             container: None,
+        });
+    }
+
+    #[test]
+    fn manifest_export_cmds_roundtrip() {
+        roundtrip(BackendCmdV1::FetchManifests {
+            request_id: "exp-1".to_owned(),
+            objects: vec![
+                super::super::ManifestObjectRef {
+                    api_version: "apps/v1".to_owned(),
+                    kind: "Deployment".to_owned(),
+                    namespace: Some("default".to_owned()),
+                    name: "web".to_owned(),
+                },
+                super::super::ManifestObjectRef {
+                    api_version: "v1".to_owned(),
+                    kind: "Namespace".to_owned(),
+                    namespace: None,
+                    name: "default".to_owned(),
+                },
+            ],
+        });
+        roundtrip(BackendCmdV1::PreviewKubeconfigExport {
+            context: "kind-fathom-dev".to_owned(),
+        });
+        roundtrip(BackendCmdV1::ExportKubeconfig {
+            context: "kind-fathom-dev".to_owned(),
+            path: "~/.kube/fathom-kind-fathom-dev.yaml".to_owned(),
+            include_embedded_credentials: false,
+            overwrite: true,
         });
     }
 
