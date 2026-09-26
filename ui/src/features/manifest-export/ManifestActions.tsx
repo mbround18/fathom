@@ -64,6 +64,7 @@ export function ManifestActions({
       <Button
         variant="ghost"
         size="sm"
+        type="button"
         data-testid={`${idPrefix}-copy`}
         disabled={disabled}
         onClick={() => {
@@ -77,6 +78,7 @@ export function ManifestActions({
       <Button
         variant="ghost"
         size="sm"
+        type="button"
         data-testid={`${idPrefix}-download`}
         disabled={disabled}
         onClick={() => {
