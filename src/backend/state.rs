@@ -295,7 +295,7 @@ impl BackendState {
             access,
             audit,
             identity,
-            secrets: Arc::new(crate::backend::secret_store::keyring_store()),
+            secrets: crate::backend::secret_store::default_store(),
             cluster: ClusterContext {
                 client: None,
                 current_context: None,

@@ -55,6 +55,7 @@ description: "Task list for 039 observability settings"
 - [x] T021 Live e2e in `ui/tests/live/` (kind-fathom-dev): save Grafana URL and key, reopen, key shown set, switch context isolation; devbridge pins one context and builds without os-keyring, so live covers URL persistence and re-select, key-set checks run only with a real store
 - [x] T022 Protocol round-trip tests and ts-rs drift check pass (`cargo test --workspace`, regenerated bindings committed)
 - [ ] T023 Gate: `cargo fmt --check`, clippy `--workspace --all-targets`, `cargo test --workspace`, ui typecheck/lint/prettier/vitest, chromium e2e on phone/tablet/laptop/wide
+  - Follow-up (gaps fixed): keyring write is now verified by read-back (FR-010); auto-discover no longer drops a legacy Grafana key; devbridge uses a debug-only memory secret store (FATHOM_DEV_MEMORY_SECRETS). Rust gate green; UI gate and live spec NOT run in this pass (no cluster, no node_modules).
 - [ ] T024 Run `quickstart.md` steps 1-5 including the manual secrecy grep of `~/.fathom/integrations.json` and logs
 
 ## Dependencies

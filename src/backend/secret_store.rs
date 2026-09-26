@@ -45,6 +45,34 @@ pub fn memory_store() -> BackendStore<MemoryBackend> {
     BackendStore(MemoryBackend::default())
 }
 
+/// The store the backend uses. Debug builds only: `FATHOM_DEV_MEMORY_SECRETS=1` selects an
+/// in-process memory store (used by the live e2e devbridge, which has no OS keyring). Release
+/// builds always use the OS keyring.
+pub fn default_store() -> std::sync::Arc<dyn SecretStore> {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("FATHOM_DEV_MEMORY_SECRETS").is_some() {
+        return std::sync::Arc::new(memory_store());
+    }
+    std::sync::Arc::new(keyring_store())
+}
+
+/// Set then read back. A store that accepts the write but never returns it (the `keyring`
+/// crate's mock store) is reported as a failure so the UI never claims a key is saved (FR-010).
+pub fn set_verified(
+    store: &dyn SecretStore,
+    service: &str,
+    user: &str,
+    value: &Secret,
+) -> Result<(), BackendError> {
+    store.set(service, user, value)?;
+    match store.get(service, user)? {
+        Some(read) if read.expose() == value.expose() => Ok(()),
+        _ => Err(BackendError(
+            "the credential store did not retain the value".into(),
+        )),
+    }
+}
+
 pub fn grafana_key_set(store: &dyn SecretStore, context: &str) -> bool {
     matches!(store.get(GRAFANA_SERVICE, context), Ok(Some(_)))
 }
