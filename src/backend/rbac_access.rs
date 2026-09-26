@@ -485,22 +485,7 @@ pub(super) async fn handle_refresh_kubeadm_detection(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<ConfigMap> = Api::namespaced(client, "kube-system");
-
-    let result = match api.get("kubeadm-config").await {
-        Ok(_) => KubeadmDetectionResult {
-            detected: true,
-            checked: true,
-        },
-        Err(kube::Error::Api(resp)) if resp.code == 404 => KubeadmDetectionResult {
-            detected: false,
-            checked: true,
-        },
-        Err(_) => KubeadmDetectionResult {
-            detected: false,
-            checked: false,
-        },
-    };
+    let result = detect_kubeadm(&Api::namespaced(client, "kube-system")).await;
 
     events::emit(
         state.cluster.seq.as_ref(),
@@ -513,6 +498,26 @@ pub(super) async fn handle_refresh_kubeadm_detection(
         BackendEvent::ResourceRead(ResourceReadEvent::KubeadmDetectionUpdated(result)),
     );
     Ok(())
+}
+
+/// Read `kubeadm-config` from `api` (scoped to `kube-system`). Present -> detected; a 404 is
+/// a definite "no" (`checked: true`); any other error (forbidden, transport) is "unknown"
+/// (`checked: false`) per data-model.md. Never an error.
+async fn detect_kubeadm(api: &Api<ConfigMap>) -> KubeadmDetectionResult {
+    match api.get("kubeadm-config").await {
+        Ok(_) => KubeadmDetectionResult {
+            detected: true,
+            checked: true,
+        },
+        Err(kube::Error::Api(resp)) if resp.code == 404 => KubeadmDetectionResult {
+            detected: false,
+            checked: true,
+        },
+        Err(_) => KubeadmDetectionResult {
+            detected: false,
+            checked: false,
+        },
+    }
 }
 
 /// The fixed self-access probe a hosted backend runs after connecting (spec 031, T033): can
@@ -780,6 +785,204 @@ mod tests {
             Some("ci"),
         );
         assert!(right_ns.found_any);
+    }
+
+    // ---- API-server-backed reads (T020, T041): a real `kube::Client` pointed at a
+    // `wiremock` server, the same fixture convention as `mcp::tools_mutate`'s tests.
+
+    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const SSAR_PATH: &str = "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews";
+    const KUBEADM_PATH: &str = "/api/v1/namespaces/kube-system/configmaps/kubeadm-config";
+
+    fn client_for(url: &str) -> kube::Client {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let config = kube::Config::new(url.parse().expect("mock server url"));
+        kube::Client::try_from(config).expect("client from mock config")
+    }
+
+    fn status_body(code: u16, reason: &str) -> serde_json::Value {
+        serde_json::json!({
+            "apiVersion": "v1",
+            "kind": "Status",
+            "status": "Failure",
+            "message": format!("configmaps \"kubeadm-config\" is {reason}"),
+            "reason": reason,
+            "code": code
+        })
+    }
+
+    fn ssar_reply(status: serde_json::Value) -> ResponseTemplate {
+        ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SelfSubjectAccessReview",
+            "spec": {},
+            "status": status
+        }))
+    }
+
+    fn create_rolebindings_check() -> RbacAccessCheck {
+        RbacAccessCheck {
+            verb: "create".to_owned(),
+            resource: "rolebindings".to_owned(),
+            namespace: Some("team-a".to_owned()),
+            group: Some("rbac.authorization.k8s.io".to_owned()),
+        }
+    }
+
+    #[tokio::test]
+    async fn ssar_allowed_maps_to_allowed_result_and_sends_the_check_attributes() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(SSAR_PATH))
+            .and(body_partial_json(serde_json::json!({
+                "spec": { "resourceAttributes": {
+                    "group": "rbac.authorization.k8s.io",
+                    "resource": "rolebindings",
+                    "verb": "create",
+                    "namespace": "team-a"
+                }}
+            })))
+            .respond_with(ssar_reply(serde_json::json!({ "allowed": true })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let api: Api<SelfSubjectAccessReview> = Api::all(client_for(&server.uri()));
+        let result = review_access(&api, create_rolebindings_check()).await;
+
+        assert_eq!(result.check.verb, "create");
+        assert_eq!(result.check.resource, "rolebindings");
+        assert_eq!(result.check.namespace.as_deref(), Some("team-a"));
+        assert_eq!(
+            result.check.group.as_deref(),
+            Some("rbac.authorization.k8s.io")
+        );
+        assert!(result.allowed);
+        assert_eq!(result.reason, None);
+    }
+
+    #[tokio::test]
+    async fn ssar_denied_keeps_the_verbatim_reason() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(SSAR_PATH))
+            .respond_with(ssar_reply(serde_json::json!({
+                "allowed": false,
+                "reason": "no RBAC policy matched"
+            })))
+            .mount(&server)
+            .await;
+
+        let api: Api<SelfSubjectAccessReview> = Api::all(client_for(&server.uri()));
+        let result = review_access(&api, create_rolebindings_check()).await;
+
+        assert!(!result.allowed);
+        assert_eq!(result.reason.as_deref(), Some("no RBAC policy matched"));
+    }
+
+    #[tokio::test]
+    async fn ssar_evaluation_error_is_the_reason_when_no_reason_is_given() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(SSAR_PATH))
+            .respond_with(ssar_reply(serde_json::json!({
+                "allowed": false,
+                "evaluationError": "webhook authorizer unavailable"
+            })))
+            .mount(&server)
+            .await;
+
+        let api: Api<SelfSubjectAccessReview> = Api::all(client_for(&server.uri()));
+        let result = review_access(&api, create_rolebindings_check()).await;
+
+        assert!(!result.allowed);
+        assert_eq!(
+            result.reason.as_deref(),
+            Some("webhook authorizer unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn ssar_request_failure_is_denied_with_the_verbatim_error_not_propagated() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(SSAR_PATH))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "apiVersion": "v1",
+                "kind": "Status",
+                "status": "Failure",
+                "message": "selfsubjectaccessreviews.authorization.k8s.io is forbidden",
+                "reason": "Forbidden",
+                "code": 403
+            })))
+            .mount(&server)
+            .await;
+
+        let api: Api<SelfSubjectAccessReview> = Api::all(client_for(&server.uri()));
+        let result = review_access(&api, create_rolebindings_check()).await;
+
+        assert!(!result.allowed);
+        let reason = result.reason.expect("error becomes the reason");
+        assert!(
+            reason.contains("selfsubjectaccessreviews.authorization.k8s.io is forbidden"),
+            "{reason}"
+        );
+    }
+
+    async fn kubeadm_detection_with(reply: ResponseTemplate) -> KubeadmDetectionResult {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(KUBEADM_PATH))
+            .respond_with(reply)
+            .expect(1)
+            .mount(&server)
+            .await;
+        detect_kubeadm(&Api::namespaced(client_for(&server.uri()), "kube-system")).await
+    }
+
+    #[tokio::test]
+    async fn kubeadm_configmap_present_is_detected() {
+        let result =
+            kubeadm_detection_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": { "name": "kubeadm-config", "namespace": "kube-system" },
+                "data": { "ClusterConfiguration": "kind: ClusterConfiguration" }
+            })))
+            .await;
+        assert_eq!((result.detected, result.checked), (true, true));
+    }
+
+    #[tokio::test]
+    async fn kubeadm_configmap_not_found_is_a_definite_no() {
+        let result = kubeadm_detection_with(
+            ResponseTemplate::new(404).set_body_json(status_body(404, "NotFound")),
+        )
+        .await;
+        assert_eq!((result.detected, result.checked), (false, true));
+    }
+
+    #[tokio::test]
+    async fn kubeadm_forbidden_or_other_errors_are_unknown_never_an_error() {
+        for reply in [
+            ResponseTemplate::new(403).set_body_json(status_body(403, "Forbidden")),
+            ResponseTemplate::new(500).set_body_string("etcd unavailable"),
+        ] {
+            let result = kubeadm_detection_with(reply).await;
+            assert_eq!((result.detected, result.checked), (false, false));
+        }
+    }
+
+    #[tokio::test]
+    async fn kubeadm_unreachable_api_server_is_unknown() {
+        let result = detect_kubeadm(&Api::namespaced(
+            client_for("http://127.0.0.1:1"),
+            "kube-system",
+        ))
+        .await;
+        assert_eq!((result.detected, result.checked), (false, false));
     }
 
     fn probe_results(allowed: &[bool]) -> Vec<RbacAccessResult> {
