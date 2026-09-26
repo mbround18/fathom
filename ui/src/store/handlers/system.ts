@@ -14,7 +14,15 @@ import {
   previewFailed as helmMutationPreviewFailed,
   previewReady as helmMutationPreviewReady,
 } from '../helmMutation'
-import { assignPanes, CONTEXT_LISTS, listKey, markLoading, type Notice, useStore } from '../index'
+import {
+  assignPanes,
+  CONTEXT_LISTS,
+  listKey,
+  markLoading,
+  type Notice,
+  serviceForwardKey,
+  useStore,
+} from '../index'
 import { RingBuffer } from '../ring-buffer'
 import {
   applyDaemonBatch,
@@ -220,6 +228,20 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
           grafana: event.data.grafana,
         },
       }
+      return
+    }
+    case 'ServicePortForwardReady': {
+      const { namespace, service, port, local_port, tunnel_id } = event.data
+      const integrations = d.edit('integrations')
+      integrations.serviceForwards = {
+        ...integrations.serviceForwards,
+        [serviceForwardKey(namespace, service, port)]: {
+          localPort: local_port,
+          tunnelId: tunnel_id,
+        },
+      }
+      // Tag the tunnel in the Port forwards list with the Service it came from (009 origins).
+      d.put('portForwardOrigins', { ...d.read('portForwardOrigins'), [tunnel_id]: { service } })
       return
     }
     case 'PortAvailability': {

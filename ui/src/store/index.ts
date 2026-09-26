@@ -420,6 +420,16 @@ export interface IntegrationsState {
   /** 039: last `ObservabilitySettings` per context; absent until the backend has answered. */
   settings?: Record<string, ObservabilitySettingsEntry>
   portAvailability: Record<number, boolean>
+  /**
+   * 041: Service forwards started with `StartServicePortForward` (Grafana's "Open" button), by
+   * `serviceForwardKey(namespace, service, port)`.
+   */
+  serviceForwards?: Record<string, { localPort: number; tunnelId: string }>
+}
+
+/** Key of `IntegrationsState.serviceForwards`. */
+export function serviceForwardKey(namespace: string, service: string, port: number): string {
+  return `${namespace}/${service}:${String(port)}`
 }
 
 /**

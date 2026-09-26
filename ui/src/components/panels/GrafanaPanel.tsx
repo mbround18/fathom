@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useObservabilitySettings } from '@/features/metrics/useObservabilitySettings'
-import { useStore } from '@/store'
+import { SECTION } from '@/protocol/commands'
+import type { DetectedMetricsComponent, PortForward } from '@/protocol/types'
+import { listKey, serviceForwardKey, useStore } from '@/store'
+import { waitForCommandResult } from '@/store/actions'
 
 /** Grafana configuration. The API key is write-only: it is never rendered back or logged. */
 export default function GrafanaPanel() {
@@ -44,23 +48,12 @@ export default function GrafanaPanel() {
         ) : detected.length > 0 ? (
           <ul className="flex flex-col gap-1">
             {detected.map((c) => (
-              <li key={`${c.namespace}/${c.service}`} className="flex flex-wrap items-center gap-2">
-                <span>
-                  In cluster:{' '}
-                  <span className="font-mono">{`${c.namespace}/${c.service}:${c.port}`}</span>.
-                  Forward it (
-                  <span className="font-mono">{`kubectl -n ${c.namespace} port-forward svc/${c.service} ${c.port}`}</span>
-                  ), then use its local URL.
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setUrl(`http://localhost:${c.port}`)}
-                >
-                  Use http://localhost:{c.port}
-                </Button>
-              </li>
+              <GrafanaConnect
+                key={`${c.namespace}/${c.service}`}
+                component={c}
+                savedUrl={saved?.base_url}
+                onUrl={setUrl}
+              />
             ))}
           </ul>
         ) : (
@@ -135,5 +128,104 @@ export default function GrafanaPanel() {
         </p>
       )}
     </section>
+  )
+}
+
+/**
+ * 041: one-click access to an in-cluster Grafana. Starts a Fathom port-forward to the Service
+ * (listed under Port forwards like any other), saves `http://localhost:<port>` as the base URL
+ * and opens it. Grafana refuses to be framed by default, so it opens in the system browser.
+ */
+function GrafanaConnect({
+  component: c,
+  savedUrl,
+  onUrl,
+}: {
+  component: DetectedMetricsComponent
+  savedUrl: string | undefined
+  onUrl: (url: string) => void
+}) {
+  const send = useStore((s) => s.send)
+  const request = useStore((s) => s.request)
+  const key = serviceForwardKey(c.namespace, c.service, c.port)
+  const forward = useStore((s) => s.integrations.serviceForwards?.[key])
+  // The forward is still listed (it can be stopped or removed from Port forwards).
+  const tunnelUp = useStore((s) => {
+    const rows = s.lists[listKey(null, SECTION.portForwards, 'Global', null)]?.rows as
+      PortForward[] | undefined
+    return forward !== undefined && (rows ?? []).some((pf) => pf.id === forward.tunnelId)
+  })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const localUrl = forward && tunnelUp ? `http://localhost:${String(forward.localPort)}` : undefined
+
+  const connect = () => {
+    setBusy(true)
+    setError(undefined)
+    void (async () => {
+      try {
+        const id = await request({
+          type: 'StartServicePortForward',
+          data: { namespace: c.namespace, service: c.service, port: c.port },
+        })
+        const result = await waitForCommandResult(id)
+        if (result === 'timeout' || !result.ok) {
+          setError(result === 'timeout' ? 'No response from backend.' : (result.error ?? 'Failed'))
+          return
+        }
+        const ready = useStore.getState().integrations.serviceForwards?.[key]
+        if (!ready) {
+          setError('The forward started but its local port is unknown; see Port forwards.')
+          return
+        }
+        const url = `http://localhost:${String(ready.localPort)}`
+        onUrl(url)
+        // Save the local URL (a blank key keeps any saved API key) so Grafana links work.
+        if (savedUrl !== url)
+          send({ type: 'ConfigureGrafana', data: { base_url: url, api_key: '' } })
+        toast.success(`Grafana forwarded to ${url}`)
+        window.open(url, '_blank', 'noopener,noreferrer')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+
+  return (
+    <li data-testid="grafana-detected-item" className="flex flex-col gap-1">
+      <span>
+        In cluster:{' '}
+        <span className="font-mono">{`${c.namespace}/${c.service}:${String(c.port)}`}</span>
+      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          data-testid="grafana-connect"
+          disabled={busy}
+          onClick={connect}
+        >
+          {busy ? 'Connecting…' : localUrl ? 'Reopen Grafana' : 'Open Grafana'}
+        </Button>
+        {localUrl && (
+          <a
+            data-testid="grafana-local-url"
+            className="font-mono underline"
+            href={localUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {localUrl}
+          </a>
+        )}
+      </div>
+      {error && (
+        <span role="alert" data-testid="grafana-connect-error" className="text-destructive">
+          {error}
+        </span>
+      )}
+    </li>
   )
 }
