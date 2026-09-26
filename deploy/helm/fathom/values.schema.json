@@ -36,7 +36,7 @@
       "maxStreamsPerUser": {"type": "integer", "minimum": 1},
       "maxTabsPerUser": {"type": "integer", "minimum": 1},
       "streamRecycleMinutes": {"type": "integer", "minimum": 1}}},
-    "audit": {"type": "object", "properties": {"viewerGroups": {"type": "array", "items": {"type": "string"}}}},
+    "audit": {"type": "object", "properties": {"viewerGroups": {"type": "array", "items": {"type": "string"}}, "retention": {"type": "integer", "minimum": 1}}},
     "session": {"type": "object", "properties": {"refreshGraceSeconds": {"type": "integer", "minimum": 1}, "revalidateSeconds": {"type": "integer", "minimum": 1}}},
     "persistence": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "size": {"type": "string"}}},
     "image": {"type": "object", "properties": {"repository": {"type": "string"}, "tag": {"type": "string"}, "pullPolicy": {"type": "string"}}},

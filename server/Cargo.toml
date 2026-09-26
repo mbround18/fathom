@@ -40,6 +40,7 @@ crossbeam-channel = "0.5.15"
 futures = "0.3.31"
 hyper = "1"
 hyper-util = { version = "0.1", features = ["tokio"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 rsa = "0.9"

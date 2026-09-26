@@ -61,6 +61,9 @@ spec:
             {{- with .Values.audit.viewerGroups }}
             - {name: FATHOM_AUDIT_VIEWER_GROUPS, value: {{ join "," . | quote }}}
             {{- end }}
+            {{- with .Values.audit.retention }}
+            - {name: FATHOM_AUDIT_RETENTION, value: {{ . | quote }}}
+            {{- end }}
             - {name: FATHOM_LIMIT_MAX_SESSIONS, value: {{ .Values.limits.maxSessions | quote }}}
             - {name: FATHOM_LIMIT_MAX_SESSIONS_PER_USER, value: {{ .Values.limits.maxSessionsPerUser | quote }}}
             - {name: FATHOM_LIMIT_MAX_WATCHES_PER_USER, value: {{ .Values.limits.maxWatchesPerUser | quote }}}

@@ -123,7 +123,7 @@ fn refresh_audit_log(state: &BackendState, sender: &Sender<BackendEventEnvelope>
         Route::global(section_keys::audit_log()),
         Correlation::None,
         BackendEvent::System(SystemEvent::AuditLogLoaded {
-            entries: crate::backend::audit_log::load_entries(),
+            entries: state.audit.load(state.identity.as_ref()),
         }),
     );
 }
