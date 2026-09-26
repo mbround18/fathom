@@ -1,6 +1,5 @@
 use crate::backend::access::{ClusterAccess, Identity};
 use crate::backend::audit_log::AuditSink;
-use crate::backend::metrics_provider::PrometheusClient;
 use crate::backend::portforward::PortForwardManager;
 use crate::protocol::CrdCatalogEntry;
 use kube::Client;
@@ -231,7 +230,6 @@ pub(super) struct MetricsState {
     pub(super) polling_notified: Option<bool>,
     pub(super) workload_poll_task: Option<tokio::task::JoinHandle<()>>,
     pub(super) node_poll_task: Option<tokio::task::JoinHandle<()>>,
-    pub(super) prometheus_client: Option<PrometheusClient>,
 }
 
 impl MetricsState {
@@ -362,7 +360,6 @@ impl BackendState {
                 polling_notified: None,
                 workload_poll_task: None,
                 node_poll_task: None,
-                prometheus_client: None,
             },
             port_forward_manager: PortForwardManager::new(),
             image_inspect_cache: HashMap::new(),

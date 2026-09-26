@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use super::events;
 use super::state::{BackendState, MetricsAvailability};
-use crate::backend::integrations::IntegrationConfig;
+use crate::backend::integrations;
+use crate::backend::metrics_provider::PromEndpoint;
 use crate::backend::persistence;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -87,10 +88,11 @@ pub(super) async fn fetch_metrics(
     namespace: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    // Try Prometheus first if configured
-    if let Some(prom_client) = &state.metrics.prometheus_client {
+    // Try Prometheus first when one is saved or auto-detected for this context (041).
+    if let Some(endpoint) = integrations::prometheus_endpoint(state).await {
+        let prom_client = super::metrics_provider::PrometheusClient::from_endpoint(endpoint);
         if let Ok(metrics) =
-            super::metrics_provider::query_pod_metrics(prom_client, namespace, name).await
+            super::metrics_provider::query_pod_metrics(&prom_client, namespace, name).await
         {
             let route = Route::namespaced(
                 section_keys::workloads_pods(),
@@ -277,10 +279,14 @@ pub(super) async fn start_metrics_polling(
     // Stop existing polling task if any
     stop_metrics_polling(state);
 
-    // Try Prometheus first if configured for this context
-    let prom_config = enabled_prometheus(state.cluster.current_context.as_deref());
+    // Try Prometheus first when one is saved or auto-detected for this context (041).
+    let resolved = integrations::resolve_prometheus(
+        state.cluster.current_context.as_deref(),
+        state.cluster.client.as_ref(),
+    )
+    .await;
 
-    if let Some(prom) = prom_config {
+    if let Ok((prom, _)) = resolved {
         let target = PodPollTarget {
             namespace: namespace.clone(),
             name: name.clone(),
@@ -334,16 +340,6 @@ pub(super) async fn start_metrics_polling(
     Ok(())
 }
 
-/// The Prometheus integration for `context`, if configured and enabled.
-fn enabled_prometheus(
-    context: Option<&str>,
-) -> Option<crate::backend::integrations::PrometheusConfig> {
-    context
-        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
-        .and_then(|cfg| cfg.prometheus)
-        .filter(|p| p.enabled)
-}
-
 /// Owned handles a background metrics task needs to emit events.
 struct PollEmitter {
     seq: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -387,7 +383,7 @@ struct PodPollTarget {
 /// Background task: every interval, fetch the pod's recent history (20 intervals)
 /// from Prometheus, persist it, and emit it.
 async fn poll_prometheus_pod_metrics(
-    prom: crate::backend::integrations::PrometheusConfig,
+    prom: PromEndpoint,
     target: PodPollTarget,
     emitter: PollEmitter,
 ) {
@@ -560,29 +556,24 @@ struct PromResponse {
 }
 
 async fn prom_query_range(
-    base_url: &str,
+    endpoint: &PromEndpoint,
     query: &str,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     step: &str,
 ) -> anyhow::Result<Vec<PromSeries>> {
-    let url = format!(
-        "{}/api/v1/query_range?query={}&start={}&end={}&step={}",
-        base_url,
+    let path = format!(
+        "/api/v1/query_range?query={}&start={}&end={}&step={}",
         urlencoding::encode(query),
         start.timestamp(),
         end.timestamp(),
         step
     );
 
-    let resp = reqwest::get(&url)
+    let body = endpoint
+        .get_text(&path)
         .await
-        .with_context(|| format!("Prometheus GET failed for {}", url))?;
-    let status = resp.status();
-    let body = resp.text().await?;
-    if !status.is_success() {
-        anyhow::bail!("Prometheus returned {}: {}", status, body);
-    }
+        .with_context(|| format!("Prometheus query_range failed on {}", endpoint.describe()))?;
 
     let parsed: PromResponse = serde_json::from_str(&body)
         .with_context(|| format!("Failed to parse Prometheus response: {}", body))?;
@@ -623,7 +614,7 @@ fn zip_samples_by_timestamp(
 }
 
 async fn fetch_prom_pod_history(
-    prom: &crate::backend::integrations::PrometheusConfig,
+    base_url: &PromEndpoint,
     namespace: &str,
     pod: &str,
     step: &str,
@@ -631,29 +622,6 @@ async fn fetch_prom_pod_history(
     end: DateTime<Utc>,
     resource_specs: &[ContainerResourceSpec],
 ) -> anyhow::Result<PodMetricsHistory> {
-    // Try localhost first (port-forwarded), then fall back to service DNS
-    let base_url = format!("http://localhost:{}", prom.port);
-
-    // Verify we can reach localhost; if not, use service DNS
-    let base_url = match reqwest::Client::new()
-        .get(format!("{}/api/v1/query", base_url))
-        .timeout(std::time::Duration::from_secs(2))
-        .send()
-        .await
-    {
-        Ok(_) => {
-            // localhost is reachable
-            format!("http://localhost:{}", prom.port)
-        }
-        Err(_) => {
-            // Fall back to service DNS
-            format!(
-                "http://{}.{}.svc:{}",
-                prom.service, prom.namespace, prom.port
-            )
-        }
-    };
-
     // CPU: millicores
     let cpu_query = format!(
         "rate(container_cpu_usage_seconds_total{{namespace=\"{}\",pod=\"{}\",container!=\"POD\"}}[5m])*1000",
@@ -666,8 +634,8 @@ async fn fetch_prom_pod_history(
         namespace, pod
     );
 
-    let cpu_series = prom_query_range(&base_url, &cpu_query, start, end, step).await?;
-    let mem_series = prom_query_range(&base_url, &mem_query, start, end, step).await?;
+    let cpu_series = prom_query_range(base_url, &cpu_query, start, end, step).await?;
+    let mem_series = prom_query_range(base_url, &mem_query, start, end, step).await?;
 
     let mut cpu_map: std::collections::HashMap<String, Vec<(String, f64)>> =
         std::collections::HashMap::new();
@@ -838,18 +806,13 @@ fn workload_cpu_percent(total_millicores: f64, total_limit_millicores: u64) -> O
 }
 
 async fn aggregate_from_prometheus(
-    prom: &crate::backend::integrations::PrometheusConfig,
+    base_url: &PromEndpoint,
     namespace: &str,
     workload_name: &str,
     workload_kind: &str,
     pods: &[k8s_openapi::api::core::v1::Pod],
     replica_count: u32,
 ) -> anyhow::Result<WorkloadMetricsAggregate> {
-    let base_url = format!(
-        "http://{}.{}.svc:{}",
-        prom.service, prom.namespace, prom.port
-    );
-
     // Aggregate CPU across all pods and containers
     let mut total_cpu_millicores = 0.0;
     let mut total_memory_bytes = 0.0;
@@ -871,7 +834,7 @@ async fn aggregate_from_prometheus(
             namespace, pod_name
         );
 
-        if let Ok(cpu_val) = prom_query_instant(&base_url, &cpu_query).await {
+        if let Ok(cpu_val) = prom_query_instant(base_url, &cpu_query).await {
             total_cpu_millicores += cpu_val;
 
             // Distribute CPU proportionally across containers
@@ -883,7 +846,7 @@ async fn aggregate_from_prometheus(
                         namespace, pod_name, cname
                     );
 
-                    let cpu_pct = prom_query_instant(&base_url, &container_cpu_query)
+                    let cpu_pct = prom_query_instant(base_url, &container_cpu_query)
                         .await
                         .ok();
 
@@ -922,11 +885,11 @@ async fn aggregate_from_prometheus(
             namespace, pod_name
         );
 
-        if let Ok(mem_val) = prom_query_instant(&base_url, &mem_query).await {
+        if let Ok(mem_val) = prom_query_instant(base_url, &mem_query).await {
             total_memory_bytes += mem_val;
 
             // Get per-container memory
-            add_container_memory(&base_url, namespace, pod_name, pod, &mut container_map).await;
+            add_container_memory(base_url, namespace, pod_name, pod, &mut container_map).await;
         }
     }
 
@@ -957,7 +920,7 @@ async fn aggregate_from_prometheus(
 /// Add each container's working-set memory (from Prometheus) to its existing
 /// aggregate entry; containers without an entry or without data are skipped.
 async fn add_container_memory(
-    base_url: &str,
+    base_url: &PromEndpoint,
     namespace: &str,
     pod_name: &str,
     pod: &k8s_openapi::api::core::v1::Pod,
@@ -1076,15 +1039,12 @@ fn parse_memory_to_bytes(s: &str) -> Option<f64> {
 }
 
 /// Query Prometheus for an instant value (latest data point)
-async fn prom_query_instant(base_url: &str, query: &str) -> anyhow::Result<f64> {
-    let url = format!(
-        "{}/api/v1/query?query={}",
-        base_url,
-        urlencoding::encode(query)
-    );
-    let response = reqwest::get(&url)
-        .await?
-        .json::<serde_json::Value>()
+async fn prom_query_instant(endpoint: &PromEndpoint, query: &str) -> anyhow::Result<f64> {
+    let response = endpoint
+        .get_json(&format!(
+            "/api/v1/query?query={}",
+            urlencoding::encode(query)
+        ))
         .await?;
 
     let result = response
@@ -1142,9 +1102,12 @@ pub(super) async fn start_workload_metrics_polling(
 
             let replica_count = pods.len() as u32;
 
-            // Re-check config every tick so enabling Prometheus later (or it
-            // going away) is picked up without restarting the poll.
-            let prom_config = enabled_prometheus(context.as_deref());
+            // Re-resolve every tick (cached per context) so saving Prometheus settings later,
+            // or it going away, is picked up without restarting the poll.
+            let prom_config = integrations::resolve_prometheus(context.as_deref(), client.as_ref())
+                .await
+                .ok()
+                .map(|(endpoint, _)| endpoint);
 
             let result = match &prom_config {
                 Some(prom) => {
@@ -1195,12 +1158,7 @@ pub(super) async fn start_workload_metrics_polling(
                 Err(e) => {
                     if !has_failed {
                         has_failed = true;
-                        let prom_base_url = prom_config.as_ref().map(|prom| {
-                            format!(
-                                "http://{}.{}.svc:{}",
-                                prom.service, prom.namespace, prom.port
-                            )
-                        });
+                        let prom_base_url = prom_config.as_ref().map(PromEndpoint::describe);
                         tracing::warn!(
                             namespace = %namespace,
                             workload = %workload_name,
@@ -1284,13 +1242,17 @@ async fn list_workload_pods(
 /// fallback the workload poll loop above uses each tick.
 pub(super) async fn aggregate_workload_metrics_once(
     context: Option<&str>,
+    client: Option<&Client>,
     namespace: &str,
     workload_name: &str,
     workload_kind: &str,
     pods: &[k8s_openapi::api::core::v1::Pod],
 ) -> WorkloadMetricsAggregate {
     let replica_count = pods.len() as u32;
-    let prom_config = enabled_prometheus(context);
+    let prom_config = integrations::resolve_prometheus(context, client)
+        .await
+        .ok()
+        .map(|(endpoint, _)| endpoint);
     let result = match &prom_config {
         Some(prom) => {
             aggregate_from_prometheus(

@@ -90,7 +90,13 @@ export default function MetricsPanel() {
         </Button>
       </div>
       {pods.length === 0 && workloads.length === 0 ? (
-        <MetricsUnavailable detail="No metrics received yet. Configure Prometheus below, then start polling a pod." />
+        <MetricsUnavailable
+          detail={
+            test?.success
+              ? 'No metrics received yet. Enter a pod, then Fetch once or Start polling.'
+              : 'No metrics received yet. Configure Prometheus below, then start polling a pod.'
+          }
+        />
       ) : (
         <table className="m-3 text-xs">
           <thead>

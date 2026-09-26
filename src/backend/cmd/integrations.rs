@@ -26,10 +26,10 @@ pub(super) async fn handle(
             port,
         } => configure_prometheus(state, sender, namespace, service, port).await?,
         BackendCmd::TestPrometheusConnection {
-            namespace: _,
-            service: _,
+            namespace,
+            service,
             port,
-        } => test_prometheus_connection(state, sender, port).await,
+        } => test_prometheus_connection(state, sender, namespace, service, port).await,
         BackendCmd::ConfigureGrafana { base_url, api_key } => {
             let context = active_context(state);
             let store = state.secrets.clone();
@@ -129,33 +129,48 @@ async fn configure_prometheus(
         settings.event,
     );
 
-    // Start port-forward to Prometheus service
-    let client = state.cluster.client_or_err()?;
-
-    // Use port-forward manager to create a tunnel to the Prometheus service
-    // Note: Prometheus typically runs in a StatefulSet, we'll target the service pod
-    let pf_result = state
-        .port_forward_manager
-        .start(&client, &namespace, &service, port, 9090, None)
-        .await;
-
-    // Create and store PrometheusClient. If the port-forward failed, still configure
-    // the client (assumes manual port-forward).
-    let url = format!("http://localhost:{}", port);
-    state.metrics.prometheus_client = Some(metrics_provider::PrometheusClient::new(url));
-
-    let message = match pf_result {
-        Ok(_tunnel_id) => format!(
-            "Configured Prometheus: {}/{} port {} (context: {}) - port-forward active",
-            namespace, service, port, context
-        ),
-        Err(e) => format!(
-            "Configured Prometheus: {}/{} port {} (context: {}) - port-forward failed, ensure manual tunnel is active: {}",
-            namespace, service, port, context, e
-        ),
+    // 041: the saved Service is queried through the API server proxy (no port-forward). Drop
+    // the cached resolution so every query path picks the new settings up, then verify them.
+    integrations::forget_prometheus_resolution(&context);
+    let target = integrations::PromTarget {
+        namespace: namespace.clone(),
+        service: service.clone(),
+        port,
+        source: integrations::PromSource::Saved,
     };
-    events::notify_info(state.cluster.seq.as_ref(), sender, message);
+    let (success, message) = probe_target(state, &target).await;
+    emit_system(
+        state,
+        sender,
+        section_keys::integrations_metrics(),
+        SystemEvent::PrometheusConnectionTest {
+            success,
+            message: message.clone(),
+        },
+    );
+    events::notify_info(
+        state.cluster.seq.as_ref(),
+        sender,
+        format!("Saved Prometheus {namespace}/{service}:{port} (context: {context}). {message}"),
+    );
     Ok(())
+}
+
+/// Probe `target` through the API server proxy: `(success, status message)`.
+async fn probe_target(state: &BackendState, target: &integrations::PromTarget) -> (bool, String) {
+    let Some(client) = state.cluster.client.as_ref() else {
+        return (false, "Not connected to a cluster.".to_owned());
+    };
+    match target.endpoint(client).probe().await {
+        Ok(()) => (true, target.status_message()),
+        Err(e) => (
+            false,
+            format!(
+                "{}/{}:{} did not answer: {e}",
+                target.namespace, target.service, target.port
+            ),
+        ),
+    }
 }
 
 fn active_context(state: &BackendState) -> String {
@@ -199,26 +214,28 @@ fn emit_settings(
     );
 }
 
-/// Test Prometheus connection via localhost (assumes port-forward is established).
+/// Test a Prometheus Service through the API server proxy (no port-forward needed).
 async fn test_prometheus_connection(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
+    namespace: String,
+    service: String,
     port: u16,
 ) {
-    let url = format!("http://localhost:{}/api/v1/query?query=up", port);
-    let (success, message) = match reqwest::Client::new().get(&url).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            // Connection successful - create and store client for future use
-            let client_url = format!("http://localhost:{}", port);
-            state.metrics.prometheus_client =
-                Some(metrics_provider::PrometheusClient::new(client_url));
-            (true, "Connection successful".to_owned())
-        }
-        Ok(resp) => (false, format!("HTTP {}", resp.status())),
-        Err(e) => (
-            false,
-            format!("Connection failed (ensure port-forward is active): {}", e),
-        ),
+    let target = integrations::PromTarget {
+        namespace,
+        service,
+        port,
+        source: integrations::PromSource::Saved,
+    };
+    let (success, message) = probe_target(state, &target).await;
+    let message = if success {
+        format!(
+            "Connected to {}/{}:{} via the API server proxy",
+            target.namespace, target.service, target.port
+        )
+    } else {
+        message
     };
     emit_system(
         state,
@@ -268,13 +285,21 @@ async fn refresh_integrations(state: &BackendState, sender: &Sender<BackendEvent
         return;
     };
     match integrations::scan_metrics_stack(client).await {
-        Ok(result) => emit_cluster_system(
-            state,
-            sender,
-            section_keys::integrations_metrics(),
-            context,
-            SystemEvent::MetricsStackScanned(result),
-        ),
+        Ok(result) => {
+            // 041: remember what was found and auto-connect to it (saved settings still win).
+            if let Some(ctx) = context.as_deref() {
+                integrations::remember_metrics_scan(ctx, &result);
+            }
+            emit_cluster_system(
+                state,
+                sender,
+                section_keys::integrations_metrics(),
+                context.clone(),
+                SystemEvent::MetricsStackScanned(result),
+            );
+            let resolved = integrations::resolve_prometheus(context.as_deref(), Some(client)).await;
+            integrations::emit_prometheus_status(state, sender, resolved.map(|(_, t)| t));
+        }
         Err(e) => {
             // IntegrationsView's "scanning" flag (and the disabled
             // Scan button / stuck "Scanning..." label it drives) only
@@ -516,8 +541,9 @@ async fn select_keda(
         );
         return;
     };
-    let provider =
-        integrations::prometheus_base_url(state).map(metrics_provider::PrometheusClient::new);
+    let provider = integrations::prometheus_endpoint(state)
+        .await
+        .map(metrics_provider::PrometheusClient::from_endpoint);
     let provider_ref = provider
         .as_ref()
         .map(|p| p as &(dyn metrics_provider::MetricsProviderTrait + Sync));
