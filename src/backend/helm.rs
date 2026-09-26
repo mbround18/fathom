@@ -1303,7 +1303,13 @@ async fn run_helm_upgrade(
 
     let mut child = cmd.spawn()?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(values_yaml.as_bytes()).await?;
+        // helm may fail and exit before reading its values (bad chart, unreachable cluster).
+        // The write then hits EPIPE; ignore that so the caller sees helm's own stderr verbatim
+        // instead of "Broken pipe". `stdin` drops here, closing the pipe (EOF for helm).
+        match stdin.write_all(values_yaml.as_bytes()).await {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+            other => other?,
+        }
     }
     Ok(child.wait_with_output().await?)
 }
