@@ -381,7 +381,7 @@ async fn claude_401_during_a_turn_is_typed_and_needs_reauth() {
         r.rt.turn_client()
             .await
             .ok()
-            .expect("claude client")
+            .unwrap()
             .send_turn("s", &[])
             .await
             .unwrap_err();
