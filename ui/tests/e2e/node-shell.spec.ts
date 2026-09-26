@@ -13,7 +13,7 @@ import {
   emit,
   inspector,
   open,
-  sent,
+  sentIgnoringNodePoll,
   sentTypes,
   expectNoHorizontalScroll,
   navigateTo,
@@ -126,7 +126,7 @@ test.describe('037 node shell', () => {
     await dialog.getByTestId('confirm-submit').click()
 
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         {
           type: 'StartNodeShell',
@@ -149,7 +149,7 @@ test.describe('037 node shell', () => {
     await emit(page, batch([statusEvent('Running')]))
     await expect(insp.getByTestId('node-shell-xterm')).toBeVisible()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toContainEqual({
         type: 'StartPodExec',
         data: { namespace: 'default', name: POD, container: 'shell' },
@@ -180,7 +180,7 @@ test.describe('037 node shell', () => {
       ]),
     )
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toContainEqual({ type: 'StopNodeShell', data: { session_id: 1, namespace: 'default' } })
 
     await emit(page, batch([statusEvent('Terminating'), statusEvent('Removed')]))
@@ -194,7 +194,7 @@ test.describe('037 node shell', () => {
     await clearSent(page)
     await insp.getByRole('tab', { name: 'Actions' }).click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toContainEqual({ type: 'StopNodeShell', data: { session_id: 1, namespace: 'default' } })
   })
 
@@ -237,7 +237,7 @@ test.describe('037 node shell', () => {
     await clearSent(page)
     await insp.getByTestId('node-shell-stop').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toContainEqual({ type: 'StopNodeShell', data: { session_id: 1, namespace: 'default' } })
   })
 
@@ -255,7 +255,7 @@ test.describe('037 node shell', () => {
     await clearSent(page)
     await insp.getByTestId('node-shell-stop').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toContainEqual({ type: 'StopNodeShell', data: { session_id: 1, namespace: 'default' } })
   })
 
@@ -266,7 +266,7 @@ test.describe('037 node shell', () => {
     await clearSent(page)
     await insp.getByTestId('node-shell-find-orphans').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toContainEqual({ type: 'ListNodeShellOrphans', data: { namespace: null } })
     await emit(
       page,
@@ -294,11 +294,11 @@ test.describe('037 node shell', () => {
     await expect(dialog).toContainText('fathom-node-shell-old-11111')
     // Cancel sends nothing.
     await dialog.getByTestId('confirm-cancel').click()
-    expect(await sent(page)).toEqual([])
+    expect(await sentIgnoringNodePoll(page)).toEqual([])
     await insp.getByTestId('node-shell-orphan-delete').click()
     await confirmDialog(page).getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         {
           type: 'DeleteNodeShellOrphans',
@@ -319,7 +319,7 @@ test.describe('037 node shell', () => {
     await expect(confirmDialog(page)).toContainText('alpine:3.20')
     await confirmDialog(page).getByTestId('confirm-submit').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         {
           type: 'StartNodeShell',
@@ -347,7 +347,7 @@ test.describe('037 node shell', () => {
     await expect(confirmDialog(page)).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(confirmDialog(page)).toHaveCount(0)
-    expect(await sent(page)).toEqual([])
+    expect(await sentIgnoringNodePoll(page)).toEqual([])
     // Session options are a native disclosure, operable from the keyboard.
     const summary = insp.getByText('Session options')
     await summary.focus()
@@ -438,7 +438,7 @@ test.describe('037 node shell settings persistence', () => {
     await clearSent(page)
     await section.getByTestId('node-shell-settings-save').click()
     await expect
-      .poll(() => sent(page))
+      .poll(() => sentIgnoringNodePoll(page))
       .toEqual([
         {
           type: 'SetNodeShellSettings',

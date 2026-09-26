@@ -48,6 +48,18 @@ export async function sentMutations(page: Page): Promise<BackendCmd[]> {
 }
 
 /**
+ * Commands sent excluding node-metrics polling start/stop. Releasing the poll is debounced
+ * (1.5s, `features/metrics/nodePolling.ts`), so when a layout hides the Nodes list after a row
+ * click (phone/tablet) the `StopNodeMetricsPolling` lands after a test's `clearSent` and races
+ * the node-flow assertions it has nothing to do with.
+ */
+export async function sentIgnoringNodePoll(page: Page): Promise<BackendCmd[]> {
+  return (await sent(page)).filter(
+    (c) => c.type !== 'StartNodeMetricsPolling' && c.type !== 'StopNodeMetricsPolling',
+  )
+}
+
+/**
  * Wait for the fake scenario's own async replies (queued by `setTimeout` at `send` time) to be
  * delivered. Timers with equal delay fire FIFO, so a page-side `setTimeout(0)` queued now lands
  * after them; without this an injected `emit` can be overwritten by a late canned reply.
