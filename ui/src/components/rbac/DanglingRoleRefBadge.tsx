@@ -19,9 +19,6 @@ export interface DanglingRoleRefBadgeProps {
   namespace?: string | null
 }
 
-/** Stable empty-Set singleton so "no list yet" never produces a fresh object identity. */
-const EMPTY_SET: ReadonlySet<string> = new Set()
-
 /**
  * Renders nothing when `roleRef` resolves; when it does not, a small inline warning badge with
  * `data-testid="rbac-dangling-badge"` so it exists in the DOM exactly when dangling.
@@ -50,7 +47,7 @@ export function DanglingRoleRefBadge({ roleRef, namespace }: DanglingRoleRefBadg
   }, [roleRows, namespace])
 
   const clusterRoleNames = useMemo(() => {
-    if (!clusterRoleRows) return EMPTY_SET
+    if (!clusterRoleRows) return undefined
     const names = new Set<string>()
     for (const r of clusterRoleRows) {
       if (typeof r === 'string' || !('name' in r)) continue
@@ -59,10 +56,12 @@ export function DanglingRoleRefBadge({ roleRef, namespace }: DanglingRoleRefBadg
     return names
   }, [clusterRoleRows])
 
-  const dangling = isDanglingRoleRef(roleRef, {
-    ...(roleNames ? { roleNames } : {}),
-    clusterRoleNames,
-  })
+  // A RoleBinding passes `roleNames` even when undefined (Roles not loaded = unknown); a
+  // ClusterRoleBinding omits it.
+  const dangling = isDanglingRoleRef(
+    roleRef,
+    namespace ? { roleNames, clusterRoleNames } : { clusterRoleNames },
+  )
   if (!dangling) return null
 
   return (

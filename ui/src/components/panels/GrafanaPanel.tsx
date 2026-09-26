@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,13 @@ import { useStore } from '@/store'
 export default function GrafanaPanel() {
   const send = useStore((s) => s.send)
   const test = useStore((s) => s.integrations.grafanaTest)
+  const scan = useStore((s) => s.metrics.stackScan)
+  const context = useStore((s) => s.session.activeContext)
+  const detected = scan?.components.filter((c) => c.kind === 'Grafana') ?? []
+  // Look for an in-cluster Grafana once per context so the pane can say where it is.
+  useEffect(() => {
+    if (context !== undefined && scan === undefined) send({ type: 'RefreshIntegrations' })
+  }, [context, scan, send])
   const [url, setUrl] = useState('')
   const [key, setKey] = useState('')
   const settings = useObservabilitySettings()
@@ -31,6 +38,38 @@ export default function GrafanaPanel() {
         {' · '}
         <span data-testid="grafana-key-state">{saved?.key_set ? 'Key set' : 'Key not set'}</span>
       </p>
+      <div data-testid="grafana-detected" className="text-xs text-muted-foreground">
+        {scan === undefined ? (
+          'Scanning the cluster for Grafana…'
+        ) : detected.length > 0 ? (
+          <ul className="flex flex-col gap-1">
+            {detected.map((c) => (
+              <li key={`${c.namespace}/${c.service}`} className="flex flex-wrap items-center gap-2">
+                <span>
+                  In cluster:{' '}
+                  <span className="font-mono">{`${c.namespace}/${c.service}:${c.port}`}</span>.
+                  Forward it (
+                  <span className="font-mono">{`kubectl -n ${c.namespace} port-forward svc/${c.service} ${c.port}`}</span>
+                  ), then use its local URL.
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setUrl(`http://localhost:${c.port}`)}
+                >
+                  Use http://localhost:{c.port}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <span>
+            No Grafana service found in this cluster. Enter the URL of an external Grafana, or
+            install one (dev clusters: <span className="font-mono">k8s/addons/grafana</span>).
+          </span>
+        )}
+      </div>
       <form
         className="flex flex-col gap-2"
         autoComplete="off"

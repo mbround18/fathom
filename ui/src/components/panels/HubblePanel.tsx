@@ -21,11 +21,19 @@ export function HubblePanel() {
   }, [refreshHubble])
 
   if (!summary) {
-    return <MetricsUnavailable detail="Waiting for the Hubble traffic poll to complete." />
+    return (
+      <MetricsUnavailable
+        title="Scanning"
+        detail="Waiting for the Hubble traffic poll to complete."
+      />
+    )
   }
   if (!summary.installed) {
     return (
-      <MetricsUnavailable detail="No hubble-relay Service found — Cilium/Hubble is not installed in this cluster." />
+      <MetricsUnavailable
+        title="Not installed"
+        detail="No hubble-relay Service found — Cilium/Hubble is not installed in this cluster. Install Cilium with Hubble Relay enabled to see network flows here."
+      />
     )
   }
 

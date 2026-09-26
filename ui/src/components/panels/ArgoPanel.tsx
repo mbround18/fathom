@@ -31,6 +31,12 @@ export default function ArgoPanel() {
   const { found, missing } = detectArgo(catalog)
   const foundKey = found.map((f) => f.kind).join(',')
 
+  // The catalog is otherwise only fetched by the Custom Resources pane: opening Argo first
+  // would wait on it forever.
+  useEffect(() => {
+    if (!loaded) send({ type: 'RefreshCrds' })
+  }, [loaded, send])
+
   useEffect(() => {
     for (const e of found) {
       send({
@@ -47,7 +53,7 @@ export default function ArgoPanel() {
       <div data-testid="argo-not-detected">
         <Empty
           title="Argo CD not detected on this cluster"
-          detail={`Checked the CRD catalog for ${ARGO_GROUP}: ${missing.join(', ')}. None are installed.`}
+          detail={`Checked the CRD catalog for ${ARGO_GROUP}: ${missing.join(', ')}. None are installed. Install Argo CD to see its Applications here.`}
         />
       </div>
     )

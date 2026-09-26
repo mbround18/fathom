@@ -49,10 +49,14 @@ export function KedaPanel() {
     refreshKeda()
   }, [refreshKeda])
 
-  if (!overview) return <MetricsUnavailable detail="Waiting for the KEDA scan to complete." />
+  if (!overview)
+    return <MetricsUnavailable title="Scanning" detail="Waiting for the KEDA scan to complete." />
   if (!overview.installed) {
     return (
-      <MetricsUnavailable detail="KEDA not detected: its CRDs were not found in this cluster." />
+      <MetricsUnavailable
+        title="Not installed"
+        detail="KEDA not detected: its CRDs were not found in this cluster. Install KEDA to see ScaledObjects and ScaledJobs here."
+      />
     )
   }
 

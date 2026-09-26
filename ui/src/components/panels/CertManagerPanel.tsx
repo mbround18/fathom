@@ -45,14 +45,27 @@ export function CertManagerPanel() {
   }, [refreshCertManager])
 
   if (!overview) {
-    return <MetricsUnavailable detail="Waiting for the cert-manager scan to complete." />
+    return (
+      <MetricsUnavailable
+        title="Scanning"
+        detail="Waiting for the cert-manager scan to complete."
+      />
+    )
   }
   if (!overview.installed) {
-    return <MetricsUnavailable detail="cert-manager is not installed in this cluster." />
+    return (
+      <MetricsUnavailable
+        title="Not installed"
+        detail="cert-manager is not installed in this cluster. Install cert-manager to see Certificates and Issuers here."
+      />
+    )
   }
   if (overview.certificates.length === 0) {
     return (
-      <MetricsUnavailable detail="cert-manager is installed, but no Certificates were found." />
+      <MetricsUnavailable
+        title="No certificates"
+        detail="cert-manager is installed, but no Certificates were found."
+      />
     )
   }
 

@@ -53,6 +53,9 @@ export function NavTree() {
       ['integrations/hubble', st.refreshHubble],
       ['integrations/gatekeeper', st.refreshGatekeeper],
       ['integrations/vulnerabilities', st.refreshTrivyOverview],
+      ['integrations/argo', () => st.send({ type: 'RefreshCrds' })],
+      // One metrics-stack scan answers both Metrics and Grafana.
+      ['integrations/metrics', () => st.send({ type: 'RefreshIntegrations' })],
     ]
     for (const [key, refresh] of probes) if (integrationInstalled(st, key) === undefined) refresh()
   }, [integrationsOpen, ctx])

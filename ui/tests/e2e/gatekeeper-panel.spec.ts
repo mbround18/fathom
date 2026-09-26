@@ -70,6 +70,6 @@ test.describe('Gatekeeper policy pane', () => {
         }),
       ]),
     )
-    await expect(page.getByText('OPA Gatekeeper is not installed on this cluster')).toBeVisible()
+    await expect(page.getByText(/OPA Gatekeeper is not installed on this cluster/)).toBeVisible()
   })
 })
