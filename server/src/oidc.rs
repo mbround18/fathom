@@ -54,12 +54,18 @@ pub enum HttpError {
     Http(#[from] http::Error),
 }
 
-/// Per-login secrets kept between `/auth/login` and `/auth/callback`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Per-login secrets kept between `/auth/login` and `/auth/callback`. `Debug` is redacted.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LoginState {
     pub state: String,
     pub nonce: String,
     pub pkce_verifier: String,
+}
+
+impl std::fmt::Debug for LoginState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LoginState([redacted])")
+    }
 }
 
 pub struct AuthRequest {
@@ -292,12 +298,20 @@ impl OidcClient {
     }
 
     /// RP-initiated logout URL, when the IdP advertises `end_session_endpoint`.
-    pub fn end_session_url(&self, id_token_hint: &SecretString) -> Option<url::Url> {
+    ///
+    /// The URL is handed to the browser, so `id_token_hint` must only be passed when the ID
+    /// token is not a live cluster credential (see [`crate::http`]'s logout handler); without
+    /// it, `client_id` identifies the relying party (OIDC RP-Initiated Logout 1.0, section 2).
+    pub fn end_session_url(&self, id_token_hint: Option<&SecretString>) -> Option<url::Url> {
         let mut u = self.end_session.as_ref()?.url().clone();
-        u.query_pairs_mut()
-            .append_pair("id_token_hint", id_token_hint.expose_secret())
-            .append_pair("client_id", &self.client_id)
-            .append_pair("post_logout_redirect_uri", self.post_logout.as_str());
+        {
+            let mut q = u.query_pairs_mut();
+            if let Some(hint) = id_token_hint {
+                q.append_pair("id_token_hint", hint.expose_secret());
+            }
+            q.append_pair("client_id", &self.client_id)
+                .append_pair("post_logout_redirect_uri", self.post_logout.as_str());
+        }
         Some(u)
     }
 }

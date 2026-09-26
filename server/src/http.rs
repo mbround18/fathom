@@ -17,7 +17,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 use tower_http::services::ServeDir;
 
-use crate::config::{AccessModel, HostedConfig};
+use crate::config::{AccessModel, HostedConfig, KubeTokenKind};
 use crate::csrf;
 use crate::oidc::{LoginState, OidcClient, OidcError};
 use crate::session::{EndReason, Session, SessionError, SessionStore};
@@ -303,10 +303,13 @@ async fn logout(State(app): State<AppState>, headers: HeaderMap) -> Response {
         return json_error(StatusCode::FORBIDDEN, "csrf", None);
     }
     app.sessions.end(&session.id, EndReason::SignedOut);
-    let end = app
-        .oidc
-        .end_session_url(&session.tokens.id_token)
-        .map(|u| u.to_string());
+    // In pass-through with ID-token bearers the ID token *is* the user's cluster credential
+    // and stays valid at the API server until it expires: never put it in a URL the browser
+    // (history, page scripts, IdP access logs) can see (FR-011, FR-017).
+    let id_token_is_kube_credential =
+        app.cfg.access_model == AccessModel::PassThrough && app.cfg.kube_token == KubeTokenKind::Id;
+    let hint = (!id_token_is_kube_credential).then_some(&session.tokens.id_token);
+    let end = app.oidc.end_session_url(hint).map(|u| u.to_string());
     let mut resp = Json(json!({ "endSessionUrl": end })).into_response();
     resp.headers_mut()
         .append(header::SET_COOKIE, set_cookie(SESSION_COOKIE, "", 0));
@@ -542,5 +545,14 @@ mod tests {
             .unwrap();
         let dbg = format!("{s:?} {:?}", s.tokens);
         assert!(!dbg.contains("SECRET"), "{dbg}");
+        // The session id is the cookie value and the CSRF token its companion secret.
+        assert!(!dbg.contains(&s.id), "{dbg}");
+        assert!(!dbg.contains(&s.csrf), "{dbg}");
+        let login = LoginState {
+            state: "STATE-SECRET".into(),
+            nonce: "NONCE-SECRET".into(),
+            pkce_verifier: "PKCE-SECRET".into(),
+        };
+        assert!(!format!("{login:?}").contains("SECRET"));
     }
 }
