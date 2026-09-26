@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   clampScale,
+  FIT_MAX_SCALE,
+  fitCamera,
   hitTest,
+  tokenColor,
   screenToWorld,
   worldToScreen,
   zoomAt,
@@ -73,5 +76,47 @@ describe('hitTest', () => {
     if (!base) throw new Error('fixture missing')
     const withUnpositioned: TopologyNode[] = [{ ...base, x: undefined, y: undefined }]
     expect(hitTest({ x: 0, y: 0 }, withUnpositioned)).toBeUndefined()
+  })
+})
+
+describe('tokenColor', () => {
+  it('passes complete colors through and wraps bare oklch channels', () => {
+    expect(tokenColor(' oklch(51% 0.11 163) ', '#888')).toBe('oklch(51% 0.11 163)')
+    expect(tokenColor('#39ffb0', '#888')).toBe('#39ffb0')
+    expect(tokenColor('51% 0.11 163', '#888')).toBe('oklch(51% 0.11 163)')
+    expect(tokenColor('', '#888')).toBe('#888')
+  })
+})
+
+describe('fitCamera', () => {
+  const node = (id: string, x: number, y: number): TopologyNode => ({
+    id,
+    ref: { section: 'namespaces', kind: 'Namespace', namespace: null, name: id },
+    kind: 'Namespace',
+    label: id,
+    tone: 'muted',
+    tier: 'namespace',
+    x,
+    y,
+  })
+
+  it('puts every node inside the viewport', () => {
+    const nodes = [node('a', -900, -400), node('b', 1200, 700), node('c', 0, 0)]
+    const cam = fitCamera(nodes, 320, 600)
+    for (const n of nodes) {
+      const p = worldToScreen(cam, n.x ?? 0, n.y ?? 0)
+      expect(p.x).toBeGreaterThanOrEqual(0)
+      expect(p.x).toBeLessThanOrEqual(320)
+      expect(p.y).toBeGreaterThanOrEqual(0)
+      expect(p.y).toBeLessThanOrEqual(600)
+    }
+  })
+
+  it('never zooms past the cap for a sparse graph', () => {
+    expect(fitCamera([node('a', 10, 10)], 1600, 900).scale).toBeLessThanOrEqual(FIT_MAX_SCALE)
+  })
+
+  it('falls back to identity with no positioned nodes', () => {
+    expect(fitCamera([], 100, 100)).toEqual({ scale: 1, x: 0, y: 0 })
   })
 })

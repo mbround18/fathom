@@ -314,6 +314,14 @@ pub enum BackendCmdV1 {
         remote_port: u16,
         container: Option<String>,
     },
+    /// 041: forward to a Service (Grafana's "Open" button). The backend picks a ready pod behind
+    /// the Service, maps `port` to its targetPort and uses `port` locally when free (else the next
+    /// free port). The tunnel lands in the regular Port forwards list.
+    StartServicePortForward {
+        namespace: String,
+        service: String,
+        port: u16,
+    },
     StopPortForward {
         tunnel_id: String,
     },

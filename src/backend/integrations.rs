@@ -5,6 +5,7 @@
 use super::longhorn;
 use super::persistence;
 use crate::backend::events;
+use crate::backend::metrics_provider::PromEndpoint;
 use crate::backend::oidc::store::Secret;
 use crate::backend::portforward;
 use crate::backend::secret_store::{GRAFANA_SERVICE, SecretStore, grafana_key_set, set_verified};
@@ -300,26 +301,13 @@ pub fn clear_grafana_key(path: &Path, context: &str, store: &dyn SecretStore) ->
 
 /// Query Prometheus for time-series metrics
 /// Returns JSON metric data
-pub async fn query_prometheus(
-    base_url: &str,
-    query: &str,
-    _step: &str,
-) -> Result<serde_json::Value> {
-    // Simple instant query against Prometheus HTTP API
-    let client = reqwest::Client::new();
-    let url = format!(
-        "{}/api/v1/query?query={}",
-        base_url.trim_end_matches('/'),
-        urlencoding::encode(query)
-    );
-    let resp = client
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await?
-        .error_for_status()?;
-    let json: serde_json::Value = resp.json().await?;
-    Ok(json)
+pub async fn query_prometheus(endpoint: &PromEndpoint, query: &str) -> Result<serde_json::Value> {
+    endpoint
+        .get_json(&format!(
+            "/api/v1/query?query={}",
+            urlencoding::encode(query)
+        ))
+        .await
 }
 
 /// Pick a Prometheus base URL from available evidence, in priority order:
@@ -346,30 +334,31 @@ pub fn prometheus_base_url_from_parts(
     None
 }
 
-/// Compose a Prometheus base URL from live backend state, delegating the
-/// selection logic to the testable [`prometheus_base_url_from_parts`].
-pub(super) fn prometheus_base_url(state: &BackendState) -> Option<String> {
-    let prom_client_url = state
-        .metrics
-        .prometheus_client
-        .as_ref()
-        .map(|p| p.url.as_str());
+/// The Prometheus endpoint for the active context: the resolved (saved or detected) Service via
+/// the API server proxy, else a Fathom-managed port-forward to 9090 (see
+/// [`prometheus_base_url_from_parts`]).
+pub(super) async fn prometheus_endpoint(state: &BackendState) -> Option<PromEndpoint> {
+    if let Ok((endpoint, _)) = resolve_prometheus(
+        state.cluster.current_context.as_deref(),
+        state.cluster.client.as_ref(),
+    )
+    .await
+    {
+        return Some(endpoint);
+    }
+    forwarded_prometheus(state)
+}
 
+/// A Fathom-managed port-forward to Prometheus (9090), from state alone: no cluster round trip,
+/// so it is safe to read under a brief lock and use after releasing it.
+pub(super) fn forwarded_prometheus(state: &BackendState) -> Option<PromEndpoint> {
     let port_forwards: Vec<(u16, u16)> = state
         .port_forward_manager
         .list()
         .into_iter()
         .map(|pf| (pf.local_port, pf.remote_port))
         .collect();
-
-    let configured_prom_port = state
-        .cluster
-        .current_context
-        .as_deref()
-        .and_then(|ctx| IntegrationConfig::load(ctx).ok())
-        .and_then(|cfg| cfg.prometheus.map(|p| p.port));
-
-    prometheus_base_url_from_parts(prom_client_url, &port_forwards, configured_prom_port)
+    prometheus_base_url_from_parts(None, &port_forwards, None).map(PromEndpoint::Url)
 }
 
 /// Get Grafana dashboard URL with variable substitution
@@ -408,16 +397,8 @@ pub async fn detect_disk_provider(client: &Client, context: Option<&str>) -> Dis
         }
     }
 
-    // Check prometheus configuration (context-aware)
-    if let Some(ctx) = context
-        && let Ok(cfg) = IntegrationConfig::load(ctx)
-        && cfg.prometheus.as_ref().filter(|p| p.enabled).is_some()
-    {
-        return DiskUsageProvider::Prometheus;
-    }
-
-    // Fallback: try localhost:9090
-    if portforward::is_local_port_available(9090) {
+    // A reachable Prometheus (saved or auto-detected) for this context.
+    if resolve_prometheus(context, Some(client)).await.is_ok() {
         return DiskUsageProvider::Prometheus;
     }
 
@@ -426,16 +407,17 @@ pub async fn detect_disk_provider(client: &Client, context: Option<&str>) -> Dis
 
 /// Fetch disk usage using the detected provider and emit a System event with the results
 /// `context` is captured at request start so a late result keeps its origin (FR-016);
-/// `base_url` is [`prometheus_base_url`] at that moment. Needs no state lock.
+/// `forwarded` is [`forwarded_prometheus`] at that moment, used when the API server proxy can't
+/// reach Prometheus. Needs no state lock.
 pub(super) async fn fetch_disk_usage(
     client: &Client,
     seq: &AtomicU64,
     context: Option<String>,
-    base_url: Option<String>,
+    forwarded: Option<PromEndpoint>,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let provider = detect_disk_provider(client, context.as_deref()).await;
-    let route = Route::cluster(section_keys::integrations_metrics(), context);
+    let route = Route::cluster(section_keys::integrations_metrics(), context.clone());
 
     match provider {
         DiskUsageProvider::Longhorn => {
@@ -453,9 +435,12 @@ pub(super) async fn fetch_disk_usage(
         DiskUsageProvider::Prometheus => {
             // Basic query for persistent volume claim usage available from kubelet metrics
             // This will return time series with labels `persistentvolumeclaim` and `namespace`
-            let base = base_url.unwrap_or_else(|| "http://localhost:9090".to_string());
+            let resolved = resolve_prometheus(context.as_deref(), Some(client)).await;
+            let Some(endpoint) = resolved.ok().map(|(e, _)| e).or(forwarded) else {
+                return Ok(());
+            };
             let query = "kubelet_volume_stats_used_bytes";
-            if let Ok(json) = query_prometheus(&base, query, "").await
+            if let Ok(json) = query_prometheus(&endpoint, query).await
                 && let Some(results) = json
                     .get("data")
                     .and_then(|d| d.get("result"))
@@ -537,6 +522,23 @@ pub(super) async fn ensure_metrics_port_forward(
         prometheus_candidates(&s)
     };
 
+    // 041: a saved or detected Prometheus reachable through the API server proxy needs no
+    // port-forward at all. Only fall back to forwarding when that fails.
+    let resolved = resolve_prometheus(context, Some(client)).await;
+    let connected = resolved.is_ok();
+    let seq = {
+        let s = state.lock().await;
+        if !still_current(&s) {
+            return;
+        }
+        emit_prometheus_status(&s, sender, resolved.map(|(_, t)| t));
+        s.cluster.seq.clone()
+    };
+    if connected {
+        let _ = fetch_disk_usage(client, &seq, context.map(str::to_owned), None, sender).await;
+        return;
+    }
+
     for (namespace, service, port) in candidates {
         let Some(pod_name) = service_pod(client, &namespace, &service).await else {
             continue;
@@ -572,14 +574,14 @@ pub(super) async fn ensure_metrics_port_forward(
     }
 
     // Attempt to fetch disk usage after auto-discovery/port-forward attempts.
-    let (seq, base_url) = {
+    let (seq, forwarded) = {
         let s = state.lock().await;
         if !still_current(&s) {
             return;
         }
-        (s.cluster.seq.clone(), prometheus_base_url(&s))
+        (s.cluster.seq.clone(), forwarded_prometheus(&s))
     };
-    let _ = fetch_disk_usage(client, &seq, context.map(str::to_owned), base_url, sender).await;
+    let _ = fetch_disk_usage(client, &seq, context.map(str::to_owned), forwarded, sender).await;
 
     events::notify_info(
         &seq,
@@ -945,71 +947,305 @@ pub(super) async fn scan_metrics_stack(client: &Client) -> anyhow::Result<Metric
     })
 }
 
-/// Record a discovered Prometheus service for `context` in the file at `path`, migrating a
-/// legacy plaintext Grafana key into `store` first. `api_key` is never serialized, so if the
-/// migration fails nothing is saved (returns false) and the file keeps the legacy key.
-pub fn record_discovered_prometheus(
-    path: &Path,
-    context: &str,
-    service: &str,
-    store: &dyn SecretStore,
-) -> bool {
-    let Ok(mut cfg) = IntegrationConfig::load_from(path, context) else {
-        return false;
-    };
-    migrate_legacy_grafana_key(path, &mut cfg, store);
-    if cfg.grafana.as_ref().is_some_and(|g| !g.api_key.is_empty()) {
-        return false;
-    }
-    cfg.prometheus = Some(PrometheusConfig {
-        enabled: true,
-        namespace: "monitoring".to_string(),
-        service: service.to_owned(),
-        port: 9090,
-    });
-    cfg.save_to(path).is_ok()
+// --- 041-observability-autoconnect: Prometheus endpoint resolution ---
+//
+// A detected Prometheus is queried through the API server's service proxy with the active
+// context's credentials, so metrics work with no port-forward and no user input. A saved
+// (manual) Prometheus config for the context still wins when it answers.
+
+/// Where a context's Prometheus lives, and how Fathom found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromTarget {
+    pub namespace: String,
+    pub service: String,
+    pub port: u16,
+    pub source: PromSource,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromSource {
+    /// The user's saved Prometheus settings for this context.
+    Saved,
+    /// Found by the metrics-stack scan.
+    Detected,
+}
+
+impl PromTarget {
+    pub fn endpoint(&self, client: &Client) -> PromEndpoint {
+        PromEndpoint::ServiceProxy {
+            client: client.clone(),
+            namespace: self.namespace.clone(),
+            service: self.service.clone(),
+            port: self.port,
+        }
+    }
+
+    /// Status line for the Metrics pane.
+    pub fn status_message(&self) -> String {
+        let how = match self.source {
+            PromSource::Saved => "Using saved",
+            PromSource::Detected => "Auto-detected",
+        };
+        format!(
+            "{how} Prometheus {}/{}:{} via the API server proxy",
+            self.namespace, self.service, self.port
+        )
+    }
+}
+
+/// How long a failed resolution is remembered before the next caller re-probes.
+const PROM_NEGATIVE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[derive(Clone)]
+enum Resolution {
+    Found(PromTarget),
+    Missing {
+        at: std::time::Instant,
+        reason: String,
+    },
+}
+
+type ContextMap<T> = std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, T>>>;
+
+/// Scan results per context: `Some(None)` means scanned and nothing found.
+static DETECTED_PROMETHEUS: ContextMap<Option<PromTarget>> =
+    std::sync::LazyLock::new(Default::default);
+/// Probed resolution per context.
+static RESOLVED_PROMETHEUS: ContextMap<Resolution> = std::sync::LazyLock::new(Default::default);
+
+/// The Prometheus a scan found, as a query target (OpenObserve's API lives under an org
+/// prefix, so only a real Prometheus is auto-connected).
+pub fn detected_target(scan: &MetricsStackScanResult) -> Option<PromTarget> {
+    scan.suggested_endpoint
+        .as_ref()
+        .filter(|c| c.kind == MetricsComponentKind::Prometheus)
+        .map(|c| PromTarget {
+            namespace: c.namespace.clone(),
+            service: c.service.clone(),
+            port: c.port,
+            source: PromSource::Detected,
+        })
+}
+
+/// Remember a scan for `context` and drop its cached resolution so the next query re-probes.
+pub fn remember_metrics_scan(context: &str, scan: &MetricsStackScanResult) {
+    if let Ok(mut m) = DETECTED_PROMETHEUS.lock() {
+        m.insert(context.to_owned(), detected_target(scan));
+    }
+    forget_prometheus_resolution(context);
+}
+
+/// Drop the cached resolution for `context` (settings changed, rescan, reconnect).
+pub fn forget_prometheus_resolution(context: &str) {
+    if let Ok(mut m) = RESOLVED_PROMETHEUS.lock() {
+        m.remove(context);
+    }
+}
+
+fn saved_target(context: &str) -> Option<PromTarget> {
+    IntegrationConfig::load(context)
+        .ok()
+        .and_then(|cfg| cfg.prometheus)
+        .filter(|p| p.enabled)
+        .map(|p| PromTarget {
+            namespace: p.namespace,
+            service: p.service,
+            port: p.port,
+            source: PromSource::Saved,
+        })
+}
+
+/// Candidates in priority order: the saved target first, then the detected one if different.
+fn prometheus_candidates_for(
+    saved: Option<PromTarget>,
+    detected: Option<PromTarget>,
+) -> Vec<PromTarget> {
+    let mut out: Vec<PromTarget> = saved.into_iter().collect();
+    if let Some(d) = detected
+        && !out
+            .iter()
+            .any(|s| s.namespace == d.namespace && s.service == d.service && s.port == d.port)
+    {
+        out.push(d);
+    }
+    out
+}
+
+/// Resolve the Prometheus to query for `context`: probe the saved target, then the detected
+/// one (scanning the cluster once if it has not been scanned yet). The answer is cached per
+/// context; a miss is cached for [`PROM_NEGATIVE_TTL`].
+pub async fn resolve_prometheus(
+    context: Option<&str>,
+    client: Option<&Client>,
+) -> Result<(PromEndpoint, PromTarget), String> {
+    let Some(context) = context else {
+        return Err("No active context".to_owned());
+    };
+    let Some(client) = client else {
+        return Err("Not connected to a cluster".to_owned());
+    };
+    let cached = RESOLVED_PROMETHEUS
+        .lock()
+        .ok()
+        .and_then(|m| m.get(context).cloned());
+    match cached {
+        Some(Resolution::Found(t)) => return Ok((t.endpoint(client), t)),
+        Some(Resolution::Missing { at, reason }) if at.elapsed() < PROM_NEGATIVE_TTL => {
+            return Err(reason);
+        }
+        _ => {}
+    }
+
+    let scanned = DETECTED_PROMETHEUS
+        .lock()
+        .ok()
+        .and_then(|m| m.get(context).cloned());
+    let detected = match scanned {
+        Some(d) => d,
+        None => match scan_metrics_stack(client).await {
+            Ok(scan) => {
+                let d = detected_target(&scan);
+                if let Ok(mut m) = DETECTED_PROMETHEUS.lock() {
+                    m.insert(context.to_owned(), d.clone());
+                }
+                d
+            }
+            Err(e) => {
+                tracing::debug!("metrics stack scan failed: {e}");
+                None
+            }
+        },
+    };
+
+    let mut failures = Vec::new();
+    for target in prometheus_candidates_for(saved_target(context), detected) {
+        let endpoint = target.endpoint(client);
+        match endpoint.probe().await {
+            Ok(()) => {
+                if let Ok(mut m) = RESOLVED_PROMETHEUS.lock() {
+                    m.insert(context.to_owned(), Resolution::Found(target.clone()));
+                }
+                return Ok((endpoint, target));
+            }
+            Err(e) => failures.push(format!(
+                "{}/{}:{}: {e}",
+                target.namespace, target.service, target.port
+            )),
+        }
+    }
+    let reason = if failures.is_empty() {
+        "No Prometheus found in this cluster".to_owned()
+    } else {
+        format!("Prometheus not reachable ({})", failures.join("; "))
+    };
+    if let Ok(mut m) = RESOLVED_PROMETHEUS.lock() {
+        m.insert(
+            context.to_owned(),
+            Resolution::Missing {
+                at: std::time::Instant::now(),
+                reason: reason.clone(),
+            },
+        );
+    }
+    Err(reason)
+}
+
+/// Report the resolved Prometheus (or why there is none) to the Metrics pane status line.
+pub(super) fn emit_prometheus_status(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    resolved: Result<PromTarget, String>,
+) {
+    let (success, message) = match resolved {
+        Ok(t) => (true, t.status_message()),
+        Err(reason) => (false, reason),
+    };
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::global(section_keys::integrations_metrics()),
+        Correlation::None,
+        BackendEvent::System(SystemEvent::PrometheusConnectionTest { success, message }),
+    );
+}
+
+/// On connect / context switch: scan for a metrics stack and remember what was found, so the
+/// first query auto-connects. Never writes settings (a scan used to persist the first
+/// "prometheus"-named Service in `monitoring`, which saved Alertmanager as Prometheus).
 pub(super) async fn auto_discover_prometheus(
     client: &Client,
     context: &str,
-    store: &dyn SecretStore,
+    _store: &dyn SecretStore,
 ) -> anyhow::Result<()> {
-    use ::kube::Api;
-    use k8s_openapi::api::core::v1::Service;
-
-    let svc_api = Api::<Service>::namespaced(client.clone(), "monitoring");
-    match svc_api.list(&Default::default()).await {
-        Ok(services) => {
-            // Look for prometheus-k8s or prometheus-stack-kube-prom-prometheus
-            for svc in services.items {
-                if let Some(name) = svc.metadata.name.as_ref()
-                    && name.contains("prometheus")
-                    && !name.contains("operator")
-                    && !name.contains("adapter")
-                {
-                    // Found a viable Prometheus service
-                    tracing::info!("Auto-discovered Prometheus service: monitoring/{}", name);
-
-                    // Update or create integration config
-                    if let Ok(path) = persistence::integrations_config_path()
-                        && record_discovered_prometheus(&path, context, name, store)
-                    {
-                        return Ok(());
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            tracing::debug!("Failed to list services in monitoring namespace: {}", e);
-        }
+    let scan = scan_metrics_stack(client).await?;
+    if let Some(t) = detected_target(&scan) {
+        tracing::info!(
+            "Auto-detected Prometheus service: {}/{}:{}",
+            t.namespace,
+            t.service,
+            t.port
+        );
     }
+    remember_metrics_scan(context, &scan);
     Ok(())
 }
 
 #[cfg(test)]
 mod metrics_stack_tests {
     use super::*;
+
+    fn target(ns: &str, svc: &str, source: PromSource) -> PromTarget {
+        PromTarget {
+            namespace: ns.to_owned(),
+            service: svc.to_owned(),
+            port: 9090,
+            source,
+        }
+    }
+
+    #[test]
+    fn saved_prometheus_is_tried_before_detected() {
+        let saved = target("monitoring", "prom", PromSource::Saved);
+        let detected = target(
+            "fathom-metrics-prometheus",
+            "prometheus",
+            PromSource::Detected,
+        );
+        let order = prometheus_candidates_for(Some(saved.clone()), Some(detected.clone()));
+        assert_eq!(order, vec![saved, detected]);
+    }
+
+    #[test]
+    fn detected_equal_to_saved_is_not_probed_twice() {
+        let saved = target("m", "prometheus", PromSource::Saved);
+        let detected = target("m", "prometheus", PromSource::Detected);
+        assert_eq!(
+            prometheus_candidates_for(Some(saved.clone()), Some(detected)),
+            vec![saved]
+        );
+    }
+
+    #[test]
+    fn detection_only_auto_connects_a_real_prometheus() {
+        let comp = |kind, service: &str| DetectedMetricsComponent {
+            kind,
+            namespace: "n".to_owned(),
+            service: service.to_owned(),
+            port: 9090,
+        };
+        let scan = |suggested| MetricsStackScanResult {
+            tier: MetricsStackTier::Partial,
+            components: vec![],
+            suggested_endpoint: suggested,
+        };
+        let found = detected_target(&scan(Some(comp(MetricsComponentKind::Prometheus, "p"))));
+        assert_eq!(found, Some(target("n", "p", PromSource::Detected)));
+        assert_eq!(
+            detected_target(&scan(Some(comp(MetricsComponentKind::OpenObserve, "o")))),
+            None
+        );
+        assert_eq!(detected_target(&scan(None)), None);
+    }
 
     #[test]
     fn classifies_kube_prometheus_stack_names() {
@@ -1299,25 +1535,6 @@ mod settings_tests {
         assert_eq!((g.base_url.as_str(), g.key_set), ("http://g", false));
         let err = out.error.expect("error notification");
         assert!(!err.contains(KEY));
-    }
-
-    #[test]
-    fn auto_discover_keeps_unmigrated_legacy_key_or_migrates_it() {
-        let (_d, path) = tmp();
-        std::fs::write(
-            &path,
-            r#"{"context":"a","grafana":{"enabled":true,"base_url":"http://g","api_key":"legacy-k"}}"#,
-        )
-        .unwrap();
-        // Migration fails: the legacy key must stay in the file.
-        assert!(!record_discovered_prometheus(&path, "a", "prom", &Dropping));
-        assert!(std::fs::read_to_string(&path).unwrap().contains("legacy-k"));
-        // Migration works: the key moves to the store and leaves the file.
-        let s = memory_store();
-        assert!(record_discovered_prometheus(&path, "a", "prom", &s));
-        assert!(grafana_key_set(&s, "a"));
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert!(!text.contains("legacy-k") && text.contains("prom"));
     }
 
     #[test]

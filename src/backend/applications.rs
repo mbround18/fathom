@@ -450,6 +450,7 @@ pub(super) async fn select_application(
 
     let aggregate = metrics::aggregate_workload_metrics_once(
         state.cluster.current_context.as_deref(),
+        state.cluster.client.as_ref(),
         namespace,
         instance,
         "Application",

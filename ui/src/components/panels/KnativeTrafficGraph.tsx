@@ -7,12 +7,13 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { KnativeOverview } from '@/protocol/types'
 import { buildKnativeTrafficGraph } from '@/topology/knative'
 
+import { tokenColor } from '../topology/TopologyCanvas.utils'
+
 const W = 360
 const H = 160
 
 function color(style: CSSStyleDeclaration, v: string, fallback: string): string {
-  const raw = style.getPropertyValue(v).trim()
-  return raw ? `oklch(${raw})` : fallback
+  return tokenColor(style.getPropertyValue(v), fallback)
 }
 
 export function KnativeTrafficGraph({

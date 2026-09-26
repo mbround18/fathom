@@ -162,6 +162,16 @@ pub enum SystemEvent {
         available: bool,
     },
 
+    /// 041: a `StartServicePortForward` tunnel is up (or an existing one was reused):
+    /// `service`:`port` in `namespace` answers on `localhost:local_port`.
+    ServicePortForwardReady {
+        namespace: String,
+        service: String,
+        port: u16,
+        local_port: u16,
+        tunnel_id: String,
+    },
+
     /// Disk usage metrics discovered via CRDs or Prometheus
     DiskUsageUpdated(Vec<DiskUsage>),
 

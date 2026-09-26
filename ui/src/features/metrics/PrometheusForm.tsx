@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -6,11 +6,20 @@ import { useStore } from '@/store'
 
 import { useObservabilitySettings } from './useObservabilitySettings'
 
-/** Configure + test the in-cluster Prometheus service; also shows the stack scan result. */
+/**
+ * Configure + test the in-cluster Prometheus service; also shows the stack scan result.
+ * 041: with nothing saved, the backend auto-connects to the Prometheus the scan found (through
+ * the API server proxy) and reports it in `prometheusTest`; saving here overrides it.
+ */
 export function PrometheusForm() {
   const send = useStore((s) => s.send)
   const test = useStore((s) => s.integrations.prometheusTest)
   const scan = useStore((s) => s.metrics.stackScan)
+  const context = useStore((s) => s.session.activeContext)
+  // Scan once per context so detection (and the auto-connect) happens without a click.
+  useEffect(() => {
+    if (context !== undefined && scan === undefined) send({ type: 'RefreshIntegrations' })
+  }, [context, scan, send])
   const [namespace, setNamespace] = useState('monitoring')
   const [service, setService] = useState('prometheus')
   const [port, setPort] = useState('9090')
@@ -34,12 +43,25 @@ export function PrometheusForm() {
     portNum < 65536
   const data = { namespace: namespace.trim(), service: service.trim(), port: portNum }
   const suggested = scan?.suggested_endpoint
+  // With nothing saved, show the detected endpoint in the fields (it is what queries use).
+  const [prefilledFrom, setPrefilledFrom] = useState<typeof suggested>(undefined)
+  if (settings !== undefined && !saved && suggested && suggested !== prefilledFrom) {
+    setPrefilledFrom(suggested)
+    setNamespace(suggested.namespace)
+    setService(suggested.service)
+    setPort(String(suggested.port))
+  }
+  const autoConnected = !saved && test?.success === true
 
   return (
     <section aria-label="Prometheus connection" className="flex flex-col gap-2 p-3">
       <h3 className="text-sm font-medium">Prometheus</h3>
       <p data-testid="prometheus-configured" className="text-xs text-muted-foreground">
-        {saved ? 'Configured' : 'Not configured (showing defaults)'}
+        {saved
+          ? 'Configured'
+          : autoConnected
+            ? 'Not configured · using the auto-detected Prometheus (Save to pin or override)'
+            : 'Not configured (showing defaults)'}
       </p>
       <form
         className="grid grid-cols-1 gap-2 sm:grid-cols-3"

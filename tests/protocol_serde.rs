@@ -1700,6 +1700,11 @@ fn all_cmds() -> Vec<BackendCmd> {
             remote_port: 7,
             container: Some("s".to_owned()),
         },
+        BackendCmd::StartServicePortForward {
+            namespace: "s".to_owned(),
+            service: "s".to_owned(),
+            port: 7,
+        },
         BackendCmd::StopPortForward {
             tunnel_id: "s".to_owned(),
         },
@@ -2362,6 +2367,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::DeleteCronJob { .. } => {}
         BackendCmd::CheckPortAvailability { .. } => {}
         BackendCmd::StartPortForward { .. } => {}
+        BackendCmd::StartServicePortForward { .. } => {}
         BackendCmd::StopPortForward { .. } => {}
         BackendCmd::DeletePortForward { .. } => {}
         BackendCmd::UpdatePortForward { .. } => {}
@@ -2635,6 +2641,13 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::PortAvailability {
             port: 7,
             available: true,
+        },
+        SystemEvent::ServicePortForwardReady {
+            namespace: "s".to_owned(),
+            service: "s".to_owned(),
+            port: 7,
+            local_port: 7,
+            tunnel_id: "s".to_owned(),
         },
         SystemEvent::DiskUsageUpdated(vec![sample_disk_usage()]),
         SystemEvent::FluxOverviewUpdated(sample_flux_overview()),
@@ -3103,6 +3116,7 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::ObservabilitySettings { .. } => {}
         SystemEvent::MetricsStackScanned(..) => {}
         SystemEvent::PortAvailability { .. } => {}
+        SystemEvent::ServicePortForwardReady { .. } => {}
         SystemEvent::DiskUsageUpdated(..) => {}
         SystemEvent::FluxOverviewUpdated(..) => {}
         SystemEvent::KnativeOverviewUpdated(..) => {}

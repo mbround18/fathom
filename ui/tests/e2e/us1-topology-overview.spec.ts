@@ -102,9 +102,21 @@ test.describe('US1 topology overview', () => {
     await expect(canvasHost(page)).toContainText('%')
   })
 
-  test('T041: the camera starts at 100% zoom', async ({ page }, info) => {
+  test('T041: the camera auto-fits the graph, capped at 200%, with a Fit control', async ({
+    page,
+  }, info) => {
     await open(page)
     await openTopology(page, info)
-    await expect(canvasHost(page)).toContainText('100%')
+    // 041: the camera fits the laid-out graph (no longer a fixed 100%) and never zooms past
+    // FIT_MAX_SCALE; the graph stays readable (not shrunk to dots) on every viewport.
+    await expect(canvasHost(page).getByTestId('topology-fit')).toBeVisible()
+    await expect
+      .poll(async () => {
+        const m = /(\d+)%/.exec((await canvasHost(page).textContent()) ?? '')
+        return m ? Number(m[1]) : 0
+      })
+      .toBeGreaterThanOrEqual(30)
+    const pct = Number(/(\d+)%/.exec((await canvasHost(page).textContent()) ?? '')?.[1])
+    expect(pct).toBeLessThanOrEqual(200)
   })
 })

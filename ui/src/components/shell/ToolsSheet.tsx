@@ -71,7 +71,10 @@ export function ToolsSheet() {
         side="right"
         onCloseAutoFocus={returnFocus}
         data-testid="tools-sheet"
-        className="w-full max-w-full gap-0 p-0 sm:max-w-3xl"
+        // The base sheet pins `data-[side=right]:w-3/4` and `data-[side=right]:sm:max-w-sm`
+        // (~24rem); a plain `sm:max-w-3xl` loses to those variants, which squeezed every tool
+        // (the topology canvas most of all) into a ~310px strip. Override the same variants.
+        className="w-full max-w-full gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl data-[side=right]:xl:max-w-5xl"
       >
         <SheetHeader className="border-b border-border pr-12">
           <SheetTitle className="font-display tracking-wider uppercase">Tools</SheetTitle>

@@ -219,6 +219,7 @@ impl BackendCmdV1 {
             // App-local state.
             C::Shutdown
             | C::StartPortForward { .. }
+            | C::StartServicePortForward { .. }
             | C::StopPortForward { .. }
             | C::DeletePortForward { .. }
             | C::UpdatePortForward { .. }
@@ -555,6 +556,7 @@ impl BackendCmdV1 {
             | C::DeleteCronJob { .. } => section_keys::workloads_cronjobs(),
             C::CheckPortAvailability { .. }
             | C::StartPortForward { .. }
+            | C::StartServicePortForward { .. }
             | C::StopPortForward { .. }
             | C::DeletePortForward { .. }
             | C::UpdatePortForward { .. }
@@ -953,6 +955,14 @@ impl BackendCmdV1 {
                 Some("Pod"),
                 Some(namespace),
                 Some(pod),
+            ),
+            C::StartServicePortForward {
+                namespace, service, ..
+            } => summary(
+                AuditActionKind::PortForwardChange,
+                Some("Service"),
+                Some(namespace),
+                Some(service),
             ),
             C::StopPortForward { tunnel_id }
             | C::DeletePortForward { tunnel_id }
@@ -1485,6 +1495,7 @@ impl BackendCmdV1 {
             | C::DeleteCronJob { .. }
             | C::CheckPortAvailability { .. }
             | C::StartPortForward { .. }
+            | C::StartServicePortForward { .. }
             | C::StopPortForward { .. }
             | C::DeletePortForward { .. }
             | C::UpdatePortForward { .. }
@@ -1691,6 +1702,11 @@ mod tests {
                 local_port: 8080,
                 remote_port: 80,
                 container: None,
+            },
+            BackendCmdV1::StartServicePortForward {
+                namespace: s("grafana"),
+                service: s("grafana"),
+                port: 3000,
             },
             BackendCmdV1::DeletePortForward { tunnel_id: s("t") },
             BackendCmdV1::CreateKindCluster {
