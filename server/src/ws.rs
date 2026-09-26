@@ -224,7 +224,25 @@ async fn run<S>(
                 },
                 f = frames_rx.recv() => match f {
                     Some(t) => Message::text(t),
-                    None => break,
+                    None => {
+                        // The user's backend stopped. When that is because the session ended,
+                        // the control loop is about to send 4401: wait briefly for it so the
+                        // client sees why (a bare close reads as 1005, a transient drop).
+                        let deadline =
+                            tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+                        let (code, why) = loop {
+                            match tokio::time::timeout_at(deadline, out_rx.recv()).await {
+                                Ok(Some(Out::Close(code, why))) => break (code, why),
+                                Ok(Some(Out::Text(_))) => continue,
+                                Ok(None) | Err(_) => break (1011, "backend ended"),
+                            }
+                        };
+                        let _ = write.send(Message::Close(Some(CloseFrame {
+                            code: CloseCode::from(code),
+                            reason: why.into(),
+                        }))).await;
+                        break;
+                    }
                 },
                 _ = ping.tick() => Message::Ping(Vec::new().into()),
             };
