@@ -139,6 +139,17 @@ export function TerminalView({
 
   const phase: TerminalPhase = stream === undefined ? 'attaching' : stream.status
   const reason = stream?.reason
+
+  // FR-010: the fit above ran before the session existed, so its resize was a backend no-op
+  // and the remote pty kept its default 80x24 until the pane next changed size. Send the
+  // current size once the session is live.
+  useEffect(() => {
+    const term = terminalRef.current
+    if (phase !== 'active' || !term) return
+    fitRef.current?.fit()
+    send({ type: 'ResizePodExec', data: { cols: term.cols, rows: term.rows } })
+  }, [phase, send])
+
   useEffect(() => {
     onPhase?.(phase, reason)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- callers pass inline callbacks
