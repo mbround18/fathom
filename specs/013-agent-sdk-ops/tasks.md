@@ -153,7 +153,7 @@ for user stories.
       `AgentAuthMode::Unconfigured`.
 - [x] T031 [P] [US2] Vitest tests: key input masked by default and only shows plaintext _(done: authSetup.test.tsx masks by default; agentPanel.test.tsx covers the disable toggle and the unconfigured gate. The gate itself was missing (FR-003/FR-013) and is now implemented in AgentPanel)_
       after explicit reveal click; disable toggle prevents question submission.
-- [x] T032 [US2] Playwright E2E `ui/tests/e2e/us2-agent-ops-auth-setup.spec.ts` per _(done: us2-agent-ops-auth-setup.spec.ts covers all 5 scenarios. Ollama isolation is asserted at the command boundary (no hosted-provider commands); the fake has no hosted-API mock, and network isolation is covered by the Rust tests. WebKit could not launch on this host (missing libevent), so it ran on Chromium only)_
+- [x] T032 [US2] Playwright E2E `ui/tests/e2e/us2-agent-ops-auth-setup.spec.ts` per _(done: us2-agent-ops-auth-setup.spec.ts covers all 5 scenarios. Ollama isolation is asserted at the command boundary (no hosted-provider commands); the fake has no hosted-API mock, and network isolation is covered by the Rust tests. All four new agent-ops specs also pass on WebKit (webkit-phone and webkit-laptop, 16/16, 2026-09-26) after libevent-2.1-7t64 was installed)_
       quickstart.md US2 (all 5 acceptance scenarios): no-auth gate, BYOK success,
       Ollama-only-mode network isolation assertion (assert the fake backend records
       zero calls to any hosted-API mock while Ollama mode is active), unreachable
