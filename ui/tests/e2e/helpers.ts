@@ -271,3 +271,75 @@ export async function openHosted(page: Page, qs = 'user=alice&groups=dev,ops'): 
   await page.goto(`/?scenario=default&mode=hosted&${qs}`)
   await page.waitForFunction(() => window.__fathomFake !== undefined)
 }
+
+/**
+ * Every command `src/protocol/v1/mutation.rs` classifies as cluster-mutating (its `Namespaced`,
+ * `ClusterScoped` and object-scoped arms — Helm previews included, since they run against the
+ * cluster). Used by the 013 agent-ops specs to prove a scenario sent none of them.
+ */
+export const CLUSTER_MUTATING_COMMANDS: ReadonlySet<string> = new Set([
+  'AddEphemeralContainer',
+  'StartPodExec',
+  'DeletePod',
+  'ScaleDeployment',
+  'RestartDeployment',
+  'DeleteDeployment',
+  'RestartDaemonSet',
+  'DeleteDaemonSet',
+  'ScaleStatefulSet',
+  'RestartStatefulSet',
+  'DeleteStatefulSet',
+  'ScaleReplicaSet',
+  'RestartReplicaSet',
+  'DeleteReplicaSet',
+  'ScaleReplicationController',
+  'RestartReplicationController',
+  'DeleteReplicationController',
+  'DeleteJob',
+  'SuspendCronJob',
+  'TriggerCronJob',
+  'DeleteCronJob',
+  'DeleteService',
+  'DeleteIngress',
+  'DeleteNetworkPolicy',
+  'DeletePersistentVolumeClaim',
+  'DeleteRole',
+  'DeleteRoleBinding',
+  'DeleteConfigMap',
+  'DeleteSecret',
+  'DeleteResourceQuota',
+  'DeleteLimitRange',
+  'DeleteHorizontalPodAutoscaler',
+  'DeleteVerticalPodAutoscaler',
+  'DeletePodDisruptionBudget',
+  'DeleteLease',
+  'StartNodeShell',
+  'StopNodeShell',
+  'DeleteNodeShellOrphans',
+  'BulkDelete',
+  'DeletePersistentVolume',
+  'DeleteStorageClass',
+  'DeleteClusterRole',
+  'DeleteClusterRoleBinding',
+  'DeletePriorityClass',
+  'DeleteRuntimeClass',
+  'DeleteMutatingWebhookConfiguration',
+  'DeleteValidatingWebhookConfiguration',
+  'CordonNode',
+  'UncordonNode',
+  'DrainNode',
+  'CancelDrainNode',
+  'TaintNode',
+  'ApplyResourceYaml',
+  'CreateResourceYaml',
+  'PreviewHelmRollback',
+  'ApplyHelmRollback',
+  'PreviewHelmUpgrade',
+  'ApplyHelmUpgrade',
+  'UninstallHelmRelease',
+])
+
+/** The cluster-mutating commands sent since the last `clearSent`. */
+export async function clusterMutations(page: Page): Promise<string[]> {
+  return (await sentTypes(page)).filter((t) => CLUSTER_MUTATING_COMMANDS.has(t))
+}
