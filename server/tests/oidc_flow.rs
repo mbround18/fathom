@@ -123,6 +123,30 @@ async fn refresh_invalid_grant_is_permanent() {
     assert!(matches!(err, OidcError::RefreshRejected(_)), "{err:?}");
 }
 
+/// Any other OAuth error response is the IdP's definitive answer (e.g. Rauthy answers a
+/// disabled user's refresh with a non-standard `Disabled` code): revocation, not an outage.
+#[tokio::test]
+async fn refresh_other_error_responses_are_permanent_except_try_later_codes() {
+    let (idp, oidc) = setup().await;
+    let rt = || SecretString::from("rt-1".to_string());
+    for code in ["Disabled", "access_denied", "invalid_request"] {
+        idp.set(|b| b.refresh = RefreshMode::Error(code));
+        let err = oidc.refresh(&rt()).await.unwrap_err();
+        assert!(
+            matches!(err, OidcError::RefreshRejected(_)),
+            "{code}: {err:?}"
+        );
+    }
+    for code in ["temporarily_unavailable", "server_error"] {
+        idp.set(|b| b.refresh = RefreshMode::Error(code));
+        let err = oidc.refresh(&rt()).await.unwrap_err();
+        assert!(
+            matches!(err, OidcError::RefreshTransient(_)),
+            "{code}: {err:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn refresh_server_error_is_transient() {
     let (idp, oidc) = setup().await;

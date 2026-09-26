@@ -73,14 +73,22 @@ pub fn credentials_for(
     }
 }
 
-/// Namespaces the zero-permission probe checks in addition to cluster scope.
+/// Namespaces the zero-permission probe checks in addition to cluster scope: `default`, the
+/// server's own namespace, and any listed in `FATHOM_ACCESS_PROBE_NAMESPACES` (comma
+/// separated; Helm `accessProbeNamespaces`). A user whose only access is a `RoleBinding` in
+/// some other namespace would otherwise be shown the no-access state (a false positive).
 pub fn probe_namespaces() -> Vec<String> {
+    let own =
+        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace").ok();
+    let extra = std::env::var("FATHOM_ACCESS_PROBE_NAMESPACES").ok();
+    probe_namespaces_from(own.as_deref(), extra.as_deref())
+}
+
+fn probe_namespaces_from(own: Option<&str>, extra: Option<&str>) -> Vec<String> {
     let mut v = vec!["default".to_owned()];
-    if let Ok(ns) =
-        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-    {
-        let ns = ns.trim();
-        if !ns.is_empty() && ns != "default" {
+    let listed = extra.unwrap_or_default().split(',');
+    for ns in own.into_iter().chain(listed).map(str::trim) {
+        if !ns.is_empty() && !v.iter().any(|n| n == ns) {
             v.push(ns.to_owned());
         }
     }
@@ -397,6 +405,15 @@ impl UserConn for HostedConn {
 mod tests {
     use super::*;
     use secrecy::ExposeSecret;
+
+    #[test]
+    fn probe_namespaces_add_own_and_configured_without_duplicates() {
+        assert_eq!(probe_namespaces_from(None, None), vec!["default"]);
+        assert_eq!(
+            probe_namespaces_from(Some("fathom\n"), Some(" demo,,default, team-a ")),
+            vec!["default", "fathom", "demo", "team-a"]
+        );
+    }
 
     #[test]
     fn kube_bearer_follows_the_configured_token_kind() {

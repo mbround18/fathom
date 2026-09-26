@@ -258,7 +258,8 @@ impl OidcClient {
     }
 
     /// Refresh-token grant. The (possibly rotated) refresh token replaces the old one; when the IdP
-    /// does not rotate, the previous one is kept. `invalid_grant` => `RefreshRejected`.
+    /// does not rotate, the previous one is kept. An OAuth error response => `RefreshRejected`
+    /// (except `temporarily_unavailable`/`server_error`); transport/5xx failures => transient.
     pub async fn refresh(&self, refresh_token: &SecretString) -> Result<Tokens, OidcError> {
         let client = self.client();
         let http = self.http_fn();
@@ -271,14 +272,15 @@ impl OidcClient {
             .await
             .map_err(|e| match e {
                 openidconnect::RequestTokenError::ServerResponse(r) => {
+                    // A well-formed OAuth error is the IdP's answer, not an outage: only its
+                    // explicit try-later codes are transient. Anything else (`invalid_grant`,
+                    // or a provider-specific code such as Rauthy's `Disabled` for a disabled
+                    // user) ends the session now instead of after the unreachable-IdP grace.
                     let code = r.error().to_string();
-                    if code.contains("invalid_grant")
-                        || code.contains("invalid_client")
-                        || code.contains("unauthorized_client")
-                    {
-                        OidcError::RefreshRejected(code)
-                    } else {
+                    if code.contains("temporarily_unavailable") || code.contains("server_error") {
                         OidcError::RefreshTransient(code)
+                    } else {
+                        OidcError::RefreshRejected(code)
                     }
                 }
                 other => OidcError::RefreshTransient(other.to_string()),
