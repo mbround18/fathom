@@ -60,6 +60,22 @@ pnpm -C ui install
 pnpm -C ui tauri build      # host-platform bundles under the cargo target dir's release/bundle/
 ```
 
+### Hosted server mode (in-cluster, browser)
+
+Fathom also runs as a web service inside a cluster: people sign in through your OIDC provider
+(Keycloak, Rauthy, Dex, Entra ID, Okta...) and every Kubernetes request is made as the signed-in
+person, so cluster RBAC decides what each of them sees. Mutations are recorded in an attributed,
+append-only audit log.
+
+```bash
+helm install fathom deploy/helm/fathom -n fathom --create-namespace \
+  --set externalUrl=https://fathom.example.com \
+  --set oidc.issuer=https://idp.example.com/realms/ops --set oidc.clientId=fathom
+```
+
+See [docs/HOSTED.md](docs/HOSTED.md) for provider claim mappings, the impersonation model for
+managed clusters, ingress/WebSocket notes and the audit log.
+
 ---
 
 ## Requirements
