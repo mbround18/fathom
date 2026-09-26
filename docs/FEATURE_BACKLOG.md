@@ -30,6 +30,20 @@ out had to happen outside the app.
 - **Priority — "show me the manifest" before every mutation**: every create/edit flow
   (RBAC 011, Helm 006, node shell 037, debug containers 025, kind provisioning 030) exposes
   the exact manifest it will apply, copyable, next to the existing diff preview.
+- **Priority — kubeconfig export (user, 2026-09-26)**: export a ready-to-use kubeconfig from
+  inside Fathom. Covers the active context as-is, and also a scoped ServiceAccount
+  kubeconfig: pick or create an SA and its RBAC (reusing 011's flow), mint a TokenRequest
+  with a chosen TTL, and write a `0600` file. This replaces the hand-run `kubectl create
+  token` + printf pipeline used to build `~/.kube/fathom-agent.yaml` for prod testing.
+  Never show the token on screen. Offer write-to-file or merge-into-`~/.kube/config`, with a
+  diff preview of the merge.
+- **Future — OIDC login → kubeconfig sync**: after a 033 OIDC sign-in, optionally write or
+  refresh the matching kubeconfig context automatically, so kubectl and other tools get the
+  same identity and later logins are faster. Prefer an `exec` credential entry (e.g. a
+  `fathom get-token` / kubelogin-style plugin backed by the keyring refresh token) over
+  pasting a raw bearer token into the file. Keep it opt-in per context, show the diff before
+  touching `~/.kube/config`, and make it reversible.
+
 - **Later (huge boon, not a priority)**: generate a Helm chart (Chart.yaml + templated
   values) or a kustomize base/overlay from a selection. Needs a templating-heuristics
   decision (which fields become values), so spike it before spec-kit.
