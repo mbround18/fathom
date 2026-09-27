@@ -13,6 +13,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { RoleCreateLauncher } from '@/components/rbac/RoleCreateLauncher'
 import type { NamespaceAccessEntry, NamespaceAccessResolved } from '@/protocol/types'
 import { useStore } from '@/store'
 
@@ -88,6 +89,7 @@ function EntryTable({
 export function NamespaceAccessView() {
   const request = useStore((s) => s.request)
   const result = useStore((s) => s.rbacAccess.namespaceAccess)
+  const activeNamespace = useStore((s) => s.session.activeNamespace)
 
   const [subjectKind, setSubjectKind] = useState<SubjectKind>('User')
   const [subjectName, setSubjectName] = useState('')
@@ -247,6 +249,22 @@ export function NamespaceAccessView() {
               )}
             </>
           )}
+
+          {/* 043 US8: the access this identity lacks starts with a role (042's form). */}
+          <p
+            data-testid="rbac-namespace-access-create-role"
+            className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground"
+          >
+            Not the access you want?
+            <RoleCreateLauncher
+              kind="Role"
+              label="Create a role…"
+              testId="rbac-namespace-access-create-role-open"
+              variant="link"
+              namespace={showing.subject_namespace ?? activeNamespace}
+            />
+            Then bind it to this {showing.subject_kind.toLowerCase()}.
+          </p>
         </div>
       )}
     </div>

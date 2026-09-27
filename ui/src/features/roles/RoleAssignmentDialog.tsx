@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
+import { CreateRoleOption } from '@/components/rbac/CreateRoleOption'
+import { RoleForm } from '@/components/rbac/RoleForm'
 import { Gated } from '@/lib/capabilities'
 import type { RoleAssignmentSubject, RoleRefKind } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
@@ -57,6 +59,8 @@ function Body({ onClose, namespace, issuerId, setIssuerId, source }: BodyProps) 
   const [roleName, setRoleName] = useState('')
   const [bindingName, setBindingName] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // 043 US8: "Create a new role…" swaps in 042's role form and returns here with the new role.
+  const [creatingRole, setCreatingRole] = useState(false)
 
   const kind = namespace ? 'RoleBinding' : 'ClusterRoleBinding'
   const resource = namespace ? 'rolebindings' : 'clusterrolebindings'
@@ -181,6 +185,18 @@ function Body({ onClose, namespace, issuerId, setIssuerId, source }: BodyProps) 
             </Gated>
           </div>
         </div>
+      ) : creatingRole ? (
+        <RoleForm
+          mode="create"
+          kind={roleKind}
+          {...(namespace ? { namespace } : {})}
+          onClose={() => setCreatingRole(false)}
+          onCreated={(role) => {
+            setRoleKind(role.roleKind)
+            setRoleName(role.name)
+            setCreatingRole(false)
+          }}
+        />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 text-xs">
           <label className="flex flex-col gap-1">
@@ -255,6 +271,12 @@ function Body({ onClose, namespace, issuerId, setIssuerId, source }: BodyProps) 
               onChange={(e) => setRoleName(e.target.value)}
             />
           </div>
+          <CreateRoleOption
+            kind={roleKind}
+            namespace={namespace}
+            testId="role-assignment-create-role"
+            onSelect={() => setCreatingRole(true)}
+          />
           <Input
             data-testid="role-binding-name"
             placeholder="Binding name"

@@ -151,6 +151,11 @@ export interface PaneState {
    */
   history?: ObjectRef[]
   /**
+   * Inspector: the selected tab while drilling through related resources (043 FR-032: "Follow"
+   * keeps the Topology tab). Cleared when the inspector is opened fresh from a list row.
+   */
+  inspectorTab?: string
+  /**
    * Tool (topology): last camera transform (research.md R4), mirroring how `scrollTop` persists
    * a list pane's scroll position across re-layout. `undefined` until the pane's first render.
    */
@@ -1108,6 +1113,19 @@ function nextId(panes: Record<PaneId, PaneState>, prefix: string): PaneId {
 }
 
 /**
+ * 043: the tools that left the dock for the navigator, and the section each one opens. A saved
+ * slot pinned to one of these resolves to its section; other tool kinds keep their tool pane.
+ */
+export const MOVED_TOOL_SECTIONS: Readonly<Partial<Record<ToolKind, SectionKey>>> = {
+  topology: 'topology',
+  linter: 'linter',
+  velero: 'integrations/velero',
+  certManager: 'integrations/cert-manager',
+  knative: 'integrations/knative',
+  keda: 'integrations/keda',
+}
+
+/**
  * Map each slot to a pane: reuse the first unused pane of the same kind (and tool), else create
  * one. Panes that no longer have a slot are kept, so widening again restores their state.
  */
@@ -1126,9 +1144,24 @@ export function assignPanes(
     used.add(id)
     return id
   }
-  const slotPanes = profile.slots.map((s) =>
-    claim(s.kind, s.kind === 'tool' ? (s.tool ?? undefined) : undefined),
-  )
+  const slotPanes = profile.slots.map((s) => {
+    // 043: a slot saved as a tool that is now a navigator section opens that section in a list
+    // pane (spec edge case "deep link or saved route"). The saved file is left as it is.
+    const moved = s.kind === 'tool' && s.tool ? MOVED_TOOL_SECTIONS[s.tool] : undefined
+    if (moved === undefined)
+      return claim(s.kind, s.kind === 'tool' ? (s.tool ?? undefined) : undefined)
+    // Its own prefix, so another list pane (and its route) is never taken over for it.
+    const before = new Set(Object.keys(panes))
+    const id = claim('list', undefined, `section-${s.tool ?? ''}`)
+    const pane = panes[id]
+    if (!before.has(id) && pane) {
+      panes[id] = {
+        ...pane,
+        route: { section: moved, scope: 'Namespaced', context: null, namespace: null },
+      }
+    }
+    return id
+  })
   // 043 (FR-025): dock panes only for tools the dock accepts. Cluster history (`daemon`) gets its
   // pane up front so the dock can show or hide its tab as the daemon comes and goes.
   const dockPanes = profile.dock
@@ -1748,6 +1781,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   openInspector: (ref, from, push) => {
     const nextHistory = (pane: PaneState | undefined): ObjectRef[] =>
       push && pane?.target ? [...(pane.history ?? []), pane.target] : []
+    // 043 FR-032: a drill-down keeps the selected tab; a fresh open starts on Details.
+    const nextTab = (pane: PaneState | undefined): string | undefined =>
+      push ? pane?.inspectorTab : undefined
     set((s) => {
       const panes = { ...s.panes }
       const rowKey = ref.namespace ? `${ref.namespace}/${ref.name}` : ref.name
@@ -1782,6 +1818,7 @@ export const useStore = create<StoreState>()((set, get) => ({
           source: from,
           scrollTop: 0,
           history: nextHistory(slottedPane),
+          inspectorTab: nextTab(slottedPane),
         }
         return { panes, layout }
       }
@@ -1800,6 +1837,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         source: from,
         scrollTop: 0,
         history: nextHistory(prior),
+        inspectorTab: nextTab(prior),
       }
       const base = onStack
         ? s.layout.stack.slice(0, s.layout.stack.indexOf(onStack))

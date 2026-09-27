@@ -4,14 +4,14 @@
  * surface, not just a picture." Named `us3-topology-*`, all new hooks `topology-*`-prefixed
  * (isolation from specs 008-010's own e2e suites).
  */
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { batch, list, clusterRoute } from '../fixtures/builders'
 import {
   emit,
   inspector,
   open,
-  openToolPane,
+  openTopologySection,
   sentTypes,
   settledTopologyScale,
   topologyScale,
@@ -19,15 +19,9 @@ import {
 
 const NODES = 'nodes'
 
-async function openTopology(page: Page, info: TestInfo): Promise<void> {
-  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
-  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
-  const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
-  if (stacked) {
-    await openToolPane(page, 'Topology')
-  } else {
-    await page.getByRole('tab', { name: 'Topology' }).click()
-  }
+/** Open the whole-cluster Topology section from the navigator (043 US6, FR-030). */
+async function openTopology(page: Page): Promise<void> {
+  await openTopologySection(page)
 }
 
 /**
@@ -87,9 +81,9 @@ async function seedSoloNode(page: Page): Promise<void> {
 }
 
 test.describe('US3 topology inspector navigation', () => {
-  test('T043: clicking a graph node opens its inspector', async ({ page }, info) => {
+  test('T043: clicking a graph node opens its inspector', async ({ page }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     await seedSoloNode(page)
 
     const canvas = page.getByTestId('topology-canvas')
@@ -106,11 +100,9 @@ test.describe('US3 topology inspector navigation', () => {
     await expect(inspector(page)).toContainText('solo-node')
   })
 
-  test('T042: the camera viewport persists across an inspector round-trip', async ({
-    page,
-  }, info) => {
+  test('T042: the camera viewport persists across an inspector round-trip', async ({ page }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     await seedSoloNode(page)
 
     const canvas = page.getByTestId('topology-canvas')

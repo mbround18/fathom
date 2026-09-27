@@ -14,7 +14,7 @@ const PENDING: Record<string, string[]> = {
   D: [],
   // 043: new sections, mapped in PaneHost (and added to PANEL_SECTIONS) by later phases. Until
   // then `NAV_GROUPS` leaves them out, so the tree and the palette never link to them.
-  '043': ['topology', 'cluster-history', 'settings/app', 'settings/local-clusters'],
+  '043': ['cluster-history', 'settings/app', 'settings/local-clusters'],
 }
 const PENDING_ALL = new Set(Object.values(PENDING).flat())
 

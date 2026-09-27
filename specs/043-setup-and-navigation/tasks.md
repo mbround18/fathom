@@ -118,17 +118,17 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 7: US6 topology sections (P2)
 
-- [ ] T060 [US6] E2E `ui/tests/e2e/topology-sections.spec.ts`. It covers:
+- [x] T060 [US6] E2E `ui/tests/e2e/topology-sections.spec.ts`. It covers:
   - Cluster › Topology opens the whole-cluster graph, and the daemon view when the daemon is available
   - the Deployment inspector Topology tab sends `RefreshRelatedResources` and shows the ReplicaSet and Pods
   - Follow on a Pod opens it with Back and the tab kept
   - no tab for a ConfigMap
   - the phone and tablet Topology tabs, and the Tools menu, still open the whole view (FR-033)
   - a saved layout pinned to the old `topology` dock tool loads without error and opens the section
-- [ ] T061 [P] [US6] Add `TopologyTab.tsx` in `ui/src/components/inspector/`. It has Upstream and Downstream sections, each neighbour shows kind, name, status hint and relation label, and "Follow" calls `openInspector(ref, from, true)` with the tab kept. It discards events for a superseded root
-- [ ] T062 [US6] Add the tab in `ui/src/components/Inspector.tsx`, gated by `RESOLVER_KINDS`, and persist the selected inspector tab across Follow in `ui/src/store/index.ts`
-- [ ] T063 [US6] Map the `topology` section to `TopologyPanel` and `linter` to the linter panel in `ui/src/components/shell/PaneHost.tsx`. In `ui/src/store/index.ts`, resolve a persisted slot or route pinned to an old dock tool (`topology`, `linter`, `velero`, `certManager`, `knative`, `keda`) to its section, and skip unknown tool kinds without throwing (spec edge case "deep link or saved route")
-- [ ] T064 [US6] Update `ui/tests/e2e/us1-topology-overview.spec.ts`, `ui/tests/e2e/us2-topology-zoom.spec.ts`, `ui/tests/e2e/us3-topology-inspector.spec.ts` and `ui/tests/e2e/us4-topology-live-update.spec.ts` to open Topology from the navigator, keeping every graph assertion
+- [x] T061 [P] [US6] Add `TopologyTab.tsx` in `ui/src/components/inspector/`. It has Upstream and Downstream sections, each neighbour shows kind, name, status hint and relation label, and "Follow" calls `openInspector(ref, from, true)` with the tab kept. It discards events for a superseded root
+- [x] T062 [US6] Add the tab in `ui/src/components/Inspector.tsx`, gated by `RESOLVER_KINDS`, and persist the selected inspector tab across Follow in `ui/src/store/index.ts`
+- [x] T063 [US6] Map the `topology` section to `TopologyPanel` and `linter` to the linter panel in `ui/src/components/shell/PaneHost.tsx`. In `ui/src/store/index.ts`, resolve a persisted slot or route pinned to an old dock tool (`topology`, `linter`, `velero`, `certManager`, `knative`, `keda`) to its section, and skip unknown tool kinds without throwing (spec edge case "deep link or saved route")
+- [x] T064 [US6] Update `ui/tests/e2e/us1-topology-overview.spec.ts`, `ui/tests/e2e/us2-topology-zoom.spec.ts`, `ui/tests/e2e/us3-topology-inspector.spec.ts` and `ui/tests/e2e/us4-topology-live-update.spec.ts` to open Topology from the navigator, keeping every graph assertion
 
 ## Phase 8: US7 integrations home (P2)
 
@@ -138,16 +138,16 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 9: US8 role wizard discoverable (P2)
 
-- [ ] T080 [US8] E2E `ui/tests/e2e/role-discoverability.spec.ts`. It covers:
+- [x] T080 [US8] E2E `ui/tests/e2e/role-discoverability.spec.ts`. It covers:
   - "New Role…" and "New ClusterRole…" in the RoleBindings and ClusterRoleBindings toolbars, with 042 gating
   - "Create a new role…" in the RoleBinding form picker → create `pod-reader` → the form returns with `roleRef` Role/pod-reader
   - the same flow from Assign role
   - the Namespace Access "Create a role…" link
   - the palette "role" query
-- [ ] T081 [US8] Add `RoleCreateLauncher` to the `access/rolebindings` and `access/clusterrolebindings` toolbars in `ui/src/components/shell/PaneHost.tsx`
-- [ ] T082 [US8] Add a "Create a new role…" picker option with an `onCreated(roleRef)` return in `ui/src/components/rbac/RoleBindingForm.tsx` and `ui/src/features/roles/RoleAssignmentLauncher.tsx`. Add an `onCreated` prop to `ui/src/components/rbac/RoleForm.tsx` / `RoleCreateLauncher.tsx`
-- [ ] T083 [P] [US8] Add the "Create a role…" link in `ui/src/resources/namespaceAccess.tsx`, and the "New Role"/"New ClusterRole" palette actions in `ui/src/components/CommandPalette.tsx`
-- [ ] T084 [US8] Extend `ui/tests/unit/rolebindingForm.test.ts` and `ui/tests/unit/roleAssignment.test.tsx` for the picker option
+- [x] T081 [US8] Add `RoleCreateLauncher` to the `access/rolebindings` and `access/clusterrolebindings` toolbars in `ui/src/components/shell/PaneHost.tsx`
+- [x] T082 [US8] Add a "Create a new role…" picker option with an `onCreated(roleRef)` return in `ui/src/components/rbac/RoleBindingForm.tsx` and `ui/src/features/roles/RoleAssignmentLauncher.tsx`. Add an `onCreated` prop to `ui/src/components/rbac/RoleForm.tsx` / `RoleCreateLauncher.tsx`
+- [x] T083 [P] [US8] Add the "Create a role…" link in `ui/src/resources/namespaceAccess.tsx`, and the "New Role"/"New ClusterRole" palette actions in `ui/src/components/CommandPalette.tsx`
+- [x] T084 [US8] Extend `ui/tests/unit/rolebindingForm.test.ts` and `ui/tests/unit/roleAssignment.test.tsx` for the picker option
 
 ## Phase 10: Polish and keep-list
 

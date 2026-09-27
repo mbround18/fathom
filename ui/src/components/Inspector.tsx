@@ -37,6 +37,8 @@ import { PodTerminalTab } from './panels/PodTerminalTab'
 import { YamlEditTab } from './panels/YamlEditTab'
 import { InspectorYamlExportBar } from '@/features/manifest-export/InspectorYamlExportBar'
 import { Empty, Loading, NoLongerExists } from './shell/PaneStates'
+import { TopologyTab } from './inspector/TopologyTab'
+import { RESOLVER_KINDS } from '@/topology/resource-topology'
 
 const DISCARD_EDIT_PROMPT =
   'You have unsaved YAML changes that have not been applied. Leave anyway and discard them?'
@@ -97,7 +99,17 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   // the early returns below so hook order stays stable regardless of `descriptor`/`row`.
   const editKey = detailKey(ctx, target.kind, target.namespace, target.name)
   const editSession = useStore((s) => s.editSessions[editKey])
-  const [tab, setTab] = useState('details')
+  // 043 FR-032: "Follow" in the Topology tab re-roots this inspector and the tab stays selected
+  // (the store carries `inspectorTab` across drill-downs; this body remounts per target).
+  const hasTopology = RESOLVER_KINDS.has(target.kind)
+  const updatePane = useStore((s) => s.updatePane)
+  const [tab, setTabState] = useState(() =>
+    pane.inspectorTab === 'topology' && hasTopology ? 'topology' : 'details',
+  )
+  const setTab = (next: string) => {
+    setTabState(next)
+    updatePane(pane.id, { inspectorTab: next })
+  }
   const handleTabChange = (next: string) => {
     if (
       tab === 'yaml' &&
@@ -125,7 +137,7 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
       podLogsIntent.namespace === target.namespace &&
       podLogsIntent.name === target.name
     ) {
-      setTab('logs')
+      setTabState('logs') // during render: local state only, never a store write
     }
   }
 
@@ -182,6 +194,15 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
             >
               Events
             </TabsTrigger>
+            {hasTopology && (
+              <TabsTrigger
+                value="topology"
+                data-testid="topology-tab"
+                className="h-full flex-none px-3 font-display tracking-wider uppercase"
+              >
+                Topology
+              </TabsTrigger>
+            )}
             {target.kind === 'Pod' && (
               <TabsTrigger
                 value="logs"
@@ -297,6 +318,11 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
         <TabsContent value="events" className="min-h-0 overflow-y-auto">
           <EventsFor target={target} />
         </TabsContent>
+        {hasTopology && (
+          <TabsContent value="topology" className="min-h-0 overflow-y-auto">
+            <TopologyTab target={target} />
+          </TabsContent>
+        )}
         {target.kind === 'Pod' && (
           <TabsContent value="logs" className="flex min-h-0 flex-1 flex-col">
             <PodLogsTab target={target} />

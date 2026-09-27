@@ -352,6 +352,8 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.vulnerabilities) {
     return <TrivyPanel />
   }
+  // 043 US6 (FR-030): the whole-cluster topology is a navigator section in the Cluster group.
+  if (section === 'topology') return <TopologyPanel paneId={pane.id} />
   if (section === SECTION.overview) return <OverviewPanel paneId={pane.id} />
   // 043: the linter left the dock for Cluster › Linter (same panel, same visuals).
   if (section === 'linter') return <LinterPanel paneId={pane.id} />
@@ -416,23 +418,43 @@ function ListBody({ pane }: { pane: PaneState }) {
       {/* 042-role-create: "New Role"/"New ClusterRole". */}
       {section === SECTION.roles && (
         <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
-          <RoleCreateLauncher kind="Role" />
+          <RoleCreateLauncher kind="Role" acceptRequests />
         </div>
       )}
       {section === SECTION.clusterRoles && (
         <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
-          <RoleCreateLauncher kind="ClusterRole" />
+          <RoleCreateLauncher kind="ClusterRole" acceptRequests />
         </div>
       )}
-      {/* 011-rbac-oidc-administration US2 (T029): "New RoleBinding"/"New ClusterRoleBinding". */}
+      {/* 011-rbac-oidc-administration US2 (T029): "New RoleBinding"/"New ClusterRoleBinding".
+          043 US8: the 042 role wizard next to them (a ClusterRoleBinding can only use a
+          ClusterRole, so its toolbar offers only that). */}
       {section === SECTION.roleBindings && (
-        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-b border-border px-2 py-1">
+          <RoleCreateLauncher
+            kind="Role"
+            label="New Role…"
+            testId="rbac-bindings-new-role"
+            variant="outline"
+          />
+          <RoleCreateLauncher
+            kind="ClusterRole"
+            label="New ClusterRole…"
+            testId="rbac-bindings-new-clusterrole"
+            variant="outline"
+          />
           <RoleBindingCreateLauncher kind="RoleBinding" />
           <RoleAssignmentLauncher kind="RoleBinding" />
         </div>
       )}
       {section === SECTION.clusterRoleBindings && (
-        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-b border-border px-2 py-1">
+          <RoleCreateLauncher
+            kind="ClusterRole"
+            label="New ClusterRole…"
+            testId="rbac-bindings-new-clusterrole"
+            variant="outline"
+          />
           <RoleBindingCreateLauncher kind="ClusterRoleBinding" />
           <RoleAssignmentLauncher kind="ClusterRoleBinding" />
         </div>

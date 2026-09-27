@@ -435,3 +435,18 @@ export async function settledTopologyScale(page: Page): Promise<number> {
     .toBe(true)
   return last
 }
+
+/**
+ * 043 US6: open the whole-cluster Topology section from the navigator's Cluster group. The
+ * navigator's Tools list also has a "Topology" entry, so this targets the section row itself.
+ */
+export async function openTopologySection(page: Page): Promise<void> {
+  const nav = page.getByRole('navigation', { name: 'Sections' })
+  const drawer = !(await nav.isVisible())
+  if (drawer) await page.getByRole('button', { name: 'Open sections' }).click()
+  await expect(nav).toBeVisible()
+  const toggle = nav.locator('button[aria-expanded]', { hasText: 'Cluster' })
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
+  await nav.locator('button[data-section="topology"]').click()
+  if (drawer) await expect(nav).toBeHidden()
+}

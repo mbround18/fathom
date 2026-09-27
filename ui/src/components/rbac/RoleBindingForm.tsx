@@ -35,6 +35,8 @@ import type {
 import { RBAC_GROUP, useMutationAccess } from '@/hooks/useMutationAccess'
 import { detailKey, listKey, useStore } from '@/store'
 
+import { CreateRoleOption } from './CreateRoleOption'
+import { RoleForm } from './RoleForm'
 import { SubjectEditor, subjectsValid } from './SubjectEditor'
 import { parseLabels, patchRoleBindingSubjects, roleBindingManifestYaml } from './roleBindingYaml'
 
@@ -119,6 +121,9 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
   const [labelsText, setLabelsText] = useState('')
   const parsedLabels = parseLabels(labelsText)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // 043 US8: "Create a new role…" swaps 042's role form in place of the fields; the binding's
+  // own state stays here, so it comes back as it was, with the new role as its roleRef.
+  const [creatingRole, setCreatingRole] = useState(false)
   // 040 US3 (FR-019): the review shows the diff or the complete manifest.
   const [reviewView, setReviewView] = useState<'diff' | 'manifest'>('diff')
   // Edit mode's session key is derived, not stored: it is fully determined by `existing` (stable
@@ -327,6 +332,18 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
             </Gated>
           </div>
         </div>
+      ) : creatingRole ? (
+        <RoleForm
+          mode="create"
+          kind={roleRefKind}
+          {...(namespace.trim() ? { namespace: namespace.trim() } : {})}
+          onClose={() => setCreatingRole(false)}
+          onCreated={(role) => {
+            setRoleRefKind(role.roleKind)
+            setRoleRefName(role.name)
+            setCreatingRole(false)
+          }}
+        />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <label htmlFor="rbac-binding-name-input" className="flex flex-col gap-1 text-xs">
@@ -393,6 +410,14 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
               </datalist>
             </label>
           </div>
+          {mode === 'create' && (
+            <CreateRoleOption
+              kind={roleRefKind}
+              namespace={namespace.trim() || null}
+              testId="rbac-binding-create-role"
+              onSelect={() => setCreatingRole(true)}
+            />
+          )}
 
           <SubjectEditor subjects={subjects} onChange={setSubjects} />
 
