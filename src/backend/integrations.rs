@@ -8,12 +8,14 @@ use crate::backend::events;
 use crate::backend::metrics_provider::PromEndpoint;
 use crate::backend::oidc::store::Secret;
 use crate::backend::portforward;
+use crate::backend::prom_discovery;
 use crate::backend::secret_store::{GRAFANA_SERVICE, SecretStore, grafana_key_set, set_verified};
 use crate::backend::state::BackendState;
 use crate::protocol::BackendEventEnvelope;
 use crate::protocol::{
     BackendEvent, Correlation, DetectedMetricsComponent, DiskUsage, MetricsComponentKind,
-    MetricsStackScanResult, MetricsStackTier, Route, SystemEvent, section_keys,
+    MetricsStackScanResult, MetricsStackTier, PrometheusStatusKind, Route, SystemEvent,
+    section_keys,
 };
 use crate::protocol::{GrafanaSettings, PrometheusSettings};
 use anyhow::Result;
@@ -901,49 +903,186 @@ fn pick_suggested_endpoint(
         .cloned()
 }
 
-/// Scan every namespace for known metrics-stack Services (Prometheus, Grafana,
-/// Alertmanager, kube-state-metrics, node-exporter, OpenObserve, metrics-server)
-/// and classify how complete the stack is.
-pub(super) async fn scan_metrics_stack(client: &Client) -> anyhow::Result<MetricsStackScanResult> {
-    let svc_api: Api<Service> = Api::all(client.clone());
-    let services = svc_api.list(&ListParams::default()).await?;
+/// A metrics-stack scan: the protocol result plus the ranked Prometheus query targets (which
+/// carry the scheme and route prefix the protocol type does not).
+pub struct MetricsScan {
+    pub result: MetricsStackScanResult,
+    /// Best first (see [`prom_discovery::rank_candidates`]).
+    pub prometheus: Vec<PromTarget>,
+}
 
-    let mut components: Vec<DetectedMetricsComponent> = Vec::new();
-
-    for svc in services.items {
-        let Some(name) = svc.metadata.name.clone() else {
-            continue;
-        };
-        let Some(kind) = classify_metrics_service_name(&name) else {
-            continue;
-        };
-        let Some(namespace) = svc.metadata.namespace.clone() else {
-            continue;
-        };
-
-        let port = svc
-            .spec
-            .as_ref()
+fn service_facts(svc: &Service) -> Option<prom_discovery::ServiceFacts> {
+    let spec = svc.spec.as_ref();
+    Some(prom_discovery::ServiceFacts {
+        namespace: svc.metadata.namespace.clone()?,
+        name: svc.metadata.name.clone()?,
+        labels: svc.metadata.labels.clone().unwrap_or_default(),
+        selector: spec.and_then(|s| s.selector.clone()).unwrap_or_default(),
+        ports: spec
             .and_then(|s| s.ports.as_ref())
-            .and_then(|ports| ports.first())
-            .map(|p| p.port as u16)
-            .unwrap_or_else(|| default_port_for(kind));
+            .map(|ports| {
+                ports
+                    .iter()
+                    .map(|p| prom_discovery::PortFacts {
+                        name: p.name.clone(),
+                        port: p.port as u16,
+                        app_protocol: p.app_protocol.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        headless: spec.and_then(|s| s.cluster_ip.as_deref()) == Some("None"),
+        ready: None,
+    })
+}
 
-        components.push(DetectedMetricsComponent {
-            kind,
-            namespace,
-            service: name,
-            port,
-        });
+/// Every Service in the cluster; when a cluster-wide list is denied (namespace-scoped access),
+/// the Services of the namespaces Prometheus usually lives in.
+async fn list_services(client: &Client) -> anyhow::Result<Vec<Service>> {
+    let all: Api<Service> = Api::all(client.clone());
+    match all.list(&ListParams::default()).await {
+        Ok(list) => Ok(list.items),
+        Err(e) => {
+            tracing::debug!("cluster-wide Service list failed ({e}); scanning common namespaces");
+            let namespaces = prom_discovery::COMMON_NAMESPACES
+                .iter()
+                .chain(["default", "kube-system"].iter());
+            let lists = futures::future::join_all(namespaces.map(|ns| {
+                let api: Api<Service> = Api::namespaced(client.clone(), ns);
+                async move { api.list(&ListParams::default()).await }
+            }))
+            .await;
+            let mut items = Vec::new();
+            let mut any_ok = false;
+            for list in lists.into_iter().flatten() {
+                any_ok = true;
+                items.extend(list.items);
+            }
+            if any_ok { Ok(items) } else { Err(e.into()) }
+        }
+    }
+}
+
+/// prometheus-operator `Prometheus` objects (route prefix, port name). A missing CRD or an RBAC
+/// denial is not an error: discovery then relies on Services alone.
+async fn list_operator_prometheuses(client: &Client) -> Vec<prom_discovery::OperatorPrometheus> {
+    use kube::core::{ApiResource, DynamicObject, GroupVersionKind};
+    let gvk = GroupVersionKind::gvk("monitoring.coreos.com", "v1", "Prometheus");
+    let resource = ApiResource::from_gvk_with_plural(&gvk, "prometheuses");
+    let api: Api<DynamicObject> = Api::all_with(client.clone(), &resource);
+    match api.list(&ListParams::default()).await {
+        Ok(list) => list
+            .items
+            .iter()
+            .filter_map(|o| {
+                let text = |ptr: &str| {
+                    o.data
+                        .pointer(ptr)
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned)
+                };
+                Some(prom_discovery::OperatorPrometheus {
+                    namespace: o.metadata.namespace.clone()?,
+                    name: o.metadata.name.clone()?,
+                    route_prefix: text("/spec/routePrefix"),
+                    port_name: text("/spec/portName"),
+                })
+            })
+            .collect(),
+        Err(e) => {
+            tracing::debug!("Prometheus CR list unavailable: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// Whether `namespace/service` has a ready endpoint (`None` when that cannot be read).
+async fn service_ready(client: &Client, namespace: &str, service: &str) -> Option<bool> {
+    use k8s_openapi::api::discovery::v1::EndpointSlice;
+    let api: Api<EndpointSlice> = Api::namespaced(client.clone(), namespace);
+    let params = ListParams::default().labels(&format!("kubernetes.io/service-name={service}"));
+    let slices = api.list(&params).await.ok()?;
+    Some(
+        slices
+            .items
+            .iter()
+            .flat_map(|s| s.endpoints.iter())
+            .any(|e| e.conditions.as_ref().and_then(|c| c.ready).unwrap_or(true)),
+    )
+}
+
+/// Scan the cluster for known metrics-stack Services (Prometheus, Grafana, Alertmanager,
+/// kube-state-metrics, node-exporter, OpenObserve, metrics-server) and classify how complete the
+/// stack is. Prometheus servers are scored and ranked (labels, selector, operator objects, query
+/// port, ready endpoints) rather than taken by first name match (feedback #31).
+pub(super) async fn scan_metrics_stack(client: &Client) -> anyhow::Result<MetricsScan> {
+    let (services, operators) =
+        tokio::join!(list_services(client), list_operator_prometheuses(client));
+    let services = services?;
+
+    let mut others: Vec<DetectedMetricsComponent> = Vec::new();
+    let mut facts: Vec<prom_discovery::ServiceFacts> = Vec::new();
+    for svc in &services {
+        let Some(f) = service_facts(svc) else {
+            continue;
+        };
+        match classify_metrics_service_name(&f.name) {
+            Some(MetricsComponentKind::Prometheus) | None => {
+                if prom_discovery::prometheus_signal(&f).is_some() {
+                    facts.push(f);
+                }
+            }
+            Some(kind) => others.push(DetectedMetricsComponent {
+                kind,
+                port: f
+                    .ports
+                    .first()
+                    .map_or_else(|| default_port_for(kind), |p| p.port),
+                namespace: f.namespace,
+                service: f.name,
+            }),
+        }
     }
 
+    // Endpoint readiness for the best few candidates, then the final ranking.
+    let top: Vec<(String, String)> = prom_discovery::rank_candidates(&facts, &operators)
+        .into_iter()
+        .take(prom_discovery::READINESS_LOOKUPS)
+        .map(|c| (c.namespace, c.service))
+        .collect();
+    let readiness =
+        futures::future::join_all(top.iter().map(|(ns, name)| service_ready(client, ns, name)))
+            .await;
+    for ((ns, name), ready) in top.iter().zip(readiness) {
+        if let Some(f) = facts
+            .iter_mut()
+            .find(|f| &f.namespace == ns && &f.name == name)
+        {
+            f.ready = ready;
+        }
+    }
+    let ranked = prom_discovery::rank_candidates(&facts, &operators);
+
+    let mut components: Vec<DetectedMetricsComponent> = ranked
+        .iter()
+        .map(|c| DetectedMetricsComponent {
+            kind: MetricsComponentKind::Prometheus,
+            namespace: c.namespace.clone(),
+            service: c.service.clone(),
+            port: c.port,
+        })
+        .collect();
+    components.extend(others);
     let tier = classify_stack_tier(&components);
     let suggested_endpoint = pick_suggested_endpoint(&components);
 
-    Ok(MetricsStackScanResult {
-        tier,
-        components,
-        suggested_endpoint,
+    Ok(MetricsScan {
+        result: MetricsStackScanResult {
+            tier,
+            components,
+            suggested_endpoint,
+        },
+        prometheus: ranked.iter().map(PromTarget::from_candidate).collect(),
     })
 }
 
@@ -959,25 +1098,79 @@ pub struct PromTarget {
     pub namespace: String,
     pub service: String,
     pub port: u16,
+    /// Proxy with `https:` (the Service port is TLS).
+    pub https: bool,
+    /// Prometheus route prefix ("" or "/prefix").
+    pub path_prefix: String,
     pub source: PromSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromSource {
-    /// The user's saved Prometheus settings for this context.
+    /// The user's saved Prometheus settings for this context (or a typed Test target).
     Saved,
     /// Found by the metrics-stack scan.
     Detected,
 }
 
 impl PromTarget {
+    /// A user-entered target (plain http, no prefix).
+    pub fn saved(namespace: String, service: String, port: u16) -> Self {
+        Self {
+            namespace,
+            service,
+            port,
+            https: false,
+            path_prefix: String::new(),
+            source: PromSource::Saved,
+        }
+    }
+
+    fn from_candidate(c: &prom_discovery::Candidate) -> Self {
+        Self {
+            namespace: c.namespace.clone(),
+            service: c.service.clone(),
+            port: c.port,
+            https: c.https,
+            path_prefix: c.path_prefix.clone(),
+            source: PromSource::Detected,
+        }
+    }
+
+    fn same_place(&self, other: &Self) -> bool {
+        self.namespace == other.namespace
+            && self.service == other.service
+            && self.port == other.port
+    }
+
+    /// `ns/svc:port[/prefix]`.
+    pub fn label(&self) -> String {
+        format!(
+            "{}/{}:{}{}",
+            self.namespace, self.service, self.port, self.path_prefix
+        )
+    }
+
     pub fn endpoint(&self, client: &Client) -> PromEndpoint {
         PromEndpoint::ServiceProxy {
             client: client.clone(),
             namespace: self.namespace.clone(),
             service: self.service.clone(),
             port: self.port,
+            https: self.https,
+            path_prefix: self.path_prefix.clone(),
         }
+    }
+
+    fn probe_path(&self) -> String {
+        prom_discovery::service_proxy_path(
+            &self.namespace,
+            &self.service,
+            self.https,
+            self.port,
+            &self.path_prefix,
+            "/api/v1/query?query=up",
+        )
     }
 
     /// Status line for the Metrics pane.
@@ -986,51 +1179,133 @@ impl PromTarget {
             PromSource::Saved => "Using saved",
             PromSource::Detected => "Auto-detected",
         };
-        format!(
-            "{how} Prometheus {}/{}:{} via the API server proxy",
-            self.namespace, self.service, self.port
-        )
+        format!("{how} Prometheus {} via the API server proxy", self.label())
+    }
+
+    /// A short, classified status for a failed probe of this target (feedback #32): never the
+    /// raw body inline; that goes to `detail`.
+    pub fn failure(&self, err: &anyhow::Error) -> PromFailure {
+        let (kind, why, raw) = match err.downcast_ref::<prom_discovery::PromQueryError>() {
+            Some(q) => (
+                match q.kind {
+                    prom_discovery::FailureKind::Unreachable => PrometheusStatusKind::Unreachable,
+                    prom_discovery::FailureKind::QueryFailed => PrometheusStatusKind::QueryFailed,
+                },
+                q.to_string(),
+                q.raw.clone(),
+            ),
+            None => (
+                PrometheusStatusKind::QueryFailed,
+                prom_discovery::summarize_body(&err.to_string()),
+                err.to_string(),
+            ),
+        };
+        let whose = match self.source {
+            PromSource::Saved => format!("Prometheus {}", self.label()),
+            PromSource::Detected => format!("Found Prometheus at {}", self.label()),
+        };
+        let message = match kind {
+            PrometheusStatusKind::Unreachable => format!("{whose}, but it is not reachable: {why}"),
+            _ => format!("{whose}, but the query failed: {why}"),
+        };
+        PromFailure {
+            kind,
+            message,
+            detail: Some(format!("GET {}\n{why}\n\n{raw}", self.probe_path())),
+        }
+    }
+}
+
+/// Why no Prometheus could be used, classified for the UI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromFailure {
+    pub kind: PrometheusStatusKind,
+    /// One short line.
+    pub message: String,
+    /// Raw responses / per-candidate failures.
+    pub detail: Option<String>,
+}
+
+impl PromFailure {
+    fn not_found(message: &str, detail: Option<String>) -> Self {
+        Self {
+            kind: PrometheusStatusKind::NotFound,
+            message: message.to_owned(),
+            detail,
+        }
+    }
+
+    /// Combine failures from trying several targets in order: the first leads.
+    fn combine(mut failures: Vec<PromFailure>) -> Option<Self> {
+        if failures.is_empty() {
+            return None;
+        }
+        let details: Vec<String> = failures.iter().filter_map(|f| f.detail.clone()).collect();
+        let others = failures.len() - 1;
+        let mut first = failures.remove(0);
+        if others > 0 {
+            first.message = format!(
+                "{} ({others} other candidate{} also failed)",
+                first.message,
+                if others == 1 { "" } else { "s" }
+            );
+        }
+        first.detail = (!details.is_empty()).then(|| details.join("\n\n---\n\n"));
+        Some(first)
+    }
+}
+
+impl std::fmt::Display for PromFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// The `PrometheusConnectionTest` event for a resolution / probe outcome.
+pub fn prometheus_status_event(resolved: Result<PromTarget, PromFailure>) -> SystemEvent {
+    match resolved {
+        Ok(t) => SystemEvent::PrometheusConnectionTest {
+            success: true,
+            message: t.status_message(),
+            kind: Some(PrometheusStatusKind::Connected),
+            detail: None,
+        },
+        Err(f) => SystemEvent::PrometheusConnectionTest {
+            success: false,
+            message: f.message,
+            kind: Some(f.kind),
+            detail: f.detail,
+        },
     }
 }
 
 /// How long a failed resolution is remembered before the next caller re-probes.
 const PROM_NEGATIVE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// How many detected candidates are probed (best first) before giving up.
+const MAX_DETECTED_PROBES: usize = 3;
+
 #[derive(Clone)]
 enum Resolution {
     Found(PromTarget),
     Missing {
         at: std::time::Instant,
-        reason: String,
+        failure: PromFailure,
     },
 }
 
 type ContextMap<T> = std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, T>>>;
 
-/// Scan results per context: `Some(None)` means scanned and nothing found.
-static DETECTED_PROMETHEUS: ContextMap<Option<PromTarget>> =
+/// Ranked scan results per context (empty: scanned and nothing found).
+static DETECTED_PROMETHEUS: ContextMap<Vec<PromTarget>> =
     std::sync::LazyLock::new(Default::default);
 /// Probed resolution per context.
 static RESOLVED_PROMETHEUS: ContextMap<Resolution> = std::sync::LazyLock::new(Default::default);
 
-/// The Prometheus a scan found, as a query target (OpenObserve's API lives under an org
-/// prefix, so only a real Prometheus is auto-connected).
-pub fn detected_target(scan: &MetricsStackScanResult) -> Option<PromTarget> {
-    scan.suggested_endpoint
-        .as_ref()
-        .filter(|c| c.kind == MetricsComponentKind::Prometheus)
-        .map(|c| PromTarget {
-            namespace: c.namespace.clone(),
-            service: c.service.clone(),
-            port: c.port,
-            source: PromSource::Detected,
-        })
-}
-
 /// Remember a scan for `context` and drop its cached resolution so the next query re-probes.
-pub fn remember_metrics_scan(context: &str, scan: &MetricsStackScanResult) {
+pub fn remember_metrics_scan(context: &str, scan: &MetricsScan) {
     if let Ok(mut m) = DETECTED_PROMETHEUS.lock() {
-        m.insert(context.to_owned(), detected_target(scan));
+        m.insert(context.to_owned(), scan.prometheus.clone());
     }
     forget_prometheus_resolution(context);
 }
@@ -1042,47 +1317,64 @@ pub fn forget_prometheus_resolution(context: &str) {
     }
 }
 
+/// A user-entered target, with the scheme and route prefix discovery learned for the same
+/// Service port (so testing the prefilled detected endpoint probes it the same way).
+pub fn user_target(
+    context: Option<&str>,
+    namespace: String,
+    service: String,
+    port: u16,
+) -> PromTarget {
+    let mut t = PromTarget::saved(namespace, service, port);
+    let known = context.and_then(|c| {
+        DETECTED_PROMETHEUS.lock().ok().and_then(|m| {
+            m.get(c)
+                .and_then(|v| v.iter().find(|d| d.same_place(&t)).cloned())
+        })
+    });
+    if let Some(d) = known {
+        t.https = d.https;
+        t.path_prefix = d.path_prefix;
+    }
+    t
+}
+
 fn saved_target(context: &str) -> Option<PromTarget> {
     IntegrationConfig::load(context)
         .ok()
         .and_then(|cfg| cfg.prometheus)
         .filter(|p| p.enabled)
-        .map(|p| PromTarget {
-            namespace: p.namespace,
-            service: p.service,
-            port: p.port,
-            source: PromSource::Saved,
-        })
+        .map(|p| user_target(Some(context), p.namespace, p.service, p.port))
 }
 
-/// Candidates in priority order: the saved target first, then the detected one if different.
+/// Candidates in priority order: the saved target first, then the best detected ones (skipping
+/// one equal to the saved target).
 fn prometheus_candidates_for(
     saved: Option<PromTarget>,
-    detected: Option<PromTarget>,
+    detected: Vec<PromTarget>,
 ) -> Vec<PromTarget> {
     let mut out: Vec<PromTarget> = saved.into_iter().collect();
-    if let Some(d) = detected
-        && !out
-            .iter()
-            .any(|s| s.namespace == d.namespace && s.service == d.service && s.port == d.port)
-    {
-        out.push(d);
-    }
+    let fresh: Vec<PromTarget> = detected
+        .into_iter()
+        .filter(|d| !out.iter().any(|s| s.same_place(d)))
+        .take(MAX_DETECTED_PROBES)
+        .collect();
+    out.extend(fresh);
     out
 }
 
-/// Resolve the Prometheus to query for `context`: probe the saved target, then the detected
-/// one (scanning the cluster once if it has not been scanned yet). The answer is cached per
+/// Resolve the Prometheus to query for `context`: probe the saved target, then the best detected
+/// ones (scanning the cluster once if it has not been scanned yet). The answer is cached per
 /// context; a miss is cached for [`PROM_NEGATIVE_TTL`].
 pub async fn resolve_prometheus(
     context: Option<&str>,
     client: Option<&Client>,
-) -> Result<(PromEndpoint, PromTarget), String> {
+) -> Result<(PromEndpoint, PromTarget), PromFailure> {
     let Some(context) = context else {
-        return Err("No active context".to_owned());
+        return Err(PromFailure::not_found("No active context", None));
     };
     let Some(client) = client else {
-        return Err("Not connected to a cluster".to_owned());
+        return Err(PromFailure::not_found("Not connected to a cluster", None));
     };
     let cached = RESOLVED_PROMETHEUS
         .lock()
@@ -1090,8 +1382,8 @@ pub async fn resolve_prometheus(
         .and_then(|m| m.get(context).cloned());
     match cached {
         Some(Resolution::Found(t)) => return Ok((t.endpoint(client), t)),
-        Some(Resolution::Missing { at, reason }) if at.elapsed() < PROM_NEGATIVE_TTL => {
-            return Err(reason);
+        Some(Resolution::Missing { at, failure }) if at.elapsed() < PROM_NEGATIVE_TTL => {
+            return Err(failure);
         }
         _ => {}
     }
@@ -1100,19 +1392,20 @@ pub async fn resolve_prometheus(
         .lock()
         .ok()
         .and_then(|m| m.get(context).cloned());
+    let mut scan_error = None;
     let detected = match scanned {
         Some(d) => d,
         None => match scan_metrics_stack(client).await {
             Ok(scan) => {
-                let d = detected_target(&scan);
                 if let Ok(mut m) = DETECTED_PROMETHEUS.lock() {
-                    m.insert(context.to_owned(), d.clone());
+                    m.insert(context.to_owned(), scan.prometheus.clone());
                 }
-                d
+                scan.prometheus
             }
             Err(e) => {
                 tracing::debug!("metrics stack scan failed: {e}");
-                None
+                scan_error = Some(format!("Cluster scan failed: {e}"));
+                Vec::new()
             }
         },
     };
@@ -1127,45 +1420,39 @@ pub async fn resolve_prometheus(
                 }
                 return Ok((endpoint, target));
             }
-            Err(e) => failures.push(format!(
-                "{}/{}:{}: {e}",
-                target.namespace, target.service, target.port
-            )),
+            Err(e) => failures.push(target.failure(&e)),
         }
     }
-    let reason = if failures.is_empty() {
-        "No Prometheus found in this cluster".to_owned()
-    } else {
-        format!("Prometheus not reachable ({})", failures.join("; "))
-    };
+    let failure = PromFailure::combine(failures).unwrap_or_else(|| {
+        PromFailure::not_found(
+            "No Prometheus found in this cluster. Enter its namespace, service and port below.",
+            scan_error,
+        )
+    });
     if let Ok(mut m) = RESOLVED_PROMETHEUS.lock() {
         m.insert(
             context.to_owned(),
             Resolution::Missing {
                 at: std::time::Instant::now(),
-                reason: reason.clone(),
+                failure: failure.clone(),
             },
         );
     }
-    Err(reason)
+    Err(failure)
 }
 
 /// Report the resolved Prometheus (or why there is none) to the Metrics pane status line.
 pub(super) fn emit_prometheus_status(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
-    resolved: Result<PromTarget, String>,
+    resolved: Result<PromTarget, PromFailure>,
 ) {
-    let (success, message) = match resolved {
-        Ok(t) => (true, t.status_message()),
-        Err(reason) => (false, reason),
-    };
     events::emit(
         state.cluster.seq.as_ref(),
         sender,
         Route::global(section_keys::integrations_metrics()),
         Correlation::None,
-        BackendEvent::System(SystemEvent::PrometheusConnectionTest { success, message }),
+        BackendEvent::System(prometheus_status_event(resolved)),
     );
 }
 
@@ -1178,13 +1465,8 @@ pub(super) async fn auto_discover_prometheus(
     _store: &dyn SecretStore,
 ) -> anyhow::Result<()> {
     let scan = scan_metrics_stack(client).await?;
-    if let Some(t) = detected_target(&scan) {
-        tracing::info!(
-            "Auto-detected Prometheus service: {}/{}:{}",
-            t.namespace,
-            t.service,
-            t.port
-        );
+    if let Some(t) = scan.prometheus.first() {
+        tracing::info!("Auto-detected Prometheus service: {}", t.label());
     }
     remember_metrics_scan(context, &scan);
     Ok(())
@@ -1196,10 +1478,8 @@ mod metrics_stack_tests {
 
     fn target(ns: &str, svc: &str, source: PromSource) -> PromTarget {
         PromTarget {
-            namespace: ns.to_owned(),
-            service: svc.to_owned(),
-            port: 9090,
             source,
+            ..PromTarget::saved(ns.to_owned(), svc.to_owned(), 9090)
         }
     }
 
@@ -1211,7 +1491,7 @@ mod metrics_stack_tests {
             "prometheus",
             PromSource::Detected,
         );
-        let order = prometheus_candidates_for(Some(saved.clone()), Some(detected.clone()));
+        let order = prometheus_candidates_for(Some(saved.clone()), vec![detected.clone()]);
         assert_eq!(order, vec![saved, detected]);
     }
 
@@ -1220,31 +1500,96 @@ mod metrics_stack_tests {
         let saved = target("m", "prometheus", PromSource::Saved);
         let detected = target("m", "prometheus", PromSource::Detected);
         assert_eq!(
-            prometheus_candidates_for(Some(saved.clone()), Some(detected)),
+            prometheus_candidates_for(Some(saved.clone()), vec![detected]),
             vec![saved]
         );
     }
 
     #[test]
-    fn detection_only_auto_connects_a_real_prometheus() {
-        let comp = |kind, service: &str| DetectedMetricsComponent {
-            kind,
-            namespace: "n".to_owned(),
-            service: service.to_owned(),
-            port: 9090,
+    fn only_the_best_few_detected_candidates_are_probed_in_rank_order() {
+        let detected: Vec<PromTarget> = (0..6)
+            .map(|i| target("m", &format!("p{i}"), PromSource::Detected))
+            .collect();
+        let order = prometheus_candidates_for(None, detected.clone());
+        assert_eq!(order, detected[..MAX_DETECTED_PROBES].to_vec());
+    }
+
+    #[test]
+    fn scan_candidates_carry_scheme_and_prefix() {
+        let c = prom_discovery::Candidate {
+            namespace: "monitoring".into(),
+            service: "prometheus".into(),
+            port: 9091,
+            https: true,
+            path_prefix: "/prom".into(),
+            ready: Some(true),
+            score: 1,
         };
-        let scan = |suggested| MetricsStackScanResult {
-            tier: MetricsStackTier::Partial,
-            components: vec![],
-            suggested_endpoint: suggested,
-        };
-        let found = detected_target(&scan(Some(comp(MetricsComponentKind::Prometheus, "p"))));
-        assert_eq!(found, Some(target("n", "p", PromSource::Detected)));
+        let t = PromTarget::from_candidate(&c);
+        assert_eq!(t.source, PromSource::Detected);
         assert_eq!(
-            detected_target(&scan(Some(comp(MetricsComponentKind::OpenObserve, "o")))),
-            None
+            t.probe_path(),
+            "/api/v1/namespaces/monitoring/services/https:prometheus:9091/proxy/prom/api/v1/query?query=up"
         );
-        assert_eq!(detected_target(&scan(None)), None);
+        assert_eq!(
+            t.status_message(),
+            "Auto-detected Prometheus monitoring/prometheus:9091/prom via the API server proxy"
+        );
+    }
+
+    #[test]
+    fn failures_are_short_and_classified_with_raw_in_detail() {
+        let t = target("monitoring", "prom", PromSource::Detected);
+        let not_found_page: anyhow::Error =
+            prom_discovery::classify_status(404, "404 page not found\n", true).into();
+        let f = t.failure(&not_found_page);
+        assert_eq!(f.kind, PrometheusStatusKind::QueryFailed);
+        assert_eq!(
+            f.message,
+            "Found Prometheus at monitoring/prom:9090, but the query failed: 404 page not found"
+        );
+        let detail = f.detail.unwrap();
+        assert!(detail.contains("/services/prom:9090/proxy/api/v1/query"));
+        assert!(detail.contains("404 page not found"));
+
+        let no_endpoints: anyhow::Error = prom_discovery::classify_status(
+            503,
+            "no endpoints available for service \"prom:9090\"",
+            false,
+        )
+        .into();
+        let f = target("monitoring", "prom", PromSource::Saved).failure(&no_endpoints);
+        assert_eq!(f.kind, PrometheusStatusKind::Unreachable);
+        assert_eq!(
+            f.message,
+            "Prometheus monitoring/prom:9090, but it is not reachable: 503 no ready endpoints"
+        );
+    }
+
+    #[test]
+    fn combined_failures_lead_with_the_first_and_keep_every_detail() {
+        let t = target("m", "a", PromSource::Detected);
+        let e: anyhow::Error = prom_discovery::unreachable("request timed out").into();
+        let f = PromFailure::combine(vec![t.failure(&e), t.failure(&e)]).unwrap();
+        assert!(f.message.ends_with("(1 other candidate also failed)"));
+        assert_eq!(f.detail.unwrap().matches("GET ").count(), 2);
+        assert_eq!(PromFailure::combine(vec![]), None);
+    }
+
+    #[test]
+    fn status_event_carries_kind_and_detail() {
+        let SystemEvent::PrometheusConnectionTest {
+            success,
+            kind,
+            detail,
+            ..
+        } = prometheus_status_event(Err(PromFailure::not_found("none", None)))
+        else {
+            panic!("wrong event")
+        };
+        assert!(!success);
+        assert_eq!(kind, Some(PrometheusStatusKind::NotFound));
+        assert_eq!(detail, None);
     }
 
     #[test]

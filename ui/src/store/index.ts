@@ -78,6 +78,7 @@ import type {
   UiConfig,
   GrafanaSettings,
   PrometheusSettings,
+  PrometheusStatusKind,
 } from '@/protocol/types'
 
 import { descriptorFor } from '@/resources'
@@ -440,7 +441,13 @@ export interface ObservabilitySettingsEntry {
 }
 
 export interface IntegrationsState {
-  prometheusTest?: { success: boolean; message: string }
+  /** Short `message`, a `kind` (not found / unreachable / query failed) and raw `detail` (#32). */
+  prometheusTest?: {
+    success: boolean
+    message: string
+    kind?: PrometheusStatusKind
+    detail?: string
+  }
   grafanaTest?: { success: boolean; message: string }
   /** 039: last `ObservabilitySettings` per context; absent until the backend has answered. */
   settings?: Record<string, ObservabilitySettingsEntry>

@@ -228,7 +228,15 @@ pub enum SystemEvent {
 
     PrometheusConnectionTest {
         success: bool,
+        /// One short line; never a raw response body.
         message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        kind: Option<super::PrometheusStatusKind>,
+        /// Raw response / per-candidate failures, for a collapsed "details" view.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        detail: Option<String>,
     },
 
     GrafanaConnectionTest {

@@ -252,6 +252,7 @@ export type * from "./PriorityClassSummary";
 export type * from "./ProbeSpec";
 export type * from "./PrometheusMetrics";
 export type * from "./PrometheusSettings";
+export type * from "./PrometheusStatusKind";
 export type * from "./Provider";
 export type * from "./ProviderState";
 export type * from "./ProviderStatus";

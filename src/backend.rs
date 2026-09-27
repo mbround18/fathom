@@ -65,6 +65,7 @@ mod pods;
 mod portforward;
 #[cfg(test)]
 mod post_connect_tests;
+mod prom_discovery;
 mod related;
 mod replicasets;
 mod replicationcontrollers;

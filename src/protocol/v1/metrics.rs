@@ -141,6 +141,19 @@ pub struct WorkloadMetricsAggregate {
     pub timestamp: u64,
 }
 
+/// Outcome of resolving or testing a Prometheus endpoint (feedback #32): lets the UI tell
+/// "nothing found" from "found but unreachable" from "answered with an error".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PrometheusStatusKind {
+    Connected,
+    /// No Prometheus was found (and none is saved).
+    NotFound,
+    /// Found, but the API server could not reach it (no ready endpoints, RBAC, timeout...).
+    Unreachable,
+    /// Reached, but the query did not return a Prometheus API success (404 page, bad JSON...).
+    QueryFailed,
+}
+
 /// Kind of monitoring component found while scanning the cluster for a metrics stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum MetricsComponentKind {

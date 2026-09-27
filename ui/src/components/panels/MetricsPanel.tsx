@@ -4,6 +4,7 @@ import { MetricsUnavailable } from '@/components/shell/PaneStates'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PrometheusForm } from '@/features/metrics/PrometheusForm'
+import { prometheusStatusWord } from '@/features/metrics/prometheusStatusText'
 import {
   fmtBytes,
   fmtPct,
@@ -60,7 +61,7 @@ export default function MetricsPanel() {
 
   if (noContext) return <MetricsUnavailable detail="Select a cluster to view metrics." />
 
-  const status = test ? (test.success ? 'connected' : 'not connected') : 'not tested'
+  const status = prometheusStatusWord(test)
   const targetOk = ns.trim() !== '' && name.trim() !== ''
   return (
     <div className="flex h-full flex-col overflow-auto">
