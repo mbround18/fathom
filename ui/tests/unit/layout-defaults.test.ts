@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { defaultProfile, resolveProfile } from '@/layout/defaults'
+import {
+  DOCK_ALLOWED,
+  defaultProfile,
+  dockTabs,
+  filterDock,
+  resolveProfile,
+} from '@/layout/defaults'
 import { visibleSlots, WIDTH_CLASSES } from '@/layout/width-class'
-import type { LayoutProfile } from '@/protocol/types'
+import type { DockConfig, LayoutProfile, ToolKind } from '@/protocol/types'
 import { useStore } from '@/store'
 
 const sum = (p: LayoutProfile) => p.slots.reduce((t, s) => t + s.sizePct, 0)
@@ -23,20 +29,79 @@ describe('defaultProfile', () => {
   it('has a dock from laptop up only', () => {
     expect(defaultProfile('tablet').dock).toBeUndefined()
     expect(defaultProfile('laptop').dock).toBeDefined()
-    expect(defaultProfile('desktop').dock).toMatchObject({
+    expect(defaultProfile('desktop').dock).toEqual({
       open: true,
-      tabs: [
-        'logs',
-        'events',
-        'topology',
-        'daemon',
-        'velero',
-        'certManager',
-        'knative',
-        'keda',
-        'linter',
-      ],
+      heightPct: 30,
+      tabs: ['logs', 'events'],
     })
+  })
+})
+
+/** The dock every build before 043 wrote by default. */
+const OLD_NINE: ToolKind[] = [
+  'logs',
+  'events',
+  'topology',
+  'daemon',
+  'velero',
+  'certManager',
+  'knative',
+  'keda',
+  'linter',
+]
+
+describe('dock policy (043)', () => {
+  it('accepts only the streams', () => {
+    expect(DOCK_ALLOWED).toEqual(['logs', 'events', 'daemon'])
+  })
+
+  it('filters the old nine-tab dock to logs, events and daemon, keeping height and state', () => {
+    const saved: DockConfig = { open: false, heightPct: 42, tabs: OLD_NINE }
+    expect(filterDock(saved)).toEqual({
+      open: false,
+      heightPct: 42,
+      tabs: ['logs', 'events', 'daemon'],
+    })
+    expect(saved.tabs).toHaveLength(9)
+  })
+
+  it('keeps the saved order of the allowed tabs', () => {
+    const saved: DockConfig = {
+      open: true,
+      heightPct: 25,
+      tabs: ['linter', 'events', 'topology', 'logs'],
+    }
+    expect(filterDock(saved).tabs).toEqual(['events', 'logs'])
+  })
+
+  it('renders the old nine-tab dock as Logs and Events when the daemon is unavailable', () => {
+    expect(dockTabs({ open: true, heightPct: 30, tabs: OLD_NINE }, false)).toEqual([
+      'logs',
+      'events',
+    ])
+  })
+
+  it('adds Cluster history while the daemon is available and removes it otherwise', () => {
+    const dock: DockConfig = { open: true, heightPct: 30, tabs: ['logs', 'events'] }
+    expect(dockTabs(dock, true)).toEqual(['logs', 'events', 'daemon'])
+    expect(dockTabs(dock, false)).toEqual(['logs', 'events'])
+    const withDaemon: DockConfig = { ...dock, tabs: ['daemon', 'logs', 'events'] }
+    expect(dockTabs(withDaemon, true)).toEqual(['daemon', 'logs', 'events'])
+    expect(dockTabs(withDaemon, false)).toEqual(['logs', 'events'])
+    expect(dock.tabs).toEqual(['logs', 'events'])
+  })
+
+  it('applies the filter when a saved profile loads, keeping height and open state', () => {
+    const saved: LayoutProfile = {
+      slots: defaultProfile('desktop').slots,
+      dock: { open: false, heightPct: 44, tabs: OLD_NINE },
+    }
+    expect(resolveProfile('desktop', saved).dock).toEqual({
+      open: false,
+      heightPct: 44,
+      tabs: ['logs', 'events', 'daemon'],
+    })
+    expect(saved.dock?.tabs).toHaveLength(9)
   })
 })
 

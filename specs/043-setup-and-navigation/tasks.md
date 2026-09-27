@@ -4,13 +4,13 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 1: Foundations (pure logic, no UI)
 
-- [ ] T001 [P] Add `setupStateOf()` and the `SetupState` union (kinds `kubeconfig`, `pick`, `connecting`, `failed`, `sign-in`; `hosted` always gives `undefined`; `connecting`/`failed` only when `pickedInSetup`) in `ui/src/components/setup/setup-state.ts`, built on `firstRunOf` from `ui/src/lib/first-run.ts`
-- [ ] T002 [P] Unit tests for every transition in data-model.md, including hosted, the missing current-context, and a connection problem with no setup pick, in `ui/tests/unit/setupState.test.ts`
-- [ ] T003 [P] Add `DOCK_ALLOWED = ['logs','events','daemon']`, the default dock `['logs','events']`, `filterDock()` (keeps order, `open`, `heightPct`) and `dockTabs(dock, daemonAvailable)` in `ui/src/layout/defaults.ts`, and apply `filterDock` inside `resolveProfile`. Do not touch `PROFILES` (Group 3)
-- [ ] T004 [P] Dock-policy unit tests: the old nine-tab dock filters to logs/events, the daemon tab is added or removed with availability, and saved height and open state are kept, in `ui/tests/unit/layout-defaults.test.ts`
-- [ ] T005 [P] Add `splitRelated(root, refs)` → `{upstream, downstream}` in `ui/src/topology/resource-topology.ts`, with `UPSTREAM = {'owned-by','member-of','scaledBy','mounted-by','reconciled-by'}`, all other relations downstream and labelled, and `RESOLVER_KINDS` as listed in data-model.md
-- [ ] T006 [P] Unit tests for `splitRelated`, covering an unknown relation, an empty result and a Service/PVC/Pod root, in `ui/tests/unit/resourceTopology.test.ts`
-- [ ] T007 Rewrite `ui/src/resources/nav.ts` as a `NAV_MODEL`:
+- [x] T001 [P] Add `setupStateOf()` and the `SetupState` union (kinds `kubeconfig`, `pick`, `connecting`, `failed`, `sign-in`; `hosted` always gives `undefined`; `connecting`/`failed` only when `pickedInSetup`) in `ui/src/components/setup/setup-state.ts`, built on `firstRunOf` from `ui/src/lib/first-run.ts`
+- [x] T002 [P] Unit tests for every transition in data-model.md, including hosted, the missing current-context, and a connection problem with no setup pick, in `ui/tests/unit/setupState.test.ts`
+- [x] T003 [P] Add `DOCK_ALLOWED = ['logs','events','daemon']`, the default dock `['logs','events']`, `filterDock()` (keeps order, `open`, `heightPct`) and `dockTabs(dock, daemonAvailable)` in `ui/src/layout/defaults.ts`, and apply `filterDock` inside `resolveProfile`. Do not touch `PROFILES` (Group 3)
+- [x] T004 [P] Dock-policy unit tests: the old nine-tab dock filters to logs/events, the daemon tab is added or removed with availability, and saved height and open state are kept, in `ui/tests/unit/layout-defaults.test.ts`
+- [x] T005 [P] Add `splitRelated(root, refs)` → `{upstream, downstream}` in `ui/src/topology/resource-topology.ts`, with `UPSTREAM = {'owned-by','member-of','scaledBy','mounted-by','reconciled-by'}`, all other relations downstream and labelled, and `RESOLVER_KINDS` as listed in data-model.md
+- [x] T006 [P] Unit tests for `splitRelated`, covering an unknown relation, an empty result and a Service/PVC/Pod root, in `ui/tests/unit/resourceTopology.test.ts`
+- [x] T007 Rewrite `ui/src/resources/nav.ts` as a `NAV_MODEL`:
   - Groups and order exactly as spec FR-020.
   - Each entry has a `description` (at most 90 characters, plain language, not repeating the label).
   - `advanced` flags as FR-020 "More" lists.
@@ -19,7 +19,7 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
   - New sections: `topology`, `linter`, `cluster-history`, `settings/sign-in`, `settings/app`, `settings/local-clusters`.
 
   Keep the `PANEL_SECTIONS` and `NAV_TOOLS` exports working for existing callers.
-- [ ] T008 Rewrite `ui/tests/unit/navModel.test.ts` and update `ui/tests/unit/navCoverage.test.ts` and `ui/tests/unit/paletteIndex.test.ts`. They cover:
+- [x] T008 Rewrite `ui/tests/unit/navModel.test.ts` and update `ui/tests/unit/navCoverage.test.ts` and `ui/tests/unit/paletteIndex.test.ts`. They cover:
   - group order
   - every entry has a description
   - at most 8 non-advanced entries per group, except Custom Resources and Integrations (SC-005)

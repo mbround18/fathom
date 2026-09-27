@@ -92,7 +92,7 @@ async function openShellTab(page: Page, checks: NodeShellAccessCheck[] = ALL_ALL
   if (!(await nav.isVisible())) {
     await page.getByRole('button', { name: 'Open sections' }).click()
   }
-  const toggle = nav.getByRole('button', { name: 'Overview', expanded: false })
+  const toggle = nav.getByRole('button', { name: 'Cluster', expanded: false })
   if (await toggle.isVisible()) await toggle.click()
   await nav.locator('[data-section="nodes"]').click()
   await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['RefreshNodes']))
