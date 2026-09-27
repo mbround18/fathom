@@ -2,6 +2,7 @@
 import { expect, test } from '@playwright/test'
 
 import type { ResourceListEvent } from '@/protocol/generated/ResourceListEvent'
+import type { SecretRevealOutcome } from '@/protocol/generated/SecretRevealOutcome'
 import { batch, clusterRoute, list, nsRoute, read } from '../fixtures/builders'
 import { BATCH_C_LIST_EVENTS } from '../fixtures/batchCKinds'
 import {
@@ -10,8 +11,10 @@ import {
   confirmDialog,
   emit,
   expectRowCount,
+  finish,
   navigateTo,
   open,
+  requestIdOf,
   row,
   sent,
 } from './helpers'
@@ -92,7 +95,7 @@ for (const c of CASES) {
   })
 }
 
-test('Secrets show masked keys and never values', async ({ page }) => {
+test('Secrets show masked keys; Reveal fetches one value on demand', async ({ page }) => {
   const section = 'config/secrets'
   await open(page)
   await navigateTo(page, 'Secrets', 'Config')
@@ -120,9 +123,58 @@ test('Secrets show masked keys and never values', async ({ page }) => {
   await expect(page.getByTestId('secret-key-username').first()).toContainText('username')
   await expect(page.getByTestId('secret-value-password').first()).toHaveText('••••••••')
   await page.getByRole('button', { name: 'Reveal value of password' }).first().click()
-  await expect(page.getByTestId('secret-value-password').first()).toContainText(
-    'Value not transferred',
-  )
+  // #40: exactly one key of this Secret is asked for, and only now.
+  const reveal = (await sent(page)).filter((c) => c.type === 'RevealSecretValue')
+  expect(reveal).toEqual([
+    {
+      type: 'RevealSecretValue',
+      data: { namespace: 'default', name: 'db-creds', key: 'password' },
+    },
+  ])
+  const id = await requestIdOf(page, 'RevealSecretValue')
+  const answer = (outcome: SecretRevealOutcome) =>
+    batch([
+      read(
+        3,
+        nsRoute('kind-a', section, 'default'),
+        {
+          type: 'SecretValueRevealed',
+          data: { namespace: 'default', name: 'db-creds', key: 'password', outcome },
+        },
+        { type: 'Request', data: id },
+      ),
+    ])
+  await emit(page, answer({ type: 'Value', data: { value: 's3cr3t-pw' } }))
+  await finish(page, id, true)
+  await expect(page.getByTestId('secret-value-password').first()).toHaveText('s3cr3t-pw')
+  await expect(page.getByRole('button', { name: 'Copy value of password' }).first()).toBeVisible()
+
+  // Hide drops the value; a forbidden answer says so plainly.
+  await page.getByRole('button', { name: 'Hide value of password' }).first().click()
+  await expect(page.getByTestId('secret-value-password').first()).toHaveText('••••••••')
+  await page.getByRole('button', { name: 'Reveal value of password' }).first().click()
+  const id2 = await requestIdOf(page, 'RevealSecretValue')
+  expect(id2).not.toBe(id)
+  const denied = batch([
+    read(
+      4,
+      nsRoute('kind-a', section, 'default'),
+      {
+        type: 'SecretValueRevealed',
+        data: {
+          namespace: 'default',
+          name: 'db-creds',
+          key: 'password',
+          outcome: { type: 'Forbidden', data: { message: 'secrets "db-creds" is forbidden' } },
+        },
+      },
+      { type: 'Request', data: id2 },
+    ),
+  ])
+  await emit(page, denied)
+  await finish(page, id2, true)
+  await expect(page.getByTestId('secret-value-password').first()).toContainText('Forbidden')
+  await expect(page.getByText('Value not transferred')).toHaveCount(0)
 })
 
 const DELETES = [

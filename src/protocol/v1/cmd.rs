@@ -585,6 +585,14 @@ pub enum BackendCmdV1 {
         namespace: String,
         name: String,
     },
+    /// Fetch one key's decoded value, only in response to the operator's explicit per-key
+    /// Reveal. Replied to with `ResourceReadEvent::SecretValueRevealed`; the value is never
+    /// part of `SecretsUpdated`/`SecretDetailsUpdated` and the backend does not cache it.
+    RevealSecretValue {
+        namespace: String,
+        name: String,
+        key: String,
+    },
 
     // config_resourcequotas
     RefreshResourceQuotas,

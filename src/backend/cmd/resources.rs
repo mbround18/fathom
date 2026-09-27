@@ -654,6 +654,13 @@ async fn handle_config_cmd(
         BackendCmd::SelectSecret { namespace, name } => {
             secrets::fetch_secret_details(state, sender, &namespace, &name).await?;
         }
+        BackendCmd::RevealSecretValue {
+            namespace,
+            name,
+            key,
+        } => {
+            secrets::reveal_secret_value(state, sender, &namespace, &name, &key).await?;
+        }
         BackendCmd::DeleteSecret { namespace, name } => {
             secrets::delete_secret(state, sender, &namespace, &name).await?;
             secrets::refresh_secrets(state, sender).await?;

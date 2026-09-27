@@ -21,10 +21,11 @@ use super::{
     RelatedResourceRef, ReplicaSetSummary, ReplicationControllerDetails,
     ReplicationControllerSummary, ResourceQuotaDetails, ResourceQuotaSummary, RoleBindingDetails,
     RoleBindingSummary, RoleDetails, RoleSummary, Route, RuntimeClassDetails, RuntimeClassSummary,
-    SecretDetails, SecretSummary, SectionKey, ServiceDetails, ServiceSummary, StatefulSetDetails,
-    StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId, UiConfig,
-    ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary, VeleroOverview,
-    VerticalPodAutoscalerDetails, VerticalPodAutoscalerSummary, WorkloadMetricsAggregate,
+    SecretDetails, SecretSummary, SecretValueReveal, SectionKey, ServiceDetails, ServiceSummary,
+    StatefulSetDetails, StatefulSetSummary, StorageClassDetails, StorageClassSummary, StreamId,
+    UiConfig, ValidatingWebhookConfigurationDetails, ValidatingWebhookConfigurationSummary,
+    VeleroOverview, VerticalPodAutoscalerDetails, VerticalPodAutoscalerSummary,
+    WorkloadMetricsAggregate,
 };
 use super::{
     CapabilityQuery, CapabilityResult, CapabilitySet, IdpDirectorySnapshot, OidcConfig,
@@ -332,6 +333,10 @@ pub enum SystemEvent {
         version: String,
         namespace: Option<String>,
         instances: Vec<String>,
+        /// Why the list could not be read; `None` when `instances` is the real (possibly empty)
+        /// list. Typed so the UI can say "forbidden" or "not found" rather than show an empty
+        /// list or spin forever.
+        failure: Option<CrdListFailure>,
     },
 
     /// Reply to `AgentGetAuthMode`, and broadcast after `AgentSetAuthMode` (013).
@@ -620,6 +625,18 @@ pub enum CrdScope {
     Cluster,
 }
 
+/// Why one CRD kind's instance list could not be read (`CrdInstancesUpdated::failure`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data")]
+pub enum CrdListFailure {
+    /// The API server refused the list (HTTP 403) for the current identity.
+    Forbidden { message: String },
+    /// The kind or the requested version is not served (HTTP 404), e.g. the CRD was removed.
+    NotFound { message: String },
+    /// Any other failure (timeout, conversion webhook error, server error).
+    Failed { message: String },
+}
+
 /// 039: saved Prometheus endpoint for a context (non-secret).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct PrometheusSettings {
@@ -723,6 +740,9 @@ pub enum ResourceReadEvent {
     ClusterRoleBindingDetailsUpdated(ClusterRoleBindingDetails),
     ConfigMapDetailsUpdated(ConfigMapDetails),
     SecretDetailsUpdated(SecretDetails),
+    /// Reply to `RevealSecretValue` only (never unprompted, never logged): one key's value
+    /// or a typed reason it could not be read. See [`SecretValueReveal`].
+    SecretValueRevealed(SecretValueReveal),
     ResourceQuotaDetailsUpdated(ResourceQuotaDetails),
     LimitRangeDetailsUpdated(LimitRangeDetails),
     HorizontalPodAutoscalerDetailsUpdated(HorizontalPodAutoscalerDetails),
@@ -1188,6 +1208,17 @@ mod tests {
             version: "v1".to_owned(),
             namespace: Some("flux-system".to_owned()),
             instances: vec![serde_json::json!({"metadata": {"name": "podinfo"}}).to_string()],
+            failure: None,
+        });
+        system_roundtrip(SystemEvent::CrdInstancesUpdated {
+            group: "acme.cert-manager.io".to_owned(),
+            kind: "Order".to_owned(),
+            version: "v1".to_owned(),
+            namespace: None,
+            instances: vec![],
+            failure: Some(CrdListFailure::Forbidden {
+                message: "orders is forbidden".to_owned(),
+            }),
         });
     }
 

@@ -348,6 +348,9 @@ async fn set_context(
         .await;
     state.watch_tasks.abort_all();
     state.node_actions.abort_all();
+    // The CRD catalog describes the previous cluster; `RefreshCrdInstances` resolves kinds it
+    // lacks from the API server, so an empty catalog is safe until `RefreshCrds` runs again.
+    state.cluster.crd_catalog.clear();
 
     state.cluster.current_context = Some(context.clone());
     state.capabilities.invalidate_all();

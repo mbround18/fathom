@@ -1911,6 +1911,11 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::RevealSecretValue {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+            key: "k".to_owned(),
+        },
         BackendCmd::RefreshResourceQuotas,
         BackendCmd::SelectResourceQuota {
             namespace: "s".to_owned(),
@@ -2444,6 +2449,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshSecrets => {}
         BackendCmd::SelectSecret { .. } => {}
         BackendCmd::DeleteSecret { .. } => {}
+        BackendCmd::RevealSecretValue { .. } => {}
         BackendCmd::RefreshResourceQuotas => {}
         BackendCmd::SelectResourceQuota { .. } => {}
         BackendCmd::DeleteResourceQuota { .. } => {}
@@ -2730,6 +2736,9 @@ fn all_system_events() -> Vec<SystemEvent> {
             version: "s".to_owned(),
             namespace: Some("s".to_owned()),
             instances: vec!["{}".to_owned()],
+            failure: Some(CrdListFailure::NotFound {
+                message: "s".to_owned(),
+            }),
         },
         SystemEvent::AgentAuthModeUpdated {
             mode: AgentAuthMode::Anthropic {
@@ -3337,6 +3346,14 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
         ResourceReadEvent::ClusterRoleBindingDetailsUpdated(sample_cluster_role_binding_details()),
         ResourceReadEvent::ConfigMapDetailsUpdated(sample_config_map_details()),
         ResourceReadEvent::SecretDetailsUpdated(sample_secret_details()),
+        ResourceReadEvent::SecretValueRevealed(SecretValueReveal {
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+            key: "k".to_owned(),
+            outcome: SecretRevealOutcome::Forbidden {
+                message: "m".to_owned(),
+            },
+        }),
         ResourceReadEvent::ResourceQuotaDetailsUpdated(sample_resource_quota_details()),
         ResourceReadEvent::LimitRangeDetailsUpdated(sample_limit_range_details()),
         ResourceReadEvent::HorizontalPodAutoscalerDetailsUpdated(
@@ -3549,6 +3566,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::ClusterRoleBindingDetailsUpdated(..) => {}
         ResourceReadEvent::ConfigMapDetailsUpdated(..) => {}
         ResourceReadEvent::SecretDetailsUpdated(..) => {}
+        ResourceReadEvent::SecretValueRevealed(..) => {}
         ResourceReadEvent::ResourceQuotaDetailsUpdated(..) => {}
         ResourceReadEvent::LimitRangeDetailsUpdated(..) => {}
         ResourceReadEvent::HorizontalPodAutoscalerDetailsUpdated(..) => {}

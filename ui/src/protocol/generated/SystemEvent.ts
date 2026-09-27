@@ -14,6 +14,7 @@ import type { ConnectionProblem } from "./ConnectionProblem";
 import type { ConnectionProfile } from "./ConnectionProfile";
 import type { ContextConnectionStatus } from "./ContextConnectionStatus";
 import type { CrdCatalogEntry } from "./CrdCatalogEntry";
+import type { CrdListFailure } from "./CrdListFailure";
 import type { CredentialMigrationOutcome } from "./CredentialMigrationOutcome";
 import type { DaemonStatus } from "./DaemonStatus";
 import type { DaemonTimelineEntry } from "./DaemonTimelineEntry";
@@ -78,7 +79,13 @@ plugin_error: PluginError | null, } } | { "type": "CloudAuthDetected", "data": {
  * `config.json → auto_start.mcp_stdio`: whether the stdio MCP server
  * (015-mcp-agent-exposure) is enabled. Off by default (FR-002).
  */
-mcp_stdio_enabled: boolean, } } | { "type": "AuditLogLoaded", "data": { entries: Array<AuditLogEntry>, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "AiProviderStatus", "data": { statuses: Array<ProviderStatus>, active: Provider | null, offline: boolean, 
+mcp_stdio_enabled: boolean, } } | { "type": "AuditLogLoaded", "data": { entries: Array<AuditLogEntry>, } } | { "type": "CrdCatalogUpdated", "data": { entries: Array<CrdCatalogEntry>, } } | { "type": "CrdInstancesUpdated", "data": { group: string, kind: string, version: string, namespace: string | null, instances: Array<string>, 
+/**
+ * Why the list could not be read; `None` when `instances` is the real (possibly empty)
+ * list. Typed so the UI can say "forbidden" or "not found" rather than show an empty
+ * list or spin forever.
+ */
+failure: CrdListFailure | null, } } | { "type": "AgentAuthModeUpdated", "data": { mode: AgentAuthMode, } } | { "type": "AgentKeyRevealed", "data": { key: string, } } | { "type": "AiProviderStatus", "data": { statuses: Array<ProviderStatus>, active: Provider | null, offline: boolean, 
 /**
  * Model selected for Ollama, so consumers need no second event for the summary.
  */

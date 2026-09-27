@@ -1,49 +1,103 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { descriptorFor } from '@/resources'
 import { parseQuantity } from '@/resources/batchCCommon'
 import { pdbStatus } from '@/resources/configKinds'
-import { SecretKeys } from '@/resources/secretKeys'
+import { SecretKeys, type RevealFn } from '@/resources/secretKeys'
 
 const SECRET_VALUE = 'hunter2-super-secret'
 
+type Outcome = Awaited<ReturnType<RevealFn>>
+const valueOf = (value: string): Outcome => ({ type: 'Value', data: { value } })
+
+/** A reveal function answering from a table, recording which keys were asked for. */
+function fakeReveal(answers: Record<string, Outcome>) {
+  const asked: string[] = []
+  const fn: RevealFn = (key) => {
+    asked.push(key)
+    const answer = answers[key]
+    return answer ? Promise.resolve(answer) : new Promise(() => undefined)
+  }
+  return { fn, asked }
+}
+
+function renderKeys(keys: string[], reveal: RevealFn) {
+  return render(<SecretKeys keys={keys} namespace="ns" name="db" reveal={reveal} />)
+}
+
 describe('SecretKeys', () => {
-  it('renders key names but no values until reveal, and re-masks', () => {
-    const { container } = render(
-      <SecretKeys keys={['password', 'user']} values={{ password: SECRET_VALUE, user: 'admin' }} />,
-    )
+  it('shows no values until reveal, fetches only the revealed key, and re-masks', async () => {
+    const { fn, asked } = fakeReveal({ password: valueOf(SECRET_VALUE), user: valueOf('admin') })
+    const { container } = renderKeys(['password', 'user'], fn)
     expect(screen.getByText('password')).toBeTruthy()
     expect(container.innerHTML).not.toContain(SECRET_VALUE)
-    expect(container.innerHTML).not.toContain('admin')
+    expect(asked).toEqual([])
     expect(screen.queryByLabelText('Copy value of password')).toBeNull()
 
     fireEvent.click(screen.getByLabelText('Reveal value of password'))
-    expect(container.innerHTML).toContain(SECRET_VALUE)
+    expect(asked).toEqual(['password'])
+    await screen.findByText(SECRET_VALUE)
     expect(container.innerHTML).not.toContain('admin')
     expect(screen.getByLabelText('Copy value of password')).toBeTruthy()
 
     fireEvent.keyDown(screen.getByTestId('secret-keys'), { key: 'Escape' })
     expect(container.innerHTML).not.toContain(SECRET_VALUE)
+    expect(screen.queryByLabelText('Copy value of password')).toBeNull()
   })
 
-  it('re-masks on blur out of the section and on unmount', () => {
-    const { container, unmount } = render(
-      <SecretKeys keys={['password']} values={{ password: SECRET_VALUE }} />,
-    )
+  it('re-masks on blur out of the section and on unmount', async () => {
+    const { fn } = fakeReveal({ password: valueOf(SECRET_VALUE) })
+    const { container, unmount } = renderKeys(['password'], fn)
     fireEvent.click(screen.getByLabelText('Reveal value of password'))
-    expect(container.innerHTML).toContain(SECRET_VALUE)
+    await screen.findByText(SECRET_VALUE)
     fireEvent.blur(screen.getByTestId('secret-keys'), { relatedTarget: document.body })
     expect(container.innerHTML).not.toContain(SECRET_VALUE)
+    fireEvent.click(screen.getByLabelText('Reveal value of password'))
+    await screen.findByText(SECRET_VALUE)
     unmount()
     expect(document.body.innerHTML).not.toContain(SECRET_VALUE)
   })
 
-  it('says values are not transferred when the backend supplies none', () => {
-    render(<SecretKeys keys={['token']} />)
+  it('shows a loading state, and drops an answer that arrives after Hide', async () => {
+    let answer: (o: Outcome) => void = () => undefined
+    const reveal: RevealFn = () =>
+      new Promise((resolve) => {
+        answer = resolve
+      })
+    const { container } = renderKeys(['token'], reveal)
     fireEvent.click(screen.getByLabelText('Reveal value of token'))
-    expect(screen.getByTestId('secret-value-token').textContent).toContain('not transferred')
-    expect(screen.queryByLabelText('Copy value of token')).toBeNull()
+    expect(screen.getByTestId('secret-value-token').textContent).toBe('Revealing…')
+    fireEvent.click(screen.getByLabelText('Hide value of token'))
+    await act(async () => {
+      answer(valueOf(SECRET_VALUE))
+      await Promise.resolve()
+    })
+    expect(container.innerHTML).not.toContain(SECRET_VALUE)
+  })
+
+  it.each<[string, Outcome, RegExp]>([
+    [
+      'forbidden',
+      { type: 'Forbidden', data: { message: 'secrets "db" is forbidden' } },
+      /^Forbidden: .*secrets "db" is forbidden/,
+    ],
+    ['not found', { type: 'NotFound' }, /^Not found: this Secret no longer exists/],
+    ['a missing key', { type: 'KeyMissing' }, /no longer in the Secret/],
+    ['binary', { type: 'Binary', data: { size: 42 } }, /Binary value \(42 bytes\)/],
+    ['empty', valueOf(''), /^\(empty value\)$/],
+    ['a failure', { type: 'Failed', data: { message: 'boom' } }, /Could not read the value: boom/],
+  ])('says so plainly for %s, and offers Copy only for text values', async (_, outcome, text) => {
+    const { fn } = fakeReveal({ token: outcome })
+    renderKeys(['token'], fn)
+    fireEvent.click(screen.getByLabelText('Reveal value of token'))
+    await waitFor(() => {
+      expect(screen.getByTestId('secret-value-token').textContent).toMatch(text)
+    })
+    expect(screen.queryByText(/not transferred/)).toBeNull()
+    const copy = screen.queryByLabelText('Copy value of token')
+    if (outcome.type === 'Value') expect(copy).toBeTruthy()
+    else expect(copy).toBeNull()
   })
 })
 

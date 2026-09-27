@@ -163,7 +163,19 @@ export const secrets: ResourceDescriptor<SecretSummary, SecretDetails> = {
       id: 'keys',
       title: 'Keys (values hidden)',
       render: ({ detail }) =>
-        detail ? { type: 'list', items: [<SecretKeys key="keys" keys={detail.keys} />] } : null,
+        detail
+          ? {
+              type: 'list',
+              items: [
+                <SecretKeys
+                  key="keys"
+                  keys={detail.keys}
+                  namespace={detail.namespace}
+                  name={detail.name}
+                />,
+              ],
+            }
+          : null,
     },
     ...labelSections(),
   ],

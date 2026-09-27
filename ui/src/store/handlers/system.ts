@@ -6,7 +6,12 @@ import { reduceManifestExport } from '@/features/manifest-export/state'
 import { resolveProfile } from '@/layout/defaults'
 import { connectionProblemSummary } from '@/lib/first-run'
 import { ingestCapabilityChecked, ingestCapabilitySet, resetCapabilities } from '@/lib/capabilities'
-import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
+import type {
+  BackendEventEnvelope,
+  CrdListFailure,
+  NotificationLevel,
+  SystemEvent,
+} from '@/protocol/types'
 
 import { commandFinished, type CommandResult } from '../actions'
 import type { Draft } from '../draft'
@@ -19,6 +24,8 @@ import {
 import {
   assignPanes,
   CONTEXT_LISTS,
+  type CrdInstancesState,
+  emptyCrdState,
   listKey,
   markLoading,
   type Notice,
@@ -36,6 +43,12 @@ import {
 import { applyFederationRollup, applyFederationState } from './federation'
 import { applyFleetSummary } from './fleet'
 import { clearDenied, deniedKeyOf, rowId } from './list'
+
+const CRD_FAILURE_STATUS: Record<CrdListFailure['type'], CrdInstancesState['status']> = {
+  Forbidden: 'forbidden',
+  NotFound: 'notFound',
+  Failed: 'error',
+}
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
   Info: 'info',
@@ -152,6 +165,8 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       // 018: cached permission answers belong to the previous context's identity.
       d.put('rbacAccess', {})
       d.put('denied', {})
+      // #36: the CRD catalog and instance lists describe the previous cluster.
+      d.put('crds', emptyCrdState())
       session.namespacesRestricted = undefined
       d.effects.push(resetCapabilities)
       return
@@ -385,10 +400,13 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'CrdInstancesUpdated': {
       const crds = d.edit('crds')
       const key = `${event.data.group}/${event.data.kind}`
+      const failure = event.data.failure
       crds.instances = {
         ...crds.instances,
         [key]: {
-          status: 'ready',
+          ...(failure === null
+            ? { status: 'ready' }
+            : { status: CRD_FAILURE_STATUS[failure.type], message: failure.data.message }),
           namespace: event.data.namespace,
           items: event.data.instances,
           updatedAt: Date.now(),
