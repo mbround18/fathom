@@ -2604,6 +2604,7 @@ fn all_system_events() -> Vec<SystemEvent> {
                 paths: vec!["s".to_owned()],
                 detail: "s".to_owned(),
             }),
+            paths: vec!["s".to_owned()],
         },
         SystemEvent::ActiveConnectionProblem {
             context: "s".to_owned(),

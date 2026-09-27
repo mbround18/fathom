@@ -2,17 +2,18 @@
  * T126 first-run UX: the `KubeconfigStatus` / `ActiveConnectionProblem` handlers, the pane-state
  * selector, the copy, the kind-create auto-connect, and the `FirstRunState` component.
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { FirstRunState } from '@/components/shell/FirstRunState'
+import { FirstRunState, RELOAD_TIMEOUT_MS } from '@/components/shell/FirstRunState'
 import {
   connectionProblemCopy,
   firstRunOf,
   kubeconfigIssueCopy,
+  reloadOutcome,
   type FirstRun,
 } from '@/lib/first-run'
-import type { BackendCmd } from '@/protocol/types'
+import type { BackendCmd, KubeconfigIssue } from '@/protocol/types'
 import { initialData, listKey, useStore } from '@/store'
 import { resetActions } from '@/store/actions'
 import { ingest } from '@/store/ingest'
@@ -22,6 +23,7 @@ import {
   contextsWithProblem,
   kubeconfigMalformed,
   MALFORMED_DETAIL,
+  NO_KUBECONFIG_PATH,
   noCurrentContext,
   noKubeconfig,
   twoContexts,
@@ -44,7 +46,7 @@ describe('first-run handlers', () => {
   it('KubeconfigStatus records the issue and a null issue clears it', () => {
     ingest(noKubeconfig)
     expect(session().kubeconfigIssue?.kind).toBe('Missing')
-    ingest(batch([system(9, { type: 'KubeconfigStatus', data: { issue: null } })]))
+    ingest(batch([system(9, { type: 'KubeconfigStatus', data: { issue: null, paths: [] } })]))
     expect(session().kubeconfigIssue).toBeUndefined()
   })
 
@@ -96,7 +98,7 @@ describe('first-run handlers', () => {
           type: 'ContextsUpdated',
           data: { contexts: ['kind-dev'], current: 'kind-dev' },
         }),
-        system(11, { type: 'KubeconfigStatus', data: { issue: null } }),
+        system(11, { type: 'KubeconfigStatus', data: { issue: null, paths: [] } }),
         stream(12, globalRoute(), {
           type: 'KindClusterActionFinished',
           data: { request_id: 'r1', ok: true, error: null },
@@ -157,6 +159,23 @@ describe('copy', () => {
       kubeconfigIssueCopy({ kind: 'Malformed', paths: ['/a'], detail: MALFORMED_DETAIL }).detail,
     ).toContain(MALFORMED_DETAIL)
   })
+  it('reload outcome names the paths for every result', () => {
+    const missing: KubeconfigIssue = { kind: 'Missing', paths: ['/a', '/b'], detail: '' }
+    expect(reloadOutcome({ issue: missing, paths: [], contextCount: 0 })).toBe(
+      'No kubeconfig found; looked in /a, /b.',
+    )
+    expect(reloadOutcome({ paths: ['/k'], contextCount: 1 })).toBe('Found 1 context in /k.')
+    expect(reloadOutcome({ paths: ['/k', '/j'], contextCount: 3 })).toBe(
+      'Found 3 contexts in /k, /j.',
+    )
+    expect(
+      reloadOutcome({
+        issue: { kind: 'Malformed', paths: ['/k'], detail: 'x' },
+        paths: ['/k'],
+        contextCount: 0,
+      }),
+    ).toBe('Reloaded: /k could not be parsed.')
+  })
   it('never headlines the raw error', () => {
     for (const kind of [
       'Unreachable',
@@ -190,6 +209,64 @@ describe('FirstRunState', () => {
     expect(sent).toEqual([{ type: 'Initialize' }])
     fireEvent.click(screen.getByTestId('first-run-create-kind'))
     expect(navigate).toHaveBeenCalledWith('integrations/cluster-settings')
+  })
+
+  it('reload: pending until the next KubeconfigStatus, then the outcome even when unchanged', () => {
+    ingest(noKubeconfig)
+    const state = firstRunOf({
+      contextsLoaded: true,
+      contextCount: 0,
+      issue: session().kubeconfigIssue,
+    }) as FirstRun
+    render(<FirstRunState state={state} />)
+    expect(screen.getByTestId('first-run-paths').textContent).toContain(NO_KUBECONFIG_PATH)
+    const button = screen.getByTestId('first-run-reload')
+    fireEvent.click(button)
+    expect(sent).toEqual([{ type: 'Initialize' }])
+    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.textContent).toContain('Reloading')
+    expect(screen.queryByTestId('first-run-reload-outcome')).toBeNull()
+
+    // The backend answers with the same result: the button still reports it.
+    act(() => ingest(noKubeconfig))
+    expect(button.hasAttribute('disabled')).toBe(false)
+    expect(button.textContent).toContain('Reload kubeconfig')
+    expect(screen.getByTestId('first-run-reload-outcome').textContent).toBe(
+      `No kubeconfig found; looked in ${NO_KUBECONFIG_PATH}.`,
+    )
+  })
+
+  it('reload: gives up waiting after the timeout and says so', () => {
+    vi.useFakeTimers()
+    try {
+      ingest(noKubeconfig)
+      const issue = session().kubeconfigIssue
+      if (!issue) throw new Error('no issue recorded')
+      render(<FirstRunState state={{ kind: 'kubeconfig', issue }} />)
+      const button = screen.getByTestId('first-run-reload')
+      fireEvent.click(button)
+      expect(button.hasAttribute('disabled')).toBe(true)
+      act(() => {
+        vi.advanceTimersByTime(RELOAD_TIMEOUT_MS)
+      })
+      expect(button.hasAttribute('disabled')).toBe(false)
+      expect(screen.getByTestId('first-run-reload-outcome').textContent).toContain('No answer')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('pick: shows the kubeconfig the contexts came from and reports the count on reload', () => {
+    ingest(noCurrentContext)
+    render(<FirstRunState state={{ kind: 'pick' }} />)
+    expect(screen.getByTestId('first-run-paths').textContent).toBe(
+      `Kubeconfig: ${NO_KUBECONFIG_PATH}`,
+    )
+    fireEvent.click(screen.getByTestId('first-run-reload'))
+    act(() => ingest(noCurrentContext))
+    expect(screen.getByTestId('first-run-reload-outcome').textContent).toBe(
+      `Found 2 contexts in ${NO_KUBECONFIG_PATH}.`,
+    )
   })
 
   it('in Cluster Settings the create link is omitted (the kind panel is right there)', () => {

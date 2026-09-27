@@ -37,6 +37,12 @@ test.describe('T126 first-run states', () => {
     await clearSent(page)
     await firstRun(page).getByTestId('first-run-reload').click()
     await expect.poll(() => sentTypes(page)).toContain('Initialize')
+    // Feedback #1: an unchanged result still gets an answer, naming where Fathom looked.
+    await expect(firstRun(page).getByTestId('first-run-reload-outcome')).toHaveText(
+      `No kubeconfig found; looked in ${NO_KUBECONFIG_PATH}.`,
+    )
+    await expect(firstRun(page).getByTestId('first-run-reload')).toBeEnabled()
+    await expect(firstRun(page).getByTestId('first-run-paths')).toContainText(NO_KUBECONFIG_PATH)
   })
 
   test('no kubeconfig: "Create a local cluster" opens kind provisioning, and a created cluster is connected', async ({
@@ -87,7 +93,7 @@ test.describe('T126 first-run states', () => {
           type: 'ContextsUpdated',
           data: { contexts: ['kind-dev'], current: 'kind-dev' },
         }),
-        system(902, { type: 'KubeconfigStatus', data: { issue: null } }),
+        system(902, { type: 'KubeconfigStatus', data: { issue: null, paths: [] } }),
         stream(903, globalRoute(), {
           type: 'KindClusterActionFinished',
           data: { request_id: create.data.request_id, ok: true, error: null },

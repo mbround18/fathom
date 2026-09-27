@@ -12,12 +12,14 @@ import {
   PlugsIcon,
   PlusIcon,
 } from '@phosphor-icons/react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
   connectionProblemCopy,
   kubeconfigIssueCopy,
   pickCopy,
+  reloadOutcome,
   type Copy,
   type FirstRun,
 } from '@/lib/first-run'
@@ -28,6 +30,37 @@ import { StateFrame } from './PaneStates'
 
 /** More than this many contexts are left to the header's context picker. */
 const MAX_CONTEXT_BUTTONS = 8
+
+/** How long "Reload kubeconfig" waits for the backend's answer before saying it got none. */
+export const RELOAD_TIMEOUT_MS = 15_000
+
+/**
+ * "Reload kubeconfig" state (feedback #1): pending from the click until the next
+ * `KubeconfigStatus` arrives (`kubeconfigLoads` moves), then the outcome, so an unchanged
+ * result still gets an answer.
+ */
+function useReload(send: (cmd: { type: 'Initialize' }) => void) {
+  const loads = useStore((s) => s.session.kubeconfigLoads)
+  const [from, setFrom] = useState<number | undefined>(undefined)
+  const [timedOut, setTimedOut] = useState(false)
+  const done = from !== undefined && loads > from
+  const pending = from !== undefined && !done && !timedOut
+  useEffect(() => {
+    if (!pending) return
+    const t = setTimeout(() => setTimedOut(true), RELOAD_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [pending])
+  return {
+    pending,
+    done,
+    timedOut: timedOut && !done,
+    reload: () => {
+      setFrom(loads)
+      setTimedOut(false)
+      send({ type: 'Initialize' })
+    },
+  }
+}
 
 function copyFor(state: FirstRun): Copy {
   switch (state.kind) {
@@ -62,6 +95,15 @@ export function FirstRunState({
   const selectContext = useStore((s) => s.selectContext)
   const retryConnection = useStore((s) => s.retryConnection)
   const send = useStore((s) => s.send)
+  const kubeconfigPaths = useStore((s) => s.session.kubeconfigPaths)
+  const kubeconfigIssue = useStore((s) => s.session.kubeconfigIssue)
+  const reload = useReload(send)
+  const paths =
+    kubeconfigPaths.length > 0
+      ? kubeconfigPaths
+      : state.kind === 'connection'
+        ? []
+        : (state.issue?.paths ?? [])
 
   const { title, detail } = copyFor(state)
   const active = state.kind === 'connection' ? state.context : undefined
@@ -94,9 +136,16 @@ export function FirstRunState({
             variant="outline"
             size="sm"
             data-testid="first-run-reload"
-            onClick={() => send({ type: 'Initialize' })}
+            data-pending={reload.pending || undefined}
+            aria-busy={reload.pending}
+            disabled={reload.pending}
+            onClick={reload.reload}
           >
-            <ArrowsClockwiseIcon data-icon="inline-start" /> Reload kubeconfig
+            <ArrowsClockwiseIcon
+              data-icon="inline-start"
+              className={reload.pending ? 'animate-spin motion-reduce:animate-none' : undefined}
+            />{' '}
+            {reload.pending ? 'Reloading…' : 'Reload kubeconfig'}
           </Button>
         )}
         {!hosted && !inSettings && state.kind !== 'pick' && (
@@ -109,6 +158,28 @@ export function FirstRunState({
           </Button>
         )}
       </div>
+      {state.kind !== 'connection' && !hosted && (reload.done || reload.timedOut) && (
+        <p role="status" data-testid="first-run-reload-outcome" className="text-xs">
+          {reload.timedOut
+            ? 'No answer from the backend yet. Try again in a moment.'
+            : reloadOutcome({
+                issue: kubeconfigIssue,
+                paths: kubeconfigPaths,
+                contextCount: contexts.length,
+              })}
+        </p>
+      )}
+      {state.kind !== 'connection' && !hosted && paths.length > 0 && (
+        <p data-testid="first-run-paths" className="text-xs text-muted-foreground">
+          Kubeconfig:{' '}
+          {paths.map((p, i) => (
+            <span key={p}>
+              {i > 0 && ', '}
+              <code className="font-mono break-all">{p}</code>
+            </span>
+          ))}
+        </p>
+      )}
       {shown.length > 0 && (
         <div className="flex flex-col items-center gap-1">
           <p className="text-xs text-muted-foreground">

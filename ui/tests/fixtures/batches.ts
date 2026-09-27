@@ -81,7 +81,10 @@ export const noKubeconfig: EventBatch = batch([
   ...emptyContexts.envelopes,
   system(4, {
     type: 'KubeconfigStatus',
-    data: { issue: { kind: 'Missing', paths: [NO_KUBECONFIG_PATH], detail: '' } },
+    data: {
+      issue: { kind: 'Missing', paths: [NO_KUBECONFIG_PATH], detail: '' },
+      paths: [NO_KUBECONFIG_PATH],
+    },
   }),
   system(5, { type: 'ContextChanged', data: { current: null } }),
 ])
@@ -95,7 +98,10 @@ export const kubeconfigMalformed: EventBatch = batch([
   ...emptyContexts.envelopes,
   system(4, {
     type: 'KubeconfigStatus',
-    data: { issue: { kind: 'Malformed', paths: [NO_KUBECONFIG_PATH], detail: MALFORMED_DETAIL } },
+    data: {
+      issue: { kind: 'Malformed', paths: [NO_KUBECONFIG_PATH], detail: MALFORMED_DETAIL },
+      paths: [NO_KUBECONFIG_PATH],
+    },
   }),
   system(5, { type: 'ContextChanged', data: { current: null } }),
 ])
@@ -105,7 +111,10 @@ export const kubeconfigEmpty: EventBatch = batch([
   ...emptyContexts.envelopes,
   system(4, {
     type: 'KubeconfigStatus',
-    data: { issue: { kind: 'Empty', paths: [NO_KUBECONFIG_PATH], detail: '' } },
+    data: {
+      issue: { kind: 'Empty', paths: [NO_KUBECONFIG_PATH], detail: '' },
+      paths: [NO_KUBECONFIG_PATH],
+    },
   }),
   system(5, { type: 'ContextChanged', data: { current: null } }),
 ])
@@ -115,7 +124,10 @@ export const noCurrentContext: EventBatch = batch([
   ...contexts(null).envelopes,
   system(4, {
     type: 'KubeconfigStatus',
-    data: { issue: { kind: 'NoCurrentContext', paths: [NO_KUBECONFIG_PATH], detail: '' } },
+    data: {
+      issue: { kind: 'NoCurrentContext', paths: [NO_KUBECONFIG_PATH], detail: '' },
+      paths: [NO_KUBECONFIG_PATH],
+    },
   }),
   system(5, { type: 'ContextChanged', data: { current: null } }),
 ])
@@ -152,7 +164,7 @@ export function connectionProblem(context: string, kind: ProblemKind | null, seq
 export function contextsWithProblem(kind: ProblemKind): EventBatch {
   return batch([
     ...contexts('kind-a').envelopes,
-    system(4, { type: 'KubeconfigStatus', data: { issue: null } }),
+    system(4, { type: 'KubeconfigStatus', data: { issue: null, paths: [NO_KUBECONFIG_PATH] } }),
     system(5, {
       type: 'ContextStatusUpdated',
       data: {

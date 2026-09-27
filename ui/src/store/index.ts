@@ -114,14 +114,7 @@ import type { HostedState } from './handlers/hosted'
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
 export type { HelmMutationSession, HelmMutationStatus } from './helmMutation'
 
-export {
-  deniedKey,
-  detailKey,
-  listKey,
-  listKeyOf,
-  type DetailKey,
-  type ListKey,
-} from './keys'
+export { deniedKey, detailKey, listKey, listKeyOf, type DetailKey, type ListKey } from './keys'
 
 // ------------------------------------------------------------------ UI-owned types
 
@@ -217,6 +210,12 @@ export interface SessionState {
   /** First-run UX: why the kubeconfig gave nothing to connect to (`KubeconfigStatus`); absent
    * when it is usable. Local mode only: hosted mode never reads a kubeconfig. */
   kubeconfigIssue?: KubeconfigIssue
+  /** The kubeconfig files the last load read, or the paths its issue is about
+   * (`KubeconfigStatus.paths`). Shown on the first-run screen (feedback #1). */
+  kubeconfigPaths: string[]
+  /** How many `KubeconfigStatus` events have arrived: "Reload kubeconfig" waits for this to
+   * move before it reports the outcome. */
+  kubeconfigLoads: number
   /** First-run UX: the classified reason a context's connection failed or dropped
    * (`ActiveConnectionProblem`). A context is removed once it connects again. */
   connectionProblems: Record<string, ConnectionProblem>
@@ -1102,6 +1101,8 @@ export function initialData(): StoreData {
       namespaceFilter: [],
       contextStatuses: {},
       connectionProblems: {},
+      kubeconfigPaths: [],
+      kubeconfigLoads: 0,
       cloudAuth: {},
       fleetSummaries: {},
       federation: initialFederation(),

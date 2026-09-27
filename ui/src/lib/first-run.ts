@@ -125,6 +125,36 @@ export function connectionProblemCopy(context: string, problem: ConnectionProble
   }
 }
 
+export interface ReloadResult {
+  issue?: KubeconfigIssue
+  /** `KubeconfigStatus.paths`: the files read, or the paths the issue is about. */
+  paths: readonly string[]
+  contextCount: number
+}
+
+/**
+ * The one-line outcome of "Reload kubeconfig" (feedback #1): shown even when nothing changed,
+ * so the button never looks dead.
+ */
+export function reloadOutcome(r: ReloadResult): string {
+  const where = pathList(r.paths.length > 0 ? r.paths : (r.issue?.paths ?? []))
+  switch (r.issue?.kind) {
+    case 'Missing':
+      return `No kubeconfig found; looked in ${where}.`
+    case 'Empty':
+      return `Reloaded: ${where} defines no contexts.`
+    case 'Malformed':
+      return `Reloaded: ${where} could not be parsed.`
+    case 'Unreadable':
+      return `Reloaded: ${where} could not be opened.`
+    case 'NoCurrentContext':
+    case undefined: {
+      const n = r.contextCount
+      return `Found ${n} context${n === 1 ? '' : 's'} in ${where}.`
+    }
+  }
+}
+
 /** One line for a pane that has no room for the full state (a list's error strip). */
 export function connectionProblemSummary(context: string, problem: ConnectionProblem): string {
   return connectionProblemCopy(context, problem).title

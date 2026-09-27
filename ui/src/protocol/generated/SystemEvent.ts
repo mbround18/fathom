@@ -65,7 +65,13 @@ import type { TruncationMarker } from "./TruncationMarker";
 import type { UiConfig } from "./UiConfig";
 import type { VeleroOverview } from "./VeleroOverview";
 
-export type SystemEvent = { "type": "BackendStarted" } | { "type": "SessionEnded", "data": { reason: SessionEndReason, } } | { "type": "LimitReached", "data": { kind: LimitKind, max: number, } } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "KubeconfigStatus", "data": { issue: KubeconfigIssue | null, } } | { "type": "ActiveConnectionProblem", "data": { context: string, problem: ConnectionProblem | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
+export type SystemEvent = { "type": "BackendStarted" } | { "type": "SessionEnded", "data": { reason: SessionEndReason, } } | { "type": "LimitReached", "data": { kind: LimitKind, max: number, } } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "KubeconfigStatus", "data": { issue: KubeconfigIssue | null, 
+/**
+ * The kubeconfig files this load read (usable kubeconfig), or the paths the issue is
+ * about (the searched paths when none exists). Shown on the first-run screen and in the
+ * "Reload kubeconfig" outcome (feedback #1).
+ */
+paths: Array<string>, } } | { "type": "ActiveConnectionProblem", "data": { context: string, problem: ConnectionProblem | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
 /**
  * Verbatim backend error (Principle I), present only when `status == Error`.
  */
