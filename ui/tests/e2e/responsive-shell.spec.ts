@@ -47,7 +47,8 @@ test.describe('responsive shell', () => {
     await open(page)
     test.skip((await cls(page)) !== 'laptop', 'laptop only')
     await page.getByTestId('tools-menu').click()
-    await page.getByRole('menuitem', { name: /Velero/ }).click()
+    // Velero is listed only once detected (043); Certificates is always there.
+    await page.getByRole('menuitem', { name: /Certificates/ }).click()
     await expect(page.getByTestId('tools-sheet')).toBeVisible()
   })
 

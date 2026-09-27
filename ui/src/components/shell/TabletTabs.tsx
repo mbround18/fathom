@@ -16,6 +16,8 @@ import {
   KNATIVE_TAB,
   LINTER_TAB,
   useActiveTab,
+  useVisibleToolTabs,
+  VELERO_TAB,
 } from './stack-tabs'
 import { StackTabs } from './StackTabs'
 
@@ -29,6 +31,8 @@ const TABLET_TABS = [
   KNATIVE_TAB,
   KEDA_TAB,
   LINTER_TAB,
+  // Listed only once Velero is detected (043 FR-036).
+  VELERO_TAB,
 ] as const
 
 /**
@@ -42,6 +46,7 @@ const TABLET_TABS = [
  */
 export function TabletTabs() {
   const active = useActiveTab(TABLET_TABS)
+  const tabs = useVisibleToolTabs(TABLET_TABS)
   const stack = useStore((s) => s.layout.stack)
   const popPane = useStore((s) => s.popPane)
   const closeInspector = useStore((s) => s.closeInspector)
@@ -55,7 +60,7 @@ export function TabletTabs() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <StackTabs tabs={TABLET_TABS} scroll className="border-b" />
+      <StackTabs tabs={tabs} scroll className="border-b" />
       {(active?.kind === 'tool' || rootIsTool) && top ? (
         <div className="flex min-h-0 flex-1 flex-col">
           {stack.length > 1 && (

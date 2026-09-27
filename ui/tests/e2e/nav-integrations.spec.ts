@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, system } from '../fixtures/builders'
+import { VELERO_HEALTHY_AND_FAILED } from '../fixtures/velero'
 import { emit, navigateTo, open, sentTypes } from './helpers'
 
 const pane = (page: Page, section: string) =>
@@ -29,6 +30,13 @@ test.describe('nav reaches Events and integrations', () => {
   ] as const) {
     test(`${label} opens from Integrations and refreshes`, async ({ page }) => {
       await open(page)
+      // 043 FR-036: Velero is listed only once detected, so report it installed first.
+      if (section === 'integrations/velero') {
+        await emit(
+          page,
+          batch([system(1, { type: 'VeleroOverviewUpdated', data: VELERO_HEALTHY_AND_FAILED })]),
+        )
+      }
       await navigateTo(page, label, 'Integrations')
       await expect(pane(page, section)).toBeVisible()
       await expect.poll(() => sentTypes(page)).toContain(cmd)
@@ -56,6 +64,7 @@ test.describe('nav reaches Events and integrations', () => {
     if (drawer) await page.getByRole('button', { name: 'Open sections' }).click()
     const entry = nav.locator('[data-section="integrations/flux"]')
     await expect(entry).toHaveAttribute('data-installed', 'false')
-    await expect(entry).toHaveAttribute('title', 'Not installed in this cluster')
+    // 043: the tooltip leads with the hint, then the entry's one-line description.
+    await expect(entry).toHaveAttribute('title', /^Not installed in this cluster\./)
   })
 })

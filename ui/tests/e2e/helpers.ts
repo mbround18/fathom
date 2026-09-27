@@ -142,6 +142,12 @@ export async function navigateTo(
   // group is already expanded and both buttons are in the DOM.
   const toggle = nav.locator('button[aria-expanded]', { hasText: group })
   if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
+  // 043: rarely used kinds sit under the group's "More" toggle, collapsed by default.
+  const advanced = NAV_GROUPS.find((g) => g.label === group)?.sections.some(
+    (s) => s.label === label && s.advanced,
+  )
+  const more = nav.getByRole('button', { name: `More ${group}`, exact: true })
+  if (advanced && (await more.getAttribute('aria-expanded')) === 'false') await more.click()
   await nav.getByRole('button', { name: label, exact: true }).click()
   // Let the drawer finish closing so a following call does not race its exit animation.
   if (drawer) await expect(nav).toBeHidden()
@@ -273,9 +279,16 @@ export async function openToolPane(page: Page, label: string): Promise<void> {
     await page.getByTestId('tools-menu').click()
     await page.getByRole('menuitem', { name: label }).click()
   } else {
-    await page.getByRole('tab', { name: label }).click()
+    // 043: the dock keeps only Logs, Events and Cluster history; every other tool is a
+    // navigator section now (Cluster › Linter, Integrations › Knative, ...).
+    const tab = page.getByTestId('dock-tabs').getByRole('tab', { name: label })
+    if (await tab.count()) await tab.click()
+    else await navigateTo(page, TOOL_NAV_LABEL[label] ?? label, 'Integrations')
   }
 }
+
+/** Tool-strip labels whose navigator entry is named differently. */
+const TOOL_NAV_LABEL: Record<string, string> = { Autoscalers: 'KEDA Autoscalers' }
 
 /** Open the fleet dashboard (a top-bar button, or an overflow-menu item on phone). */
 export async function openFleet(page: Page): Promise<void> {

@@ -86,7 +86,7 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 5: US5 calm dock and newcomer navigator (P1)
 
-- [ ] T040 [US5] E2E `ui/tests/e2e/dock-and-nav.spec.ts`. It covers:
+- [x] T040 [US5] E2E `ui/tests/e2e/dock-and-nav.spec.ts`. It covers:
   - on a fresh profile at desktop width, the dock is exactly Logs and Events
   - with the daemon available, Cluster history is added
   - a saved profile with the nine old tabs loads with Logs and Events, keeps its height and emits no `SaveUiConfig` until the user changes the layout
@@ -94,15 +94,15 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
   - each entry's tooltip and `aria-describedby`
   - "More" is collapsed by default and persisted, and the palette still finds advanced kinds
   - old expanded labels map to the new groups
-- [ ] T041 [US5] In `ui/src/components/shell/SlotGrid.tsx`, render the dock tabs from `dockTabs(profile.dock, daemonAvailable)`. In `ui/src/store/index.ts` (`assignPanes`), create `dock-${tool}` panes only for allowed tools
-- [ ] T042 [US5] In `ui/src/components/NavTree.tsx`:
+- [x] T041 [US5] In `ui/src/components/shell/SlotGrid.tsx`, render the dock tabs from `dockTabs(profile.dock, daemonAvailable)`. In `ui/src/store/index.ts` (`assignPanes`), create `dock-${tool}` panes only for allowed tools
+- [x] T042 [US5] In `ui/src/components/NavTree.tsx`:
   - render `NAV_MODEL`: groups, descriptions as tooltip plus `aria-describedby`
   - add "More <group>" toggles (`aria-expanded`), persisted as `"<Group>/More"` in `expanded_groups`
   - map legacy labels on load
   - keep the Tools list
-- [ ] T043 [P] [US5] Show the entry descriptions in `ui/src/components/CommandPalette.tsx`, and index advanced entries
-- [ ] T044 [US5] Update `ui/tests/e2e/nav-walk.spec.ts`, `ui/tests/e2e/shell.spec.ts`, `ui/tests/e2e/responsive-shell.spec.ts`, `ui/tests/e2e/a11y-shell.spec.ts` and `ui/tests/e2e/us1-command-palette.spec.ts` for the new group names, dock tabs and header order
-- [ ] T045 [US5] Assert the status bar's left side is unchanged (connection state, context) at every width class, with no new right-side items, in `ui/tests/e2e/dock-and-nav.spec.ts` (FR-026)
+- [x] T043 [P] [US5] Show the entry descriptions in `ui/src/components/CommandPalette.tsx`, and index advanced entries
+- [x] T044 [US5] Update `ui/tests/e2e/nav-walk.spec.ts`, `ui/tests/e2e/shell.spec.ts`, `ui/tests/e2e/responsive-shell.spec.ts`, `ui/tests/e2e/a11y-shell.spec.ts` and `ui/tests/e2e/us1-command-palette.spec.ts` for the new group names, dock tabs and header order
+- [x] T045 [US5] Assert the status bar's left side is unchanged (connection state, context) at every width class, with no new right-side items, in `ui/tests/e2e/dock-and-nav.spec.ts` (FR-026)
 
 ## Phase 6: US4 daemon explained (P2)
 
@@ -132,9 +132,9 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 8: US7 integrations home (P2)
 
-- [ ] T070 [US7] E2E `ui/tests/e2e/integrations-home.spec.ts`. With cert-manager installed and Velero/Knative/KEDA absent, Certificates is normal, Knative and KEDA are greyed with "Not installed in this cluster", and Velero is absent from the navigator, Tools, tablet tabs and palette. After Velero is detected, it appears. No install offer exists anywhere
-- [ ] T071 [US7] Apply `integrationVisible` in `ui/src/components/NavTree.tsx`, in the Tools menu in `ui/src/components/shell/TopBar.tsx`, in `ui/src/components/shell/ToolsSheet.tsx`, in the tablet tabs in `ui/src/components/shell/stack-tabs.ts` (VELERO_TAB) and in the palette index
-- [ ] T072 [US7] Update `ui/tests/e2e/nav-integrations.spec.ts` and `ui/tests/e2e/velero-pane.spec.ts` so Velero is marked installed before asserting its pane
+- [x] T070 [US7] E2E `ui/tests/e2e/integrations-home.spec.ts`. With cert-manager installed and Velero/Knative/KEDA absent, Certificates is normal, Knative and KEDA are greyed with "Not installed in this cluster", and Velero is absent from the navigator, Tools, tablet tabs and palette. After Velero is detected, it appears. No install offer exists anywhere
+- [x] T071 [US7] Apply `integrationVisible` in `ui/src/components/NavTree.tsx`, in the Tools menu in `ui/src/components/shell/TopBar.tsx`, in `ui/src/components/shell/ToolsSheet.tsx`, in the tablet tabs in `ui/src/components/shell/stack-tabs.ts` (VELERO_TAB) and in the palette index
+- [x] T072 [US7] Update `ui/tests/e2e/nav-integrations.spec.ts` and `ui/tests/e2e/velero-pane.spec.ts` so Velero is marked installed before asserting its pane
 
 ## Phase 9: US8 role wizard discoverable (P2)
 

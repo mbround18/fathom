@@ -341,6 +341,8 @@ function ListBody({ pane }: { pane: PaneState }) {
     return <TrivyPanel />
   }
   if (section === SECTION.overview) return <OverviewPanel paneId={pane.id} />
+  // 043: the linter left the dock for Cluster › Linter (same panel, same visuals).
+  if (section === 'linter') return <LinterPanel paneId={pane.id} />
   if (section === SECTION.events) return <EventsPanel />
   if (section === SECTION.metrics) return <MetricsPanel />
   if (section === SECTION.grafana) return <GrafanaPanel />

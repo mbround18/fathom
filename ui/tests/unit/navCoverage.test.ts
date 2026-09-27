@@ -16,7 +16,6 @@ const PENDING: Record<string, string[]> = {
   // then `NAV_GROUPS` leaves them out, so the tree and the palette never link to them.
   '043': [
     'topology',
-    'linter',
     'cluster-history',
     'settings/sign-in',
     'settings/app',

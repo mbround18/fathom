@@ -13,6 +13,7 @@ import {
 } from '@phosphor-icons/react'
 
 import type { ToolKind } from '@/protocol/types'
+import { integrationVisible, VELERO_SECTION } from '@/resources/nav'
 import { useStore, type PaneKind } from '@/store'
 
 export interface StackTab {
@@ -99,3 +100,19 @@ export const ALL_TOOL_TABS: readonly StackTab[] = [
   LINTER_TAB,
   CERTIFICATES_TAB,
 ]
+
+/** `tabs` minus the ones hidden for this cluster: Velero until it is detected (043 FR-036). */
+export function visibleToolTabs<T extends StackTab>(
+  tabs: readonly T[],
+  veleroInstalled: boolean | undefined,
+): T[] {
+  return tabs.filter(
+    (t) => t.tool !== 'velero' || integrationVisible(VELERO_SECTION, veleroInstalled),
+  )
+}
+
+/** `visibleToolTabs` over the store's last Velero scan. */
+export function useVisibleToolTabs<T extends StackTab>(tabs: readonly T[]): T[] {
+  const veleroInstalled = useStore((s) => s.velero.overview?.installed)
+  return visibleToolTabs(tabs, veleroInstalled)
+}
