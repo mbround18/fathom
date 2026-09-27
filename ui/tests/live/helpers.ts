@@ -199,6 +199,34 @@ export function kubectl(args: readonly string[], opts: { input?: KubeObject } = 
   }
 }
 
+/** The only cluster-scoped objects the live suite may touch (042; the devbridge enforces it too). */
+export const E2E_CLUSTER_ROLE_PREFIX = 'fathom-e2e-'
+
+/**
+ * `kubectl get|delete clusterrole <name>` for a `fathom-e2e-*` ClusterRole a spec created, and
+ * nothing else: `kubectl()` refuses every cluster-scoped kind, so this is its one fenced
+ * exception (042-role-create verification and cleanup). Returns the object's JSON on `get`
+ * (`undefined` when it does not exist).
+ */
+export function e2eClusterRole(verb: 'get' | 'delete', name: string): KubeObject | undefined {
+  if (!name.startsWith(E2E_CLUSTER_ROLE_PREFIX) || name.length <= E2E_CLUSTER_ROLE_PREFIX.length) {
+    throw new Error(
+      `[live e2e] refusing clusterrole '${name}': not a ${E2E_CLUSTER_ROLE_PREFIX}* name`,
+    )
+  }
+  if (!/^[a-z0-9.-]+$/.test(name)) throw new Error(`[live e2e] refusing clusterrole '${name}'`)
+  const args =
+    verb === 'get'
+      ? ['get', 'clusterrole', name, '--ignore-not-found', '-o', 'json']
+      : ['delete', 'clusterrole', name, '--ignore-not-found', '--wait=true']
+  const out = execFileSync('kubectl', ['--context', liveContext(), ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 60_000,
+  })
+  return verb === 'get' && out.trim() ? (JSON.parse(out) as KubeObject) : undefined
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- typed JSON read
 export function kubectlJson<T>(args: readonly string[]): T {
   return JSON.parse(kubectl([...args, '-o', 'json'])) as T

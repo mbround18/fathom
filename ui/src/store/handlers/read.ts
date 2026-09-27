@@ -29,6 +29,7 @@ type GenericReadEvent = Exclude<
         | 'ResourceMutationAccessChecked'
         | 'NamespaceAccessResolved'
         | 'KubeadmDetectionUpdated'
+        | 'ApiResourcesUpdated'
     }
   // 024-pod-exec-terminal: routed by `handleExecAccess`.
   | { type: 'PodExecAccessChecked' }
