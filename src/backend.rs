@@ -66,6 +66,7 @@ mod related;
 mod replicasets;
 mod replicationcontrollers;
 pub mod secret_store;
+mod served_crd;
 mod services;
 mod state;
 mod statefulsets;
