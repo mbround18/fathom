@@ -135,32 +135,64 @@ async fn initialize(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    // Contexts can be loaded even before we connect.
-    let contexts_result = kube::send_contexts_for(
-        state.access.as_ref(),
-        state.cluster.seq.as_ref(),
-        state.cluster.current_context.clone(),
-        sender,
-    );
+    let local = state.access.allows_local_features();
+    // Contexts can be loaded even before we connect. Locally this also classifies the kubeconfig
+    // (missing, empty, malformed, no current context) for the first-run screen.
+    let contexts_result = if local {
+        let load = kube::load_and_send_contexts_full(
+            state.cluster.seq.as_ref(),
+            state.cluster.current_context.clone(),
+            sender,
+        );
+        Ok((load.contexts, load.current))
+    } else {
+        kube::send_contexts_for(
+            state.access.as_ref(),
+            state.cluster.seq.as_ref(),
+            state.cluster.current_context.clone(),
+            sender,
+        )
+    };
 
     // 034: reconnect the persisted federated set (no-op when empty).
     federation::restore(state, sender);
 
+    // The context that will end up active: locally, the explicit selection if the kubeconfig
+    // still defines it, else kubeconfig's own `current-context`; hosted, the access's context.
+    // The Connecting/Connected/Error bracket (012-incluster-daemon-federation P1, FR-002)
+    // targets it even on first launch with no prior selection.
+    let connecting_target = if local {
+        let current = contexts_result
+            .as_ref()
+            .ok()
+            .and_then(|(_, current)| current.clone());
+        state.cluster.current_context = current.clone();
+        current
+    } else {
+        state
+            .cluster
+            .current_context
+            .clone()
+            .or_else(kube::read_kubeconfig_current_context)
+    };
+
+    // First run: no kubeconfig, an empty or malformed one, or no context selected. There is
+    // nothing to connect to, and the UI explains why from `KubeconfigStatus` (with "create a
+    // local cluster" / "pick a context" actions). Not an error: no raw notification.
+    if local && connecting_target.is_none() {
+        state.cluster.client = None;
+        emit_context_changed(state, sender);
+        if let Ok((contexts, _)) = &contexts_result {
+            context_status::spawn_status_probes(state, sender, contexts, None);
+        }
+        return Ok(());
+    }
+
     events::notify_info(
         state.cluster.seq.as_ref(),
         sender,
-        "Connecting to cluster (kubeconfig/in-cluster)...".to_owned(),
+        "Connecting to cluster...".to_owned(),
     );
-
-    // The context that will end up active is either the explicit selection, or (best-effort)
-    // kubeconfig's own `current-context` — mirror the fallback below so the Connecting/
-    // Connected/Error bracket (012-incluster-daemon-federation P1, FR-002) targets the right
-    // context even on first launch with no prior selection.
-    let connecting_target = state
-        .cluster
-        .current_context
-        .clone()
-        .or_else(kube::read_kubeconfig_current_context);
     if let Some(target) = &connecting_target {
         context_status::emit_status(
             &state.cluster.seq,
@@ -174,17 +206,31 @@ async fn initialize(
     let connect_result = connect_and_share_client(state).await;
     if let Some(target) = &connecting_target {
         match &connect_result {
-            Ok(()) => context_status::emit_status(
-                &state.cluster.seq,
-                sender,
-                target,
-                ContextConnectionStatus::Connected,
-                None,
-            ),
-            Err(e) => context_status::emit_status_err(&state.cluster.seq, sender, target, e),
+            Ok(()) => {
+                context_status::emit_status(
+                    &state.cluster.seq,
+                    sender,
+                    target,
+                    ContextConnectionStatus::Connected,
+                    None,
+                );
+                context_status::emit_active_problem_value(&state.cluster.seq, sender, target, None);
+            }
+            Err(e) => context_status::emit_active_problem(&state.cluster.seq, sender, target, e),
         }
     }
-    connect_result?;
+    if let Err(e) = connect_result {
+        if !local {
+            return Err(e);
+        }
+        // The UI shows the classified problem with Retry / pick another context; the other
+        // contexts still get probed so the picker shows which ones are reachable.
+        emit_context_changed(state, sender);
+        if let Ok((contexts, current)) = &contexts_result {
+            context_status::spawn_status_probes(state, sender, contexts, current.as_deref());
+        }
+        return Ok(());
+    }
 
     // Best-effort: if we didn't have an explicit context selection, treat kubeconfig's
     // current context as the backend-authoritative active context.
@@ -337,16 +383,34 @@ async fn set_context(
     );
     let connect_result = connect_and_share_client(state).await;
     match &connect_result {
-        Ok(()) => context_status::emit_status(
-            &state.cluster.seq,
-            sender,
-            &context,
-            ContextConnectionStatus::Connected,
-            None,
-        ),
-        Err(e) => context_status::emit_status_err(&state.cluster.seq, sender, &context, e),
+        Ok(()) => {
+            context_status::emit_status(
+                &state.cluster.seq,
+                sender,
+                &context,
+                ContextConnectionStatus::Connected,
+                None,
+            );
+            context_status::emit_active_problem_value(&state.cluster.seq, sender, &context, None);
+        }
+        Err(e) => context_status::emit_active_problem(&state.cluster.seq, sender, &context, e),
     }
-    connect_result?;
+    if let Err(e) = connect_result {
+        if !state.access.allows_local_features() {
+            return Err(e);
+        }
+        // The context is selected but unusable: the UI shows the classified problem (Retry,
+        // pick another context). No raw error notification and no pane refreshes against it.
+        emit_context_changed(state, sender);
+        if let Ok((contexts, current)) = kube::load_and_send_contexts(
+            state.cluster.seq.as_ref(),
+            state.cluster.current_context.clone(),
+            sender,
+        ) {
+            context_status::spawn_status_probes(state, sender, &contexts, current.as_deref());
+        }
+        return Ok(());
+    }
     emit_context_changed(state, sender);
     daemon_ctl::sync_active(state, sender);
 
@@ -373,8 +437,29 @@ async fn set_context(
 }
 
 /// Connect for the current context and store the client on the backend state.
+///
+/// The connection is checked with one bounded `GET /version` before it is shared: building a
+/// client never touches the network, so an unreachable server or a rejected token would
+/// otherwise count as connected. On failure the previous client is dropped too, so nothing keeps
+/// talking to the context that was just switched away from.
 async fn connect_and_share_client(state: &mut BackendState) -> anyhow::Result<()> {
-    let client = kube::connect_client_for_current_context(state).await?;
+    let checked = match kube::connect_client_for_current_context(state).await {
+        Ok(client) => context_status::probe_client(&client).await.map(|()| client),
+        Err(e) => Err(e),
+    };
+    let client = match checked {
+        Ok(client) => client,
+        Err(e) => {
+            state.cluster.client = None;
+            state.cluster.connection_epoch = state.cluster.connection_epoch.wrapping_add(1);
+            state
+                .mcp
+                .cluster
+                .publish(None, state.cluster.current_context.clone());
+            return Err(e);
+        }
+    };
+    crate::backend::first_run::set_active_down(false);
     state.cluster.client = Some(client);
     state.cluster.connection_epoch = state.cluster.connection_epoch.wrapping_add(1);
     // 015-mcp-agent-exposure: keep whatever stdio MCP server is running pointed at the cluster

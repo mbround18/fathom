@@ -1,5 +1,6 @@
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
+    BackendEvent, BackendEventEnvelope, Correlation, KubeconfigIssue, KubeconfigIssueKind, Route,
+    SystemEvent, section_keys,
 };
 use crossbeam_channel::Sender;
 use kube::{
@@ -12,81 +13,199 @@ use std::sync::atomic::AtomicU64;
 use super::oidc::session::TokenSource;
 use super::{events, state::BackendState};
 
-/// Load kubeconfig respecting KUBECONFIG env var and ~/.kube/config default.
+/// Load the kubeconfig the way `kubectl` does: the files listed in `KUBECONFIG` (merged, missing
+/// entries skipped) when that variable is set and non-empty, otherwise `~/.kube/config`.
+///
+/// A malformed file is an error, never silently skipped. When `KUBECONFIG` is set Fathom never
+/// falls back to `~/.kube/config`: a user who points `KUBECONFIG` somewhere must not end up
+/// connected to whatever their home kubeconfig's current context is.
 ///
 /// `pub(super)` so `context_status.rs` can build short-lived clients for non-active contexts
 /// (012-incluster-daemon-federation P1) using the same kubeconfig-resolution path as the active
 /// connection.
 pub(super) fn load_kubeconfig() -> anyhow::Result<Kubeconfig> {
-    // Try KUBECONFIG environment variable first
-    if let Some(config) = load_kubeconfig_from_env() {
-        return Ok(config);
-    }
-
-    // Fall back to ~/.kube/config
-    if let Some(config) = load_kubeconfig_from_home() {
-        return Ok(config);
-    }
-
-    // Last resort: let kube-rs try its default logic
-    tracing::debug!("Falling back to Kubeconfig::read() default behavior");
-    Kubeconfig::read().map_err(|e| anyhow::anyhow!("Failed to load kubeconfig: {}", e))
+    resolve_kubeconfig(std::env::var_os("KUBECONFIG"), dirs::home_dir())
+        .map(|(kc, _)| kc)
+        .map_err(|issue| anyhow::anyhow!("{}", super::first_run::describe_issue(&issue)))
 }
 
-/// Path of the kubeconfig file `load_kubeconfig` reads (first readable `KUBECONFIG` entry, else
-/// `~/.kube/config`), so subprocesses such as `helm` resolve context names from the same file.
+/// The kubeconfig search path: the non-empty `KUBECONFIG` entries, or `~/.kube/config`.
+pub(super) fn kubeconfig_search_paths(
+    env: Option<std::ffi::OsString>,
+    home: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let from_env: Vec<PathBuf> = env
+        .map(|v| {
+            std::env::split_paths(&v)
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    if !from_env.is_empty() {
+        return from_env;
+    }
+    home.map(|h| vec![h.join(".kube").join("config")])
+        .unwrap_or_default()
+}
+
+/// Resolve and parse the kubeconfig from an explicit `KUBECONFIG` value and home directory (pure
+/// apart from file reads, so it is unit-testable). Returns the merged config and the files it
+/// came from, or the classified problem.
+pub(super) fn resolve_kubeconfig(
+    env: Option<std::ffi::OsString>,
+    home: Option<PathBuf>,
+) -> Result<(Kubeconfig, Vec<PathBuf>), KubeconfigIssue> {
+    let paths = kubeconfig_search_paths(env, home);
+    let mut merged: Option<Kubeconfig> = None;
+    let mut used = Vec::new();
+    for path in &paths {
+        match std::fs::metadata(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(issue(KubeconfigIssueKind::Unreadable, path, e.to_string())),
+            Ok(meta) if !meta.is_file() => {
+                return Err(issue(
+                    KubeconfigIssueKind::Unreadable,
+                    path,
+                    "not a regular file".to_owned(),
+                ));
+            }
+            Ok(_) => {}
+        }
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| issue(KubeconfigIssueKind::Unreadable, path, e.to_string()))?;
+        if text.trim().is_empty() {
+            // An empty file is a valid, empty kubeconfig (kubectl treats it the same way).
+            used.push(path.clone());
+            merged.get_or_insert_with(Kubeconfig::default);
+            continue;
+        }
+        let kc = Kubeconfig::read_from(path).map_err(|e| {
+            issue(
+                KubeconfigIssueKind::Malformed,
+                path,
+                super::first_run::short_detail(&e.to_string()),
+            )
+        })?;
+        used.push(path.clone());
+        merged = Some(match merged {
+            None => kc,
+            Some(m) => m.merge(kc).map_err(|e| {
+                issue(
+                    KubeconfigIssueKind::Malformed,
+                    path,
+                    super::first_run::short_detail(&e.to_string()),
+                )
+            })?,
+        });
+    }
+    let Some(kc) = merged else {
+        return Err(KubeconfigIssue {
+            kind: KubeconfigIssueKind::Missing,
+            paths: paths.iter().map(|p| p.display().to_string()).collect(),
+            detail: String::new(),
+        });
+    };
+    if kc.contexts.is_empty() {
+        return Err(KubeconfigIssue {
+            kind: KubeconfigIssueKind::Empty,
+            paths: used.iter().map(|p| p.display().to_string()).collect(),
+            detail: String::new(),
+        });
+    }
+    Ok((kc, used))
+}
+
+fn issue(kind: KubeconfigIssueKind, path: &std::path::Path, detail: String) -> KubeconfigIssue {
+    KubeconfigIssue {
+        kind,
+        paths: vec![path.display().to_string()],
+        detail,
+    }
+}
+
+/// The problem with the effective current context, if any: none selected, or one the
+/// kubeconfig does not define.
+pub(super) fn current_context_issue(
+    contexts: &[String],
+    current: Option<&str>,
+    paths: &[PathBuf],
+) -> Option<KubeconfigIssue> {
+    let paths = paths.iter().map(|p| p.display().to_string()).collect();
+    match current {
+        None => Some(KubeconfigIssue {
+            kind: KubeconfigIssueKind::NoCurrentContext,
+            paths,
+            detail: String::new(),
+        }),
+        Some(c) if !contexts.iter().any(|x| x == c) => Some(KubeconfigIssue {
+            kind: KubeconfigIssueKind::NoCurrentContext,
+            paths,
+            detail: format!("the current context \"{c}\" is not defined in the kubeconfig"),
+        }),
+        Some(_) => None,
+    }
+}
+
+/// Path of the kubeconfig file `load_kubeconfig` reads first (the first readable `KUBECONFIG`
+/// entry, else `~/.kube/config`), so subprocesses such as `helm` resolve context names from the
+/// same file.
 pub(super) fn kubeconfig_path() -> Option<PathBuf> {
-    let separator = if cfg!(windows) { ";" } else { ":" };
-    if let Ok(list) = std::env::var("KUBECONFIG") {
-        let found = list
-            .split(separator)
-            .map(|p| PathBuf::from(p.trim()))
-            .find(|p| !p.as_os_str().is_empty() && p.exists() && Kubeconfig::read_from(p).is_ok());
-        if found.is_some() {
-            return found;
-        }
-    }
-    let home = dirs::home_dir()?.join(".kube").join("config");
-    home.exists().then_some(home)
+    resolve_kubeconfig(std::env::var_os("KUBECONFIG"), dirs::home_dir())
+        .ok()
+        .and_then(|(_, used)| used.into_iter().next())
 }
 
-/// First readable kubeconfig listed in the KUBECONFIG env var, if any.
-fn load_kubeconfig_from_env() -> Option<Kubeconfig> {
-    let kubeconfig_path = std::env::var("KUBECONFIG").ok()?;
-    // On Windows, paths are separated by `;`, on Unix by `:`
-    let separator = if cfg!(windows) { ";" } else { ":" };
-
-    kubeconfig_path.split(separator).find_map(|path_str| {
-        let path = PathBuf::from(path_str.trim());
-        if !path.exists() {
-            return None;
-        }
-        tracing::debug!("Trying kubeconfig from KUBECONFIG env: {}", path.display());
-        let config = Kubeconfig::read_from(&path).ok()?;
-        tracing::info!(
-            "Successfully loaded kubeconfig from KUBECONFIG: {}",
-            path.display()
-        );
-        Some(config)
-    })
+/// The result of (re)loading the kubeconfig contexts.
+pub(super) struct ContextsLoad {
+    pub contexts: Vec<String>,
+    pub current: Option<String>,
+    /// Why there is nothing to connect to, when that is the case.
+    pub issue: Option<KubeconfigIssue>,
 }
 
-/// Kubeconfig at the default `~/.kube/config` path, if present and readable.
-fn load_kubeconfig_from_home() -> Option<Kubeconfig> {
-    let default_config_path = dirs::home_dir()?.join(".kube").join("config");
-    if !default_config_path.exists() {
-        return None;
-    }
-    tracing::debug!(
-        "Trying kubeconfig at default path: {}",
-        default_config_path.display()
+/// Load the contexts and classify any kubeconfig problem, emitting `ContextsUpdated` then
+/// `KubeconfigStatus`.
+pub(super) fn load_and_send_contexts_full(
+    seq: &AtomicU64,
+    selected_context: Option<String>,
+    sender: &Sender<BackendEventEnvelope>,
+) -> ContextsLoad {
+    tracing::info!("Loading kubeconfig contexts...");
+    let load = match resolve_kubeconfig(std::env::var_os("KUBECONFIG"), dirs::home_dir()) {
+        Ok((kc, used)) => {
+            let (contexts, current) = contexts_from_kubeconfig(&kc, selected_context);
+            let issue = current_context_issue(&contexts, current.as_deref(), &used);
+            // A current-context that names a missing context is not something to connect to.
+            let current = current.filter(|c| contexts.contains(c));
+            ContextsLoad {
+                contexts,
+                current,
+                issue,
+            }
+        }
+        Err(issue) => {
+            tracing::warn!(
+                "No usable kubeconfig: {}",
+                super::first_run::describe_issue(&issue)
+            );
+            ContextsLoad {
+                contexts: Vec::new(),
+                current: None,
+                issue: Some(issue),
+            }
+        }
+    };
+    emit_contexts(seq, sender, load.contexts.clone(), load.current.clone());
+    events::emit(
+        seq,
+        sender,
+        Route::global(section_keys::system()),
+        Correlation::None,
+        BackendEvent::System(SystemEvent::KubeconfigStatus {
+            issue: load.issue.clone(),
+        }),
     );
-    let config = Kubeconfig::read_from(&default_config_path).ok()?;
-    tracing::info!(
-        "Successfully loaded kubeconfig from default path: {}",
-        default_config_path.display()
-    );
-    Some(config)
+    load
 }
 
 /// Loads and emits `ContextsUpdated`, returning the `(contexts, current)` tuple it computed so
@@ -97,19 +216,8 @@ pub(super) fn load_and_send_contexts(
     selected_context: Option<String>,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<(Vec<String>, Option<String>)> {
-    tracing::info!("Loading kubeconfig contexts...");
-
-    // Best-effort: if kubeconfig isn't present (e.g. in-cluster), just report no contexts.
-    let (contexts, current) = match load_kubeconfig() {
-        Ok(kc) => contexts_from_kubeconfig(&kc, selected_context),
-        Err(e) => {
-            tracing::warn!("Failed to load kubeconfig: {}, reporting empty contexts", e);
-            (Vec::new(), selected_context)
-        }
-    };
-
-    emit_contexts(seq, sender, contexts.clone(), current.clone());
-    Ok((contexts, current))
+    let load = load_and_send_contexts_full(seq, selected_context, sender);
+    Ok((load.contexts, load.current))
 }
 
 /// Like [`load_and_send_contexts`], but a backend without local features (the hosted server,
@@ -176,25 +284,24 @@ pub(super) async fn connect_client_for_current_context(
             .build_client(state.cluster.current_context.as_deref())
             .await;
     }
-    // If we have a selected context and kubeconfig exists, use it; otherwise fall back.
-    if let Some(ctx) = state.cluster.current_context.clone()
-        && let Ok(kubeconfig) = load_kubeconfig()
-    {
-        let opts = KubeConfigOptions {
-            context: Some(ctx.clone()),
-            ..Default::default()
-        };
-        let mut config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
-        // 033 US2: a context opted into OIDC authenticates with the signed-in ID token only.
-        if let Some(issuer_id) = oidc_issuer_for_context(&ctx) {
-            return build_oidc_client(config, state.oidc.token_source(&issuer_id));
-        }
-        // 035: exec plugins (EKS/GKE/AKS) run through the shared, bounded credential cache.
-        super::cloud_auth::prepare_config(&ctx, &mut config).await?;
-        return Ok(Client::try_from(config)?);
+    // Local mode: always the kubeconfig (never an in-cluster/`try_default` guess, whose
+    // "Failed to infer configuration" wall is no use to someone without a kubeconfig).
+    let Some(ctx) = state.cluster.current_context.clone() else {
+        anyhow::bail!("No kubeconfig context is selected.");
+    };
+    let kubeconfig = load_kubeconfig()?;
+    let opts = KubeConfigOptions {
+        context: Some(ctx.clone()),
+        ..Default::default()
+    };
+    let mut config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
+    // 033 US2: a context opted into OIDC authenticates with the signed-in ID token only.
+    if let Some(issuer_id) = oidc_issuer_for_context(&ctx) {
+        return build_oidc_client(config, state.oidc.token_source(&issuer_id));
     }
-
-    Ok(Client::try_default().await?)
+    // 035: exec plugins (EKS/GKE/AKS) run through the shared, bounded credential cache.
+    super::cloud_auth::prepare_config(&ctx, &mut config).await?;
+    Ok(Client::try_from(config)?)
 }
 
 /// The issuer a context is opted into, or `None` for the default kubeconfig-only path.

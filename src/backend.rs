@@ -30,6 +30,7 @@ mod endpoints;
 mod events;
 mod exec;
 mod federation;
+mod first_run;
 mod fleet;
 mod flux;
 mod gatekeeper;

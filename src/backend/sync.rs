@@ -17,8 +17,8 @@ use std::time::Duration;
 
 use super::state::BackendState;
 use super::{
-    cert_manager, cluster_version, daemon_ctl, deployments, events, flux, gatekeeper, hubble, keda,
-    knative, pods, trivy, velero, warm_lists,
+    cert_manager, cluster_version, context_status, daemon_ctl, deployments, events, first_run,
+    flux, gatekeeper, hubble, keda, knative, pods, trivy, velero, warm_lists,
 };
 
 /// Spawn the background pod watch for the active context. With the daemon preference `auto`
@@ -253,7 +253,7 @@ async fn poll_velero_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background Velero scan failed: {}", e),
@@ -307,7 +307,7 @@ async fn poll_cert_manager_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background cert-manager scan failed: {}", e),
@@ -365,7 +365,7 @@ async fn poll_trivy_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background Trivy scan failed: {}", e),
@@ -419,7 +419,7 @@ async fn poll_knative_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background Knative scan failed: {}", e),
@@ -471,7 +471,7 @@ async fn poll_keda_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background KEDA scan failed: {}", e),
@@ -502,7 +502,7 @@ async fn poll_flux_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background Flux scan failed: {}", e),
@@ -534,7 +534,7 @@ async fn poll_hubble_traffic(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background Hubble traffic poll failed: {}", e),
@@ -554,7 +554,8 @@ async fn watch_pods(
     context: Option<String>,
 ) {
     let (c, s, tx) = (client.clone(), seq.clone(), sender.clone());
-    watch_and_emit::<Pod, _, _>(client, "Pod", seq, sender, move || {
+    let watch_ctx = context.clone();
+    watch_and_emit::<Pod, _, _>(client, "Pod", watch_ctx, seq, sender, move || {
         let (c, f, s, tx, ctx) = (
             c.clone(),
             filter_shared.clone(),
@@ -577,7 +578,8 @@ async fn watch_deployments(
     context: Option<String>,
 ) {
     let (c, s, tx) = (client.clone(), seq.clone(), sender.clone());
-    watch_and_emit::<Deployment, _, _>(client, "Deployment", seq, sender, move || {
+    let watch_ctx = context.clone();
+    watch_and_emit::<Deployment, _, _>(client, "Deployment", watch_ctx, seq, sender, move || {
         let filter = filter_shared.read().map(|f| f.clone()).unwrap_or_default();
         let (c, s, tx, ctx) = (c.clone(), s.clone(), tx.clone(), context.clone());
         async move { deployments::emit_deployments_snapshot(&c, &filter, &s, &tx, &ctx).await }
@@ -587,9 +589,17 @@ async fn watch_deployments(
 
 /// Watch every `K` (`kind`, e.g. "Pod") in the cluster and call `on_change` after each watch event, reconnecting
 /// with exponential backoff (1s doubling to 30s) when the watch fails.
+///
+/// The watchers double as the mid-session health check: when a watch fails because the cluster
+/// is gone (connection refused, DNS, TLS, timeout) or now rejects the credentials, the first
+/// watcher to notice marks the active context down, reports it once (`ActiveConnectionProblem`
+/// plus one notification) and every background poll goes quiet until a watch succeeds again.
+/// Before this, a deleted cluster produced a fresh error notification from every poller every
+/// few seconds, forever.
 async fn watch_and_emit<K, F, Fut>(
     client: kube::Client,
     kind: &str,
+    context: Option<String>,
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
     mut on_change: F,
@@ -619,17 +629,11 @@ async fn watch_and_emit<K, F, Fut>(
             match ev {
                 Ok(_event) => {
                     retry_delay = Duration::from_secs(1);
+                    report_watch_recovered(&seq, &sender, context.as_deref());
                     on_change().await;
                 }
                 Err(e) => {
-                    events::notify_error(
-                        seq.as_ref(),
-                        &sender,
-                        format!(
-                            "{kind} watcher error (retrying in {:?}): {}",
-                            retry_delay, e
-                        ),
-                    );
+                    report_watch_error(&seq, &sender, context.as_deref(), kind, retry_delay, &e);
                     break;
                 }
             }
@@ -638,6 +642,74 @@ async fn watch_and_emit<K, F, Fut>(
         tokio::time::sleep(retry_delay).await;
         retry_delay = std::cmp::min(retry_delay * 2, Duration::from_secs(30));
     }
+}
+
+/// A watch failed: report a lost cluster once, anything else as before.
+fn report_watch_error(
+    seq: &Arc<AtomicU64>,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<&str>,
+    kind: &str,
+    retry_delay: Duration,
+    err: &watcher::Error,
+) {
+    let (problem_kind, _) = first_run::classify_std(err);
+    if !first_run::is_connection_level(problem_kind) {
+        events::notify_error(
+            seq.as_ref(),
+            sender,
+            format!("{kind} watcher error (retrying in {retry_delay:?}): {err}"),
+        );
+        return;
+    }
+    if first_run::set_active_down(true) {
+        // Already reported; keep retrying quietly.
+        tracing::debug!("{kind} watcher still failing: {err}");
+        return;
+    }
+    let Some(ctx) = context else {
+        return;
+    };
+    let err = anyhow::anyhow!("{err}");
+    context_status::emit_active_problem(seq, sender, ctx, &err);
+    events::notify_error(
+        seq.as_ref(),
+        sender,
+        format!("Lost the connection to {ctx}. Fathom keeps retrying in the background."),
+    );
+}
+
+/// A watch delivered an event: if the active context was marked down, it is back.
+fn report_watch_recovered(
+    seq: &Arc<AtomicU64>,
+    sender: &Sender<BackendEventEnvelope>,
+    context: Option<&str>,
+) {
+    if !first_run::active_down() || !first_run::set_active_down(false) {
+        return;
+    }
+    let Some(ctx) = context else {
+        return;
+    };
+    context_status::emit_status(
+        seq,
+        sender,
+        ctx,
+        crate::protocol::ContextConnectionStatus::Connected,
+        None,
+    );
+    context_status::emit_active_problem_value(seq, sender, ctx, None);
+    events::notify_info(seq.as_ref(), sender, format!("Reconnected to {ctx}."));
+}
+
+/// A background poll failed. While the active cluster is known to be down the failure is the
+/// same outage the watcher already reported, so it is logged instead of notified.
+fn notify_poll_error(seq: &AtomicU64, sender: &Sender<BackendEventEnvelope>, message: String) {
+    if first_run::active_down() {
+        tracing::debug!("{message} (cluster unreachable; not notified)");
+        return;
+    }
+    events::notify_error(seq, sender, message);
 }
 
 /// List all pods and emit them (filtered by the shared namespace filter) as `PodsUpdated`.
@@ -662,7 +734,7 @@ async fn emit_pods_snapshot(
             );
         }
         Err(e) => {
-            events::notify_error(seq, sender, format!("Background pod refresh failed: {}", e));
+            notify_poll_error(seq, sender, format!("Background pod refresh failed: {}", e));
         }
     }
 }
@@ -689,7 +761,7 @@ async fn sync_namespaces_periodically(
                 emit_namespace_names(seq.as_ref(), &sender, context.clone(), namespaces);
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background namespace refresh failed: {}", e),
@@ -836,7 +908,7 @@ async fn poll_cluster_version(
                 );
             }
             Err(e) => {
-                events::notify_error(
+                notify_poll_error(
                     seq.as_ref(),
                     &sender,
                     format!("Background cluster version poll failed: {}", e),
