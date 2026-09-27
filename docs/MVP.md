@@ -672,7 +672,7 @@ All ten originally suggested slices (Applications, interlinking, Helm read and m
 2. **Release pipeline** — `release.yml` builds Linux x64/arm64, macOS and Windows bundles via `tauri-action`, but has no code signing or notarization and no release has been tagged (version `0.1.0`).
 3. **Tier 1 platform validation** — `001` T126 (quickstart on Ubuntu 26.04, Windows 11, macOS 26) is deferred pending funding; several features (`035`, `037`) are validated on Linux/kind only.
 4. **Hosted server mode (`031`)** — optional for a desktop MVP; the open items are listed in the Status Summary row.
-5. **E2E stability** — the full Playwright suite (14 Chromium/WebKit projects) runs about 4,740 passed with 15–29 failures under parallel load, all in the same areas: WebKit clipboard, node actions and node shell, the `perf-10k` budget and the topology camera. Most pass on a serial re-run. These must be fixed or quarantined before CI can go green.
+5. **E2E stability**: mostly addressed on 2026-09-26. The node-actions request-id race and WebKit clipboard reads are fixed. `perf-10k` now runs in serial `chromium-perf`/`webkit-perf` projects after the functional ones (it passes: chromium 8–36 ms, webkit 18–67 ms). WebKit gets one retry, and only when its WPE engine crashes (a known upstream compositor segfault, roughly 1 in 60–150 runs). Still to do before CI can go green: prove two consecutive full-suite green runs.
 
 ### Live validation, 2026-09-26 (local kind)
 
