@@ -14,6 +14,7 @@ import { eventsFor, initialData, listKey, type LogStreamState, useStore } from '
 import { pods as podDescriptor } from '@/resources/pods'
 import { resetActions, runAction } from '@/store/actions'
 import { ingest } from '@/store/ingest'
+import { CLIENT_STREAM_ID_MIN } from '@/store/log-streams'
 
 import {
   clusterEvents,
@@ -216,44 +217,132 @@ describe('rule 3: row identity', () => {
 })
 
 describe('rule 4: streams', () => {
-  it('appends log chunks into a bounded ring buffer', () => {
+  const route = nsRoute('kind-a', 'workloads/pods', 'default')
+  const target = { namespace: 'default', name: 'web', container: null }
+  const logs = (id: number) => useStore.getState().streams[id] as LogStreamState | undefined
+  const sent: unknown[] = []
+
+  beforeEach(() => {
+    sent.length = 0
     ingest(twoContexts)
-    const route = nsRoute('kind-a', 'workloads/pods', 'default')
+    useStore.setState({
+      send: (cmd) => void sent.push(cmd),
+      request: (cmd) => {
+        sent.push(cmd)
+        return Promise.resolve(1)
+      },
+    })
+  })
+
+  it('startPodLogs seeds a starting entry and sends StartPodLogs with its client id', () => {
+    const id = useStore.getState().startPodLogs(target, 'view-1')
+    expect(id).toBeGreaterThanOrEqual(CLIENT_STREAM_ID_MIN)
+    expect(Number.isSafeInteger(id)).toBe(true)
+    expect(logs(id)).toMatchObject({ kind: 'logs', status: 'starting', owner: 'view-1', target })
+    expect(sent).toEqual([{ type: 'StartPodLogs', data: { ...target, stream_id: id } }])
+  })
+
+  it('PodLogsOpened with no output is streaming and empty, not starting', () => {
+    const id = useStore.getState().startPodLogs(target)
+    ingest(batch([stream(1, route, { type: 'PodLogsOpened', data: { stream_id: id } })]))
+    expect(logs(id)?.status).toBe('streaming')
+    expect(logs(id)?.lines.length).toBe(0)
+  })
+
+  it('appends log chunks into a bounded ring buffer', () => {
+    const id = useStore.getState().startPodLogs(target)
     const lines = Array.from({ length: 6000 }, (_, i) => `l${i}`)
-    ingest(batch([stream(1, route, { type: 'PodLogsChunk', data: { stream_id: 4, lines } })]))
-    const first = useStore.getState().streams[4]
-    ingest(batch([stream(2, route, { type: 'PodLogsChunk', data: { stream_id: 4, lines } })]))
-    const s = useStore.getState().streams[4] as LogStreamState | undefined
+    ingest(batch([stream(1, route, { type: 'PodLogsChunk', data: { stream_id: id, lines } })]))
+    const first = logs(id)
+    // A chunk proves the stream is live even without its PodLogsOpened.
+    expect(first?.status).toBe('streaming')
+    ingest(batch([stream(2, route, { type: 'PodLogsChunk', data: { stream_id: id, lines } })]))
+    const s = logs(id)
     expect(s).not.toBe(first)
     expect(s?.lines.length).toBe(10_000)
     expect(s?.lines.truncated).toBe(2_000)
     ingest(
-      batch([stream(3, route, { type: 'StreamClosed', data: { stream_id: 4, reason: 'EOF' } })]),
+      batch([stream(3, route, { type: 'StreamClosed', data: { stream_id: id, reason: 'ended' } })]),
     )
-    expect(useStore.getState().streams[4]).toMatchObject({ status: 'closed', reason: 'EOF' })
+    expect(logs(id)).toMatchObject({ status: 'closed', reason: 'ended' })
   })
 
-  it('switching the selected container restarts the stream under a new stream_id, independent of the old one (T010)', () => {
-    ingest(twoContexts)
-    const route = nsRoute('kind-a', 'workloads/pods', 'default')
-    // Logs tab opens against the first container: backend assigns stream_id 7.
+  it('a StreamClosed with an error is the error state, with the verbatim message', () => {
+    const id = useStore.getState().startPodLogs(target)
     ingest(
-      batch([stream(10, route, { type: 'PodLogsChunk', data: { stream_id: 7, lines: ['a'] } })]),
+      batch([
+        stream(1, route, {
+          type: 'StreamClosed',
+          data: { stream_id: id, reason: 'error', error: 'pods "web" not found' },
+        }),
+      ]),
     )
-    // Operator switches container: PodLogsTab sends StopPodLogs + StartPodLogs, a fresh
-    // stream_id (8) is assigned for the new container's stream.
+    expect(logs(id)).toMatchObject({ status: 'error', error: 'pods "web" not found' })
+  })
+
+  it('a refused StartPodLogs (backend gone, hosted limit) is the error state', async () => {
+    useStore.setState({ request: () => Promise.reject(new Error('stream limit reached')) })
+    const id = useStore.getState().startPodLogs(target)
+    await vi.waitFor(() => expect(logs(id)?.status).toBe('error'))
+    expect(logs(id)?.error).toBe('stream limit reached')
+  })
+
+  it('concurrent streams are independent; stopping one forgets only it', () => {
+    const { startPodLogs, stopPodLogs } = useStore.getState()
+    const a = startPodLogs(target, 'inspector')
+    const b = startPodLogs(target, 'dock')
+    expect(a).not.toBe(b)
     ingest(
-      batch([stream(11, route, { type: 'PodLogsChunk', data: { stream_id: 8, lines: ['b'] } })]),
+      batch([
+        stream(1, route, { type: 'PodLogsChunk', data: { stream_id: a, lines: ['a'] } }),
+        stream(2, route, { type: 'PodLogsChunk', data: { stream_id: b, lines: ['b'] } }),
+      ]),
     )
-    // A late StreamClosed for the superseded stream_id 7 must not touch stream_id 8's state.
+    stopPodLogs(a)
+    expect(sent.at(-1)).toEqual({ type: 'StopPodLogStream', data: { stream_id: a } })
+    expect(logs(a)).toBeUndefined()
+    // The stopped stream's late events neither resurrect it nor touch the other stream.
     ingest(
-      batch([stream(12, route, { type: 'StreamClosed', data: { stream_id: 7, reason: 'EOF' } })]),
+      batch([
+        stream(3, route, { type: 'PodLogsChunk', data: { stream_id: a, lines: ['late'] } }),
+        stream(4, route, { type: 'StreamClosed', data: { stream_id: a, reason: 'stopped' } }),
+      ]),
     )
-    const streams = useStore.getState().streams
-    expect(streams[7]).toMatchObject({ status: 'closed', reason: 'EOF' })
-    const next = streams[8] as LogStreamState | undefined
-    expect(next?.status).toBe('open')
-    expect(next?.lines.toArray()).toEqual(['b'])
+    expect(logs(a)).toBeUndefined()
+    expect(logs(b)).toMatchObject({ status: 'streaming' })
+    expect(logs(b)?.lines.toArray()).toEqual(['b'])
+  })
+
+  it('events for a stream this client never started are ignored', () => {
+    const foreign = CLIENT_STREAM_ID_MIN + 99
+    ingest(
+      batch([
+        stream(1, route, { type: 'PodLogsOpened', data: { stream_id: foreign } }),
+        stream(2, route, { type: 'PodLogsChunk', data: { stream_id: foreign, lines: ['x'] } }),
+        stream(3, route, { type: 'StreamClosed', data: { stream_id: foreign, reason: 'ended' } }),
+      ]),
+    )
+    expect(useStore.getState().streams).toEqual({})
+  })
+
+  it('a re-open of a live stream (hosted recycle) starts a fresh buffer', () => {
+    const id = useStore.getState().startPodLogs(target)
+    ingest(
+      batch([
+        stream(1, route, { type: 'PodLogsOpened', data: { stream_id: id } }),
+        stream(2, route, { type: 'PodLogsChunk', data: { stream_id: id, lines: ['a'] } }),
+        stream(3, route, { type: 'PodLogsOpened', data: { stream_id: id } }),
+        stream(4, route, { type: 'PodLogsChunk', data: { stream_id: id, lines: ['b'] } }),
+      ]),
+    )
+    expect(logs(id)?.lines.toArray()).toEqual(['b'])
+  })
+
+  it('an exec StreamClosed for an unseen backend id still seeds the exec error entry', () => {
+    ingest(
+      batch([stream(1, route, { type: 'StreamClosed', data: { stream_id: 3, reason: 'denied' } })]),
+    )
+    expect(useStore.getState().streams[3]).toMatchObject({ kind: 'exec', status: 'error' })
   })
 })
 

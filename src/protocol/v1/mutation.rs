@@ -63,6 +63,7 @@ impl BackendCmdV1 {
             | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
+            | C::StopPodLogStream { .. }
             | C::FetchPodMetrics { .. }
             | C::SendPodExecInput { .. }
             | C::ResizePodExec { .. }
@@ -510,6 +511,7 @@ impl BackendCmdV1 {
             | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
+            | C::StopPodLogStream { .. }
             | C::FetchPodMetrics { .. }
             | C::StartPodExec { .. }
             | C::SendPodExecInput { .. }
@@ -793,6 +795,7 @@ impl BackendCmdV1 {
             | C::InspectContainerImage { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
+            | C::StopPodLogStream { .. }
             | C::FetchPodMetrics { .. }
             | C::StartPodExec { .. }
             | C::SendPodExecInput { .. }
@@ -1458,6 +1461,7 @@ impl BackendCmdV1 {
             | C::InspectPodVulnerabilities { .. }
             | C::StartPodLogs { .. }
             | C::StopPodLogs
+            | C::StopPodLogStream { .. }
             | C::FetchPodMetrics { .. }
             | C::StartPodExec { .. }
             | C::SendPodExecInput { .. }
@@ -1677,6 +1681,7 @@ mod tests {
                 namespace: s("a"),
                 name: s("b"),
                 container: None,
+                stream_id: None,
             },
             BackendCmdV1::SetNamespaceFilter {
                 namespaces: vec![s("a")],

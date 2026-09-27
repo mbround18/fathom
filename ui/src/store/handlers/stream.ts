@@ -1,10 +1,12 @@
-/** `BackendEvent::Stream` arm: log chunks into ring buffers (rule 4) and tunnel status. */
+/** `BackendEvent::Stream` arm: log stream states and chunks into ring buffers (rule 4), exec
+ * sessions, and tunnel status. */
 import { resetCapabilities } from '@/lib/capabilities'
 import type { StreamEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
 import { markApplied } from '../editSession'
 import { type ExecStreamState, type LogStreamState, useStore } from '../index'
+import { isClientStreamId } from '../log-streams'
 import { RingBuffer } from '../ring-buffer'
 
 /** Decode a base64-encoded backend byte chunk into a UTF-8/binary-safe string for xterm.js. */
@@ -17,16 +19,36 @@ function decodeExecChunk(base64: string): string {
 
 export function handleStream(d: Draft, event: StreamEvent): void {
   switch (event.type) {
+    // Log streams exist from `startPodLogs` on (feedback #2). Events for an id this client did
+    // not start, or already stopped (another tab of a shared hosted backend, a late chunk after
+    // `StopPodLogStream`), are ignored rather than seeding an entry nobody will ever clean up.
+    case 'PodLogsOpened': {
+      const prev = d.read('streams')[event.data.stream_id]
+      if (prev?.kind !== 'logs') return
+      // A (re)open replays the tail, so it starts a fresh buffer (a hosted recycle restarts a
+      // live id in place).
+      const next: LogStreamState = {
+        ...prev,
+        lines: prev.status === 'starting' ? prev.lines : new RingBuffer<string>(),
+        rev: prev.rev + 1,
+        status: 'streaming',
+        reason: undefined,
+        error: undefined,
+      }
+      d.edit('streams')[event.data.stream_id] = next
+      return
+    }
     case 'PodLogsChunk': {
-      const streams = d.edit('streams')
-      const prev = streams[event.data.stream_id]
-      const logPrev = prev?.kind === 'logs' ? prev : undefined
-      const lines = logPrev?.lines ?? new RingBuffer<string>()
-      lines.pushAll(event.data.lines)
-      const next: LogStreamState = logPrev
-        ? { ...logPrev, rev: logPrev.rev + 1 }
-        : { kind: 'logs', lines, rev: 1, follow: true, status: 'open' }
-      streams[event.data.stream_id] = next
+      const prev = d.read('streams')[event.data.stream_id]
+      if (prev?.kind !== 'logs') return
+      prev.lines.pushAll(event.data.lines)
+      const next: LogStreamState = {
+        ...prev,
+        rev: prev.rev + 1,
+        // Lines prove the follow is live even if `PodLogsOpened` was missed.
+        status: prev.status === 'starting' ? 'streaming' : prev.status,
+      }
+      d.edit('streams')[event.data.stream_id] = next
       return
     }
     case 'PodExecReady': {
@@ -60,12 +82,14 @@ export function handleStream(d: Draft, event: StreamEvent): void {
     }
     case 'StreamClosed': {
       const prev = d.read('streams')[event.data.stream_id]
+      // A client-chosen id is always a log stream: missing means already stopped.
+      if (!prev && isClientStreamId(event.data.stream_id)) return
       if (!prev) {
         // An exec session that failed to attach (e.g. permission denied, no usable shell)
         // never gets a `PodExecReady`, so this is the first time its `stream_id` is seen —
         // seed an errored `kind: 'exec'` entry so PodTerminalTab can surface FR-013's
-        // verbatim reason. A logs `stream_id` is always seeded earlier by `PodLogsChunk`,
-        // so a missing entry there stays a no-op, as before.
+        // verbatim reason. Log streams are seeded by `startPodLogs` and use client ids,
+        // handled above.
         d.edit('streams')[event.data.stream_id] = {
           kind: 'exec',
           status: 'error',
@@ -77,7 +101,12 @@ export function handleStream(d: Draft, event: StreamEvent): void {
       }
       d.edit('streams')[event.data.stream_id] =
         prev.kind === 'logs'
-          ? { ...prev, status: 'closed', reason: event.data.reason }
+          ? {
+              ...prev,
+              status: event.data.reason === 'error' || event.data.error ? 'error' : 'closed',
+              reason: event.data.reason,
+              error: event.data.error ?? undefined,
+            }
           : {
               ...prev,
               status: event.data.reason === 'exit' ? 'ended' : 'error',

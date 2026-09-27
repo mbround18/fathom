@@ -215,7 +215,7 @@ test.describe('live 002 quickstart', () => {
     // Leaving the tab stops the stream (FR-005).
     const sentBefore = tap.sent.length
     await insp.getByRole('tab', { name: 'Details' }).click()
-    await expect.poll(() => types(tap).slice(sentBefore)).toContain('StopPodLogs')
+    await expect.poll(() => types(tap).slice(sentBefore)).toContain('StopPodLogStream')
   })
 
   test('S1.7 a crashed container shows a distinct "stream ended" indicator', async ({ page }) => {

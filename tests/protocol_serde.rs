@@ -1559,8 +1559,12 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
             container: Some("s".to_owned()),
+            stream_id: Some(StreamId(1 << 32)),
         },
         BackendCmd::StopPodLogs,
+        BackendCmd::StopPodLogStream {
+            stream_id: StreamId(1 << 32),
+        },
         BackendCmd::FetchPodMetrics {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
@@ -2318,6 +2322,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::InspectContainerImage { .. } => {}
         BackendCmd::StartPodLogs { .. } => {}
         BackendCmd::StopPodLogs => {}
+        BackendCmd::StopPodLogStream { .. } => {}
         BackendCmd::FetchPodMetrics { .. } => {}
         BackendCmd::StartPodExec { .. } => {}
         BackendCmd::CheckNodeShellAccess { .. } => {}
@@ -3586,6 +3591,9 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
 /// Every `StreamEvent` variant. The match in `all_stream_events_is_exhaustive` fails to compile when a variant is added.
 fn all_stream_events() -> Vec<StreamEvent> {
     vec![
+        StreamEvent::PodLogsOpened {
+            stream_id: StreamId(3),
+        },
         StreamEvent::PodLogsChunk {
             stream_id: StreamId(3),
             lines: vec!["s".to_owned()],
@@ -3605,6 +3613,7 @@ fn all_stream_events() -> Vec<StreamEvent> {
         StreamEvent::StreamClosed {
             stream_id: StreamId(3),
             reason: "s".to_owned(),
+            error: Some("s".to_owned()),
         },
         StreamEvent::ResourceApplied {
             request_id: "s".to_owned(),
@@ -3655,6 +3664,7 @@ fn all_stream_events() -> Vec<StreamEvent> {
 #[allow(dead_code)]
 fn all_stream_events_is_exhaustive(v: &StreamEvent) {
     match v {
+        StreamEvent::PodLogsOpened { .. } => {}
         StreamEvent::PodLogsChunk { .. } => {}
         StreamEvent::PodExecReady { .. } => {}
         StreamEvent::PodExecOutputChunk { .. } => {}
@@ -3918,6 +3928,7 @@ fn event_batch_and_bridge_types() {
             BackendEvent::Stream(StreamEvent::StreamClosed {
                 stream_id: StreamId(4),
                 reason: "eof".to_owned(),
+                error: None,
             }),
         )],
         dropped: 3,

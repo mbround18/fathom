@@ -109,6 +109,7 @@ import {
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
 import { DEFAULT_AUDIT_FILTER, type AuditLogFilter } from './auditLogFilter'
 import { RingBuffer } from './ring-buffer'
+import { newLogStreamId } from './log-streams'
 import { waitForCommandResult } from './actions'
 import type { HostedState } from './handlers/hosted'
 
@@ -295,14 +296,33 @@ export interface DetailState {
   updatedAt: number
 }
 
+/** Which container a log stream follows (`container: null` = the pod's only container). */
+export interface LogStreamTarget {
+  namespace: string
+  name: string
+  container: string | null
+}
+
+/**
+ * One pod log stream, created by `startPodLogs` under a client-chosen id (feedback #2):
+ * - `starting`: `StartPodLogs` sent, the API server has not accepted the follow yet
+ * - `streaming`: live (`PodLogsOpened` or a first chunk); `lines` may still be empty for a
+ *   quiet container
+ * - `closed`: the follow ended or was stopped (`reason`)
+ * - `error`: it could not start or broke (`error`, verbatim)
+ */
 export interface LogStreamState {
   kind: 'logs'
+  target: LogStreamTarget
+  /** The view that started it (`startPodLogs`'s `owner`). */
+  owner?: string
   lines: RingBuffer<string>
   /** Bumped on every append; the buffer itself is mutated in place. */
   rev: number
   follow: boolean
-  status: 'open' | 'closed' | 'error'
+  status: 'starting' | 'streaming' | 'closed' | 'error'
   reason?: string
+  error?: string
 }
 
 export interface ExecStreamState {
@@ -898,6 +918,14 @@ export interface StoreState extends StoreData {
   requestPodLogs: (namespace: string, name: string, container: string) => void
   /** Clears `podLogsIntent` once `PodLogsTab` has consumed it. */
   clearPodLogsIntent: () => void
+  /**
+   * Start a pod log stream under a fresh client-chosen id, seeded as `starting`, and return the
+   * id. Each logs view owns its stream (`owner` tags it, so the view can find it again without
+   * holding the id in state); stop it with `stopPodLogs(id)` (feedback #2).
+   */
+  startPodLogs: (target: LogStreamTarget, owner?: string) => number
+  /** Stop one log stream and forget its lines. Other streams keep running. */
+  stopPodLogs: (streamId: number) => void
   /**
    * 009: record that a `StartPortForward` just dispatched from a Service inspector targeted
    * `namespace/pod/localPort/remotePort`, so the next matching `PortForwardsUpdated` row gets
@@ -1548,6 +1576,49 @@ export const useStore = create<StoreState>()((set, get) => ({
   requestPodLogs: (namespace, name, container) =>
     set({ podLogsIntent: { namespace, name, container } }),
   clearPodLogsIntent: () => set({ podLogsIntent: null }),
+
+  startPodLogs: (target, owner) => {
+    const streamId = newLogStreamId()
+    const entry: LogStreamState = {
+      kind: 'logs',
+      target,
+      owner,
+      lines: new RingBuffer<string>(),
+      rev: 0,
+      follow: true,
+      status: 'starting',
+    }
+    set((s) => ({ streams: { ...s.streams, [streamId]: entry } }))
+    // A refused send (backend gone, hosted stream limit) never reaches the backend, so no
+    // `StreamClosed` will come: surface it on the stream itself.
+    get()
+      .request({ type: 'StartPodLogs', data: { ...target, stream_id: streamId } })
+      .catch((err: unknown) => {
+        set((s) => {
+          const prev = s.streams[streamId]
+          if (prev?.kind !== 'logs' || prev.status !== 'starting') return s
+          const error = err instanceof Error ? err.message : String(err)
+          return {
+            streams: {
+              ...s.streams,
+              [streamId]: { ...prev, status: 'error', reason: 'error', error },
+            },
+          }
+        })
+      })
+    return streamId
+  },
+
+  stopPodLogs: (streamId) => {
+    get().send({ type: 'StopPodLogStream', data: { stream_id: streamId } })
+    set((s) => {
+      if (!(streamId in s.streams)) return s
+      const streams = Object.fromEntries(
+        Object.entries(s.streams).filter(([id]) => Number(id) !== streamId),
+      )
+      return { streams }
+    })
+  },
 
   recordPortForwardOrigin: ({ namespace, pod, localPort, remotePort, service }) =>
     set((s) => ({
