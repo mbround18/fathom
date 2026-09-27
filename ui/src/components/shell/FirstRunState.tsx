@@ -58,7 +58,7 @@ export function FirstRunState({
   inSettings = false,
 }: {
   state: FirstRun
-  /** Rendered above the kind panel in Cluster Settings: no "Create a local cluster" link. */
+  /** Rendered in Cluster settings, which offers its own "Create a local cluster" link. */
   inSettings?: boolean
 }) {
   const hosted = useStore((s) => s.hosted.mode === 'hosted')
@@ -140,7 +140,7 @@ export function FirstRunState({
           <Button
             size="sm"
             data-testid="first-run-create-kind"
-            onClick={() => navigate(SECTION.clusterSettings)}
+            onClick={() => navigate(SECTION.localClusters)}
           >
             <PlusIcon data-icon="inline-start" /> Create a local cluster
           </Button>

@@ -157,7 +157,7 @@ function KubeconfigActions({ offerKind }: { offerKind: boolean }) {
             size="sm"
             variant="outline"
             data-testid="setup-create-kind"
-            onClick={() => navigate(SECTION.clusterSettings)}
+            onClick={() => navigate(SECTION.localClusters)}
           >
             <PlusIcon data-icon="inline-start" /> Create a local cluster
           </Button>

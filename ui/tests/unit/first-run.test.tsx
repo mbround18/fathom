@@ -209,7 +209,7 @@ describe('FirstRunState', () => {
     fireEvent.click(screen.getByTestId('first-run-reload'))
     expect(sent).toEqual([{ type: 'Initialize' }])
     fireEvent.click(screen.getByTestId('first-run-create-kind'))
-    expect(navigate).toHaveBeenCalledWith('integrations/cluster-settings')
+    expect(navigate).toHaveBeenCalledWith('settings/local-clusters')
   })
 
   it('reload: pending until the next KubeconfigStatus, then the outcome even when unchanged', () => {
@@ -270,7 +270,7 @@ describe('FirstRunState', () => {
     )
   })
 
-  it('in Cluster Settings the create link is omitted (the kind panel is right there)', () => {
+  it('in Cluster settings the create link is omitted (the page offers its own)', () => {
     ingest(kubeconfigMalformed)
     const issue = session().kubeconfigIssue
     if (!issue) throw new Error('no issue recorded')

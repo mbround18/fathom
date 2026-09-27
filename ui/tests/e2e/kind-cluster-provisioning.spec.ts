@@ -59,6 +59,8 @@ async function goToPanel(page: Page) {
       }),
     ]),
   )
+  // 043 US3: kind provisioning moved from Cluster settings to Local clusters.
+  await navigateTo(page, 'Local clusters', 'Settings')
   await expect(panel(page)).toBeVisible()
   await expect.poll(() => sentTypes(page)).toContain('RefreshKindPrerequisites')
   await expect.poll(() => sentTypes(page)).toContain('RefreshKindClusters')

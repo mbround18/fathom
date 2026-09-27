@@ -23,6 +23,8 @@ import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { ClusterSettingsPanel } from '@/components/panels/ClusterSettingsPanel'
+import { AppSettingsPanel } from '@/components/settings/AppSettingsPanel'
+import { LocalClustersPanel } from '@/components/settings/LocalClustersPanel'
 import { AuditLogPane } from '@/components/audit/AuditLogPane'
 import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
 import { TeamsView } from '@/features/teams/TeamsView'
@@ -272,6 +274,8 @@ export const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
   SECTION.teamProfiles,
   SECTION.auditLog,
   SECTION.oidcConfig,
+  SECTION.appSettings,
+  SECTION.localClusters,
   SIGN_IN_SECTION,
 ])
 
@@ -333,6 +337,10 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.teamProfiles) {
     return <TeamProfilesPanel />
   }
+  // 043 US3/US4: settings split out of Cluster settings, and the daemon's Cluster history.
+  if (section === SECTION.appSettings) return <AppSettingsPanel />
+  if (section === SECTION.localClusters) return <LocalClustersPanel />
+  if (section === SECTION.clusterHistory) return <DaemonTimelinePanel />
   // 011-rbac-oidc-administration US4/US5: read-only lookup / frontend-only generator panels,
   // neither backed by a `ResourceDescriptor` (no list-refresh, no detail split).
   if (section === SECTION.namespaceAccess) {

@@ -1,21 +1,17 @@
 /**
- * 032-ui-shell-a11y: top-bar overflow menu. Settings-like destinations always live here; at
- * phone width Fleet and Ask AI fold in too (the bar has no room for their buttons).
+ * 032-ui-shell-a11y: top-bar overflow menu. At phone width Fleet, Ask AI and the Settings pages
+ * fold in here (the bar has no room for their buttons). 043 US3: from tablet up the Settings
+ * pages live in the header's own Settings menu instead.
  */
-import {
-  ClipboardTextIcon,
-  DotsThreeVerticalIcon,
-  GearSixIcon,
-  SparkleIcon,
-  SquaresFourIcon,
-  UsersThreeIcon,
-} from '@phosphor-icons/react'
+import { DotsThreeVerticalIcon, SparkleIcon, SquaresFourIcon } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import { SettingsMenuItems } from '@/components/settings/SettingsMenu'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -27,11 +23,10 @@ export function OverflowMenu({
   folded,
   onOpenFleet,
 }: {
-  /** Phone: Fleet and Ask AI live in the menu instead of the bar. */
+  /** Phone: Fleet, Ask AI and the Settings pages live in the menu instead of the bar. */
   folded: boolean
   onOpenFleet: () => void
 }) {
-  const navigate = useStore((s) => s.navigate)
   const setShell = useStore((s) => s.setShell)
   const configured = useAssistantConfigured()
 
@@ -62,20 +57,10 @@ export function OverflowMenu({
               Fleet
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuLabel>Settings</DropdownMenuLabel>
+            <SettingsMenuItems />
           </>
         )}
-        <DropdownMenuItem onSelect={() => navigate('integrations/cluster-settings')}>
-          <GearSixIcon aria-hidden="true" />
-          Settings
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => navigate('audit-log')}>
-          <ClipboardTextIcon aria-hidden="true" />
-          Audit log
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => navigate('team/profiles')}>
-          <UsersThreeIcon aria-hidden="true" />
-          Connection profiles
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

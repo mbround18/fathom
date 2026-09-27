@@ -118,7 +118,7 @@ test.describe('043 setup screen', () => {
     await expect(setup(page).getByTestId('setup-reload')).toBeEnabled()
 
     await setup(page).getByTestId('setup-create-kind').click()
-    await expect(page.getByTestId('cluster-settings-first-run')).toBeVisible()
+    await expect(page.getByTestId('local-clusters-panel')).toBeVisible()
     await page.getByTestId('setup-back').click()
     await expect(setup(page)).toHaveAttribute('data-setup-state', 'kubeconfig')
   })

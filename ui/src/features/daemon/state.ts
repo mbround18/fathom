@@ -6,6 +6,17 @@ import type { DaemonContextState } from '@/store/handlers/daemon'
 /** Copy-only: Fathom never installs anything into a cluster for the user. */
 export const INSTALL_COMMAND = 'kubectl apply -k k8s/overlays/daemon'
 
+/** 043 US4: the preference switch, named for what it controls (feedback #12). */
+export const DAEMON_SWITCH_LABEL = "Use Fathom's in-cluster daemon"
+
+/** 043 US4 scenario 1, verbatim: what on and off do. */
+export const DAEMON_SWITCH_DESCRIPTION =
+  'On: Fathom checks this cluster for its optional, read-only daemon and, if found, uses it for cluster history and a faster topology. Off: Fathom never contacts it. Nothing is installed either way.'
+
+/** 043 US4: the Cluster history panel's first line (formerly "While you were away"). */
+export const CLUSTER_HISTORY_SUBTITLE =
+  'Changes the in-cluster daemon recorded, including while Fathom was closed.'
+
 export const STATE_LABEL: Record<DaemonState, string> = {
   off: 'Off',
   notInstalled: 'Not installed',

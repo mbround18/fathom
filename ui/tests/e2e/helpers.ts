@@ -11,6 +11,7 @@ import {
 } from '@playwright/test'
 
 import type { ScenarioName } from '../fixtures'
+import { batch, system } from '../fixtures/builders'
 import { NAV_GROUPS, mapLegacyGroups } from '../../src/resources/nav'
 import type { BackendCmd, EventBatch } from '../../src/protocol/types'
 import type {} from '../../src/protocol/fake-transport'
@@ -124,11 +125,20 @@ function navGroupFor(label: string, group: string): string {
   return holder?.label ?? mapLegacyGroups([group])[0] ?? group
 }
 
+/** 043 US3 renamed the Settings pages to sentence case; older specs may use the old labels. */
+const LEGACY_LABELS: Readonly<Record<string, string>> = {
+  'Cluster Settings': 'Cluster settings',
+  Teams: 'Team',
+  'Connection Profiles': 'Connection profiles',
+  'Audit Log': 'Audit log',
+}
+
 export async function navigateTo(
   page: Page,
-  label: string,
+  rawLabel: string,
   groupName = 'Workloads',
 ): Promise<void> {
+  const label = LEGACY_LABELS[rawLabel] ?? rawLabel
   const group = navGroupFor(label, groupName)
   const nav = page.getByRole('navigation', { name: 'Sections' })
   const drawer = !(await nav.isVisible())
@@ -449,4 +459,36 @@ export async function openTopologySection(page: Page): Promise<void> {
   if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
   await nav.locator('button[data-section="topology"]').click()
   if (drawer) await expect(nav).toBeHidden()
+}
+
+/** Local-only cluster settings, as `ClusterSettingsLoaded` carries them. */
+export const LOCAL_CLUSTER_SETTINGS = {
+  schema: 1 as const,
+  metricsSource: 'none' as const,
+  prometheusPath: '/api/v1',
+  https: false,
+  pathPrefix: '',
+  hiddenMetrics: [],
+  orgRevKnown: null,
+  fieldOrigin: {
+    metricsSource: 'local' as const,
+    prometheusPath: 'local' as const,
+    https: 'local' as const,
+    pathPrefix: 'local' as const,
+    hiddenMetrics: 'local' as const,
+  },
+}
+
+/** Answer the Cluster settings page's `LoadClusterSettings` (the fake backend does not). */
+export async function loadClusterSettings(page: Page, context = 'kind-a', seq = 1): Promise<void> {
+  await expect.poll(() => sentTypes(page)).toContain('LoadClusterSettings')
+  await emit(
+    page,
+    batch([
+      system(seq, {
+        type: 'ClusterSettingsLoaded',
+        data: { context, settings: LOCAL_CLUSTER_SETTINGS },
+      }),
+    ]),
+  )
 }

@@ -62,7 +62,8 @@ test.describe('T126 first-run states', () => {
   }) => {
     await open(page, 'no-kubeconfig')
     await setup(page).getByTestId('setup-create-kind').click()
-    const settings = page.getByTestId('cluster-settings-first-run')
+    // 043 US3: kind provisioning has its own Settings page, Local clusters.
+    const settings = page.getByTestId('local-clusters-panel')
     await expect(settings).toBeVisible()
     await expect(settings.getByTestId('kind-clusters')).toBeVisible()
     await expect(settings.getByTestId('first-run-create-kind')).toHaveCount(0)

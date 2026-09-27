@@ -294,12 +294,12 @@ export const NAV_MODEL: readonly NavGroup[] = [
   group('Settings', '調', [
     [
       'integrations/cluster-settings',
-      'Cluster Settings',
+      'Cluster settings',
       'Options for the selected context, such as metrics and the daemon',
     ],
     ['settings/sign-in', 'Sign-in', 'Identity providers and how each context logs you in'],
-    ['team/teams', 'Teams', 'Organizations and the people you share work with'],
-    ['team/profiles', 'Connection Profiles', 'Shared, non-secret connection details for your team'],
+    ['team/teams', 'Team', 'Organizations and the people you share work with'],
+    ['team/profiles', 'Connection profiles', 'Shared, non-secret connection details for your team'],
     ['settings/app', 'App settings', 'Appearance, AI assist and other app-wide options'],
     [
       'settings/local-clusters',
@@ -307,7 +307,7 @@ export const NAV_MODEL: readonly NavGroup[] = [
       'Create and remove kind clusters on this computer',
       { visible: (ctx) => ctx.desktop && !ctx.hosted },
     ],
-    ['audit-log', 'Audit Log', 'Every change Fathom made to a cluster, and who made it'],
+    ['audit-log', 'Audit log', 'Every change Fathom made to a cluster, and who made it'],
   ]),
 ]
 
@@ -369,6 +369,9 @@ export const PANEL_SECTIONS: ReadonlySet<SectionKey> = new Set([
   'team/profiles',
   'audit-log',
   'settings/sign-in',
+  'settings/app',
+  'settings/local-clusters',
+  'cluster-history',
 ])
 
 /** A section PaneHost can render: it has a descriptor or a dedicated panel. */
