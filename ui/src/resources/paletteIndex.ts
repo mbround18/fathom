@@ -13,7 +13,14 @@ import type { ListKey, ListState, StoreState } from '@/store'
 import { NO_CONTEXT } from '@/store/keys'
 
 import { descriptorFor } from './index'
-import { NAV_GROUPS } from './nav'
+import {
+  entryVisible,
+  integrationVisible,
+  NAV_GROUPS,
+  navEntry,
+  VELERO_SECTION,
+  type NavVisibilityContext,
+} from './nav'
 import type { ObjectRef } from './types'
 
 /** The operator's raw input, parsed into an optional `kind:` scope and the name to match. */
@@ -47,6 +54,8 @@ export interface PaletteResult {
   category: PaletteResultCategory
   label: string
   sublabel?: string
+  /** One-line plain-language description (043 FR-021: the navigator entry's description). */
+  description?: string
   /** Higher = stronger match. Set by `rankAndFilter`; candidates start at `0`. */
   matchScore: number
   payload:
@@ -142,16 +151,21 @@ export function buildNamespaceCandidates(namespaces: readonly string[]): Palette
 /**
  * Section candidates from `NAV_GROUPS` — static data, always available regardless of connection
  * state (research.md's decision to scope pane search to `NAV_GROUPS`, not `ToolKind` dock tabs).
+ * "More" (advanced) entries are indexed too (043 FR-022). With `ctx`, entries the navigator hides
+ * for this cluster (Velero until detected, FR-036) are left out as well.
  */
-export function buildSectionCandidates(): PaletteResult[] {
+export function buildSectionCandidates(ctx?: NavVisibilityContext): PaletteResult[] {
   const out: PaletteResult[] = []
   for (const group of NAV_GROUPS) {
     for (const section of group.sections) {
+      const model = navEntry(section.key)
+      if (ctx && model && !entryVisible(model, ctx)) continue
       out.push({
         id: `section:${section.key}`,
         category: 'section',
         label: section.label,
         sublabel: group.label,
+        description: section.description,
         matchScore: 0,
         payload: { section: section.key },
       })
@@ -175,8 +189,16 @@ const TOOL_ENTRIES: readonly { tool: ToolKind | 'fleet'; label: string }[] = [
   { tool: 'vulnerabilities', label: 'Trivy vulnerabilities' },
 ]
 
-export function buildToolCandidates(): PaletteResult[] {
-  return TOOL_ENTRIES.map(({ tool, label }) => ({
+/** Tool candidates; with `ctx`, Velero only once it is detected (043 FR-036). */
+export function buildToolCandidates(
+  ctx?: Pick<NavVisibilityContext, 'installed'>,
+): PaletteResult[] {
+  return TOOL_ENTRIES.filter(
+    ({ tool }) =>
+      !ctx ||
+      tool !== 'velero' ||
+      integrationVisible(VELERO_SECTION, ctx.installed(VELERO_SECTION)),
+  ).map(({ tool, label }) => ({
     id: `tool:${tool}`,
     category: 'tool',
     label,

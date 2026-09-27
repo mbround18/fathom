@@ -14,7 +14,7 @@ import {
   initialManifestExportState,
   type ManifestExportState,
 } from '@/features/manifest-export/state'
-import { resolveProfile } from '@/layout/defaults'
+import { dockTabs, resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type { AiSlice } from '@/features/ai-assist/types'
@@ -648,7 +648,7 @@ export interface LayoutState {
   profile: LayoutProfile
   /** Pane shown in each visible slot, index-aligned with `profile.slots`. */
   slotPanes: PaneId[]
-  /** Pane shown in each dock tab, index-aligned with `profile.dock.tabs`. */
+  /** Dock panes, one per allowed dock tool (`dockTabs(dock, true)`); the dock picks by tool. */
   dockPanes: PaneId[]
   /**
    * Phone navigation stack; the last entry is on screen. On tablet the root entry picks the
@@ -1129,7 +1129,11 @@ export function assignPanes(
   const slotPanes = profile.slots.map((s) =>
     claim(s.kind, s.kind === 'tool' ? (s.tool ?? undefined) : undefined),
   )
-  const dockPanes = (profile.dock?.tabs ?? []).map((tool) => claim('tool', tool, `dock-${tool}`))
+  // 043 (FR-025): dock panes only for tools the dock accepts. Cluster history (`daemon`) gets its
+  // pane up front so the dock can show or hide its tab as the daemon comes and goes.
+  const dockPanes = profile.dock
+    ? dockTabs(profile.dock, true).map((tool) => claim('tool', tool, `dock-${tool}`))
+    : []
   return { slotPanes, dockPanes, panes }
 }
 

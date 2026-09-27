@@ -1,9 +1,11 @@
-import { Fragment, useCallback, useEffect } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { type Layout, type LayoutChangedMeta, useGroupRef } from 'react-resizable-panels'
+import { useShallow } from 'zustand/react/shallow'
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { ScrollFade } from '@/components/ui/scroll-fade'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { dockTabs } from '@/layout/defaults'
 import type { LayoutProfile } from '@/protocol/types'
 import { useStore } from '@/store'
 
@@ -124,32 +126,52 @@ function DockedRow({ profile, children }: { profile: LayoutProfile; children: Re
   )
 }
 
-/** Bottom dock: logs/events tool panes as tabs (laptop+). */
+/** The daemon is connected for the active context, so Cluster history belongs in the dock. */
+function useDaemonAvailable(): boolean {
+  return useStore((s) => {
+    const ctx = s.session.activeContext
+    return ctx !== undefined && s.daemon[ctx]?.status?.state === 'available'
+  })
+}
+
+/**
+ * Bottom dock (laptop+): only the streams that follow what the operator is doing (043 FR-024):
+ * Logs, Events, and Cluster history while the daemon is available. Tools a saved layout still
+ * lists are dropped by `dockTabs`; their homes are navigator sections now.
+ */
 function Dock() {
-  const tabs = useStore((s) => s.layout.profile.dock?.tabs ?? [])
+  const dock = useStore((s) => s.layout.profile.dock)
   const dockPanes = useStore((s) => s.layout.dockPanes)
-  const first = dockPanes[0]
+  const paneTools = useStore(useShallow((s) => s.layout.dockPanes.map((id) => s.panes[id]?.tool)))
+  const daemonAvailable = useDaemonAvailable()
+  const [selected, setSelected] = useState<string | undefined>()
+  const tabs = dock ? dockTabs(dock, daemonAvailable) : []
+  const shown = tabs.flatMap((tool) => {
+    const id = dockPanes[paneTools.indexOf(tool)]
+    return id ? [{ tool, id }] : []
+  })
+  const first = shown[0]
   if (!first) return null
+  // A tab that went away (the daemon disconnected) falls back to the first one.
+  const value = shown.some((t) => t.id === selected) ? selected : first.id
 
   return (
     <Tabs
-      defaultValue={first}
+      value={value}
+      onValueChange={setSelected}
       className="flex h-full min-h-0 flex-col gap-0"
       data-testid="dock-tabs"
     >
       <ScrollFade className="shrink-0 border-b border-border bg-card">
         <TabsList variant="line" className="h-[max(2rem,26px)] w-max min-w-full justify-start px-1">
-          {tabs.map((tool, i) => {
-            const id = dockPanes[i]
-            return id ? (
-              <TabsTrigger key={id} value={id} className="flex-none px-3">
-                {TOOL_LABEL[tool]}
-              </TabsTrigger>
-            ) : null
-          })}
+          {shown.map(({ tool, id }) => (
+            <TabsTrigger key={id} value={id} data-tool={tool} className="flex-none px-3">
+              {TOOL_LABEL[tool]}
+            </TabsTrigger>
+          ))}
         </TabsList>
       </ScrollFade>
-      {dockPanes.map((id) => (
+      {shown.map(({ id }) => (
         <TabsContent key={id} value={id} className="min-h-0 flex-1 overflow-hidden">
           <PaneHost paneId={id} />
         </TabsContent>

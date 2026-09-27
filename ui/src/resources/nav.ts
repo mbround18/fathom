@@ -347,6 +347,7 @@ export const moreKey = (groupLabel: string): string => `${groupLabel}/More`
 export const PANEL_SECTIONS: ReadonlySet<SectionKey> = new Set([
   'overview',
   'events',
+  'linter',
   'custom-resources',
   'network/portforwards',
   'access/namespace-access',
