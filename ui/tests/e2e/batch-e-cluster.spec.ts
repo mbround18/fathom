@@ -118,13 +118,13 @@ async function openTool(page: Page, info: TestInfo, label: 'Events' | 'Overview'
   await openNavSection(page, label === 'Events' ? 'events' : 'overview')
 }
 
-/** Nav row by `data-section` (the Overview group and section share a label). */
+/** Nav row by `data-section` (the Cluster group holds the Overview section). */
 async function openNavSection(page: Page, section: string): Promise<void> {
   const nav = page.getByRole('navigation', { name: 'Sections' })
   const drawer = !(await nav.isVisible())
   if (drawer) await page.getByRole('button', { name: 'Open sections' }).click()
   await expect(nav).toBeVisible()
-  const toggle = nav.locator('button[aria-expanded]', { hasText: 'Overview' })
+  const toggle = nav.locator('button[aria-expanded]', { hasText: 'Cluster' })
   if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
   await nav.locator(`button[data-section="${section}"]`).click()
   if (drawer) await expect(nav).toBeHidden()

@@ -11,6 +11,7 @@ import {
 } from '@playwright/test'
 
 import type { ScenarioName } from '../fixtures'
+import { NAV_GROUPS, mapLegacyGroups } from '../../src/resources/nav'
 import type { BackendCmd, EventBatch } from '../../src/protocol/types'
 import type {} from '../../src/protocol/fake-transport'
 
@@ -113,7 +114,22 @@ export async function expectRowCount(page: Page, count: number, section = PODS):
 }
 
 /** Open `section` from the navigator (the drawer on phone/tablet, the nav slot otherwise). */
-export async function navigateTo(page: Page, label: string, group = 'Workloads'): Promise<void> {
+/**
+ * The navigator group that holds `label`. Accepts pre-043 group names (Overview, Network,
+ * Config, Team): the group actually listing `label` wins, else the legacy mapping.
+ */
+function navGroupFor(label: string, group: string): string {
+  if (NAV_GROUPS.some((g) => g.label === group)) return group
+  const holder = NAV_GROUPS.find((g) => g.sections.some((s) => s.label === label))
+  return holder?.label ?? mapLegacyGroups([group])[0] ?? group
+}
+
+export async function navigateTo(
+  page: Page,
+  label: string,
+  groupName = 'Workloads',
+): Promise<void> {
+  const group = navGroupFor(label, groupName)
   const nav = page.getByRole('navigation', { name: 'Sections' })
   const drawer = !(await nav.isVisible())
   if (drawer) {
