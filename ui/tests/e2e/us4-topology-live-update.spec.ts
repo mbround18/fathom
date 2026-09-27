@@ -18,22 +18,16 @@
  * every Chromium/WebKit test runner, and pixel-exact color assertions are covered better, and
  * deterministically, by the tone-mapping unit tests referenced above.)
  */
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { batch, list, clusterRoute } from '../fixtures/builders'
-import { clearSent, emit, open, openToolPane, sentTypes } from './helpers'
+import { clearSent, emit, open, openTopologySection, sentTypes } from './helpers'
 
 const NODES = 'nodes'
 
-async function openTopology(page: Page, info: TestInfo): Promise<void> {
-  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
-  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
-  const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
-  if (stacked) {
-    await openToolPane(page, 'Topology')
-  } else {
-    await page.getByRole('tab', { name: 'Topology' }).click()
-  }
+/** Open the whole-cluster Topology section from the navigator (043 US6, FR-030). */
+async function openTopology(page: Page): Promise<void> {
+  await openTopologySection(page)
 }
 
 async function seedNode(page: Page, status: string): Promise<void> {
@@ -85,11 +79,9 @@ async function nodeColor(page: Page, canvas: Locator): Promise<[number, number, 
 }
 
 test.describe('US4 topology live health state', () => {
-  test('T051: a status change recolors the node in place, no extra commands', async ({
-    page,
-  }, info) => {
+  test('T051: a status change recolors the node in place, no extra commands', async ({ page }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     await seedNode(page, 'Ready')
 
     const canvas = page.getByTestId('topology-canvas')

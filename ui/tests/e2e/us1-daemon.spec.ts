@@ -13,7 +13,14 @@ import {
   sampleTopology,
   topologyBatch,
 } from '../fixtures/daemon'
-import { clearSent, emit, expectNoHorizontalScroll, open, sent } from './helpers'
+import {
+  clearSent,
+  emit,
+  expectNoHorizontalScroll,
+  open,
+  openTopologySection,
+  sent,
+} from './helpers'
 import type { DaemonState } from '../../src/protocol/types'
 
 const stacked = (i: TestInfo): boolean =>
@@ -131,7 +138,8 @@ test.describe('daemon topology and trends', () => {
         .getByRole('button', { name: 'Topology' })
         .click()
     } else {
-      await page.getByRole('tab', { name: 'Topology' }).click()
+      // 043 US6: Topology left the dock for the navigator's Cluster group.
+      await openTopologySection(page)
     }
   }
 

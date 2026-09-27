@@ -56,6 +56,13 @@ export interface RoleFormCreateProps {
   kind: RoleKind
   onClose: () => void
   onBind?: (target: BindTarget, bindingKind: 'RoleBinding' | 'ClusterRoleBinding') => void
+  /**
+   * 043 US8 (FR-041): a flow that opened this form to pick a new role (the binding form's or
+   * Assign role dialog's "Create a new role…") gets the created role back as its `roleRef`.
+   */
+  onCreated?: (target: BindTarget) => void
+  /** Starting namespace for a Role (defaults to the active namespace). */
+  namespace?: string
 }
 
 export interface RoleFormEditProps {
@@ -95,8 +102,9 @@ export function RoleForm(props: RoleFormProps) {
   const existing = mode === 'edit' ? props.existing : undefined
 
   const [name, setName] = useState(existing?.name ?? '')
+  const initialNamespace = mode === 'create' ? props.namespace : undefined
   const [namespace, setNamespace] = useState<string>(
-    existing ? (existingNamespace(existing) ?? '') : (activeNamespace ?? ''),
+    existing ? (existingNamespace(existing) ?? '') : initialNamespace || (activeNamespace ?? ''),
   )
   const [rules, setRules] = useState<RuleInput[]>(() =>
     existing ? rulesFromRawJson(existing.raw_json) : [emptyRule('read-only')],
@@ -168,6 +176,9 @@ export function RoleForm(props: RoleFormProps) {
   useEffect(() => {
     if (!applied) return
     send({ type: kind === 'Role' ? 'RefreshRoles' : 'RefreshClusterRoles' })
+    if (mode === 'create' && props.onCreated) {
+      props.onCreated({ roleKind: kind, name, namespace: effectiveNamespace })
+    }
     if (existing) {
       send(
         kind === 'Role'

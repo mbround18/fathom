@@ -4,24 +4,17 @@
  * the cluster at a glance." Named `us1-topology-*` and all new hooks are `topology-*`-prefixed
  * (isolation from specs 008-010's own e2e suites, per the shared test-isolation convention).
  */
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { batch, list, clusterRoute, nsRoute } from '../fixtures/builders'
-import { emit, open, openToolPane, sentTypes } from './helpers'
+import { emit, open, openTopologySection, sentTypes } from './helpers'
 
 const APPLICATIONS = 'applications'
 const NODES = 'nodes'
 
-/** Reach the Topology tool pane the way each width class exposes it (FR-016). */
-async function openTopology(page: Page, info: TestInfo): Promise<void> {
-  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
-  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
-  const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
-  if (stacked) {
-    await openToolPane(page, 'Topology')
-  } else {
-    await page.getByRole('tab', { name: 'Topology' }).click()
-  }
+/** Open the whole-cluster Topology section from the navigator (043 US6, FR-030). */
+async function openTopology(page: Page): Promise<void> {
+  await openTopologySection(page)
 }
 
 function canvasHost(page: Page) {
@@ -31,9 +24,9 @@ function canvasHost(page: Page) {
 test.describe('US1 topology overview', () => {
   test('T041: opening Topology fetches the tiers it renders and shows the canvas', async ({
     page,
-  }, info) => {
+  }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
 
     await expect(canvasHost(page)).toBeVisible()
     await expect(page.getByTestId('topology-canvas')).toBeVisible()
@@ -56,9 +49,9 @@ test.describe('US1 topology overview', () => {
 
   test('T041: renders once application and node data arrive, with no error state', async ({
     page,
-  }, info) => {
+  }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     await expect(page.getByTestId('topology-canvas')).toBeVisible()
 
     await emit(
@@ -104,9 +97,9 @@ test.describe('US1 topology overview', () => {
 
   test('T041: the camera auto-fits the graph, capped at 200%, with a Fit control', async ({
     page,
-  }, info) => {
+  }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     // 041: the camera fits the laid-out graph (no longer a fixed 100%) and never zooms past
     // FIT_MAX_SCALE; the graph stays readable (not shrunk to dots) on every viewport.
     await expect(canvasHost(page).getByTestId('topology-fit')).toBeVisible()

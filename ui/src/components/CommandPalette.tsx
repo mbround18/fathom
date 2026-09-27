@@ -31,7 +31,31 @@ import {
 } from '@/resources/paletteIndex'
 import { useStore } from '@/store'
 
+import { requestRoleCreate } from './rbac/roleCreateRequest'
+import type { RoleKind } from './rbac/roleYaml'
 import { useOpenTool } from './shell/useOpenTool'
+
+/** 043 US8: palette actions that open 042's role form (through the Roles list's launcher). */
+const ROLE_ACTIONS: readonly { id: string; label: string; kind: RoleKind; terms: string }[] = [
+  {
+    id: 'action:new-role',
+    label: 'New Role…',
+    kind: 'Role',
+    terms: 'new role create namespaced rbac access permissions',
+  },
+  {
+    id: 'action:new-clusterrole',
+    label: 'New ClusterRole…',
+    kind: 'ClusterRole',
+    terms: 'new clusterrole cluster role create rbac access permissions',
+  },
+]
+
+function matchingRoleActions(query: string) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return []
+  return ROLE_ACTIONS.filter((a) => words.every((w) => a.terms.includes(w)))
+}
 
 export interface CommandPaletteProps {
   open: boolean
@@ -91,6 +115,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }, [candidates, query])
 
   const groups = groupByCategory(results)
+  const actions = matchingRoleActions(query)
 
   function reset() {
     setQuery('')
@@ -150,6 +175,25 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               ))}
             </CommandGroup>
           ))}
+          {actions.length > 0 && (
+            <CommandGroup heading="Actions">
+              {actions.map((a) => (
+                <CommandItem
+                  key={a.id}
+                  value={a.id}
+                  onSelect={() => {
+                    navigate(a.kind === 'Role' ? 'access/roles' : 'access/clusterroles')
+                    requestRoleCreate(a.kind)
+                    onOpenChange(false)
+                    reset()
+                  }}
+                >
+                  <span className="truncate">{a.label}</span>
+                  <span className="ml-auto truncate text-muted-foreground">Access Control</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
         </CommandList>
       </Command>
     </CommandDialog>

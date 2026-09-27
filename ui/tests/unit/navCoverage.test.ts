@@ -15,7 +15,6 @@ const PENDING: Record<string, string[]> = {
   // 043: new sections, mapped in PaneHost (and added to PANEL_SECTIONS) by later phases. Until
   // then `NAV_GROUPS` leaves them out, so the tree and the palette never link to them.
   '043': [
-    'topology',
     'linter',
     'cluster-history',
     'settings/sign-in',
