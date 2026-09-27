@@ -6,6 +6,7 @@
 //! Longhorn in `longhorn.rs` — this works across cert-manager API versions without pinning one.
 //! Read-only: no command in this module ever creates, edits, or deletes anything (spec FR-009).
 
+use super::served_crd::{ServedCrd, find_served};
 use crate::protocol::{
     CertExpiryState, CertManagerOverview, CertReadyState, CertificateChain, CertificateSummary,
     ChainStage, ChainStageKind,
@@ -14,7 +15,6 @@ use chrono::{DateTime, Utc};
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::api::ListParams;
 use kube::core::DynamicObject;
-use kube::core::{ApiResource, GroupVersionKind};
 use kube::{Client, api::Api};
 use serde_json::Value;
 
@@ -26,36 +26,9 @@ const CERTIFICATE_REQUEST_CRD: &str = "certificaterequests.cert-manager.io";
 const ORDER_CRD: &str = "orders.acme.cert-manager.io";
 const CHALLENGE_CRD: &str = "challenges.acme.cert-manager.io";
 
-struct DiscoveredCrd {
-    group: String,
-    version: String,
-    kind: String,
-}
-
-/// Find a served version for `crd_name` among already-listed CRDs.
-fn find_served(crds: &[CustomResourceDefinition], crd_name: &str) -> Option<DiscoveredCrd> {
-    let crd = crds
-        .iter()
-        .find(|c| c.metadata.name.as_deref() == Some(crd_name))?;
-    let group = crd.spec.group.clone();
-    let version = crd
-        .spec
-        .versions
-        .iter()
-        .find(|v| v.served)
-        .map(|v| v.name.clone())?;
-    let kind = crd.spec.names.kind.clone();
-    Some(DiscoveredCrd {
-        group,
-        version,
-        kind,
-    })
-}
-
 /// List every instance of a discovered CRD as dynamic objects, across all namespaces.
-async fn list_instances(client: &Client, crd: &DiscoveredCrd) -> Vec<DynamicObject> {
-    let gvk = GroupVersionKind::gvk(&crd.group, &crd.version, &crd.kind);
-    let resource = ApiResource::from_gvk(&gvk);
+async fn list_instances(client: &Client, crd: &ServedCrd) -> Vec<DynamicObject> {
+    let resource = crd.api_resource();
     let api: Api<DynamicObject> = Api::all_with(client.clone(), &resource);
     api.list(&ListParams::default())
         .await

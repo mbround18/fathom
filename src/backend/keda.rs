@@ -8,6 +8,7 @@
 //!
 //! KEDA defaults used when a spec field is unset: `minReplicaCount: 0`, `maxReplicaCount: 100`.
 
+use super::served_crd::{ServedCrd, find_served};
 use crate::backend::metrics_provider::MetricsProviderTrait;
 use crate::protocol::{
     KedaOverview, KedaResourceDetails, KedaResourceSummary, KedaTrigger, ScaleReasoning,
@@ -18,7 +19,6 @@ use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::api::ListParams;
 use kube::core::DynamicObject;
-use kube::core::{ApiResource, GroupVersionKind};
 use kube::{Client, api::Api};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -34,44 +34,15 @@ const DEFAULT_MIN_REPLICAS: i32 = 0;
 const DEFAULT_MAX_REPLICAS: i32 = 100;
 const PAUSED_ANNOTATION: &str = "autoscaling.keda.sh/paused";
 
-#[derive(Debug, Clone)]
-pub(crate) struct DiscoveredCrd {
-    pub group: String,
-    pub version: String,
-    pub kind: String,
-}
-
-/// Find a served version for `crd_name` among already-listed CRDs.
-pub(crate) fn find_served(
-    crds: &[CustomResourceDefinition],
-    crd_name: &str,
-) -> Option<DiscoveredCrd> {
-    let crd = crds
-        .iter()
-        .find(|c| c.metadata.name.as_deref() == Some(crd_name))?;
-    let version = crd
-        .spec
-        .versions
-        .iter()
-        .find(|v| v.served)
-        .map(|v| v.name.clone())?;
-    Some(DiscoveredCrd {
-        group: crd.spec.group.clone(),
-        version,
-        kind: crd.spec.names.kind.clone(),
-    })
-}
-
-fn api_for(client: &Client, crd: &DiscoveredCrd, namespace: Option<&str>) -> Api<DynamicObject> {
-    let gvk = GroupVersionKind::gvk(&crd.group, &crd.version, &crd.kind);
-    let resource = ApiResource::from_gvk(&gvk);
+fn api_for(client: &Client, crd: &ServedCrd, namespace: Option<&str>) -> Api<DynamicObject> {
+    let resource = crd.api_resource();
     match namespace {
         Some(ns) => Api::namespaced_with(client.clone(), ns, &resource),
         None => Api::all_with(client.clone(), &resource),
     }
 }
 
-async fn list_instances(client: &Client, crd: &DiscoveredCrd) -> Vec<DynamicObject> {
+async fn list_instances(client: &Client, crd: &ServedCrd) -> Vec<DynamicObject> {
     api_for(client, crd, None)
         .list(&ListParams::default())
         .await

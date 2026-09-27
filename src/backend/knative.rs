@@ -6,6 +6,7 @@
 //! versions without pinning an API version. Read-only: this module never mutates a Knative
 //! object.
 
+use super::served_crd::{ServedCrd, find_served};
 use crate::protocol::{
     KnativeOverview, KnativeReadyState, KnativeRevisionSummary, KnativeRouteSummary,
     KnativeRouteTrafficTarget, KnativeScaleReason, KnativeServiceSummary,
@@ -13,7 +14,6 @@ use crate::protocol::{
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::api::ListParams;
 use kube::core::DynamicObject;
-use kube::core::{ApiResource, GroupVersionKind};
 use kube::{Client, api::Api};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -26,38 +26,9 @@ const CONFIGURATION_CRD: &str = "configurations.serving.knative.dev";
 /// Label Knative sets on every object it owns, naming the parent Service.
 const SERVICE_LABEL: &str = "serving.knative.dev/service";
 
-struct DiscoveredCrd {
-    group: String,
-    version: String,
-    kind: String,
-}
-
-/// Find a served version for `crd_name` among already-listed CRDs. Detection is per-kind, not
-/// all-or-nothing (spec.md edge case: a mid-upgrade/partial install still yields data for the
-/// kinds that are served).
-fn find_served(crds: &[CustomResourceDefinition], crd_name: &str) -> Option<DiscoveredCrd> {
-    let crd = crds
-        .iter()
-        .find(|c| c.metadata.name.as_deref() == Some(crd_name))?;
-    let group = crd.spec.group.clone();
-    let version = crd
-        .spec
-        .versions
-        .iter()
-        .find(|v| v.served)
-        .map(|v| v.name.clone())?;
-    let kind = crd.spec.names.kind.clone();
-    Some(DiscoveredCrd {
-        group,
-        version,
-        kind,
-    })
-}
-
 /// List every instance of a discovered CRD as dynamic objects, across all namespaces.
-async fn list_instances(client: &Client, crd: &DiscoveredCrd) -> Vec<DynamicObject> {
-    let gvk = GroupVersionKind::gvk(&crd.group, &crd.version, &crd.kind);
-    let resource = ApiResource::from_gvk(&gvk);
+async fn list_instances(client: &Client, crd: &ServedCrd) -> Vec<DynamicObject> {
+    let resource = crd.api_resource();
     let api: Api<DynamicObject> = Api::all_with(client.clone(), &resource);
     api.list(&ListParams::default())
         .await

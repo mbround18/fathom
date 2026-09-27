@@ -6,6 +6,7 @@
 //! versions without pinning a compiled API type. Read-only: this module has no mutating
 //! functions, matching the pane's read-only scope (FR-010).
 
+use super::served_crd::{ServedCrd, find_served};
 use crate::protocol::{
     VeleroBackupSummary, VeleroOverview, VeleroPhase, VeleroRestoreSummary, VeleroScheduleSummary,
     VeleroStorageLocationSummary,
@@ -13,7 +14,6 @@ use crate::protocol::{
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::api::ListParams;
 use kube::core::DynamicObject;
-use kube::core::{ApiResource, GroupVersionKind};
 use kube::{Client, Error as KubeError, api::Api};
 use serde_json::Value;
 
@@ -25,40 +25,13 @@ const STORAGE_LOCATION_CRD: &str = "backupstoragelocations.velero.io";
 /// Label Velero writes on every Backup it creates from a Schedule.
 const SCHEDULE_NAME_LABEL: &str = "velero.io/schedule-name";
 
-struct DiscoveredCrd {
-    group: String,
-    version: String,
-    kind: String,
-}
-
-/// Find a served version for `crd_name` among already-listed CRDs. Mirrors `flux.rs::find_served`.
-fn find_served(crds: &[CustomResourceDefinition], crd_name: &str) -> Option<DiscoveredCrd> {
-    let crd = crds
-        .iter()
-        .find(|c| c.metadata.name.as_deref() == Some(crd_name))?;
-    let group = crd.spec.group.clone();
-    let version = crd
-        .spec
-        .versions
-        .iter()
-        .find(|v| v.served)
-        .map(|v| v.name.clone())?;
-    let kind = crd.spec.names.kind.clone();
-    Some(DiscoveredCrd {
-        group,
-        version,
-        kind,
-    })
-}
-
 /// List every instance of a discovered CRD as dynamic objects, across all namespaces.
 ///
 /// Unlike `flux.rs::list_instances`, this distinguishes a permission-denied (403) response from
 /// success so the caller can surface `VeleroOverview::permission_denied` instead of a
 /// misleadingly-empty list (specs/022-velero-backup-pane/research.md R5, FR-012).
-async fn list_instances(client: &Client, crd: &DiscoveredCrd) -> Result<Vec<DynamicObject>, bool> {
-    let gvk = GroupVersionKind::gvk(&crd.group, &crd.version, &crd.kind);
-    let resource = ApiResource::from_gvk(&gvk);
+async fn list_instances(client: &Client, crd: &ServedCrd) -> Result<Vec<DynamicObject>, bool> {
+    let resource = crd.api_resource();
     let api: Api<DynamicObject> = Api::all_with(client.clone(), &resource);
     match api.list(&ListParams::default()).await {
         Ok(list) => Ok(list.items),

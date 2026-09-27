@@ -125,15 +125,9 @@ pub async fn apply_resource(
         );
     }
 
-    let (group, version) = split_api_version(api_version);
-    let gvk = GroupVersionKind::gvk(&group, &version, kind);
-    let (api_resource, _caps) = discovery::oneshot::pinned_kind(client, &gvk)
+    let api_resource = resolve_api_resource(client, api_version, kind)
         .await
-        .map_err(|e| {
-            ApplyError::Other(anyhow::anyhow!(
-                "could not discover the API for {kind} ({api_version}): {e}"
-            ))
-        })?;
+        .map_err(ApplyError::Other)?;
 
     let api: Api<DynamicObject> = match namespace {
         Some(ns) => Api::namespaced_with(client.clone(), ns, &api_resource),
@@ -163,15 +157,9 @@ pub async fn create_resource(
     namespace: Option<&str>,
     object: serde_json::Value,
 ) -> Result<String, ApplyError> {
-    let (group, version) = split_api_version(api_version);
-    let gvk = GroupVersionKind::gvk(&group, &version, kind);
-    let (api_resource, _caps) = discovery::oneshot::pinned_kind(client, &gvk)
+    let api_resource = resolve_api_resource(client, api_version, kind)
         .await
-        .map_err(|e| {
-            ApplyError::Other(anyhow::anyhow!(
-                "could not discover the API for {kind} ({api_version}): {e}"
-            ))
-        })?;
+        .map_err(ApplyError::Other)?;
 
     let api: Api<DynamicObject> = match namespace {
         Some(ns) => Api::namespaced_with(client.clone(), ns, &api_resource),
@@ -219,9 +207,10 @@ pub(super) fn emit_resource_applied(
     );
 }
 
-/// Split `"apps/v1"` into `("apps", "v1")`, and `"v1"` into `("", "v1")` (the core group).
-/// Discover the `ApiResource` (group/plural) for `api_version`/`kind`. Shared with the
-/// 018 access pre-check so the check and the real mutation agree on the resource.
+/// Discover the `ApiResource` (group/plural) for `api_version`/`kind`. The one place a
+/// dynamic apiVersion/kind becomes a URL: apply, create, the 018 access pre-check, manifest
+/// export and the MCP tools all go through it, so none of them guesses a plural from the kind
+/// (see `served_crd` for why that breaks on CRDs).
 pub(super) async fn resolve_api_resource(
     client: &Client,
     api_version: &str,
@@ -237,6 +226,7 @@ pub(super) async fn resolve_api_resource(
     Ok(api_resource)
 }
 
+/// Split `"apps/v1"` into `("apps", "v1")`, and `"v1"` into `("", "v1")` (the core group).
 fn split_api_version(api_version: &str) -> (String, String) {
     match api_version.split_once('/') {
         Some((group, version)) => (group.to_owned(), version.to_owned()),

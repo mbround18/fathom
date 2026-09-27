@@ -21,9 +21,8 @@
 //! failure this module's ordering prevents.
 
 use k8s_openapi::api::core::v1::{Event, Pod};
+use kube::ResourceExt;
 use kube::api::{Api, DynamicObject, ListParams, LogParams};
-use kube::core::GroupVersionKind;
-use kube::{ResourceExt, discovery};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo};
@@ -119,13 +118,6 @@ pub(super) fn plural_for_kind(kind: &str) -> String {
         format!("{stem}ies")
     } else {
         format!("{lower}s")
-    }
-}
-
-fn split_api_version(api_version: &str) -> (String, String) {
-    match api_version.split_once('/') {
-        Some((group, version)) => (group.to_owned(), version.to_owned()),
-        None => (String::new(), api_version.to_owned()),
     }
 }
 
@@ -440,13 +432,8 @@ pub(super) async fn dynamic_api(
     kind: &str,
     namespace: Option<&str>,
 ) -> anyhow::Result<Api<DynamicObject>> {
-    let (group, version) = split_api_version(api_version);
-    let gvk = GroupVersionKind::gvk(&group, &version, kind);
-    let (api_resource, _caps) = discovery::oneshot::pinned_kind(client, &gvk)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("could not discover the API for {kind} ({api_version}): {e}")
-        })?;
+    let api_resource =
+        crate::backend::apply::resolve_api_resource(client, api_version, kind).await?;
     Ok(match namespace {
         Some(ns) => Api::namespaced_with(client.clone(), ns, &api_resource),
         None => Api::all_with(client.clone(), &api_resource),

@@ -7,6 +7,7 @@
 //! `longhorn.rs`, so this works across Trivy Operator versions without pinning an API version.
 //! Read-only: Fathom never triggers or configures a scan (spec Non-Goals).
 
+use super::served_crd::{ServedCrd, find_served};
 use crate::protocol::{
     PodVulnerabilityInspection, Severity, SeveritySummary, TrivyOverview, VulnInspectError,
     VulnerabilityFinding, WorkloadVulnSummary,
@@ -15,7 +16,6 @@ use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::api::ListParams;
 use kube::core::DynamicObject;
-use kube::core::{ApiResource, GroupVersionKind};
 use kube::{Client, api::Api};
 use serde_json::Value;
 
@@ -33,32 +33,6 @@ const ALL_CRDS: &[&str] = &[
     RBAC_ASSESSMENT_REPORT_CRD,
 ];
 
-pub(super) struct DiscoveredCrd {
-    group: String,
-    version: String,
-    kind: String,
-}
-
-/// Find a served version for `crd_name` among already-listed CRDs.
-fn find_served(crds: &[CustomResourceDefinition], crd_name: &str) -> Option<DiscoveredCrd> {
-    let crd = crds
-        .iter()
-        .find(|c| c.metadata.name.as_deref() == Some(crd_name))?;
-    let group = crd.spec.group.clone();
-    let version = crd
-        .spec
-        .versions
-        .iter()
-        .find(|v| v.served)
-        .map(|v| v.name.clone())?;
-    let kind = crd.spec.names.kind.clone();
-    Some(DiscoveredCrd {
-        group,
-        version,
-        kind,
-    })
-}
-
 /// The result of trying to list every instance of a discovered CRD: either the items, or a
 /// signal that access was forbidden (FR-013), distinct from "no reports produced yet".
 pub(super) enum ListOutcome {
@@ -67,9 +41,8 @@ pub(super) enum ListOutcome {
 }
 
 /// List every instance of a discovered CRD as dynamic objects, across all namespaces.
-pub(super) async fn list_instances(client: &Client, crd: &DiscoveredCrd) -> ListOutcome {
-    let gvk = GroupVersionKind::gvk(&crd.group, &crd.version, &crd.kind);
-    let resource = ApiResource::from_gvk(&gvk);
+pub(super) async fn list_instances(client: &Client, crd: &ServedCrd) -> ListOutcome {
+    let resource = crd.api_resource();
     let api: Api<DynamicObject> = Api::all_with(client.clone(), &resource);
     match api.list(&ListParams::default()).await {
         Ok(list) => ListOutcome::Items(list.items),
@@ -82,7 +55,7 @@ pub(super) async fn list_instances(client: &Client, crd: &DiscoveredCrd) -> List
 /// `CustomResourceDefinition` list per scan (mirrors `flux::scan_flux`'s discovery step).
 pub(super) async fn discover(
     client: &Client,
-) -> anyhow::Result<Vec<(&'static str, Option<DiscoveredCrd>)>> {
+) -> anyhow::Result<Vec<(&'static str, Option<ServedCrd>)>> {
     let crd_api: Api<CustomResourceDefinition> = Api::all(client.clone());
     let crds = crd_api.list(&ListParams::default()).await?.items;
     Ok(ALL_CRDS

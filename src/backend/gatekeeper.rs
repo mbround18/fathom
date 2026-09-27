@@ -305,6 +305,7 @@ pub(super) async fn scan_gatekeeper(client: &Client) -> anyhow::Result<Gatekeepe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::served_crd::fake_client;
     use serde_json::json;
 
     fn dynamic_object(name: &str, data: Value) -> DynamicObject {
@@ -467,23 +468,6 @@ mod tests {
                 "constraints.gatekeeper.sh/v1beta1/K8sRequiredLabels",
             ]
         );
-    }
-
-    /// A fake API server answering from `route(path)` (status, JSON body).
-    fn fake_client(route: fn(&str) -> (u16, Value)) -> Client {
-        let service = tower::service_fn(move |req: http::Request<kube::client::Body>| {
-            let (status, body) = route(req.uri().path());
-            async move {
-                Ok::<_, std::convert::Infallible>(
-                    http::Response::builder()
-                        .status(status)
-                        .header("content-type", "application/json")
-                        .body(kube::client::Body::from(body.to_string().into_bytes()))
-                        .expect("response"),
-                )
-            }
-        });
-        Client::new(service, "default")
     }
 
     fn gatekeeper_api(path: &str) -> (u16, Value) {
