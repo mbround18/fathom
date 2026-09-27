@@ -185,10 +185,12 @@ test.describe('043 setup screen', () => {
     await expect(contextList(page).getByRole('option')).toHaveText(['kind-b'])
   })
 
-  test('Settings from the header replaces setup until "Back to setup"', async ({ page }) => {
+  test('Settings from the header replaces setup until "Back to setup"', async ({ page }, info) => {
     await open(page, 'no-current-context')
-    await page.getByTestId('overflow-menu').click()
-    await page.getByRole('menuitem', { name: 'Settings' }).click()
+    // 043 US3: Settings is its own header menu; phones reach it through the overflow menu.
+    if (info.project.name.endsWith('-phone')) await page.getByTestId('overflow-menu').click()
+    else await page.getByTestId('settings-menu').click()
+    await page.getByRole('menuitem', { name: 'App settings' }).click()
     await expect(setup(page)).toHaveCount(0)
     await expect(page.getByTestId('setup-back')).toBeVisible()
     await expect(page.locator('[data-slot="pane"]')).toHaveCount(1)

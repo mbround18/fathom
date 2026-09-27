@@ -447,8 +447,8 @@ export async function settledTopologyScale(page: Page): Promise<number> {
 }
 
 /**
- * 043 US6: open the whole-cluster Topology section from the navigator's Cluster group. The
- * navigator's Tools list also has a "Topology" entry, so this targets the section row itself.
+ * 043 US6: open the whole-cluster Topology section from the navigator's Cluster group, targeting
+ * the row by its section key so no other control labelled "Topology" can match.
  */
 export async function openTopologySection(page: Page): Promise<void> {
   const nav = page.getByRole('navigation', { name: 'Sections' })

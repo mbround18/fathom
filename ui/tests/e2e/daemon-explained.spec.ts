@@ -93,9 +93,9 @@ test.describe('Cluster history', () => {
     await expect(listPane(page, 'cluster-history')).toBeVisible()
   })
 
-  // Pending T041 (US5): the dock renders `dockTabs(profile.dock, daemonAvailable)`, which adds
-  // the Cluster history tab only while the daemon is available.
-  test.fixme('the dock shows a Cluster history tab only while the daemon is available', async ({
+  // T041 (US5): the dock renders `dockTabs(profile.dock, daemonAvailable)`, which adds the
+  // Cluster history tab only while the daemon is available.
+  test('the dock shows a Cluster history tab only while the daemon is available', async ({
     page,
   }, info) => {
     test.skip(narrow(info), 'no dock below laptop width')

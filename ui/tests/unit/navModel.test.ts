@@ -249,7 +249,7 @@ describe('nav model', () => {
   })
 
   it('keeps only non-integration tools in the Tools list', () => {
-    expect(NAV_TOOLS).toEqual(['logs', 'topology', 'linter'])
+    expect(NAV_TOOLS).toEqual(['logs'])
   })
 
   it('opens Cluster and Workloads on first run', () => {

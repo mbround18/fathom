@@ -404,8 +404,11 @@ export const NAV_GROUPS: readonly NavSectionGroup[] = NAV_MODEL.map((grp) => ({
     })),
 })).filter((grp) => grp.sections.length > 0)
 
-/** Tools kept in the navigator's Tools list (integrations now live under Integrations). */
-export const NAV_TOOLS: readonly string[] = ['logs', 'topology', 'linter']
+/**
+ * Tools kept in the navigator's Tools list. Integrations live under Integrations, and Topology and
+ * the linter are Cluster sections (043), so listing them here too would show each twice.
+ */
+export const NAV_TOOLS: readonly string[] = ['logs']
 
 /** Groups open on first run, before `UiConfigLoaded` says otherwise. */
 export const DEFAULT_EXPANDED_GROUPS: readonly string[] = NAV_MODEL.filter(
