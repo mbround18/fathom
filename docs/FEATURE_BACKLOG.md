@@ -72,13 +72,28 @@ rebuilding on each update), and must stay inside the SC-004 keystroke budget (`p
 The palette's ranking tests will need to be re-baselined, and bundle size needs checking (use the
 light build if it suffices).
 
-## Follow-up: guessed CRD plurals in integration scanners
+## Closed: guessed CRD plurals in integration scanners
 
 The Gatekeeper scan 404ed because kube-rs guessed the plural from the kind
-(`K8sAllowedRepos` became `k8sallowedreposes`). Gatekeeper now takes the plural from API
-discovery. Audit the other integration scanners (Flux, Velero, KEDA, Knative, cert-manager,
-Trivy, Argo) for `ApiResource::from_gvk` or other plural guessing on CRDs with irregular plurals,
-and switch them to discovery too.
+(`K8sAllowedRepos` became `k8sallowedreposes`). Gatekeeper takes the plural from API discovery.
+
+**Status (2026-09-26): closed.** Audited every `ApiResource` built for a CRD:
+
+- Flux, Velero, KEDA, Knative, cert-manager, Trivy and Longhorn already LIST CRDs, so they now
+  share `src/backend/served_crd.rs`, which takes the plural from the CRD's own
+  `spec.names.plural` (the name discovery reports). This costs no extra round-trip and needs no
+  cache. The six copies of `find_served` are gone.
+- YAML apply/create, the 018 access pre-check, manifest export and the MCP read tools all resolve
+  a dynamic `apiVersion`/`kind` through one discovery call, `apply::resolve_api_resource`. Manifest
+  export already caches it per `apiVersion`/`kind` within one export.
+- The Custom Resources browser already used the CRD's declared plural and still does.
+- Nothing is left to fix. Argo has no CRD scanner (config only). The VPA and `metrics.k8s.io`
+  kinds keep `from_gvk`: their plurals are fixed, and kube-rs maps `PodMetrics` and
+  `NodeMetrics` to `pods` and `nodes` itself.
+- Still open: the MCP RBAC guard (`mcp::tools_read::plural_for_kind`) still derives a plural
+  locally, on purpose, so it can refuse before any cluster call. A wrong guess only makes the
+  guard stricter, never looser, and the API server still authorizes the real request. Its only
+  mutation use is Pod, Deployment and StatefulSet, whose plurals are regular.
 
 ## Tier 4 — needs an architecture spike before spec-kit
 
