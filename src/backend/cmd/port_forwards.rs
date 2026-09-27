@@ -193,7 +193,7 @@ async fn start_service_port_forward(
     } else {
         let Some(local_port) = pick_local_port(port, portforward::is_local_port_available) else {
             fail(format!(
-                "No free local port near {port} for {namespace}/{service}"
+                "No free local port (10000 and up) for {namespace}/{service}:{port}"
             ));
             return;
         };
@@ -281,10 +281,20 @@ fn target_port_for(
     }
 }
 
-/// `preferred` when free, else the next free port above it (bounded search).
+/// Lowest local port a forward is auto-assigned (feedback 2026-09-27 #27): high enough to stay
+/// clear of well-known and commonly used development ports.
+const AUTO_LOCAL_PORT_MIN: u16 = 10_000;
+
+/// Local port for an auto-assigned forward: `preferred` when it is at least
+/// [`AUTO_LOCAL_PORT_MIN`] and free, else the next free port above the start, wrapping around to
+/// [`AUTO_LOCAL_PORT_MIN`]. `is_free` should really bind the port
+/// ([`portforward::is_local_port_available`]). Ports the user types in are not routed through
+/// here; they are used as given.
 fn pick_local_port(preferred: u16, is_free: impl Fn(u16) -> bool) -> Option<u16> {
-    let start = preferred.max(1024);
-    (start..=start.saturating_add(200)).find(|p| is_free(*p))
+    let start = preferred.max(AUTO_LOCAL_PORT_MIN);
+    (start..=u16::MAX)
+        .chain(AUTO_LOCAL_PORT_MIN..start)
+        .find(|p| is_free(*p))
 }
 
 async fn stop_port_forward(
@@ -380,11 +390,36 @@ mod tests {
     }
 
     #[test]
-    fn local_port_prefers_service_port_then_next_free() {
-        assert_eq!(pick_local_port(3000, |_| true), Some(3000));
-        assert_eq!(pick_local_port(3000, |p| p > 3001), Some(3002));
-        // Privileged ports are never bound locally.
-        assert_eq!(pick_local_port(80, |_| true), Some(1024));
+    fn local_port_is_auto_assigned_from_10000_up() {
+        // Low service ports (privileged or common dev ports) map to 10000 and up.
+        assert_eq!(pick_local_port(80, |_| true), Some(10_000));
+        assert_eq!(pick_local_port(3000, |_| true), Some(10_000));
+        assert_eq!(pick_local_port(3000, |p| p > 10_001), Some(10_002));
+        // A service port already in the auto range is kept when free.
+        assert_eq!(pick_local_port(30_000, |_| true), Some(30_000));
+        assert_eq!(pick_local_port(30_000, |p| p != 30_000), Some(30_001));
+        // The search wraps around to the bottom of the range.
+        assert_eq!(pick_local_port(u16::MAX, |p| p == 10_005), Some(10_005));
         assert_eq!(pick_local_port(3000, |_| false), None);
+        // Never below the range, whatever is free.
+        assert_eq!(
+            pick_local_port(80, |p| p < 10_000 || p == 12_345),
+            Some(12_345)
+        );
+    }
+
+    #[test]
+    fn local_port_skips_ports_that_are_really_bound() {
+        use std::net::{Ipv4Addr, TcpListener};
+
+        // Hold a port in the auto range and check the real bind probe steps over it.
+        let held = (AUTO_LOCAL_PORT_MIN..=u16::MAX)
+            .find_map(|p| TcpListener::bind((Ipv4Addr::LOCALHOST, p)).ok())
+            .expect("a bindable port in the auto range");
+        let port = held.local_addr().unwrap().port();
+        assert!(!portforward::is_local_port_available(port));
+        let picked = pick_local_port(port, portforward::is_local_port_available).unwrap();
+        assert_ne!(picked, port);
+        assert!(picked >= AUTO_LOCAL_PORT_MIN);
     }
 }

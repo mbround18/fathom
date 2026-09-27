@@ -3,9 +3,19 @@
  * existing `Refresh*` list commands and per-object `Select*` reads (through the store's
  * `refreshSection`/`inspect`), and opens the Inspector on click. It never sends a mutation.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import {
+  beginRefresh,
+  displayedReport,
+  formatAge,
+  isFresh,
+  lintCacheEntry,
+  lintScopeKey,
+  needsRefresh,
+  recordReport,
+} from '@/linter/cache'
 import { detailTargets, nextBatch } from '@/linter/fetchPlan'
 import { evaluate } from '@/linter/evaluate'
 import { filterFindings } from '@/linter/filter'
@@ -15,12 +25,18 @@ import {
   SEVERITIES,
   type Category,
   type Finding,
-  type LintInput,
   type Severity,
 } from '@/linter/types'
 import { descriptorFor } from '@/resources'
 import { useFirstRun } from '@/lib/use-first-run'
-import { detailKey, listKey, useStore, type PaneId } from '@/store'
+import {
+  detailKey,
+  listKey,
+  useStore,
+  type DetailState,
+  type ListState,
+  type PaneId,
+} from '@/store'
 
 import { FirstRunState } from '../shell/FirstRunState'
 import { Disconnected, Empty } from '../shell/PaneStates'
@@ -44,6 +60,12 @@ const SEVERITY_CLASS: Record<Severity, string> = {
   low: 'text-muted-foreground',
 }
 
+/** The linter's `LintInput` over the store, keeping the store's arrival timestamps. */
+interface StoreInput {
+  rows: (section: string) => ListState | undefined
+  detail: (kind: string, namespace: string | null, name: string) => DetailState | undefined
+}
+
 export function LinterPanel({ paneId }: { paneId: PaneId }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
   const firstRun = useFirstRun()
@@ -58,51 +80,100 @@ export function LinterPanel({ paneId }: { paneId: PaneId }) {
   const [severity, setSeverity] = useState<Severity | null>(null)
   const [category, setCategory] = useState<Category | null>(null)
 
-  // Cached rows/details only: the linter itself performs no cluster access (FR-002).
-  const input = useMemo<LintInput>(
+  const scopeKey = lintScopeKey(ctx, activeNamespace)
+  const entry = useMemo(() => lintCacheEntry(scopeKey), [scopeKey])
+  // Bumped by a manual refresh so this render picks up the new `entry.detailsSince`.
+  const [, setRefreshGen] = useState(0)
+  const detailsSince = entry.detailsSince
+
+  // Cached rows/details only: the linter itself performs no cluster access (FR-002). Details
+  // older than a manual refresh count as missing, so they are read again.
+  const input = useMemo<StoreInput>(
     () => ({
-      rows: (section) => {
+      rows: (section): ListState | undefined => {
         const scope = descriptorFor(section)?.namespaced === false ? 'Cluster' : 'Namespaced'
         return lists[listKey(ctx, section, scope, null)]
       },
-      detail: (kind, namespace, name) => details[detailKey(ctx, kind, namespace, name)],
+      detail: (kind, namespace, name): DetailState | undefined => {
+        const d = details[detailKey(ctx, kind, namespace, name)]
+        return d && isFresh(detailsSince, d.updatedAt) ? d : undefined
+      },
     }),
-    [lists, details, ctx],
+    [lists, details, ctx, detailsSince],
   )
 
-  // Mount / scope change: refresh the lists the rules read (existing commands only).
-  useEffect(() => {
+  const refreshLists = useCallback(() => {
     for (const section of REFRESH_SECTIONS) refreshSection(section)
-  }, [refreshSection, ctx, activeNamespace])
+  }, [refreshSection])
 
-  // Throttled, progressive per-object detail reads for the active scope (research R6).
-  const sent = useRef(new Map<string, number>())
-  const sentCtx = useRef(ctx)
-  const [tick, setTick] = useState(0)
-  const report = useMemo(() => evaluate(input), [input])
+  // Mount / scope change (#24): reuse the cached run for this context and namespace. The lists
+  // are re-sent only when this scope has never run, the TTL has passed, or the store lost them.
   useEffect(() => {
-    if (sentCtx.current !== ctx) {
-      sentCtx.current = ctx
-      sent.current = new Map()
+    const now = Date.now()
+    const { lists: stored } = useStore.getState()
+    const missing = REFRESH_SECTIONS.some((section) => {
+      const scope = descriptorFor(section)?.namespaced === false ? 'Cluster' : 'Namespaced'
+      return stored[listKey(ctx, section, scope, null)] === undefined
+    })
+    if (!missing && !needsRefresh(entry, now)) return
+    beginRefresh(entry, now, false)
+    refreshLists()
+  }, [refreshLists, ctx, entry])
+
+  const onRefresh = () => {
+    beginRefresh(entry, Date.now(), true)
+    setRefreshGen((n) => n + 1)
+    refreshLists()
+  }
+
+  // Throttled, progressive per-object detail reads for the active scope (research R6). The sent
+  // map lives in the cache entry, so reads still in flight from an earlier mount are not re-sent.
+  const [tick, setTick] = useState(0)
+  // `dataAt`: arrival time of the newest list or detail the report was computed from, which is
+  // what the age readout reports (how old the result's data is).
+  const { live, dataAt } = useMemo(() => {
+    let at = 0
+    for (const section of REFRESH_SECTIONS) at = Math.max(at, input.rows(section)?.updatedAt ?? 0)
+    for (const t of detailTargets(input)) {
+      at = Math.max(at, input.detail(t.kind, t.namespace, t.name)?.updatedAt ?? 0)
     }
+    return { live: evaluate(input), dataAt: at }
+  }, [input])
+  useEffect(() => {
     const now = Date.now()
     const batch = nextBatch(
       detailTargets(input),
       (t) => input.detail(t.kind, t.namespace, t.name) !== undefined,
-      sent.current,
+      entry.sent,
       now,
     )
     for (const t of batch) {
-      sent.current.set(`${t.kind}|${t.namespace ?? '*'}|${t.name}`, now)
+      entry.sent.set(`${t.kind}|${t.namespace ?? '*'}|${t.name}`, now)
       inspect(t.kind, t.namespace ?? '', t.name)
     }
-  }, [input, ctx, inspect, tick])
+  }, [input, entry, inspect, tick])
   // Re-run while reads are outstanding so expired requests free their slots.
   useEffect(() => {
-    if (report.pendingObjects === 0) return
+    if (live.pendingObjects === 0) return
     const id = setInterval(() => setTick((n) => n + 1), 2000)
     return () => clearInterval(id)
-  }, [report.pendingObjects])
+  }, [live.pendingObjects])
+
+  // A section is settled once it is not loading (ready, failed or denied all count).
+  const listsSettled = REFRESH_SECTIONS.every((s) => input.rows(s)?.status !== 'loading')
+  // Cache bookkeeping only (idempotent): remember the report once the run is complete.
+  const evaluatedAt = useMemo(() => {
+    recordReport(entry, live, listsSettled, dataAt)
+    return entry.evaluatedAt
+  }, [entry, live, listsSettled, dataAt])
+  const report = displayedReport(entry, live, listsSettled)
+
+  // Re-render the age readout now and then.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 15_000)
+    return () => clearInterval(id)
+  }, [])
 
   const visible = useMemo(
     () => filterFindings(report.findings, { severity, category }),
@@ -162,14 +233,27 @@ export function LinterPanel({ paneId }: { paneId: PaneId }) {
             Clear
           </Button>
         )}
+        <span className="ml-auto flex items-center gap-2">
+          {evaluatedAt !== undefined && (
+            <span data-testid="linter-age" className="text-muted-foreground">
+              Updated {formatAge(Math.max(0, now - evaluatedAt))}
+            </span>
+          )}
+          <Button size="sm" variant="ghost" data-testid="linter-refresh" onClick={onRefresh}>
+            Refresh
+          </Button>
+        </span>
       </div>
 
-      {report.pendingObjects > 0 && (
+      {(live.pendingObjects > 0 || !listsSettled) && (
         <div
           className="border-b border-border px-3 py-1 text-xs text-muted-foreground"
           data-testid="linter-progress"
         >
-          Still evaluating {report.pendingObjects} objects...
+          {live.pendingObjects > 0
+            ? `Still evaluating ${live.pendingObjects} objects...`
+            : 'Refreshing resource lists...'}
+          {report !== live && ' Showing the last result until this run finishes.'}
         </div>
       )}
       {skipped.length > 0 && (
@@ -189,7 +273,7 @@ export function LinterPanel({ paneId }: { paneId: PaneId }) {
         <Empty
           title={report.findings.length === 0 ? 'No findings' : 'No findings match the filters'}
           detail={
-            report.pendingObjects > 0
+            live.pendingObjects > 0 || !listsSettled
               ? 'Evaluation is still in progress.'
               : 'Every checked resource passed the enabled rules.'
           }
