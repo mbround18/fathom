@@ -46,13 +46,16 @@ describe('fixtures match the generated protocol', () => {
     expect(updated?.data).toEqual({ contexts: [...CONTEXTS], current: 'kind-a' })
   })
 
-  it('no-kubeconfig reports no contexts and an error notification', () => {
+  it('no-kubeconfig reports no contexts and the classified Missing issue, not a raw error', () => {
     const events = systemEvents(fixtures['no-kubeconfig'])
     expect(events).toContainEqual({
       type: 'ContextsUpdated',
       data: { contexts: [], current: null },
     })
-    expect(events.some((e) => e.type === 'Notification' && e.data.level === 'Error')).toBe(true)
+    expect(
+      events.some((e) => e.type === 'KubeconfigStatus' && e.data.issue?.kind === 'Missing'),
+    ).toBe(true)
+    expect(events.some((e) => e.type === 'Notification' && e.data.level === 'Error')).toBe(false)
   })
 
   it('pods-10k holds 10,000 uniquely named pods', () => {

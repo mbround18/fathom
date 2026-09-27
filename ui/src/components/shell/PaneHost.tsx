@@ -45,19 +45,14 @@ import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
 import { cn } from '@/lib/utils'
+import { useFirstRun } from '@/lib/use-first-run'
 import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
 
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
 import { paneTitle } from './labels'
-import {
-  Disconnected,
-  Empty,
-  ErrorState,
-  Loading,
-  NoKubeconfig,
-  NotPermitted,
-} from './PaneStates'
+import { FirstRunState } from './FirstRunState'
+import { Disconnected, Empty, ErrorState, Loading, NotPermitted } from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -266,11 +261,19 @@ function deniedVia(section: string): string {
   return section === SECTION.argo ? SECTION.customResources : section
 }
 
+/** Sections that render without a connected cluster (local settings and records). */
+const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
+  SECTION.clusterSettings,
+  SECTION.teams,
+  SECTION.teamProfiles,
+  SECTION.auditLog,
+  SECTION.oidcConfig,
+])
+
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
 function ListBody({ pane }: { pane: PaneState }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
-  const notice = useStore((s) => s.conn.lastNotice?.message)
+  const firstRun = useFirstRun()
   const ctx = useStore((s) => s.session.activeContext)
   const section = pane.route?.section
   const descriptor = descriptorFor(section)
@@ -284,10 +287,12 @@ function ListBody({ pane }: { pane: PaneState }) {
   )
 
   if (disconnected) return <Disconnected />
-  if (noKubeconfig) return <NoKubeconfig detail={notice} />
   if (section === undefined) {
     return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
   }
+  // First run / cluster unusable: explain it with a next step instead of a list that can only
+  // fail. Sections that work without a cluster (settings, audit log, generators) still open.
+  if (firstRun && !CLUSTERLESS_SECTIONS.has(section)) return <FirstRunState state={firstRun} />
   // 031: a section the identity may not read (RBAC 403) says so, whatever renders it; the
   // Overview instead degrades card by card.
   if (denied !== undefined && section !== SECTION.overview && !(list?.rows.length ?? 0)) {

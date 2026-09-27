@@ -4,7 +4,7 @@ import type { StreamEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
 import { markApplied } from '../editSession'
-import type { ExecStreamState, LogStreamState } from '../index'
+import { type ExecStreamState, type LogStreamState, useStore } from '../index'
 import { RingBuffer } from '../ring-buffer'
 
 /** Decode a base64-encoded backend byte chunk into a UTF-8/binary-safe string for xterm.js. */
@@ -159,6 +159,29 @@ export function handleStream(d: Draft, event: StreamEvent): void {
         kind.clusters = kind.clusters.filter((c) => c.name !== prev.clusterName)
       }
       const cancelled = !event.data.ok && event.data.error === 'cancelled'
+      // First run: a freshly created cluster becomes the active context when nothing usable was
+      // connected (no kubeconfig, no context, or an unreachable one), so "Create a local
+      // cluster" ends on a working cluster instead of the same empty state.
+      if (prev.kind === 'create' && event.data.ok) {
+        const session = d.read('session')
+        const active = session.activeContext
+        // Whether anything usable was connected before this create. `ContextsUpdated` (sent
+        // just before this event) may already have made the new context active, but the backend
+        // has not connected to it: that counts as unusable too.
+        const target = `kind-${prev.clusterName}`
+        const unusable =
+          active === undefined ||
+          active === target ||
+          session.kubeconfigIssue !== undefined ||
+          session.connectionProblems[active] !== undefined
+        if (unusable) {
+          d.effects.push(() => {
+            const s = useStore.getState()
+            if (s.session.activeContext === target) s.retryConnection()
+            else s.selectContext(target)
+          })
+        }
+      }
       kind.operations = {
         ...kind.operations,
         [event.data.request_id]: {

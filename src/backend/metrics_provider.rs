@@ -77,7 +77,7 @@ impl PromEndpoint {
         match self {
             Self::Url(base) => {
                 let url = format!("{}{}", base.trim_end_matches('/'), path_and_query);
-                let resp = reqwest::Client::new()
+                let resp = crate::backend::http_client::shared()
                     .get(&url)
                     .timeout(PROM_TIMEOUT)
                     .send()

@@ -2598,6 +2598,21 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::ContextChanged {
             current: Some("s".to_owned()),
         },
+        SystemEvent::KubeconfigStatus {
+            issue: Some(fathom::protocol::KubeconfigIssue {
+                kind: fathom::protocol::KubeconfigIssueKind::Malformed,
+                paths: vec!["s".to_owned()],
+                detail: "s".to_owned(),
+            }),
+        },
+        SystemEvent::ActiveConnectionProblem {
+            context: "s".to_owned(),
+            problem: Some(fathom::protocol::ConnectionProblem {
+                kind: fathom::protocol::ConnectionProblemKind::Unauthorized,
+                server: Some("s".to_owned()),
+                detail: "s".to_owned(),
+            }),
+        },
         SystemEvent::ContextStatusUpdated {
             context: "s".to_owned(),
             status: fathom::protocol::ContextConnectionStatus::Error,
@@ -3114,6 +3129,8 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::Notification { .. } => {}
         SystemEvent::ContextsUpdated { .. } => {}
         SystemEvent::ContextChanged { .. } => {}
+        SystemEvent::KubeconfigStatus { .. } => {}
+        SystemEvent::ActiveConnectionProblem { .. } => {}
         SystemEvent::ContextStatusUpdated { .. } => {}
         SystemEvent::CloudAuthDetected { .. } => {}
         SystemEvent::NamespaceFilterChanged { .. } => {}

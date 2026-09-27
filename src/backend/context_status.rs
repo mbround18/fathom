@@ -88,6 +88,72 @@ async fn probe_context(context_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// One cheap authenticated round trip (`GET /version`) on the active client, bounded by
+/// `PROBE_TIMEOUT`. `Config::from_custom_kubeconfig` is lazy, so without this an unreachable
+/// server or a rejected token was reported as "Connected" and then failed in every pane.
+///
+/// Only a transport failure or `401 Unauthorized` fails the probe. Any other API status (a
+/// restricted identity denied `/version` with 403, a proxy that does not route it) still proves
+/// the server is reachable and accepted the credentials, so the connection goes ahead and the
+/// panes report their own permission errors.
+pub(super) async fn probe_client(client: &kube::Client) -> anyhow::Result<()> {
+    let res = tokio::time::timeout(PROBE_TIMEOUT, client.apiserver_version())
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "Timed out after {}s waiting for the API server",
+                PROBE_TIMEOUT.as_secs()
+            )
+        })?;
+    match res {
+        Ok(_) => Ok(()),
+        Err(e) if probe_error_is_fatal(&e) => Err(e.into()),
+        Err(_) => Ok(()),
+    }
+}
+
+fn probe_error_is_fatal(e: &kube::Error) -> bool {
+    match e {
+        kube::Error::Api(status) => status.code == 401,
+        _ => true,
+    }
+}
+
+/// The active context failed to connect (or dropped): mark it `Error` and tell the UI what kind
+/// of failure it was, so it can show a next step instead of the raw error.
+pub(super) fn emit_active_problem(
+    seq: &Arc<AtomicU64>,
+    sender: &Sender<BackendEventEnvelope>,
+    context: &str,
+    err: &anyhow::Error,
+) {
+    emit_status_err(seq, sender, context, err);
+    let problem = super::first_run::classify_connection_error(
+        err,
+        super::first_run::server_for_context(context),
+    );
+    emit_active_problem_value(seq, sender, context, Some(problem));
+}
+
+/// Emit `ActiveConnectionProblem` for `context` (`None` = the connection is healthy).
+pub(super) fn emit_active_problem_value(
+    seq: &Arc<AtomicU64>,
+    sender: &Sender<BackendEventEnvelope>,
+    context: &str,
+    problem: Option<crate::protocol::ConnectionProblem>,
+) {
+    events::emit(
+        seq.as_ref(),
+        sender,
+        Route::global(section_keys::system()),
+        Correlation::None,
+        BackendEvent::System(SystemEvent::ActiveConnectionProblem {
+            context: context.to_owned(),
+            problem,
+        }),
+    );
+}
+
 /// Emit a `ContextStatusUpdated` event. `error` MUST be `None` unless `status ==
 /// ContextConnectionStatus::Error` (data-model.md invariant); this is the sole construction
 /// site besides `cmd/cluster.rs`'s active-context bracketing, both of which honor it by
@@ -149,6 +215,26 @@ fn emit_status_full(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn api_error(code: u16) -> kube::Error {
+        kube::Error::Api(kube::core::ErrorResponse {
+            status: "Failure".into(),
+            message: String::new(),
+            reason: String::new(),
+            code,
+        })
+    }
+
+    #[test]
+    fn only_a_rejected_token_fails_the_connect_probe() {
+        assert!(probe_error_is_fatal(&api_error(401)));
+        // A restricted identity denied /version still reached an API server that accepted it.
+        assert!(!probe_error_is_fatal(&api_error(403)));
+        assert!(!probe_error_is_fatal(&api_error(404)));
+        assert!(probe_error_is_fatal(
+            &kube::Error::LinesCodecMaxLineLengthExceeded
+        ));
+    }
 
     #[test]
     fn active_context_is_excluded_from_probing() {

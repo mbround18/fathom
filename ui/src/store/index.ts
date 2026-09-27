@@ -26,9 +26,11 @@ import type {
   AuditLogEntry,
   BackendCmd,
   ClusterSettings,
+  ConnectionProblem,
   ConnectionProfile,
   ContextConnectionStatus,
   KindClusterSummary,
+  KubeconfigIssue,
   KindPrerequisites,
   CrdCatalogEntry,
   DiskUsage,
@@ -212,6 +214,12 @@ export interface SessionState {
    * write per context wins — the backend never double-writes the same context (data-model.md
    * §"Frontend"). */
   contextStatuses: Record<string, ContextStatusEntry>
+  /** First-run UX: why the kubeconfig gave nothing to connect to (`KubeconfigStatus`); absent
+   * when it is usable. Local mode only: hosted mode never reads a kubeconfig. */
+  kubeconfigIssue?: KubeconfigIssue
+  /** First-run UX: the classified reason a context's connection failed or dropped
+   * (`ActiveConnectionProblem`). A context is removed once it connects again. */
+  connectionProblems: Record<string, ConnectionProblem>
   /** 035: detected exec-plugin (cloud auth) info per context; refreshed by `CloudAuthDetected`. */
   cloudAuth: Record<string, CloudAuthInfo>
   /** 027-fleet-rollup-dashboard: latest poll summary per context; runtime-only, populated only
@@ -822,6 +830,9 @@ export interface StoreState extends StoreData {
   notify: (level: Notice['level'], message: string) => void
   /** Switch kubeconfig context: sends `SetContext`; results for other contexts are then dropped. */
   selectContext: (name: string) => void
+  /** First-run UX: reconnect the active context (`SetContext` again), or re-read the kubeconfig
+   * (`Initialize`) when none is active. The panes show loading until the backend answers. */
+  retryConnection: () => void
   /** 027: start/stop the backend's view-scoped fleet pollers (Fleet Dashboard mount/unmount). */
   startFleetPolling: () => void
   stopFleetPolling: () => void
@@ -1070,6 +1081,12 @@ export const DEFAULT_THEME: ThemePrefs = {
 
 export const DEFAULT_UI: UiConfig = { schema: 1, theme: DEFAULT_THEME, density: {}, layouts: {} }
 
+/** `record` without `key` (the same object when `key` is absent). */
+export function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record
+  return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
+}
+
 /** A fresh copy of the store's data (also used by tests to reset between cases). */
 export function initialData(): StoreData {
   const profile = resolveProfile('phone')
@@ -1084,6 +1101,7 @@ export function initialData(): StoreData {
       activeNamespace: null,
       namespaceFilter: [],
       contextStatuses: {},
+      connectionProblems: {},
       cloudAuth: {},
       fleetSummaries: {},
       federation: initialFederation(),
@@ -1385,6 +1403,8 @@ export const useStore = create<StoreState>()((set, get) => ({
         activeNamespace: null,
         namespaceFilter: [],
         namespaces: [],
+        // A problem from an earlier attempt is stale: the switch reports afresh.
+        connectionProblems: withoutKey(s.session.connectionProblems, name),
       },
       lists: markLoading(s.lists, name, CONTEXT_LISTS),
       // 018: cached permission answers belong to the previous context's identity.
@@ -1392,6 +1412,24 @@ export const useStore = create<StoreState>()((set, get) => ({
       denied: {},
     })
     s.send({ type: 'SetContext', data: { context: name } })
+  },
+
+  retryConnection: () => {
+    const s = get()
+    const ctx = s.session.activeContext
+    if (ctx === undefined) {
+      s.send({ type: 'Initialize' })
+      return
+    }
+    set({
+      conn: withoutNotice(s.conn),
+      session: {
+        ...s.session,
+        connectionProblems: withoutKey(s.session.connectionProblems, ctx),
+      },
+      lists: markLoading(s.lists, ctx, CONTEXT_LISTS),
+    })
+    s.send({ type: 'SetContext', data: { context: ctx } })
   },
 
   selectNamespace: (ns) => {

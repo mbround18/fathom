@@ -18,7 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { CircuitTrace } from '@/theme/CircuitTrace'
 
-interface StateFrameProps {
+export interface StateFrameProps {
   icon?: Icon
   title: string
   detail?: ReactNode
@@ -28,7 +28,7 @@ interface StateFrameProps {
   kind: string
 }
 
-function StateFrame({
+export function StateFrame({
   icon: IconCmp,
   title,
   detail,
@@ -150,17 +150,6 @@ export function NotPermitted({ what, detail }: { what?: string; detail?: ReactNo
         detail ??
         `Your Kubernetes identity is not allowed to read ${what ?? 'this'} in the selected scope. Ask a cluster admin for access, or pick a namespace you can read.`
       }
-    />
-  )
-}
-
-export function NoKubeconfig({ detail }: { detail?: ReactNode }) {
-  return (
-    <StateFrame
-      kind="no-kubeconfig"
-      title="No kubeconfig"
-      detail={detail ?? 'Set KUBECONFIG or create ~/.kube/config, then reload.'}
-      trace
     />
   )
 }

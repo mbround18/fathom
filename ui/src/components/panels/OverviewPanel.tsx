@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { StatusBadge } from '@/components/StatusBadge'
-import { Disconnected, Empty, NoKubeconfig } from '@/components/shell/PaneStates'
+import { FirstRunState } from '@/components/shell/FirstRunState'
+import { Disconnected, Empty } from '@/components/shell/PaneStates'
+import { useFirstRun } from '@/lib/use-first-run'
 import { SECTION } from '@/protocol/commands'
 import type { NodeSummary, PodSummary, WorkloadSummary } from '@/protocol/types'
 import { statusTone } from '@/resources/search'
@@ -60,7 +62,7 @@ export function summarize(
 export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   const ctx = useStore((s) => s.session.activeContext)
   const gone = useStore((s) => s.conn.status === 'backend-gone')
-  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
+  const firstRun = useFirstRun()
   const nodeRows = useStore((s) => s.lists[listKey(ctx, SECTION.nodes, 'Cluster', null)]?.rows)
   const podRows = useStore((s) => s.lists[listKey(ctx, SECTION.pods, 'Namespaced', null)]?.rows)
   const depRows = useStore(
@@ -94,11 +96,11 @@ export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   const missingPods = podRows === undefined
   const missingDeps = depRows === undefined
   useEffect(() => {
-    if (ctx === undefined) return
+    if (ctx === undefined || firstRun) return
     if (missingNodes) refreshSection(SECTION.nodes)
     if (missingPods) refreshSection(SECTION.pods)
     if (missingDeps) refreshSection(SECTION.deployments)
-  }, [ctx, missingNodes, missingPods, missingDeps, refreshSection])
+  }, [ctx, firstRun, missingNodes, missingPods, missingDeps, refreshSection])
 
   const counts = useMemo(() => summarize(nodeRows, podRows, depRows), [nodeRows, podRows, depRows])
   const warnings = useMemo(
@@ -107,7 +109,7 @@ export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   )
 
   if (gone) return <Disconnected />
-  if (noKubeconfig) return <NoKubeconfig />
+  if (firstRun) return <FirstRunState state={firstRun} />
   if (ctx === undefined) {
     return <Empty title="Not connected" detail="Connect to a cluster to see its overview." />
   }

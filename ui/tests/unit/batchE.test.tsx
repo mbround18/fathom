@@ -201,13 +201,13 @@ describe('OverviewPanel', () => {
     expect(within(panel).queryByText('Started')).toBeNull()
   })
 
-  it('is empty only when disconnected', () => {
+  it('without an active context asks to pick one (first run)', () => {
     seed([])
     useStore.setState({
       session: { ...useStore.getState().session, activeContext: undefined },
     } as never)
     render(<OverviewPanel />)
-    expect(screen.getByText('Not connected')).toBeTruthy()
+    expect(screen.getByText('Pick a context')).toBeTruthy()
   })
 })
 

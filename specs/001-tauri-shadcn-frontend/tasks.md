@@ -533,7 +533,7 @@ description: "Task list for replacing the egui UI with Tauri v2 + React/shadcn (
   - The egui deps and the `egui-ui` feature from `Cargo.toml`, and the `[[bin]]` for `fathom` (the shipping binary is now `fathom-desktop`, bundled as "Fathom").
   - `#[cfg(feature = "egui-ui")]` in `src/lib.rs`.
   - Also update the `pipeline/src/pipeline.rs` and `.github/workflows/ci.yml` steps that referenced the egui binary.
-- [ ] T126 _(deferred: awaiting funding)_ Run the full quickstart.md validation (V1–V13) on each Tier 1 platform (Ubuntu 26.04 LTS x86_64 and arm64, Windows 11 x86_64, macOS 26 Tahoe arm64 and x86_64), using the T122 artifacts. Record the OS build, the artifact, and the pass/fail per scenario in `specs/001-tauri-shadcn-frontend/checklists/release-validation.md`. Where GitHub has no hosted runner for a Tier 1 OS, the manual run recorded there is required before publishing (constitution, Supported Platforms).
+- [ ] T126 _(partial: Linux x86_64 package install and first-run checks recorded 2026-09-26 in `checklists/release-validation.md`; arm64, Windows, macOS and the full V1–V13 pass remain)_ Run the full quickstart.md validation (V1–V13) on each Tier 1 platform (Ubuntu 26.04 LTS x86_64 and arm64, Windows 11 x86_64, macOS 26 Tahoe arm64 and x86_64), using the T122 artifacts. Record the OS build, the artifact, and the pass/fail per scenario in `specs/001-tauri-shadcn-frontend/checklists/release-validation.md`. Where GitHub has no hosted runner for a Tier 1 OS, the manual run recorded there is required before publishing (constitution, Supported Platforms).
 
 ---
 

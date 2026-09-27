@@ -427,7 +427,7 @@ enum AuthScheme {
 
 async fn probe_auth_scheme(registry: &str) -> AuthScheme {
     let url = format!("https://{registry}/v2/");
-    let Ok(resp) = reqwest::Client::new().get(&url).send().await else {
+    let Ok(resp) = crate::backend::http_client::shared().get(&url).send().await else {
         return AuthScheme::StandardOrUnknown;
     };
     if resp.status() != reqwest::StatusCode::UNAUTHORIZED {

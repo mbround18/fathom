@@ -10,6 +10,7 @@ import type { CertificateChain } from "./CertificateChain";
 import type { CloudAuthInfo } from "./CloudAuthInfo";
 import type { ClusterSettings } from "./ClusterSettings";
 import type { ClusterVersionSummary } from "./ClusterVersionSummary";
+import type { ConnectionProblem } from "./ConnectionProblem";
 import type { ConnectionProfile } from "./ConnectionProfile";
 import type { ContextConnectionStatus } from "./ContextConnectionStatus";
 import type { CrdCatalogEntry } from "./CrdCatalogEntry";
@@ -33,6 +34,7 @@ import type { KedaOverview } from "./KedaOverview";
 import type { KedaResourceDetails } from "./KedaResourceDetails";
 import type { KnativeOverview } from "./KnativeOverview";
 import type { KubeconfigExportPreview } from "./KubeconfigExportPreview";
+import type { KubeconfigIssue } from "./KubeconfigIssue";
 import type { LimitKind } from "./LimitKind";
 import type { LoginFlow } from "./LoginFlow";
 import type { ManifestFetchError } from "./ManifestFetchError";
@@ -63,7 +65,7 @@ import type { TruncationMarker } from "./TruncationMarker";
 import type { UiConfig } from "./UiConfig";
 import type { VeleroOverview } from "./VeleroOverview";
 
-export type SystemEvent = { "type": "BackendStarted" } | { "type": "SessionEnded", "data": { reason: SessionEndReason, } } | { "type": "LimitReached", "data": { kind: LimitKind, max: number, } } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
+export type SystemEvent = { "type": "BackendStarted" } | { "type": "SessionEnded", "data": { reason: SessionEndReason, } } | { "type": "LimitReached", "data": { kind: LimitKind, max: number, } } | { "type": "Notification", "data": { level: NotificationLevel, message: string, } } | { "type": "ContextsUpdated", "data": { contexts: Array<string>, current: string | null, } } | { "type": "ContextChanged", "data": { current: string | null, } } | { "type": "KubeconfigStatus", "data": { issue: KubeconfigIssue | null, } } | { "type": "ActiveConnectionProblem", "data": { context: string, problem: ConnectionProblem | null, } } | { "type": "ContextStatusUpdated", "data": { context: string, status: ContextConnectionStatus, 
 /**
  * Verbatim backend error (Principle I), present only when `status == Error`.
  */

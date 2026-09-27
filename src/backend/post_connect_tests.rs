@@ -225,3 +225,74 @@ fn discovery_results_for_a_replaced_context_are_dropped() {
         "a stale probe result must not be recorded for the new context"
     );
 }
+
+/// An API server that rejects every request with 401 (an expired or invalid token).
+fn unauthorized_client() -> Client {
+    let service = tower::service_fn(|_req: http::Request<kube::client::Body>| async {
+        Ok::<_, Infallible>(json(
+            401,
+            r#"{"kind":"Status","apiVersion":"v1","status":"Failure","message":"Unauthorized","reason":"Unauthorized","code":401}"#,
+        ))
+    });
+    Client::new(service, "default")
+}
+
+/// First-run UX: building a client never touches the network, so a rejected token used to be
+/// reported as "Connected" and then fail in every pane. The connect now checks `/version` first.
+#[test]
+fn a_rejected_token_is_reported_as_unauthorized_not_connected() {
+    use crate::protocol::{ConnectionProblemKind, ContextConnectionStatus, SystemEvent};
+
+    let root = tempfile::tempdir().expect("state root");
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.worker_threads(2).enable_all();
+    persistence::scope_runtime_to_state_root(&mut builder, root.path().to_owned());
+    let rt = builder.build().expect("runtime");
+    let client = rt.block_on(async { unauthorized_client() });
+    let mut state = BackendState::with_seams(
+        Arc::new(FakeAccess { client }),
+        Arc::new(LocalFileSink),
+        None,
+    );
+    state.cluster.current_context = Some("fake".into());
+    let state = Arc::new(Mutex::new(state));
+    let (sender, events) = crossbeam_channel::unbounded();
+    let (s, tx) = (state.clone(), sender.clone());
+    rt.block_on(async move {
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            run_cmd(CmdRequest::from(BackendCmd::Initialize), &s, &tx),
+        )
+        .await
+        .expect("Initialize finishes");
+    });
+
+    let mut statuses = Vec::new();
+    let mut problem = None;
+    let mut listed = false;
+    while let Ok(env) = events.try_recv() {
+        match env.event {
+            BackendEvent::System(SystemEvent::ContextStatusUpdated { status, .. }) => {
+                statuses.push(status);
+            }
+            BackendEvent::System(SystemEvent::ActiveConnectionProblem { problem: p, .. }) => {
+                problem = p;
+            }
+            BackendEvent::ResourceList(_) => listed = true,
+            _ => {}
+        }
+    }
+    assert_eq!(
+        statuses.last(),
+        Some(&ContextConnectionStatus::Error),
+        "never Connected: {statuses:?}"
+    );
+    assert!(!statuses.contains(&ContextConnectionStatus::Connected));
+    let problem = problem.expect("an ActiveConnectionProblem");
+    assert_eq!(problem.kind, ConnectionProblemKind::Unauthorized);
+    assert!(
+        !listed,
+        "no pane lists are fetched from a rejected connection"
+    );
+    assert!(rt.block_on(async { state.lock().await.cluster.client.is_none() }));
+}

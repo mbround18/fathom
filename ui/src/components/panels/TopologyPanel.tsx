@@ -16,10 +16,12 @@ import { deployments } from '@/resources/deployments'
 import { helm } from '@/resources/helm'
 import { nodes } from '@/resources/nodes'
 import { statefulsets } from '@/resources/statefulsets'
+import { useFirstRun } from '@/lib/use-first-run'
 import { useStore, type PaneId } from '@/store'
 
 import { TopologyCanvas } from '../topology/TopologyCanvas'
-import { Disconnected, NoKubeconfig } from '../shell/PaneStates'
+import { FirstRunState } from '../shell/FirstRunState'
+import { Disconnected } from '../shell/PaneStates'
 
 const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonsets].map(
   (d) => d.section,
@@ -27,8 +29,7 @@ const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonse
 
 export function TopologyPanel({ paneId }: { paneId: PaneId }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
-  const notice = useStore((s) => s.conn.lastNotice?.message)
+  const firstRun = useFirstRun()
   const refreshSection = useStore((s) => s.refreshSection)
   const { context, daemon } = useActiveDaemon()
   const requestDaemonTopology = useStore((s) => s.requestDaemonTopology)
@@ -38,9 +39,9 @@ export function TopologyPanel({ paneId }: { paneId: PaneId }) {
     daemonState(daemon) === 'available' && Object.keys(daemon.topology.nodes).length > 0
 
   useEffect(() => {
-    if (fromDaemon) return
+    if (fromDaemon || firstRun) return
     for (const section of SECTIONS) refreshSection(section)
-  }, [refreshSection, fromDaemon])
+  }, [refreshSection, fromDaemon, firstRun])
 
   useEffect(() => {
     if (context && daemonState(daemon) === 'available') requestDaemonTopology(context)
@@ -48,7 +49,7 @@ export function TopologyPanel({ paneId }: { paneId: PaneId }) {
   }, [context, daemonState(daemon), requestDaemonTopology])
 
   if (disconnected) return <Disconnected />
-  if (noKubeconfig) return <NoKubeconfig detail={notice} />
+  if (firstRun) return <FirstRunState state={firstRun} />
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col" data-testid="topology-panel">

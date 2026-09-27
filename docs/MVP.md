@@ -670,7 +670,21 @@ All ten originally suggested slices (Applications, interlinking, Helm read and m
 
 1. **CI** — automatic runs are disabled (manual dispatch only, 2026-09-26) because the Rust `Test` job was running out of runner disk and the Chromium/WebKit E2E job was failing. Re-enable once both are fixed and the suite is sharded to a reasonable wall-clock.
 2. **Release pipeline**: MVP ships **Linux only, unsigned** (decided 2026-09-26). `release.yml` builds deb, rpm and AppImage for x86_64 and aarch64 on a `vX.Y.Z` tag; no release has been tagged yet (version `0.1.0`). A local `pnpm -C ui tauri build` produced all three x86_64 bundles, and the release binary launched against kind (2026-09-26). macOS and Windows bundles, code signing and notarization come after the MVP; their matrix entries are commented out in `release.yml`.
-3. **Platform validation**: the MVP target is Linux (Ubuntu 26.04). Windows 11 and macOS 26 (`001` T126 and the Windows/macOS parts of `035` and `037`) come after the MVP, alongside cross-platform builds.
+3. **Platform validation**: the MVP target is Linux (Ubuntu 26.04). The x86_64 packages were validated on 2026-09-26 (`001` T126, `specs/001-tauri-shadcn-frontend/checklists/release-validation.md`):
+   - The deb on Ubuntu 26.04, the rpm on Fedora 44, and the AppImage on both install and resolve their dependencies, and start with a rendered window. Desktop entries and icons are correct.
+   - First run with no, empty, malformed or context-less kubeconfig, an unreachable server, a rejected token, or a cluster deleted mid-session each shows an explained state with next steps (retry, pick a context, create a local kind cluster).
+
+   Fixed along the way:
+   - an empty `Categories`
+   - missing 256/512 px icons
+   - a panic with no CA bundle
+   - "Connected" reported for dead or unauthorized clusters
+   - a blank AppImage window (EGL abort caused by the bundled `libwayland-client`; `scripts/appimage-host-libs.sh` removes it)
+
+   Open:
+   - `release.yml` does not run `scripts/appimage-host-libs.sh` yet.
+   - aarch64 packages are untested.
+   - Windows 11 and macOS 26 (`001` T126 and the Windows/macOS parts of `035` and `037`) come after the MVP, alongside cross-platform builds.
 4. **Hosted server mode (`031`)** — optional for a desktop MVP; the open items are listed in the Status Summary row.
 5. **E2E stability**: mostly addressed on 2026-09-26. The node-actions request-id race and WebKit clipboard reads are fixed. `perf-10k` now runs in serial `chromium-perf`/`webkit-perf` projects after the functional ones (it passes: chromium 8–36 ms, webkit 18–67 ms). WebKit gets one retry, and only when its WPE engine crashes (a known upstream compositor segfault, roughly 1 in 60–150 runs). Still to do before CI can go green: prove two consecutive full-suite green runs.
 

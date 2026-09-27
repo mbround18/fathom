@@ -73,22 +73,99 @@ export const emptyContexts: EventBatch = batch([
   system(3, { type: 'ContextsUpdated', data: { contexts: [], current: null } }),
 ])
 
-/** No kubeconfig: the backend reports empty contexts, then the connect error verbatim. */
+/** No kubeconfig: empty contexts, the classified `Missing` issue, and no active context. The
+ * backend no longer attempts a connect (nor notifies a raw error) when there is nothing to
+ * connect to. */
+export const NO_KUBECONFIG_PATH = '/home/operator/.kube/config'
 export const noKubeconfig: EventBatch = batch([
   ...emptyContexts.envelopes,
   system(4, {
-    type: 'Notification',
-    data: { level: 'Info', message: 'Connecting to cluster (kubeconfig/in-cluster)...' },
+    type: 'KubeconfigStatus',
+    data: { issue: { kind: 'Missing', paths: [NO_KUBECONFIG_PATH], detail: '' } },
   }),
-  system(5, {
-    type: 'Notification',
-    data: {
-      level: 'Error',
-      message:
-        'failed to infer config: in-cluster: (failed to read an incluster environment variable: environment variable not found), kubeconfig: (failed to read kubeconfig from "/home/operator/.kube/config": No such file or directory (os error 2))',
-    },
-  }),
+  system(5, { type: 'ContextChanged', data: { current: null } }),
 ])
+
+// ------------------------------------------------------------------ first run (T126)
+
+export const MALFORMED_DETAIL = 'did not find expected key at line 4 column 3'
+
+/** A kubeconfig that is not valid YAML. */
+export const kubeconfigMalformed: EventBatch = batch([
+  ...emptyContexts.envelopes,
+  system(4, {
+    type: 'KubeconfigStatus',
+    data: { issue: { kind: 'Malformed', paths: [NO_KUBECONFIG_PATH], detail: MALFORMED_DETAIL } },
+  }),
+  system(5, { type: 'ContextChanged', data: { current: null } }),
+])
+
+/** A kubeconfig with no contexts in it (an empty file or `contexts: []`). */
+export const kubeconfigEmpty: EventBatch = batch([
+  ...emptyContexts.envelopes,
+  system(4, {
+    type: 'KubeconfigStatus',
+    data: { issue: { kind: 'Empty', paths: [NO_KUBECONFIG_PATH], detail: '' } },
+  }),
+  system(5, { type: 'ContextChanged', data: { current: null } }),
+])
+
+/** Contexts exist but `current-context` is unset. */
+export const noCurrentContext: EventBatch = batch([
+  ...contexts(null).envelopes,
+  system(4, {
+    type: 'KubeconfigStatus',
+    data: { issue: { kind: 'NoCurrentContext', paths: [NO_KUBECONFIG_PATH], detail: '' } },
+  }),
+  system(5, { type: 'ContextChanged', data: { current: null } }),
+])
+
+export const UNREACHABLE_SERVER = 'https://127.0.0.1:1'
+export const UNREACHABLE_DETAIL =
+  'HyperError: error trying to connect: tcp connect error: Connection refused (os error 111)'
+export const UNAUTHORIZED_DETAIL =
+  'ApiError: Unauthorized: Unauthorized (ErrorResponse { status: "Failure", message: "Unauthorized", reason: "Unauthorized", code: 401 })'
+
+export type ProblemKind = 'Unreachable' | 'Unauthorized'
+
+/** `ActiveConnectionProblem` for `context` (`null` kind = it connected). */
+export function connectionProblem(context: string, kind: ProblemKind | null, seq = 7): EventBatch {
+  return batch([
+    system(seq, {
+      type: 'ActiveConnectionProblem',
+      data: {
+        context,
+        problem:
+          kind === null
+            ? null
+            : {
+                kind,
+                server: UNREACHABLE_SERVER,
+                detail: kind === 'Unauthorized' ? UNAUTHORIZED_DETAIL : UNREACHABLE_DETAIL,
+              },
+      },
+    }),
+  ])
+}
+
+/** kind-a is current but cannot be used: status Error plus a classified problem. */
+export function contextsWithProblem(kind: ProblemKind): EventBatch {
+  return batch([
+    ...contexts('kind-a').envelopes,
+    system(4, { type: 'KubeconfigStatus', data: { issue: null } }),
+    system(5, {
+      type: 'ContextStatusUpdated',
+      data: {
+        context: 'kind-a',
+        status: 'Error',
+        error: kind === 'Unauthorized' ? UNAUTHORIZED_DETAIL : UNREACHABLE_DETAIL,
+        plugin_error: null,
+      },
+    }),
+    ...connectionProblem('kind-a', kind, 6).envelopes,
+    system(7, { type: 'ContextChanged', data: { current: 'kind-a' } }),
+  ])
+}
 
 /**
  * 012-incluster-daemon-federation P1: a third context beyond `CONTEXTS`, unreachable in the

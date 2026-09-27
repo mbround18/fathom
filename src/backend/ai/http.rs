@@ -71,13 +71,15 @@ pub(crate) struct AiHttp {
 
 impl AiHttp {
     pub(crate) fn new() -> Self {
-        let client = reqwest::Client::builder()
-            // No redirects: a redirect would be a second, unchecked destination.
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(120))
-            .build()
-            .unwrap_or_default();
+        // Never `unwrap_or_default()`: `Client::default()` panics when the system has no CA
+        // certificates, which took the whole backend down at startup.
+        let client = crate::backend::http_client::build_or_fallback(|| {
+            reqwest::Client::builder()
+                // No redirects: a redirect would be a second, unchecked destination.
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(120))
+        });
         Self {
             client,
             offline: AtomicBool::new(false),

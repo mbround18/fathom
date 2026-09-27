@@ -4,6 +4,7 @@ import { reduceTeams } from '@/features/teams/state'
 import { reduceRoles } from '@/features/roles/state'
 import { reduceManifestExport } from '@/features/manifest-export/state'
 import { resolveProfile } from '@/layout/defaults'
+import { connectionProblemSummary } from '@/lib/first-run'
 import { ingestCapabilityChecked, ingestCapabilitySet, resetCapabilities } from '@/lib/capabilities'
 import type { BackendEventEnvelope, NotificationLevel, SystemEvent } from '@/protocol/types'
 
@@ -23,6 +24,7 @@ import {
   type Notice,
   serviceForwardKey,
   useStore,
+  withoutKey,
 } from '../index'
 import { RingBuffer } from '../ring-buffer'
 import {
@@ -184,6 +186,34 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
           ...(event.data.error ? { error: event.data.error } : {}),
           ...(event.data.plugin_error ? { pluginError: event.data.plugin_error } : {}),
         },
+      }
+      return
+    }
+
+    // First-run UX: the kubeconfig's state (null = usable), re-sent with every context reload.
+    case 'KubeconfigStatus': {
+      const session = d.edit('session')
+      if (event.data.issue === null) delete session.kubeconfigIssue
+      else session.kubeconfigIssue = event.data.issue
+      return
+    }
+
+    // First-run UX: why a context cannot be used (null = it connected). The panes show the
+    // explanation instead of their lists; the lists still loading fail with the one-line summary
+    // so no pane is left on a skeleton that never resolves.
+    case 'ActiveConnectionProblem': {
+      const { context, problem } = event.data
+      const session = d.edit('session')
+      session.connectionProblems =
+        problem === null
+          ? withoutKey(session.connectionProblems, context)
+          : { ...session.connectionProblems, [context]: problem }
+      if (problem !== null && session.activeContext === context) {
+        const summary = connectionProblemSummary(context, problem)
+        failLoadingLists(d, summary)
+        // Replace a stale "Connecting to cluster..." in the status bar (no toast: the panes
+        // already explain the problem).
+        d.edit('conn').lastNotice = { level: 'warn', message: summary, at: Date.now() }
       }
       return
     }

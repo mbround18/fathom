@@ -83,6 +83,63 @@ pub enum ContextConnectionStatus {
     NotConnected,
 }
 
+/// Why the kubeconfig gave Fathom nothing to connect to (first-run UX). Fieldless enum,
+/// serialized as a plain string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum KubeconfigIssueKind {
+    /// No kubeconfig file exists at any searched path.
+    Missing,
+    /// A kubeconfig exists but defines no contexts (for example an empty file).
+    Empty,
+    /// A kubeconfig file exists but cannot be parsed.
+    Malformed,
+    /// A kubeconfig file exists but cannot be read (permissions, not a regular file).
+    Unreadable,
+    /// Contexts exist but none is selected, or `current-context` names a context that does not
+    /// exist.
+    NoCurrentContext,
+}
+
+/// A kubeconfig problem the UI should explain instead of a raw error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct KubeconfigIssue {
+    pub kind: KubeconfigIssueKind,
+    /// The files involved: the searched paths (`Missing`) or the offending file.
+    pub paths: Vec<String>,
+    /// Short, human-readable detail (parser message, missing context name). May be empty.
+    pub detail: String,
+}
+
+/// Classified reason the active context's connection failed. Fieldless enum, serialized as a
+/// plain string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ConnectionProblemKind {
+    /// Nothing is listening at the server address (connection refused, host down).
+    Unreachable,
+    /// The server host name does not resolve.
+    Dns,
+    /// The server did not answer in time.
+    Timeout,
+    /// TLS failed (untrusted or mismatched certificate).
+    Tls,
+    /// The server rejected the credentials (HTTP 401): expired or invalid token/certificate.
+    Unauthorized,
+    /// The credentials are valid but not allowed to read the API (HTTP 403).
+    Forbidden,
+    /// Anything else.
+    Other,
+}
+
+/// A classified connection failure for one context (first-run UX).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ConnectionProblem {
+    pub kind: ConnectionProblemKind,
+    /// The server URL from the kubeconfig, when known.
+    pub server: Option<String>,
+    /// Verbatim backend error (Principle I), kept for a details disclosure.
+    pub detail: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data")]
 pub enum SystemEvent {
@@ -111,6 +168,20 @@ pub enum SystemEvent {
 
     ContextChanged {
         current: Option<String>,
+    },
+
+    /// First-run UX: the kubeconfig problem found while (re)loading contexts, or `None` when the
+    /// kubeconfig is usable. Emitted right after every `ContextsUpdated` from a kubeconfig load.
+    KubeconfigStatus {
+        issue: Option<KubeconfigIssue>,
+    },
+
+    /// First-run UX: the active context's connection check failed (`problem`), or recovered
+    /// (`None`). Emitted by `Initialize`/`SetContext` after a bounded `GET /version`, and by the
+    /// background watchers when the cluster goes away mid-session or comes back.
+    ActiveConnectionProblem {
+        context: String,
+        problem: Option<ConnectionProblem>,
     },
 
     /// Live per-context connection status (012-incluster-daemon-federation P1, FR-002/FR-004).
