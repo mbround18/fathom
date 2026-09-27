@@ -5,7 +5,7 @@ import { Disconnected, Empty, NoKubeconfig } from '@/components/shell/PaneStates
 import { SECTION } from '@/protocol/commands'
 import type { NodeSummary, PodSummary, WorkloadSummary } from '@/protocol/types'
 import { statusTone } from '@/resources/search'
-import { listKey, useStore, type ListRow, type PaneId } from '@/store'
+import { deniedKey, listKey, useStore, type ListRow, type PaneId } from '@/store'
 
 import {
   asEvents,
@@ -68,6 +68,13 @@ export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   )
   const eventRows = useStore((s) => s.lists[listKey(ctx, SECTION.events, 'Cluster', null)]?.rows)
   const namespaceCount = useStore((s) => s.session.namespaces.length)
+  // 031: a namespace-scoped identity cannot list nodes; that card says so instead of "0".
+  const nodesDenied = useStore(
+    (s) =>
+      s.denied[deniedKey(ctx, SECTION.nodes)] !== undefined ||
+      s.lists[listKey(ctx, SECTION.nodes, 'Cluster', null)]?.forbidden === true,
+  )
+  const namespacesRestricted = useStore((s) => s.session.namespacesRestricted === true)
   const version = useStore((s) => s.clusterVersion)
   const refreshEvents = useStore((s) => s.refreshEvents)
   const openInspector = useStore((s) => s.openInspector)
@@ -108,10 +115,18 @@ export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   return (
     <div data-testid="overview-panel" className="flex flex-col gap-4 p-3">
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        <Stat label="Nodes" value={counts.nodes} bad={counts.nodesUnhealthy} />
+        {nodesDenied ? (
+          <NotPermittedStat label="Nodes" />
+        ) : (
+          <Stat label="Nodes" value={counts.nodes} bad={counts.nodesUnhealthy} />
+        )}
         <Stat label="Pods" value={counts.pods} bad={counts.podsUnhealthy} />
         <Stat label="Deployments" value={counts.deployments} bad={counts.deploymentsUnhealthy} />
-        <Stat label="Namespaces" value={namespaceCount} />
+        <Stat
+          label="Namespaces"
+          value={namespaceCount}
+          {...(namespacesRestricted ? { note: 'reachable by you' } : {})}
+        />
         <Stat label="Warnings" value={warnings.length} bad={warnings.length} />
         <div className="border border-border bg-card p-2">
           <dt className="text-xs text-muted-foreground">Server version</dt>
@@ -167,16 +182,42 @@ export default function OverviewPanel({ paneId }: { paneId?: PaneId } = {}) {
   )
 }
 
-function Stat({ label, value, bad }: { label: string; value: number; bad?: number }) {
+function Stat({
+  label,
+  value,
+  bad,
+  note,
+}: {
+  label: string
+  value: number
+  bad?: number
+  note?: string
+}) {
   return (
     <div className="border border-border bg-card p-2" data-stat={label.toLowerCase()}>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="font-mono text-lg">{value}</dd>
+      {note && <dd className="text-xs text-muted-foreground">{note}</dd>}
       {bad !== undefined && (
         <dd className={bad > 0 ? 'text-xs text-status-warn' : 'text-xs text-muted-foreground'}>
           {bad > 0 ? `▲ ${String(bad)} unhealthy` : '● all healthy'}
         </dd>
       )}
+    </div>
+  )
+}
+
+/** 031: a count the identity may not read (RBAC 403). */
+function NotPermittedStat({ label }: { label: string }) {
+  return (
+    <div
+      className="border border-border bg-card p-2"
+      data-stat={label.toLowerCase()}
+      data-state="not-permitted"
+    >
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="font-mono text-lg text-muted-foreground">—</dd>
+      <dd className="text-xs text-muted-foreground">not permitted</dd>
     </div>
   )
 }

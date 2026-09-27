@@ -6,6 +6,7 @@ import {
   ArrowsClockwiseIcon,
   FileXIcon,
   GaugeIcon,
+  LockSimpleIcon,
   PlugsIcon,
   WarningIcon,
   type Icon,
@@ -130,6 +131,24 @@ export function NoLongerExists({ name }: { name?: string }) {
       title="No longer exists"
       detail={
         name ? `${name} was deleted from the cluster.` : 'This object was deleted from the cluster.'
+      }
+    />
+  )
+}
+
+/**
+ * 031: the identity's RBAC does not allow reading this section (the API server answered 403).
+ * Not an error: nothing is broken and retrying will not help, so no Retry button.
+ */
+export function NotPermitted({ what, detail }: { what?: string; detail?: ReactNode }) {
+  return (
+    <StateFrame
+      kind="not-permitted"
+      icon={LockSimpleIcon}
+      title="Not permitted"
+      detail={
+        detail ??
+        `Your Kubernetes identity is not allowed to read ${what ?? 'this'} in the selected scope. Ask a cluster admin for access, or pick a namespace you can read.`
       }
     />
   )

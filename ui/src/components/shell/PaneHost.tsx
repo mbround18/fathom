@@ -38,12 +38,19 @@ import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
 import { cn } from '@/lib/utils'
-import { detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
+import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
 
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
 import { paneTitle } from './labels'
-import { Disconnected, Empty, ErrorState, Loading, NoKubeconfig } from './PaneStates'
+import {
+  Disconnected,
+  Empty,
+  ErrorState,
+  Loading,
+  NoKubeconfig,
+  NotPermitted,
+} from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -231,6 +238,11 @@ function isNotInstalledError(message: string | undefined): boolean {
   )
 }
 
+/** 031: the section whose denial a pane shares (Argo reads the CRD catalog). */
+function deniedVia(section: string): string {
+  return section === SECTION.argo ? SECTION.customResources : section
+}
+
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
 function ListBody({ pane }: { pane: PaneState }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
@@ -244,11 +256,19 @@ function ListBody({ pane }: { pane: PaneState }) {
     section === undefined ? undefined : s.lists[listKey(ctx, section, scope, null)],
   )
   const refreshSection = useStore((s) => s.refreshSection)
+  const denied = useStore((s) =>
+    section === undefined ? undefined : s.denied[deniedKey(ctx, deniedVia(section))],
+  )
 
   if (disconnected) return <Disconnected />
   if (noKubeconfig) return <NoKubeconfig detail={notice} />
   if (section === undefined) {
     return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
+  }
+  // 031: a section the identity may not read (RBAC 403) says so, whatever renders it; the
+  // Overview instead degrades card by card.
+  if (denied !== undefined && section !== SECTION.overview && !(list?.rows.length ?? 0)) {
+    return <NotPermitted what={descriptor?.label.toLowerCase()} />
   }
   // US3: generic CRD browsing has its own catalog/instance/detail layout instead of the
   // built-in-kind descriptor registry (which is a closed, compile-time set of kinds).
@@ -316,6 +336,7 @@ function ListBody({ pane }: { pane: PaneState }) {
     return <Loading label={`Loading ${descriptor.label}`} />
   }
   if (list.status === 'error' && !hasRows) {
+    if (list.forbidden) return <NotPermitted what={descriptor.label.toLowerCase()} />
     if (isNotInstalledError(list.error)) {
       return (
         <Empty

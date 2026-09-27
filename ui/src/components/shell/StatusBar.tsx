@@ -40,6 +40,7 @@ export function StatusBar() {
       {notice && (
         <span
           data-testid="status-notice"
+          data-level={notice.level}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2',
             notice.level === 'warn' && 'text-status-warn',

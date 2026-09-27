@@ -4,7 +4,7 @@ import type { BackendEventEnvelope, PortForward, ResourceListEvent } from '@/pro
 import type { Draft } from '../draft'
 import { pendingPortForwardOriginKey } from '../index'
 import type { ListRow, ListState } from '../index'
-import { listKey, listKeyOf } from '../keys'
+import { deniedKey, listKey, listKeyOf } from '../keys'
 
 export function handleList(d: Draft, env: BackendEventEnvelope, event: ResourceListEvent): void {
   if (event.type === 'NamespacesUpdated') {
@@ -31,8 +31,26 @@ export function handleList(d: Draft, env: BackendEventEnvelope, event: ResourceL
   const latest = env.correlation.type === 'Request' ? env.correlation.data : prev?.latestRequest
   if (latest !== undefined) next.latestRequest = latest
   d.edit('lists')[key] = next
+  // 031: a section that lists now is readable again (e.g. after a namespace was typed in).
+  clearDenied(d, env.route.context, env.route.section)
 
   if (event.type === 'PortForwardsUpdated') tagPortForwardOrigins(d, event.data)
+}
+
+/**
+ * 031: key of `section` in `denied`. A command's route carries no context (the backend fills
+ * in only the section), so a null context means the active one.
+ */
+export function deniedKeyOf(d: Draft, context: string | null, section: string): string {
+  return deniedKey(context ?? d.read('session').activeContext, section)
+}
+
+/** 031: forget a section's RBAC denial (it listed, or its refresh succeeded). */
+export function clearDenied(d: Draft, context: string | null, section: string): void {
+  const dk = deniedKeyOf(d, context, section)
+  const denied = d.read('denied')
+  if (denied[dk] === undefined) return
+  d.put('denied', Object.fromEntries(Object.entries(denied).filter(([k]) => k !== dk)))
 }
 
 /**

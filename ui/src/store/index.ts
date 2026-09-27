@@ -111,7 +111,14 @@ import type { HostedState } from './handlers/hosted'
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
 export type { HelmMutationSession, HelmMutationStatus } from './helmMutation'
 
-export { detailKey, listKey, listKeyOf, type DetailKey, type ListKey } from './keys'
+export {
+  deniedKey,
+  detailKey,
+  listKey,
+  listKeyOf,
+  type DetailKey,
+  type ListKey,
+} from './keys'
 
 // ------------------------------------------------------------------ UI-owned types
 
@@ -211,6 +218,9 @@ export interface SessionState {
   fleetSummaries: Record<string, FleetContextSummary>
   /** 034-simultaneous-federation: the live federated set and its rollups (backend-owned). */
   federation: FederationSlice
+  /** 031: the identity cannot list namespaces; `namespaces` holds only the ones it reaches
+   * (the kubeconfig context's plus any typed into the picker). */
+  namespacesRestricted?: boolean
 }
 
 type RowOf<T> = T extends readonly (infer R)[] ? R : T extends { events: (infer E)[] } ? E : never
@@ -226,6 +236,8 @@ export interface ListState {
   latestRequest?: number
   status: 'idle' | 'loading' | 'ready' | 'error'
   error?: string
+  /** 031: the error is an RBAC denial; the pane shows "Not permitted" rather than an error. */
+  forbidden?: boolean
   updatedAt: number
 }
 
@@ -701,6 +713,12 @@ export interface StoreData {
     kubeadmDetection?: KubeadmDetectionResult
   }
   /**
+   * 031: sections the identity may not read, keyed `${context}|${section}`, with the API
+   * server's denial. Set by `AccessDenied`; cleared when the context or namespace filter
+   * changes, and when a later refresh of the section succeeds.
+   */
+  denied: Record<string, string>
+  /**
    * 006-helm-mutate: the in-flight/last rollback-upgrade-uninstall preview→apply flow. Global
    * (not keyed), same as `flux`/`hubble` — only one Helm mutate flow can be open at a time
    * (research.md R2/R9). `system.ts` advances it as `HelmMutationPreviewReady/Applied/Failed`
@@ -976,7 +994,7 @@ export function markLoading(
     const key = listKey(context, section, scope, null)
     const prev = next[key]
     next[key] = prev
-      ? { ...prev, status: 'loading', error: undefined }
+      ? { ...prev, status: 'loading', error: undefined, forbidden: undefined }
       : { rows: [], status: 'loading', updatedAt: 0 }
   }
   return next
@@ -1098,6 +1116,7 @@ export function initialData(): StoreData {
     nodeShell: {},
     execAccess: {},
     rbacAccess: {},
+    denied: {},
     helmUninstalls: {},
     helmMutations: {},
     layout: {
@@ -1366,6 +1385,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       lists: markLoading(s.lists, name, CONTEXT_LISTS),
       // 018: cached permission answers belong to the previous context's identity.
       rbacAccess: {},
+      denied: {},
     })
     s.send({ type: 'SetContext', data: { context: name } })
   },
@@ -1376,6 +1396,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       conn: withoutNotice(s.conn),
       session: { ...s.session, activeNamespace: ns },
       lists: markLoading(s.lists, s.session.activeContext, CONTEXT_LISTS),
+      denied: {},
     })
     s.send(namespaceFilterCmd(ns))
   },
