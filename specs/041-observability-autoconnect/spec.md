@@ -62,8 +62,9 @@ browser. Grafana denies framing by default, so it is opened, not embedded.
 
 1. **Given** a detected Grafana, **When** the user clicks Open Grafana, **Then** `StartServicePortForward
    {namespace, service, port}` is sent; the backend picks a pod behind the Service, maps the Service
-   port to its targetPort (numeric or named), binds the Service port locally when free (else the next
-   free port ≥ 1024) and answers with `ServicePortForwardReady`.
+   port to its targetPort (numeric or named), binds the first free local port from 10000 up (the
+   Service port itself when it is already ≥ 10000 and free; feedback 2026-09-27 #27) and answers
+   with `ServicePortForwardReady`.
 2. **Given** an active forward for the same pod and port, **Then** it is reused, not duplicated.
 3. **Given** no pod behind the Service, **Then** the command fails and the pane shows the error.
 
