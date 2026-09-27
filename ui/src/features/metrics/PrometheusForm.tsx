@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useStore } from '@/store'
 
+import { PrometheusStatus } from './PrometheusStatus'
 import { useObservabilitySettings } from './useObservabilitySettings'
 
 /**
@@ -117,16 +118,7 @@ export function PrometheusForm() {
           </Button>
         </div>
       </form>
-      {test && (
-        <p
-          role="status"
-          data-testid="prometheus-test-result"
-          className={test.success ? 'text-xs' : 'text-xs text-destructive'}
-        >
-          {test.success ? 'Connected: ' : 'Failed: '}
-          {test.message}
-        </p>
-      )}
+      {test && <PrometheusStatus test={test} />}
       {scan && (
         <div data-testid="stack-scan" className="text-xs">
           <p>Metrics stack: {scan.tier}</p>

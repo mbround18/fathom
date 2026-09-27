@@ -132,22 +132,14 @@ async fn configure_prometheus(
     // 041: the saved Service is queried through the API server proxy (no port-forward). Drop
     // the cached resolution so every query path picks the new settings up, then verify them.
     integrations::forget_prometheus_resolution(&context);
-    let target = integrations::PromTarget {
-        namespace: namespace.clone(),
-        service: service.clone(),
-        port,
-        source: integrations::PromSource::Saved,
+    let target =
+        integrations::user_target(Some(&context), namespace.clone(), service.clone(), port);
+    let status = probe_target(state, target).await;
+    let message = match &status {
+        SystemEvent::PrometheusConnectionTest { message, .. } => message.clone(),
+        _ => String::new(),
     };
-    let (success, message) = probe_target(state, &target).await;
-    emit_system(
-        state,
-        sender,
-        section_keys::integrations_metrics(),
-        SystemEvent::PrometheusConnectionTest {
-            success,
-            message: message.clone(),
-        },
-    );
+    emit_system(state, sender, section_keys::integrations_metrics(), status);
     events::notify_info(
         state.cluster.seq.as_ref(),
         sender,
@@ -156,20 +148,18 @@ async fn configure_prometheus(
     Ok(())
 }
 
-/// Probe `target` through the API server proxy: `(success, status message)`.
-async fn probe_target(state: &BackendState, target: &integrations::PromTarget) -> (bool, String) {
+/// Probe `target` through the API server proxy and describe the outcome as a status event.
+async fn probe_target(state: &BackendState, target: integrations::PromTarget) -> SystemEvent {
     let Some(client) = state.cluster.client.as_ref() else {
-        return (false, "Not connected to a cluster.".to_owned());
+        return integrations::prometheus_status_event(Err(integrations::PromFailure {
+            kind: crate::protocol::PrometheusStatusKind::NotFound,
+            message: "Not connected to a cluster.".to_owned(),
+            detail: None,
+        }));
     };
     match target.endpoint(client).probe().await {
-        Ok(()) => (true, target.status_message()),
-        Err(e) => (
-            false,
-            format!(
-                "{}/{}:{} did not answer: {e}",
-                target.namespace, target.service, target.port
-            ),
-        ),
+        Ok(()) => integrations::prometheus_status_event(Ok(target)),
+        Err(e) => integrations::prometheus_status_event(Err(target.failure(&e))),
     }
 }
 
@@ -222,27 +212,23 @@ async fn test_prometheus_connection(
     service: String,
     port: u16,
 ) {
-    let target = integrations::PromTarget {
+    let target = integrations::user_target(
+        state.cluster.current_context.as_deref(),
         namespace,
         service,
         port,
-        source: integrations::PromSource::Saved,
-    };
-    let (success, message) = probe_target(state, &target).await;
-    let message = if success {
-        format!(
-            "Connected to {}/{}:{} via the API server proxy",
-            target.namespace, target.service, target.port
-        )
-    } else {
-        message
-    };
-    emit_system(
-        state,
-        sender,
-        section_keys::integrations_metrics(),
-        SystemEvent::PrometheusConnectionTest { success, message },
     );
+    let label = target.label();
+    let mut status = probe_target(state, target).await;
+    if let SystemEvent::PrometheusConnectionTest {
+        success: true,
+        message,
+        ..
+    } = &mut status
+    {
+        *message = format!("Connected to {label} via the API server proxy");
+    }
+    emit_system(state, sender, section_keys::integrations_metrics(), status);
 }
 
 /// Test Grafana connection via the provided base URL.
@@ -290,6 +276,7 @@ async fn refresh_integrations(state: &BackendState, sender: &Sender<BackendEvent
             if let Some(ctx) = context.as_deref() {
                 integrations::remember_metrics_scan(ctx, &result);
             }
+            let result = result.result;
             emit_cluster_system(
                 state,
                 sender,

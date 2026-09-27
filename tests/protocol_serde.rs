@@ -2639,8 +2639,10 @@ fn all_system_events() -> Vec<SystemEvent> {
         },
         SystemEvent::NamespaceAccess { restricted: true },
         SystemEvent::PrometheusConnectionTest {
-            success: true,
+            success: false,
             message: "s".to_owned(),
+            kind: Some(fathom::protocol::PrometheusStatusKind::QueryFailed),
+            detail: Some("404 page not found".to_owned()),
         },
         SystemEvent::GrafanaConnectionTest {
             success: true,

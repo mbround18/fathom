@@ -41,9 +41,13 @@ pub struct MetricMetadata {
 /// Where Prometheus-compatible HTTP API requests go (041-observability-autoconnect).
 ///
 /// `ServiceProxy` reaches an in-cluster Service through the Kubernetes API server's service
-/// proxy (`/api/v1/namespaces/{ns}/services/{svc}:{port}/proxy/...`) using the active context's
-/// own credentials, so a detected Prometheus answers queries with no port-forward and no user
-/// input. `Url` is a plain base URL (a manual `localhost` forward, or any reachable address).
+/// proxy (`/api/v1/namespaces/{ns}/services/{[https:]svc:port}/proxy{prefix}/...`) using the
+/// active context's own credentials, so a detected Prometheus answers queries with no
+/// port-forward and no user input. `Url` is a plain base URL (a manual `localhost` forward, or
+/// any reachable address).
+///
+/// Failures are [`PromQueryError`]s (inside the `anyhow::Error`): a one-line summary plus the raw
+/// response, classified as unreachable vs. query failed, so the UI never shows a raw body inline.
 #[derive(Clone)]
 pub enum PromEndpoint {
     Url(String),
@@ -52,6 +56,9 @@ pub enum PromEndpoint {
         namespace: String,
         service: String,
         port: u16,
+        https: bool,
+        /// Prometheus `--web.route-prefix` ("" or "/prefix").
+        path_prefix: String,
     },
 }
 
@@ -81,11 +88,17 @@ impl PromEndpoint {
                     .get(&url)
                     .timeout(PROM_TIMEOUT)
                     .send()
-                    .await?;
+                    .await
+                    .map_err(|e| prom_discovery::unreachable(&e.to_string()))?;
                 let status = resp.status();
-                let body = resp.text().await?;
+                let body = resp
+                    .text()
+                    .await
+                    .map_err(|e| prom_discovery::unreachable(&e.to_string()))?;
                 if !status.is_success() {
-                    anyhow::bail!("Prometheus returned {status}: {}", truncate(&body));
+                    return Err(
+                        prom_discovery::classify_status(status.as_u16(), &body, true).into(),
+                    );
                 }
                 Ok(body)
             }
@@ -94,13 +107,22 @@ impl PromEndpoint {
                 namespace,
                 service,
                 port,
+                https,
+                path_prefix,
             } => {
-                let path = service_proxy_path(namespace, service, *port, path_and_query);
+                let path = service_proxy_path(
+                    namespace,
+                    service,
+                    *https,
+                    *port,
+                    path_prefix,
+                    path_and_query,
+                );
                 let req = http::Request::get(path).body(Vec::new())?;
                 match tokio::time::timeout(PROM_TIMEOUT, client.request_text(req)).await {
                     Ok(Ok(body)) => Ok(body),
-                    Ok(Err(e)) => Err(anyhow::anyhow!("API server proxy request failed: {e}")),
-                    Err(_) => anyhow::bail!("API server proxy request timed out"),
+                    Ok(Err(e)) => Err(prom_discovery::classify_kube_error(&e).into()),
+                    Err(_) => Err(prom_discovery::unreachable("request timed out").into()),
                 }
             }
         }
@@ -109,8 +131,16 @@ impl PromEndpoint {
     /// GET `path_and_query` and parse the body as JSON.
     pub async fn get_json(&self, path_and_query: &str) -> Result<serde_json::Value> {
         let body = self.get_text(path_and_query).await?;
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Invalid Prometheus response ({e}): {}", truncate(&body)))
+        serde_json::from_str(&body).map_err(|_| {
+            prom_discovery::bad_answer(
+                &format!(
+                    "not a Prometheus API response ({})",
+                    prom_discovery::summarize_body(&body)
+                ),
+                &body,
+            )
+            .into()
+        })
     }
 
     /// Cheap reachability check: an instant `up` query that must report `status: success`.
@@ -118,29 +148,17 @@ impl PromEndpoint {
         let json = self.get_json("/api/v1/query?query=up").await?;
         match json.get("status").and_then(|s| s.as_str()) {
             Some("success") => Ok(()),
-            other => anyhow::bail!("Prometheus returned status {:?}", other),
+            other => Err(prom_discovery::bad_answer(
+                &format!("Prometheus returned status {}", other.unwrap_or("(none)")),
+                &json.to_string(),
+            )
+            .into()),
         }
     }
 }
 
-/// The API server's service-proxy path for `path_and_query` on `namespace/service:port`.
-pub fn service_proxy_path(
-    namespace: &str,
-    service: &str,
-    port: u16,
-    path_and_query: &str,
-) -> String {
-    format!("/api/v1/namespaces/{namespace}/services/{service}:{port}/proxy{path_and_query}")
-}
-
-fn truncate(body: &str) -> &str {
-    let end = body
-        .char_indices()
-        .nth(200)
-        .map(|(i, _)| i)
-        .unwrap_or(body.len());
-    &body[..end]
-}
+use crate::backend::prom_discovery;
+pub use crate::backend::prom_discovery::service_proxy_path;
 
 /// Parse a Prometheus sample timestamp. The HTTP API returns a float of seconds
 /// (`1790448285.378`), never an integer, so an `as_u64` read drops every sample.
@@ -435,13 +453,5 @@ mod tests {
         assert_eq!(parse_sample_u64("3.6"), Some(4));
         assert_eq!(parse_sample_u64("NaN"), None);
         assert_eq!(parse_sample_u64("+Inf"), None);
-    }
-
-    #[test]
-    fn service_proxy_path_targets_named_port() {
-        assert_eq!(
-            service_proxy_path("mon", "prometheus", 9090, "/api/v1/query?query=up"),
-            "/api/v1/namespaces/mon/services/prometheus:9090/proxy/api/v1/query?query=up"
-        );
     }
 }
