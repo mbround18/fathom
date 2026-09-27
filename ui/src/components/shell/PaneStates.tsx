@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { CircuitTrace } from '@/theme/CircuitTrace'
 
-interface StateFrameProps {
+export interface StateFrameProps {
   icon?: Icon
   title: string
   detail?: ReactNode
@@ -27,7 +27,7 @@ interface StateFrameProps {
   kind: string
 }
 
-function StateFrame({
+export function StateFrame({
   icon: IconCmp,
   title,
   detail,
@@ -131,17 +131,6 @@ export function NoLongerExists({ name }: { name?: string }) {
       detail={
         name ? `${name} was deleted from the cluster.` : 'This object was deleted from the cluster.'
       }
-    />
-  )
-}
-
-export function NoKubeconfig({ detail }: { detail?: ReactNode }) {
-  return (
-    <StateFrame
-      kind="no-kubeconfig"
-      title="No kubeconfig"
-      detail={detail ?? 'Set KUBECONFIG or create ~/.kube/config, then reload.'}
-      trace
     />
   )
 }

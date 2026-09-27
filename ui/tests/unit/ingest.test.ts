@@ -69,14 +69,14 @@ describe('session', () => {
     expect(session.activeContext).toBe('kind-a')
   })
 
-  it('no kubeconfig: empty contexts, no active context, error shown verbatim', () => {
+  it('no kubeconfig: empty contexts, no active context, the Missing issue and no raw error', () => {
     ingest(noKubeconfig)
     const { session, conn } = useStore.getState()
     expect(session.contexts).toEqual([])
     expect(session.contextsLoaded).toBe(true)
     expect(session.activeContext).toBeUndefined()
-    expect(conn.lastNotice?.level).toBe('error')
-    expect(conn.lastNotice?.message).toMatch(/^failed to infer config/)
+    expect(session.kubeconfigIssue?.kind).toBe('Missing')
+    expect(conn.lastNotice).toBeUndefined()
   })
 
   it('UiConfigLoaded with ui=null keeps defaults; a saved config replaces them', () => {

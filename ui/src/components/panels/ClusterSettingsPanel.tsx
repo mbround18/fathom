@@ -19,7 +19,10 @@ import type { ClusterSettings, MetricsSource } from '@/protocol/types'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 
-import { Disconnected, Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
+import { useFirstRun } from '@/lib/use-first-run'
+
+import { FirstRunState } from '../shell/FirstRunState'
+import { Disconnected, Empty, Loading } from '../shell/PaneStates'
 
 import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
 import { KindClusterPanel } from './KindClusterPanel'
@@ -38,7 +41,7 @@ export function ClusterSettingsPanel() {
   const send = useStore((s) => s.send)
   const activeContext = useStore((s) => s.session.activeContext)
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
+  const firstRun = useFirstRun()
   const loaded = useStore((s) => s.team.clusterSettings)
   const loadedContext = useStore((s) => s.team.clusterSettingsContext)
   const loadError = useStore((s) => s.team.clusterSettingsError)
@@ -71,9 +74,19 @@ export function ClusterSettingsPanel() {
   }
 
   if (disconnected) return <Disconnected />
-  if (noKubeconfig) return <NoKubeconfig />
-  if (activeContext === undefined) {
-    return <Empty title="No active context" detail="Connect to a cluster to configure settings." />
+  if (activeContext === undefined || firstRun?.kind === 'kubeconfig') {
+    // First run: there are no per-context settings yet, but this is where a local kind cluster
+    // is created (030), so that stays reachable instead of hiding behind "no kubeconfig".
+    return (
+      <div data-testid="cluster-settings-first-run" className="flex flex-col gap-4 p-3">
+        {firstRun ? (
+          <FirstRunState state={firstRun} inSettings />
+        ) : (
+          <Empty title="No active context" detail="Connect to a cluster to configure settings." />
+        )}
+        {!hosted && <KindClusterPanel />}
+      </div>
+    )
   }
   if (loadError !== undefined && loadedContext === activeContext && draft === undefined) {
     return <Empty title="Could not load Cluster Settings" detail={loadError} />

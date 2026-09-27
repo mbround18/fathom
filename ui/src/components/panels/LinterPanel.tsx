@@ -19,9 +19,11 @@ import {
   type Severity,
 } from '@/linter/types'
 import { descriptorFor } from '@/resources'
+import { useFirstRun } from '@/lib/use-first-run'
 import { detailKey, listKey, useStore, type PaneId } from '@/store'
 
-import { Disconnected, Empty, NoKubeconfig } from '../shell/PaneStates'
+import { FirstRunState } from '../shell/FirstRunState'
+import { Disconnected, Empty } from '../shell/PaneStates'
 
 const REFRESH_SECTIONS = [
   SECTIONS.pods,
@@ -44,8 +46,7 @@ const SEVERITY_CLASS: Record<Severity, string> = {
 
 export function LinterPanel({ paneId }: { paneId: PaneId }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
-  const notice = useStore((s) => s.conn.lastNotice?.message)
+  const firstRun = useFirstRun()
   const refreshSection = useStore((s) => s.refreshSection)
   const inspect = useStore((s) => s.inspect)
   const openInspector = useStore((s) => s.openInspector)
@@ -110,7 +111,7 @@ export function LinterPanel({ paneId }: { paneId: PaneId }) {
   const skipped = report.rules.filter((r) => r.status === 'skipped' || r.reason !== undefined)
 
   if (disconnected) return <Disconnected />
-  if (noKubeconfig) return <NoKubeconfig detail={notice} />
+  if (firstRun) return <FirstRunState state={firstRun} />
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col" data-testid="linter-panel">

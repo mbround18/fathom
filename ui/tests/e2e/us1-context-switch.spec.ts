@@ -76,11 +76,14 @@ test.describe('US1 context switching', () => {
     await expect(listPane(page).locator('[data-pane-state="loading"]')).toHaveCount(0)
   })
 
-  test('shows NoKubeconfig with the backend error instead of a blank pane', async ({ page }) => {
+  test('shows the no-kubeconfig first-run state instead of a blank pane', async ({ page }) => {
     await open(page, 'no-kubeconfig')
-    const state = page.locator('[data-pane-kind="list"] [data-pane-state="no-kubeconfig"]').first()
+    const state = page
+      .locator('[data-pane-kind="list"] [data-pane-state="first-run-kubeconfig"]')
+      .first()
     await expect(state).toBeVisible()
-    await expect(state).toContainText('failed to infer config')
+    await expect(state).toContainText('No kubeconfig found')
+    await expect(state).toContainText('/home/operator/.kube/config')
   })
 
   test('shows the backend error verbatim when the list cannot be read', async ({ page }) => {

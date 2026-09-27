@@ -38,12 +38,14 @@ import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
 import { cn } from '@/lib/utils'
+import { useFirstRun } from '@/lib/use-first-run'
 import { detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
 
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
 import { paneTitle } from './labels'
-import { Disconnected, Empty, ErrorState, Loading, NoKubeconfig } from './PaneStates'
+import { FirstRunState } from './FirstRunState'
+import { Disconnected, Empty, ErrorState, Loading } from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -231,11 +233,19 @@ function isNotInstalledError(message: string | undefined): boolean {
   )
 }
 
+/** Sections that render without a connected cluster (local settings and records). */
+const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
+  SECTION.clusterSettings,
+  SECTION.teams,
+  SECTION.teamProfiles,
+  SECTION.auditLog,
+  SECTION.oidcConfig,
+])
+
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
 function ListBody({ pane }: { pane: PaneState }) {
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
-  const noKubeconfig = useStore((s) => s.session.contextsLoaded && s.session.contexts.length === 0)
-  const notice = useStore((s) => s.conn.lastNotice?.message)
+  const firstRun = useFirstRun()
   const ctx = useStore((s) => s.session.activeContext)
   const section = pane.route?.section
   const descriptor = descriptorFor(section)
@@ -246,10 +256,12 @@ function ListBody({ pane }: { pane: PaneState }) {
   const refreshSection = useStore((s) => s.refreshSection)
 
   if (disconnected) return <Disconnected />
-  if (noKubeconfig) return <NoKubeconfig detail={notice} />
   if (section === undefined) {
     return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
   }
+  // First run / cluster unusable: explain it with a next step instead of a list that can only
+  // fail. Sections that work without a cluster (settings, audit log, generators) still open.
+  if (firstRun && !CLUSTERLESS_SECTIONS.has(section)) return <FirstRunState state={firstRun} />
   // US3: generic CRD browsing has its own catalog/instance/detail layout instead of the
   // built-in-kind descriptor registry (which is a closed, compile-time set of kinds).
   if (section === SECTION.customResources) {

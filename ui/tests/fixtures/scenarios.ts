@@ -7,8 +7,14 @@ import type { BackendCmd, EventBatch, PodSummary } from '../../src/protocol/type
 import {
   backendStarted,
   clusterEvents,
+  connectionProblem,
   contextChanged,
   contexts,
+  contextsWithProblem,
+  kubeconfigEmpty,
+  kubeconfigMalformed,
+  noCurrentContext,
+  type ProblemKind,
   deploymentDetail,
   deployments,
   emptyContexts,
@@ -55,6 +61,42 @@ export interface Scenario {
 
 function filterPods(rows: PodSummary[], filter: string[]): PodSummary[] {
   return filter.length === 0 ? rows : rows.filter((p) => filter.includes(p.namespace))
+}
+
+/**
+ * kind-a is current but cannot be used (`kind`): every connect to it reports the same problem
+ * and it never lists anything; kind-b works and clears its problem when chosen.
+ */
+function brokenActiveContext(kind: ProblemKind): Scenario {
+  const base = cluster()
+  const broken = (s: FakeBackendState) => s.context === 'kind-a'
+  const guard =
+    <T extends BackendCmd['type']>(reply: Reply<T> | undefined): Reply<T> =>
+    (cmd, s) =>
+      broken(s) || !reply ? [] : reply(cmd, s)
+  return {
+    description: `kind-a is current and ${kind}; kind-b connects.`,
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...base,
+      RefreshContexts: () => [contexts('kind-a')],
+      Initialize: () => [contextsWithProblem(kind)],
+      SetContext: (cmd, s) => {
+        if (cmd.data.context === 'kind-a') {
+          s.context = 'kind-a'
+          return [connectionProblem('kind-a', kind, 90)]
+        }
+        const replies = base.SetContext?.(cmd, s) ?? []
+        return [connectionProblem(cmd.data.context, null, 60), ...replies]
+      },
+      RefreshPods: guard(base.RefreshPods),
+      RefreshDeployments: guard(base.RefreshDeployments),
+      RefreshNamespaces: guard(base.RefreshNamespaces),
+      SetActiveSection: guard(base.SetActiveSection),
+      RefreshEvents: guard(base.RefreshEvents),
+    },
+  }
 }
 
 /** A browsable two-context cluster; `podRows` lets a scenario swap in a bigger kind-a list. */
@@ -184,6 +226,39 @@ export const SCENARIOS = {
       Initialize: () => [noKubeconfig],
     },
   },
+  // T126 first-run scenarios (tests/e2e/first-run-states.spec.ts).
+  'kubeconfig-malformed': {
+    description: 'Kubeconfig is not valid YAML: the Malformed issue, no contexts.',
+    initialState: { context: null, namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      LoadUiConfig: () => [uiConfigDefault],
+      RefreshContexts: () => [emptyContexts],
+      Initialize: () => [kubeconfigMalformed],
+    },
+  },
+  'kubeconfig-empty': {
+    description: 'Kubeconfig defines no contexts: the Empty issue.',
+    initialState: { context: null, namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      LoadUiConfig: () => [uiConfigDefault],
+      RefreshContexts: () => [emptyContexts],
+      Initialize: () => [kubeconfigEmpty],
+    },
+  },
+  'no-current-context': {
+    description: 'Two contexts, no current-context: pick one, then it browses normally.',
+    initialState: { context: null, namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      RefreshContexts: () => [contexts(null)],
+      Initialize: () => [noCurrentContext],
+    },
+  },
+  'context-unreachable': brokenActiveContext('Unreachable'),
+  'context-unauthorized': brokenActiveContext('Unauthorized'),
   manual: {
     description: 'Silent backend: only BackendStarted; tests drive everything with emit().',
     initialState: { context: null, namespaceFilter: [] },

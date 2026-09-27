@@ -6,16 +6,19 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import type { PodSummary } from '@/protocol/types'
+import { useFirstRun } from '@/lib/use-first-run'
 import { listKey, useStore } from '@/store'
 
 import { Picker } from '../Picker'
-import { Empty, Loading, NoKubeconfig } from '../shell/PaneStates'
+import { FirstRunState } from '../shell/FirstRunState'
+import { Empty, Loading } from '../shell/PaneStates'
 import { PodLogsTab } from './PodLogsTab'
 
 const PODS = 'workloads/pods'
 
 export default function LogsToolPanel() {
   const context = useStore((s) => s.session.activeContext)
+  const firstRun = useFirstRun()
   const namespace = useStore((s) => s.session.activeNamespace)
   const list = useStore((s) => s.lists[listKey(context, PODS, 'Namespaced', null)])
   const refreshSection = useStore((s) => s.refreshSection)
@@ -24,8 +27,8 @@ export default function LogsToolPanel() {
 
   // The pod list is otherwise only fetched by the Pods pane.
   useEffect(() => {
-    if (context !== undefined && list === undefined) refreshSection(PODS)
-  }, [context, list, refreshSection])
+    if (context !== undefined && firstRun === undefined && list === undefined) refreshSection(PODS)
+  }, [context, firstRun, list, refreshSection])
 
   const pods = useMemo(() => {
     const rows = (list?.eventType === 'PodsUpdated' ? list.rows : []) as readonly PodSummary[]
@@ -39,7 +42,8 @@ export default function LogsToolPanel() {
   const current = picked && pods.some((p) => p.value === picked) ? picked : undefined
   const [ns, name] = current ? (current.split('/') as [string, string]) : []
 
-  if (context === undefined) return <NoKubeconfig />
+  if (firstRun) return <FirstRunState state={firstRun} />
+  if (context === undefined) return <Loading rows={4} label="Loading contexts" />
   if (list === undefined || (list.status === 'loading' && list.rows.length === 0)) {
     return <Loading rows={4} label="Loading pods" />
   }
