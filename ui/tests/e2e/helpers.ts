@@ -379,3 +379,30 @@ export async function readClipboard(page: Page, browserName: string): Promise<st
   if (browserName === 'chromium') return page.evaluate(() => navigator.clipboard.readText())
   return page.evaluate(() => (window as unknown as { __copiedText?: string }).__copiedText ?? '')
 }
+
+/** The topology canvas zoom readout as a percentage, or NaN before it renders. */
+export async function topologyScale(page: Page): Promise<number> {
+  const text = (await page.getByTestId('topology-canvas-host').textContent()) ?? ''
+  const m = /(\d+)%/.exec(text)
+  return m ? Number(m[1]) : Number.NaN
+}
+
+/**
+ * The zoom readout once auto-fit has settled (041: an untouched camera re-fits the graph after
+ * every re-layout and resize, capped at 200%), so a test compares against the real start scale
+ * instead of assuming 100%.
+ */
+export async function settledTopologyScale(page: Page): Promise<number> {
+  let last = Number.NaN
+  await expect
+    .poll(
+      async () => {
+        const prev = last
+        last = await topologyScale(page)
+        return !Number.isNaN(last) && last === prev
+      },
+      { intervals: [150], timeout: 5_000 },
+    )
+    .toBe(true)
+  return last
+}

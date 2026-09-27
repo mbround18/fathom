@@ -7,7 +7,15 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, clusterRoute } from '../fixtures/builders'
-import { emit, inspector, open, openToolPane, sentTypes } from './helpers'
+import {
+  emit,
+  inspector,
+  open,
+  openToolPane,
+  sentTypes,
+  settledTopologyScale,
+  topologyScale,
+} from './helpers'
 
 const NODES = 'nodes'
 
@@ -109,12 +117,13 @@ test.describe('US3 topology inspector navigation', () => {
     const host = page.getByTestId('topology-canvas-host')
     await expect(canvas).toBeVisible()
 
-    // Zoom in (wheel) so the camera differs from the default before navigating away.
+    // Zoom in (wheel) so the camera differs from the auto-fit before navigating away.
+    const fit = await settledTopologyScale(page)
     const box = await canvas.boundingBox()
     if (!box) throw new Error('canvas not laid out yet')
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.wheel(0, -400)
-    await expect(host).not.toContainText('100%')
+    await expect.poll(() => topologyScale(page)).toBeGreaterThan(fit)
     const zoomedLabel = await host.textContent()
 
     // Open the inspector, then back out of it (US3's "back-stack", not a fresh navigation).

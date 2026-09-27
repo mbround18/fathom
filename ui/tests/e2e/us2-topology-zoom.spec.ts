@@ -7,7 +7,15 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 import { batch, list, read, clusterRoute, nsRoute } from '../fixtures/builders'
-import { clearSent, emit, open, openToolPane, sentTypes } from './helpers'
+import {
+  clearSent,
+  emit,
+  open,
+  openToolPane,
+  sentTypes,
+  settledTopologyScale,
+  topologyScale,
+} from './helpers'
 
 const NAMESPACE = 'workloads-ns'
 const POD_COUNT = 120
@@ -131,7 +139,7 @@ test.describe('US2 topology zoom', () => {
     await open(page)
     await openTopology(page, info)
     await seedOverview(page)
-    await expect(canvasHost(page)).toContainText('100%')
+    const fit = await settledTopologyScale(page)
 
     // At the overview scale, the workload tier isn't fetched yet -- only the tiers T023 seeds
     // on mount.
@@ -142,7 +150,7 @@ test.describe('US2 topology zoom', () => {
     // without any new fetch (data-model.md: workload-tier rows come from the list already loaded
     // for the Deployments section).
     await zoomCanvas(page, -900)
-    await expect(canvasHost(page)).not.toContainText('100%')
+    await expect.poll(() => topologyScale(page)).toBeGreaterThan(fit)
 
     // Zoom in further past WORKLOAD_FOCUS_SCALE (5): the pod tier for the now-focused Deployment
     // is fetched via the workload descriptor's own `select` command (T032).
@@ -207,12 +215,14 @@ test.describe('US2 topology zoom', () => {
     await open(page)
     await openTopology(page, info)
     await seedOverview(page)
+    const fit = await settledTopologyScale(page)
 
     await zoomCanvas(page, -900)
-    await expect(canvasHost(page)).not.toContainText('100%')
+    await expect.poll(() => topologyScale(page)).toBeGreaterThan(fit)
 
+    // Wheel zoom is multiplicative (exp(-deltaY / 1000)), so the same wheel back lands on the fit.
     await zoomCanvas(page, 900)
-    await expect(canvasHost(page)).toContainText('100%')
+    await expect.poll(() => topologyScale(page)).toBe(fit)
     await expect(page.getByTestId('topology-canvas')).toBeVisible()
   })
 })
