@@ -1,4 +1,5 @@
 /** Names shared by the live suite's config, global setup/teardown, and specs. */
+import { existsSync } from 'node:fs'
 
 /** The only namespace the live suite reads from or writes to. */
 export const LIVE_NAMESPACE = 'fathom-dev'
@@ -40,4 +41,16 @@ export function liveContext(): string {
     )
   }
   return context
+}
+
+/**
+ * Restricted-user walk (tests/live/restricted-walk.spec.ts): path of a kubeconfig for a
+ * namespace-scoped identity (k8s/samples/restricted-user.yaml). Unset or missing file: skipped.
+ */
+export const RESTRICTED_ENV = { kubeconfig: 'FATHOM_RESTRICTED_KUBECONFIG' } as const
+
+/** The restricted walk's kubeconfig, or undefined when the walk is not enabled. */
+export function restrictedKubeconfig(): string | undefined {
+  const path = process.env[RESTRICTED_ENV.kubeconfig]?.trim()
+  return path && existsSync(path) ? path : undefined
 }

@@ -17,8 +17,8 @@ import { APP_ORIGIN, LIVE_SERVE_COMMAND } from './tests/live/env.js'
 
 export default defineConfig({
   testDir: './tests/live',
-  // The prod RBAC specs have their own opt-in config (playwright.prod-rbac.config.ts).
-  testIgnore: /rbac-prod-scoped-.*\.spec\.ts/,
+  // The prod RBAC specs and the restricted-user walk have their own opt-in configs.
+  testIgnore: [/rbac-prod-scoped-.*\.spec\.ts/, /restricted-walk\.spec\.ts/],
   // The specs share one real namespace (and one backend): strictly one at a time.
   workers: 1,
   fullyParallel: false,
