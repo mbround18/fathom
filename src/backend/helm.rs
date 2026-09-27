@@ -11,10 +11,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use flate2::read::GzDecoder;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
-use kube::{
-    Client, ResourceExt,
-    api::{Api, ListParams},
-};
+use kube::{Client, ResourceExt, api::ListParams};
 use serde_json::Value;
 
 use crate::protocol::{
@@ -24,6 +21,7 @@ use crate::protocol::{
     ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
 
+use super::ns_scope::{ScopeState, list_scoped_with};
 use super::{events, flux, state::BackendState};
 
 const HELM_OWNER_LABEL: &str = "owner";
@@ -95,31 +93,30 @@ fn to_yaml(value: &Value) -> String {
     serde_yaml::to_string(value).unwrap_or_default()
 }
 
+/// Helm's release storage (Secrets and ConfigMaps labelled `owner=helm`) in `namespace`, or
+/// across the cluster (031: across the reachable namespaces for a namespace-scoped identity).
 async fn list_storage_objects(
     client: &Client,
     namespace: Option<&str>,
+    scope: &ScopeState,
 ) -> anyhow::Result<Vec<StorageObject>> {
     let label_selector = format!("{HELM_OWNER_LABEL}={HELM_OWNER_VALUE}");
     let list_params = ListParams::default().labels(&label_selector);
+    let only: Vec<String> = namespace.map(str::to_owned).into_iter().collect();
 
     let mut out = Vec::new();
 
-    let secrets: Api<Secret> = match namespace {
-        Some(ns) => Api::namespaced(client.clone(), ns),
-        None => Api::all(client.clone()),
-    };
-    for secret in secrets.list(&list_params).await?.items {
+    let secrets: Vec<Secret> = list_scoped_with(client.clone(), &only, scope, &list_params).await?;
+    for secret in secrets {
         let Some(obj) = storage_object_from_secret(&secret) else {
             continue;
         };
         out.push(obj);
     }
 
-    let configmaps: Api<ConfigMap> = match namespace {
-        Some(ns) => Api::namespaced(client.clone(), ns),
-        None => Api::all(client.clone()),
-    };
-    for cm in configmaps.list(&list_params).await?.items {
+    let configmaps: Vec<ConfigMap> =
+        list_scoped_with(client.clone(), &only, scope, &list_params).await?;
+    for cm in configmaps {
         let Some(obj) = storage_object_from_configmap(&cm) else {
             continue;
         };
@@ -234,7 +231,7 @@ pub(super) async fn list_releases(
     sender: &crossbeam_channel::Sender<crate::protocol::BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let objects = list_storage_objects(&client, None).await?;
+    let objects = list_storage_objects(&client, None, &state.cluster.scope.snapshot()).await?;
     let mut summaries: Vec<HelmReleaseSummary> = current_per_release(&objects)
         .into_iter()
         .filter(|obj| namespace_allowed(&state.cluster.namespace_filter, &obj.namespace))
@@ -371,7 +368,8 @@ pub(super) async fn get_release_details(
     name: &str,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let objects = list_storage_objects(&client, Some(namespace)).await?;
+    let objects =
+        list_storage_objects(&client, Some(namespace), &state.cluster.scope.snapshot()).await?;
     let mut matching: Vec<&StorageObject> =
         objects.iter().filter(|o| o.release_name == name).collect();
     matching.sort_by_key(|o| std::cmp::Reverse(o.revision));
@@ -741,7 +739,7 @@ pub(super) async fn preview_helm_rollback(
         .cluster
         .client_or_err()
         .map_err(|e| infra_failure(action, stage, namespace, release, e))?;
-    let objects = list_storage_objects(&client, Some(namespace))
+    let objects = list_storage_objects(&client, Some(namespace), &state.cluster.scope.snapshot())
         .await
         .map_err(|e| infra_failure(action, stage, namespace, release, e))?;
 
@@ -807,7 +805,7 @@ pub(super) async fn apply_helm_rollback(
         .cluster
         .client_or_err()
         .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
-    let objects = list_storage_objects(&client, Some(namespace))
+    let objects = list_storage_objects(&client, Some(namespace), &state.cluster.scope.snapshot())
         .await
         .map_err(|e| infra_failure(action, apply_stage, namespace, release, e))?;
 
@@ -890,7 +888,7 @@ async fn current_release_revision(
     namespace: &str,
     release: &str,
 ) -> anyhow::Result<Option<i64>> {
-    let objects = list_storage_objects(client, Some(namespace)).await?;
+    let objects = list_storage_objects(client, Some(namespace), &ScopeState::default()).await?;
     Ok(current_per_release(&objects)
         .into_iter()
         .find(|o| o.release_name == release)
@@ -1117,7 +1115,8 @@ async fn current_release_state(
     release: &str,
 ) -> anyhow::Result<Option<CurrentReleaseState>> {
     let client = state.cluster.client_or_err()?;
-    let objects = list_storage_objects(&client, Some(namespace)).await?;
+    let objects =
+        list_storage_objects(&client, Some(namespace), &state.cluster.scope.snapshot()).await?;
     let mut matching: Vec<&StorageObject> = objects
         .iter()
         .filter(|o| o.release_name == release)

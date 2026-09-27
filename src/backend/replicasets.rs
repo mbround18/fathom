@@ -5,7 +5,7 @@ use crate::protocol::{
 use crossbeam_channel::Sender;
 use k8s_openapi::api::apps::v1::ReplicaSet;
 use kube::ResourceExt;
-use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams};
+use kube::api::{Api, DeleteParams, Patch, PatchParams};
 use serde_json::json;
 
 use super::{events, state::BackendState};
@@ -17,11 +17,8 @@ pub(super) async fn refresh_replicasets(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<ReplicaSet> = Api::all(client);
-
-    let replicasets = api.list(&ListParams::default()).await?;
-    let summaries = replicasets_to_summaries(replicasets.items, &state.cluster.namespace_filter);
+    let replicasets = state.cluster.list_namespaced::<ReplicaSet>().await?;
+    let summaries = replicasets_to_summaries(replicasets, &state.cluster.namespace_filter);
 
     events::emit(
         state.cluster.seq.as_ref(),

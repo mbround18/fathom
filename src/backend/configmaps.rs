@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 use std::collections::BTreeMap;
 
@@ -17,11 +17,8 @@ pub(super) async fn refresh_configmaps(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<ConfigMap> = Api::all(client);
-
-    let configmaps = api.list(&ListParams::default()).await?;
-    let summaries = configmaps_to_summaries(configmaps.items, &state.cluster.namespace_filter);
+    let configmaps = state.cluster.list_namespaced::<ConfigMap>().await?;
+    let summaries = configmaps_to_summaries(configmaps, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

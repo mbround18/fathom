@@ -7,7 +7,7 @@ use k8s_openapi::api::networking::v1::{NetworkPolicy, NetworkPolicyPeer, Network
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 
 use super::interactions;
@@ -17,11 +17,8 @@ pub(super) async fn refresh_network_policies(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<NetworkPolicy> = Api::all(client);
-
-    let policies = api.list(&ListParams::default()).await?;
-    let summaries = network_policies_to_summaries(policies.items, &state.cluster.namespace_filter);
+    let policies = state.cluster.list_namespaced::<NetworkPolicy>().await?;
+    let summaries = network_policies_to_summaries(policies, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

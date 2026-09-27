@@ -15,10 +15,11 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use super::ns_scope::{NamespaceScope, ScopeState};
 use super::state::BackendState;
 use super::{
     cert_manager, cluster_version, daemon_ctl, deployments, events, flux, gatekeeper, hubble, keda,
-    knative, pods, trivy, velero, warm_lists,
+    knative, ns_scope, pods, trivy, velero, warm_lists,
 };
 
 /// Spawn the background pod watch for the active context. With the daemon preference `auto`
@@ -43,7 +44,8 @@ fn spawn_pod_watch(
             state.daemon.snapshot_slot.clone(),
         ))
     } else {
-        tokio::spawn(watch_pods(client, filter, seq, sender.clone(), ctx))
+        let scope = state.cluster.scope.clone();
+        tokio::spawn(watch_pods(client, filter, scope, seq, sender.clone(), ctx))
     };
     if let Some(old) = state.watch_tasks.pod_watch_task.replace(task) {
         old.abort();
@@ -85,6 +87,7 @@ pub(super) async fn ensure_background_sync(
     state.watch_tasks.deployment_watch_task = Some(tokio::spawn(watch_deployments(
         client.clone(),
         state.cluster.namespace_filter_shared.clone(),
+        state.cluster.scope.clone(),
         state.cluster.seq.clone(),
         sender.clone(),
         state.cluster.current_context.clone(),
@@ -93,6 +96,7 @@ pub(super) async fn ensure_background_sync(
     // Namespace refresher: refresh namespaces periodically with improved reliability
     state.watch_tasks.namespace_sync_task = Some(tokio::spawn(sync_namespaces_periodically(
         client.clone(),
+        state.cluster.scope.clone(),
         state.cluster.seq.clone(),
         sender.clone(),
         state.cluster.current_context.clone(),
@@ -239,11 +243,12 @@ async fn poll_velero_overview(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await;
         match velero::scan_velero(&client).await {
             Ok(overview) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -253,13 +258,16 @@ async fn poll_velero_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background Velero scan failed: {}", e),
-                );
+                if latch.on_error("Background Velero scan failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background Velero scan failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 
@@ -293,11 +301,12 @@ async fn poll_cert_manager_overview(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await;
         match cert_manager::scan_cert_manager(&client).await {
             Ok(overview) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -307,13 +316,16 @@ async fn poll_cert_manager_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background cert-manager scan failed: {}", e),
-                );
+                if latch.on_error("Background cert-manager scan failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background cert-manager scan failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 
@@ -348,11 +360,12 @@ async fn poll_trivy_overview(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await;
         match trivy::scan_trivy(&client).await {
             Ok(overview) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -365,13 +378,16 @@ async fn poll_trivy_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background Trivy scan failed: {}", e),
-                );
+                if latch.on_error("Background Trivy scan failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background Trivy scan failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 
@@ -405,11 +421,12 @@ async fn poll_knative_overview(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await;
         match knative::scan_knative(&client).await {
             Ok(overview) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -419,13 +436,16 @@ async fn poll_knative_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background Knative scan failed: {}", e),
-                );
+                if latch.on_error("Background Knative scan failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background Knative scan failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 
@@ -457,11 +477,12 @@ async fn poll_keda_overview(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await;
         match keda::scan_keda(&client).await {
             Ok(overview) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -471,13 +492,16 @@ async fn poll_keda_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background KEDA scan failed: {}", e),
-                );
+                if latch.on_error("Background KEDA scan failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background KEDA scan failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 
@@ -488,11 +512,12 @@ async fn poll_flux_overview(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await;
         match flux::scan_flux(&client).await {
             Ok(overview) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -502,13 +527,16 @@ async fn poll_flux_overview(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background Flux scan failed: {}", e),
-                );
+                if latch.on_error("Background Flux scan failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background Flux scan failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 
@@ -520,11 +548,12 @@ async fn poll_hubble_traffic(
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await;
         match hubble::fetch_traffic_summary(&client, &cfg).await {
             Ok(summary) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -534,13 +563,16 @@ async fn poll_hubble_traffic(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background Hubble traffic poll failed: {}", e),
-                );
+                if latch.on_error("Background Hubble traffic poll failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background Hubble traffic poll failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 
@@ -549,12 +581,13 @@ async fn poll_hubble_traffic(
 async fn watch_pods(
     client: kube::Client,
     filter_shared: Arc<RwLock<Vec<String>>>,
+    scope: NamespaceScope,
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let (c, s, tx) = (client.clone(), seq.clone(), sender.clone());
-    watch_and_emit::<Pod, _, _>(client, "Pod", seq, sender, move || {
+    let (c, s, tx, sc) = (client.clone(), seq.clone(), sender.clone(), scope.clone());
+    watch_and_emit::<Pod, _, _>(client, "Pod", scope, seq, sender, move || {
         let (c, f, s, tx, ctx) = (
             c.clone(),
             filter_shared.clone(),
@@ -562,7 +595,8 @@ async fn watch_pods(
             tx.clone(),
             context.clone(),
         );
-        async move { emit_pods_snapshot(&c, &f, &s, &tx, &ctx).await }
+        let scope = sc.snapshot();
+        async move { emit_pods_snapshot(&c, &f, &scope, &s, &tx, &ctx).await }
     })
     .await;
 }
@@ -572,24 +606,48 @@ async fn watch_pods(
 async fn watch_deployments(
     client: kube::Client,
     filter_shared: Arc<RwLock<Vec<String>>>,
+    scope: NamespaceScope,
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
 ) {
-    let (c, s, tx) = (client.clone(), seq.clone(), sender.clone());
-    watch_and_emit::<Deployment, _, _>(client, "Deployment", seq, sender, move || {
+    let (c, s, tx, sc) = (client.clone(), seq.clone(), sender.clone(), scope.clone());
+    watch_and_emit::<Deployment, _, _>(client, "Deployment", scope, seq, sender, move || {
         let filter = filter_shared.read().map(|f| f.clone()).unwrap_or_default();
+        let scope = sc.snapshot();
         let (c, s, tx, ctx) = (c.clone(), s.clone(), tx.clone(), context.clone());
-        async move { deployments::emit_deployments_snapshot(&c, &filter, &s, &tx, &ctx).await }
+        async move {
+            deployments::emit_deployments_snapshot(&c, &filter, &scope, &s, &tx, &ctx).await
+        }
     })
     .await;
 }
 
-/// Watch every `K` (`kind`, e.g. "Pod") in the cluster and call `on_change` after each watch event, reconnecting
-/// with exponential backoff (1s doubling to 30s) when the watch fails.
+/// How often a namespace-scoped identity's pod/deployment lists are re-polled: it cannot
+/// watch cluster-wide (031).
+const RESTRICTED_POLL: Duration = Duration::from_secs(15);
+
+/// Is a watcher failure an RBAC denial?
+fn watch_denied(err: &watcher::Error) -> bool {
+    match err {
+        watcher::Error::InitialListFailed(e)
+        | watcher::Error::WatchStartFailed(e)
+        | watcher::Error::WatchFailed(e) => ns_scope::is_forbidden(e),
+        watcher::Error::WatchError(resp) => resp.code == 403,
+        _ => false,
+    }
+}
+
+/// Watch every `K` (`kind`, e.g. "Pod") in the cluster and call `on_change` after each watch
+/// event, reconnecting with exponential backoff (1s doubling to 30s) when the watch fails.
+///
+/// 031: an identity that cannot list namespaces cannot watch cluster-wide either; it re-polls
+/// `on_change` (which lists per namespace) every [`RESTRICTED_POLL`] instead, and a denied
+/// watch is logged rather than reported as an error.
 async fn watch_and_emit<K, F, Fut>(
     client: kube::Client,
     kind: &str,
+    scope: NamespaceScope,
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
     mut on_change: F,
@@ -611,6 +669,11 @@ async fn watch_and_emit<K, F, Fut>(
 
     let mut retry_delay = Duration::from_secs(1);
     loop {
+        if scope.snapshot().restricted {
+            on_change().await;
+            tokio::time::sleep(RESTRICTED_POLL).await;
+            continue;
+        }
         let api: Api<K> = Api::all(client.clone());
         let w = watcher(api, watcher::Config::default());
         futures_util::pin_mut!(w);
@@ -620,6 +683,10 @@ async fn watch_and_emit<K, F, Fut>(
                 Ok(_event) => {
                     retry_delay = Duration::from_secs(1);
                     on_change().await;
+                }
+                Err(e) if watch_denied(&e) => {
+                    tracing::info!("{kind} watch not permitted; retrying in {retry_delay:?}");
+                    break;
                 }
                 Err(e) => {
                     events::notify_error(
@@ -640,19 +707,20 @@ async fn watch_and_emit<K, F, Fut>(
     }
 }
 
-/// List all pods and emit them (filtered by the shared namespace filter) as `PodsUpdated`.
+/// List pods (per [`ns_scope::list_scoped`]) and emit them, filtered by the shared namespace
+/// filter, as `PodsUpdated`.
 async fn emit_pods_snapshot(
     client: &kube::Client,
     filter_shared: &RwLock<Vec<String>>,
+    scope: &ScopeState,
     seq: &AtomicU64,
     sender: &Sender<BackendEventEnvelope>,
     context: &Option<String>,
 ) {
-    let api: Api<Pod> = Api::all(client.clone());
-    match api.list(&ListParams::default()).await {
+    let filter = filter_shared.read().map(|f| f.clone()).unwrap_or_default();
+    match ns_scope::list_scoped::<Pod>(client.clone(), &filter, scope).await {
         Ok(pods_list) => {
-            let filter = filter_shared.read().map(|f| f.clone()).unwrap_or_default();
-            let summaries = pods::pods_to_summaries(pods_list.items, &filter);
+            let summaries = pods::pods_to_summaries(pods_list, &filter);
             events::emit(
                 seq,
                 sender,
@@ -661,15 +729,19 @@ async fn emit_pods_snapshot(
                 BackendEvent::ResourceList(ResourceListEvent::PodsUpdated(summaries)),
             );
         }
-        Err(e) => {
-            events::notify_error(seq, sender, format!("Background pod refresh failed: {}", e));
-        }
+        Err(e) => events::report_error(
+            seq,
+            sender,
+            format!("Background pod refresh failed: {e}"),
+            ns_scope::is_forbidden(&e),
+        ),
     }
 }
 
 /// Background task: re-list namespaces every 30 seconds and emit `NamespacesUpdated`.
 async fn sync_namespaces_periodically(
     client: kube::Client,
+    scope: NamespaceScope,
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
     context: Option<String>,
@@ -677,14 +749,10 @@ async fn sync_namespaces_periodically(
     let mut ticker = tokio::time::interval(Duration::from_secs(30));
     loop {
         ticker.tick().await;
-        let api: Api<Namespace> = Api::all(client.clone());
-        match api.list(&ListParams::default()).await {
-            Ok(ns_list) => {
-                let mut namespaces: Vec<String> = ns_list
-                    .items
-                    .into_iter()
-                    .filter_map(|n| n.metadata.name)
-                    .collect();
+        match list_namespace_objects(&client, &scope).await {
+            Ok(items) => {
+                let mut namespaces: Vec<String> =
+                    items.into_iter().filter_map(|n| n.metadata.name).collect();
                 namespaces.sort();
                 emit_namespace_names(seq.as_ref(), &sender, context.clone(), namespaces);
             }
@@ -699,6 +767,58 @@ async fn sync_namespaces_periodically(
     }
 }
 
+/// List Namespace objects. When `list namespaces` is denied (031), mark `scope` restricted
+/// (seeded with the client's default namespace, i.e. the kubeconfig context's) and return its
+/// reachable namespaces instead: each fetched with GET where allowed (a `RoleBinding` in a
+/// namespace lets its subject read that Namespace object), else a bare name with no status.
+async fn list_namespace_objects(
+    client: &kube::Client,
+    scope: &NamespaceScope,
+) -> kube::Result<Vec<Namespace>> {
+    let api: Api<Namespace> = Api::all(client.clone());
+    match api.list(&ListParams::default()).await {
+        Ok(list) => {
+            if scope.snapshot().restricted {
+                scope.reset();
+            }
+            Ok(list.items)
+        }
+        Err(e) if ns_scope::is_forbidden(&e) => {
+            scope.restrict(client.default_namespace());
+            let reachable = scope.snapshot().reachable;
+            let gets = reachable.iter().map(|name| {
+                let api = api.clone();
+                async move {
+                    api.get(name).await.unwrap_or_else(|_| Namespace {
+                        metadata: kube::api::ObjectMeta {
+                            name: Some(name.clone()),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                }
+            });
+            Ok(futures::future::join_all(gets).await)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Emit `NamespaceAccess` so the UI knows whether the namespace list is complete.
+pub(super) fn emit_namespace_access(
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    restricted: bool,
+) {
+    events::emit(
+        seq,
+        sender,
+        Route::global(section_keys::system()),
+        Correlation::None,
+        BackendEvent::System(SystemEvent::NamespaceAccess { restricted }),
+    );
+}
+
 pub(super) async fn refresh_namespaces(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
@@ -706,21 +826,19 @@ pub(super) async fn refresh_namespaces(
     let client = state.cluster.client_or_err()?;
     // Capture the context at request start so a late result keeps its origin (FR-016).
     let context = state.cluster.current_context.clone();
-    let ns_api: Api<Namespace> = Api::all(client.clone());
-    let pod_api: Api<Pod> = Api::all(client.clone());
-    let deployment_api: Api<Deployment> = Api::all(client);
+    let ns_items = list_namespace_objects(&client, &state.cluster.scope).await?;
+    let scope = state.cluster.scope.snapshot();
+    emit_namespace_access(state.cluster.seq.as_ref(), sender, scope.restricted);
 
-    let lp = ListParams::default();
-    let (ns_result, pods_result, deployments_result) = tokio::join!(
-        ns_api.list(&lp),
-        pod_api.list(&lp),
-        deployment_api.list(&lp)
+    // Counts: cluster-wide, or per reachable namespace for a namespace-scoped identity.
+    let (pods_result, deployments_result) = tokio::join!(
+        ns_scope::list_scoped::<Pod>(client.clone(), &[], &scope),
+        ns_scope::list_scoped::<Deployment>(client, &[], &scope)
     );
-    let ns_list = ns_result?;
 
     let mut pod_counts: HashMap<String, u32> = HashMap::new();
     if let Ok(pods) = pods_result {
-        for pod in pods.items {
+        for pod in pods {
             if let Some(ns) = pod.metadata.namespace {
                 *pod_counts.entry(ns).or_default() += 1;
             }
@@ -729,15 +847,14 @@ pub(super) async fn refresh_namespaces(
 
     let mut deployment_counts: HashMap<String, u32> = HashMap::new();
     if let Ok(deployments) = deployments_result {
-        for deployment in deployments.items {
+        for deployment in deployments {
             if let Some(ns) = deployment.metadata.namespace {
                 *deployment_counts.entry(ns).or_default() += 1;
             }
         }
     }
 
-    let mut summaries: Vec<NamespaceSummary> = ns_list
-        .items
+    let mut summaries: Vec<NamespaceSummary> = ns_items
         .into_iter()
         .filter_map(|ns| {
             let name = ns.metadata.name?;
@@ -782,7 +899,7 @@ fn namespaces_route(context: Option<String>) -> Route {
 }
 
 /// Emit `NamespacesUpdated` tagged with the context the namespaces were listed from.
-fn emit_namespace_names(
+pub(super) fn emit_namespace_names(
     seq: &AtomicU64,
     sender: &Sender<BackendEventEnvelope>,
     context: Option<String>,
@@ -822,11 +939,12 @@ async fn poll_cluster_version(
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(20));
+    // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
+    let mut latch = ns_scope::ForbiddenLatch::default();
     loop {
-        ticker.tick().await; // first tick completes immediately
         match cluster_version::fetch_cluster_version(&client).await {
             Ok(summary) => {
+                latch.on_ok();
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -836,13 +954,16 @@ async fn poll_cluster_version(
                 );
             }
             Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender,
-                    format!("Background cluster version poll failed: {}", e),
-                );
+                if latch.on_error("Background cluster version poll failed", &e) {
+                    events::notify_error(
+                        seq.as_ref(),
+                        &sender,
+                        format!("Background cluster version poll failed: {e}"),
+                    );
+                }
             }
         }
+        tokio::time::sleep(latch.next_delay(Duration::from_secs(20))).await;
     }
 }
 

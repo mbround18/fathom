@@ -52,6 +52,40 @@ stops after the IdP). It waits for the rollout and for `/readyz` through the ing
 - Issuers: Rauthy `https://auth.localtest.me/auth/v1/` (trailing slash is part of the issuer), Keycloak `https://keycloak.localtest.me/realms/fathom`. Client `fathom` (confidential, PKCE S256, 60 s token lifetime), secret in `addons/<provider>`.
 - Users `alice` (group `fathom-viewers`, view everywhere), `bob` (`fathom-editors`, edit in `demo`), `carol` (no group), all with password `FathomDemo#2026-Pw1`; IdP admin `admin@fathom.test`/`admin` with `FathomAdmin#2026-Pw1`. RBAC: `samples/hosted-rbac.yaml`. Dev-only static secrets, disposable clusters only.
 
+## Restricted user
+
+`samples/restricted-user.yaml` is a namespace-scoped identity for checking that Fathom works
+without cluster-wide RBAC: ServiceAccount `fathom-dev/fathom-restricted` with `edit` in
+`fathom-dev` and `demo`, `view` in `default`, and nothing cluster-scoped (it cannot list
+namespaces, nodes, CRDs, or any kind across all namespaces). It is not in `kustomization.yaml`;
+apply it on demand, on kind only, and remove it afterwards.
+
+```
+ADMIN=$(mktemp); kind get kubeconfig --name fathom-dev > "$ADMIN"
+kubectl --kubeconfig "$ADMIN" apply -f k8s/samples/restricted-user.yaml
+# Kubeconfig for the SA (keep it out of the repo; never paste the token anywhere):
+KC=$(mktemp); server=$(kubectl --kubeconfig "$ADMIN" config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+kubectl --kubeconfig "$ADMIN" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > "$KC.ca"
+kubectl --kubeconfig "$KC" config set-cluster kind-fathom-dev --server="$server" --certificate-authority="$KC.ca" --embed-certs=true
+kubectl --kubeconfig "$KC" config set-credentials fathom-restricted \
+  --token="$(kubectl --kubeconfig "$ADMIN" -n fathom-dev create token fathom-restricted --duration=12h)"
+kubectl --kubeconfig "$KC" config set-context fathom-restricted --cluster=kind-fathom-dev \
+  --user=fathom-restricted --namespace=fathom-dev
+kubectl --kubeconfig "$KC" config use-context fathom-restricted; rm -f "$KC.ca"
+# Live walk of every nav section and tool as that user (skips when the variable is unset):
+FATHOM_RESTRICTED_KUBECONFIG=$KC FATHOM_LIVE_CONTEXT=fathom-restricted \
+  pnpm -C ui e2e:restricted --workers=1
+# Remove:
+kubectl --kubeconfig "$ADMIN" delete sa,rolebinding -A -l fathom.dev/restricted-user=true
+rm -f "$KC" "$ADMIN"
+```
+
+What such a user should see: namespaced lists hold the namespaces they reach (the kubeconfig
+context's namespace, plus any typed into the namespace picker's "Use namespace" entry);
+cluster-scoped sections (Nodes, PersistentVolumes, ClusterRoles, CRDs, webhooks, integrations
+that scan CRDs cluster-wide) show "Not permitted"; no error toasts; background pollers log the
+denial once and back off.
+
 ## In-cluster daemon (spec 036)
 
 ```

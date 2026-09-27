@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::Service;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 
 use super::interactions;
@@ -16,11 +16,8 @@ pub(super) async fn refresh_services(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<Service> = Api::all(client);
-
-    let services = api.list(&ListParams::default()).await?;
-    let summaries = services_to_summaries(services.items, &state.cluster.namespace_filter);
+    let services = state.cluster.list_namespaced::<Service>().await?;
+    let summaries = services_to_summaries(services, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

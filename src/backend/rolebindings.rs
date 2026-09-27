@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::api::rbac::v1::RoleBinding;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 
 use super::interactions;
@@ -16,11 +16,8 @@ pub(super) async fn refresh_role_bindings(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<RoleBinding> = Api::all(client);
-
-    let bindings = api.list(&ListParams::default()).await?;
-    let summaries = role_bindings_to_summaries(bindings.items, &state.cluster.namespace_filter);
+    let bindings = state.cluster.list_namespaced::<RoleBinding>().await?;
+    let summaries = role_bindings_to_summaries(bindings, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

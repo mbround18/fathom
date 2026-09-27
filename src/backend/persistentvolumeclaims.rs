@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 
 use super::interactions;
@@ -16,12 +16,11 @@ pub(super) async fn refresh_persistentvolumeclaims(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<PersistentVolumeClaim> = Api::all(client);
-
-    let claims = api.list(&ListParams::default()).await?;
-    let summaries =
-        persistentvolumeclaims_to_summaries(claims.items, &state.cluster.namespace_filter);
+    let claims = state
+        .cluster
+        .list_namespaced::<PersistentVolumeClaim>()
+        .await?;
+    let summaries = persistentvolumeclaims_to_summaries(claims, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

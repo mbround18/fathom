@@ -21,6 +21,11 @@ export function listKey(
   return `${context ?? NO_CONTEXT}|${section}|${scope}|${ns ?? ALL_NAMESPACES}`
 }
 
+/** 031: key of a section in the store's `denied` map. */
+export function deniedKey(context: string | null | undefined, section: string): string {
+  return `${context ?? NO_CONTEXT}|${section}`
+}
+
 export function listKeyOf(route: Route): ListKey {
   return listKey(route.context, route.section, route.scope, route.namespace)
 }

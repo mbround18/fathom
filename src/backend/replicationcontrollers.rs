@@ -5,7 +5,7 @@ use crate::protocol::{
 use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::ReplicationController;
 use kube::ResourceExt;
-use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams};
+use kube::api::{Api, DeleteParams, Patch, PatchParams};
 use serde_json::json;
 
 use super::{events, state::BackendState};
@@ -17,11 +17,11 @@ pub(super) async fn refresh_replicationcontrollers(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<ReplicationController> = Api::all(client);
-
-    let rcs = api.list(&ListParams::default()).await?;
-    let summaries = replicationcontrollers_to_summaries(rcs.items, &state.cluster.namespace_filter);
+    let rcs = state
+        .cluster
+        .list_namespaced::<ReplicationController>()
+        .await?;
+    let summaries = replicationcontrollers_to_summaries(rcs, &state.cluster.namespace_filter);
 
     events::emit(
         state.cluster.seq.as_ref(),

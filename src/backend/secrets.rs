@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::Secret;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 
 use super::interactions;
@@ -16,11 +16,8 @@ pub(super) async fn refresh_secrets(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<Secret> = Api::all(client);
-
-    let secrets = api.list(&ListParams::default()).await?;
-    let summaries = secrets_to_summaries(secrets.items, &state.cluster.namespace_filter);
+    let secrets = state.cluster.list_namespaced::<Secret>().await?;
+    let summaries = secrets_to_summaries(secrets, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

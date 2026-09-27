@@ -39,6 +39,11 @@ interface PickerProps {
   disabled?: boolean
   onChange: (value: string) => void
   className?: string
+  /**
+   * 031: offer "Use <label> “typed”" for a value missing from `options` (a namespace the
+   * identity reaches but cannot list). `validate` gates what may be typed. Always searchable.
+   */
+  allowCustom?: { validate: (value: string) => boolean }
 }
 
 const TRIGGER =
@@ -54,7 +59,7 @@ export function Picker(props: PickerProps) {
   // Open state lives here so a picker that grows past the threshold while open (the namespace
   // list arriving after the operator clicked) stays open as the searchable variant.
   const [open, setOpen] = useState(false)
-  return props.options.length > SEARCH_THRESHOLD ? (
+  return props.options.length > SEARCH_THRESHOLD || props.allowCustom ? (
     <SearchPicker {...props} open={open} onOpenChange={setOpen} />
   ) : (
     <SelectPicker {...props} open={open} onOpenChange={setOpen} />
@@ -115,9 +120,23 @@ function SearchPicker({
   className,
   open,
   onOpenChange: setOpen,
+  allowCustom,
 }: ControlledProps) {
   const contentId = useId()
+  const [query, setQuery] = useState('')
   const current = options.find((o) => o.value === value)
+  const typed = query.trim()
+  const offerCustom =
+    allowCustom !== undefined &&
+    typed !== '' &&
+    allowCustom.validate(typed) &&
+    !options.some((o) => o.value === typed)
+  const shown = current?.label ?? (allowCustom ? value : undefined) ?? placeholder
+  const choose = (v: string) => {
+    onChange(v)
+    setQuery('')
+    setOpen(false)
+  }
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild disabled={disabled}>
@@ -134,7 +153,7 @@ function SearchPicker({
           )}
         >
           <Prefix>{prefix}</Prefix>
-          <span className="min-w-0 truncate">{current?.label ?? placeholder}</span>
+          <span className="min-w-0 truncate">{shown}</span>
           <CaretDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         </button>
       </Popover.Trigger>
@@ -146,23 +165,34 @@ function SearchPicker({
           className="z-50 w-72 max-w-[calc(100vw-2rem)] border border-accent-neon/40 bg-popover shadow-[0_0_24px_-8px_var(--accent-neon)]"
         >
           <Command>
-            <CommandInput placeholder={`Find ${label.toLowerCase()}…`} />
+            <CommandInput
+              placeholder={`Find ${label.toLowerCase()}…`}
+              value={query}
+              onValueChange={setQuery}
+            />
             <CommandList>
-              <CommandEmpty>No match.</CommandEmpty>
+              {!offerCustom && <CommandEmpty>No match.</CommandEmpty>}
               {options.map((o) => (
                 <CommandItem
                   key={o.value}
                   value={o.label}
                   data-checked={o.value === value}
-                  onSelect={() => {
-                    onChange(o.value)
-                    setOpen(false)
-                  }}
+                  onSelect={() => choose(o.value)}
                   className={ITEM}
                 >
                   {o.label}
                 </CommandItem>
               ))}
+              {offerCustom && (
+                <CommandItem
+                  forceMount
+                  value={`__custom__:${typed}`}
+                  onSelect={() => choose(typed)}
+                  className={ITEM}
+                >
+                  Use {label.toLowerCase()} “{typed}”
+                </CommandItem>
+              )}
             </CommandList>
           </Command>
         </Popover.Content>

@@ -33,7 +33,7 @@ import {
 } from './daemon'
 import { applyFederationRollup, applyFederationState } from './federation'
 import { applyFleetSummary } from './fleet'
-import { rowId } from './list'
+import { clearDenied, deniedKeyOf, rowId } from './list'
 
 const LEVEL: Record<NotificationLevel, Notice['level']> = {
   Info: 'info',
@@ -62,6 +62,8 @@ export function handleCommandFinished(
   if (env.correlation.type !== 'Request') return
   const id = env.correlation.data
   const { ok, error } = result
+  // 031: a section whose refresh now succeeds is no longer denied.
+  if (ok) clearDenied(d, env.route.context, env.route.section)
   // 026: a finished command may have appended an audit entry; refresh the viewer if it is open
   // (never for the audit refresh's own completion, which would loop).
   const audit = d.read('audit')
@@ -109,6 +111,22 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       return
     }
 
+    // 031: the identity may not read this section (an RBAC 403). Its pane shows "Not
+    // permitted" instead of an error toast; an action's own denial is its toast's business.
+    case 'AccessDenied': {
+      const fromAction =
+        env.correlation.type === 'Request' && d.read('pending')[env.correlation.data] !== undefined
+      const section = env.route.section
+      if (fromAction || section === 'system') return
+      d.edit('denied')[deniedKeyOf(d, env.route.context, section)] = event.data.message
+      failLoadingLists(d, event.data.message, section, true)
+      return
+    }
+
+    case 'NamespaceAccess':
+      d.edit('session').namespacesRestricted = event.data.restricted
+      return
+
     case 'ContextsUpdated': {
       const session = d.edit('session')
       session.contexts = event.data.contexts
@@ -131,6 +149,8 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       d.put('lists', markLoading(d.read('lists'), current, CONTEXT_LISTS))
       // 018: cached permission answers belong to the previous context's identity.
       d.put('rbacAccess', {})
+      d.put('denied', {})
+      session.namespacesRestricted = undefined
       d.effects.push(resetCapabilities)
       return
     }
@@ -680,7 +700,7 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
  * verbatim instead of spinning forever. With `section` (the failed request's route) only that
  * section's lists fail; without it (a genuinely uncorrelated error) every loading list does.
  */
-function failLoadingLists(d: Draft, message: string, section?: string): void {
+function failLoadingLists(d: Draft, message: string, section?: string, forbidden = false): void {
   const ctx = d.read('session').activeContext
   if (ctx === undefined) return
   const prefix = section === undefined ? `${ctx}|` : `${ctx}|${section}|`
@@ -696,7 +716,9 @@ function failLoadingLists(d: Draft, message: string, section?: string): void {
   const edit = d.edit('lists')
   for (const k of failing) {
     const prev = lists[k]
-    if (prev) edit[k] = { ...prev, status: 'error', error: message }
+    if (prev) edit[k] = { ...prev, status: 'error', error: message, forbidden }
   }
-  for (const k of missing) edit[k] = { rows: [], status: 'error', error: message, updatedAt: 0 }
+  for (const k of missing) {
+    edit[k] = { rows: [], status: 'error', error: message, forbidden, updatedAt: 0 }
+  }
 }

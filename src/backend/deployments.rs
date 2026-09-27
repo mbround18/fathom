@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::{api::apps::v1::Deployment, chrono::Utc};
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams, Patch, PatchParams},
+    api::{Api, DeleteParams, Patch, PatchParams},
 };
 use serde_json::json;
 use std::sync::atomic::AtomicU64;
@@ -18,9 +18,8 @@ pub(super) async fn refresh_deployments(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
     let filter = &state.cluster.namespace_filter;
-    let deployments = super::kube::list_in_filter::<Deployment>(client, filter).await?;
+    let deployments = state.cluster.list_namespaced::<Deployment>().await?;
     let summaries = deployments_to_summaries(deployments, filter);
 
     events::emit(
@@ -42,14 +41,14 @@ pub(super) async fn refresh_deployments(
 pub(super) async fn emit_deployments_snapshot(
     client: &kube::Client,
     filter: &[String],
+    scope: &super::ns_scope::ScopeState,
     seq: &AtomicU64,
     sender: &Sender<BackendEventEnvelope>,
     context: &Option<String>,
 ) {
-    let api: Api<Deployment> = Api::all(client.clone());
-    match api.list(&ListParams::default()).await {
+    match super::ns_scope::list_scoped::<Deployment>(client.clone(), filter, scope).await {
         Ok(list) => {
-            let summaries = deployments_to_summaries(list.items, filter);
+            let summaries = deployments_to_summaries(list, filter);
             events::emit(
                 seq,
                 sender,
@@ -58,13 +57,12 @@ pub(super) async fn emit_deployments_snapshot(
                 BackendEvent::ResourceList(ResourceListEvent::DeploymentsUpdated(summaries)),
             );
         }
-        Err(e) => {
-            events::notify_error(
-                seq,
-                sender,
-                format!("Background deployment refresh failed: {}", e),
-            );
-        }
+        Err(e) => events::report_error(
+            seq,
+            sender,
+            format!("Background deployment refresh failed: {e}"),
+            super::ns_scope::is_forbidden(&e),
+        ),
     }
 }
 

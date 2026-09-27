@@ -6,7 +6,7 @@ use crate::backend::integrations::{IntegrationConfig, PrometheusConfig};
 use crate::backend::state::BackendState;
 use crate::backend::{
     cert_manager, events, flux, gatekeeper, hubble, integrations, keda, knative, metrics_provider,
-    trivy, velero,
+    ns_scope, trivy, velero,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, GatekeeperOverview, Route,
@@ -308,10 +308,11 @@ async fn refresh_integrations(state: &BackendState, sender: &Sender<BackendEvent
             // permanently disabled until the user switched cluster
             // context. Emit an empty result alongside the error so
             // the UI unblocks, in addition to the error notification.
-            events::notify_error(
+            events::report_error(
                 state.cluster.seq.as_ref(),
                 sender,
                 format!("Failed to scan cluster for metrics stack: {}", e),
+                ns_scope::anyhow_is_forbidden(&e),
             );
             emit_empty_metrics_scan(state, sender, context);
         }
@@ -354,10 +355,11 @@ async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope
             context,
             SystemEvent::FluxOverviewUpdated(overview),
         ),
-        Err(e) => events::notify_error(
+        Err(e) => events::report_error(
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for Flux resources: {}", e),
+            ns_scope::anyhow_is_forbidden(&e),
         ),
     }
 }
@@ -413,10 +415,11 @@ async fn refresh_velero(state: &BackendState, sender: &Sender<BackendEventEnvelo
             context,
             SystemEvent::VeleroOverviewUpdated(overview),
         ),
-        Err(e) => events::notify_error(
+        Err(e) => events::report_error(
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for Velero resources: {}", e),
+            ns_scope::anyhow_is_forbidden(&e),
         ),
     }
 }
@@ -440,13 +443,14 @@ async fn refresh_cert_manager(state: &BackendState, sender: &Sender<BackendEvent
             context,
             SystemEvent::CertManagerOverviewUpdated(overview),
         ),
-        Err(e) => events::notify_error(
+        Err(e) => events::report_error(
             state.cluster.seq.as_ref(),
             sender,
             format!(
                 "Failed to scan cluster for cert-manager Certificates: {}",
                 e
             ),
+            ns_scope::anyhow_is_forbidden(&e),
         ),
     }
 }
@@ -469,10 +473,11 @@ async fn refresh_trivy(state: &BackendState, sender: &Sender<BackendEventEnvelop
             context,
             SystemEvent::TrivyOverviewUpdated(overview),
         ),
-        Err(e) => events::notify_error(
+        Err(e) => events::report_error(
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for Trivy reports: {}", e),
+            ns_scope::anyhow_is_forbidden(&e),
         ),
     }
 }
@@ -495,10 +500,11 @@ async fn refresh_knative(state: &BackendState, sender: &Sender<BackendEventEnvel
             context,
             SystemEvent::KnativeOverviewUpdated(overview),
         ),
-        Err(e) => events::notify_error(
+        Err(e) => events::report_error(
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for Knative resources: {}", e),
+            ns_scope::anyhow_is_forbidden(&e),
         ),
     }
 }
@@ -521,10 +527,11 @@ async fn refresh_keda(state: &BackendState, sender: &Sender<BackendEventEnvelope
             context,
             SystemEvent::KedaOverviewUpdated(overview),
         ),
-        Err(e) => events::notify_error(
+        Err(e) => events::report_error(
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to scan cluster for KEDA resources: {}", e),
+            ns_scope::anyhow_is_forbidden(&e),
         ),
     }
 }
@@ -600,10 +607,11 @@ async fn refresh_hubble(state: &BackendState, sender: &Sender<BackendEventEnvelo
             context,
             SystemEvent::HubbleTrafficUpdated(summary),
         ),
-        Err(e) => events::notify_error(
+        Err(e) => events::report_error(
             state.cluster.seq.as_ref(),
             sender,
             format!("Failed to fetch Hubble traffic summary: {}", e),
+            ns_scope::anyhow_is_forbidden(&e),
         ),
     }
 }
