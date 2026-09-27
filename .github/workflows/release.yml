@@ -75,6 +75,7 @@ jobs:
         run: pnpm -C ui install --frozen-lockfile
 
       - name: Build and publish bundles
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -87,3 +88,20 @@ jobs:
           generateReleaseNotes: true
           assetNamePattern: fathom-[version]-[platform]-[arch][ext]
           args: ${{ matrix.args }}
+
+      # The bundled libwayland-client makes WebKitGTK abort with EGL_BAD_PARAMETER (blank window)
+      # on current distros, and the Tauri bundler cannot exclude it (T126). Repack the AppImage
+      # without it and replace the asset tauri-action uploaded, keeping its name.
+      - name: Repack AppImage with host libwayland
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACTS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          img=$(jq -r '.[] | select(endswith(".AppImage"))' <<<"$ARTIFACTS")
+          scripts/appimage-host-libs.sh "$img"
+          asset=$(gh release view "$GITHUB_REF_NAME" --json assets \
+            -q ".assets[].name | select(endswith(\"$(uname -m).AppImage\") or endswith(\"$(dpkg --print-architecture).AppImage\"))")
+          [ -n "$asset" ] || { echo "no AppImage asset for $(uname -m) on the release" >&2; exit 1; }
+          cp "$img" "$RUNNER_TEMP/$asset"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$asset" --clobber
