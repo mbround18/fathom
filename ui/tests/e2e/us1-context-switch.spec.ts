@@ -76,12 +76,11 @@ test.describe('US1 context switching', () => {
     await expect(listPane(page).locator('[data-pane-state="loading"]')).toHaveCount(0)
   })
 
-  test('shows the no-kubeconfig first-run state instead of a blank pane', async ({ page }) => {
+  test('shows the no-kubeconfig setup screen instead of a blank pane', async ({ page }) => {
     await open(page, 'no-kubeconfig')
-    const state = page
-      .locator('[data-pane-kind="list"] [data-pane-state="first-run-kubeconfig"]')
-      .first()
-    await expect(state).toBeVisible()
+    // 043: the kubeconfig case is the app-wide setup screen rather than a per-pane state.
+    const state = page.getByTestId('setup-screen')
+    await expect(state).toHaveAttribute('data-setup-state', 'kubeconfig')
     await expect(state).toContainText('No kubeconfig found')
     await expect(state).toContainText('/home/operator/.kube/config')
   })

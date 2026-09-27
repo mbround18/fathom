@@ -44,6 +44,9 @@ interface PickerProps {
    * identity reaches but cannot list). `validate` gates what may be typed. Always searchable.
    */
   allowCustom?: { validate: (value: string) => boolean }
+  /** Controlled open state (043: "Choose another context" opens the context picker). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 const TRIGGER =
@@ -58,7 +61,12 @@ interface ControlledProps extends PickerProps {
 export function Picker(props: PickerProps) {
   // Open state lives here so a picker that grows past the threshold while open (the namespace
   // list arriving after the operator clicked) stays open as the searchable variant.
-  const [open, setOpen] = useState(false)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const open = props.open ?? ownOpen
+  const setOpen = (o: boolean) => {
+    setOwnOpen(o)
+    props.onOpenChange?.(o)
+  }
   return props.options.length > SEARCH_THRESHOLD || props.allowCustom ? (
     <SearchPicker {...props} open={open} onOpenChange={setOpen} />
   ) : (

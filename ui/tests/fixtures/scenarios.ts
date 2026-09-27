@@ -28,6 +28,7 @@ import {
   staleKindA,
   twoContexts,
   uiConfigDefault,
+  uiConfigRemembering,
 } from './batches'
 import { batch, system } from './builders'
 import { genDeployments, genPods, type FixtureContext } from './gen-pods'
@@ -95,6 +96,43 @@ function brokenActiveContext(kind: ProblemKind): Scenario {
       RefreshNamespaces: guard(base.RefreshNamespaces),
       SetActiveSection: guard(base.SetActiveSection),
       RefreshEvents: guard(base.RefreshEvents),
+    },
+  }
+}
+
+/** 043: no current context; picking kind-a on the setup screen fails with `kind`. */
+function setupBroken(kind: ProblemKind): Scenario {
+  const base = cluster()
+  return {
+    description: `No current context; kind-a is ${kind} when picked, kind-b connects.`,
+    initialState: { context: null, namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...base,
+      RefreshContexts: () => [contexts(null)],
+      Initialize: () => [noCurrentContext],
+      SetContext: (cmd, s) => {
+        if (cmd.data.context === 'kind-a') {
+          s.context = 'kind-a'
+          return [contextChanged('kind-a'), connectionProblem('kind-a', kind, 90)]
+        }
+        return base.SetContext?.(cmd, s) ?? []
+      },
+    },
+  }
+}
+
+/** 043: no current context, and Fathom's UI config remembers `context` from an earlier pick. */
+function rememberedContext(context: string): Scenario {
+  return {
+    description: `No current context; the UI config remembers ${context}.`,
+    initialState: { context: null, namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      LoadUiConfig: () => [uiConfigRemembering(context)],
+      RefreshContexts: () => [contexts(null)],
+      Initialize: () => [noCurrentContext],
     },
   }
 }
@@ -258,6 +296,11 @@ export const SCENARIOS = {
     },
   },
   'context-unreachable': brokenActiveContext('Unreachable'),
+  // 043 setup screen (tests/e2e/setup-screen.spec.ts, setup-sign-in.spec.ts).
+  'setup-unreachable': setupBroken('Unreachable'),
+  'setup-unauthorized': setupBroken('Unauthorized'),
+  'remembered-context': rememberedContext('kind-b'),
+  'remembered-context-removed': rememberedContext('gone-prod'),
   'context-unauthorized': brokenActiveContext('Unauthorized'),
   manual: {
     description: 'Silent backend: only BackendStarted; tests drive everything with emit().',

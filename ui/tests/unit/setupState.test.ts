@@ -227,4 +227,18 @@ describe('setupStateOf', () => {
       expect(setupStateOf(inputs({ ...over, hosted: true }))).toBeUndefined()
     })
   })
+
+  it('"Choose another context" after a failed connect shows the list again', () => {
+    const failed = inputs({
+      activeContext: 'kind-a',
+      connection: { connected: false, problem: UNREACHABLE },
+      pickedInSetup: 'kind-a',
+    })
+    expect(setupStateOf(failed)).toMatchObject({ kind: 'failed' })
+    expect(setupStateOf({ ...failed, choosing: true })).toEqual({
+      kind: 'pick',
+      contexts: CONTEXTS,
+      paths: PATHS,
+    })
+  })
 })

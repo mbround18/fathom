@@ -5,7 +5,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { FirstRunState, RELOAD_TIMEOUT_MS } from '@/components/shell/FirstRunState'
+import { FirstRunState } from '@/components/shell/FirstRunState'
+import { RELOAD_TIMEOUT_MS } from '@/components/shell/use-reload'
 import {
   connectionProblemCopy,
   firstRunOf,
@@ -298,5 +299,23 @@ describe('FirstRunState', () => {
     expect(screen.getAllByTestId('first-run-context').map((b) => b.textContent)).toEqual(['kind-b'])
     fireEvent.click(screen.getByTestId('first-run-retry'))
     expect(sent).toEqual([{ type: 'SetContext', data: { context: 'kind-a' } }])
+  })
+
+  it('connection: "Choose another context" opens the context picker (scope sheet on phone)', () => {
+    ingest(contextsWithProblem('Unreachable'))
+    const problem = session().connectionProblems['kind-a']
+    if (!problem) throw new Error('no problem recorded')
+    useStore.setState((s) => ({ layout: { ...s.layout, widthClass: 'desktop' } }))
+    const { unmount } = render(
+      <FirstRunState state={{ kind: 'connection', context: 'kind-a', problem }} />,
+    )
+    fireEvent.click(screen.getByTestId('first-run-choose-context'))
+    expect(useStore.getState().shell.contextPickerOpen).toBe(true)
+    unmount()
+
+    useStore.setState((s) => ({ layout: { ...s.layout, widthClass: 'phone' } }))
+    render(<FirstRunState state={{ kind: 'connection', context: 'kind-a', problem }} />)
+    fireEvent.click(screen.getByTestId('first-run-choose-context'))
+    expect(useStore.getState().shell.scopeOpen).toBe(true)
   })
 })

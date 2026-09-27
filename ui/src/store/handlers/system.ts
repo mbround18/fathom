@@ -149,6 +149,8 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       if (session.activeContext === undefined && event.data.current !== null) {
         session.activeContext = event.data.current
       }
+      // 043: no current-context: open the context remembered from setup, if still defined.
+      d.effects.push(() => useStore.getState().startupContext())
       return
     }
 
@@ -432,6 +434,7 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
         expandedGroups: event.data.expanded_groups,
         mcpStdioEnabled: event.data.mcp_stdio_enabled,
       })
+      d.effects.push(() => useStore.getState().startupContext())
       // `null` = nothing saved (or unreadable): keep the defaults (SC-009).
       const ui = event.data.ui
       if (ui === null) return

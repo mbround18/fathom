@@ -112,6 +112,8 @@ import { RingBuffer } from './ring-buffer'
 import { newLogStreamId } from './log-streams'
 import { waitForCommandResult } from './actions'
 import type { HostedState } from './handlers/hosted'
+import { setupStateOf } from '@/components/setup/setup-state'
+import { INITIAL_SETUP, setupInputsOf, startupContextOf, type SetupFlow } from './setup'
 
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
 export type { HelmMutationSession, HelmMutationStatus } from './helmMutation'
@@ -672,6 +674,8 @@ export interface ShellUi {
   moreOpen: boolean
   /** Narrow context/namespace sheet. */
   scopeOpen: boolean
+  /** 043: the header context picker is open ("Choose another context"). */
+  contextPickerOpen: boolean
 }
 
 /** The data part of the store (everything `ingest` may replace). */
@@ -826,6 +830,8 @@ export interface StoreData {
    * `PodLogsTab` can pre-select the container. Cleared once `PodLogsTab` consumes it.
    */
   podLogsIntent: { namespace: string; name: string; container: string } | null
+  /** 043: the setup screen's transient flow (picked context, sign-in step, detour). */
+  setup: SetupFlow
 }
 
 export interface StoreState extends StoreData {
@@ -865,6 +871,13 @@ export interface StoreState extends StoreData {
   /** First-run UX: reconnect the active context (`SetContext` again), or re-read the kubeconfig
    * (`Initialize`) when none is active. The panes show loading until the backend answers. */
   retryConnection: () => void
+  /** 043: pick `name` on the setup screen: select it, remember it and open its Overview. */
+  pickInSetup: (name: string) => void
+  /** 043: remember `name` in `UiConfig.lastSelection` (never the kubeconfig) and save it. */
+  rememberContext: (name: string) => void
+  /** 043: open the remembered context when the kubeconfig selects none (once per start). */
+  startupContext: () => void
+  setSetup: (patch: Partial<SetupFlow>) => void
   /** 027: start/stop the backend's view-scoped fleet pollers (Fleet Dashboard mount/unmount). */
   startFleetPolling: () => void
   stopFleetPolling: () => void
@@ -1210,6 +1223,7 @@ export function initialData(): StoreData {
       toolsSheet: undefined,
       moreOpen: false,
       scopeOpen: false,
+      contextPickerOpen: false,
     },
     panes,
     editSessions: {},
@@ -1230,6 +1244,7 @@ export function initialData(): StoreData {
     },
     kind: { prerequisites: undefined, clusters: undefined, operations: {} },
     podLogsIntent: null,
+    setup: INITIAL_SETUP,
   }
 }
 
@@ -1334,6 +1349,8 @@ export const useStore = create<StoreState>()((set, get) => ({
         Object.values(s.panes).find((p) => p.kind === 'list')?.id
       const pane = listId ? s.panes[listId] : undefined
       if (!pane) return s
+      // 043: a page opened while the setup screen shows is a detour from it (AppShell).
+      const inSetup = setupStateOf(setupInputsOf(s)) !== undefined
       const route: Route = {
         context: s.session.activeContext ?? null,
         section,
@@ -1342,6 +1359,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
       return {
         conn: s.conn,
+        ...(inSetup ? { setup: { ...s.setup, detour: { paneId: pane.id, section } } } : {}),
         panes: {
           ...s.panes,
           [pane.id]: {
@@ -1467,6 +1485,39 @@ export const useStore = create<StoreState>()((set, get) => ({
     })
     s.send({ type: 'SetContext', data: { context: name } })
   },
+
+  pickInSetup: (name) => {
+    const s = get()
+    set({
+      setup: {
+        picked: name,
+        signInStep: s.identity.config.issuers.length > 0,
+        startupTried: true,
+      },
+    })
+    // Re-picking the context that just failed retries it (selectContext ignores the same name).
+    if (s.session.activeContext === name) s.retryConnection()
+    else s.selectContext(name)
+    s.rememberContext(name)
+    get().navigate(SECTION.overview)
+  },
+
+  rememberContext: (name) => {
+    const s = get()
+    const ui: UiConfig = { ...s.ui, lastSelection: { context: name, section: SECTION.overview } }
+    set({ ui })
+    s.send({ type: 'SaveUiConfig', data: { ui, expanded_groups: s.prefs.expandedGroups } })
+  },
+
+  startupContext: () => {
+    const s = get()
+    if (s.setup.startupTried || !s.prefs.loaded || !s.session.contextsLoaded) return
+    set({ setup: { ...s.setup, startupTried: true } })
+    const name = startupContextOf(s)
+    if (name !== undefined) s.selectContext(name)
+  },
+
+  setSetup: (patch) => set((s) => ({ setup: { ...s.setup, ...patch } })),
 
   retryConnection: () => {
     const s = get()
