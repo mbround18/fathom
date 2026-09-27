@@ -12,8 +12,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # One tauri-action build per Tier 1 target that GitHub hosts a runner for. Windows 11, Ubuntu 26.04
-  # and macOS 26 are validated by hand before publishing (specs/001-tauri-shadcn-frontend, T126).
+  # One tauri-action build per shipped target. MVP: Linux x86_64 and aarch64 only, validated by
+  # hand on Ubuntu 26.04 before publishing (specs/001-tauri-shadcn-frontend, T126).
   # tauri-action creates the release (first job wins, the rest attach) and uploads each bundle
   # renamed by `assetNamePattern` to fathom-<version>-<os>-<arch>.<ext> (FR-024).
   build:
@@ -30,19 +30,11 @@ jobs:
           - name: linux-aarch64
             os: ubuntu-22.04-arm
             args: ''
-          # dmg
-          - name: macos-aarch64
-            os: macos-latest
-            args: '--target aarch64-apple-darwin'
-            rust_targets: aarch64-apple-darwin
-          - name: macos-x86_64
-            os: macos-latest
-            args: '--target x86_64-apple-darwin'
-            rust_targets: x86_64-apple-darwin
-          # msi, nsis (WebView2 download bootstrapper is the Tauri default)
-          - name: windows-x86_64
-            os: windows-latest
-            args: ''
+          # MVP ships Linux only, unsigned (user decision, 2026-09-26). macOS (dmg) and Windows
+          # (msi, nsis) return after the MVP along with signing and notarization; restore:
+          #   - {name: macos-aarch64, os: macos-latest, args: '--target aarch64-apple-darwin', rust_targets: aarch64-apple-darwin}
+          #   - {name: macos-x86_64, os: macos-latest, args: '--target x86_64-apple-darwin', rust_targets: x86_64-apple-darwin}
+          #   - {name: windows-x86_64, os: windows-latest, args: ''}
 
     steps:
       - uses: actions/checkout@v4
