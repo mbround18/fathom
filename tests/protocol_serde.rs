@@ -1892,6 +1892,7 @@ fn all_cmds() -> Vec<BackendCmd> {
             subject_namespace: Some("s".to_owned()),
         },
         BackendCmd::RefreshKubeadmDetection,
+        BackendCmd::RefreshApiResources,
         BackendCmd::RefreshConfigMaps,
         BackendCmd::SelectConfigMap {
             namespace: "s".to_owned(),
@@ -2436,6 +2437,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::CheckResourceMutationAccess { .. } => {}
         BackendCmd::ResolveNamespaceAccess { .. } => {}
         BackendCmd::RefreshKubeadmDetection => {}
+        BackendCmd::RefreshApiResources => {}
         BackendCmd::RefreshConfigMaps => {}
         BackendCmd::SelectConfigMap { .. } => {}
         BackendCmd::DeleteConfigMap { .. } => {}
@@ -3432,6 +3434,17 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
         },
         ResourceReadEvent::NamespaceAccessResolved(sample_namespace_access_resolved()),
         ResourceReadEvent::KubeadmDetectionUpdated(sample_kubeadm_detection_result()),
+        ResourceReadEvent::ApiResourcesUpdated(fathom::protocol::ApiResourceCatalog {
+            groups: vec![fathom::protocol::ApiGroupResources {
+                group: "s".to_owned(),
+                resources: vec![fathom::protocol::ApiResourceName {
+                    name: "s".to_owned(),
+                    namespaced: true,
+                    verbs: vec!["s".to_owned()],
+                }],
+            }],
+            failed_groups: vec!["s".to_owned()],
+        }),
         ResourceReadEvent::PodExecAccessChecked {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
@@ -3545,6 +3558,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::ResourceMutationAccessChecked { .. } => {}
         ResourceReadEvent::NamespaceAccessResolved(..) => {}
         ResourceReadEvent::KubeadmDetectionUpdated(..) => {}
+        ResourceReadEvent::ApiResourcesUpdated(..) => {}
         ResourceReadEvent::PodExecAccessChecked { .. } => {}
     }
 }

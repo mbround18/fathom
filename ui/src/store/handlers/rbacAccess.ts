@@ -17,6 +17,7 @@ export type RbacAccessEvent = Extract<
       | 'ResourceMutationAccessChecked'
       | 'NamespaceAccessResolved'
       | 'KubeadmDetectionUpdated'
+      | 'ApiResourcesUpdated'
   }
 >
 
@@ -71,6 +72,10 @@ export function handleRbacAccess(d: Draft, event: RbacAccessEvent): void {
       return
     case 'KubeadmDetectionUpdated':
       d.edit('rbacAccess').kubeadmDetection = event.data
+      return
+    // 042-role-create: API discovery for the Role/ClusterRole rules editor's pickers.
+    case 'ApiResourcesUpdated':
+      d.edit('rbacAccess').apiResources = event.data
       return
   }
 }

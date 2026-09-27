@@ -41,9 +41,18 @@ import { parseLabels, patchRoleBindingSubjects, roleBindingManifestYaml } from '
 export type RoleBindingKind = 'RoleBinding' | 'ClusterRoleBinding'
 type RoleRefKind = 'Role' | 'ClusterRole'
 
+/** Create-mode prefill, e.g. from the Role form's "Bind this role…" shortcut (042). */
+export interface RoleBindingInitial {
+  name?: string
+  namespace?: string
+  roleRefKind?: 'Role' | 'ClusterRole'
+  roleRefName?: string
+}
+
 export interface RoleBindingFormCreateProps {
   mode: 'create'
   kind: RoleBindingKind
+  initial?: RoleBindingInitial
   onClose: () => void
 }
 
@@ -88,20 +97,21 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
 
   const resource = kind === 'RoleBinding' ? 'rolebindings' : 'clusterrolebindings'
   const existing = mode === 'edit' ? props.existing : undefined
+  const initial = mode === 'create' ? props.initial : undefined
 
-  const [name, setName] = useState(existing?.name ?? '')
+  const [name, setName] = useState(existing?.name ?? initial?.name ?? '')
   const [namespace, setNamespace] = useState<string>(
-    existing ? (existingNamespace(existing) ?? '') : '',
+    existing ? (existingNamespace(existing) ?? '') : (initial?.namespace ?? ''),
   )
   const [roleRefKind, setRoleRefKind] = useState<RoleRefKind>(
     existing
       ? parseRoleRef(existing.role_ref).kind
       : kind === 'ClusterRoleBinding'
         ? 'ClusterRole'
-        : 'Role',
+        : (initial?.roleRefKind ?? 'Role'),
   )
   const [roleRefName, setRoleRefName] = useState<string>(
-    existing ? parseRoleRef(existing.role_ref).name : '',
+    existing ? parseRoleRef(existing.role_ref).name : (initial?.roleRefName ?? ''),
   )
   const [subjects, setSubjects] = useState<SubjectSummary[]>(existing?.subjects ?? [])
   // Create mode only: `key=value, ...` for metadata.labels (edit mode carries the live labels

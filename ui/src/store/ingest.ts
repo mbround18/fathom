@@ -119,7 +119,8 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
         event.data.type === 'RbacSelfAccessUpdated' ||
         event.data.type === 'ResourceMutationAccessChecked' ||
         event.data.type === 'NamespaceAccessResolved' ||
-        event.data.type === 'KubeadmDetectionUpdated'
+        event.data.type === 'KubeadmDetectionUpdated' ||
+        event.data.type === 'ApiResourcesUpdated'
       ) {
         handleRbacAccess(d, event.data)
         return

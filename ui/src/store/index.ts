@@ -48,6 +48,7 @@ import type {
   ImageInspection,
   KnativeOverview,
   KubeadmDetectionResult,
+  ApiResourceCatalog,
   KubernetesEvent,
   LayoutProfile,
   MetricsStackScanResult,
@@ -259,6 +260,7 @@ type GenericReadEvent = Exclude<
         | 'ResourceMutationAccessChecked'
         | 'NamespaceAccessResolved'
         | 'KubeadmDetectionUpdated'
+        | 'ApiResourcesUpdated'
     }
   // 024-pod-exec-terminal: routed by `handleExecAccess` into `execAccess`.
   | { type: 'PodExecAccessChecked' }
@@ -711,6 +713,8 @@ export interface StoreData {
     namespaceAccess?: NamespaceAccessResolved
     /** Latest `KubeadmDetectionUpdated` reply (US5), never an error. */
     kubeadmDetection?: KubeadmDetectionResult
+    /** 042-role-create: latest `ApiResourcesUpdated` (API discovery for the rules editor). */
+    apiResources?: ApiResourceCatalog
   }
   /**
    * 031: sections the identity may not read, keyed `${context}|${section}`, with the API

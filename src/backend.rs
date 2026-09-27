@@ -90,6 +90,7 @@ mod persistentvolumes;
 mod poddisruptionbudgets;
 mod priorityclasses;
 pub mod rbac_access;
+mod rbac_discovery;
 mod resourcequotas;
 mod role_assignment;
 mod rolebindings;

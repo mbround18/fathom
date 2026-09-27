@@ -30,10 +30,17 @@ import { TeamProfilesPanel } from '@/components/panels/TeamProfilesPanel'
 import { RoleBindingCreateLauncher } from '@/components/rbac/RoleBindingCreateLauncher'
 import { RoleAssignmentLauncher } from '@/features/roles/RoleAssignmentLauncher'
 import { RoleBindingEditLauncher } from '@/components/rbac/RoleBindingEditLauncher'
+import { RoleCreateLauncher } from '@/components/rbac/RoleCreateLauncher'
+import { RoleEditLauncher } from '@/components/rbac/RoleEditLauncher'
 import { ResourceTable } from '@/components/ResourceTable'
 import { Input } from '@/components/ui/input'
 import { SECTION } from '@/protocol/commands'
-import type { ClusterRoleBindingDetails, RoleBindingDetails } from '@/protocol/types'
+import type {
+  ClusterRoleBindingDetails,
+  ClusterRoleDetails,
+  RoleBindingDetails,
+  RoleDetails,
+} from '@/protocol/types'
 import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
@@ -136,6 +143,7 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
         {pane.kind === 'inspector' && pane.target && (
           <RoleBindingEditLauncherSlot target={pane.target} />
         )}
+        {pane.kind === 'inspector' && pane.target && <RoleEditLauncherSlot target={pane.target} />}
       </header>
       {pane.kind === 'list' && <PaneSearch pane={pane} />}
       {selfScrolling ? (
@@ -176,6 +184,21 @@ function RoleBindingEditLauncherSlot({ target }: { target: NonNullable<PaneState
         existing={detail.data as ClusterRoleBindingDetails}
       />
     )
+  }
+  return null
+}
+
+/** 042-role-create: the "Edit" entry point for an open Role/ClusterRole inspector. */
+function RoleEditLauncherSlot({ target }: { target: NonNullable<PaneState['target']> }) {
+  const ctx = useStore((s) => s.session.activeContext)
+  const detail = useStore(
+    (s) => s.details[detailKey(ctx, target.kind, target.namespace, target.name)],
+  )
+  if (target.kind === 'Role' && detail?.eventType === 'RoleDetailsUpdated') {
+    return <RoleEditLauncher kind="Role" existing={detail.data as RoleDetails} />
+  }
+  if (target.kind === 'ClusterRole' && detail?.eventType === 'ClusterRoleDetailsUpdated') {
+    return <RoleEditLauncher kind="ClusterRole" existing={detail.data as ClusterRoleDetails} />
   }
   return null
 }
@@ -370,6 +393,17 @@ function ListBody({ pane }: { pane: PaneState }) {
           <span aria-hidden="true">✖ </span>
           {list.error}
         </p>
+      )}
+      {/* 042-role-create: "New Role"/"New ClusterRole". */}
+      {section === SECTION.roles && (
+        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
+          <RoleCreateLauncher kind="Role" />
+        </div>
+      )}
+      {section === SECTION.clusterRoles && (
+        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
+          <RoleCreateLauncher kind="ClusterRole" />
+        </div>
       )}
       {/* 011-rbac-oidc-administration US2 (T029): "New RoleBinding"/"New ClusterRoleBinding". */}
       {section === SECTION.roleBindings && (
