@@ -58,17 +58,6 @@ impl ClusterContext {
     }
 }
 
-/// Pod log-tailing session state.
-pub(super) struct LogStreamState {
-    pub(super) log_task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl LogStreamState {
-    pub(super) fn stop(&mut self) {
-        abort_task(&mut self.log_task);
-    }
-}
-
 /// Interactive `kube exec` shell session state (one active application-wide, FR-012).
 pub(super) struct ExecSessionState {
     /// Held for the lifetime of the session so `.abort()` can be called on stop; dropping
@@ -154,7 +143,7 @@ impl WatchTasks {
 }
 
 /// In-flight `DrainNode` background tasks, keyed by the draining command's own request id
-/// (stringified), mirroring `LogStreamState`/`ExecSessionState`'s task-lifecycle pattern so a
+/// (stringified), mirroring `LogStreams`/`ExecSessionState`'s task-lifecycle pattern so a
 /// `CancelDrainNode` (or context switch / shutdown) can abort the task cleanly, preserving
 /// whatever partial `DrainProgress` was already reported.
 #[derive(Default)]
@@ -271,7 +260,8 @@ impl MetricsState {
 
 pub(super) struct BackendState {
     pub(super) cluster: ClusterContext,
-    pub(super) log_stream: LogStreamState,
+    /// Live pod log follows, keyed by stream id (feedback #2).
+    pub(super) log_stream: super::log_streams::LogStreams,
     pub(super) exec_session: ExecSessionState,
     /// 037-node-shell: the single active debug-pod session.
     pub(super) node_shell: super::node_shell::NodeShellState,
@@ -308,7 +298,7 @@ pub(super) struct BackendState {
     pub(super) idp: crate::backend::idp_directory::DirectoryCache,
     /// 038-sdk-login-ollama: provider login, secure credentials, Ollama, offline mode.
     pub(super) ai: crate::backend::ai::AiRuntime,
-    /// Shared by `LogStreamState` and `ExecSessionState` so `StreamId`s stay unique
+    /// Shared by id-less log streams and `ExecSessionState` so `StreamId`s stay unique
     /// across both kinds of session (research.md R2).
     next_stream_id: u64,
     /// 031-hosted-server-mode: where clients come from (default: kubeconfig, as before).
@@ -349,7 +339,7 @@ impl BackendState {
                 connection_epoch: 0,
                 scope: NamespaceScope::default(),
             },
-            log_stream: LogStreamState { log_task: None },
+            log_stream: super::log_streams::LogStreams::default(),
             exec_session: ExecSessionState {
                 attached: None,
                 relay_task: None,
@@ -430,7 +420,7 @@ pub(super) fn cleanup_all_tasks(state: &mut BackendState) {
 #[allow(clippy::cognitive_complexity)]
 fn abort_background_tasks(state: &mut BackendState) {
     tracing::debug!("Aborting log task");
-    state.log_stream.stop();
+    state.log_stream.stop_all();
     tracing::debug!("Aborting exec session");
     state.exec_session.stop();
     // Abort only the startup watcher; the pod itself is deleted by `node_shell::end_active`

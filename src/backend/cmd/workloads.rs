@@ -65,8 +65,10 @@ async fn handle_pod_cmd(
             namespace,
             name,
             container,
-        } => pods::start_logs(state, sender, namespace, name, container).await?,
-        BackendCmd::StopPodLogs => state.log_stream.stop(),
+            stream_id,
+        } => pods::start_logs(state, sender, namespace, name, container, stream_id),
+        BackendCmd::StopPodLogStream { stream_id } => state.log_stream.stop(stream_id),
+        BackendCmd::StopPodLogs => state.log_stream.stop_all(),
         BackendCmd::StartPodExec {
             namespace,
             name,

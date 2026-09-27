@@ -49,6 +49,7 @@ mod kind;
 mod knative;
 pub mod kube;
 mod kubeconfig_export;
+mod log_streams;
 mod longhorn;
 mod manifest_export;
 mod mcp;
@@ -272,14 +273,15 @@ pub fn init_with<C>(
 }
 
 /// Commands whose relative order matters: a pod terminal's session start, keystrokes, resizes
-/// and stop must reach the shell exactly in the order they were sent, and the singleton log
-/// stream's stop/start pair on a container switch must not swap (a late `StopPodLogs` would
-/// kill the stream that was just started).
+/// and stop must reach the shell exactly in the order they were sent, and a log
+/// stream's stop/start pair under one id (React StrictMode's mount/unmount/mount) must not swap
+/// (a late `StopPodLogStream` would kill the stream that was just restarted).
 fn is_order_sensitive(cmd: &BackendCmd) -> bool {
     matches!(
         cmd,
         BackendCmd::StartPodLogs { .. }
             | BackendCmd::StopPodLogs
+            | BackendCmd::StopPodLogStream { .. }
             | BackendCmd::StartPodExec { .. }
             | BackendCmd::SendPodExecInput { .. }
             | BackendCmd::ResizePodExec { .. }
@@ -689,6 +691,9 @@ mod tests {
         }));
         assert!(is_order_sensitive(&BackendCmd::StopPodExec));
         assert!(is_order_sensitive(&BackendCmd::StopPodLogs));
+        assert!(is_order_sensitive(&BackendCmd::StopPodLogStream {
+            stream_id: crate::protocol::StreamId(1 << 32)
+        }));
         assert!(!is_order_sensitive(&BackendCmd::StopMetricsPolling));
     }
 }

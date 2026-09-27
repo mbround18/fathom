@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 
 import { DETAIL_POD } from '../fixtures'
 import { batch, nsRoute, read, stream } from '../fixtures/builders'
-import { emit, inspector, navigateTo, open, row } from './helpers'
+import { emit, inspector, navigateTo, open, row, sent } from './helpers'
 
 const pod = (t: number, cpu: number) => ({
   namespace: 'default',
@@ -77,12 +77,23 @@ test('log follow: scrolling up stops following, Jump to latest resumes', async (
   await row(page, `${DETAIL_POD.namespace}/${DETAIL_POD.name}`).click()
   const insp = inspector(page)
   await insp.getByRole('tab', { name: 'Logs' }).click()
+  await expect
+    .poll(async () => (await sent(page)).some((c) => c.type === 'StartPodLogs'))
+    .toBe(true)
+  const start = (await sent(page)).findLast((c) => c.type === 'StartPodLogs')
+  const streamId = start?.type === 'StartPodLogs' ? start.data.stream_id : undefined
+  if (streamId === undefined) throw new Error('StartPodLogs carries a client stream id')
 
   const r = nsRoute('kind-a', 'workloads/pods', DETAIL_POD.namespace)
   const lines = (from: number, n: number) =>
     Array.from({ length: n }, (_, i) => `line ${String(from + i)}`)
   const chunk = (seq: number, from: number, n: number) =>
-    batch([stream(seq, r, { type: 'PodLogsChunk', data: { stream_id: 1, lines: lines(from, n) } })])
+    batch([
+      stream(seq, r, {
+        type: 'PodLogsChunk',
+        data: { stream_id: streamId, lines: lines(from, n) },
+      }),
+    ])
 
   await emit(page, chunk(300, 0, 200))
   const scroll = insp.getByTestId('pod-logs-scroll')

@@ -340,7 +340,7 @@ async fn set_context(
     context: String,
 ) -> anyhow::Result<()> {
     // Stop background activity and reconnect with the new context.
-    state.log_stream.stop();
+    state.log_stream.stop_all();
     state.exec_session.stop();
     // 037: the node-shell pod lives in the old cluster; delete it with the client captured
     // at start, bounded, before the connection is replaced.

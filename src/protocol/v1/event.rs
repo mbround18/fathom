@@ -821,28 +821,36 @@ pub enum ResourceReadEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data")]
 pub enum StreamEvent {
+    /// A `StartPodLogs` follow was accepted by the API server: the stream is live, though a
+    /// quiet container may send no `PodLogsChunk` for a long time. Emitted once per start.
+    PodLogsOpened { stream_id: StreamId },
     PodLogsChunk {
         stream_id: StreamId,
         lines: Vec<String>,
     },
     /// Emitted once a `StartPodExec` attach succeeds, letting the frontend flip from
     /// "attaching" to "active" (FR-009/FR-013).
-    PodExecReady {
-        stream_id: StreamId,
-    },
+    PodExecReady { stream_id: StreamId },
     /// Base64-encoded exec session output (see research.md R4).
-    PodExecOutputChunk {
-        stream_id: StreamId,
-        data: String,
-    },
+    PodExecOutputChunk { stream_id: StreamId, data: String },
     PortForwardTunnel {
         tunnel_id: String,
         status: PortForwardStatus,
         local_endpoint: Option<String>,
     },
+    /// Terminal event of a log or exec stream, emitted exactly once per stream.
+    ///
+    /// Log streams use a fixed `reason`: `"ended"` (the API server finished the follow, e.g.
+    /// the container exited), `"stopped"` (`StopPodLogStream`/`StopPodLogs`, a context switch or shutdown) or
+    /// `"error"` (with `error` set: the follow could not start or broke). Exec sessions use
+    /// `"exit"` or the verbatim failure text.
     StreamClosed {
         stream_id: StreamId,
         reason: String,
+        /// Verbatim failure for `reason: "error"`; absent otherwise.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        error: Option<String>,
     },
     /// Emitted once an `ApplyResourceYaml` succeeds (before `CommandFinished`).
     ResourceApplied {
@@ -864,18 +872,11 @@ pub enum StreamEvent {
         error: Option<String>,
     },
     /// 030: host readiness for local kind provisioning.
-    KindPrerequisitesUpdated {
-        prerequisites: KindPrerequisites,
-    },
+    KindPrerequisitesUpdated { prerequisites: KindPrerequisites },
     /// 030: current local kind clusters.
-    KindClustersUpdated {
-        clusters: Vec<KindClusterSummary>,
-    },
+    KindClustersUpdated { clusters: Vec<KindClusterSummary> },
     /// 030: one stage line from an in-flight kind create/delete, keyed by `request_id`.
-    KindProvisionProgress {
-        request_id: String,
-        stage: String,
-    },
+    KindProvisionProgress { request_id: String, stage: String },
     /// 030: terminal event for a kind create/delete, keyed by `request_id`.
     KindClusterActionFinished {
         request_id: String,

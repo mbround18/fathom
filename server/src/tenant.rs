@@ -19,7 +19,7 @@ use fathom::bridge::{BackendLink, spawn_backend_with, spawn_pump};
 use fathom::config::Args;
 use fathom::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, BridgeError, Correlation, NotificationLevel,
-    PublicIdentity, RequestId, ResourceReadEvent, Route, SessionEndReason, ShellMode,
+    PublicIdentity, RequestId, ResourceReadEvent, Route, SessionEndReason, ShellMode, StreamId,
     SubscriptionInfo, SystemEvent, section_keys,
 };
 use kube::{Client, Config};
@@ -158,10 +158,11 @@ pub struct UserBackend {
     limits: SessionLimits,
     token_cell: Option<TokenCell>,
     last_activity: Mutex<Instant>,
-    log_stream: Mutex<Option<Permit>>,
+    /// Live log follows by stream id (feedback #2: several views stream at once), each holding
+    /// its stream permit and the start command a recycle replays (T024). `None` is the one
+    /// id-less stream an older client may run.
+    log_streams: Mutex<HashMap<Option<StreamId>, (Permit, BackendCmd)>>,
     exec_stream: Mutex<Option<Permit>>,
-    /// The active log follow, kept so a recycle can restart it (T024).
-    log_cmd: Mutex<Option<BackendCmd>>,
     /// Live watch/poll slots counted against `max_watches_per_user`, by kind.
     watch_permits: Mutex<HashMap<&'static str, Permit>>,
     /// Set once the self-access probe found at least one permitted check (T033).
@@ -224,9 +225,8 @@ impl UserBackend {
             limits: p.limits,
             token_cell: p.token_cell,
             last_activity: Mutex::new(Instant::now()),
-            log_stream: Mutex::new(None),
+            log_streams: Mutex::new(HashMap::new()),
             exec_stream: Mutex::new(None),
-            log_cmd: Mutex::new(None),
             watch_permits: Mutex::new(HashMap::new()),
             access_verified,
             ended: AtomicBool::new(false),
@@ -389,19 +389,24 @@ impl UserBackend {
         self.shutdown();
     }
 
-    /// Restart the active log follow so it re-authenticates with the current token and a
-    /// lapsed user cannot hold a stream forever (research R6). The slot is reused. Returns
-    /// whether a stream was recycled. Watchers reconnect on their own timeouts; exec shells and
-    /// port forwards are deliberately not recycled mid-use.
+    /// Restart the active log follows so they re-authenticate with the current token and a
+    /// lapsed user cannot hold a stream forever (research R6). Each slot is reused: the backend
+    /// replaces a stream started again under the same id in place. Returns whether a stream
+    /// was recycled. Watchers reconnect on their own timeouts; exec shells and port forwards are
+    /// deliberately not recycled mid-use.
     pub fn recycle_streams(&self) -> bool {
-        let cmd = self
-            .log_cmd
+        let cmds: Vec<BackendCmd> = self
+            .log_streams
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let Some(cmd) = cmd else { return false };
-        let _ = self.forward(BackendCmd::StopPodLogs);
-        self.forward(cmd).is_ok()
+            .values()
+            .map(|(_, cmd)| cmd.clone())
+            .collect();
+        let mut recycled = false;
+        for cmd in cmds {
+            recycled |= self.forward(cmd).is_ok();
+        }
+        recycled
     }
 
     fn forward(&self, cmd: BackendCmd) -> Result<RequestId, BridgeError> {
@@ -417,18 +422,25 @@ impl UserBackend {
         use BackendCmd as C;
         let refuse = |e: LimitReached| BridgeError::Forbidden(e.to_string());
         match cmd {
-            C::StartPodLogs { .. } => {
-                *self.log_cmd.lock().unwrap_or_else(|e| e.into_inner()) = Some(cmd.clone());
-                let mut slot = self.log_stream.lock().unwrap_or_else(|e| e.into_inner());
-                // Replacing the active log stream reuses its slot.
-                if slot.is_none() {
-                    *slot = Some(self.counters.stream().map_err(refuse)?);
+            C::StartPodLogs { stream_id, .. } => {
+                let mut streams = self.log_streams.lock().unwrap_or_else(|e| e.into_inner());
+                // Restarting a live id (or the id-less stream) reuses its slot.
+                if let Some(entry) = streams.get_mut(stream_id) {
+                    entry.1 = cmd.clone();
+                } else {
+                    let permit = self.counters.stream().map_err(refuse)?;
+                    streams.insert(*stream_id, (permit, cmd.clone()));
                 }
             }
-            C::StopPodLogs => {
-                *self.log_cmd.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                *self.log_stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            C::StopPodLogStream { stream_id } => {
+                let mut streams = self.log_streams.lock().unwrap_or_else(|e| e.into_inner());
+                streams.remove(&Some(*stream_id));
             }
+            C::StopPodLogs => self
+                .log_streams
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear(),
             C::StartPodExec { .. } => {
                 let mut slot = self.exec_stream.lock().unwrap_or_else(|e| e.into_inner());
                 if slot.is_none() {
@@ -452,9 +464,11 @@ impl UserBackend {
         ] {
             let _ = self.forward(cmd);
         }
-        *self.log_stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.log_streams
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         *self.exec_stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        *self.log_cmd.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let mut w = self.watch_permits.lock().unwrap_or_else(|e| e.into_inner());
         w.remove("metrics");
         w.remove("workload-metrics");
@@ -782,10 +796,47 @@ mod tests {
             },
         );
         // Exercise via the accounting helper directly to stay independent of field shapes.
-        *b.log_stream.lock().unwrap() = Some(b.counters().stream().unwrap());
+        b.log_streams.lock().unwrap().insert(
+            None,
+            (b.counters().stream().unwrap(), BackendCmd::StopPodLogs),
+        );
         assert!(b.counters().stream().is_err());
         b.send(BackendCmd::StopPodLogs).unwrap();
         assert!(b.counters().stream().is_ok());
+        b.shutdown();
+        b.join();
+    }
+
+    #[test]
+    fn log_streams_hold_one_permit_per_id() {
+        let b = spawn(
+            "alice",
+            SessionLimits {
+                max_streams_per_user: 2,
+                ..Default::default()
+            },
+        );
+        let start = |id: u64| BackendCmd::StartPodLogs {
+            namespace: "default".into(),
+            name: "web".into(),
+            container: None,
+            stream_id: Some(StreamId((1 << 32) + id)),
+        };
+        b.send(start(1)).unwrap();
+        b.send(start(2)).unwrap();
+        assert!(matches!(b.send(start(3)), Err(BridgeError::Forbidden(_))));
+        // Restarting a live id reuses its slot.
+        b.send(start(1)).unwrap();
+        assert!(b.recycle_streams());
+        // Stopping one id frees exactly its slot.
+        b.send(BackendCmd::StopPodLogStream {
+            stream_id: StreamId((1 << 32) + 1),
+        })
+        .unwrap();
+        b.send(start(3)).unwrap();
+        assert!(matches!(b.send(start(4)), Err(BridgeError::Forbidden(_))));
+        b.send(BackendCmd::StopPodLogs).unwrap();
+        assert!(!b.recycle_streams());
         b.shutdown();
         b.join();
     }

@@ -1,7 +1,8 @@
 use crate::protocol::{
-    BackendEvent, BackendEventEnvelope, ContainerLifecycle, ContainerPort, ContainerResourceSpec,
-    ContainerState, Correlation, LifecycleHookSpec, PodDetails, PodOwner, PodSummary, ProbeSpec,
-    ResourceListEvent, ResourceReadEvent, Route, StreamEvent, section_keys,
+    BackendEvent, BackendEventEnvelope, CLIENT_STREAM_ID_MIN, ContainerLifecycle, ContainerPort,
+    ContainerResourceSpec, ContainerState, Correlation, LifecycleHookSpec, PodDetails, PodOwner,
+    PodSummary, ProbeSpec, ResourceListEvent, ResourceReadEvent, Route, StreamEvent, StreamId,
+    section_keys,
 };
 use crossbeam_channel::Sender;
 use futures_util::{StreamExt, io::AsyncBufReadExt};
@@ -16,6 +17,7 @@ use kube::{
 use std::collections::{BTreeMap, HashMap};
 
 use super::interactions;
+use super::log_streams::{CloseGuard, StreamSink};
 use super::{events, state::BackendState};
 
 pub(super) async fn refresh_pods(
@@ -384,20 +386,35 @@ async fn resolve_pod_owner(
     (owner, None)
 }
 
-pub(super) async fn start_logs(
+/// Start following one container's logs as its own stream (feedback #2): other streams keep
+/// running. Every outcome reaches the view as events on `stream_id`: `PodLogsOpened` once the
+/// API server accepts the follow, `PodLogsChunk`s, then exactly one `StreamClosed` (ended,
+/// stopped, or error with the verbatim failure), including when the follow never starts.
+pub(super) fn start_logs(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
     namespace: String,
     name: String,
     container: Option<String>,
-) -> anyhow::Result<()> {
-    state.log_stream.stop();
-
-    let stream_id = state.next_stream_id();
-
-    let client = state.cluster.client_or_err()?;
-    let api: Api<Pod> = Api::namespaced(client.clone(), &namespace);
-
+    requested: Option<StreamId>,
+) {
+    let legacy = requested.is_none();
+    let stream_id = requested.unwrap_or_else(|| state.next_stream_id());
+    let route = Route::namespaced(
+        section_keys::workloads_pods(),
+        state.cluster.current_context.clone(),
+        Some(namespace.clone()),
+    );
+    let guard = CloseGuard::new(StreamSink {
+        stream_id,
+        route,
+        seq: state.cluster.seq.clone(),
+        sender: sender.clone(),
+    });
+    let refused = requested
+        .filter(|id| id.0 < CLIENT_STREAM_ID_MIN)
+        .map(|id| format!("Log stream id {} is reserved for the backend.", id.0));
+    let client = state.cluster.client_or_err();
     let log_params = LogParams {
         follow: true,
         tail_lines: Some(200),
@@ -405,75 +422,47 @@ pub(super) async fn start_logs(
         ..Default::default()
     };
 
-    let sender_cloned = sender.clone();
-    let seq = state.cluster.seq.clone();
-    let context = state.cluster.current_context.clone();
-    let route = Route::namespaced(
-        section_keys::workloads_pods(),
-        context,
-        Some(namespace.clone()),
-    );
-    let handle = tokio::spawn(async move {
-        events::notify_info(
-            seq.as_ref(),
-            &sender_cloned,
-            format!("Streaming logs: {}/{}", namespace, name),
-        );
-
-        let stream = match api.log_stream(&name, &log_params).await {
-            Ok(s) => s,
-            Err(e) => {
-                events::notify_error(
-                    seq.as_ref(),
-                    &sender_cloned,
-                    format!("Failed to start logs: {}", e),
-                );
+    state
+        .log_stream
+        .spawn(guard, legacy, move |mut guard| async move {
+            if let Some(reason) = refused {
+                guard.failed(reason);
                 return;
             }
-        };
+            let client = match client {
+                Ok(c) => c,
+                Err(e) => {
+                    guard.failed(e.to_string());
+                    return;
+                }
+            };
+            let api: Api<Pod> = Api::namespaced(client, &namespace);
+            let stream = match api.log_stream(&name, &log_params).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(%namespace, %name, "log follow failed to start: {e}");
+                    guard.failed(format!("Failed to start logs: {e}"));
+                    return;
+                }
+            };
+            guard.sink().emit(StreamEvent::PodLogsOpened { stream_id });
 
-        let mut lines_stream = stream.lines();
-        while let Some(line) = lines_stream.next().await {
-            match line {
-                Ok(line) => {
-                    if !line.is_empty() {
-                        events::emit(
-                            seq.as_ref(),
-                            &sender_cloned,
-                            route.clone(),
-                            Correlation::Stream(stream_id),
-                            BackendEvent::Stream(StreamEvent::PodLogsChunk {
-                                stream_id,
-                                lines: vec![line],
-                            }),
-                        );
+            let mut lines_stream = stream.lines();
+            while let Some(line) = lines_stream.next().await {
+                match line {
+                    Ok(line) if line.is_empty() => {}
+                    Ok(line) => guard.sink().emit(StreamEvent::PodLogsChunk {
+                        stream_id,
+                        lines: vec![line],
+                    }),
+                    Err(e) => {
+                        guard.failed(format!("Log stream error: {e}"));
+                        return;
                     }
                 }
-                Err(e) => {
-                    events::notify_error(
-                        seq.as_ref(),
-                        &sender_cloned,
-                        format!("Log stream error: {}", e),
-                    );
-                    break;
-                }
             }
-        }
-
-        events::emit(
-            seq.as_ref(),
-            &sender_cloned,
-            route,
-            Correlation::Stream(stream_id),
-            BackendEvent::Stream(StreamEvent::StreamClosed {
-                stream_id,
-                reason: "ended".to_owned(),
-            }),
-        );
-    });
-
-    state.log_stream.log_task = Some(handle);
-    Ok(())
+            guard.ended();
+        });
 }
 
 /// Best-effort collect PVC claim names from pod.spec.volumes (volumes may be optional).

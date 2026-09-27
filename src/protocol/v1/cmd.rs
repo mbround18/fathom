@@ -5,7 +5,7 @@ use super::{
     ActionOutcome, AgentAuthModeInput, AgentObjectRef, ApiKeyInput, CapabilityQuery,
     ClusterSettings, ContextAuthMode, FathomRoleMap, KindClusterProfileId, NodeShellPodRef,
     NodeShellSettings, OidcIssuerConfig, OidcSignInMethod, Provider, RbacAccessCheck, RequestId,
-    RoleAssignmentDraft, SectionKey, UiConfig,
+    RoleAssignmentDraft, SectionKey, StreamId, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -148,12 +148,34 @@ pub enum BackendCmdV1 {
         namespace: String,
         pod: String,
     },
+    /// Follow one container's logs. Several streams may run at once, one per `stream_id`
+    /// (feedback #2: every open logs view owns its own stream).
     StartPodLogs {
         namespace: String,
         name: String,
         container: Option<String>,
+        /// Client-chosen id for this stream; every `PodLogsOpened`, `PodLogsChunk` and
+        /// `StreamClosed` for it carries the same id. It must be at least
+        /// `CLIENT_STREAM_ID_MIN` (2^32) so it never collides with a backend-allocated id (exec
+        /// sessions and id-less log streams count up from 1); a lower id is refused with a
+        /// `StreamClosed { reason: "error" }`. Starting an id that is already live replaces
+        /// that stream in place without closing it (the tail is replayed after a fresh
+        /// `PodLogsOpened`).
+        ///
+        /// Absent (clients from before multi-stream logs): the backend allocates an id and the
+        /// stream replaces the previous id-less one, the old singleton behaviour.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        stream_id: Option<StreamId>,
     },
+    /// Stop every log stream (the pre-multi-stream command, kept as is for wire compatibility;
+    /// also the hosted idle park). Each reports `StreamClosed { reason: "stopped" }`.
     StopPodLogs,
+    /// Stop one log stream, leaving the others running (feedback #2). It reports
+    /// `StreamClosed { reason: "stopped" }`; an unknown or finished id is a no-op.
+    StopPodLogStream {
+        stream_id: StreamId,
+    },
     FetchPodMetrics {
         namespace: String,
         name: String,
@@ -1233,6 +1255,47 @@ mod tests {
         roundtrip(BackendCmdV1::SetNodeShellSettings {
             settings: NodeShellSettings::default(),
         });
+    }
+
+    #[test]
+    fn pod_logs_cmds_roundtrip_and_accept_the_idless_wire_forms() {
+        roundtrip(BackendCmdV1::StartPodLogs {
+            namespace: "default".into(),
+            name: "web".into(),
+            container: None,
+            stream_id: Some(StreamId(1 << 32)),
+        });
+        roundtrip(BackendCmdV1::StopPodLogStream {
+            stream_id: StreamId(1 << 40),
+        });
+        roundtrip(BackendCmdV1::StopPodLogs);
+
+        // Clients that predate per-stream ids (feedback #2) still parse.
+        let start: BackendCmdV1 = serde_json::from_str(
+            r#"{"type":"StartPodLogs","data":{"namespace":"n","name":"p","container":null}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            start,
+            BackendCmdV1::StartPodLogs {
+                stream_id: None,
+                ..
+            }
+        ));
+        let stop: BackendCmdV1 = serde_json::from_str(r#"{"type":"StopPodLogs"}"#).unwrap();
+        assert!(matches!(stop, BackendCmdV1::StopPodLogs));
+        // ... and an id-less start still serializes exactly as before.
+        let json = serde_json::to_string(&BackendCmdV1::StartPodLogs {
+            namespace: "n".into(),
+            name: "p".into(),
+            container: None,
+            stream_id: None,
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"StartPodLogs","data":{"namespace":"n","name":"p","container":null}}"#
+        );
     }
 
     #[test]

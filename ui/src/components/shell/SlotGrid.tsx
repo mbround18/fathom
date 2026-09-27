@@ -1,5 +1,5 @@
-import { Fragment, useCallback } from 'react'
-import type { Layout } from 'react-resizable-panels'
+import { Fragment, useCallback, useEffect } from 'react'
+import { type Layout, type LayoutChangedMeta, useGroupRef } from 'react-resizable-panels'
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { ScrollFade } from '@/components/ui/scroll-fade'
@@ -16,18 +16,43 @@ const changed = (a: number, b: number) => Math.abs(a - b) >= 0.5
 /**
  * Laptop and up (and the tablet split): one resizable row of slots, plus the logs/events dock
  * underneath from laptop up. Sizes persist to the class's profile on drag end.
+ *
+ * The row is never remounted to apply sizes (feedback #2: a width-class change used to remount
+ * every slot, resetting inspector tabs and restarting log streams). A class change, a slot
+ * count change or a loaded `ui` config instead applies the profile's sizes through the group's
+ * imperative `setLayout`; panes keep their identity.
  */
 export function SlotGrid({ slotCount }: { slotCount?: number }) {
   const widthClass = useStore((s) => s.layout.widthClass)
   const profile = useStore((s) => s.layout.profile)
   const slotPanes = useStore((s) => s.layout.slotPanes)
   const setProfile = useStore((s) => s.setProfile)
-  // Saved sizes arrive with `UiConfigLoaded` after first paint; remount once so they apply.
+  // Saved sizes arrive with `UiConfigLoaded` after first paint; re-apply them then.
   const uiLoaded = useStore((s) => s.prefs.uiEpoch ?? 0)
   const slots = profile.slots.slice(0, slotCount ?? profile.slots.length)
+  const groupRef = useGroupRef()
+  // The sizes this class's profile wants, as a stable string so the effect below runs only when
+  // they (or the class, the slot count, a loaded config) actually change.
+  const targetSizes = slots.map((slot) => slot.sizePct).join(',')
+
+  useEffect(() => {
+    const group = groupRef.current
+    if (!group) return
+    const target: Layout = {}
+    targetSizes.split(',').forEach((pct, i) => {
+      target[`slot-${i}`] = Number(pct)
+    })
+    const current = group.getLayout()
+    if (Object.keys(target).some((id) => changed(current[id] ?? -100, target[id] ?? 0))) {
+      group.setLayout(target)
+    }
+  }, [groupRef, targetSizes, widthClass, uiLoaded])
 
   const onRowLayout = useCallback(
-    (layout: Layout) => {
+    (layout: Layout, meta: LayoutChangedMeta) => {
+      // Only a drag or resize key is the operator's choice. Mount, constraint recompute and
+      // our own `setLayout` must not write one class's sizes into another class's profile.
+      if (!meta.isUserInteraction) return
       const next = profile.slots.map((slot, i) => ({
         ...slot,
         sizePct: layout[`slot-${i}`] ?? slot.sizePct,
@@ -40,11 +65,7 @@ export function SlotGrid({ slotCount }: { slotCount?: number }) {
   )
 
   const row = (
-    <ResizablePanelGroup
-      key={`${widthClass}-${slots.length}-${String(uiLoaded)}`}
-      orientation="horizontal"
-      onLayoutChanged={onRowLayout}
-    >
+    <ResizablePanelGroup groupRef={groupRef} orientation="horizontal" onLayoutChanged={onRowLayout}>
       {slots.map((slot, i) => {
         const paneId = slotPanes[i]
         return (
@@ -66,8 +87,19 @@ export function SlotGrid({ slotCount }: { slotCount?: number }) {
 function DockedRow({ profile, children }: { profile: LayoutProfile; children: React.ReactNode }) {
   const setProfile = useStore((s) => s.setProfile)
   const dock = profile.dock
+  const groupRef = useGroupRef()
+  const heightPct = dock?.heightPct
+  // Same as the row: a class change applies the new dock height in place.
+  useEffect(() => {
+    const group = groupRef.current
+    if (!group || heightPct === undefined) return
+    if (changed(group.getLayout().dock ?? -100, heightPct)) {
+      group.setLayout({ row: 100 - heightPct, dock: heightPct })
+    }
+  }, [groupRef, heightPct])
   const onLayout = useCallback(
-    (layout: Layout) => {
+    (layout: Layout, meta: LayoutChangedMeta) => {
+      if (!meta.isUserInteraction) return
       const h = layout.dock
       if (dock && h !== undefined && changed(h, dock.heightPct)) {
         setProfile({ ...profile, dock: { ...dock, heightPct: h } })
@@ -79,7 +111,7 @@ function DockedRow({ profile, children }: { profile: LayoutProfile; children: Re
 
   return (
     <div className="min-h-0 flex-1">
-      <ResizablePanelGroup orientation="vertical" onLayoutChanged={onLayout}>
+      <ResizablePanelGroup groupRef={groupRef} orientation="vertical" onLayoutChanged={onLayout}>
         <ResizablePanel id="row" defaultSize={`${100 - dock.heightPct}%`} minSize="30%">
           {children}
         </ResizablePanel>

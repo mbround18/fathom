@@ -125,7 +125,11 @@ pub(super) async fn start_exec(
                 sender,
                 route,
                 Correlation::Stream(stream_id),
-                BackendEvent::Stream(StreamEvent::StreamClosed { stream_id, reason }),
+                BackendEvent::Stream(StreamEvent::StreamClosed {
+                    stream_id,
+                    reason,
+                    error: None,
+                }),
             );
             return Ok(());
         }
@@ -312,7 +316,11 @@ async fn relay_stdout(
         &sender,
         route,
         Correlation::Stream(stream_id),
-        BackendEvent::Stream(StreamEvent::StreamClosed { stream_id, reason }),
+        BackendEvent::Stream(StreamEvent::StreamClosed {
+            stream_id,
+            reason,
+            error: None,
+        }),
     );
 }
 
