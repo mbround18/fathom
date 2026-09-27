@@ -69,20 +69,20 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 4: US3 settings home and header entry (P1)
 
-- [ ] T030 [US3] E2E `ui/tests/e2e/settings-home.spec.ts`. It covers:
+- [x] T030 [US3] E2E `ui/tests/e2e/settings-home.spec.ts`. It covers:
   - the header Settings button is the DOM sibling immediately before the identity chip, at the right, before the overflow menu
   - the menu items and each page opening
   - on phone, the items are in the overflow menu
   - every Settings page opens with no cluster, and Cluster settings says it needs a context
   - Local clusters is absent in hosted mode
-- [ ] T031 [P] [US3] Add `SettingsMenu.tsx` in `ui/src/components/settings/`, with Cluster settings, Sign-in, Team, Connection profiles, App settings, Local clusters (desktop, not hosted) and Audit log, each calling `navigate(section)`
-- [ ] T032 [US3] In `ui/src/components/shell/TopBar.tsx`, move `IdentityChip` into the right action cluster and put `SettingsMenu` immediately before it. In `ui/src/components/shell/OverflowMenu.tsx`, drop Settings, Audit and Profiles at laptop width and wider and keep them on phone
-- [ ] T033 [P] [US3] Split `ui/src/components/panels/ClusterSettingsPanel.tsx`:
+- [x] T031 [P] [US3] Add `SettingsMenu.tsx` in `ui/src/components/settings/`, with Cluster settings, Sign-in, Team, Connection profiles, App settings, Local clusters (desktop, not hosted) and Audit log, each calling `navigate(section)`
+- [x] T032 [US3] In `ui/src/components/shell/TopBar.tsx`, move `IdentityChip` into the right action cluster and put `SettingsMenu` immediately before it. In `ui/src/components/shell/OverflowMenu.tsx`, drop Settings, Audit and Profiles at laptop width and wider and keep them on phone
+- [x] T033 [P] [US3] Split `ui/src/components/panels/ClusterSettingsPanel.tsx`:
   - It keeps the per-context settings (metrics source, Prometheus, hidden metrics, org default publish/accept, node shell, cloud auth exec policy).
   - New `ui/src/components/settings/AppSettingsPanel.tsx` gets appearance, AI assist and available agents.
   - New `ui/src/components/settings/LocalClustersPanel.tsx` gets `KindClusterPanel`.
-- [ ] T034 [US3] Map `settings/app` and `settings/local-clusters` in `ui/src/components/shell/PaneHost.tsx`, add them to `CLUSTERLESS_SECTIONS`, and keep `integrations/cluster-settings`, `team/teams`, `team/profiles` and `audit-log` working (FR-013)
-- [ ] T035 [US3] Update `ui/tests/e2e/us2-teams-cluster-settings.spec.ts`, `ui/tests/e2e/us6-settings.spec.ts`, `ui/tests/e2e/observability-settings.spec.ts`, `ui/tests/e2e/mcp-settings-persistence.spec.ts`, `ui/tests/e2e/us1-oidc-identity.spec.ts` and `ui/tests/e2e/batch-i-ai-identity-portforward.spec.ts` for the new entry points and moved items, keeping every assertion. Update the related unit tests (`ui/tests/unit/aiAssist.test.tsx`, `ui/tests/unit/availableAgentsSection.test.tsx`, `ui/tests/unit/observabilitySettings.test.tsx`)
+- [x] T034 [US3] Map `settings/app` and `settings/local-clusters` in `ui/src/components/shell/PaneHost.tsx`, add them to `CLUSTERLESS_SECTIONS`, and keep `integrations/cluster-settings`, `team/teams`, `team/profiles` and `audit-log` working (FR-013)
+- [x] T035 [US3] Update `ui/tests/e2e/us2-teams-cluster-settings.spec.ts`, `ui/tests/e2e/us6-settings.spec.ts`, `ui/tests/e2e/observability-settings.spec.ts`, `ui/tests/e2e/mcp-settings-persistence.spec.ts`, `ui/tests/e2e/us1-oidc-identity.spec.ts` and `ui/tests/e2e/batch-i-ai-identity-portforward.spec.ts` for the new entry points and moved items, keeping every assertion. Update the related unit tests (`ui/tests/unit/aiAssist.test.tsx`, `ui/tests/unit/availableAgentsSection.test.tsx`, `ui/tests/unit/observabilitySettings.test.tsx`)
 
 ## Phase 5: US5 calm dock and newcomer navigator (P1)
 
@@ -106,15 +106,15 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 6: US4 daemon explained (P2)
 
-- [ ] T050 [US4] E2E `ui/tests/e2e/daemon-explained.spec.ts`. It covers:
+- [x] T050 [US4] E2E `ui/tests/e2e/daemon-explained.spec.ts`. It covers:
   - the chip text "Daemon: <state>" at laptop width, and its accessible name at phone width
   - the switch name "Use Fathom's in-cluster daemon" and its on/off description (spec US4 scenario 1, verbatim)
   - the dock tab "Cluster history" and its subtitle
   - the Cluster › Cluster history explanation when the daemon is off
   - the same switch in Cluster settings
-- [ ] T051 [P] [US4] Add the `DAEMON_SWITCH_LABEL`/`DAEMON_SWITCH_DESCRIPTION`/`CLUSTER_HISTORY_SUBTITLE` copy to `ui/src/features/daemon/state.ts`. Add a label and `aria-describedby` in `ui/src/features/daemon/DaemonChip.tsx`, and extract a `DaemonSwitch` component reused by `ClusterSettingsPanel.tsx`
-- [ ] T052 [US4] In `ui/src/components/shell/labels.ts`, set `TOOL_LABEL.daemon = 'Cluster history'`. In `ui/src/features/daemon/DaemonTimelinePanel.tsx`, add the subtitle and the not-available explanation. Map the `cluster-history` section in `PaneHost.tsx`
-- [ ] T053 [US4] Update `ui/tests/e2e/us1-daemon.spec.ts` and `ui/tests/unit/daemon-store.test.ts` for the new label
+- [x] T051 [P] [US4] Add the `DAEMON_SWITCH_LABEL`/`DAEMON_SWITCH_DESCRIPTION`/`CLUSTER_HISTORY_SUBTITLE` copy to `ui/src/features/daemon/state.ts`. Add a label and `aria-describedby` in `ui/src/features/daemon/DaemonChip.tsx`, and extract a `DaemonSwitch` component reused by `ClusterSettingsPanel.tsx`
+- [x] T052 [US4] In `ui/src/components/shell/labels.ts`, set `TOOL_LABEL.daemon = 'Cluster history'`. In `ui/src/features/daemon/DaemonTimelinePanel.tsx`, add the subtitle and the not-available explanation. Map the `cluster-history` section in `PaneHost.tsx`
+- [x] T053 [US4] Update `ui/tests/e2e/us1-daemon.spec.ts` and `ui/tests/unit/daemon-store.test.ts` for the new label
 
 ## Phase 7: US6 topology sections (P2)
 

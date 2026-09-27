@@ -1,6 +1,6 @@
 /**
- * 036-incluster-daemon (T024/T025/T051): status chip states, preference toggle, "While you were
- * away" timeline, truncation banner, daemon-fed topology with fallback, sparkline truncation.
+ * 036-incluster-daemon (T024/T025/T051): status chip states, preference toggle, Cluster history
+ * (was "While you were away") timeline, truncation banner, daemon-fed topology with fallback, sparkline truncation.
  * Runs against the scripted fake backend; the daemon itself is simulated by emitting events.
  */
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
@@ -13,7 +13,7 @@ import {
   sampleTopology,
   topologyBatch,
 } from '../fixtures/daemon'
-import { clearSent, emit, expectNoHorizontalScroll, open, sent } from './helpers'
+import { clearSent, emit, expectNoHorizontalScroll, navigateTo, open, sent } from './helpers'
 import type { DaemonState } from '../../src/protocol/types'
 
 const stacked = (i: TestInfo): boolean =>
@@ -43,6 +43,9 @@ test.describe('daemon status chip', () => {
     await open(page)
     await openDialog(page)
     await clearSent(page)
+    await expect(page.getByTestId('daemon-toggle')).toHaveAccessibleName(
+      "Use Fathom's in-cluster daemon",
+    )
     await page.getByTestId('daemon-toggle').click()
     await expect
       .poll(async () => (await sent(page)).find((c) => c.type === 'SetDaemonPreference'))
@@ -79,7 +82,6 @@ test.describe('timeline', () => {
   test('shows derived vs raw origin, verbatim message and truncation banner', async ({
     page,
   }, info) => {
-    test.skip(noToolPanes(info), 'no tool-pane surface at laptop width')
     await open(page)
     await emit(page, daemonStatus('available'))
     await emit(
@@ -102,7 +104,8 @@ test.describe('timeline', () => {
       await openDialog(page)
       await page.getByTestId('daemon-open-timeline').click()
     } else {
-      await page.getByRole('tab', { name: 'While you were away' }).click()
+      // 043 US4: "While you were away" is now Cluster history, a navigator section.
+      await navigateTo(page, 'Cluster history', 'Cluster')
     }
     const tl = page.getByTestId('daemon-timeline').first()
     await expect(tl).toBeVisible()

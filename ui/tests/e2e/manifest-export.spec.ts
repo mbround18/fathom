@@ -237,6 +237,8 @@ test.describe('040 manifest export', () => {
         }),
       ]),
     )
+    // 043 US3: kind provisioning moved from Cluster settings to Local clusters.
+    await navigateTo(page, 'Local clusters', 'Settings')
     const panel = page.getByTestId('kind-clusters')
     await expect(panel).toBeVisible()
     await emit(

@@ -85,7 +85,7 @@ describe('buildSectionCandidates', () => {
     const results = buildSectionCandidates()
     expect(results.length).toBeGreaterThan(0)
     expect(results.every((r) => r.category === 'section')).toBe(true)
-    expect(results.some((r) => r.label === 'Cluster Settings')).toBe(true)
+    expect(results.some((r) => r.label === 'Cluster settings')).toBe(true)
   })
 
   it('indexes "More" (advanced) kinds under their new groups', () => {
@@ -95,7 +95,7 @@ describe('buildSectionCandidates', () => {
     expect(find('Endpoints')?.sublabel).toBe('Networking')
     expect(find('Leases')?.sublabel).toBe('Configuration')
     expect(find('Horizontal Pod Autoscalers')?.sublabel).toBe('Scaling')
-    expect(find('Cluster Settings')?.sublabel).toBe('Settings')
+    expect(find('Cluster settings')?.sublabel).toBe('Settings')
   })
 
   it('covers every section the navigator renders, once', () => {

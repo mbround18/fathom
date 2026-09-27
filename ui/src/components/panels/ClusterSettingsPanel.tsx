@@ -10,6 +10,10 @@
  * settings would flash before the new load lands.
  *
  * All new testids are prefixed `teams-`.
+ *
+ * 043 US3: this page holds only per-context settings (metrics, org default, node shell, cloud
+ * auth exec policy, the in-cluster daemon). Appearance, the AI assistant and available agents
+ * moved to Settings › App settings, and local kind clusters to Settings › Local clusters.
  */
 import { useEffect, useState } from 'react'
 
@@ -24,10 +28,8 @@ import { useFirstRun } from '@/lib/use-first-run'
 import { FirstRunState } from '../shell/FirstRunState'
 import { Disconnected, Empty, Loading } from '../shell/PaneStates'
 
-import { AiAssistSettings } from '@/features/ai-assist/AiAssistSettings'
-import { KindClusterPanel } from './KindClusterPanel'
-import { AppearanceSettings } from '@/components/panels/AppearanceSettings'
-import { AvailableAgentsSection } from './agent-ops/AvailableAgentsSection'
+import { DaemonSwitch } from '@/features/daemon/DaemonSwitch'
+import { SECTION } from '@/protocol/commands'
 import { CloudAuthSection } from './CloudAuthSection'
 import { NodeShellSettingsSection } from './NodeShellSettingsSection'
 
@@ -47,6 +49,7 @@ export function ClusterSettingsPanel() {
   const loadError = useStore((s) => s.team.clusterSettingsError)
   const orgAvailable = useStore((s) => s.team.orgAvailable)
   const rejection = useStore((s) => s.team.rejection)
+  const navigate = useStore((s) => s.navigate)
 
   const [draft, setDraft] = useState<ClusterSettings | undefined>(undefined)
   const [hiddenMetricInput, setHiddenMetricInput] = useState('')
@@ -75,16 +78,30 @@ export function ClusterSettingsPanel() {
 
   if (disconnected) return <Disconnected />
   if (activeContext === undefined || firstRun?.kind === 'kubeconfig') {
-    // First run: there are no per-context settings yet, but this is where a local kind cluster
-    // is created (030), so that stays reachable instead of hiding behind "no kubeconfig".
+    // First run: there are no per-context settings yet. Say so, and point at Local clusters
+    // (030), where a kind cluster can be created without any kubeconfig.
     return (
       <div data-testid="cluster-settings-first-run" className="flex flex-col gap-4 p-3">
+        <p data-testid="cluster-settings-needs-context" className="text-sm">
+          Cluster settings belong to a context. Choose or connect one to change them.
+        </p>
         {firstRun ? (
           <FirstRunState state={firstRun} inSettings />
         ) : (
           <Empty title="No active context" detail="Connect to a cluster to configure settings." />
         )}
-        {!hosted && <KindClusterPanel />}
+        {!hosted && (
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="cluster-settings-open-local-clusters"
+              onClick={() => navigate(SECTION.localClusters)}
+            >
+              Create a local cluster
+            </Button>
+          </div>
+        )}
       </div>
     )
   }
@@ -203,8 +220,6 @@ export function ClusterSettingsPanel() {
         </p>
       )}
 
-      <AppearanceSettings />
-
       <fieldset className="flex flex-col gap-3">
         <legend className="text-xs font-semibold tracking-wider uppercase">Metrics</legend>
 
@@ -292,19 +307,19 @@ export function ClusterSettingsPanel() {
         </div>
       </fieldset>
 
-      {/* 015-mcp-agent-exposure: which agents can reach this cluster, and how. Owns its own
-          commands and store slice; nothing here feeds the §10 settings draft above. */}
       {!hosted && (
         <>
-          <AiAssistSettings />
-          <AvailableAgentsSection />
           <NodeShellSettingsSection />
           <CloudAuthSection />
+          {/* 043 US4: the same daemon switch and explanation as the header Daemon chip. */}
+          <fieldset className="flex flex-col gap-2" data-testid="cluster-settings-daemon">
+            <legend className="text-xs font-semibold tracking-wider uppercase">
+              In-cluster daemon
+            </legend>
+            <DaemonSwitch testId="cluster-settings-daemon-toggle" />
+          </fieldset>
         </>
       )}
-
-      {/* 030-kind-cluster-provisioning: create/delete disposable local kind clusters. */}
-      {!hosted && <KindClusterPanel />}
 
       {formError !== undefined && (
         <p

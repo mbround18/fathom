@@ -1,6 +1,7 @@
 /** 036 T021: daemon slice — timeline merge/dedupe, staleness discard, topology, metrics. */
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { TOOL_LABEL } from '@/components/shell/labels'
 import { initialData, useStore } from '@/store'
 import { resetActions } from '@/store/actions'
 import { mergeTimeline, metricKey } from '@/store/handlers/daemon'
@@ -162,5 +163,11 @@ describe('setDaemonPreference', () => {
     expect(d()?.status?.state).toBe('probing')
     useStore.getState().setDaemonPreference(DAEMON_CONTEXT, 'off')
     expect(d()?.status?.state).toBe('off')
+  })
+})
+
+describe('043 US4 naming', () => {
+  it('names the daemon dock tool "Cluster history"', () => {
+    expect(TOOL_LABEL.daemon).toBe('Cluster history')
   })
 })

@@ -105,6 +105,8 @@ test.describe('new panes smoke (desktop)', () => {
         }),
       ]),
     )
+    // 043 US3: kind provisioning moved from Cluster settings to Local clusters.
+    await navigateTo(page, 'Local clusters', 'Settings')
     await expect(page.getByTestId('kind-clusters')).toBeVisible()
   })
 

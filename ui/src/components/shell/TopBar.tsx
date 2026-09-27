@@ -15,6 +15,7 @@ import { DaemonChip } from '@/features/daemon/DaemonChip'
 import { IdentityChip } from '@/features/identity/IdentityChip'
 import { ContextPicker } from '@/components/ContextPicker'
 import { NamespacePicker } from '@/components/NamespacePicker'
+import { SettingsMenu } from '@/components/settings/SettingsMenu'
 import type { WidthClass } from '@/layout/width-class'
 import { UserMenu } from '@/components/hosted/UserMenu'
 import { signOutHosted } from '@/protocol/sign-out'
@@ -53,7 +54,6 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
       )}
       <BrandMark compact={phone} className="shrink-0" />
       {!isHosted && <DaemonChip compact={narrow} />}
-      {!isHosted && <IdentityChip compact={narrow} />}
       {phone ? (
         <ScopeChip />
       ) : (
@@ -102,7 +102,12 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
           </Button>
         )}
         {widthClass === 'laptop' && <ToolsMenu />}
-        <OverflowMenu folded={phone} onOpenFleet={() => setFleetOpen(true)} />
+        {/* 043 US3: Settings sits immediately left of the sign-in chip, both at the right end
+            (feedback #9/#15). On phone the Settings pages fold into the overflow menu, which
+            has nothing else to hold from tablet up. */}
+        {!phone && <SettingsMenu />}
+        {!isHosted && <IdentityChip compact={narrow} />}
+        {phone && <OverflowMenu folded onOpenFleet={() => setFleetOpen(true)} />}
       </div>
       <Dialog open={fleetOpen && !isHosted} onOpenChange={setFleetOpen}>
         <DialogContent
