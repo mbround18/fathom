@@ -73,7 +73,11 @@ test.describe('top bar and Ask AI', () => {
   test('palette lists tool entries', async ({ page }) => {
     await open(page)
     await page.getByTestId('palette-open').click()
-    await page.getByRole('combobox').last().fill('Velero')
-    await expect(page.getByRole('option', { name: /Velero/ }).first()).toBeVisible()
+    const input = page.getByRole('combobox').last()
+    await input.fill('Knative')
+    await expect(page.getByRole('option', { name: /Knative/ }).first()).toBeVisible()
+    // Feedback #12: Velero stays out of the palette until it is detected.
+    await input.fill('Velero')
+    await expect(page.getByRole('option', { name: /Velero/ })).toHaveCount(0)
   })
 })

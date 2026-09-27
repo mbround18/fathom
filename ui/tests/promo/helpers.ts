@@ -40,10 +40,27 @@ export interface ToolPaneInjector {
   open(page: Page, tool: ToolKind, ready?: (page: Page) => Promise<void>): Promise<void>
 }
 
+/**
+ * For the setup-screen scene: the page sees the real contexts but none selected, as on a first run
+ * with no `current-context`. Client-side only; the backend and kubeconfig are untouched.
+ */
+function withoutCurrentContext(raw: string | Buffer): string | Buffer {
+  const msg = JSON.parse(String(raw)) as DevBridgeServerMsg
+  if (msg.op !== 'batch') return raw
+  for (const env of msg.batch.envelopes) {
+    if (env.event.type !== 'System') continue
+    const sys = env.event.data
+    if (sys.type === 'ContextsUpdated' || sys.type === 'ContextChanged') sys.data.current = null
+    if (sys.type === 'UiConfigLoaded' && sys.data.ui) sys.data.ui.lastSelection = null
+  }
+  return JSON.stringify(msg)
+}
+
 /** Route the bridge socket, dropping writes; capture the client-side `ws` for injection. */
 async function readOnlyBridge(
   page: Page,
   blocked: string[],
+  asFirstRun: boolean,
 ): Promise<{ injector: ToolPaneInjector }> {
   let clientWs: WebSocketRoute | undefined
   let seq = 1_000_000 // clear of real backend sequence numbers
@@ -59,7 +76,7 @@ async function readOnlyBridge(
       server.send(raw)
     })
     server.onMessage((raw) => {
-      ws.send(raw)
+      ws.send(asFirstRun ? withoutCurrentContext(raw) : raw)
     })
   })
   return {
@@ -118,11 +135,17 @@ async function readOnlyBridge(
 }
 
 /** `app` (the live fixture) behind a read-only bridge; fails the scene if a write was tried. */
-export const test = live.extend<{ blockedWrites: string[]; toolPane: ToolPaneInjector }>({
+export const test = live.extend<{
+  asFirstRun: boolean
+  blockedWrites: string[]
+  toolPane: ToolPaneInjector
+}>({
+  /** Hide the kubeconfig's current context from the page, so it opens on the setup screen. */
+  asFirstRun: [false, { option: true }],
   blockedWrites: [
-    async ({ page }, provide) => {
+    async ({ page, asFirstRun }, provide) => {
       const blocked: string[] = []
-      const { injector } = await readOnlyBridge(page, blocked)
+      const { injector } = await readOnlyBridge(page, blocked, asFirstRun)
       // Stash the injector for the `toolPane` fixture, which shares the same route.
       ;(page as Page & { __toolPaneInjector?: ToolPaneInjector }).__toolPaneInjector = injector
       await provide(blocked)

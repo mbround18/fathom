@@ -151,9 +151,9 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 10: Polish and keep-list
 
-- [ ] T090 Keep-list regression run: node view (`node-shell.spec.ts`), Tools, KEDA/HPA/VPA (`ui/tests/unit/keda-panel.test.tsx`), Knative (`ui/tests/unit/knative-panel.test.tsx`), Hubble (`nav-integrations.spec.ts`), linter (`ui/tests/unit/linter`), context tabs, certificates (`ui/tests/unit/certManagerPanel.test.tsx`), phone/tablet layouts (`responsive-shell.spec.ts`). Any failure is fixed in code, not by loosening the test
-- [ ] T091 Update `docs/MVP.md` (the Cluster Settings section and the navigation/dock descriptions) for the setup screen, the Settings group and header menu, the dock contents, Cluster history and the navigator groups
-- [ ] T092 Tick the feedback items #4, #5, #9/#15, #10, #11, #12, #13/#14, #16, #17, #38 and #54 as addressed by 043 in `docs/FEEDBACK_2026-09-27.md`
+- [x] T090 Keep-list regression run: node view (`node-shell.spec.ts`), Tools, KEDA/HPA/VPA (`ui/tests/unit/keda-panel.test.tsx`), Knative (`ui/tests/unit/knative-panel.test.tsx`), Hubble (`nav-integrations.spec.ts`), linter (`ui/tests/unit/linter`), context tabs, certificates (`ui/tests/unit/certManagerPanel.test.tsx`), phone/tablet layouts (`responsive-shell.spec.ts`). Any failure is fixed in code, not by loosening the test
+- [x] T091 Update `docs/MVP.md` (the Cluster Settings section and the navigation/dock descriptions) for the setup screen, the Settings group and header menu, the dock contents, Cluster history and the navigator groups
+- [x] T092 Tick the feedback items #4, #5, #9/#15, #10, #11, #12, #13/#14, #16, #17, #38 and #54 as addressed by 043 in `docs/FEEDBACK_2026-09-27.md`
 - [ ] T093 Brochure/promo (last): rename 'While you were away' → 'Cluster history' in `ui/tests/promo/compose.spec.ts`, and capture the setup screen, Settings menu, calm dock and the inspector Topology tab in `ui/tests/promo/capture.spec.ts`
 
 ## Dependencies

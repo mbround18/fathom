@@ -293,7 +293,11 @@ export async function openToolPane(page: Page, label: string): Promise<void> {
     // navigator section now (Cluster › Linter, Integrations › Knative, ...).
     const tab = page.getByTestId('dock-tabs').getByRole('tab', { name: label })
     if (await tab.count()) await tab.click()
-    else await navigateTo(page, TOOL_NAV_LABEL[label] ?? label, 'Integrations')
+    else {
+      const entry = TOOL_NAV_LABEL[label] ?? label
+      const group = NAV_GROUPS.find((g) => g.sections.some((s) => s.label === entry))?.label
+      await navigateTo(page, entry, group ?? 'Integrations')
+    }
   }
 }
 
