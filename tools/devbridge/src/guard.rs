@@ -112,7 +112,8 @@ impl WriteGuard {
     ///   hard-sets `Args::disable_mcp` in a devbridge shell, so this is defence in depth: the
     ///   command never even reaches it.
     /// - `Namespaced` passes only if every target namespace is the write namespace.
-    /// - `ClusterScoped` never passes.
+    /// - `ClusterScoped` never passes, except a `fathom-e2e-*` ClusterRole write (see
+    ///   [`is_e2e_cluster_role_write`]).
     /// - `ContextSwitch` passes only to the guarded context.
     pub fn check(&self, cmd: &BackendCmd) -> Result<(), String> {
         if matches!(cmd, BackendCmd::SetMcpServerEnabled { .. }) {
@@ -151,6 +152,7 @@ impl WriteGuard {
             _ if self.create_only.is_some() => {
                 Self::check_strict(cmd, self.create_only.as_deref().unwrap_or_default())
             }
+            MutationTarget::ClusterScoped if is_e2e_cluster_role_write(cmd) => Ok(()),
             MutationTarget::ClusterScoped => Err(format!(
                 "{} writes a cluster-scoped resource; only namespace '{}' is writable",
                 variant_name(cmd),
@@ -175,6 +177,35 @@ impl WriteGuard {
             }
         }
     }
+}
+
+/// Name prefix of the throwaway ClusterRoles the live suite may write (042-role-create).
+pub const E2E_CLUSTER_ROLE_PREFIX: &str = "fathom-e2e-";
+
+/// 042-role-create: the one cluster-scoped write a sandbox bridge forwards. A `ClusterRole`
+/// named `fathom-e2e-*` may be created, replaced or deleted so the live suite can exercise the
+/// ClusterRole create/edit flow. It grants nothing on its own: binding it cluster-wide needs a
+/// `ClusterRoleBinding`, which stays refused, and the API server's escalation check still
+/// applies to its rules. Never allowed in strict (`--read-only`/`--allow-create`) mode, which
+/// is checked first.
+fn is_e2e_cluster_role_write(cmd: &BackendCmd) -> bool {
+    let name = match cmd {
+        BackendCmd::CreateResourceYaml {
+            kind,
+            namespace: None,
+            name,
+            ..
+        }
+        | BackendCmd::ApplyResourceYaml {
+            kind,
+            namespace: None,
+            name,
+            ..
+        } if kind == "ClusterRole" => name,
+        BackendCmd::DeleteClusterRole { name } => name,
+        _ => return false,
+    };
+    name.len() > E2E_CLUSTER_ROLE_PREFIX.len() && name.starts_with(E2E_CLUSTER_ROLE_PREFIX)
 }
 
 /// The command's wire tag (e.g. `DeletePod`), for log and error messages.
@@ -357,6 +388,48 @@ mod tests {
         ] {
             assert!(g.check(&cmd).is_err(), "{cmd:?}");
         }
+    }
+
+    /// 042-role-create: only `fathom-e2e-*` ClusterRoles pass, and never in strict mode.
+    #[test]
+    fn e2e_cluster_roles_are_the_only_cluster_scoped_write() {
+        let g = guard();
+        let apply = |kind: &str, name: &str| BackendCmd::ApplyResourceYaml {
+            api_version: s("rbac.authorization.k8s.io/v1"),
+            kind: s(kind),
+            namespace: None,
+            name: s(name),
+            yaml: String::new(),
+            expected_resource_version: s("1"),
+        };
+        for ok in [
+            create("ClusterRole", None, "fathom-e2e-reader"),
+            apply("ClusterRole", "fathom-e2e-reader"),
+            BackendCmd::DeleteClusterRole {
+                name: s("fathom-e2e-reader"),
+            },
+        ] {
+            assert_eq!(g.check(&ok), Ok(()), "{ok:?}");
+        }
+        for refused in [
+            create("ClusterRole", None, "cluster-admin"),
+            create("ClusterRole", None, "fathom-e2e-"),
+            apply("ClusterRole", "view"),
+            create("ClusterRoleBinding", None, "fathom-e2e-reader"),
+            apply("ClusterRoleBinding", "fathom-e2e-reader"),
+            BackendCmd::DeleteClusterRole { name: s("admin") },
+            BackendCmd::DeleteClusterRoleBinding {
+                name: s("fathom-e2e-reader"),
+            },
+        ] {
+            assert!(g.check(&refused).is_err(), "{refused:?}");
+        }
+        let strict = guard().create_only(vec![]);
+        assert!(
+            strict
+                .check(&create("ClusterRole", None, "fathom-e2e-reader"))
+                .is_err()
+        );
     }
 
     fn create(kind: &str, namespace: Option<&str>, name: &str) -> BackendCmd {

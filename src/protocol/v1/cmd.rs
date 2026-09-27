@@ -560,6 +560,10 @@ pub enum BackendCmdV1 {
     // protocol command at all.
     RefreshKubeadmDetection,
 
+    // 042-role-create: API discovery (groups -> resources) for the Role/ClusterRole rules
+    // editor's pickers. Read-only; answered with `ApiResourcesUpdated`.
+    RefreshApiResources,
+
     // config_configmaps
     RefreshConfigMaps,
     SelectConfigMap {
@@ -1316,6 +1320,13 @@ mod tests {
             yaml: "spec: {}\n".to_owned(),
             expected_resource_version: "1".to_owned(),
         });
+    }
+
+    #[test]
+    fn refresh_api_resources_roundtrip() {
+        roundtrip(BackendCmdV1::RefreshApiResources);
+        let json = serde_json::to_value(&BackendCmdV1::RefreshApiResources).unwrap();
+        assert_eq!(json["type"], "RefreshApiResources");
     }
 
     #[test]

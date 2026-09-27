@@ -212,6 +212,7 @@ impl BackendCmdV1 {
             | C::CheckResourceMutationAccess { .. }
             | C::ResolveNamespaceAccess { .. }
             | C::RefreshKubeadmDetection
+            | C::RefreshApiResources
             // 026-mutation-audit-log-viewer: reads the persisted, bounded local audit log
             // only; never mutates anything.
             | C::RefreshAuditLog => MutationTarget::ReadOnly,
@@ -639,6 +640,7 @@ impl BackendCmdV1 {
             }
             C::ResolveNamespaceAccess { .. } => section_keys::access_namespace_access(),
             C::RefreshKubeadmDetection => section_keys::access_oidc_config(),
+            C::RefreshApiResources => section_keys::access_roles(),
             C::RefreshConfigMaps | C::SelectConfigMap { .. } | C::DeleteConfigMap { .. } => {
                 section_keys::config_configmaps()
             }
@@ -912,6 +914,7 @@ impl BackendCmdV1 {
             | C::RefreshRbacSelfAccess { .. }
             | C::ResolveNamespaceAccess { .. }
             | C::RefreshKubeadmDetection
+            | C::RefreshApiResources
             | C::RefreshAuditLog
             | C::SetContext { .. }
             // Pure session/UI mechanics with no meaningful target to audit.
@@ -1555,6 +1558,7 @@ impl BackendCmdV1 {
             | C::CheckResourceMutationAccess { .. }
             | C::ResolveNamespaceAccess { .. }
             | C::RefreshKubeadmDetection
+            | C::RefreshApiResources
             | C::RefreshConfigMaps
             | C::SelectConfigMap { .. }
             | C::DeleteConfigMap { .. }

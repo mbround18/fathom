@@ -1,17 +1,17 @@
 use super::AuditLogEntry;
 use super::{
-    AdoptedConnectionProfile, ApplicationDetails, ApplicationSummary, CertManagerOverview,
-    CertificateChain, ClusterRoleBindingDetails, ClusterRoleBindingSummary, ClusterRoleDetails,
-    ClusterRoleSummary, ClusterSettings, ClusterVersionSummary, ConfigMapDetails, ConfigMapSummary,
-    ConnectionProfile, Correlation, CronJobDetails, CronJobSummary, DaemonSetDetails,
-    DaemonSetSummary, DeploymentDetails, DeploymentSummary, EndpointDetails, EndpointSummary,
-    EventsSummary, FluxOverview, FluxResourceSummary, GatekeeperOverview, HelmMutationApplied,
-    HelmMutationFailed, HelmMutationPreviewReady, HelmReleaseDetails, HelmReleaseSummary,
-    HorizontalPodAutoscalerDetails, HorizontalPodAutoscalerSummary, HubbleTrafficSummary,
-    IngressClassDetails, IngressClassSummary, IngressDetails, IngressSummary, JobDetails,
-    JobSummary, KedaOverview, KedaResourceDetails, KnativeOverview, KubeadmDetectionResult,
-    LeaseDetails, LeaseSummary, LimitRangeDetails, LimitRangeSummary,
-    MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
+    AdoptedConnectionProfile, ApiResourceCatalog, ApplicationDetails, ApplicationSummary,
+    CertManagerOverview, CertificateChain, ClusterRoleBindingDetails, ClusterRoleBindingSummary,
+    ClusterRoleDetails, ClusterRoleSummary, ClusterSettings, ClusterVersionSummary,
+    ConfigMapDetails, ConfigMapSummary, ConnectionProfile, Correlation, CronJobDetails,
+    CronJobSummary, DaemonSetDetails, DaemonSetSummary, DeploymentDetails, DeploymentSummary,
+    EndpointDetails, EndpointSummary, EventsSummary, FluxOverview, FluxResourceSummary,
+    GatekeeperOverview, HelmMutationApplied, HelmMutationFailed, HelmMutationPreviewReady,
+    HelmReleaseDetails, HelmReleaseSummary, HorizontalPodAutoscalerDetails,
+    HorizontalPodAutoscalerSummary, HubbleTrafficSummary, IngressClassDetails, IngressClassSummary,
+    IngressDetails, IngressSummary, JobDetails, JobSummary, KedaOverview, KedaResourceDetails,
+    KnativeOverview, KubeadmDetectionResult, LeaseDetails, LeaseSummary, LimitRangeDetails,
+    LimitRangeSummary, MutatingWebhookConfigurationDetails, MutatingWebhookConfigurationSummary,
     NamespaceAccessResolved, NamespaceDetails, NamespaceSummary, NetworkPolicyDetails,
     NetworkPolicySummary, NodeDetails, NodeMetricsSummary, NodeShellAccessCheck, NodeShellPhase,
     NodeShellSettings, NodeSummary, OrphanedNodeShellPod, PersistentVolumeClaimDetails,
@@ -718,6 +718,9 @@ pub enum ResourceReadEvent {
     /// Reply for `RefreshKubeadmDetection` (011-rbac-oidc-administration, Story 5). Never an
     /// error: an unreadable/absent ConfigMap simply yields `checked: false`.
     KubeadmDetectionUpdated(KubeadmDetectionResult),
+    /// Reply for `RefreshApiResources` (042-role-create): API discovery flattened for the
+    /// Role/ClusterRole rules editor's API group and resource pickers. Read-only.
+    ApiResourcesUpdated(ApiResourceCatalog),
     /// Reply for `CheckPodExecAccess` (024-pod-exec-terminal): a live, proactive
     /// `pods/exec` `SelfSubjectAccessReview` result, checked before the exec-session
     /// confirmation is shown. `reason` MUST be `Some` when the underlying review call
@@ -1205,6 +1208,22 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         let back: ResourceReadEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(format!("{back:?}"), format!("{event:?}"));
+    }
+
+    #[test]
+    fn api_resources_updated_roundtrip() {
+        use super::super::{ApiGroupResources, ApiResourceName};
+        resource_read_roundtrip(ResourceReadEvent::ApiResourcesUpdated(ApiResourceCatalog {
+            groups: vec![ApiGroupResources {
+                group: String::new(),
+                resources: vec![ApiResourceName {
+                    name: "pods/log".to_owned(),
+                    namespaced: true,
+                    verbs: vec!["get".to_owned()],
+                }],
+            }],
+            failed_groups: vec!["metrics.k8s.io".to_owned()],
+        }));
     }
 
     #[test]

@@ -8,8 +8,8 @@ use crate::backend::{
     applications, capabilities, cert_manager, clusterrolebindings, clusterroles, configmaps, crds,
     endpoints, flux, helm, horizontalpodautoscalers, ingressclasses, ingresses, leases,
     limitranges, mutatingwebhooks, networkpolicies, persistentvolumeclaims, persistentvolumes,
-    poddisruptionbudgets, priorityclasses, rbac_access, related, resourcequotas, rolebindings,
-    roles, runtimeclasses, secrets, services, storageclasses, validatingwebhooks,
+    poddisruptionbudgets, priorityclasses, rbac_access, rbac_discovery, related, resourcequotas,
+    rolebindings, roles, runtimeclasses, secrets, services, storageclasses, validatingwebhooks,
     verticalpodautoscalers,
 };
 use crate::protocol::{BackendCmd, BackendEventEnvelope};
@@ -883,6 +883,9 @@ async fn handle_access_cmd(
         }
         BackendCmd::RefreshKubeadmDetection => {
             rbac_access::handle_refresh_kubeadm_detection(state, sender).await?;
+        }
+        BackendCmd::RefreshApiResources => {
+            rbac_discovery::handle_refresh_api_resources(state, sender).await?;
         }
         other => return Ok(Some(other)),
     }
