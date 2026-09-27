@@ -30,7 +30,7 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
 
 ## Phase 2: US1 setup screen (P1) 🎯 MVP
 
-- [ ] T010 [US1] E2E `ui/tests/e2e/setup-screen.spec.ts`. It covers:
+- [x] T010 [US1] E2E `ui/tests/e2e/setup-screen.spec.ts`. It covers:
   - pick-state: only `setup-screen` is in the main area; the top bar and status bar are present.
   - the filter.
   - pick → `SelectContext` + `SaveUiConfig.lastSelection`.
@@ -42,7 +42,7 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
   - a kubeconfig reload keeps the filter text.
   - a remembered context that was removed shows setup.
   - a Settings page opened from the header replaces setup, with "Back to setup".
-- [ ] T011 [P] [US1] Add `SetupScreen.tsx` in `ui/src/components/setup/`. It contains:
+- [x] T011 [P] [US1] Add `SetupScreen.tsx` in `ui/src/components/setup/`. It contains:
   - the kubeconfig paths
   - a `listbox` named "Contexts" (virtualised above 200 entries)
   - a "Filter contexts" searchbox
@@ -50,22 +50,22 @@ Everything is UI-only (`ui/`). There are no protocol or backend changes. `[P]` m
   - "Create a local cluster" (desktop only, opens the existing kind flow)
   - verbatim "Details"
   - connecting and failed views using `connectionProblemCopy`
-- [ ] T012 [US1] In `ui/src/components/shell/AppShell.tsx`, render `SetupScreen` in place of the navigator, `SlotGrid`/`PhoneStack` and the dock when `setupStateOf` returns a state. Keep `TopBar` and `StatusBar` untouched. A clusterless Settings page opened from the header while setup shows takes the setup screen's place with a "Back to setup" link, and cluster-bound navigation returns to setup
-- [ ] T013 [US1] Store: `rememberContext(ctx)` writes `lastSelection {context, section:'overview'}` through the existing `SaveUiConfig` path. `startupContext()` selects the remembered context only when the kubeconfig has no valid current-context and the name still exists. Both go in `ui/src/store/index.ts`, with unit tests in `ui/tests/unit/rememberedContext.test.ts`
-- [ ] T014 [US1] In `ui/src/components/shell/FirstRunState.tsx`, keep only the `connection` kind in panes and add "Choose another context", which opens the context picker. Update `ui/tests/unit/first-run.test.tsx` and `ui/tests/e2e/first-run-states.spec.ts` so the kubeconfig and pick cases assert the setup screen
+- [x] T012 [US1] In `ui/src/components/shell/AppShell.tsx`, render `SetupScreen` in place of the navigator, `SlotGrid`/`PhoneStack` and the dock when `setupStateOf` returns a state. Keep `TopBar` and `StatusBar` untouched. A clusterless Settings page opened from the header while setup shows takes the setup screen's place with a "Back to setup" link, and cluster-bound navigation returns to setup
+- [x] T013 [US1] Store: `rememberContext(ctx)` writes `lastSelection {context, section:'overview'}` through the existing `SaveUiConfig` path. `startupContext()` selects the remembered context only when the kubeconfig has no valid current-context and the name still exists. Both go in `ui/src/store/index.ts`, with unit tests in `ui/tests/unit/rememberedContext.test.ts`
+- [x] T014 [US1] In `ui/src/components/shell/FirstRunState.tsx`, keep only the `connection` kind in panes and add "Choose another context", which opens the context picker. Update `ui/tests/unit/first-run.test.tsx` and `ui/tests/e2e/first-run-states.spec.ts` so the kubeconfig and pick cases assert the setup screen
 
 ## Phase 3: US2 sign-in in setup and settings (P1)
 
-- [ ] T020 [US2] E2E `ui/tests/e2e/setup-sign-in.spec.ts`. It covers:
+- [x] T020 [US2] E2E `ui/tests/e2e/setup-sign-in.spec.ts`. It covers:
   - the step is offered when issuers exist or on a 401
   - Skip
   - a fake device-code sign-in
   - binding a context to OIDC emits the same commands as the IdentityChip dialog
   - with no issuer: "Add an identity provider" and Skip
   - Settings › Sign-in renders the same controls
-- [ ] T021 [P] [US2] Add `SignInSettings.tsx` in `ui/src/features/identity/`. It composes `IssuerSettings`, `SignInPanel`, `ContextAuth` and the exec-plugin status, and is used by both setup and Settings
-- [ ] T022 [US2] Add `SetupSignIn.tsx` in `ui/src/components/setup/`, with the heading "Sign in (optional)" and a Skip button, wired into `SetupScreen` after a pick
-- [ ] T023 [US2] Map the `settings/sign-in` section to `SignInSettings` in `ui/src/components/shell/PaneHost.tsx` (clusterless)
+- [x] T021 [P] [US2] Add `SignInSettings.tsx` in `ui/src/features/identity/`. It composes `IssuerSettings`, `SignInPanel`, `ContextAuth` and the exec-plugin status, and is used by both setup and Settings
+- [x] T022 [US2] Add `SetupSignIn.tsx` in `ui/src/components/setup/`, with the heading "Sign in (optional)" and a Skip button, wired into `SetupScreen` after a pick
+- [x] T023 [US2] Map the `settings/sign-in` section to `SignInSettings` in `ui/src/components/shell/PaneHost.tsx` (clusterless)
 
 ## Phase 4: US3 settings home and header entry (P1)
 

@@ -366,6 +366,7 @@ export const PANEL_SECTIONS: ReadonlySet<SectionKey> = new Set([
   'team/teams',
   'team/profiles',
   'audit-log',
+  'settings/sign-in',
 ])
 
 /** A section PaneHost can render: it has a descriptor or a dedicated panel. */

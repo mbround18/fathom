@@ -2,7 +2,8 @@
  * T126 (Linux first run): with no kubeconfig, an empty or malformed one, no current context, an
  * unreachable cluster or rejected credentials, every pane shows one explained state with a next
  * step (create a local kind cluster, pick a context, reload, retry): never a blank pane, a
- * skeleton that never resolves, or a raw error wall.
+ * skeleton that never resolves, or a raw error wall. Since 043 the kubeconfig and pick cases are
+ * the app-wide setup screen (setup-screen.spec.ts); a broken current context stays per pane.
  */
 import { expect, test, type Page } from '@playwright/test'
 
@@ -14,9 +15,20 @@ import {
   UNREACHABLE_SERVER,
 } from '../fixtures'
 import { batch, globalRoute, stream, system } from '../fixtures/builders'
-import { clearSent, emit, expectRowCount, listPane, open, sent, sentTypes } from './helpers'
+import {
+  clearSent,
+  emit,
+  expectRowCount,
+  listPane,
+  navigateTo,
+  open,
+  sent,
+  sentTypes,
+} from './helpers'
 
 const firstRun = (page: Page) => listPane(page).getByTestId('first-run')
+/** 043: the kubeconfig and pick cases are the app-wide setup screen. */
+const setup = (page: Page) => page.getByTestId('setup-screen')
 
 /** No pane is left on a skeleton, and nothing shows a raw list error wall. */
 async function expectSettled(page: Page) {
@@ -27,29 +39,29 @@ async function expectSettled(page: Page) {
 test.describe('T126 first-run states', () => {
   test('no kubeconfig: names the searched path and offers a local cluster', async ({ page }) => {
     await open(page, 'no-kubeconfig')
-    await expect(firstRun(page)).toHaveAttribute('data-first-run', 'kubeconfig')
-    await expect(firstRun(page)).toContainText('No kubeconfig found')
-    await expect(firstRun(page)).toContainText(NO_KUBECONFIG_PATH)
+    await expect(setup(page)).toHaveAttribute('data-setup-state', 'kubeconfig')
+    await expect(setup(page)).toContainText('No kubeconfig found')
+    await expect(setup(page)).toContainText(NO_KUBECONFIG_PATH)
     await expectSettled(page)
     // Not an error: the status bar stays quiet.
     await expect(page.getByTestId('status-notice')).toHaveCount(0)
 
     await clearSent(page)
-    await firstRun(page).getByTestId('first-run-reload').click()
+    await setup(page).getByTestId('setup-reload').click()
     await expect.poll(() => sentTypes(page)).toContain('Initialize')
     // Feedback #1: an unchanged result still gets an answer, naming where Fathom looked.
-    await expect(firstRun(page).getByTestId('first-run-reload-outcome')).toHaveText(
+    await expect(setup(page).getByTestId('setup-reload-outcome')).toHaveText(
       `No kubeconfig found; looked in ${NO_KUBECONFIG_PATH}.`,
     )
-    await expect(firstRun(page).getByTestId('first-run-reload')).toBeEnabled()
-    await expect(firstRun(page).getByTestId('first-run-paths')).toContainText(NO_KUBECONFIG_PATH)
+    await expect(setup(page).getByTestId('setup-reload')).toBeEnabled()
+    await expect(setup(page).getByTestId('setup-paths')).toContainText(NO_KUBECONFIG_PATH)
   })
 
   test('no kubeconfig: "Create a local cluster" opens kind provisioning, and a created cluster is connected', async ({
     page,
   }) => {
     await open(page, 'no-kubeconfig')
-    await firstRun(page).getByTestId('first-run-create-kind').click()
+    await setup(page).getByTestId('setup-create-kind').click()
     const settings = page.getByTestId('cluster-settings-first-run')
     await expect(settings).toBeVisible()
     await expect(settings.getByTestId('kind-clusters')).toBeVisible()
@@ -107,25 +119,28 @@ test.describe('T126 first-run states', () => {
 
   test('malformed kubeconfig: shows the parser detail and how to fix it', async ({ page }) => {
     await open(page, 'kubeconfig-malformed')
-    await expect(firstRun(page)).toContainText('Kubeconfig could not be parsed')
-    await expect(firstRun(page)).toContainText(MALFORMED_DETAIL)
-    await expect(firstRun(page).getByTestId('first-run-create-kind')).toBeVisible()
+    await expect(setup(page)).toContainText('Kubeconfig could not be parsed')
+    await setup(page).getByText('Details').click()
+    await expect(setup(page)).toContainText(MALFORMED_DETAIL)
+    await expect(setup(page).getByTestId('setup-create-kind')).toBeVisible()
     await expectSettled(page)
   })
 
   test('empty kubeconfig: says no clusters are configured', async ({ page }) => {
     await open(page, 'kubeconfig-empty')
-    await expect(firstRun(page)).toContainText('No clusters configured')
-    await expect(firstRun(page).getByTestId('first-run-create-kind')).toBeVisible()
+    await expect(setup(page)).toContainText('No clusters configured')
+    await expect(setup(page).getByTestId('setup-create-kind')).toBeVisible()
     await expectSettled(page)
   })
 
   test('no current context: lists the contexts and picking one browses it', async ({ page }) => {
     await open(page, 'no-current-context')
-    await expect(firstRun(page)).toHaveAttribute('data-first-run', 'pick')
-    await expect(firstRun(page)).toContainText('Pick a context')
+    await expect(setup(page)).toHaveAttribute('data-setup-state', 'pick')
+    await expect(setup(page)).toContainText('Pick a context')
     await expectSettled(page)
-    await firstRun(page).getByTestId('first-run-context').filter({ hasText: 'kind-b' }).click()
+    await setup(page).getByRole('option', { name: 'kind-b' }).click()
+    await expect(setup(page)).toHaveCount(0)
+    await navigateTo(page, 'Pods')
     await expectRowCount(page, PODS_KIND_B.length)
   })
 

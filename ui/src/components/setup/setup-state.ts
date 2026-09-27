@@ -48,6 +48,8 @@ export interface SetupInputs {
   pickedInSetup?: string
   /** The sign-in step is offered and has not been skipped or finished. */
   signInStep?: boolean
+  /** "Choose another context" from a failed setup connect: back to the context list. */
+  choosing?: boolean
 }
 
 /** `undefined` when the normal shell should render. */
@@ -66,6 +68,9 @@ export function setupStateOf(i: SetupInputs): SetupState | undefined {
     return { kind: 'kubeconfig', issue: firstRun.issue, paths: [...paths] }
   }
   if (!kc.loaded) return undefined
+  if (i.choosing && kc.contexts.length > 0) {
+    return { kind: 'pick', contexts: [...kc.contexts], paths: [...kc.paths] }
+  }
 
   const picked = i.pickedInSetup
   // A pick counts only while the context still exists and nothing else was selected since.

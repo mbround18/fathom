@@ -5,9 +5,11 @@
  */
 import { useStore } from '@/store'
 
-export function ContextAuth() {
+export function ContextAuth({ only }: { only?: string } = {}) {
   const send = useStore((s) => s.send)
-  const contexts = useStore((s) => s.session.contexts)
+  const all = useStore((s) => s.session.contexts)
+  // 043: the setup sign-in step shows just the picked context.
+  const contexts = only === undefined ? all : all.filter((c) => c === only)
   const current = useStore((s) => s.session.activeContext)
   const issuers = useStore((s) => s.identity.config.issuers)
   const bindings = useStore((s) => s.identity.config.contexts)

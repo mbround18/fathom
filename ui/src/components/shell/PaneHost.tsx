@@ -44,6 +44,7 @@ import type {
 import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
+import { SignInSettings } from '@/features/identity/SignInSettings'
 import { cn } from '@/lib/utils'
 import { useFirstRun } from '@/lib/use-first-run'
 import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
@@ -261,13 +262,17 @@ function deniedVia(section: string): string {
   return section === SECTION.argo ? SECTION.customResources : section
 }
 
+/** 043 US2: Settings › Sign-in. */
+const SIGN_IN_SECTION = 'settings/sign-in'
+
 /** Sections that render without a connected cluster (local settings and records). */
-const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
+export const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
   SECTION.clusterSettings,
   SECTION.teams,
   SECTION.teamProfiles,
   SECTION.auditLog,
   SECTION.oidcConfig,
+  SIGN_IN_SECTION,
 ])
 
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
@@ -335,6 +340,13 @@ function ListBody({ pane }: { pane: PaneState }) {
   }
   if (section === SECTION.oidcConfig) {
     return <OidcConfigView />
+  }
+  if (section === SIGN_IN_SECTION) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <SignInSettings />
+      </div>
+    )
   }
   // 021-trivy-vulnerability-pane: cluster-wide summary, no descriptor (renders itself).
   if (section === SECTION.vulnerabilities) {
