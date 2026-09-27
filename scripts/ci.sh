@@ -13,6 +13,10 @@
 #   PLAYWRIGHT_WORKERS  Playwright workers inside the container     (default 2)
 #   CI_NICE             nice level for paws and every step          (default 10)
 #   CI_MIN_FREE_GB      GB of available memory the ui job needs     (default 8)
+#   CI_RUN_ID           part of every step's cache key         (default: new per invocation)
+#                       Dagger caches a step whose inputs are unchanged and replays its old
+#                       output, so without this a second run on the same tree re-runs nothing.
+#                       Set it to a fixed value to deliberately reuse a previous run's result.
 #
 # Needs: paws (with `paws run`) and Docker; paws installs its own dagger engine.
 set -euo pipefail
@@ -23,7 +27,8 @@ cd "$(dirname "$0")/.."
 : "${PLAYWRIGHT_WORKERS:=2}"
 : "${CI_NICE:=10}"
 : "${CI_MIN_FREE_GB:=8}"
-export CARGO_BUILD_JOBS PLAYWRIGHT_WORKERS DAGGER_NO_NAG=1
+: "${CI_RUN_ID:=$(date +%s%N)}"
+export CARGO_BUILD_JOBS PLAYWRIGHT_WORKERS CI_RUN_ID DAGGER_NO_NAG=1
 
 # System libraries for the Tauri crate (webkit2gtk-4.1 et al.), cmake for protobuf-src's protoc
 # build, and libdbus for the os-keyring feature.
@@ -45,7 +50,7 @@ rust_run() {
     --apt "$RUST_APT" \
     --setup "rustup component add clippy rustfmt" \
     --env CI=true --env CARGO_TERM_COLOR=always --env "RUSTFLAGS=-D warnings" \
-    --env CARGO_INCREMENTAL=0 --env CARGO_BUILD_JOBS \
+    --env CARGO_INCREMENTAL=0 --env CARGO_BUILD_JOBS --env CI_RUN_ID \
     --cache fathom-ci-cargo-registry=/usr/local/cargo/registry \
     --cache fathom-ci-cargo-git=/usr/local/cargo/git \
     --cache fathom-ci-target=/src/target \
@@ -87,7 +92,7 @@ job_ui() {
   nice -n "$CI_NICE" paws run \
     --image "$PLAYWRIGHT_IMAGE" \
     --workdir ui \
-    --env CI=true --env PLAYWRIGHT_WORKERS --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    --env CI=true --env PLAYWRIGHT_WORKERS --env CI_RUN_ID --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     --cache fathom-ci-pnpm-store=/pnpm-store \
     --cache fathom-ci-corepack=/root/.cache/node/corepack \
     --step "corepack enable" \
