@@ -34,6 +34,7 @@ mod fleet;
 mod flux;
 mod gatekeeper;
 mod helm;
+mod http_client;
 mod hubble;
 mod idp_directory;
 mod images;

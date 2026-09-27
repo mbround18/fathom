@@ -28,12 +28,29 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "DeveloperTool",
+    "publisher": "Fathom",
+    "homepage": "https://github.com/mbround18/fathom",
+    "license": "Apache-2.0",
+    "shortDescription": "Kubernetes dashboard for your desktop",
+    "longDescription": "Fathom is a desktop Kubernetes dashboard. It reads your kubeconfig, lists and inspects workloads, streams logs, and can create a local kind cluster when you do not have one yet.",
     "icon": [
       "icons/32x32.png",
+      "icons/64x64.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/256x256.png",
+      "icons/512x512.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["ca-certificates"]
+      },
+      "rpm": {
+        "depends": ["ca-certificates"]
+      }
+    }
   }
 }

@@ -252,7 +252,7 @@ async fn test_grafana_connection(
     base_url: &str,
     api_key: &str,
 ) {
-    let client = reqwest::Client::new();
+    let client = crate::backend::http_client::shared();
     let url = format!("{}/api/health", base_url);
     let (success, message) = match client
         .get(&url)
