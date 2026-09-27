@@ -37,10 +37,11 @@ files, or one written by `kind create cluster --kubeconfig <file>` for a disposa
 | Backend panic at start on a host with no CA bundle (`reqwest` client `build().unwrap()`) | crash | one shared client (`src/backend/http_client.rs`) falls back to an empty root store and logs a warning; the packages also depend on `ca-certificates` |
 | AppImage: `Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...`, blank window | Ubuntu 26.04 and Fedora 44 | the bundled `libwayland-client.so.0` shadowed the host copy that Mesa's EGL driver links. Removing that one file fixes it on both distros (removing each of the other 8 bundled Mesa dependencies alone did not). `scripts/appimage-host-libs.sh` repacks the AppImage without it. |
 
-**Open (release pipeline)**: `release.yml` uses `tauri-action`, which does not run
-`scripts/appimage-host-libs.sh`. Until a step running it after the bundle is added, a tagged
-release would ship an AppImage that shows a blank window on current Mesa. The Tauri bundler cannot
-pass `--exclude-library` to linuxdeploy, so the post-build repack is needed.
+**Release pipeline (2026-09-26)**: `tauri-action` does not run `scripts/appimage-host-libs.sh`,
+so `release.yml` runs it in a step after the bundle and replaces the uploaded AppImage asset under
+the same name. The Tauri bundler cannot pass `--exclude-library` to linuxdeploy, so the post-build
+repack is needed. The script was checked on a local x86_64 bundle; the workflow step has not run on
+a real tag yet.
 
 ## First run and failure states
 

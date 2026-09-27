@@ -682,7 +682,7 @@ All ten originally suggested slices (Applications, interlinking, Helm read and m
    - a blank AppImage window (EGL abort caused by the bundled `libwayland-client`; `scripts/appimage-host-libs.sh` removes it)
 
    Open:
-   - `release.yml` does not run `scripts/appimage-host-libs.sh` yet.
+   - `release.yml` now repacks the AppImage with `scripts/appimage-host-libs.sh` and replaces the release asset (2026-09-26), but that step has not run on a real tag yet.
    - aarch64 packages are untested.
    - Windows 11 and macOS 26 (`001` T126 and the Windows/macOS parts of `035` and `037`) come after the MVP, alongside cross-platform builds.
 4. **Hosted server mode (`031`)** — optional for a desktop MVP; the open items are listed in the Status Summary row.
