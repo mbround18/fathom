@@ -201,7 +201,19 @@ cargo test --workspace                 # backend, serde round-trips, bindings dr
 cargo check
 cargo clippy
 cargo fmt
+
+# CI, exactly as GitHub runs it (containers via paws + Docker)
+scripts/ci.sh                          # all jobs; or: scripts/ci.sh check|test|ui
 ```
+
+`scripts/ci.sh` is the only thing `.github/workflows/ci.yml` runs, so a green local run is a green
+CI run. It needs [`paws`](https://github.com/mbround18/paws) with `paws run`
+(`cargo install --locked --git https://github.com/mbround18/paws --branch feat/fathom-local-ci paws-cli`
+until that is released) and Docker. It builds from your working tree minus everything `.gitignore`d,
+so uncommitted edits are tested but local `target/` and `node_modules/` are not. It is sized for a
+shared workstation: `CARGO_BUILD_JOBS=4`, `PLAYWRIGHT_WORKERS=2`, niced, and the `ui` job refuses to
+start with less than 8GB of memory available (`CI_MIN_FREE_GB`). Build caches live in the dagger
+engine's `fathom-ci-*` cache volumes.
 
 Performance checks: `scripts/measure-idle-cpu.sh` (SC-005) and `scripts/measure-startup.sh` (SC-003).
 
