@@ -62,6 +62,7 @@ test.describe('Argo CD pane', () => {
             version: 'v1alpha1',
             namespace: null,
             instances: [app('guestbook', 'Synced', 'Healthy'), app('api', 'OutOfSync', 'Degraded')],
+            failure: null,
           },
         }),
       ]),

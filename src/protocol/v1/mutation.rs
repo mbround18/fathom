@@ -136,6 +136,7 @@ impl BackendCmdV1 {
             | C::SelectConfigMap { .. }
             | C::RefreshSecrets
             | C::SelectSecret { .. }
+            | C::RevealSecretValue { .. }
             | C::RefreshResourceQuotas
             | C::SelectResourceQuota { .. }
             | C::RefreshLimitRanges
@@ -646,7 +647,10 @@ impl BackendCmdV1 {
             C::RefreshConfigMaps | C::SelectConfigMap { .. } | C::DeleteConfigMap { .. } => {
                 section_keys::config_configmaps()
             }
-            C::RefreshSecrets | C::SelectSecret { .. } | C::DeleteSecret { .. } => {
+            C::RefreshSecrets
+            | C::SelectSecret { .. }
+            | C::RevealSecretValue { .. }
+            | C::DeleteSecret { .. } => {
                 section_keys::config_secrets()
             }
             C::RefreshResourceQuotas
@@ -874,6 +878,7 @@ impl BackendCmdV1 {
             | C::SelectConfigMap { .. }
             | C::RefreshSecrets
             | C::SelectSecret { .. }
+            | C::RevealSecretValue { .. }
             | C::RefreshResourceQuotas
             | C::SelectResourceQuota { .. }
             | C::RefreshLimitRanges
@@ -1568,6 +1573,7 @@ impl BackendCmdV1 {
             | C::DeleteConfigMap { .. }
             | C::RefreshSecrets
             | C::SelectSecret { .. }
+            | C::RevealSecretValue { .. }
             | C::DeleteSecret { .. }
             | C::RefreshResourceQuotas
             | C::SelectResourceQuota { .. }

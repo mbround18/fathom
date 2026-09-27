@@ -31,6 +31,7 @@ import { handleStream } from './handlers/stream'
 import { handleCommandFinished, handleSystem } from './handlers/system'
 import { useStore, type StoreData, type StoreState } from './index'
 import { listKeyOf } from './keys'
+import { secretRevealed } from './secretReveal'
 
 /** Apply one batch to the store with exactly one `set()`, then run its side effects (toasts). */
 export function ingest(batch: EventBatch, store: StoreApi<StoreState> = useStore): void {
@@ -87,6 +88,16 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
       return
     }
     case 'ResourceRead': {
+      // #40: a revealed secret value goes only to the request that asked for it; it is never
+      // stored in the state tree (store/secretReveal.ts).
+      if (event.data.type === 'SecretValueRevealed') {
+        const reveal = event.data.data
+        const correlation = env.correlation
+        d.effects.push(() => {
+          secretRevealed(correlation, reveal)
+        })
+        return
+      }
       // 010-container-image-inspection: keyed by namespace/pod/container, not the generic
       // `details` keying (`readKeyOf` assumes a `name` field this payload doesn't carry).
       if (

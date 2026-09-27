@@ -534,8 +534,14 @@ export interface TeamState {
  * every built-in kind's details carry, parsed on demand for display.
  */
 export interface CrdInstancesState {
-  /** 'unavailable': a fresh `CrdCatalogUpdated` no longer lists this kind (deleted CRD, C1). */
-  status: 'ready' | 'unavailable'
+  /**
+   * 'unavailable': a fresh `CrdCatalogUpdated` no longer lists this kind (deleted CRD, C1).
+   * 'forbidden' / 'notFound' / 'error': the list could not be read (`CrdInstancesUpdated`
+   * `failure`, or the command itself failed or went unanswered); `message` says why.
+   */
+  status: 'ready' | 'unavailable' | 'forbidden' | 'notFound' | 'error'
+  /** Why the list could not be read (the API server's or backend's words). */
+  message?: string
   namespace: string | null
   items: readonly string[]
   updatedAt: number
@@ -909,6 +915,11 @@ export interface StoreState extends StoreData {
    * this kind can mark it unavailable (C1).
    */
   selectCrdKind: (entry: CrdCatalogEntry) => void
+  /**
+   * #36: send `RefreshCrdInstances` for one kind and await its result, so a failed or
+   * unanswered command shows as an error instead of an endless spinner.
+   */
+  refreshCrdInstances: (entry: CrdCatalogEntry) => void
   /** Remember which list pane the navigator should retarget. */
   focusList: (id: PaneId) => void
   /**
@@ -1028,6 +1039,11 @@ function scheduleUiSave(get: () => StoreState): void {
 
 /** Lists the backend refreshes after a context or namespace change (src/backend.rs). */
 export const CONTEXT_LISTS: readonly SectionKey[] = [SECTION.pods, SECTION.deployments]
+
+/** The CRD browser before any catalog has arrived (also what a context switch resets to). */
+export function emptyCrdState(): CrdState {
+  return { catalog: [], catalogLoaded: false, instances: {} }
+}
 
 export function markLoading(
   lists: Record<ListKey, ListState>,
@@ -1158,7 +1174,7 @@ export function initialData(): StoreData {
     trivy: {},
     hubble: {},
     keda: {},
-    crds: { catalog: [], catalogLoaded: false, instances: {} },
+    crds: emptyCrdState(),
     integrations: { portAvailability: {} },
     nodeActions: {},
     imageInspections: {},
@@ -1446,6 +1462,8 @@ export const useStore = create<StoreState>()((set, get) => ({
       // 018: cached permission answers belong to the previous context's identity.
       rbacAccess: {},
       denied: {},
+      // #36: the CRD catalog and instance lists describe the previous cluster.
+      crds: emptyCrdState(),
     })
     s.send({ type: 'SetContext', data: { context: name } })
   },
@@ -1564,10 +1582,54 @@ export const useStore = create<StoreState>()((set, get) => ({
       type: 'SelectCrdKind',
       data: { group: entry.group, kind: entry.kind, version },
     })
-    s.send({
-      type: 'RefreshCrdInstances',
-      data: { group: entry.group, kind: entry.kind, version, namespace: null },
-    })
+    s.refreshCrdInstances(entry)
+  },
+
+  refreshCrdInstances: (entry) => {
+    const version = entry.versions[0] ?? ''
+    const key = `${entry.group}/${entry.kind}`
+    const context = get().session.activeContext
+    const fail = (message: string) => {
+      const now = get()
+      // Ignore a context the operator has left; an answer that did arrive (list or typed
+      // failure) says more than this.
+      if (now.session.activeContext !== context) return
+      if (now.crds.instances[key] !== undefined) return
+      set((st) => ({
+        crds: {
+          ...st.crds,
+          instances: {
+            ...st.crds.instances,
+            [key]: { status: 'error', message, namespace: null, items: [], updatedAt: Date.now() },
+          },
+        },
+      }))
+    }
+    // A re-fetch shows the loading state again rather than a previous failure.
+    if (get().crds.instances[key]?.status !== 'ready') {
+      set((st) => {
+        const instances = Object.fromEntries(
+          Object.entries(st.crds.instances).filter(([k]) => k !== key),
+        )
+        return { crds: { ...st.crds, instances } }
+      })
+    }
+    get()
+      .request({
+        type: 'RefreshCrdInstances',
+        data: { group: entry.group, kind: entry.kind, version, namespace: null },
+      })
+      .then(waitForCommandResult)
+      .then((result) => {
+        if (result === 'timeout') {
+          fail('The backend did not answer. It may be busy with another request; try again.')
+        } else if (!result.ok) {
+          fail(result.error ?? `Listing ${entry.kind} failed.`)
+        }
+      })
+      .catch((err: unknown) => {
+        fail(err instanceof Error ? err.message : String(err))
+      })
   },
 
   focusList: (id) =>

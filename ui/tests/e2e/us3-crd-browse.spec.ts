@@ -33,7 +33,7 @@ function instances(
   return batch([
     system(seq, {
       type: 'CrdInstancesUpdated',
-      data: { group, kind, version, namespace, instances: items },
+      data: { group, kind, version, namespace, instances: items, failure: null },
     }),
   ])
 }

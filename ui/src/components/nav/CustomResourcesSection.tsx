@@ -6,7 +6,7 @@
  * through the closed `descriptorFor`/`ToolKind` registry, since that registry is a compile-time
  * set of built-in kinds and isn't designed for kinds discovered at runtime.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SECTION } from '@/protocol/commands'
@@ -16,7 +16,7 @@ import { jsonToYaml } from '@/resources/yaml'
 import { detailKey, listKey, useStore, type CrdInstancesState, type DetailState } from '@/store'
 import { cn } from '@/lib/utils'
 
-import { Empty, Loading } from '../shell/PaneStates'
+import { Empty, ErrorState, Loading } from '../shell/PaneStates'
 
 function catalogKey(e: Pick<CrdCatalogEntry, 'group' | 'kind'>): string {
   return `${e.group}/${e.kind}`
@@ -28,6 +28,17 @@ export function CustomResourcesSection() {
   const selected = useStore((s) => s.crds.selected)
   const selectCrdKind = useStore((s) => s.selectCrdKind)
   const disconnected = useStore((s) => s.conn.status === 'backend-gone')
+  const context = useStore((s) => s.session.activeContext)
+  const send = useStore((s) => s.send)
+
+  // #36: a context switch resets the catalog (it described the previous cluster). Navigating
+  // here already asked for one, so only a switch made while this pane is open asks again.
+  const shownContext = useRef(context)
+  useEffect(() => {
+    if (shownContext.current === context) return
+    shownContext.current = context
+    if (context !== undefined) send({ type: 'RefreshCrds' })
+  }, [context, send])
 
   const [selectedInstance, setSelectedInstance] = useState<
     { namespace: string | null; name: string } | undefined
@@ -150,20 +161,11 @@ function CrdInstancesList({
 }) {
   const key = `${group}/${kind}`
   const state = useStore((s) => s.crds.instances[key])
-  const send = useStore((s) => s.send)
-
-  useEffect(() => {
-    if (!entry) return
-    const version = entry.versions[0] ?? ''
-    send({
-      type: 'RefreshCrdInstances',
-      data: { group, version, kind, namespace: null },
-    })
-    // Only re-fetch when the selected kind itself changes; polling is not in scope for US3.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group, kind])
+  const refresh = useStore((s) => s.refreshCrdInstances)
+  // Selecting the kind (`selectCrdKind`) fetches its instances; polling is not in scope for US3.
 
   const parsed = useMemo(() => parseInstances(state), [state])
+  const retry = entry ? () => refresh(entry) : undefined
 
   if (state?.status === 'unavailable') {
     return (
@@ -173,11 +175,33 @@ function CrdInstancesList({
       />
     )
   }
-  if (entry?.permission_denied) {
+  if (state?.status === 'forbidden' || (entry?.permission_denied && state?.status !== 'ready')) {
     return (
       <Empty
         title="Permission denied"
-        detail={`Not permitted to list ${kind} instances in this cluster.`}
+        detail={
+          state?.message
+            ? `Not permitted to list ${kind} instances: ${state.message}`
+            : `Not permitted to list ${kind} instances in this cluster.`
+        }
+      />
+    )
+  }
+  if (state?.status === 'notFound') {
+    return (
+      <ErrorState
+        title={`${kind} not found`}
+        detail={`The cluster does not serve ${kind}.${group} (${state.message ?? 'not found'}). The CRD may have been removed.`}
+        onRetry={retry}
+      />
+    )
+  }
+  if (state?.status === 'error') {
+    return (
+      <ErrorState
+        title={`Could not list ${kind} instances`}
+        detail={state.message ?? 'The list could not be read.'}
+        onRetry={retry}
       />
     )
   }
