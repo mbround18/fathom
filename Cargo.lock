@@ -2117,6 +2117,7 @@ dependencies = [
  "crossbeam-channel",
  "ctrlc",
  "fathom",
+ "libc",
  "serde",
  "serde_json",
  "tauri",

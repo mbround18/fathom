@@ -171,8 +171,10 @@ pub(super) fn load_and_send_contexts_full(
     sender: &Sender<BackendEventEnvelope>,
 ) -> ContextsLoad {
     tracing::info!("Loading kubeconfig contexts...");
+    let mut paths: Vec<String> = Vec::new();
     let load = match resolve_kubeconfig(std::env::var_os("KUBECONFIG"), dirs::home_dir()) {
         Ok((kc, used)) => {
+            paths = used.iter().map(|p| p.display().to_string()).collect();
             let (contexts, current) = contexts_from_kubeconfig(&kc, selected_context);
             let issue = current_context_issue(&contexts, current.as_deref(), &used);
             // A current-context that names a missing context is not something to connect to.
@@ -184,6 +186,7 @@ pub(super) fn load_and_send_contexts_full(
             }
         }
         Err(issue) => {
+            paths.clone_from(&issue.paths);
             tracing::warn!(
                 "No usable kubeconfig: {}",
                 super::first_run::describe_issue(&issue)
@@ -203,6 +206,7 @@ pub(super) fn load_and_send_contexts_full(
         Correlation::None,
         BackendEvent::System(SystemEvent::KubeconfigStatus {
             issue: load.issue.clone(),
+            paths,
         }),
     );
     load

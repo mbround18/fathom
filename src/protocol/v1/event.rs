@@ -174,6 +174,11 @@ pub enum SystemEvent {
     /// kubeconfig is usable. Emitted right after every `ContextsUpdated` from a kubeconfig load.
     KubeconfigStatus {
         issue: Option<KubeconfigIssue>,
+        /// The kubeconfig files this load read (usable kubeconfig), or the paths the issue is
+        /// about (the searched paths when none exists). Shown on the first-run screen and in the
+        /// "Reload kubeconfig" outcome (feedback #1).
+        #[serde(default)]
+        paths: Vec<String>,
     },
 
     /// First-run UX: the active context's connection check failed (`problem`), or recovered

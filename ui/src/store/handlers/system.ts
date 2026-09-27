@@ -195,6 +195,8 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
       const session = d.edit('session')
       if (event.data.issue === null) delete session.kubeconfigIssue
       else session.kubeconfigIssue = event.data.issue
+      session.kubeconfigPaths = event.data.paths
+      session.kubeconfigLoads += 1
       return
     }
 

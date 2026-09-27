@@ -4,6 +4,7 @@
 //! [`fathom::bridge`].
 
 pub mod bridge;
+pub mod login_env;
 
 /// Re-exported for existing users of `fathom_desktop::pump`.
 pub use fathom::bridge::pump;
@@ -35,8 +36,12 @@ pub fn run() {
 
 /// Start the backend thread and event pump, then run the Tauri app until it exits.
 pub fn run_with_args(args: Args) {
+    // First, while this is the only thread: a launcher-started app lacks the shell's KUBECONFIG
+    // and PATH (feedback #1). Logged once tracing is up.
+    let shell_env = login_env::import();
     install_crypto_provider();
     init_tracing();
+    shell_env.log();
 
     let (gui_tx, gui_rx) = unbounded::<BackendEventEnvelope>();
     let (cmd_tx, cmd_rx) = unbounded::<CmdRequest>();
