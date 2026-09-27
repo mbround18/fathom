@@ -5,7 +5,7 @@ use crate::protocol::{
 use crossbeam_channel::Sender;
 use k8s_openapi::{api::batch::v1::Job, chrono::Utc};
 use kube::ResourceExt;
-use kube::api::{Api, DeleteParams, ListParams};
+use kube::api::{Api, DeleteParams};
 use serde_json::json;
 
 use super::interactions;
@@ -15,11 +15,8 @@ pub(super) async fn refresh_jobs(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<Job> = Api::all(client);
-
-    let jobs = api.list(&ListParams::default()).await?;
-    let summaries = jobs_to_summaries(jobs.items, &state.cluster.namespace_filter);
+    let jobs = state.cluster.list_namespaced::<Job>().await?;
+    let summaries = jobs_to_summaries(jobs, &state.cluster.namespace_filter);
 
     events::emit(
         state.cluster.seq.as_ref(),

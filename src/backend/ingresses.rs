@@ -7,7 +7,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::api::networking::v1::Ingress;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 
 use super::interactions;
@@ -17,11 +17,8 @@ pub(super) async fn refresh_ingresses(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<Ingress> = Api::all(client);
-
-    let ingresses = api.list(&ListParams::default()).await?;
-    let summaries = ingresses_to_summaries(ingresses.items, &state.cluster.namespace_filter);
+    let ingresses = state.cluster.list_namespaced::<Ingress>().await?;
+    let summaries = ingresses_to_summaries(ingresses, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

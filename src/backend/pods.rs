@@ -32,7 +32,7 @@ pub(super) async fn refresh_pods(
                 .await?
                 .items
         }
-        None => super::kube::list_in_filter::<Pod>(client, filter).await?,
+        None => state.cluster.list_namespaced::<Pod>().await?,
     };
     let summaries = pods_to_summaries(pods, filter);
     events::emit(

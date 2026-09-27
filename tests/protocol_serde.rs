@@ -2617,6 +2617,10 @@ fn all_system_events() -> Vec<SystemEvent> {
         SystemEvent::NamespaceFilterChanged {
             namespaces: vec!["s".to_owned()],
         },
+        SystemEvent::AccessDenied {
+            message: "s".to_owned(),
+        },
+        SystemEvent::NamespaceAccess { restricted: true },
         SystemEvent::PrometheusConnectionTest {
             success: true,
             message: "s".to_owned(),
@@ -3111,6 +3115,8 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::ContextStatusUpdated { .. } => {}
         SystemEvent::CloudAuthDetected { .. } => {}
         SystemEvent::NamespaceFilterChanged { .. } => {}
+        SystemEvent::AccessDenied { .. } => {}
+        SystemEvent::NamespaceAccess { .. } => {}
         SystemEvent::PrometheusConnectionTest { .. } => {}
         SystemEvent::GrafanaConnectionTest { .. } => {}
         SystemEvent::ObservabilitySettings { .. } => {}

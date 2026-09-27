@@ -292,29 +292,6 @@ pub fn build_oidc_client(mut config: Config, source: TokenSource) -> anyhow::Res
     Ok(client)
 }
 
-/// List `K` in the namespaces of `filter` (one namespaced list each), or cluster-wide when the
-/// filter is empty. A user whose permissions are namespace-scoped (a `RoleBinding`, common
-/// on the hosted server, 031) can list inside their namespace but not at cluster scope.
-pub(super) async fn list_in_filter<K>(client: Client, filter: &[String]) -> kube::Result<Vec<K>>
-where
-    K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>
-        + Clone
-        + serde::de::DeserializeOwned
-        + std::fmt::Debug,
-    K::DynamicType: Default,
-{
-    let params = kube::api::ListParams::default();
-    if filter.is_empty() {
-        return Ok(kube::Api::<K>::all(client).list(&params).await?.items);
-    }
-    let mut items = Vec::new();
-    for ns in filter {
-        let api = kube::Api::<K>::namespaced(client.clone(), ns);
-        items.extend(api.list(&params).await?.items);
-    }
-    Ok(items)
-}
-
 pub(super) fn read_kubeconfig_current_context() -> Option<String> {
     load_kubeconfig().ok().and_then(|kc| kc.current_context)
 }

@@ -21,7 +21,7 @@ use crate::protocol::{
     ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
 
-use super::{events, flux, metrics, related, state::BackendState, workload_common};
+use super::{events, flux, metrics, ns_scope, related, state::BackendState, workload_common};
 
 const HELM_RELEASE_NAME_ANNOTATION: &str = "meta.helm.sh/release-name";
 const HELM_RELEASE_NAMESPACE_ANNOTATION: &str = "meta.helm.sh/release-namespace";
@@ -130,10 +130,11 @@ pub(super) async fn list_owned_workloads(
     state: &BackendState,
 ) -> anyhow::Result<Vec<OwnedWorkload>> {
     let client = state.cluster.client_or_err()?;
+    // 031: every namespace the identity reaches (cluster-wide when it may list namespaces).
+    let scope = state.cluster.scope.snapshot();
     let mut out = Vec::new();
 
-    let deployments: Api<Deployment> = Api::all(client.clone());
-    for d in deployments.list(&ListParams::default()).await?.items {
+    for d in ns_scope::list_scoped::<Deployment>(client.clone(), &[], &scope).await? {
         let ready = d
             .status
             .as_ref()
@@ -158,8 +159,7 @@ pub(super) async fn list_owned_workloads(
         });
     }
 
-    let statefulsets: Api<StatefulSet> = Api::all(client.clone());
-    for s in statefulsets.list(&ListParams::default()).await?.items {
+    for s in ns_scope::list_scoped::<StatefulSet>(client.clone(), &[], &scope).await? {
         let ready = s
             .status
             .as_ref()
@@ -184,8 +184,7 @@ pub(super) async fn list_owned_workloads(
         });
     }
 
-    let daemonsets: Api<DaemonSet> = Api::all(client.clone());
-    for ds in daemonsets.list(&ListParams::default()).await?.items {
+    for ds in ns_scope::list_scoped::<DaemonSet>(client.clone(), &[], &scope).await? {
         let (ready, desired) = ds
             .status
             .as_ref()

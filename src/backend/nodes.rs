@@ -322,10 +322,11 @@ pub(super) async fn refresh_nodes(state: &BackendState, sender: &Sender<BackendE
         }
         Err(e) => {
             tracing::warn!("Failed to list nodes: {}", e);
-            events::notify_error(
+            events::report_error(
                 state.cluster.seq.as_ref(),
                 sender,
                 format!("Failed to list nodes: {}", e),
+                super::ns_scope::is_forbidden(&e),
             );
         }
     }
@@ -378,10 +379,11 @@ pub(super) async fn select_node(
         }
         Err(e) => {
             tracing::warn!("Failed to get node details: {}", e);
-            events::notify_error(
+            events::report_error(
                 state.cluster.seq.as_ref(),
                 sender,
                 format!("Failed to get node details: {}", e),
+                super::ns_scope::is_forbidden(&e),
             );
         }
     }

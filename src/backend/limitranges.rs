@@ -6,7 +6,7 @@ use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::LimitRange;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
 };
 use std::collections::BTreeMap;
 
@@ -17,11 +17,8 @@ pub(super) async fn refresh_limitranges(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<LimitRange> = Api::all(client);
-
-    let limitranges = api.list(&ListParams::default()).await?;
-    let summaries = limitranges_to_summaries(limitranges.items, &state.cluster.namespace_filter);
+    let limitranges = state.cluster.list_namespaced::<LimitRange>().await?;
+    let summaries = limitranges_to_summaries(limitranges, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

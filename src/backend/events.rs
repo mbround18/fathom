@@ -138,6 +138,38 @@ pub(super) fn notify_error(
     );
 }
 
+/// Report a failure. An RBAC denial (`forbidden`) inside a section command becomes
+/// `AccessDenied` on that section's route, so its pane shows "Not permitted" rather than an
+/// error toast (031); a denial outside one (a background poller) is only logged. Anything else
+/// is an ordinary error notification. The command still finishes `ok: false` either way.
+pub(super) fn report_error(
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    message: String,
+    forbidden: bool,
+) {
+    if !forbidden {
+        return notify_error(seq, sender, message);
+    }
+    let route = CMD_SCOPE
+        .try_with(|scope| {
+            lock(&scope.errors).push(message.clone());
+            scope.route.clone()
+        })
+        .ok()
+        .flatten();
+    match route {
+        Some(route) => emit(
+            seq,
+            sender,
+            route,
+            Correlation::None,
+            BackendEvent::System(SystemEvent::AccessDenied { message }),
+        ),
+        None => tracing::info!("not permitted: {message}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +224,39 @@ mod tests {
                 Correlation::None,
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_denial_in_a_section_scope_is_access_denied_not_a_notification() {
+        let seq = AtomicU64::new(0);
+        let (tx, rx) = unbounded();
+        let route = Route::namespaced(section_keys::config_configmaps(), None, None);
+        let errors = in_cmd_scope(Some(RequestId(9)), Some(route.clone()), async {
+            report_error(&seq, &tx, "configmaps is forbidden".into(), true);
+            take_cmd_errors()
+        })
+        .await;
+        // The command still fails (its `CommandFinished` is `ok: false`) ...
+        assert_eq!(errors, vec!["configmaps is forbidden".to_owned()]);
+        // ... but the UI hears `AccessDenied` on the section, not an error toast.
+        let env = rx.try_recv().unwrap();
+        assert_eq!(env.route, route);
+        assert!(matches!(
+            env.event,
+            BackendEvent::System(SystemEvent::AccessDenied { ref message })
+                if message == "configmaps is forbidden"
+        ));
+        assert!(rx.try_recv().is_err());
+
+        // Outside a command (a background poller) a denial is only logged.
+        report_error(&seq, &tx, "nodes is forbidden".into(), true);
+        assert!(rx.try_recv().is_err());
+        // Anything else is an ordinary error notification.
+        report_error(&seq, &tx, "boom".into(), false);
+        assert!(matches!(
+            rx.try_recv().unwrap().event,
+            BackendEvent::System(SystemEvent::Notification { .. })
+        ));
     }
 
     #[tokio::test]

@@ -137,6 +137,19 @@ pub enum SystemEvent {
         namespaces: Vec<String>,
     },
 
+    /// 031: the section command on this route was denied by RBAC (`403 Forbidden`). The pane
+    /// shows "Not permitted" with `message`; no error notification is raised.
+    AccessDenied {
+        message: String,
+    },
+
+    /// 031: whether the identity may list namespaces. When `restricted`, `NamespacesUpdated`
+    /// carries only the context's namespace plus any the user typed, and the picker accepts a
+    /// typed namespace name.
+    NamespaceAccess {
+        restricted: bool,
+    },
+
     PrometheusConnectionTest {
         success: bool,
         message: String,

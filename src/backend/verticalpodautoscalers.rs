@@ -10,7 +10,7 @@ use crate::protocol::{
 use crossbeam_channel::Sender;
 use kube::{
     ResourceExt,
-    api::{Api, DeleteParams, ListParams},
+    api::{Api, DeleteParams},
     core::{ApiResource, DynamicObject, GroupVersionKind},
 };
 use serde_json::Value;
@@ -31,10 +31,14 @@ pub(super) async fn refresh_verticalpodautoscalers(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let api: Api<DynamicObject> = Api::all_with(client, &api_resource());
-
-    let vpas = api.list(&ListParams::default()).await?;
-    let summaries = vpas_to_summaries(vpas.items, &state.cluster.namespace_filter);
+    let vpas = super::ns_scope::list_scoped_dynamic(
+        client,
+        &api_resource(),
+        &state.cluster.namespace_filter,
+        &state.cluster.scope.snapshot(),
+    )
+    .await?;
+    let summaries = vpas_to_summaries(vpas, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

@@ -5,10 +5,7 @@ use crate::protocol::{
 };
 use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::Endpoints;
-use kube::{
-    ResourceExt,
-    api::{Api, ListParams},
-};
+use kube::{ResourceExt, api::Api};
 
 use super::{events, state::BackendState};
 
@@ -16,11 +13,8 @@ pub(super) async fn refresh_endpoints(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<Endpoints> = Api::all(client);
-
-    let endpoints = api.list(&ListParams::default()).await?;
-    let summaries = endpoints_to_summaries(endpoints.items, &state.cluster.namespace_filter);
+    let endpoints = state.cluster.list_namespaced::<Endpoints>().await?;
+    let summaries = endpoints_to_summaries(endpoints, &state.cluster.namespace_filter);
     events::emit(
         state.cluster.seq.as_ref(),
         sender,

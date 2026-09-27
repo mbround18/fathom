@@ -5,7 +5,7 @@ use crate::protocol::{
 use crossbeam_channel::Sender;
 use k8s_openapi::{api::apps::v1::StatefulSet, chrono::Utc};
 use kube::ResourceExt;
-use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams};
+use kube::api::{Api, DeleteParams, Patch, PatchParams};
 use serde_json::json;
 use std::sync::atomic::AtomicU64;
 
@@ -18,11 +18,8 @@ pub(super) async fn refresh_statefulsets(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
-    let client = state.cluster.client_or_err()?;
-    let api: Api<StatefulSet> = Api::all(client);
-
-    let statefulsets = api.list(&ListParams::default()).await?;
-    let summaries = statefulsets_to_summaries(statefulsets.items, &state.cluster.namespace_filter);
+    let statefulsets = state.cluster.list_namespaced::<StatefulSet>().await?;
+    let summaries = statefulsets_to_summaries(statefulsets, &state.cluster.namespace_filter);
 
     events::emit(
         state.cluster.seq.as_ref(),

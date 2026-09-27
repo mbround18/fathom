@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::backend::state::BackendState;
 use crate::backend::{
     context_status, daemon_ctl, deployments, events, federation, fleet, integrations, kube,
-    metrics, namespaces, nodes, pods, sync,
+    metrics, namespaces, nodes, ns_scope, pods, sync,
 };
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, ContextConnectionStatus, Correlation,
@@ -376,6 +376,8 @@ async fn set_context(
 async fn connect_and_share_client(state: &mut BackendState) -> anyhow::Result<()> {
     let client = kube::connect_client_for_current_context(state).await?;
     state.cluster.client = Some(client);
+    // 031: a new identity; whether it may list namespaces is learnt again.
+    state.cluster.scope.reset();
     state.cluster.connection_epoch = state.cluster.connection_epoch.wrapping_add(1);
     // 015-mcp-agent-exposure: keep whatever stdio MCP server is running pointed at the cluster
     // Fathom itself is on. Published unconditionally — the handle exists whether or not the
@@ -405,8 +407,20 @@ async fn refresh_core_resources(
     sender: &Sender<BackendEventEnvelope>,
 ) -> anyhow::Result<()> {
     sync::refresh_namespaces(state, sender).await?;
-    pods::refresh_pods(state, sender).await?;
-    deployments::refresh_deployments(state, sender).await?;
+    // 031: a namespace-scoped identity may be denied even its own namespace's pods; that must
+    // not stop the connect (background sync, pollers) from completing.
+    tolerate_forbidden(
+        state,
+        sender,
+        section_keys::workloads_pods(),
+        pods::refresh_pods(state, sender).await,
+    )?;
+    tolerate_forbidden(
+        state,
+        sender,
+        section_keys::workloads_deployments(),
+        deployments::refresh_deployments(state, sender).await,
+    )?;
     sync::ensure_background_sync(state, sender).await?;
     sync::ensure_flux_poll(state, sender).await;
     sync::ensure_knative_poll(state, sender).await;
@@ -419,11 +433,47 @@ async fn refresh_core_resources(
     Ok(())
 }
 
+/// `Ok` for an RBAC denial, reported as `AccessDenied` on `section` so that pane shows
+/// "Not permitted" rather than loading forever; the error otherwise.
+fn tolerate_forbidden(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    section: crate::protocol::SectionKey,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    match result {
+        Err(e) if ns_scope::anyhow_is_forbidden(&e) => {
+            tracing::info!("not permitted: {e:#}");
+            events::emit(
+                state.cluster.seq.as_ref(),
+                sender,
+                Route::namespaced(section, state.cluster.current_context.clone(), None),
+                Correlation::None,
+                BackendEvent::System(SystemEvent::AccessDenied {
+                    message: format!("{e:#}"),
+                }),
+            );
+            Ok(())
+        }
+        other => other,
+    }
+}
+
 async fn set_namespace_filter(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
     namespaces: Vec<String>,
 ) -> anyhow::Result<()> {
+    // 031: a namespace-scoped identity cannot list namespaces, so the picker lets the user type
+    // one; remember it so it stays in the namespace list and in "all namespaces".
+    if state.cluster.scope.remember(&namespaces) {
+        sync::emit_namespace_names(
+            state.cluster.seq.as_ref(),
+            sender,
+            state.cluster.current_context.clone(),
+            state.cluster.scope.snapshot().reachable,
+        );
+    }
     state.cluster.namespace_filter = namespaces;
     if let Ok(mut shared) = state.cluster.namespace_filter_shared.write() {
         *shared = state.cluster.namespace_filter.clone();
@@ -438,8 +488,18 @@ async fn set_namespace_filter(
             namespaces: state.cluster.namespace_filter.clone(),
         }),
     );
-    pods::refresh_pods(state, sender).await?;
-    deployments::refresh_deployments(state, sender).await?;
+    tolerate_forbidden(
+        state,
+        sender,
+        section_keys::workloads_pods(),
+        pods::refresh_pods(state, sender).await,
+    )?;
+    tolerate_forbidden(
+        state,
+        sender,
+        section_keys::workloads_deployments(),
+        deployments::refresh_deployments(state, sender).await,
+    )?;
     Ok(())
 }
 
@@ -457,11 +517,10 @@ async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelo
             crate::backend::warm_lists::list_with_daemon::<Event>(client, Some(&src), "events")
                 .await
                 .map(|l| l.items)
+                .map_err(anyhow::Error::from)
         }
-        None => ::kube::Api::<Event>::all(client.clone())
-            .list(&Default::default())
-            .await
-            .map(|l| l.items),
+        // 031: per namespace for a filter or a namespace-scoped identity.
+        None => state.cluster.list_namespaced::<Event>().await,
     };
     match listed {
         Ok(items) => {
@@ -475,10 +534,11 @@ async fn refresh_events(state: &BackendState, sender: &Sender<BackendEventEnvelo
         }
         Err(e) => {
             tracing::warn!("Failed to list events: {}", e);
-            events::notify_error(
+            events::report_error(
                 state.cluster.seq.as_ref(),
                 sender,
-                format!("Failed to list events: {}", e),
+                format!("Failed to list events: {e:#}"),
+                ns_scope::anyhow_is_forbidden(&e),
             );
         }
     }

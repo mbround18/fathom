@@ -1,5 +1,6 @@
 use crate::backend::access::{ClusterAccess, Identity};
 use crate::backend::audit_log::AuditSink;
+use crate::backend::ns_scope::{self, NamespaceScope};
 use crate::backend::portforward::PortForwardManager;
 use crate::protocol::CrdCatalogEntry;
 use kube::Client;
@@ -29,6 +30,9 @@ pub(super) struct ClusterContext {
     /// compares it, with `current_context`, to drop results for a connection that has since
     /// been replaced, including a switch away and back to the same context.
     pub(super) connection_epoch: u64,
+    /// 031: whether namespaces can be listed and, if not, which ones the user reaches. Reset
+    /// on every (re)connect; shared with background pollers.
+    pub(super) scope: NamespaceScope,
 }
 
 impl ClusterContext {
@@ -36,6 +40,21 @@ impl ClusterContext {
         self.client
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Not connected yet."))
+    }
+
+    /// List a namespaced kind over the namespace filter, else (031) the namespaces a
+    /// namespace-scoped identity reaches, else the whole cluster. See [`ns_scope::list_scoped`].
+    pub(super) async fn list_namespaced<K>(&self) -> anyhow::Result<Vec<K>>
+    where
+        K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>
+            + Clone
+            + serde::de::DeserializeOwned
+            + std::fmt::Debug,
+        K::DynamicType: Default,
+    {
+        let client = self.client_or_err()?;
+        let scope = self.scope.snapshot();
+        Ok(ns_scope::list_scoped::<K>(client, &self.namespace_filter, &scope).await?)
     }
 }
 
@@ -328,6 +347,7 @@ impl BackendState {
                 seq: Arc::new(AtomicU64::new(0)),
                 crd_catalog: Vec::new(),
                 connection_epoch: 0,
+                scope: NamespaceScope::default(),
             },
             log_stream: LogStreamState { log_task: None },
             exec_session: ExecSessionState {

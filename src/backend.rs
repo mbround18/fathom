@@ -56,6 +56,7 @@ mod namespaces;
 mod networkpolicies;
 mod node_shell;
 mod nodes;
+mod ns_scope;
 pub mod oidc;
 pub mod persistence;
 mod pods;
@@ -309,9 +310,12 @@ async fn run_cmd(
             Ok(true) => tracing::debug!("Command signaled shutdown"),
             Ok(false) => {}
             // `{:#}` keeps the whole anyhow chain (e.g. the Kubernetes API message).
-            Err(err) => {
-                events::notify_error(state.cluster.seq.as_ref(), sender, format!("{err:#}"))
-            }
+            Err(err) => events::report_error(
+                state.cluster.seq.as_ref(),
+                sender,
+                format!("{err:#}"),
+                ns_scope::anyhow_is_forbidden(&err),
+            ),
         }
         let errors = events::take_cmd_errors();
         let (ok, error) = if errors.is_empty() {
