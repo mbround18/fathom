@@ -466,7 +466,8 @@ test.describe('wide: 034/037/038 screens', () => {
   test('ai assist sign-in and ollama', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await navigateTo(page, 'Cluster Settings', 'Team')
+    // 043 US3: AI assist moved from Cluster settings to App settings.
+    await navigateTo(page, 'App settings', 'Settings')
     const section = page.getByTestId('ai-assist-settings')
     await section.scrollIntoViewIfNeeded()
     await expect(section).toBeVisible()

@@ -56,7 +56,9 @@ export function SetupScreen({ state }: { state: SetupState }) {
       data-setup-state={state.kind}
       className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
     >
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-8 sm:py-10">
+      {/* `m-auto` centres the card in the empty screen on a large display, and still scrolls
+          (rather than clipping the top) once the content is taller than the viewport. */}
+      <div className="m-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-8 sm:py-10">
         {state.kind === 'kubeconfig' || state.kind === 'pick' ? (
           <SetupPick state={state} filter={filter} onFilter={setFilter} />
         ) : state.kind === 'sign-in' ? (
