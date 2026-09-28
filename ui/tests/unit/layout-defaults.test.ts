@@ -8,8 +8,10 @@ import {
   resolveProfile,
 } from '@/layout/defaults'
 import { visibleSlots, WIDTH_CLASSES } from '@/layout/width-class'
+import { SECTION } from '@/protocol/commands'
 import type { DockConfig, LayoutProfile, ToolKind } from '@/protocol/types'
-import { useStore } from '@/store'
+import type { ObjectRef } from '@/resources/types'
+import { initialData, useStore } from '@/store'
 
 const sum = (p: LayoutProfile) => p.slots.reduce((t, s) => t + s.sizePct, 0)
 
@@ -237,5 +239,50 @@ describe('store layout', () => {
     useStore.getState().setWidthClass('ultra', true)
     const ids = useStore.getState().layout.slotPanes
     expect(new Set(ids).size).toBe(6)
+  })
+})
+
+/**
+ * 044 US4 (T043, FR-013): a column filling or emptying is not the operator resizing anything, so
+ * no size may be written back to the profile. `SlotGrid`'s `onRowLayout` already drops every
+ * layout change that is not a user interaction; this guards the store half, so the sizes a drag
+ * put in `layouts.wide` survive an open and a close of a cascade column untouched.
+ */
+describe('cascade fill and empty never rewrite sizes (044 FR-013)', () => {
+  /** What a drag at wide leaves behind: deliberately nothing like the default split. */
+  const DRAGGED: LayoutProfile = {
+    slots: [
+      { kind: 'nav', sizePct: 12 },
+      { kind: 'list', sizePct: 48 },
+      { kind: 'inspector', sizePct: 30 },
+      { kind: 'inspector', sizePct: 10 },
+    ],
+    dock: { open: true, heightPct: 30, tabs: ['logs', 'events'] },
+  }
+  const POD: ObjectRef = { section: SECTION.pods, kind: 'Pod', namespace: 'default', name: 'api-1' }
+
+  it('keeps the dragged sizes across an open and a close', () => {
+    useStore.setState({ ...initialData(), send: () => undefined })
+    useStore.getState().setWidthClass('wide')
+    useStore.getState().setProfile(DRAGGED)
+    const dragged = useStore.getState().layout.profile
+    expect(dragged.slots.map((s) => s.sizePct)).toEqual([12, 48, 30, 10])
+
+    // Fill a waiting column: the profile object is not even replaced, so no size can shift.
+    useStore.getState().navigate(SECTION.pods)
+    useStore.getState().autoOpenStep(useStore.getState().layout.cascade[0] ?? '', POD)
+    expect(
+      useStore.getState().layout.slotPanes.some((id) => useStore.getState().panes[id]?.target),
+    ).toBe(true)
+    expect(useStore.getState().layout.profile).toBe(dragged)
+    expect(useStore.getState().ui.layouts.wide).toBe(dragged)
+
+    // Empty it again.
+    useStore.getState().closeInspector()
+    expect(
+      useStore.getState().layout.slotPanes.every((id) => !useStore.getState().panes[id]?.target),
+    ).toBe(true)
+    expect(useStore.getState().layout.profile).toBe(dragged)
+    expect(useStore.getState().ui.layouts.wide).toBe(dragged)
   })
 })

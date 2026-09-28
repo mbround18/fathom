@@ -57,10 +57,10 @@ Input: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/ui-casca
 
 **Independent test**: `cascade-placeholders.spec.ts` on the wide and ultra projects.
 
-- [ ] T040 [US4] E2E `ui/tests/e2e/cascade-placeholders.spec.ts`: every empty column carries `data-testid="cascade-empty"` with the visible text "Follow a link to open the next level here"; after dragging a divider and then filling a column, the columns' widths are unchanged (FR-013); a step whose object has been deleted shows `cascade-gone` with its namespace/name and does not jump to another item (FR-014)
-- [ ] T041 [P] [US4] Add the empty-cascade placeholder to `ui/src/components/shell/PaneHost.tsx`: an inspector pane with no target at wide and above renders `cascade-empty` with the contract's copy, WCAG 2.2 AA contrast, and no change to the pane's size constraints
-- [ ] T042 [P] [US4] Add the "no longer exists" state for a cascade step whose object has gone from the list or the cluster in `ui/src/components/shell/PaneHost.tsx` (`data-testid="cascade-gone"`), keeping the step's `target` so nothing is silently re-selected
-- [ ] T043 [P] [US4] Check that a filling or emptying column never writes sizes back to the profile: `SlotGrid`'s `onRowLayout` already ignores non-user interactions, so add the assertion to `ui/tests/unit/layout-defaults.test.ts` rather than new code
+- [x] T040 [US4] E2E `ui/tests/e2e/cascade-placeholders.spec.ts`: every empty column carries `data-testid="cascade-empty"` with the visible text "Follow a link to open the next level here"; after dragging a divider and then filling a column, the columns' widths are unchanged (FR-013); a step whose object has been deleted shows `cascade-gone` with its namespace/name and does not jump to another item (FR-014)
+- [x] T041 [P] [US4] Add the empty-cascade placeholder to `ui/src/components/shell/PaneHost.tsx`: an inspector pane with no target at wide and above renders `cascade-empty` with the contract's copy, WCAG 2.2 AA contrast, and no change to the pane's size constraints
+- [x] T042 [P] [US4] Add the "no longer exists" state for a cascade step whose object has gone from the list or the cluster in `ui/src/components/shell/PaneHost.tsx` (`data-testid="cascade-gone"`), keeping the step's `target` so nothing is silently re-selected
+- [x] T043 [P] [US4] Check that a filling or emptying column never writes sizes back to the profile: `SlotGrid`'s `onRowLayout` already ignores non-user interactions, so add the assertion to `ui/tests/unit/layout-defaults.test.ts` rather than new code
 
 ## Phase 6: Polish and cross-cutting
 
