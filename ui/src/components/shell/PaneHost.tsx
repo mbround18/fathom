@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon } from '@phosphor-icons/react'
+import { ArrowLineRightIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
@@ -55,7 +55,15 @@ import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
 import { paneTitle } from './labels'
 import { FirstRunState } from './FirstRunState'
-import { Disconnected, Empty, ErrorState, Loading, NotPermitted, StateFrame } from './PaneStates'
+import {
+  Disconnected,
+  Empty,
+  ErrorState,
+  Loading,
+  NoLongerExists,
+  NotPermitted,
+  StateFrame,
+} from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -270,25 +278,81 @@ function PaneBody({ pane }: { pane: PaneState }) {
 }
 
 /**
- * 044 (FR-002/FR-012): at wide and above an inspector with nothing open is a cascade column
- * waiting for the next click, and says so instead of reading as a broken layout. Below wide the
- * inspector keeps its own "Nothing selected" state, so small windows are untouched (FR-009).
+ * 044 (FR-002/FR-012/FR-014): at wide and above an inspector is a cascade column. With nothing
+ * open it says what the next click will put there instead of reading as a broken layout; holding
+ * an object the cluster no longer has, it says so and keeps its target, so nothing else is
+ * silently opened in its place. Below wide the inspector keeps its own states, so small windows
+ * are untouched (FR-009).
  */
 function CascadeInspector({ pane }: { pane: PaneState }) {
   const cascading = useStore(
     (s) => s.layout.widthClass === 'wide' || s.layout.widthClass === 'ultra',
   )
-  if (!cascading || pane.target) return <Inspector pane={pane} />
+  const gone = useCascadeGone(pane.target)
+  if (!cascading) return <Inspector pane={pane} />
+  if (!pane.target) return <CascadeEmpty />
+  if (gone) return <CascadeGone target={pane.target} />
+  return <Inspector pane={pane} />
+}
+
+/**
+ * FR-012: a column that is waiting, not broken. The dashed frame marks it as reserved and the
+ * arrow points at where the next level lands; the copy is the contract's
+ * (`contracts/ui-cascade.md` § Slots and test ids). `StateFrame` carries the announcement
+ * (`role="status"`, polite) and the app's AA-checked text tokens (`tests/unit/contrast.test.ts`),
+ * so this adds no colour of its own. Only `h-full`: the pane's own size constraints are untouched,
+ * so filling this column reflows nothing (FR-013).
+ */
+function CascadeEmpty() {
   return (
-    <div data-testid="cascade-empty" className="h-full">
-      <StateFrame
-        kind="cascade-empty"
-        title="Waiting"
-        detail="Follow a link to open the next level here"
-        trace
-      />
+    <div data-testid="cascade-empty" className="h-full p-2">
+      <div className="h-full rounded-sm border border-dashed border-border">
+        <StateFrame
+          kind="cascade-empty"
+          icon={ArrowLineRightIcon}
+          title="Waiting"
+          detail="Follow a link to open the next level here"
+          trace
+        />
+      </div>
     </div>
   )
+}
+
+/**
+ * FR-014: the step's object has gone from the list or the cluster. The column keeps `pane.target`
+ * (the header still names it) so the cascade never silently re-points at a different object; the
+ * operator's next click is what moves it.
+ */
+function CascadeGone({ target }: { target: NonNullable<PaneState['target']> }) {
+  const label = target.namespace ? `${target.namespace}/${target.name}` : target.name
+  return (
+    <div data-testid="cascade-gone" className="h-full">
+      <NoLongerExists name={label} />
+    </div>
+  )
+}
+
+/**
+ * FR-014: gone means the object's own section list has refreshed without it, or its read came back
+ * not-found. Mirrors the checks in `Inspector.tsx`, which still serve every width below wide.
+ */
+function useCascadeGone(target: PaneState['target']): boolean {
+  const ctx = useStore((s) => s.session.activeContext)
+  const descriptor = target ? descriptorFor(target.section) : undefined
+  const scope = descriptor?.namespaced === false ? 'Cluster' : 'Namespaced'
+  const list = useStore((s) =>
+    target === undefined ? undefined : s.lists[listKey(ctx, target.section, scope, null)],
+  )
+  const detail = useStore((s) =>
+    target === undefined
+      ? undefined
+      : s.details[detailKey(ctx, target.kind, target.namespace, target.name)],
+  )
+  if (!target || !descriptor) return false
+  if (detail?.eventType === 'FluxResourceNotFound') return true
+  const rowKey = target.namespace ? `${target.namespace}/${target.name}` : target.name
+  return list?.status === 'ready' && !list.rows.some((r) => descriptor.rowKey(r) === rowKey)
 }
 
 /** An API 404 on a list means the resource type (a CRD) is not installed, not that it failed. */
