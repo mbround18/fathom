@@ -660,6 +660,17 @@ export interface LayoutState {
    * restart opens at the clean state (FR-002). Ignored below wide width (FR-009).
    */
   cascade: PaneId[]
+  /**
+   * 044 (FR-003): armed by `navigate` at wide and above, consumed by the section list once its
+   * first page is in — so the list never waits for the relevance scan (SC-003) and no wrong item
+   * is ever flashed. Any operator action that supersedes it clears it. Never persisted.
+   */
+  pendingAutoOpen?: { paneId: PaneId; route: Route }
+  /**
+   * 044: the step the auto-open filled, marked `data-auto-open` until the operator clicks anywhere
+   * in the cascade (contract "Slots and test ids").
+   */
+  autoOpened?: PaneId
   /** Dock panes, one per allowed dock tool (`dockTabs(dock, true)`); the dock picks by tool. */
   dockPanes: PaneId[]
   /**
@@ -981,6 +992,18 @@ export interface StoreState extends StoreData {
    * onto `history`); false/omitted when selecting fresh from a list row (`history` is cleared).
    */
   openInspector: (ref: ObjectRef, from?: PaneId, push?: boolean) => void
+  /**
+   * 044 (FR-003): open `ref` as the section's auto-opened step, through the same inspect path a row
+   * click uses. A no-op unless `layout.pendingAutoOpen` still names `paneId`, so a slow list can
+   * never steal a selection the operator has meanwhile made.
+   */
+  autoOpenStep: (paneId: PaneId, ref: ObjectRef) => void
+  /**
+   * 044: drop the pending auto-open and the `data-auto-open` marker. Called by every action that
+   * supersedes the arm — a row click, a section or context change, dropping below wide width, or a
+   * click anywhere in the cascade.
+   */
+  clearAutoOpen: () => void
   /**
    * US3: pop the last entry off `paneId`'s `history` and restore it as `target`, without
    * re-issuing a fetch (the detail cache already holds it). No-op when `history` is empty.
@@ -1366,6 +1389,14 @@ export const useStore = create<StoreState>()((set, get) => ({
           profile,
           slotPanes: cascadeSlotPanes(cls, slotPanes, panes, cascade),
           cascade,
+          // 044: the auto-open belongs to the class it was armed in — dropping below wide cancels
+          // it, since there is no cascade column to open into there (FR-009).
+          ...(isCascadeClass(cls)
+            ? {
+                pendingAutoOpen: s.layout.pendingAutoOpen,
+                autoOpened: s.layout.autoOpened,
+              }
+            : {}),
           dockPanes,
           stack: stack.length > 0 ? stack : slotPanes.slice(0, 1),
           navOpen: false,
@@ -1455,8 +1486,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         Object.values(s.panes).find((p) => p.kind === 'list')?.id
       const pane = listId ? s.panes[listId] : undefined
       if (!pane) return s
-      // 044 (FR-007): a section click restarts the chain at that section's list pane. The
-      // auto-open of its most relevant item is armed in US1 (T011), not here.
+      // 044 (FR-007): a section click restarts the chain at that section's list pane.
       const cascade = resetTo(pane.id)
       const assigned = assignPanes(s.layout.profile, s.panes)
       // 043: a page opened while the setup screen shows is a detour from it (AppShell).
@@ -1486,6 +1516,13 @@ export const useStore = create<StoreState>()((set, get) => ({
           navOpen: false,
           focusedList: pane.id,
           cascade,
+          // 044 (FR-003): at wide and above the section's most relevant item opens in the next
+          // column once its first page lands; below wide nothing is auto-opened (FR-009). The
+          // previous section's arm and marker are superseded either way.
+          pendingAutoOpen: isCascadeClass(s.layout.widthClass)
+            ? { paneId: pane.id, route }
+            : undefined,
+          autoOpened: undefined,
           slotPanes: cascadeSlotPanes(
             s.layout.widthClass,
             assigned.slotPanes,
@@ -1592,6 +1629,9 @@ export const useStore = create<StoreState>()((set, get) => ({
       layout: {
         ...s.layout,
         cascade,
+        // 044: an auto-open armed for the previous cluster must not fire against the new one.
+        pendingAutoOpen: undefined,
+        autoOpened: undefined,
         slotPanes: cascadeSlotPanes(
           s.layout.widthClass,
           assigned.slotPanes,
@@ -1884,7 +1924,14 @@ export const useStore = create<StoreState>()((set, get) => ({
       const rowKey = ref.namespace ? `${ref.namespace}/${ref.name}` : ref.name
       const source = from ? panes[from] : undefined
       if (source) panes[source.id] = { ...source, selection: rowKey, focusedRow: rowKey }
-      const layout = { ...s.layout, ...(from ? { focusedList: from } : {}) }
+      // 044: opening something is the operator's own choice (or the auto-open itself, which
+      // re-marks the step afterwards), so the pending auto-open and its marker are spent here.
+      const layout = {
+        ...s.layout,
+        pendingAutoOpen: undefined,
+        autoOpened: undefined,
+        ...(from ? { focusedList: from } : {}),
+      }
 
       const slotted = s.layout.slotPanes.find((id) => panes[id]?.kind === 'inspector')
       const slottedPane = slotted ? panes[slotted] : undefined
@@ -1948,6 +1995,34 @@ export const useStore = create<StoreState>()((set, get) => ({
     // relative to correctness here, and lists already tolerate redundant refreshes.
     if (push) get().refreshSection(ref.section)
   },
+
+  autoOpenStep: (paneId, ref) => {
+    // Still armed for this pane and this section? A row click, a section or context change, or a
+    // narrower window will have cleared or replaced it, and the operator's choice wins (FR-003):
+    // a scan that lands after they moved on opens nothing.
+    const arm = get().layout.pendingAutoOpen
+    if (arm?.paneId !== paneId || arm.route.section !== ref.section) return
+    get().openInspector(ref, paneId)
+    // The column the inspect path filled, so the UI can mark it until the operator clicks.
+    const s = get()
+    const step = s.layout.slotPanes.find((id) => {
+      const target = s.panes[id]?.target
+      return (
+        s.panes[id]?.kind === 'inspector' &&
+        target?.section === ref.section &&
+        target.namespace === ref.namespace &&
+        target.name === ref.name
+      )
+    })
+    if (step !== undefined) set({ layout: { ...s.layout, autoOpened: step } })
+  },
+
+  clearAutoOpen: () =>
+    set((s) =>
+      s.layout.pendingAutoOpen === undefined && s.layout.autoOpened === undefined
+        ? s
+        : { layout: { ...s.layout, pendingAutoOpen: undefined, autoOpened: undefined } },
+    ),
 
   goBack: (paneId) =>
     set((s) => {

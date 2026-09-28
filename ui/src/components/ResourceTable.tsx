@@ -45,6 +45,7 @@ import { isAllowedNow } from '@/lib/capabilities'
 import { computeVisibleColumns } from '@/layout/column-budget'
 import { cn } from '@/lib/utils'
 import type { AnyDescriptor, ColumnDef } from '@/resources'
+import { mostRelevantRow } from '@/resources/relevance'
 import { compileQuery } from '@/resources/search'
 import { useStore, type ListRow, type PaneState } from '@/store'
 
@@ -190,6 +191,27 @@ export function ResourceTable({ pane, descriptor, rows }: ResourceTableProps) {
   )
   const modelRows = table.getRowModel().rows
   const keys = useMemo(() => modelRows.map((r) => r.id), [modelRows])
+
+  // ---- 044 US1: the auto-open of the section's most relevant item (FR-003)
+  // This component only renders once the list has its first page, so the arm `navigate` left is
+  // consumed here rather than on every list update: one O(n) scan per section open, off the
+  // render path and never before there is something to choose from (SC-003). The rows scanned are
+  // the ones the operator can see, in their order, so their sort and filter decide.
+  const armed = useStore((s) => s.layout.pendingAutoOpen?.paneId === pane.id)
+  useEffect(() => {
+    if (!armed) return
+    const s = useStore.getState()
+    // The arm belongs to one section click; a pane showing something else has moved on.
+    if (s.layout.pendingAutoOpen?.route.section !== pane.route?.section) return
+    const key = mostRelevantRow(
+      descriptor,
+      modelRows.map((r) => r.original.row),
+    )
+    const row = key === undefined ? undefined : modelRows.find((r) => r.id === key)?.original.row
+    // An empty (or fully filtered) list opens nothing, and the column stays waiting (FR-004).
+    if (row === undefined) s.clearAutoOpen()
+    else s.autoOpenStep(pane.id, descriptor.ref(row))
+  }, [armed, modelRows, descriptor, pane.id, pane.route?.section])
 
   // ---- virtualization
   const rowHeight = useRowHeight(bodyRef)
