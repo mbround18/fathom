@@ -87,15 +87,16 @@ on the keep-as-is list). It is a regression guard rather than new value, so it h
 value of its own — but it must hold from the first merge, so it shares P2.
 
 **Independent Test**: Run the existing phone, tablet and laptop end-to-end suites unchanged and
-assert they still pass, plus an explicit assertion that a laptop window opens with its inspector
-occupied as it does today.
+assert they still pass, plus an explicit assertion that a laptop window's inspector waits for the
+operator's click, as it does today.
 
 **Acceptance Scenarios**:
 
 1. **Given** a phone window, **When** the operator taps a row, **Then** navigation stacks and pops
    exactly as it does before this change.
-2. **Given** a laptop window, **When** the operator clicks a section, **Then** the three columns
-   behave as they do before this change, including the auto-opened item in the inspector.
+2. **Given** a laptop or desktop window, **When** the operator clicks a section, **Then** the three
+   columns behave as they do before this change: the inspector stays empty until the operator picks
+   a row (there is no auto-open below wide width).
 3. **Given** a tablet window, **When** the operator selects a row, **Then** the inspector shows it
    as it does before this change.
 
@@ -155,8 +156,8 @@ explanatory text, and assert the widths of columns 1–3 are unchanged after col
 - **FR-002**: The system MUST NOT open any column with content the operator did not ask for. On a
   fresh start at wide or larger, every column after the second MUST be empty until the operator
   drills in — with the single exception in FR-003.
-- **FR-003**: When the operator selects a section, the system MUST open that section's most relevant
-  item in the third column. "Most relevant" MUST be the first item in the list's current order whose
+- **FR-003**: At wide width and above, when the operator selects a section, the system MUST open
+  that section's most relevant item in the third column. Below wide width nothing is auto-opened. "Most relevant" MUST be the first item in the list's current order whose
   health is not healthy, and the first item in that order when all items are healthy.
 - **FR-004**: When a section has no items, or is a destination without a list of items, the third
   column MUST stay empty.
@@ -229,7 +230,7 @@ explanatory text, and assert the widths of columns 1–3 are unchanged after col
 - The auto-open in column 3 is a navigation the operator can undo by clicking elsewhere; it does not
   need a preference to switch it off in this feature.
 - Dropping the Overview and Flux panes from the default wide and ultra profiles does not remove those
-  destinations — both remain reachable from the navigator, and an operator may still pin them into a
-  column by hand.
+  destinations: both stay reachable from the navigator, and Logs, Events and Cluster history stay in
+  the dock. Pinning an arbitrary tool into a cascade column by hand is not part of this feature.
 - The existing scripted fake backend can express unhealthy rows, empty sections and 10,000-object
   lists, so no new test infrastructure is needed.
