@@ -12,7 +12,7 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   events: 'Events',
   portforwards: 'Forwards',
   topology: 'Topology',
-  daemon: 'While you were away',
+  daemon: 'Cluster history',
   velero: 'Velero',
   knative: 'Knative',
   certManager: 'Certificates',

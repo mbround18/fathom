@@ -29,9 +29,34 @@ import {
   type PaletteSectionPayload,
   type PaletteToolPayload,
 } from '@/resources/paletteIndex'
+import { useNavVisibility } from '@/resources/useNavVisibility'
 import { useStore } from '@/store'
 
+import { requestRoleCreate } from './rbac/roleCreateRequest'
+import type { RoleKind } from './rbac/roleYaml'
 import { useOpenTool } from './shell/useOpenTool'
+
+/** 043 US8: palette actions that open 042's role form (through the Roles list's launcher). */
+const ROLE_ACTIONS: readonly { id: string; label: string; kind: RoleKind; terms: string }[] = [
+  {
+    id: 'action:new-role',
+    label: 'New Role…',
+    kind: 'Role',
+    terms: 'new role create namespaced rbac access permissions',
+  },
+  {
+    id: 'action:new-clusterrole',
+    label: 'New ClusterRole…',
+    kind: 'ClusterRole',
+    terms: 'new clusterrole cluster role create rbac access permissions',
+  },
+]
+
+function matchingRoleActions(query: string) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return []
+  return ROLE_ACTIONS.filter((a) => words.every((w) => a.terms.includes(w)))
+}
 
 export interface CommandPaletteProps {
   open: boolean
@@ -69,6 +94,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const selectNamespace = useStore((s) => s.selectNamespace)
   const navigate = useStore((s) => s.navigate)
   const openTool = useOpenTool()
+  const visibility = useNavVisibility()
 
   // The index (every loaded row of the active context) is only built while the palette is open:
   // building it on each list update / keystroke cost tens of ms with 10k rows for nothing.
@@ -79,10 +105,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         : [
             ...buildResourceCandidates(lists, activeContext),
             ...buildNamespaceCandidates(namespaces),
-            ...buildSectionCandidates(),
-            ...buildToolCandidates(),
+            ...buildSectionCandidates(visibility),
+            ...buildToolCandidates(visibility),
           ],
-    [open, lists, activeContext, namespaces],
+    [open, lists, activeContext, namespaces, visibility],
   )
 
   const results = useMemo(() => {
@@ -91,6 +117,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   }, [candidates, query])
 
   const groups = groupByCategory(results)
+  const actions = matchingRoleActions(query)
 
   function reset() {
     setQuery('')
@@ -140,9 +167,19 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                   value={result.id}
                   onSelect={() => handleSelect(result)}
                 >
-                  <span className="truncate">{result.label}</span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{result.label}</span>
+                    {result.description && (
+                      <span
+                        data-testid="palette-description"
+                        className="truncate text-xs text-muted-foreground"
+                      >
+                        {result.description}
+                      </span>
+                    )}
+                  </span>
                   {result.sublabel && (
-                    <span className="ml-auto truncate text-muted-foreground">
+                    <span className="ml-auto shrink-0 truncate text-muted-foreground">
                       {result.sublabel}
                     </span>
                   )}
@@ -150,6 +187,25 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               ))}
             </CommandGroup>
           ))}
+          {actions.length > 0 && (
+            <CommandGroup heading="Actions">
+              {actions.map((a) => (
+                <CommandItem
+                  key={a.id}
+                  value={a.id}
+                  onSelect={() => {
+                    navigate(a.kind === 'Role' ? 'access/roles' : 'access/clusterroles')
+                    requestRoleCreate(a.kind)
+                    onOpenChange(false)
+                    reset()
+                  }}
+                >
+                  <span className="truncate">{a.label}</span>
+                  <span className="ml-auto truncate text-muted-foreground">Access Control</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
         </CommandList>
       </Command>
     </CommandDialog>

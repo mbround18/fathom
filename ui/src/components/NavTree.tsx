@@ -1,41 +1,61 @@
 /**
- * Section navigator (T065): collapsible groups from `NAV_GROUPS`, keyed by backend section keys.
- * Used by the nav slot (laptop+) and the drawer (phone/tablet). Expanded groups persist through
- * `SaveUiConfig` (`expanded_groups`).
+ * Section navigator (T065, 043 US5/US7): the `NAV_MODEL` groups in plain language, each entry
+ * with a one-line description (tooltip and accessible description), rarely used kinds under a
+ * per-group "More" toggle, and integrations greyed when not installed (Velero hidden until
+ * detected). Used by the nav slot (laptop+) and the drawer (phone/tablet). Expanded groups and
+ * "More" toggles persist through `SaveUiConfig` (`expanded_groups`, `"<Group>/More"`); labels
+ * saved before 043 are mapped on read and rewritten only on the next change (FR-023).
  */
 import { CaretRightIcon } from '@phosphor-icons/react'
-import { useEffect } from 'react'
-
-import { useShallow } from 'zustand/react/shallow'
+import { useEffect, useMemo } from 'react'
 
 import type { SectionKey } from '@/protocol/types'
 import { cn } from '@/lib/utils'
 import { descriptorFor } from '@/resources'
 import { integrationInstalled, NOT_INSTALLED_HINT } from '@/resources/integrationStatus'
-import { DEFAULT_EXPANDED_GROUPS, NAV_GROUPS, NAV_TOOLS, PANEL_SECTIONS } from '@/resources/nav'
+import {
+  DEFAULT_EXPANDED_GROUPS,
+  entryVisible,
+  mapLegacyGroups,
+  moreKey,
+  NAV_GROUPS,
+  NAV_TOOLS,
+  navEntry,
+  PANEL_SECTIONS,
+  type NavSectionGroup,
+} from '@/resources/nav'
+import { useNavVisibility } from '@/resources/useNavVisibility'
 import { useStore } from '@/store'
 
 import { ALL_TOOL_TABS } from './shell/stack-tabs'
 import { useOpenTool } from './shell/useOpenTool'
 
+const slug = (label: string) => label.replace(/\s+/g, '-').toLowerCase()
+
 export function NavTree() {
   const navigate = useStore((s) => s.navigate)
   const openTool = useOpenTool()
   const setExpandedGroups = useStore((s) => s.setExpandedGroups)
-  const expanded = useStore((s) =>
+  const saved = useStore((s) =>
     s.prefs.loaded ? s.prefs.expandedGroups : (DEFAULT_EXPANDED_GROUPS as string[]),
   )
+  const expanded = useMemo(() => mapLegacyGroups(saved), [saved])
   const active = useStore((s) => {
     const id = s.layout.focusedList ?? s.layout.slotPanes.find((p) => s.panes[p]?.kind === 'list')
     return id ? s.panes[id]?.route?.section : undefined
   })
 
-  const installed = useStore(
-    useShallow((s) =>
-      Object.fromEntries(
-        NAV_GROUPS.flatMap((g) => g.sections).map((x) => [x.key, integrationInstalled(s, x.key)]),
-      ),
-    ),
+  const visibility = useNavVisibility()
+  const groups = useMemo<NavSectionGroup[]>(
+    () =>
+      NAV_GROUPS.map((g) => ({
+        ...g,
+        sections: g.sections.filter((x) => {
+          const model = navEntry(x.key)
+          return model === undefined || entryVisible(model, visibility)
+        }),
+      })).filter((g) => g.sections.length > 0),
+    [visibility],
   )
   const integrationsOpen = expanded.includes('Integrations')
   const ctx = useStore((s) => s.session.activeContext)
@@ -60,16 +80,56 @@ export function NavTree() {
     for (const [key, refresh] of probes) if (integrationInstalled(st, key) === undefined) refresh()
   }, [integrationsOpen, ctx])
 
-  const toggle = (label: string) =>
+  const toggle = (key: string) =>
     setExpandedGroups(
-      expanded.includes(label) ? expanded.filter((g) => g !== label) : [...expanded, label],
+      expanded.includes(key) ? expanded.filter((g) => g !== key) : [...expanded, key],
     )
+
+  const entryButton = (s: NavSectionGroup['sections'][number]) => {
+    const current = active === s.key
+    const ported = descriptorFor(s.key) !== undefined || PANEL_SECTIONS.has(s.key)
+    const absent = visibility.installed(s.key) === false
+    const descId = `nav-desc-${slug(s.key)}`
+    return (
+      <li key={s.key} className="flex">
+        <button
+          type="button"
+          aria-current={current ? 'page' : undefined}
+          aria-describedby={absent ? `${descId}-hint ${descId}` : descId}
+          data-section={s.key}
+          data-installed={absent ? 'false' : undefined}
+          title={absent ? `${NOT_INSTALLED_HINT}. ${s.description}` : s.description}
+          onClick={() => navigate(s.key)}
+          className={cn(
+            'relative flex h-[var(--row-height)] w-full min-w-0 items-center pr-3 pl-7 text-left outline-none',
+            'hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
+            (!ported || absent) && !current && 'text-muted-foreground',
+            current && 'bg-primary text-primary-foreground hover:bg-primary',
+          )}
+        >
+          <span className="truncate">{s.label}</span>
+        </button>
+        <span id={descId} className="sr-only">
+          {s.description}
+        </span>
+        {absent && (
+          <span id={`${descId}-hint`} className="sr-only">
+            {NOT_INSTALLED_HINT}
+          </span>
+        )}
+      </li>
+    )
+  }
 
   return (
     <nav aria-label="Sections" className="flex flex-col py-1">
-      {NAV_GROUPS.map((group) => {
+      {groups.map((group) => {
         const open = expanded.includes(group.label)
-        const id = `nav-group-${group.label.replace(/\s+/g, '-').toLowerCase()}`
+        const id = `nav-group-${slug(group.label)}`
+        const basic = group.sections.filter((x) => !x.advanced)
+        const advanced = group.sections.filter((x) => x.advanced)
+        const more = moreKey(group.label)
+        const moreOpen = expanded.includes(more)
         return (
           <div key={group.label} className="flex flex-col">
             <button
@@ -97,31 +157,37 @@ export function NavTree() {
             </button>
             {open && (
               <ul id={id} className="flex flex-col pb-1">
-                {group.sections.map((s) => {
-                  const current = active === s.key
-                  const ported = descriptorFor(s.key) !== undefined || PANEL_SECTIONS.has(s.key)
-                  const absent = installed[s.key] === false
-                  return (
-                    <li key={s.key} className="flex">
-                      <button
-                        type="button"
-                        aria-current={current ? 'page' : undefined}
-                        data-section={s.key}
-                        data-installed={absent ? 'false' : undefined}
-                        title={absent ? NOT_INSTALLED_HINT : undefined}
-                        onClick={() => navigate(s.key)}
+                {basic.map(entryButton)}
+                {advanced.length > 0 && (
+                  <li className="flex flex-col">
+                    <button
+                      type="button"
+                      aria-label={`More ${group.label}`}
+                      aria-expanded={moreOpen}
+                      aria-controls={`${id}-more`}
+                      data-more={group.label}
+                      onClick={() => toggle(more)}
+                      className={cn(
+                        'flex h-[var(--row-height)] w-full min-w-0 items-center gap-1.5 pr-3 pl-7 text-left text-xs text-muted-foreground outline-none',
+                        'hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
+                      )}
+                    >
+                      <CaretRightIcon
+                        aria-hidden="true"
                         className={cn(
-                          'relative flex h-[var(--row-height)] w-full min-w-0 items-center pr-3 pl-7 text-left outline-none',
-                          'hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
-                          (!ported || absent) && !current && 'text-muted-foreground',
-                          current && 'bg-primary text-primary-foreground hover:bg-primary',
+                          'size-3 shrink-0 transition-transform',
+                          moreOpen && 'rotate-90',
                         )}
-                      >
-                        <span className="truncate">{s.label}</span>
-                      </button>
-                    </li>
-                  )
-                })}
+                      />
+                      <span className="truncate">More ({advanced.length})</span>
+                    </button>
+                    {moreOpen && (
+                      <ul id={`${id}-more`} className="flex flex-col">
+                        {advanced.map(entryButton)}
+                      </ul>
+                    )}
+                  </li>
+                )}
               </ul>
             )}
           </div>

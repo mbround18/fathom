@@ -354,7 +354,7 @@ test.describe('wide', () => {
   test('cluster settings panel', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await navigateTo(page, 'Cluster Settings', 'Team')
+    await navigateTo(page, 'Cluster settings', 'Settings')
     const panel = page.getByTestId('teams-cluster-settings-panel')
     await expect(panel).toBeVisible()
     await shoot(page, 'wide-cluster-settings', pairs)
@@ -363,7 +363,7 @@ test.describe('wide', () => {
   test('team connection profiles panel', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await navigateTo(page, 'Connection Profiles', 'Team')
+    await navigateTo(page, 'Connection profiles', 'Settings')
     const panel = page.getByTestId('teams-profiles-panel')
     await expect(panel).toBeVisible()
     await shoot(page, 'wide-team-profiles', pairs)
@@ -400,7 +400,7 @@ test.describe('wide: 036 in-cluster daemon', () => {
     await shoot(page, 'wide-daemon-chip', pairs)
   })
 
-  test('while you were away timeline', async ({ app, page, toolPane }) => {
+  test('cluster history timeline', async ({ app, page, toolPane }) => {
     const pairs = redactions()
     await ready(page, app)
     await enableDaemon(page)
@@ -466,7 +466,8 @@ test.describe('wide: 034/037/038 screens', () => {
   test('ai assist sign-in and ollama', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await navigateTo(page, 'Cluster Settings', 'Team')
+    // 043 US3: AI assist moved from Cluster settings to App settings.
+    await navigateTo(page, 'App settings', 'Settings')
     const section = page.getByTestId('ai-assist-settings')
     await section.scrollIntoViewIfNeeded()
     await expect(section).toBeVisible()
@@ -509,6 +510,51 @@ test.describe('wide: 034/037/038 screens', () => {
     await expect(page.getByTestId('confirm-dialog')).toBeVisible()
     await shoot(page, 'wide-node-shell-confirm', pairs)
     await page.keyboard.press('Escape')
+  })
+})
+
+test.describe('wide: 043 setup and navigation', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  test.describe('first run', () => {
+    test.use({ asFirstRun: true })
+
+    test('setup screen', async ({ app, page }) => {
+      const pairs = redactions()
+      await page.goto(app.url)
+      const setup = page.getByTestId('setup-screen')
+      await expect(setup).toBeVisible()
+      await expect(setup.getByRole('option', { name: app.context })).toBeVisible()
+      await shoot(page, 'wide-setup-screen', pairs)
+    })
+  })
+
+  test('settings menu', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await page.getByTestId('settings-menu').click()
+    await expect(page.getByRole('menuitem', { name: 'Cluster settings' })).toBeVisible()
+    await shoot(page, 'wide-settings-menu', pairs)
+    await page.keyboard.press('Escape')
+  })
+
+  test('calm dock and navigator groups', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    const nav = page.getByRole('navigation', { name: 'Sections' })
+    const integrations = nav.locator('button[aria-expanded]', { hasText: 'Integrations' })
+    if ((await integrations.getAttribute('aria-expanded')) === 'false') await integrations.click()
+    await expect(page.getByTestId('dock-tabs')).toBeVisible()
+    await shoot(page, 'wide-calm-dock', pairs)
+  })
+
+  test('inspector topology tab', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await openInspector(page, podOf('web'))
+    await inspector(page).getByTestId('topology-tab').click()
+    await expect(inspector(page).getByRole('tabpanel')).toBeVisible()
+    await shoot(page, 'wide-inspector-topology', pairs)
   })
 })
 

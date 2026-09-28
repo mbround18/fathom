@@ -64,6 +64,11 @@ export const SECTION = {
   teams: 'team/teams',
   /** 026-mutation-audit-log-viewer: local mutation history viewer. */
   auditLog: 'audit-log',
+  /** 043 US3: app-wide settings and local kind clusters, split out of Cluster settings. */
+  appSettings: 'settings/app',
+  localClusters: 'settings/local-clusters',
+  /** 043 US4: the daemon timeline as a navigator section (formerly "While you were away"). */
+  clusterHistory: 'cluster-history',
   // 011-rbac-oidc-administration
   roles: 'access/roles',
   roleBindings: 'access/rolebindings',

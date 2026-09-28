@@ -3,6 +3,11 @@
  * (create a local kind cluster, pick another context, reload the kubeconfig, retry). Replaces
  * the raw error walls, endless skeletons and the bare "No kubeconfig" notice these cases used
  * to produce. The verbatim backend error stays one click away in "Details".
+ *
+ * 043: the "no usable kubeconfig" and "pick a context" cases are the app-wide setup screen
+ * (`components/setup/SetupScreen.tsx`), so panes normally only show the `connection` kind here.
+ * The other kinds still render where the setup screen does not apply (a settings page opened
+ * from setup, hosted mode).
  */
 import {
   ArrowsClockwiseIcon,
@@ -12,8 +17,6 @@ import {
   PlugsIcon,
   PlusIcon,
 } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
-
 import { Button } from '@/components/ui/button'
 import {
   connectionProblemCopy,
@@ -27,40 +30,10 @@ import { SECTION } from '@/protocol/commands'
 import { useStore } from '@/store'
 
 import { StateFrame } from './PaneStates'
+import { useReload } from './use-reload'
 
 /** More than this many contexts are left to the header's context picker. */
 const MAX_CONTEXT_BUTTONS = 8
-
-/** How long "Reload kubeconfig" waits for the backend's answer before saying it got none. */
-export const RELOAD_TIMEOUT_MS = 15_000
-
-/**
- * "Reload kubeconfig" state (feedback #1): pending from the click until the next
- * `KubeconfigStatus` arrives (`kubeconfigLoads` moves), then the outcome, so an unchanged
- * result still gets an answer.
- */
-function useReload(send: (cmd: { type: 'Initialize' }) => void) {
-  const loads = useStore((s) => s.session.kubeconfigLoads)
-  const [from, setFrom] = useState<number | undefined>(undefined)
-  const [timedOut, setTimedOut] = useState(false)
-  const done = from !== undefined && loads > from
-  const pending = from !== undefined && !done && !timedOut
-  useEffect(() => {
-    if (!pending) return
-    const t = setTimeout(() => setTimedOut(true), RELOAD_TIMEOUT_MS)
-    return () => clearTimeout(t)
-  }, [pending])
-  return {
-    pending,
-    done,
-    timedOut: timedOut && !done,
-    reload: () => {
-      setFrom(loads)
-      setTimedOut(false)
-      send({ type: 'Initialize' })
-    },
-  }
-}
 
 function copyFor(state: FirstRun): Copy {
   switch (state.kind) {
@@ -85,7 +58,7 @@ export function FirstRunState({
   inSettings = false,
 }: {
   state: FirstRun
-  /** Rendered above the kind panel in Cluster Settings: no "Create a local cluster" link. */
+  /** Rendered in Cluster settings, which offers its own "Create a local cluster" link. */
   inSettings?: boolean
 }) {
   const hosted = useStore((s) => s.hosted.mode === 'hosted')
@@ -98,6 +71,11 @@ export function FirstRunState({
   const kubeconfigPaths = useStore((s) => s.session.kubeconfigPaths)
   const kubeconfigIssue = useStore((s) => s.session.kubeconfigIssue)
   const reload = useReload(send)
+  const setShell = useStore((s) => s.setShell)
+  const widthClass = useStore((s) => s.layout.widthClass)
+  // 043: the header context picker (the scope sheet on phone, where the picker lives).
+  const chooseAnother = () =>
+    setShell(widthClass === 'phone' ? { scopeOpen: true } : { contextPickerOpen: true })
   const paths =
     kubeconfigPaths.length > 0
       ? kubeconfigPaths
@@ -131,6 +109,16 @@ export function FirstRunState({
             <ArrowsClockwiseIcon data-icon="inline-start" /> {retrying ? 'Retrying…' : 'Retry'}
           </Button>
         )}
+        {state.kind === 'connection' && !hosted && contexts.length > 1 && (
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="first-run-choose-context"
+            onClick={chooseAnother}
+          >
+            <ListBulletsIcon data-icon="inline-start" /> Choose another context
+          </Button>
+        )}
         {state.kind !== 'connection' && !hosted && (
           <Button
             variant="outline"
@@ -152,7 +140,7 @@ export function FirstRunState({
           <Button
             size="sm"
             data-testid="first-run-create-kind"
-            onClick={() => navigate(SECTION.clusterSettings)}
+            onClick={() => navigate(SECTION.localClusters)}
           >
             <PlusIcon data-icon="inline-start" /> Create a local cluster
           </Button>

@@ -24,10 +24,12 @@ import { cn } from '@/lib/utils'
 import { useStore } from '@/store'
 
 import { PaneHost } from './PaneHost'
-import { ALL_TOOL_TABS } from './stack-tabs'
+import { ALL_TOOL_TABS, useVisibleToolTabs } from './stack-tabs'
 
 export function ToolsMenu() {
   const setShell = useStore((s) => s.setShell)
+  // Velero is listed only once detected (043 FR-036); every other tool stays (Tools is kept).
+  const toolTabs = useVisibleToolTabs(ALL_TOOL_TABS)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -41,7 +43,7 @@ export function ToolsMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {ALL_TOOL_TABS.map((t) => (
+        {toolTabs.map((t) => (
           <DropdownMenuItem
             key={t.label}
             onSelect={() => t.tool && setShell({ toolsSheet: t.tool })}
@@ -61,6 +63,7 @@ export function ToolsSheet() {
   const ensureToolPane = useStore((s) => s.ensureToolPane)
   const paneId = tool ? ensureToolPane(tool) : undefined
   const returnFocus = useFocusReturn(tool !== undefined)
+  const toolTabs = useVisibleToolTabs(ALL_TOOL_TABS)
 
   return (
     <Sheet
@@ -80,7 +83,7 @@ export function ToolsSheet() {
           <SheetTitle className="font-display tracking-wider uppercase">Tools</SheetTitle>
           <SheetDescription className="sr-only">Open a tool pane</SheetDescription>
           <div role="group" aria-label="Tools" className="-mx-1 flex flex-wrap gap-1">
-            {ALL_TOOL_TABS.map((t) => (
+            {toolTabs.map((t) => (
               <button
                 key={t.label}
                 type="button"

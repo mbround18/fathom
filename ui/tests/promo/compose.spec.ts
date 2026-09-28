@@ -256,6 +256,30 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
       'Keep several kubeconfig contexts connected simultaneously: per-cluster live status plus a combined header — nodes, running and unhealthy pods, warnings — across the fleet.',
     scale: 2,
   },
+  'wide-setup-screen': {
+    title: 'Setup when no context is chosen',
+    caption:
+      'With no current context, Fathom opens a full-screen setup: pick a context, connect, sign in if the cluster needs it, or create a local kind cluster.',
+    scale: 2,
+  },
+  'wide-settings-menu': {
+    title: 'Settings in the header',
+    caption:
+      'Cluster settings, sign-in, team, connection profiles, app settings, local clusters and the audit log, one click from anywhere.',
+    scale: 2,
+  },
+  'wide-calm-dock': {
+    title: 'A navigator for newcomers',
+    caption:
+      'Sections grouped the way people look for them. Integrations sit together, with the ones not installed greyed out, and the dock keeps only tools that follow your selection.',
+    scale: 2,
+  },
+  'wide-inspector-topology': {
+    title: 'Follow the chain',
+    caption:
+      'Every resource has a Topology tab: what owns it, what it runs, and what routes to it, one click from the inspector.',
+    scale: 2,
+  },
   'wide-daemon-chip': {
     title: 'An optional in-cluster daemon',
     caption:
@@ -263,7 +287,7 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
     scale: 2,
   },
   'wide-daemon-timeline': {
-    title: 'While you were away',
+    title: 'Cluster history',
     caption:
       'Events that happened while Fathom was closed, replayed from the daemon. Each entry is badged Derived (a controller condition) or Raw (a Kubernetes Event), with the message verbatim; a banner flags any gap in history.',
     scale: 2,

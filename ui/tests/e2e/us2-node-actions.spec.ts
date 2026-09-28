@@ -39,7 +39,7 @@ async function goToNode(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Open sections' }).click()
   }
   await expect(nav).toBeVisible()
-  const toggle = nav.getByRole('button', { name: 'Overview', expanded: false })
+  const toggle = nav.getByRole('button', { name: 'Cluster', expanded: false })
   if (await toggle.isVisible()) await toggle.click()
   await nav.locator('[data-section="nodes"]').click()
   await expect.poll(() => sentTypes(page)).toEqual(expect.arrayContaining(['RefreshNodes']))

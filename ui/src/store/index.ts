@@ -14,7 +14,7 @@ import {
   initialManifestExportState,
   type ManifestExportState,
 } from '@/features/manifest-export/state'
-import { resolveProfile } from '@/layout/defaults'
+import { dockTabs, resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type { AiSlice } from '@/features/ai-assist/types'
@@ -112,6 +112,8 @@ import { RingBuffer } from './ring-buffer'
 import { newLogStreamId } from './log-streams'
 import { waitForCommandResult } from './actions'
 import type { HostedState } from './handlers/hosted'
+import { setupStateOf } from '@/components/setup/setup-state'
+import { INITIAL_SETUP, setupInputsOf, startupContextOf, type SetupFlow } from './setup'
 
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
 export type { HelmMutationSession, HelmMutationStatus } from './helmMutation'
@@ -148,6 +150,11 @@ export interface PaneState {
    * R6). Empty when opened directly from a list row. Session-transient, never persisted.
    */
   history?: ObjectRef[]
+  /**
+   * Inspector: the selected tab while drilling through related resources (043 FR-032: "Follow"
+   * keeps the Topology tab). Cleared when the inspector is opened fresh from a list row.
+   */
+  inspectorTab?: string
   /**
    * Tool (topology): last camera transform (research.md R4), mirroring how `scrollTop` persists
    * a list pane's scroll position across re-layout. `undefined` until the pane's first render.
@@ -646,7 +653,7 @@ export interface LayoutState {
   profile: LayoutProfile
   /** Pane shown in each visible slot, index-aligned with `profile.slots`. */
   slotPanes: PaneId[]
-  /** Pane shown in each dock tab, index-aligned with `profile.dock.tabs`. */
+  /** Dock panes, one per allowed dock tool (`dockTabs(dock, true)`); the dock picks by tool. */
   dockPanes: PaneId[]
   /**
    * Phone navigation stack; the last entry is on screen. On tablet the root entry picks the
@@ -672,6 +679,8 @@ export interface ShellUi {
   moreOpen: boolean
   /** Narrow context/namespace sheet. */
   scopeOpen: boolean
+  /** 043: the header context picker is open ("Choose another context"). */
+  contextPickerOpen: boolean
 }
 
 /** The data part of the store (everything `ingest` may replace). */
@@ -826,6 +835,8 @@ export interface StoreData {
    * `PodLogsTab` can pre-select the container. Cleared once `PodLogsTab` consumes it.
    */
   podLogsIntent: { namespace: string; name: string; container: string } | null
+  /** 043: the setup screen's transient flow (picked context, sign-in step, detour). */
+  setup: SetupFlow
 }
 
 export interface StoreState extends StoreData {
@@ -865,6 +876,13 @@ export interface StoreState extends StoreData {
   /** First-run UX: reconnect the active context (`SetContext` again), or re-read the kubeconfig
    * (`Initialize`) when none is active. The panes show loading until the backend answers. */
   retryConnection: () => void
+  /** 043: pick `name` on the setup screen: select it, remember it and open its Overview. */
+  pickInSetup: (name: string) => void
+  /** 043: remember `name` in `UiConfig.lastSelection` (never the kubeconfig) and save it. */
+  rememberContext: (name: string) => void
+  /** 043: open the remembered context when the kubeconfig selects none (once per start). */
+  startupContext: () => void
+  setSetup: (patch: Partial<SetupFlow>) => void
   /** 027: start/stop the backend's view-scoped fleet pollers (Fleet Dashboard mount/unmount). */
   startFleetPolling: () => void
   stopFleetPolling: () => void
@@ -1095,6 +1113,19 @@ function nextId(panes: Record<PaneId, PaneState>, prefix: string): PaneId {
 }
 
 /**
+ * 043: the tools that left the dock for the navigator, and the section each one opens. A saved
+ * slot pinned to one of these resolves to its section; other tool kinds keep their tool pane.
+ */
+export const MOVED_TOOL_SECTIONS: Readonly<Partial<Record<ToolKind, SectionKey>>> = {
+  topology: 'topology',
+  linter: 'linter',
+  velero: 'integrations/velero',
+  certManager: 'integrations/cert-manager',
+  knative: 'integrations/knative',
+  keda: 'integrations/keda',
+}
+
+/**
  * Map each slot to a pane: reuse the first unused pane of the same kind (and tool), else create
  * one. Panes that no longer have a slot are kept, so widening again restores their state.
  */
@@ -1113,10 +1144,29 @@ export function assignPanes(
     used.add(id)
     return id
   }
-  const slotPanes = profile.slots.map((s) =>
-    claim(s.kind, s.kind === 'tool' ? (s.tool ?? undefined) : undefined),
-  )
-  const dockPanes = (profile.dock?.tabs ?? []).map((tool) => claim('tool', tool, `dock-${tool}`))
+  const slotPanes = profile.slots.map((s) => {
+    // 043: a slot saved as a tool that is now a navigator section opens that section in a list
+    // pane (spec edge case "deep link or saved route"). The saved file is left as it is.
+    const moved = s.kind === 'tool' && s.tool ? MOVED_TOOL_SECTIONS[s.tool] : undefined
+    if (moved === undefined)
+      return claim(s.kind, s.kind === 'tool' ? (s.tool ?? undefined) : undefined)
+    // Its own prefix, so another list pane (and its route) is never taken over for it.
+    const before = new Set(Object.keys(panes))
+    const id = claim('list', undefined, `section-${s.tool ?? ''}`)
+    const pane = panes[id]
+    if (!before.has(id) && pane) {
+      panes[id] = {
+        ...pane,
+        route: { section: moved, scope: 'Namespaced', context: null, namespace: null },
+      }
+    }
+    return id
+  })
+  // 043 (FR-025): dock panes only for tools the dock accepts. Cluster history (`daemon`) gets its
+  // pane up front so the dock can show or hide its tab as the daemon comes and goes.
+  const dockPanes = profile.dock
+    ? dockTabs(profile.dock, true).map((tool) => claim('tool', tool, `dock-${tool}`))
+    : []
   return { slotPanes, dockPanes, panes }
 }
 
@@ -1210,6 +1260,7 @@ export function initialData(): StoreData {
       toolsSheet: undefined,
       moreOpen: false,
       scopeOpen: false,
+      contextPickerOpen: false,
     },
     panes,
     editSessions: {},
@@ -1230,6 +1281,7 @@ export function initialData(): StoreData {
     },
     kind: { prerequisites: undefined, clusters: undefined, operations: {} },
     podLogsIntent: null,
+    setup: INITIAL_SETUP,
   }
 }
 
@@ -1334,6 +1386,8 @@ export const useStore = create<StoreState>()((set, get) => ({
         Object.values(s.panes).find((p) => p.kind === 'list')?.id
       const pane = listId ? s.panes[listId] : undefined
       if (!pane) return s
+      // 043: a page opened while the setup screen shows is a detour from it (AppShell).
+      const inSetup = setupStateOf(setupInputsOf(s)) !== undefined
       const route: Route = {
         context: s.session.activeContext ?? null,
         section,
@@ -1342,6 +1396,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
       return {
         conn: s.conn,
+        ...(inSetup ? { setup: { ...s.setup, detour: { paneId: pane.id, section } } } : {}),
         panes: {
           ...s.panes,
           [pane.id]: {
@@ -1467,6 +1522,39 @@ export const useStore = create<StoreState>()((set, get) => ({
     })
     s.send({ type: 'SetContext', data: { context: name } })
   },
+
+  pickInSetup: (name) => {
+    const s = get()
+    set({
+      setup: {
+        picked: name,
+        signInStep: s.identity.config.issuers.length > 0,
+        startupTried: true,
+      },
+    })
+    // Re-picking the context that just failed retries it (selectContext ignores the same name).
+    if (s.session.activeContext === name) s.retryConnection()
+    else s.selectContext(name)
+    s.rememberContext(name)
+    get().navigate(SECTION.overview)
+  },
+
+  rememberContext: (name) => {
+    const s = get()
+    const ui: UiConfig = { ...s.ui, lastSelection: { context: name, section: SECTION.overview } }
+    set({ ui })
+    s.send({ type: 'SaveUiConfig', data: { ui, expanded_groups: s.prefs.expandedGroups } })
+  },
+
+  startupContext: () => {
+    const s = get()
+    if (s.setup.startupTried || !s.prefs.loaded || !s.session.contextsLoaded) return
+    set({ setup: { ...s.setup, startupTried: true } })
+    const name = startupContextOf(s)
+    if (name !== undefined) s.selectContext(name)
+  },
+
+  setSetup: (patch) => set((s) => ({ setup: { ...s.setup, ...patch } })),
 
   retryConnection: () => {
     const s = get()
@@ -1693,6 +1781,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   openInspector: (ref, from, push) => {
     const nextHistory = (pane: PaneState | undefined): ObjectRef[] =>
       push && pane?.target ? [...(pane.history ?? []), pane.target] : []
+    // 043 FR-032: a drill-down keeps the selected tab; a fresh open starts on Details.
+    const nextTab = (pane: PaneState | undefined): string | undefined =>
+      push ? pane?.inspectorTab : undefined
     set((s) => {
       const panes = { ...s.panes }
       const rowKey = ref.namespace ? `${ref.namespace}/${ref.name}` : ref.name
@@ -1727,6 +1818,7 @@ export const useStore = create<StoreState>()((set, get) => ({
           source: from,
           scrollTop: 0,
           history: nextHistory(slottedPane),
+          inspectorTab: nextTab(slottedPane),
         }
         return { panes, layout }
       }
@@ -1745,6 +1837,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         source: from,
         scrollTop: 0,
         history: nextHistory(prior),
+        inspectorTab: nextTab(prior),
       }
       const base = onStack
         ? s.layout.stack.slice(0, s.layout.stack.indexOf(onStack))

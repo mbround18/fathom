@@ -1,4 +1,8 @@
-/** 036 US1: "While you were away" — controller-level events from the in-cluster daemon. */
+/**
+ * 036 US1: controller-level events from the in-cluster daemon. 043 US4 renamed it from "While
+ * you were away" to "Cluster history" and made it open with a one-line explanation; when the
+ * daemon is not available it explains why the panel is empty and how to turn it on.
+ */
 import { WarningIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 
@@ -9,6 +13,8 @@ import type { DaemonTimelineEntry, DerivedSeverity, TruncationMarker } from '@/p
 
 import { Empty } from '../../components/shell/PaneStates'
 import {
+  CLUSTER_HISTORY_SUBTITLE,
+  DAEMON_SWITCH_LABEL,
   daemonState,
   formatTime,
   INSTALL_COMMAND,
@@ -96,11 +102,23 @@ function Entry({ e }: { e: DaemonTimelineEntry }) {
   )
 }
 
+function Subtitle() {
+  return (
+    <p
+      data-testid="cluster-history-subtitle"
+      className="shrink-0 border-b border-border px-3 py-1.5 text-xs text-muted-foreground"
+    >
+      {CLUSTER_HISTORY_SUBTITLE}
+    </p>
+  )
+}
+
 export function DaemonTimelinePanel() {
   const { context, daemon } = useActiveDaemon()
   const [shown, setShown] = useState(PAGE)
   const state = daemonState(daemon)
   const requestTimeline = useStore((s) => s.requestDaemonTimeline)
+  const navigate = useStore((s) => s.navigate)
 
   // Opening the pane pulls the backend's buffered history (no server call on the backend side).
   useEffect(() => {
@@ -112,20 +130,42 @@ export function DaemonTimelinePanel() {
   if (state !== 'available' && daemon.timeline.length === 0) {
     return (
       <div data-testid="daemon-timeline-empty" data-daemon-state={state}>
+        <Subtitle />
         <Empty
-          title={`In-cluster daemon: ${STATE_LABEL[state]}`}
+          title={`No cluster history: daemon ${STATE_LABEL[state].toLowerCase()}`}
           detail={
-            <>
+            <span data-testid="cluster-history-unavailable">
+              Cluster history comes from Fathom&apos;s optional, read-only in-cluster daemon.{' '}
               {STATE_HELP[state]}
+              {state === 'off' ? (
+                <>
+                  {' '}
+                  To use it, turn on “{DAEMON_SWITCH_LABEL}” in Settings › Cluster settings or in
+                  the Daemon chip in the header.
+                </>
+              ) : null}
               {state === 'off' || state === 'notInstalled' ? (
                 <>
                   {' '}
-                  Install (copy only): <code>{INSTALL_COMMAND}</code>
+                  If the daemon is not installed, install it yourself (Fathom never does):{' '}
+                  <code>{INSTALL_COMMAND}</code>
                 </>
               ) : null}
-            </>
+            </span>
           }
         />
+        {context !== undefined && (
+          <div className="flex justify-center pb-3">
+            <Button
+              variant="outline"
+              className="min-h-[var(--touch-target)]"
+              data-testid="cluster-history-open-settings"
+              onClick={() => navigate('integrations/cluster-settings')}
+            >
+              Open Cluster settings
+            </Button>
+          </div>
+        )}
       </div>
     )
   }
@@ -139,6 +179,7 @@ export function DaemonTimelinePanel() {
       data-testid="daemon-timeline"
       data-context={context}
     >
+      <Subtitle />
       {daemon.truncated && <TruncationBanner marker={daemon.truncated} />}
       {state !== 'available' && (
         <p className="border-b border-border px-3 py-1 text-xs text-status-warn" role="status">
@@ -160,11 +201,11 @@ export function DaemonTimelinePanel() {
         </div>
       )}
       {daemon.timeline.length === 0 ? (
-        <Empty title="Nothing happened while you were away" />
+        <Empty title="No changes recorded yet" />
       ) : (
         <ul
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-          aria-label="While you were away"
+          aria-label="Cluster history"
         >
           {visible.map((e) => (
             <Entry key={e.seq} e={e} />

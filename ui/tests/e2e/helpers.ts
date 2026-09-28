@@ -11,6 +11,8 @@ import {
 } from '@playwright/test'
 
 import type { ScenarioName } from '../fixtures'
+import { batch, system } from '../fixtures/builders'
+import { NAV_GROUPS, mapLegacyGroups } from '../../src/resources/nav'
 import type { BackendCmd, EventBatch } from '../../src/protocol/types'
 import type {} from '../../src/protocol/fake-transport'
 
@@ -113,7 +115,31 @@ export async function expectRowCount(page: Page, count: number, section = PODS):
 }
 
 /** Open `section` from the navigator (the drawer on phone/tablet, the nav slot otherwise). */
-export async function navigateTo(page: Page, label: string, group = 'Workloads'): Promise<void> {
+/**
+ * The navigator group that holds `label`. Accepts pre-043 group names (Overview, Network,
+ * Config, Team): the group actually listing `label` wins, else the legacy mapping.
+ */
+function navGroupFor(label: string, group: string): string {
+  if (NAV_GROUPS.some((g) => g.label === group)) return group
+  const holder = NAV_GROUPS.find((g) => g.sections.some((s) => s.label === label))
+  return holder?.label ?? mapLegacyGroups([group])[0] ?? group
+}
+
+/** 043 US3 renamed the Settings pages to sentence case; older specs may use the old labels. */
+const LEGACY_LABELS: Readonly<Record<string, string>> = {
+  'Cluster Settings': 'Cluster settings',
+  Teams: 'Team',
+  'Connection Profiles': 'Connection profiles',
+  'Audit Log': 'Audit log',
+}
+
+export async function navigateTo(
+  page: Page,
+  rawLabel: string,
+  groupName = 'Workloads',
+): Promise<void> {
+  const label = LEGACY_LABELS[rawLabel] ?? rawLabel
+  const group = navGroupFor(label, groupName)
   const nav = page.getByRole('navigation', { name: 'Sections' })
   const drawer = !(await nav.isVisible())
   if (drawer) {
@@ -126,6 +152,12 @@ export async function navigateTo(page: Page, label: string, group = 'Workloads')
   // group is already expanded and both buttons are in the DOM.
   const toggle = nav.locator('button[aria-expanded]', { hasText: group })
   if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
+  // 043: rarely used kinds sit under the group's "More" toggle, collapsed by default.
+  const advanced = NAV_GROUPS.find((g) => g.label === group)?.sections.some(
+    (s) => s.label === label && s.advanced,
+  )
+  const more = nav.getByRole('button', { name: `More ${group}`, exact: true })
+  if (advanced && (await more.getAttribute('aria-expanded')) === 'false') await more.click()
   await nav.getByRole('button', { name: label, exact: true }).click()
   // Let the drawer finish closing so a following call does not race its exit animation.
   if (drawer) await expect(nav).toBeHidden()
@@ -257,9 +289,20 @@ export async function openToolPane(page: Page, label: string): Promise<void> {
     await page.getByTestId('tools-menu').click()
     await page.getByRole('menuitem', { name: label }).click()
   } else {
-    await page.getByRole('tab', { name: label }).click()
+    // 043: the dock keeps only Logs, Events and Cluster history; every other tool is a
+    // navigator section now (Cluster › Linter, Integrations › Knative, ...).
+    const tab = page.getByTestId('dock-tabs').getByRole('tab', { name: label })
+    if (await tab.count()) await tab.click()
+    else {
+      const entry = TOOL_NAV_LABEL[label] ?? label
+      const group = NAV_GROUPS.find((g) => g.sections.some((s) => s.label === entry))?.label
+      await navigateTo(page, entry, group ?? 'Integrations')
+    }
   }
 }
+
+/** Tool-strip labels whose navigator entry is named differently. */
+const TOOL_NAV_LABEL: Record<string, string> = { Autoscalers: 'KEDA Autoscalers' }
 
 /** Open the fleet dashboard (a top-bar button, or an overflow-menu item on phone). */
 export async function openFleet(page: Page): Promise<void> {
@@ -405,4 +448,51 @@ export async function settledTopologyScale(page: Page): Promise<number> {
     )
     .toBe(true)
   return last
+}
+
+/**
+ * 043 US6: open the whole-cluster Topology section from the navigator's Cluster group, targeting
+ * the row by its section key so no other control labelled "Topology" can match.
+ */
+export async function openTopologySection(page: Page): Promise<void> {
+  const nav = page.getByRole('navigation', { name: 'Sections' })
+  const drawer = !(await nav.isVisible())
+  if (drawer) await page.getByRole('button', { name: 'Open sections' }).click()
+  await expect(nav).toBeVisible()
+  const toggle = nav.locator('button[aria-expanded]', { hasText: 'Cluster' })
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
+  await nav.locator('button[data-section="topology"]').click()
+  if (drawer) await expect(nav).toBeHidden()
+}
+
+/** Local-only cluster settings, as `ClusterSettingsLoaded` carries them. */
+export const LOCAL_CLUSTER_SETTINGS = {
+  schema: 1 as const,
+  metricsSource: 'none' as const,
+  prometheusPath: '/api/v1',
+  https: false,
+  pathPrefix: '',
+  hiddenMetrics: [],
+  orgRevKnown: null,
+  fieldOrigin: {
+    metricsSource: 'local' as const,
+    prometheusPath: 'local' as const,
+    https: 'local' as const,
+    pathPrefix: 'local' as const,
+    hiddenMetrics: 'local' as const,
+  },
+}
+
+/** Answer the Cluster settings page's `LoadClusterSettings` (the fake backend does not). */
+export async function loadClusterSettings(page: Page, context = 'kind-a', seq = 1): Promise<void> {
+  await expect.poll(() => sentTypes(page)).toContain('LoadClusterSettings')
+  await emit(
+    page,
+    batch([
+      system(seq, {
+        type: 'ClusterSettingsLoaded',
+        data: { context, settings: LOCAL_CLUSTER_SETTINGS },
+      }),
+    ]),
+  )
 }

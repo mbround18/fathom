@@ -16,6 +16,8 @@ export function ContextPicker({ className }: { className?: string }) {
   const selectContext = useStore((s) => s.selectContext)
   const hosted = useStore((s) => s.hosted.mode === 'hosted') || transportKind() === 'hosted'
   const showExport = useKubeconfigExport((s) => s.show)
+  const open = useStore((s) => s.shell.contextPickerOpen)
+  const setShell = useStore((s) => s.setShell)
   const options = useMemo(() => contexts.map((c) => ({ value: c, label: c })), [contexts])
   const picker = (
     <Picker
@@ -26,6 +28,8 @@ export function ContextPicker({ className }: { className?: string }) {
       placeholder="none"
       disabled={contexts.length === 0}
       onChange={selectContext}
+      open={open}
+      onOpenChange={(o) => setShell({ contextPickerOpen: o })}
       className={hosted ? className : 'min-w-0 flex-1'}
     />
   )

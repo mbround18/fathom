@@ -3,20 +3,16 @@
  * no limits) computed from list rows + per-object reads, click it, and land in the Inspector on
  * that exact Pod. The pane must only ever send read commands.
  */
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { batch, list, nsRoute, read } from '../fixtures/builders'
 import { emit, inspector, open, openToolPane, sentTypes } from './helpers'
 
 const PODS = 'workloads/pods'
 
-async function openLinter(page: Page, info: TestInfo): Promise<void> {
-  const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
-  if (stacked) {
-    await openToolPane(page, 'Linter')
-  } else {
-    await page.getByRole('tab', { name: 'Linter' }).click()
-  }
+async function openLinter(page: Page): Promise<void> {
+  // Phone/tablet: the tool strip. Desktop and up: Cluster › Linter in the navigator (043).
+  await openToolPane(page, 'Linter')
 }
 
 const POD_DETAILS = {
@@ -45,7 +41,7 @@ test.describe('US1 linter findings', () => {
     // Same as Topology: the laptop class has no dock and no stack tabs, so tool panes are unreachable there.
     test.skip(info.project.name.endsWith('-laptop'), 'tool panes are not reachable at laptop width')
     await open(page)
-    await openLinter(page, info)
+    await openLinter(page)
     await expect(page.getByTestId('linter-panel')).toBeVisible()
 
     // Mount refreshes lists with existing read-only commands only.

@@ -60,6 +60,8 @@ async function openSettings(page: Page) {
       }),
     ]),
   )
+  // 043 US3: app-wide settings moved from Cluster settings to App settings.
+  await navigateTo(page, 'App settings', 'Settings')
   await expect(page.getByTestId('mcp-available-agents')).toBeVisible()
 }
 

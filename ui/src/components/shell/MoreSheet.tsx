@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/sheet'
 import { useStore } from '@/store'
 
-import { ALL_TOOL_TABS } from './stack-tabs'
+import { ALL_TOOL_TABS, useVisibleToolTabs } from './stack-tabs'
 import { useOpenTool } from './useOpenTool'
 
 const ROW =
@@ -24,6 +24,7 @@ export function MoreSheet() {
   const setShell = useStore((s) => s.setShell)
   const setNavOpen = useStore((s) => s.setNavOpen)
   const openTool = useOpenTool()
+  const toolTabs = useVisibleToolTabs(ALL_TOOL_TABS)
   const close = () => setShell({ moreOpen: false })
 
   return (
@@ -57,7 +58,7 @@ export function MoreSheet() {
         >
           <SquaresFourIcon aria-hidden="true" className="size-4" /> Fleet
         </button>
-        {ALL_TOOL_TABS.map((t) => (
+        {toolTabs.map((t) => (
           <button
             key={t.label}
             type="button"

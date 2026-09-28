@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+
 import {
   Sheet,
   SheetContent,
@@ -6,6 +8,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { ActionDialogHost } from '@/components/ActionDialogHost'
+import { SetupDetourBar, SetupScreen } from '@/components/setup/SetupScreen'
+import { useSetupState } from '@/components/setup/use-setup-state'
 import { NavTree } from '@/components/NavTree'
 import { KubeconfigExportDialogHost } from '@/features/manifest-export/KubeconfigExportDialog'
 import { ManifestExportDialogHost } from '@/features/manifest-export/ManifestExportDialog'
@@ -21,6 +25,7 @@ import { ClusterVersionBadge } from './ClusterVersionBadge'
 import { CommandPaletteHost } from './CommandPaletteHost'
 import { ShortcutsHost } from './ShortcutsHost'
 import { FederationContextSwitcher } from './FederationContextSwitcher'
+import { CLUSTERLESS_SECTIONS, PaneHost } from './PaneHost'
 import { PhoneStack } from './PhoneStack'
 import { SlotGrid } from './SlotGrid'
 import { StatusBar } from './StatusBar'
@@ -34,12 +39,47 @@ const TOAST_TOP = 52
  * Top bar, a body chosen by width class, status bar (contracts/layout.md). Test hooks:
  * `data-width-class` here, and `data-slot="pane"` / `data-pane-kind` on every pane host.
  */
+/**
+ * 043: while the setup screen shows, a clusterless page opened from it (Settings, a local
+ * cluster) takes its place with "Back to setup"; the flow is cleared once setup finishes.
+ */
+function useSetupDetour(inSetup: boolean): string | undefined {
+  const detour = useStore((s) => s.setup.detour)
+  const paneSection = useStore((s) =>
+    detour === undefined ? undefined : s.panes[detour.paneId]?.route?.section,
+  )
+  const setupFlow = useStore((s) => s.setup)
+  const setSetup = useStore((s) => s.setSetup)
+  const flowActive =
+    setupFlow.picked !== undefined ||
+    setupFlow.signInStep !== undefined ||
+    setupFlow.signInDone !== undefined ||
+    setupFlow.choosing !== undefined ||
+    setupFlow.detour !== undefined
+  useEffect(() => {
+    if (!inSetup && flowActive) {
+      setSetup({
+        picked: undefined,
+        signInStep: undefined,
+        signInDone: undefined,
+        choosing: undefined,
+        detour: undefined,
+      })
+    }
+  }, [inSetup, flowActive, setSetup])
+  if (!inSetup || detour === undefined) return undefined
+  if (!CLUSTERLESS_SECTIONS.has(detour.section) || paneSection !== detour.section) return undefined
+  return detour.paneId
+}
+
 export function AppShell() {
   const { widthClass } = useWidthClass()
   const navOpen = useStore((s) => s.layout.navOpen)
   const setNavOpen = useStore((s) => s.setNavOpen)
   const isHosted = useStore((s) => s.hosted.mode === 'hosted')
   const narrow = widthClass === 'phone' || widthClass === 'tablet'
+  const setup = useSetupState()
+  const detour = useSetupDetour(setup !== undefined)
 
   return (
     <div
@@ -59,7 +99,14 @@ export function AppShell() {
         <ClusterVersionBadge />
       </div>
       <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
-        {widthClass === 'phone' ? (
+        {setup && detour ? (
+          <>
+            <SetupDetourBar />
+            <PaneHost paneId={detour} />
+          </>
+        ) : setup ? (
+          <SetupScreen state={setup} />
+        ) : widthClass === 'phone' ? (
           <PhoneStack />
         ) : widthClass === 'tablet' ? (
           <TabletTabs />
@@ -68,7 +115,7 @@ export function AppShell() {
         )}
       </main>
       <StatusBar />
-      {narrow && (
+      {narrow && !setup && (
         <Sheet open={navOpen} onOpenChange={setNavOpen}>
           <SheetContent side="left" className="w-72 overflow-y-auto p-0 text-sm">
             <SheetHeader className="border-b border-border">

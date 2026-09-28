@@ -6,20 +6,34 @@ import type { DockConfig, LayoutProfile, SlotConfig, ToolKind } from '@/protocol
 
 import { hasDock, visibleSlots, type WidthClass } from './width-class'
 
-const DOCK: DockConfig = {
+/**
+ * 043: the dock holds only streams that follow what the operator is doing. Every other tool is
+ * a destination in the navigator (Topology, Linter, the integrations). The `ToolKind` enum is
+ * unchanged, so saved docks naming other tools stay valid and are filtered on load.
+ */
+export const DOCK_ALLOWED: readonly ToolKind[] = ['logs', 'events', 'daemon']
+const DOCK_ALLOWED_SET: ReadonlySet<ToolKind> = new Set(DOCK_ALLOWED)
+
+/** Default dock: Logs and Events. Cluster history (`daemon`) is added by `dockTabs`. */
+export const DOCK: DockConfig = {
   open: true,
   heightPct: 30,
-  tabs: [
-    'logs',
-    'events',
-    'topology',
-    'daemon',
-    'velero',
-    'certManager',
-    'knative',
-    'keda',
-    'linter',
-  ],
+  tabs: ['logs', 'events'],
+}
+
+/** Drop tabs the dock no longer accepts, keeping their order, `open` and `heightPct` (FR-025). */
+export function filterDock(dock: DockConfig): DockConfig {
+  return { ...dock, tabs: dock.tabs.filter((t) => DOCK_ALLOWED_SET.has(t)) }
+}
+
+/**
+ * The tabs to render: the filtered dock, with Cluster history present exactly while the daemon
+ * is available for the active context (FR-024). Appended when missing, removed when unavailable.
+ */
+export function dockTabs(dock: DockConfig, daemonAvailable: boolean): ToolKind[] {
+  const tabs = filterDock(dock).tabs.filter((t) => t !== 'daemon' || daemonAvailable)
+  if (daemonAvailable && !tabs.includes('daemon')) tabs.push('daemon')
+  return tabs
 }
 
 const PROFILES: Readonly<Record<WidthClass, readonly SlotConfig[]>> = {
@@ -120,7 +134,8 @@ function isValidDock(dock: unknown): dock is DockConfig {
 /**
  * The profile to render for `cls`: the saved one when it is well formed, else the default.
  * Saved slots beyond `visibleSlots` are truncated (their panes survive in the store; only the
- * slot is hidden) and sizes renormalized. The dock is dropped below desktop.
+ * slot is hidden) and sizes renormalized. The dock is dropped below laptop, and a saved dock
+ * keeps only the tabs `filterDock` allows.
  */
 export function resolveProfile(
   cls: WidthClass,
@@ -134,8 +149,7 @@ export function resolveProfile(
   const max = visibleSlots(cls, ultraPlus ? Infinity : 0)
   const slots = normalize(saved.slots.slice(0, max).map((s) => ({ ...s })))
   if (!hasDock(cls)) return { slots }
-  const dock = isValidDock(saved.dock)
-    ? { ...saved.dock, tabs: [...saved.dock.tabs] }
-    : fallback.dock
+  // Filtered in memory only: the saved file is rewritten on the user's next layout change.
+  const dock = isValidDock(saved.dock) ? filterDock(saved.dock) : fallback.dock
   return dock ? { slots, dock } : { slots }
 }

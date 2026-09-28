@@ -15,6 +15,7 @@ import {
   emit,
   expectNoHorizontalScroll,
   inspector,
+  navigateTo,
   open,
   row,
   sent,
@@ -53,7 +54,7 @@ async function openNodesList(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Open sections' }).click()
   }
   await expect(nav).toBeVisible()
-  const toggle = nav.getByRole('button', { name: 'Overview', expanded: false })
+  const toggle = nav.getByRole('button', { name: 'Cluster', expanded: false })
   if (await toggle.isVisible()) await toggle.click()
   await nav.locator('[data-section="nodes"]').click()
   await expect.poll(() => sentTypes(page)).toContain('RefreshNodes')
@@ -214,7 +215,8 @@ test.describe('daemon timeline request', () => {
       await page.getByTestId('daemon-chip').click()
       await page.getByTestId('daemon-open-timeline').click()
     } else {
-      await page.getByRole('tab', { name: 'While you were away' }).click()
+      // 043 US4: "While you were away" is now Cluster history, a navigator section.
+      await navigateTo(page, 'Cluster history', 'Cluster')
     }
     await expect(page.getByTestId('daemon-timeline').first()).toBeVisible()
     await expect

@@ -7,7 +7,9 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { NAV_GROUPS, NAV_TOOLS } from '../../src/resources/nav'
 
-import { open, sentTypes } from './helpers'
+import { batch, system } from '../fixtures/builders'
+import { VELERO_HEALTHY_AND_FAILED } from '../fixtures/velero'
+import { emit, open, sentTypes } from './helpers'
 
 /** Text that means a pane is unfinished rather than empty. */
 const STUB =
@@ -56,6 +58,11 @@ test.describe('nav walk: every nav entry opens a working pane', () => {
     test(`${group.label} sections`, async ({ page }) => {
       const errors = trackErrors(page)
       await open(page)
+      // Velero is listed only once detected (043 FR-032): report it installed so it is walked too.
+      await emit(
+        page,
+        batch([system(1, { type: 'VeleroOverviewUpdated', data: VELERO_HEALTHY_AND_FAILED })]),
+      )
       for (const s of group.sections) {
         await pick(page, `[data-section="${s.key}"]`)
         const pane = page.locator(`section[data-slot="pane"][data-section="${s.key}"]`).first()

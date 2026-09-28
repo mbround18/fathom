@@ -23,6 +23,8 @@ import { TopologyPanel } from '@/components/panels/TopologyPanel'
 import { CustomResourcesSection } from '@/components/nav/CustomResourcesSection'
 import { NavTree } from '@/components/NavTree'
 import { ClusterSettingsPanel } from '@/components/panels/ClusterSettingsPanel'
+import { AppSettingsPanel } from '@/components/settings/AppSettingsPanel'
+import { LocalClustersPanel } from '@/components/settings/LocalClustersPanel'
 import { AuditLogPane } from '@/components/audit/AuditLogPane'
 import { PortForwardsPanel } from '@/components/panels/PortForwardsPanel'
 import { TeamsView } from '@/features/teams/TeamsView'
@@ -44,6 +46,7 @@ import type {
 import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
+import { SignInSettings } from '@/features/identity/SignInSettings'
 import { cn } from '@/lib/utils'
 import { useFirstRun } from '@/lib/use-first-run'
 import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
@@ -261,13 +264,19 @@ function deniedVia(section: string): string {
   return section === SECTION.argo ? SECTION.customResources : section
 }
 
+/** 043 US2: Settings › Sign-in. */
+const SIGN_IN_SECTION = 'settings/sign-in'
+
 /** Sections that render without a connected cluster (local settings and records). */
-const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
+export const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
   SECTION.clusterSettings,
   SECTION.teams,
   SECTION.teamProfiles,
   SECTION.auditLog,
   SECTION.oidcConfig,
+  SECTION.appSettings,
+  SECTION.localClusters,
+  SIGN_IN_SECTION,
 ])
 
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */
@@ -328,6 +337,10 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.teamProfiles) {
     return <TeamProfilesPanel />
   }
+  // 043 US3/US4: settings split out of Cluster settings, and the daemon's Cluster history.
+  if (section === SECTION.appSettings) return <AppSettingsPanel />
+  if (section === SECTION.localClusters) return <LocalClustersPanel />
+  if (section === SECTION.clusterHistory) return <DaemonTimelinePanel />
   // 011-rbac-oidc-administration US4/US5: read-only lookup / frontend-only generator panels,
   // neither backed by a `ResourceDescriptor` (no list-refresh, no detail split).
   if (section === SECTION.namespaceAccess) {
@@ -336,11 +349,22 @@ function ListBody({ pane }: { pane: PaneState }) {
   if (section === SECTION.oidcConfig) {
     return <OidcConfigView />
   }
+  if (section === SIGN_IN_SECTION) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <SignInSettings />
+      </div>
+    )
+  }
   // 021-trivy-vulnerability-pane: cluster-wide summary, no descriptor (renders itself).
   if (section === SECTION.vulnerabilities) {
     return <TrivyPanel />
   }
+  // 043 US6 (FR-030): the whole-cluster topology is a navigator section in the Cluster group.
+  if (section === 'topology') return <TopologyPanel paneId={pane.id} />
   if (section === SECTION.overview) return <OverviewPanel paneId={pane.id} />
+  // 043: the linter left the dock for Cluster › Linter (same panel, same visuals).
+  if (section === 'linter') return <LinterPanel paneId={pane.id} />
   if (section === SECTION.events) return <EventsPanel />
   if (section === SECTION.metrics) return <MetricsPanel />
   if (section === SECTION.grafana) return <GrafanaPanel />
@@ -402,23 +426,43 @@ function ListBody({ pane }: { pane: PaneState }) {
       {/* 042-role-create: "New Role"/"New ClusterRole". */}
       {section === SECTION.roles && (
         <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
-          <RoleCreateLauncher kind="Role" />
+          <RoleCreateLauncher kind="Role" acceptRequests />
         </div>
       )}
       {section === SECTION.clusterRoles && (
         <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
-          <RoleCreateLauncher kind="ClusterRole" />
+          <RoleCreateLauncher kind="ClusterRole" acceptRequests />
         </div>
       )}
-      {/* 011-rbac-oidc-administration US2 (T029): "New RoleBinding"/"New ClusterRoleBinding". */}
+      {/* 011-rbac-oidc-administration US2 (T029): "New RoleBinding"/"New ClusterRoleBinding".
+          043 US8: the 042 role wizard next to them (a ClusterRoleBinding can only use a
+          ClusterRole, so its toolbar offers only that). */}
       {section === SECTION.roleBindings && (
-        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-b border-border px-2 py-1">
+          <RoleCreateLauncher
+            kind="Role"
+            label="New Role…"
+            testId="rbac-bindings-new-role"
+            variant="outline"
+          />
+          <RoleCreateLauncher
+            kind="ClusterRole"
+            label="New ClusterRole…"
+            testId="rbac-bindings-new-clusterrole"
+            variant="outline"
+          />
           <RoleBindingCreateLauncher kind="RoleBinding" />
           <RoleAssignmentLauncher kind="RoleBinding" />
         </div>
       )}
       {section === SECTION.clusterRoleBindings && (
-        <div className="flex shrink-0 justify-end gap-2 border-b border-border px-2 py-1">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-b border-border px-2 py-1">
+          <RoleCreateLauncher
+            kind="ClusterRole"
+            label="New ClusterRole…"
+            testId="rbac-bindings-new-clusterrole"
+            variant="outline"
+          />
           <RoleBindingCreateLauncher kind="ClusterRoleBinding" />
           <RoleAssignmentLauncher kind="ClusterRoleBinding" />
         </div>

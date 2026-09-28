@@ -34,7 +34,7 @@ test('Topology shows the namespace graph at every width', async ({ page, app }) 
     await app.open()
     const nav = page.getByRole('navigation', { name: 'Sections' })
     if (!(await nav.isVisible())) await page.getByRole('button', { name: 'Open sections' }).click()
-    await nav.locator('[data-tool="topology"]').click()
+    await nav.locator('[data-section="topology"]').click()
     const summary = page.getByTestId('topology-summary').first()
     // Namespaces arrive first; wait for the workload and pod tiers (edges) too.
     await expect(summary).toHaveText(/^[1-9]\d* nodes, [1-9]\d* edges/, { timeout: 30_000 })

@@ -4,14 +4,14 @@
  * specific problem without switching views." Named `us2-topology-*`, all new hooks
  * `topology-*`-prefixed (isolation from specs 008-010's own e2e suites).
  */
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { batch, list, read, clusterRoute, nsRoute } from '../fixtures/builders'
 import {
   clearSent,
   emit,
   open,
-  openToolPane,
+  openTopologySection,
   sentTypes,
   settledTopologyScale,
   topologyScale,
@@ -20,15 +20,9 @@ import {
 const NAMESPACE = 'workloads-ns'
 const POD_COUNT = 120
 
-async function openTopology(page: Page, info: TestInfo): Promise<void> {
-  // The laptop class has neither a dock nor a tab strip, so no tool pane is reachable there.
-  test.skip(info.project.name.endsWith('-laptop'), 'no tool-pane surface at laptop width')
-  const stacked = info.project.name.endsWith('-phone') || info.project.name.endsWith('-tablet')
-  if (stacked) {
-    await openToolPane(page, 'Topology')
-  } else {
-    await page.getByRole('tab', { name: 'Topology' }).click()
-  }
+/** Open the whole-cluster Topology section from the navigator (043 US6, FR-030). */
+async function openTopology(page: Page): Promise<void> {
+  await openTopologySection(page)
 }
 
 function canvasHost(page: Page) {
@@ -133,11 +127,9 @@ async function zoomUntilSelectDeployment(page: Page): Promise<void> {
 }
 
 test.describe('US2 topology zoom', () => {
-  test('T034: overview -> workload tier appears once zoomed into a namespace', async ({
-    page,
-  }, info) => {
+  test('T034: overview -> workload tier appears once zoomed into a namespace', async ({ page }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     await seedOverview(page)
     const fit = await settledTopologyScale(page)
 
@@ -159,9 +151,9 @@ test.describe('US2 topology zoom', () => {
 
   test('T034/FR-012: a large pod count stays responsive to a subsequent click', async ({
     page,
-  }, info) => {
+  }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     await seedOverview(page)
 
     await zoomCanvas(page, -900) // namespace focus
@@ -211,9 +203,9 @@ test.describe('US2 topology zoom', () => {
     await expect.poll(async () => canvasHost(page).textContent()).not.toBe(before)
   })
 
-  test('T034: zooming back out restores the overview in the same pane', async ({ page }, info) => {
+  test('T034: zooming back out restores the overview in the same pane', async ({ page }) => {
     await open(page)
-    await openTopology(page, info)
+    await openTopology(page)
     await seedOverview(page)
     const fit = await settledTopologyScale(page)
 

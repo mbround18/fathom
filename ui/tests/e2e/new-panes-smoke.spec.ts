@@ -30,10 +30,7 @@ test.describe('new panes smoke (desktop)', () => {
   let errors: string[] = []
 
   test.beforeEach(({ page }, info) => {
-    test.skip(
-      !info.project.name.endsWith('-desktop'),
-      'dock tabs and pane layout are desktop-only here',
-    )
+    test.skip(!info.project.name.endsWith('-desktop'), 'pane layout is desktop-only here')
     errors = []
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
     page.on('console', (m) => {
@@ -45,19 +42,30 @@ test.describe('new panes smoke (desktop)', () => {
     expect(errors, 'console/page errors while rendering the pane').toEqual([])
   })
 
-  const dockTab = async (page: Page, name: string, testId?: string) => {
+  // 043 US7: these left the dock for the navigator (Integrations, and Cluster for the linter).
+  const section = async (page: Page, label: string, group: string, testId?: string) => {
     await open(page)
-    const tab = page.getByRole('tab', { name })
-    await tab.click()
-    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await navigateTo(page, label, group)
+    const nav = page.getByRole('navigation', { name: 'Sections' })
+    if (await nav.isVisible())
+      await expect(nav.getByRole('button', { name: label, exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      )
     if (testId) await expect(page.getByTestId(testId).first()).toBeVisible()
   }
 
-  test('Knative', ({ page }) => dockTab(page, 'Knative'))
-  test('Keda autoscalers', ({ page }) => dockTab(page, 'Autoscalers'))
-  test('Linter', ({ page }) => dockTab(page, 'Linter', 'linter-panel'))
-  test('Velero', ({ page }) => dockTab(page, 'Velero'))
-  test('Certificates', ({ page }) => dockTab(page, 'Certificates'))
+  test('Knative', ({ page }) => section(page, 'Knative', 'Integrations'))
+  test('Keda autoscalers', ({ page }) => section(page, 'KEDA Autoscalers', 'Integrations'))
+  test('Linter', ({ page }) => section(page, 'Linter', 'Cluster', 'linter-panel'))
+  test('Certificates', ({ page }) => section(page, 'Certificates', 'Integrations'))
+
+  // Feedback #12: Velero stays out of the navigator until it is detected.
+  test('Velero hidden until installed', async ({ page }) => {
+    await open(page)
+    const nav = page.getByRole('navigation', { name: 'Sections' })
+    await expect(nav.getByRole('button', { name: 'Velero', exact: true })).toHaveCount(0)
+  })
 
   test('Trivy vulnerabilities', async ({ page }) => {
     await open(page)
@@ -105,6 +113,8 @@ test.describe('new panes smoke (desktop)', () => {
         }),
       ]),
     )
+    // 043 US3: kind provisioning moved from Cluster settings to Local clusters.
+    await navigateTo(page, 'Local clusters', 'Settings')
     await expect(page.getByTestId('kind-clusters')).toBeVisible()
   })
 

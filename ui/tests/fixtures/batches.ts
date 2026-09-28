@@ -49,6 +49,26 @@ export const SAVED_UI: UiConfig = {
   lastSelection: { context: 'kind-a', namespace: 'payments', section: SECTIONS.pods },
 }
 
+/** 043: the UI config remembers `context` from an earlier pick on the setup screen. */
+export function uiConfigRemembering(context: string): EventBatch {
+  return batch([
+    system(2, {
+      type: 'UiConfigLoaded',
+      data: {
+        ui: {
+          schema: 1,
+          theme: { mode: 'dark', accent: 'cyan', effects: 'on', glitch: false },
+          density: { override: null },
+          layouts: {},
+          lastSelection: { context, section: 'overview' },
+        },
+        expanded_groups: ['Workloads'],
+        mcp_stdio_enabled: false,
+      },
+    }),
+  ])
+}
+
 export const uiConfigSaved: EventBatch = batch([
   system(2, {
     type: 'UiConfigLoaded',

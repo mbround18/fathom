@@ -57,6 +57,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Manifest export (copy/download YAML per resource, bundles, clean-for-re-apply, manifest before every apply, kubeconfig export) | ✅ | 040-manifest-export (live re-apply dry run on kind; ServiceAccount-kubeconfig minting and namespace bundles deferred to the backlog) |
 | Observability auto-connect (Prometheus via API server proxy, Open Grafana via Fathom port-forward, Topology tool sheet renders) | ✅ | 041-observability-autoconnect (live on kind-fathom-dev) |
 | Nav completeness: every nav section and tool loads real data or states why not | ✅ | nav walk 2026-09-26: `ui/tests/e2e/nav-walk.spec.ts` (mock, every section and tool) and `ui/tests/live/nav-walk.spec.ts` (10/10 on kind-fathom-dev); fixed Overview node count, false DANGLING role refs, Logs tool pod picker, Argo/Metrics/Grafana probes, honest integration empty states; post-connect discovery moved out of the backend lock (no more "Loading" behind Initialize); Gatekeeper ScanFailed state. Dev addons: Argo CD, Grafana, optional Cilium/Hubble cluster (`k8s/cluster.sh up-cilium`) |
+| Setup and navigation: full-screen setup when no context is current (pick, connect, sign in, create a local cluster), Settings menu in the header, navigator grouped for newcomers (Cluster, Integrations with greyed not-installed entries, Velero hidden until detected), Topology as a Cluster section and an inspector tab, a calm dock (Logs, Events, Port forwards, and Cluster history while the daemon runs), the daemon switch labelled and explained, the role wizard reachable from Access | ✅ | 043-setup-and-navigation (feedback 2026-09-27 #4, #5, #9–#17, #38, #54) |
 
 ---
 
@@ -130,7 +131,19 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 * Access Control ✅ *(`011-rbac-oidc-administration`, `033-rauthy-oidc-teams-users` — see §14)*
 * Custom Resources ✅ *(generic, `003-yaml-node-crd-parity`)*
 * Events ✅
-* Settings ✅
+* Topology ✅ *(whole-cluster section, `043-setup-and-navigation`)*
+* Linter ✅
+* Cluster history ✅ *(the optional daemon's record of what changed while Fathom was closed; formerly "While you were away")*
+* Integrations ✅ *(Argo, Flux, Knative, KEDA Autoscalers, Velero once detected, Certificates, Gatekeeper, Hubble, Vulnerabilities, Metrics, Grafana; not-installed ones stay listed, greyed out)*
+* Settings ✅ *(also the header's Settings menu, left of the sign-in chip: Cluster settings, Sign-in, Team, Connection profiles, App settings, Local clusters, Audit log)*
+
+With no current context, Fathom opens a full-screen setup instead of the panes: pick a context,
+connect (Retry and Details on failure), sign in if the cluster needs it, or create a local kind
+cluster. Settings pages open from setup as a detour with "Back to setup".
+
+The bottom dock holds only tools that follow the current selection: Logs, Events, Port forwards,
+and Cluster history while the daemon is available. Topology and the integrations moved to the
+navigator; the navigator's Tools list keeps Logs.
 
 ### Design Rules
 
@@ -500,6 +513,10 @@ A "download and inspect layers" affordance on a container's image reference, wit
 *Status: ✅ Done — cluster settings/preferences in `001-tauri-shadcn-frontend`, Node Shell in `037-node-shell`, port-forward UI in `009-port-forward-ui`, observability settings persistence in `039-observability-settings`.*
 
 ### Cluster Settings
+
+*043: Settings is a navigator group and a header menu. Cluster settings holds the per-context
+settings below plus the in-cluster daemon switch with its explanation; app-wide preferences
+moved to App settings, and kind provisioning to Local clusters.*
 
 * Metrics source
 * Prometheus path
