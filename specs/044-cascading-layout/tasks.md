@@ -68,8 +68,8 @@ Input: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/ui-casca
 - [x] T051 [P] Tick Group 3 (#6, #7, #8) in `docs/FEEDBACK_2026-09-27.md` with "Addressed by `044-cascading-layout`"
 - [x] T052a [P] A waiting cascade column still shows the generic pane header ("04 INSPECTOR"): give an empty cascade column a header that matches what it is waiting for, in `ui/src/components/shell/PaneHost.tsx`'s `paneTitle` (found while reviewing US4)
 - [x] T052 [P] Check the accessibility of the new states: the placeholder and the "gone" state are announced, the cascade columns keep their resize handles' accessible names, and keyboard-only navigation reaches every occupied column
-- [ ] T053 Run `pnpm -C ui lint`, `pnpm -C ui typecheck`, `pnpm -C ui exec vitest run` and `pnpm exec prettier --check` from inside `ui/`, then the full Playwright suite alone on the machine with `free -g` showing ≥ 8 GB
-- [ ] T054 Run `scripts/hygiene.sh` and clean up any worktree, branch or build cache this batch created
+- [x] T053 Run `pnpm -C ui lint`, `pnpm -C ui typecheck`, `pnpm -C ui exec vitest run` and `pnpm exec prettier --check` from inside `ui/`, then the full Playwright suite alone on the machine with `free -g` showing ≥ 8 GB
+- [x] T054 Run `scripts/hygiene.sh` and clean up any worktree, branch or build cache this batch created
 - [ ] T055 **Last step of the batch**: promo captures — add a wide cascade scene to `ui/tests/promo/capture.spec.ts` and its `SHOT_META` entry in `ui/tests/promo/compose.spec.ts`, then shoot with `FATHOM_LIVE_CONTEXT=kind-fathom-dev pnpm promo` and review `promo-out/fathom-promo.pdf`
 
 ## Dependencies
