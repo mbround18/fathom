@@ -66,6 +66,7 @@ Input: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/ui-casca
 
 - [ ] T050 [P] Update `docs/MVP.md`: the wide and ultra layouts cascade, with the relevance rule and the statement that small windows are unchanged
 - [ ] T051 [P] Tick Group 3 (#6, #7, #8) in `docs/FEEDBACK_2026-09-27.md` with "Addressed by `044-cascading-layout`"
+- [ ] T052a [P] A waiting cascade column still shows the generic pane header ("04 INSPECTOR"): give an empty cascade column a header that matches what it is waiting for, in `ui/src/components/shell/PaneHost.tsx`'s `paneTitle` (found while reviewing US4)
 - [ ] T052 [P] Check the accessibility of the new states: the placeholder and the "gone" state are announced, the cascade columns keep their resize handles' accessible names, and keyboard-only navigation reaches every occupied column
 - [ ] T053 Run `pnpm -C ui lint`, `pnpm -C ui typecheck`, `pnpm -C ui exec vitest run` and `pnpm exec prettier --check` from inside `ui/`, then the full Playwright suite alone on the machine with `free -g` showing ≥ 8 GB
 - [ ] T054 Run `scripts/hygiene.sh` and clean up any worktree, branch or build cache this batch created
