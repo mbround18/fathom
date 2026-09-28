@@ -139,7 +139,7 @@ test.describe('044 US4 cascade placeholders', () => {
     // Tabbing forward from the navigator reaches the occupied cascade column: no column is a
     // keyboard dead end and none of the waiting ones swallow the focus order.
     await slot(page, 0).getByRole('button').first().focus()
-    const reached = await page.evaluate(async () => {
+    const reached = await page.evaluate(() => {
       const slotOf = (el: Element | null): string | null =>
         el?.closest('[data-slot="pane"]')?.getAttribute('data-slot-index') ?? null
       const seen = new Set<string>()

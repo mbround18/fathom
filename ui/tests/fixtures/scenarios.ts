@@ -262,7 +262,8 @@ export const SCENARIOS = {
   // 044 US2: the drill-in walk. Each pod's related resources name the next one, so one chain of
   // clicks fills and then overflows the cascade at every width class (FR-005, FR-006).
   'cascade-chain': {
-    description: 'As default, but kind-a has a long chain of pods, each related to the next (044 US2).',
+    description:
+      'As default, but kind-a has a long chain of pods, each related to the next (044 US2).',
     initialState: { context: 'kind-a', namespaceFilter: [] },
     onSubscribe: [backendStarted],
     replies: {
