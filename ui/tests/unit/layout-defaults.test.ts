@@ -20,10 +20,11 @@ describe('defaultProfile', () => {
     expect(sum(p)).toBeCloseTo(100, 1)
   })
 
-  it('adds a sixth tool slot at ≥ 3840', () => {
+  it('adds a sixth cascade slot at ≥ 3840 (044)', () => {
     const p = defaultProfile('ultra', true)
     expect(p.slots).toHaveLength(6)
-    expect(p.slots.at(-1)).toMatchObject({ kind: 'tool', tool: 'flux' })
+    expect(p.slots.at(-1)).toMatchObject({ kind: 'inspector' })
+    expect(p.slots.at(-1)).not.toHaveProperty('tool')
   })
 
   it('has a dock from laptop up only', () => {
@@ -103,6 +104,87 @@ describe('dock policy (043)', () => {
     })
     expect(saved.dock?.tabs).toHaveLength(9)
   })
+})
+
+describe('cascade profiles (044)', () => {
+  const kinds = (p: LayoutProfile) => p.slots.map((s) => s.kind)
+
+  it.each(['wide', 'ultra'] as const)('%s opens with one list and no tool slot', (cls) => {
+    const p = defaultProfile(cls)
+    expect(kinds(p)).toEqual(['nav', 'list', ...p.slots.slice(2).map(() => 'inspector')])
+    expect(kinds(p).filter((k) => k === 'list')).toHaveLength(1)
+    expect(kinds(p)).not.toContain('tool')
+    expect(p.slots.every((s) => s.tool === undefined)).toBe(true)
+  })
+
+  it('keeps the slot count of every class (Principle IV, FR-008)', () => {
+    for (const cls of WIDTH_CLASSES)
+      expect(defaultProfile(cls).slots).toHaveLength(visibleSlots(cls))
+    expect(defaultProfile('ultra', true).slots).toHaveLength(visibleSlots('ultra', Infinity))
+  })
+
+  it('resolves a saved wide profile with a second list to cascade slots, keeping its sizes', () => {
+    const saved: LayoutProfile = {
+      slots: [
+        { kind: 'nav', sizePct: 10 },
+        { kind: 'list', sizePct: 40 },
+        { kind: 'list', sizePct: 30 },
+        { kind: 'inspector', sizePct: 20 },
+      ],
+    }
+    const p = resolveProfile('wide', saved)
+    expect(kinds(p)).toEqual(['nav', 'list', 'inspector', 'inspector'])
+    expect(p.slots.map((s) => s.sizePct)).toEqual([10, 40, 30, 20])
+    expect(sum(p)).toBeCloseTo(100, 1)
+  })
+
+  it('normalises a saved ultra profile that pinned Overview and Flux (FR-011)', () => {
+    const saved: LayoutProfile = {
+      slots: [
+        { kind: 'nav', sizePct: 10 },
+        { kind: 'list', sizePct: 24 },
+        { kind: 'list', sizePct: 24 },
+        { kind: 'inspector', sizePct: 22 },
+        { kind: 'tool', sizePct: 20, tool: 'overview' },
+        { kind: 'tool', sizePct: 16, tool: 'flux' },
+      ],
+    }
+    const p = resolveProfile('ultra', saved, true)
+    expect(kinds(p)).toEqual(['nav', 'list', 'inspector', 'inspector', 'inspector', 'inspector'])
+    expect(p.slots.every((s) => s.tool === undefined)).toBe(true)
+    expect(sum(p)).toBeCloseTo(100, 1)
+    // Truncated to five slots below 3840, still with no tool slot left.
+    expect(kinds(resolveProfile('ultra', saved))).toEqual([
+      'nav',
+      'list',
+      'inspector',
+      'inspector',
+      'inspector',
+    ])
+  })
+
+  it('still falls back to the default for an invalid saved wide profile', () => {
+    const bad = { slots: [{ kind: 'nope', sizePct: 50 }] } as unknown as LayoutProfile
+    expect(resolveProfile('wide', bad)).toEqual(defaultProfile('wide'))
+    expect(resolveProfile('ultra', { slots: [] })).toEqual(defaultProfile('ultra'))
+  })
+
+  it.each(['phone', 'tablet', 'laptop', 'desktop'] as const)(
+    'leaves a saved %s profile untouched (FR-009)',
+    (cls) => {
+      const saved: LayoutProfile = {
+        slots: defaultProfile(cls).slots.map((s, i) =>
+          i === 0 ? { ...s, kind: 'tool', tool: 'overview' } : s,
+        ),
+        ...(defaultProfile(cls).dock
+          ? { dock: { open: true, heightPct: 30, tabs: ['logs'] } }
+          : {}),
+      }
+      const p = resolveProfile(cls, saved)
+      expect(kinds(p)).toEqual(kinds(saved))
+      expect(p.slots[0]?.tool).toBe('overview')
+    },
+  )
 })
 
 describe('resolveProfile', () => {

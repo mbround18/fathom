@@ -14,6 +14,7 @@ import {
   initialManifestExportState,
   type ManifestExportState,
 } from '@/features/manifest-export/state'
+import { resetTo, slotsFor } from '@/layout/cascade'
 import { dockTabs, resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
@@ -653,6 +654,12 @@ export interface LayoutState {
   profile: LayoutProfile
   /** Pane shown in each visible slot, index-aligned with `profile.slots`. */
   slotPanes: PaneId[]
+  /**
+   * 044: the chain the operator opened, from the section list outward. `cascade[0]` is the section
+   * list pane, `cascade[1…]` are drill-down steps, oldest first. UI-only, never persisted: a
+   * restart opens at the clean state (FR-002). Ignored below wide width (FR-009).
+   */
+  cascade: PaneId[]
   /** Dock panes, one per allowed dock tool (`dockTabs(dock, true)`); the dock picks by tool. */
   dockPanes: PaneId[]
   /**
@@ -1170,6 +1177,55 @@ export function assignPanes(
   return { slotPanes, dockPanes, panes }
 }
 
+// ------------------------------------------------------------------ cascade (044)
+
+/** Wide and above: the classes whose slot row is a window onto the cascade. */
+function isCascadeClass(cls: WidthClass): boolean {
+  return cls === 'wide' || cls === 'ultra'
+}
+
+/**
+ * The chain after the pane set changed: steps whose pane is gone are dropped, and the chain is
+ * never empty — `cascade[0]` is the section list pane the navigator retargets.
+ */
+function keepCascade(
+  cascade: readonly PaneId[],
+  assigned: readonly PaneId[],
+  panes: Record<PaneId, PaneState>,
+): PaneId[] {
+  const kept = cascade.filter((id) => id in panes)
+  if (kept.length > 0) return kept
+  const list = assigned.find((id) => panes[id]?.kind === 'list')
+  return list === undefined ? [] : [list]
+}
+
+/**
+ * 044 (FR-001/FR-006/FR-010): at wide and above the visible slots are a window onto the chain —
+ * the navigator, then the chain's tail, padded with the inspector panes `assignPanes` produced
+ * that the chain does not use (the empty columns). A step that scrolls off keeps its own pane and
+ * its state, so widening re-reveals it and no pane is ever retargeted to another step's content.
+ *
+ * Below wide the profile's own assignment is returned untouched (FR-009, SC-005).
+ */
+function cascadeSlotPanes(
+  cls: WidthClass,
+  assigned: readonly PaneId[],
+  panes: Record<PaneId, PaneState>,
+  cascade: readonly PaneId[],
+): PaneId[] {
+  if (!isCascadeClass(cls)) return [...assigned]
+  const nav = assigned[0]
+  if (nav === undefined || panes[nav]?.kind !== 'nav') return [...assigned]
+  const free = assigned.filter((id) => id !== nav && !cascade.includes(id))
+  // Inspector panes are the empty cascade columns (FR-002); anything else only ever tops the row
+  // up when the chain starts at a list pane that has no slot of its own, so no slot is left blank.
+  const spare = [
+    ...free.filter((id) => panes[id]?.kind === 'inspector'),
+    ...free.filter((id) => panes[id]?.kind !== 'inspector'),
+  ]
+  return slotsFor(cascade, nav, assigned.length, spare)
+}
+
 // ------------------------------------------------------------------ defaults
 
 export const DEFAULT_THEME: ThemePrefs = {
@@ -1191,6 +1247,8 @@ export function withoutKey<T>(record: Record<string, T>, key: string): Record<st
 export function initialData(): StoreData {
   const profile = resolveProfile('phone')
   const { slotPanes, dockPanes, panes } = assignPanes(profile, {})
+  // 044: the chain starts at the section list pane; phone ignores it (FR-009).
+  const cascade = keepCascade([], slotPanes, panes)
   return {
     conn: { status: 'starting', dropped: 0 },
     daemon: initialDaemon(),
@@ -1247,7 +1305,8 @@ export function initialData(): StoreData {
       widthClass: 'phone',
       ultraPlus: false,
       profile,
-      slotPanes,
+      slotPanes: cascadeSlotPanes('phone', slotPanes, panes, cascade),
+      cascade,
       dockPanes,
       stack: slotPanes.slice(0, 1),
       navOpen: false,
@@ -1297,13 +1356,16 @@ export const useStore = create<StoreState>()((set, get) => ({
       const profile = resolveProfile(cls, s.ui.layouts[cls], ultraPlus)
       const { slotPanes, dockPanes, panes } = assignPanes(profile, s.panes)
       const stack = s.layout.stack.filter((id) => id in panes)
+      // 044 (FR-010): the chain itself is unchanged by a width-class change; only the window is.
+      const cascade = keepCascade(s.layout.cascade, slotPanes, panes)
       return {
         panes,
         layout: {
           widthClass: cls,
           ultraPlus,
           profile,
-          slotPanes,
+          slotPanes: cascadeSlotPanes(cls, slotPanes, panes, cascade),
+          cascade,
           dockPanes,
           stack: stack.length > 0 ? stack : slotPanes.slice(0, 1),
           navOpen: false,
@@ -1316,9 +1378,16 @@ export const useStore = create<StoreState>()((set, get) => ({
       const cls = s.layout.widthClass
       const profile = resolveProfile(cls, saved, s.layout.ultraPlus)
       const { slotPanes, dockPanes, panes } = assignPanes(profile, s.panes)
+      const cascade = keepCascade(s.layout.cascade, slotPanes, panes)
       return {
         panes,
-        layout: { ...s.layout, profile, slotPanes, dockPanes },
+        layout: {
+          ...s.layout,
+          profile,
+          slotPanes: cascadeSlotPanes(cls, slotPanes, panes, cascade),
+          cascade,
+          dockPanes,
+        },
         ui: { ...s.ui, layouts: { ...s.ui.layouts, [cls]: profile } },
       }
     })
@@ -1386,6 +1455,10 @@ export const useStore = create<StoreState>()((set, get) => ({
         Object.values(s.panes).find((p) => p.kind === 'list')?.id
       const pane = listId ? s.panes[listId] : undefined
       if (!pane) return s
+      // 044 (FR-007): a section click restarts the chain at that section's list pane. The
+      // auto-open of its most relevant item is armed in US1 (T011), not here.
+      const cascade = resetTo(pane.id)
+      const assigned = assignPanes(s.layout.profile, s.panes)
       // 043: a page opened while the setup screen shows is a detour from it (AppShell).
       const inSetup = setupStateOf(setupInputsOf(s)) !== undefined
       const route: Route = {
@@ -1398,7 +1471,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         conn: s.conn,
         ...(inSetup ? { setup: { ...s.setup, detour: { paneId: pane.id, section } } } : {}),
         panes: {
-          ...s.panes,
+          ...assigned.panes,
           [pane.id]: {
             ...pane,
             route,
@@ -1412,6 +1485,13 @@ export const useStore = create<StoreState>()((set, get) => ({
           ...s.layout,
           navOpen: false,
           focusedList: pane.id,
+          cascade,
+          slotPanes: cascadeSlotPanes(
+            s.layout.widthClass,
+            assigned.slotPanes,
+            assigned.panes,
+            cascade,
+          ),
           stack:
             s.layout.widthClass === 'phone' || s.layout.widthClass === 'tablet'
               ? [pane.id]
@@ -1502,8 +1582,23 @@ export const useStore = create<StoreState>()((set, get) => ({
   selectContext: (name) => {
     const s = get()
     if (s.session.activeContext === name) return
+    // 044 (FR-015): no cascade column may keep the previous cluster's object, so the chain drops
+    // back to the section list.
+    const assigned = assignPanes(s.layout.profile, s.panes)
+    const cascade = keepCascade(s.layout.cascade.slice(0, 1), assigned.slotPanes, assigned.panes)
     set({
       conn: withoutNotice(s.conn),
+      panes: assigned.panes,
+      layout: {
+        ...s.layout,
+        cascade,
+        slotPanes: cascadeSlotPanes(
+          s.layout.widthClass,
+          assigned.slotPanes,
+          assigned.panes,
+          cascade,
+        ),
+      },
       session: {
         ...s.session,
         activeContext: name,

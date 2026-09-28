@@ -52,23 +52,25 @@ const PROFILES: Readonly<Record<WidthClass, readonly SlotConfig[]>> = {
     { kind: 'list', sizePct: 48 },
     { kind: 'inspector', sizePct: 36 },
   ],
+  // 044 (FR-001/FR-002): navigator, the selected section, then cascade columns that stay empty
+  // until the operator drills in. Slot counts and sizes are unchanged (Principle IV).
   wide: [
     { kind: 'nav', sizePct: 12 },
     { kind: 'list', sizePct: 30 },
-    { kind: 'list', sizePct: 30 },
+    { kind: 'inspector', sizePct: 30 },
     { kind: 'inspector', sizePct: 28 },
   ],
   ultra: [
     { kind: 'nav', sizePct: 10 },
     { kind: 'list', sizePct: 24 },
-    { kind: 'list', sizePct: 24 },
+    { kind: 'inspector', sizePct: 24 },
     { kind: 'inspector', sizePct: 22 },
-    { kind: 'tool', sizePct: 20, tool: 'overview' },
+    { kind: 'inspector', sizePct: 20 },
   ],
 }
 
-/** The 6th slot at ≥ 3840 px. */
-const ULTRA_PLUS_SLOT: SlotConfig = { kind: 'tool', sizePct: 16, tool: 'flux' }
+/** The 6th slot at ≥ 3840 px: one more cascade column (044). */
+const ULTRA_PLUS_SLOT: SlotConfig = { kind: 'inspector', sizePct: 16 }
 
 const SLOT_KINDS: ReadonlySet<string> = new Set(['nav', 'list', 'inspector', 'tool'])
 const TOOL_KINDS: ReadonlySet<string> = new Set<ToolKind>([
@@ -131,6 +133,22 @@ function isValidDock(dock: unknown): dock is DockConfig {
   )
 }
 
+/** The classes whose slot row is fixed by the cascade (044). */
+const CASCADE_CLASSES: ReadonlySet<WidthClass> = new Set<WidthClass>(['wide', 'ultra'])
+
+/**
+ * 044 (FR-011): at wide and above the row is always navigator, section list, cascade columns. A
+ * profile saved by an earlier build named a second list, Overview or Flux from index 2 on; only
+ * the widths the operator dragged survive it, and `UiConfig.schema` stays 1 so the file still
+ * loads on the previous build.
+ */
+function cascadeKinds(slots: readonly SlotConfig[]): SlotConfig[] {
+  return slots.map((s, i) => ({
+    kind: i === 0 ? 'nav' : i === 1 ? 'list' : 'inspector',
+    sizePct: s.sizePct,
+  }))
+}
+
 /**
  * The profile to render for `cls`: the saved one when it is well formed, else the default.
  * Saved slots beyond `visibleSlots` are truncated (their panes survive in the store; only the
@@ -147,7 +165,8 @@ export function resolveProfile(
   if (!saved.slots.every(isValidSlot)) return fallback
 
   const max = visibleSlots(cls, ultraPlus ? Infinity : 0)
-  const slots = normalize(saved.slots.slice(0, max).map((s) => ({ ...s })))
+  const truncated = saved.slots.slice(0, max).map((s) => ({ ...s }))
+  const slots = normalize(CASCADE_CLASSES.has(cls) ? cascadeKinds(truncated) : truncated)
   if (!hasDock(cls)) return { slots }
   // Filtered in memory only: the saved file is rewritten on the user's next layout change.
   const dock = isValidDock(saved.dock) ? filterDock(saved.dock) : fallback.dock
