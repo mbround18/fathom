@@ -35,11 +35,11 @@ Input: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/ui-casca
 
 **Independent test**: `cascade-drill-in.spec.ts` on the wide, ultra and ultra-plus projects.
 
-- [ ] T020 [US2] E2E `ui/tests/e2e/cascade-drill-in.spec.ts` covering contract items 4–9: a drill-in occupies the next empty column with `data-step` one higher; the column it came from still shows its own item; with every column occupied one more drill-in keeps slots 0–1, shifts the steps left and puts the deepest step last; clicking another row in slot 1 replaces slot 2 and empties the rest; clicking another section returns to the US1 state; a context change returns to the US1 state for the new context with no step showing the old cluster; the dock is unaffected
-- [ ] T021 [US2] Route the push path (`openRef` / `inspect` in `ui/src/store/index.ts`) through `pushStep` at `wide` and above instead of retargeting the single slotted inspector, keeping the phone stack path and the below-wide fast path exactly as they are
-- [ ] T022 [US2] Truncate the chain with `truncateAt` when the operator selects a row in a column that is not the last, in `ui/src/store/index.ts`, so later columns return to empty
-- [ ] T023 [P] [US2] Render an occupied cascade column as `data-testid="cascade-step"` with `data-step="<n>"` (n from 1 at slot 2) in `ui/src/components/shell/PaneHost.tsx`
-- [ ] T024 [P] [US2] E2E width-boundary test in `ui/tests/e2e/cascade-drill-in.spec.ts` (contract item 7, SC-004): with a three-step cascade, type in a column's search box, scroll it, then cross 1920 and 2560 px in both directions and assert every step, its selection, its search text and its scroll position survive, and that hidden steps reappear on the way back up
+- [x] T020 [US2] E2E `ui/tests/e2e/cascade-drill-in.spec.ts` covering contract items 4–9: a drill-in occupies the next empty column with `data-step` one higher; the column it came from still shows its own item; with every column occupied one more drill-in keeps slots 0–1, shifts the steps left and puts the deepest step last; clicking another row in slot 1 replaces slot 2 and empties the rest; clicking another section returns to the US1 state; a context change returns to the US1 state for the new context with no step showing the old cluster; the dock is unaffected
+- [x] T021 [US2] Route the push path (`openRef` / `inspect` in `ui/src/store/index.ts`) through `pushStep` at `wide` and above instead of retargeting the single slotted inspector, keeping the phone stack path and the below-wide fast path exactly as they are
+- [x] T022 [US2] Truncate the chain with `truncateAt` when the operator selects a row in a column that is not the last, in `ui/src/store/index.ts`, so later columns return to empty
+- [x] T023 [P] [US2] Render an occupied cascade column as `data-testid="cascade-step"` with `data-step="<n>"` (n from 1 at slot 2) in `ui/src/components/shell/PaneHost.tsx`
+- [x] T024 [P] [US2] E2E width-boundary test in `ui/tests/e2e/cascade-drill-in.spec.ts` (contract item 7, SC-004): with a three-step cascade, type in a column's search box, scroll it, then cross 1920 and 2560 px in both directions and assert every step, its selection, its search text and its scroll position survive, and that hidden steps reappear on the way back up
 
 ## Phase 4: US3 small windows untouched (P2)
 

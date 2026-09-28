@@ -6,6 +6,8 @@
 import type { BackendCmd, EventBatch, PodSummary } from '../../src/protocol/types'
 import {
   backendStarted,
+  CASCADE_CHAIN,
+  cascadeChainRelated,
   CASCADE_PODS,
   clusterEvents,
   connectionProblem,
@@ -256,6 +258,18 @@ export const SCENARIOS = {
     initialState: { context: 'kind-a', namespaceFilter: [] },
     onSubscribe: [backendStarted],
     replies: cluster(() => [...CASCADE_PODS.empty]),
+  },
+  // 044 US2: the drill-in walk. Each pod's related resources name the next one, so one chain of
+  // clicks fills and then overflows the cascade at every width class (FR-005, FR-006).
+  'cascade-chain': {
+    description: 'As default, but kind-a has six pods, each related to the next (044 US2).',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(() => [...CASCADE_CHAIN]),
+      RefreshRelatedResources: (cmd, s) =>
+        s.context ? [cascadeChainRelated(s.context, cmd.data.namespace ?? '', cmd.data.name)] : [],
+    },
   },
   'pods-10k': {
     description: 'As default, but kind-a has 10,000 pods (perf).',

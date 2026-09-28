@@ -65,14 +65,47 @@ test.describe('US2 layout persistence', () => {
     }
   })
 
-  test('Pin to slot swaps the two list panes', async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 })
+  /**
+   * 044 (FR-011): at wide and above the row is the cascade — one list slot, then inspector
+   * columns — so two list panes can only be side by side below wide. Swapping them is unchanged
+   * there, which this now covers at laptop with a saved two-list profile.
+   */
+  test('Pin to slot swaps the two list panes below wide', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
     await open(page)
-    test.skip((await widthClass(page)) !== 'wide', 'wide only')
+    test.skip((await widthClass(page)) !== 'laptop', 'laptop only')
+    await emit(
+      page,
+      batch([
+        system(2, {
+          type: 'UiConfigLoaded',
+          data: {
+            ui: {
+              schema: 1,
+              theme: { mode: 'dark', accent: 'cyan', effects: 'on', glitch: false },
+              density: {},
+              layouts: {
+                laptop: {
+                  slots: [
+                    { kind: 'nav', sizePct: 16 },
+                    { kind: 'list', sizePct: 44 },
+                    { kind: 'list', sizePct: 40 },
+                  ],
+                  dock: { open: true, heightPct: 30, tabs: ['logs', 'events'] },
+                },
+              },
+            } satisfies UiConfig,
+            expanded_groups: ['Workloads'],
+            mcp_stdio_enabled: false,
+          },
+        }),
+      ]),
+    )
     const sectionAt = (i: number) =>
       page
         .locator(`[data-slot="pane"][data-slot-index="${String(i)}"]`)
         .getAttribute('data-section')
+    await expect.poll(() => page.locator('[data-slot="pane"][data-slot-index]').count()).toBe(3)
     const a = await sectionAt(1)
     const b = await sectionAt(2)
     expect(a).not.toBe(b)

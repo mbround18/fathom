@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import type { HelmReleaseDetails } from '../../src/protocol/types'
 import { batch, list, nsRoute, read } from '../fixtures/builders'
-import { emit, inspector, navigateTo, open, row, sent, sentTypes } from './helpers'
+import { emit, inspector, navigateTo, open, openedInspector, row, sent, sentTypes } from './helpers'
 
 const HELM = 'helm/releases'
 const FLUX_RESOURCE = 'integrations/flux-resource'
@@ -138,8 +138,9 @@ test.describe('US2 Helm release GitOps origin linking', () => {
         }),
       ]),
     )
-    await expect(inspector(page)).toContainText('HelmRelease')
-    await expect(inspector(page)).toContainText('bitnami')
+    // 044 (FR-005): at wide and above the followed origin opens the next cascade column.
+    await expect(openedInspector(page)).toContainText('HelmRelease')
+    await expect(openedInspector(page)).toContainText('bitnami')
   })
 
   test('T031: omits the origin link for a bare Helm release with no Flux ownership labels', async ({
@@ -203,7 +204,8 @@ test.describe('US2 Helm release GitOps origin linking', () => {
       ]),
     )
 
-    await expect(inspector(page)).toContainText('No longer exists')
-    await expect(inspector(page)).toContainText('redis was deleted from the cluster.')
+    // 044 (FR-005): the not-found state belongs to the column the link opened.
+    await expect(openedInspector(page)).toContainText('No longer exists')
+    await expect(openedInspector(page)).toContainText('redis was deleted from the cluster.')
   })
 })

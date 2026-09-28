@@ -66,6 +66,50 @@ export const CASCADE_PODS = {
   empty: [] as PodSummary[],
 } as const satisfies Record<string, readonly PodSummary[]>
 
+/**
+ * 044 US2: pods chained by their related resources, `chain-1` → `chain-2` → … Five drill-ins is
+ * one more than the widest cascade has columns (ultra-plus offers four), so the same walk
+ * overflows the row at every class and exercises the shift-left rule (FR-006). The list is long
+ * enough to scroll, which the width-boundary test needs (FR-010).
+ */
+export const CASCADE_CHAIN: readonly PodSummary[] = Array.from({ length: 200 }, (_, i) =>
+  cascadePod(`chain-${String(i + 1)}`, 'Running'),
+)
+
+/** The `RefreshRelatedResources` reply for a chained pod: the next link, or none at the end. */
+export function cascadeChainRelated(
+  context: FixtureContext,
+  namespace: string,
+  name: string,
+  seq = 60,
+): EventBatch {
+  const at = CASCADE_CHAIN.findIndex((p) => p.name === name)
+  const next = at < 0 ? undefined : CASCADE_CHAIN[at + 1]
+  return batch([
+    read(seq, nsRoute(context, SECTIONS.pods, namespace), {
+      type: 'RelatedResourcesUpdated',
+      data: {
+        section: SECTIONS.pods,
+        kind: 'Pod',
+        namespace,
+        name,
+        related: next
+          ? [
+              {
+                section: SECTIONS.pods,
+                kind: 'Pod',
+                namespace: next.namespace,
+                name: next.name,
+                relation: 'next',
+                status_hint: next.phase,
+              },
+            ]
+          : [],
+      },
+    }),
+  ])
+}
+
 // ------------------------------------------------------------------ system
 
 export const backendStarted: EventBatch = batch([system(1, { type: 'BackendStarted' })])
