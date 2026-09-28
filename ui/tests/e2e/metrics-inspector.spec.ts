@@ -144,8 +144,11 @@ const aggregate = (seq: number, cpu: number, memMiB: number, timestamp: number) 
 test.describe('workload metrics', () => {
   test('inspector polls only while open and renders the aggregate chart', async ({ page }) => {
     await open(page)
-    await showList(page, DEPLOYMENTS, 'Deployments')
+    // 044: at wide and above the section click auto-opens its most relevant row, which may already
+    // be this one — so the polling command is collected from the section click on, not from the
+    // manual click on, and the assertion holds whichever path opened it.
     await clearSent(page)
+    await showList(page, DEPLOYMENTS, 'Deployments')
     await row(page, DEP_KEY, DEPLOYMENTS).click()
     const insp = inspector(page)
     await expect(insp).toBeVisible()

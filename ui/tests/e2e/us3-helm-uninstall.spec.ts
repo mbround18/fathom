@@ -154,7 +154,9 @@ test.describe('US3 Helm release uninstall', () => {
     // The release is gone from the list, and the Inspector's target cleared (it falls back to
     // its "nothing selected" empty state rather than the pane itself disappearing).
     await expect(row(page, `${REDIS.namespace}/${REDIS.name}`, HELM)).toHaveCount(0)
-    await expect(insp).toContainText('Nothing selected')
+    // 044: at wide and above an inspector with nothing open is a waiting cascade column, so the
+    // empty state it falls back to is that one; below wide it is still "Nothing selected".
+    await expect(insp).toContainText(/Nothing selected|Follow a link to open the next level here/)
   })
 
   test('T031: uninstall of a GitOps-managed release shows the ownership warning in the confirm dialog', async ({

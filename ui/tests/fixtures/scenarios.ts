@@ -6,6 +6,7 @@
 import type { BackendCmd, EventBatch, PodSummary } from '../../src/protocol/types'
 import {
   backendStarted,
+  CASCADE_PODS,
   clusterEvents,
   connectionProblem,
   contextChanged,
@@ -229,6 +230,32 @@ export const SCENARIOS = {
     initialState: { context: 'kind-a', namespaceFilter: [] },
     onSubscribe: [backendStarted],
     replies: cluster(),
+  },
+  // 044 US1: one scenario per relevance case, so the row the auto-open must pick (FR-003) is
+  // fixed by the fixture rather than by whatever the 500-pod generator happened to produce.
+  'cascade-unhealthy': {
+    description: 'As default, but kind-a has four pods, the third of them Failed (044 FR-003).',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: cluster(() => [...CASCADE_PODS.unhealthy]),
+  },
+  'cascade-warning': {
+    description: 'As default, but kind-a has three pods, the second and third Pending (044).',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: cluster(() => [...CASCADE_PODS.warning]),
+  },
+  'cascade-healthy': {
+    description: 'As default, but kind-a has two Running pods (044).',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: cluster(() => [...CASCADE_PODS.healthy]),
+  },
+  'cascade-empty': {
+    description: 'As default, but kind-a has no pods at all (044 FR-004).',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: cluster(() => [...CASCADE_PODS.empty]),
   },
   'pods-10k': {
     description: 'As default, but kind-a has 10,000 pods (perf).',

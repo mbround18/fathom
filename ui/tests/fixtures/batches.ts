@@ -29,6 +29,43 @@ export const PODS_KIND_B = genPods(40, 'kind-b', 7)
 /** The pod US1 tests open in the inspector. */
 export const DETAIL_POD: PodSummary = PODS_500[0] as PodSummary
 
+/**
+ * 044 US1: small hand-written pod lists for the relevance rule (FR-003). The list order is the
+ * order the operator sees, so which row the auto-open must pick is decided by position and phase
+ * alone — `Failed` is an `err` status, `Pending` a `warn` one, `Running` healthy.
+ */
+function cascadePod(name: string, phase: PodSummary['phase']): PodSummary {
+  return {
+    name,
+    namespace: 'default',
+    phase,
+    node: 'kind-a-worker-1',
+    ready: phase === 'Running' ? 1 : 0,
+    total: 1,
+    restarts: 0,
+  }
+}
+
+export const CASCADE_PODS = {
+  /** An `err` row after a `warn` row: the `err` row wins wherever it sits. */
+  unhealthy: [
+    cascadePod('cascade-ok-first', 'Running'),
+    cascadePod('cascade-warn', 'Pending'),
+    cascadePod('cascade-err', 'Failed'),
+    cascadePod('cascade-ok-last', 'Running'),
+  ],
+  /** No `err` row: the first `warn` row wins, not the healthy row before it. */
+  warning: [
+    cascadePod('cascade-ok-first', 'Running'),
+    cascadePod('cascade-warn', 'Pending'),
+    cascadePod('cascade-warn-later', 'Pending'),
+  ],
+  /** All healthy: the first row wins. */
+  healthy: [cascadePod('cascade-ok-first', 'Running'), cascadePod('cascade-ok-last', 'Running')],
+  /** An empty section: nothing is opened (FR-004). */
+  empty: [] as PodSummary[],
+} as const satisfies Record<string, readonly PodSummary[]>
+
 // ------------------------------------------------------------------ system
 
 export const backendStarted: EventBatch = batch([system(1, { type: 'BackendStarted' })])

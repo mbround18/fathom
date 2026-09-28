@@ -55,7 +55,7 @@ import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
 import { paneTitle } from './labels'
 import { FirstRunState } from './FirstRunState'
-import { Disconnected, Empty, ErrorState, Loading, NotPermitted } from './PaneStates'
+import { Disconnected, Empty, ErrorState, Loading, NotPermitted, StateFrame } from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -72,6 +72,8 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
   const pane = useStore((s) => s.panes[paneId])
   const updatePane = useStore((s) => s.updatePane)
   const focusList = useStore((s) => s.focusList)
+  /** 044: the step the auto-open filled, marked until the operator clicks in the cascade. */
+  const autoOpened = useStore((s) => s.layout.autoOpened)
   const scrollRef = useRef<HTMLDivElement>(null)
   const frame = useRef(0)
 
@@ -96,6 +98,21 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
   // Lists and the inspector scroll inside (virtualized body, tab panels); the rest scroll here.
   const selfScrolling = pane.kind === 'list' || pane.kind === 'inspector'
   const onFocusWithin = pane.kind === 'list' ? () => focusList(pane.id) : undefined
+  /**
+   * 044: a click anywhere in the cascade is the operator taking over — it drops the auto-open
+   * marker and any arm that has not fired yet, so a slow list cannot steal their selection.
+   * Read imperatively (no subscription) and only dispatched when there is something to drop.
+   */
+  const onPointerDown =
+    slotIndex === undefined
+      ? onFocusWithin
+      : () => {
+          onFocusWithin?.()
+          const { layout, clearAutoOpen } = useStore.getState()
+          if (layout.pendingAutoOpen !== undefined || layout.autoOpened !== undefined) {
+            clearAutoOpen()
+          }
+        }
 
   return (
     <section
@@ -106,7 +123,8 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       data-pane-id={pane.id}
       data-section={pane.route?.section}
       data-tool={pane.kind === 'tool' ? pane.tool : undefined}
-      onPointerDownCapture={onFocusWithin}
+      data-auto-open={autoOpened === pane.id ? 'true' : undefined}
+      onPointerDownCapture={onPointerDown}
       onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
     >
@@ -228,7 +246,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
     case 'list':
       return <ListBody pane={pane} />
     case 'inspector':
-      return <Inspector pane={pane} />
+      return <CascadeInspector pane={pane} />
     case 'tool':
       if (pane.tool === 'metrics') return <MetricsPanel />
       if (pane.tool === 'flux') return <FluxPanel />
@@ -249,6 +267,28 @@ function PaneBody({ pane }: { pane: PaneState }) {
         <Empty title="Tool" detail="No data yet. Connect to a cluster to populate this view." />
       )
   }
+}
+
+/**
+ * 044 (FR-002/FR-012): at wide and above an inspector with nothing open is a cascade column
+ * waiting for the next click, and says so instead of reading as a broken layout. Below wide the
+ * inspector keeps its own "Nothing selected" state, so small windows are untouched (FR-009).
+ */
+function CascadeInspector({ pane }: { pane: PaneState }) {
+  const cascading = useStore(
+    (s) => s.layout.widthClass === 'wide' || s.layout.widthClass === 'ultra',
+  )
+  if (!cascading || pane.target) return <Inspector pane={pane} />
+  return (
+    <div data-testid="cascade-empty" className="h-full">
+      <StateFrame
+        kind="cascade-empty"
+        title="Waiting"
+        detail="Follow a link to open the next level here"
+        trace
+      />
+    </div>
+  )
 }
 
 /** An API 404 on a list means the resource type (a CRD) is not installed, not that it failed. */
