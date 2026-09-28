@@ -99,9 +99,16 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
     caption: 'Multi-select deletes list every target by name before anything is sent.',
     scale: 2,
   },
+  'wide-cascade': {
+    title: 'Opens on the one thing that matters',
+    caption:
+      'Pick a section and Fathom already has the resource that most needs attention open beside it — the first failing one, then the first warning, then simply the first row. The column after it says what your next click will put there.',
+    scale: 2,
+  },
   ultra: {
     title: 'Built for the biggest screens',
-    caption: 'Six independent slots on an ultra-wide monitor — nothing crowds the data.',
+    caption:
+      'Every extra column is one more step of the same trail: Deployment, its Pod, the Node it landed on — each follow lands to the right, nothing is prefilled, and the column past the trail waits for the next click.',
     scale: 1,
   },
   tablet: {

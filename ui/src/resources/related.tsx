@@ -20,6 +20,10 @@ export function RelatedResourceLink({ r }: { r: RelatedResourceRef }) {
   return (
     <button
       type="button"
+      // The kind is on the element so a test (or a promo scene) can follow a chain by shape —
+      // "the ReplicaSet, then a Pod" — instead of having to know the live object's name.
+      data-testid="related-link"
+      data-kind={r.kind}
       onClick={() => {
         openInspector(relatedObjectRef(r), undefined, true)
       }}

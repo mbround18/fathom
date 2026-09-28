@@ -4,7 +4,7 @@
  *
  * Dialogs (scale, bulk delete) are opened and photographed, then dismissed: nothing is confirmed.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import { check } from '../e2e/helpers'
 import { DEPLOYMENTS, inspector, key, navigateTo, row, showList, table } from '../live/helpers'
@@ -62,6 +62,22 @@ async function ready(
 async function openInspector(page: Page, podName: string): Promise<void> {
   await row(page, key(podName)).click()
   await expect(inspector(page).getByRole('heading', { name: podName })).toBeVisible()
+}
+
+/** A cascade column, numbered from 1 at the first one (slot 2) — see `044-cascading-layout`. */
+const cascade = (page: Page, n: number): Locator =>
+  page.locator(`[data-slot="pane"][data-slot-index="${String(n + 1)}"]`)
+
+/**
+ * Follow the first related link of `kind` out of cascade column `n`, which fills column `n + 1`
+ * (044 FR-005). Following by kind rather than by name keeps the scene reproducible against a live
+ * cluster whose ReplicaSet hashes change on every rollout.
+ */
+async function followRelated(page: Page, n: number, kind: string): Promise<void> {
+  const link = cascade(page, n).locator(`[data-testid="related-link"][data-kind="${kind}"]`).first()
+  await expect(link).toBeVisible()
+  await link.click()
+  await expect(cascade(page, n + 1)).toHaveAttribute('data-testid', 'cascade-step')
 }
 
 test.describe('wide', () => {
@@ -558,13 +574,39 @@ test.describe('wide: 043 setup and navigation', () => {
   })
 })
 
+test.describe('wide: 044 cascading layout', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  /**
+   * 044: what a wide window does the moment you pick a section — it opens the one thing that most
+   * needs looking at, and says what the column beside it is for.
+   */
+  test('section opens on one thing', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await showList(page, DEPLOYMENTS, 'Deployments')
+    await expect(cascade(page, 1)).toHaveAttribute('data-testid', 'cascade-step')
+    await expect(cascade(page, 2).getByTestId('cascade-empty')).toBeVisible()
+    await shoot(page, 'wide-cascade', pairs)
+  })
+})
+
 test.describe('ultra', () => {
   test.use({ viewport: { width: 3840, height: 1600 }, deviceScaleFactor: 1 })
 
-  test('six-slot overview', async ({ app, page }) => {
+  /**
+   * 044: the trail, not a wall of prefilled panels. One section click opens the Deployment that
+   * most needs attention, then each follow lands one column further right — Deployment → Pod →
+   * the Node it is scheduled on — and the column after the trail is waiting for the next click.
+   */
+  test('cascading drill-down', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await openInspector(page, podOf('web'))
+    await showList(page, DEPLOYMENTS, 'Deployments')
+    await expect(cascade(page, 1)).toHaveAttribute('data-testid', 'cascade-step')
+    await followRelated(page, 1, 'Pod')
+    await followRelated(page, 2, 'Node')
+    await expect(cascade(page, 4).getByTestId('cascade-empty')).toBeVisible()
     await shoot(page, 'ultra', pairs)
   })
 })
