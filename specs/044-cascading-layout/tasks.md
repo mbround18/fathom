@@ -47,9 +47,9 @@ Input: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/ui-casca
 
 **Independent test**: the existing phone/tablet/laptop/desktop projects pass unchanged, plus `cascade-small-windows.spec.ts`.
 
-- [ ] T030 [US3] E2E `ui/tests/e2e/cascade-small-windows.spec.ts`: at phone, tablet, laptop and desktop widths no `cascade-*` test id is present, a section click leaves the inspector waiting for the operator's click (no auto-open), and the phone stack still pushes and pops
-- [ ] T031 [US3] Run the phone, tablet, laptop and desktop Playwright projects unchanged and fix any fallout in `ui/src/`, not in the tests. Any test that must change is a defect in this feature's gating — record the reason in the PR if one truly must
-- [ ] T032 [P] [US3] Confirm in `ui/tests/unit/layoutCascade.test.ts` that the below-wide `slotPanes` derivation is byte-identical to today's, as a regression guard for the gating
+- [x] T030 [US3] E2E `ui/tests/e2e/cascade-small-windows.spec.ts`: at phone, tablet, laptop and desktop widths no `cascade-*` test id is present, a section click leaves the inspector waiting for the operator's click (no auto-open), and the phone stack still pushes and pops
+- [x] T031 [US3] Run the phone, tablet, laptop and desktop Playwright projects unchanged and fix any fallout in `ui/src/`, not in the tests. Any test that must change is a defect in this feature's gating — record the reason in the PR if one truly must
+- [x] T032 [P] [US3] Confirm in `ui/tests/unit/layoutCascade.test.ts` that the below-wide `slotPanes` derivation is byte-identical to today's, as a regression guard for the gating
 
 ## Phase 5: US4 the empty columns invite the next click (P3)
 

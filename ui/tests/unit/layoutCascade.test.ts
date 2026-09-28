@@ -84,6 +84,36 @@ describe('cascade wiring in the store (044)', () => {
     },
   )
 
+  it.each(['phone', 'tablet', 'laptop', 'desktop'] as const)(
+    'derives %s slot panes from the profile alone, whatever the chain holds (T032, FR-009)',
+    (cls) => {
+      // The regression guard for the gating: below wide, `slotPanes` is `assignPanes(profile)`
+      // verbatim — the same derivation as before 044 — after every action that rewrites the chain
+      // at wide and above. If one of them starts windowing the chain here, this fails.
+      useStore.getState().setWidthClass(cls)
+      const baseline = [...layout().slotPanes]
+      expect(baseline).toEqual(profileSlots(cls))
+
+      useStore.getState().navigate(SECTION.deployments)
+      expect(layout().slotPanes).toEqual(baseline)
+      useStore.getState().inspect('Deployment', 'default', 'web')
+      expect(layout().slotPanes).toEqual(baseline)
+      useStore.getState().selectContext('kind-other')
+      expect(layout().slotPanes).toEqual(baseline)
+      expect(layout().slotPanes).toEqual(profileSlots(cls))
+
+      // A chain carried down from a wider window (longer than this row, and in another order) is
+      // ignored rather than windowed onto the slots.
+      useStore.getState().setWidthClass('ultra', true)
+      useStore.setState((s) => ({
+        layout: { ...s.layout, cascade: s.layout.slotPanes.slice(1).reverse() },
+      }))
+      useStore.getState().setWidthClass(cls)
+      expect(layout().slotPanes).toEqual(profileSlots(cls))
+      expect(layout().slotPanes.map(kindOf)).toEqual(resolveProfile(cls).slots.map((s) => s.kind))
+    },
+  )
+
   it('gives every visible slot a distinct pane at every class', () => {
     for (const cls of WIDTH_CLASSES) {
       useStore.getState().setWidthClass(cls)
