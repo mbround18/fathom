@@ -20,6 +20,16 @@ export const TOOL_LABEL: Record<ToolKind, string> = {
   linter: 'Linter',
 }
 
+/**
+ * 044 (T052a): the header of a cascade column that is still waiting. "Inspector" names the widget,
+ * not the job, which tells the operator nothing about why the column is there. `step` is the
+ * column's cascade number (`'1'` at the first cascade slot), so the first column names what a row
+ * click will put in it and the rest name the follow that fills them.
+ */
+export function cascadeWaitingTitle(step: string): string {
+  return step === '1' ? 'Selected item' : 'Next level'
+}
+
 export function paneTitle(pane: PaneState): string {
   switch (pane.kind) {
     case 'nav':

@@ -59,6 +59,13 @@ test.describe('044 US4 cascade placeholders', () => {
     // never an alert (FR-012, T052).
     await expect(empties.first().getByRole('status')).toBeVisible()
     await expect(empties.first().getByRole('alert')).toHaveCount(0)
+
+    // T052a: a waiting column's own header names the job, not the widget — never "Inspector".
+    for (let i = 3; i < count; i++) {
+      const header = slot(page, i).getByRole('heading', { level: 2 })
+      await expect(header).toHaveText('Next level')
+      await expect(slot(page, i)).toHaveAttribute('aria-label', 'Next level')
+    }
   })
 
   test('a filled column keeps the widths the operator dragged (FR-013)', async ({ page }) => {
@@ -111,5 +118,47 @@ test.describe('044 US4 cascade placeholders', () => {
     await expect(slot(page, 2)).toHaveAccessibleName('cascade-err')
     await expect(table(page, PODS).locator('[role="row"][aria-selected="true"]')).toHaveCount(0)
     await expect(row(page, 'default/cascade-warn')).toHaveAttribute('aria-selected', 'false')
+  })
+
+  test('the keyboard reaches every column and its dividers (T052)', async ({ page }) => {
+    await open(page, 'cascade-unhealthy')
+    await navigateTo(page, 'Pods')
+    await expect(slot(page, 2)).toHaveAccessibleName('cascade-err')
+
+    // Every divider between visible slots keeps its accessible name, cascade columns included, so
+    // a keyboard-only operator can still find and resize them.
+    const count = await slotPanes(page).count()
+    for (let i = 1; i < count; i++) {
+      await expect(
+        page.getByRole('separator', {
+          name: `Resize section ${String(i)} and section ${String(i + 1)}`,
+        }),
+      ).toHaveCount(1)
+    }
+
+    // Tabbing forward from the navigator reaches the occupied cascade column: no column is a
+    // keyboard dead end and none of the waiting ones swallow the focus order.
+    await slot(page, 0).getByRole('button').first().focus()
+    const reached = await page.evaluate(async () => {
+      const slotOf = (el: Element | null): string | null =>
+        el?.closest('[data-slot="pane"]')?.getAttribute('data-slot-index') ?? null
+      const seen = new Set<string>()
+      for (let i = 0; i < 400; i++) {
+        const at = slotOf(document.activeElement)
+        if (at !== null) seen.add(at)
+        if (seen.has('2')) break
+        // Playwright's keyboard is faster than this loop needs; step the sequence natively.
+        const focusables = [
+          ...document.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        ].filter((e) => e.offsetParent !== null)
+        const next = focusables[focusables.indexOf(document.activeElement as HTMLElement) + 1]
+        if (!next) break
+        next.focus()
+      }
+      return [...seen]
+    })
+    expect(reached).toContain('2')
   })
 })

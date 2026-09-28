@@ -98,6 +98,8 @@ test.describe('044 US1 clean start on a wide screen', () => {
     await expect(table(page, PODS)).toHaveAttribute('data-row-count', '0')
     await expect(slot(page, 2).getByTestId('cascade-empty')).toBeVisible()
     await expect(autoOpened(page)).toHaveCount(0)
+    // T052a: the first cascade column waits for a row click, and its header says so.
+    await expect(slot(page, 2)).toHaveAccessibleName('Selected item')
   })
 
   test('a listless destination leaves the next column waiting (contract 3)', async ({ page }) => {

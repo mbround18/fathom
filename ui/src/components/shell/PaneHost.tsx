@@ -54,7 +54,7 @@ import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } 
 import { CASCADE_FIRST_SLOT } from '@/layout/cascade'
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
-import { paneTitle } from './labels'
+import { cascadeWaitingTitle, paneTitle } from './labels'
 import { FirstRunState } from './FirstRunState'
 import {
   Disconnected,
@@ -114,9 +114,11 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
   )
 
   if (!pane) return null
-  const title = paneTitle(pane)
   /** An occupied cascade column; an empty one carries `cascade-empty` from `CascadeInspector`. */
   const step = pane.kind === 'inspector' && pane.target !== undefined ? stepNumber : undefined
+  /** A cascade column with nothing in it yet (T052a): its header says what it is reserved for. */
+  const waiting = pane.kind === 'inspector' && pane.target === undefined ? stepNumber : undefined
+  const title = waiting !== undefined ? cascadeWaitingTitle(waiting) : paneTitle(pane)
   // Lists and the inspector scroll inside (virtualized body, tab panels); the rest scroll here.
   const selfScrolling = pane.kind === 'list' || pane.kind === 'inspector'
   const onFocusWithin = pane.kind === 'list' ? () => focusList(pane.id) : undefined
