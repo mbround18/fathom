@@ -14,7 +14,7 @@ import {
   initialManifestExportState,
   type ManifestExportState,
 } from '@/features/manifest-export/state'
-import { resetTo, slotsFor } from '@/layout/cascade'
+import { pushStep, resetTo, slotsFor, truncateAt } from '@/layout/cascade'
 import { dockTabs, resolveProfile } from '@/layout/defaults'
 import type { WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
@@ -1249,6 +1249,46 @@ function cascadeSlotPanes(
   return slotsFor(cascade, nav, assigned.length, spare)
 }
 
+/**
+ * 044 (FR-002/FR-004/FR-015): an inspector pane the chain no longer names is an empty column
+ * again, so the object it showed goes with it. Without this a section change, a truncation or a
+ * context switch leaves the previous object visible in a column the operator did not fill.
+ *
+ * Below wide the inspector is a fixed slot that keeps its object, so nothing is cleared (FR-009).
+ */
+function clearDroppedSteps(
+  cls: WidthClass,
+  panes: Record<PaneId, PaneState>,
+  cascade: readonly PaneId[],
+): Record<PaneId, PaneState> {
+  if (!isCascadeClass(cls)) return panes
+  let next = panes
+  for (const pane of Object.values(panes)) {
+    if (pane.kind !== 'inspector' || cascade.includes(pane.id)) continue
+    if (pane.target === undefined && pane.history === undefined) continue
+    if (next === panes) next = { ...panes }
+    // Built from scratch rather than spread-minus-keys: an empty column has no object, no source,
+    // no back-stack and no selected tab, so the pane is the one `newPane` would make.
+    next[pane.id] = newPane(pane.id, 'inspector')
+  }
+  return next
+}
+
+/**
+ * 044 (FR-005): the pane a new cascade step opens in — the leftmost inspector pane the chain is
+ * not already using, so the column that fills is the first empty one and it keeps its own state
+ * instead of inheriting another step's. Past the last slot the chain keeps growing, so a fresh
+ * pane is made: every step owns one, which is what lets widening re-reveal it (FR-010).
+ */
+function nextCascadePane(
+  assigned: readonly PaneId[],
+  panes: Record<PaneId, PaneState>,
+  cascade: readonly PaneId[],
+): PaneId {
+  const free = (id: PaneId): boolean => panes[id]?.kind === 'inspector' && !cascade.includes(id)
+  return assigned.find(free) ?? Object.keys(panes).find(free) ?? nextId(panes, 'inspector')
+}
+
 // ------------------------------------------------------------------ defaults
 
 export const DEFAULT_THEME: ThemePrefs = {
@@ -1489,6 +1529,10 @@ export const useStore = create<StoreState>()((set, get) => ({
       // 044 (FR-007): a section click restarts the chain at that section's list pane.
       const cascade = resetTo(pane.id)
       const assigned = assignPanes(s.layout.profile, s.panes)
+      // 044 (FR-002/FR-004): the steps of the previous section leave the chain, so their objects
+      // leave the row with them — otherwise a section with nothing to open still shows the last
+      // section's object in column 3.
+      const cleared = clearDroppedSteps(s.layout.widthClass, assigned.panes, cascade)
       // 043: a page opened while the setup screen shows is a detour from it (AppShell).
       const inSetup = setupStateOf(setupInputsOf(s)) !== undefined
       const route: Route = {
@@ -1501,7 +1545,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         conn: s.conn,
         ...(inSetup ? { setup: { ...s.setup, detour: { paneId: pane.id, section } } } : {}),
         panes: {
-          ...assigned.panes,
+          ...cleared,
           [pane.id]: {
             ...pane,
             route,
@@ -1523,12 +1567,7 @@ export const useStore = create<StoreState>()((set, get) => ({
             ? { paneId: pane.id, route }
             : undefined,
           autoOpened: undefined,
-          slotPanes: cascadeSlotPanes(
-            s.layout.widthClass,
-            assigned.slotPanes,
-            assigned.panes,
-            cascade,
-          ),
+          slotPanes: cascadeSlotPanes(s.layout.widthClass, assigned.slotPanes, cleared, cascade),
           stack:
             s.layout.widthClass === 'phone' || s.layout.widthClass === 'tablet'
               ? [pane.id]
@@ -1623,21 +1662,18 @@ export const useStore = create<StoreState>()((set, get) => ({
     // back to the section list.
     const assigned = assignPanes(s.layout.profile, s.panes)
     const cascade = keepCascade(s.layout.cascade.slice(0, 1), assigned.slotPanes, assigned.panes)
+    // The dropped steps take their objects with them, so no column shows the old cluster's item.
+    const cleared = clearDroppedSteps(s.layout.widthClass, assigned.panes, cascade)
     set({
       conn: withoutNotice(s.conn),
-      panes: assigned.panes,
+      panes: cleared,
       layout: {
         ...s.layout,
         cascade,
         // 044: an auto-open armed for the previous cluster must not fire against the new one.
         pendingAutoOpen: undefined,
         autoOpened: undefined,
-        slotPanes: cascadeSlotPanes(
-          s.layout.widthClass,
-          assigned.slotPanes,
-          assigned.panes,
-          cascade,
-        ),
+        slotPanes: cascadeSlotPanes(s.layout.widthClass, assigned.slotPanes, cleared, cascade),
       },
       session: {
         ...s.session,
@@ -1931,6 +1967,39 @@ export const useStore = create<StoreState>()((set, get) => ({
         pendingAutoOpen: undefined,
         autoOpened: undefined,
         ...(from ? { focusedList: from } : {}),
+      }
+
+      /**
+       * 044 (FR-005/FR-006/FR-007): at wide and above the row is a window onto the chain, so
+       * opening something appends a column instead of retargeting the one slotted inspector. A
+       * click in a column that is not the last (a row in the section list, or in an earlier step)
+       * drops the columns to its right first, and they go back to being empty (FR-007).
+       */
+      if (isCascadeClass(s.layout.widthClass)) {
+        const at = from === undefined ? -1 : s.layout.cascade.indexOf(from)
+        const base = at >= 0 ? truncateAt(s.layout.cascade, at) : s.layout.cascade
+        const assigned = assignPanes(s.layout.profile, panes)
+        const next = { ...assigned.panes }
+        const stepId = nextCascadePane(assigned.slotPanes, next, base)
+        const prior = next[stepId]
+        next[stepId] = {
+          ...(prior ?? newPane(stepId, 'inspector')),
+          target: ref,
+          source: from,
+          scrollTop: 0,
+          history: nextHistory(prior),
+          inspectorTab: nextTab(prior),
+        }
+        const cascade = pushStep(base, stepId)
+        const cleared = clearDroppedSteps(s.layout.widthClass, next, cascade)
+        return {
+          panes: cleared,
+          layout: {
+            ...layout,
+            cascade,
+            slotPanes: cascadeSlotPanes(s.layout.widthClass, assigned.slotPanes, cleared, cascade),
+          },
+        }
       }
 
       const slotted = s.layout.slotPanes.find((id) => panes[id]?.kind === 'inspector')

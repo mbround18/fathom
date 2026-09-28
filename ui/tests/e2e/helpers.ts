@@ -105,6 +105,18 @@ export function inspector(page: Page): Locator {
   return page.locator('[data-slot="pane"][data-pane-kind="inspector"]').first()
 }
 
+/**
+ * 044 (FR-005): the column the last drill-in opened. At wide and above a followed link lands in the
+ * next cascade column rather than retargeting the first inspector, so a spec that follows one
+ * asserts here; below wide this is the single inspector pane. Empty cascade columns are skipped.
+ */
+export function openedInspector(page: Page): Locator {
+  return page
+    .locator('[data-slot="pane"][data-pane-kind="inspector"]')
+    .filter({ hasNot: page.getByTestId('cascade-empty') })
+    .last()
+}
+
 export function row(page: Page, key: string, section: string = PODS): Locator {
   return table(page, section).locator(`[role="row"][data-row-key="${key}"]`)
 }

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { resolveProfile } from '@/layout/defaults'
 import { WIDTH_CLASSES, type WidthClass } from '@/layout/width-class'
 import { SECTION } from '@/protocol/commands'
+import type { ObjectRef } from '@/resources/types'
 import { assignPanes, initialData, useStore, type PaneId } from '@/store'
 
 const layout = () => useStore.getState().layout
@@ -159,4 +160,108 @@ describe('cascade wiring in the store (044)', () => {
       'inspector',
     ])
   })
+})
+
+/**
+ * 044 US2 (T021/T022): the push path. A drill-in appends a column, a click in a column that is not
+ * the last truncates the chain, and a pane that leaves the chain leaves its object behind with it.
+ */
+describe('drilling in cascades to the right (044 US2)', () => {
+  const pod = (name: string): ObjectRef => ({
+    section: SECTION.pods,
+    kind: 'Pod',
+    namespace: 'default',
+    name,
+  })
+  const targets = () => layout().slotPanes.map((id) => useStore.getState().panes[id]?.target?.name)
+
+  it('appends a column per drill-in, leaving the one it came from (FR-005)', () => {
+    useStore.getState().setWidthClass('ultra')
+    const [, list] = layout().slotPanes
+    useStore.getState().navigate(SECTION.pods)
+
+    useStore.getState().openInspector(pod('a'), list)
+    expect(layout().cascade).toHaveLength(2)
+    expect(targets()).toEqual([undefined, undefined, 'a', undefined, undefined])
+
+    // A related-resource link has no source pane: it drills in from the deepest step.
+    useStore.getState().openInspector(pod('b'), undefined, true)
+    useStore.getState().openInspector(pod('c'), undefined, true)
+    expect(layout().cascade).toHaveLength(4)
+    expect(targets()).toEqual([undefined, undefined, 'a', 'b', 'c'])
+    expect(new Set(layout().cascade).size).toBe(4)
+  })
+
+  it('shifts the chain left when no empty column is left, keeping slots 0 and 1 (FR-006)', () => {
+    useStore.getState().setWidthClass('wide')
+    const [nav, list] = layout().slotPanes
+    useStore.getState().navigate(SECTION.pods)
+    for (const name of ['a', 'b']) useStore.getState().openInspector(pod(name), undefined, true)
+    expect(targets()).toEqual([undefined, undefined, 'a', 'b'])
+
+    useStore.getState().openInspector(pod('c'), undefined, true)
+    expect(layout().slotPanes[0]).toBe(nav)
+    expect(layout().slotPanes[1]).toBe(list)
+    expect(targets()).toEqual([undefined, undefined, 'b', 'c'])
+    // Nothing was lost: the widened window shows the step that scrolled off again (FR-010).
+    useStore.getState().setWidthClass('ultra')
+    expect(targets()).toEqual([undefined, undefined, 'a', 'b', 'c'])
+  })
+
+  it('truncates the chain when a row in an earlier column is picked (FR-007)', () => {
+    useStore.getState().setWidthClass('ultra')
+    const [, list] = layout().slotPanes
+    useStore.getState().navigate(SECTION.pods)
+    useStore.getState().openInspector(pod('a'), list)
+    for (const name of ['b', 'c']) useStore.getState().openInspector(pod(name), undefined, true)
+    const step1 = layout().slotPanes[2]
+
+    useStore.getState().openInspector(pod('z'), list)
+    expect(layout().cascade).toEqual([list, step1])
+    // The same column takes the new object, and the columns to its right are empty again.
+    expect(targets()).toEqual([undefined, undefined, 'z', undefined, undefined])
+  })
+
+  it('leaves no object behind in a column dropped from the chain (FR-002, FR-004)', () => {
+    useStore.getState().setWidthClass('ultra')
+    const [, list] = layout().slotPanes
+    useStore.getState().navigate(SECTION.pods)
+    useStore.getState().openInspector(pod('a'), list)
+    useStore.getState().openInspector(pod('b'), undefined, true)
+
+    // A section with nothing to auto-open must not still show the previous section's object.
+    useStore.getState().navigate(SECTION.configmaps)
+    expect(layout().cascade).toEqual([list])
+    expect(targets()).toEqual([undefined, undefined, undefined, undefined, undefined])
+    expect(
+      Object.values(useStore.getState().panes).some(
+        (p) => p.kind === 'inspector' && p.target !== undefined,
+      ),
+    ).toBe(false)
+  })
+
+  it('leaves no object behind on a context change (FR-015)', () => {
+    useStore.getState().setWidthClass('ultra')
+    const [, list] = layout().slotPanes
+    useStore.getState().navigate(SECTION.pods)
+    useStore.getState().openInspector(pod('a'), list)
+    useStore.getState().openInspector(pod('b'), undefined, true)
+
+    useStore.getState().selectContext('kind-other')
+    expect(targets()).toEqual([undefined, undefined, undefined, undefined, undefined])
+  })
+
+  it.each(['tablet', 'laptop', 'desktop'] as const)(
+    'keeps retargeting the one slotted inspector at %s (FR-009)',
+    (cls) => {
+      useStore.getState().setWidthClass(cls)
+      const baseline = [...layout().slotPanes]
+      const list = baseline.find((id) => kindOf(id) === 'list') ?? ''
+      useStore.getState().openInspector(pod('a'), list)
+      useStore.getState().openInspector(pod('b'), undefined, true)
+      expect(layout().slotPanes).toEqual(baseline)
+      const inspectors = baseline.filter((id) => kindOf(id) === 'inspector')
+      expect(inspectors.map((id) => useStore.getState().panes[id]?.target?.name)).toEqual(['b'])
+    },
+  )
 })

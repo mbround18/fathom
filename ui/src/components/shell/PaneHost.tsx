@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils'
 import { useFirstRun } from '@/lib/use-first-run'
 import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
 
+import { CASCADE_FIRST_SLOT } from '@/layout/cascade'
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
 import { paneTitle } from './labels'
@@ -74,6 +75,17 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
   const focusList = useStore((s) => s.focusList)
   /** 044: the step the auto-open filled, marked until the operator clicks in the cascade. */
   const autoOpened = useStore((s) => s.layout.autoOpened)
+  /**
+   * 044 (T023): this column's cascade number, from 1 at slot 2 (contract "Slots and test ids").
+   * Positional, so a chain that shifted left still reads 1, 2, 3 across the row (FR-006).
+   */
+  const stepNumber = useStore((s) =>
+    slotIndex !== undefined &&
+    slotIndex >= CASCADE_FIRST_SLOT &&
+    (s.layout.widthClass === 'wide' || s.layout.widthClass === 'ultra')
+      ? String(slotIndex - CASCADE_FIRST_SLOT + 1)
+      : undefined,
+  )
   const scrollRef = useRef<HTMLDivElement>(null)
   const frame = useRef(0)
 
@@ -95,6 +107,8 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
 
   if (!pane) return null
   const title = paneTitle(pane)
+  /** An occupied cascade column; an empty one carries `cascade-empty` from `CascadeInspector`. */
+  const step = pane.kind === 'inspector' && pane.target !== undefined ? stepNumber : undefined
   // Lists and the inspector scroll inside (virtualized body, tab panels); the rest scroll here.
   const selfScrolling = pane.kind === 'list' || pane.kind === 'inspector'
   const onFocusWithin = pane.kind === 'list' ? () => focusList(pane.id) : undefined
@@ -124,6 +138,8 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       data-section={pane.route?.section}
       data-tool={pane.kind === 'tool' ? pane.tool : undefined}
       data-auto-open={autoOpened === pane.id ? 'true' : undefined}
+      data-testid={step !== undefined ? 'cascade-step' : undefined}
+      data-step={step}
       onPointerDownCapture={onPointerDown}
       onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
