@@ -6,6 +6,20 @@ existing clients). Every variant below needs a sample in `tests/protocol_serde.r
 matching `*_is_exhaustive` match, and a classification in all four of `mutation.rs`'s wildcard-free
 matches (`mutation_target` `:46`, `section` `:413`, `audit_summary` `:723`, `hosted_policy` `:1348`).
 
+## Hosted, narrower than FR-031 reads
+
+FR-031 says hosted gets the guided path's steps 1-7. In the code that cannot mean the draft
+commands run hosted: `mutation.rs` already denies *every* OIDC configuration command as
+`SharedState`, on the stated grounds that anything touching server-shared state or server-held
+credentials is refused, and `config.json` is exactly that shared state. So hosted gets:
+
+- `ReadApiServerAuth` (allowed -- the signed-in user's own RBAC governs it, FR-023), and
+- a server-emitted `OidcSeedOrigin` carrying the issuer the server validated at startup (FR-031),
+  rendered read-only and reviewable (FR-032).
+
+The three draft commands and `WriteApiServerAuth` are denied. The seeded issuer reaches the UI
+through the new event, not by unblocking `LoadOidcConfig`.
+
 ## New commands
 
 ### `OidcDiscoverDraft`
@@ -14,8 +28,12 @@ matches (`mutation_target` `:46`, `section` `:413`, `audit_summary` `:723`, `hos
 { "type": "OidcDiscoverDraft", "data": { "issuer_url": "https://idp.example.com/realms/fathom" } }
 ```
 
-- Mutation class: `ReadOnly`. Section: `access/identity`. Not audited.
+- Mutation class: `ReadOnly`. `section()` returns `None` (identity is global, as for every other
+  OIDC command). Not audited.
 - Needs no saved issuer and no connected cluster. Reply: one `OidcDraftDiscovered`.
+- **Denied in hosted** (`ServerSideProbe`): it would make the server fetch a URL the caller chose,
+  the same reason `TestPrometheusConnection` is refused. Hosted does not need it -- the server
+  already discovered its own issuer before it bound a socket.
 - A failed probe is `CommandFinished { ok: false, error }` with the provider's verbatim message.
 
 ### `OidcTestSignIn`
@@ -25,7 +43,8 @@ matches (`mutation_target` `:46`, `section` `:413`, `audit_summary` `:723`, `hos
 ```
 
 - Mutation class: `ReadOnly` (it writes no cluster and, deliberately, no local credential).
-  Section: `access/identity`. Not audited.
+  `section()` returns `None`. Not audited.
+- **Denied in hosted** (`SharedState`): it drives the process-wide session machinery.
 - Carries the whole draft inline because `OidcSignIn { issuer_id, method }` resolves the issuer out
   of *saved* config (`cmd/oidc.rs:91`) and `store.rs` keys credentials on `fathom.oidc.<issuer_id>`.
 - **Writes nothing**: the tokens stay in the in-memory `Live` slot and never reach the keyring.
@@ -37,7 +56,12 @@ matches (`mutation_target` `:46`, `section` `:413`, `audit_summary` `:723`, `hos
 { "type": "OidcSaveDraft", "data": { "draft": { "config": { "…": "…" }, "method": "Browser" }, "role_map": { "viewers_group": "fathom-viewers", "editors_group": "fathom-editors", "admins_group": "fathom-admins" }, "adopt_test_session": true } }
 ```
 
-- Mutation class: local write. Section: `access/identity`. **Audited.**
+- Mutation class: `Local`. `section()` returns `None`. **Not audited** -- it writes no cluster
+  object, exactly like the `OidcSaveIssuer` it generalises, and FR-024 requires an audit entry for
+  *cluster* writes. The protocol module's own `OidcSaveIssuer => None` arm is the precedent.
+- **Denied in hosted** (`SharedState`): `config.json` is the state directory shared by every user
+  of the process, so one user's issuer edit would re-point everyone else's sign-in. Hosted's issuer
+  comes from the server's validated startup configuration instead (FR-031, FR-032).
 - The single transactional save: persists the issuer and the role map, and with
   `adopt_test_session: true` commits the test sign-in's tokens under the now-saved id so the
   operator is signed in without a second sign-in (FR-028). `false` saves without a session.
@@ -49,7 +73,7 @@ matches (`mutation_target` `:46`, `section` `:413`, `audit_summary` `:723`, `hos
 { "type": "ReadApiServerAuth" }
 ```
 
-- Mutation class: `ReadOnly`. Section: `access/identity`. Not audited.
+- Mutation class: `ReadOnly`. `section()` returns `None`. Not audited.
 - An ordinary namespaced read of the `kube-apiserver` static pod in `kube-system`, performed as the
   signed-in user. Requires a connected cluster. **Allowed in hosted.**
 - Reply: one `ApiServerAuthRead` event. A denied or impossible read is a *successful* command with
@@ -61,10 +85,13 @@ matches (`mutation_target` `:46`, `section` `:413`, `audit_summary` `:723`, `hos
 { "type": "WriteApiServerAuth", "data": { "cluster": "fathom-dev", "style": "Structured", "issuer_url": "https://idp.example.com/realms/fathom", "client_id": "fathom", "username_claim": "preferred_username", "groups_claim": "groups", "username_prefix": "oidc:", "groups_prefix": "oidc:" } }
 ```
 
-- Mutation class: cluster write. Section: `access/identity`. **Audited.**
-- **Denied in hosted**: must be added by name to `server/src/filter.rs`'s `DENIED` const (`:93`),
-  because `table()` defaults an unrecognised variant to **allowed** (`:170`) — an omission silently
-  permits it. Rationale: the constitution forbids a hosted build from exposing kind provisioning.
+- Mutation class: `ClusterScoped`, so `writes_cluster()` is true and the devbridge guard applies.
+  `section()` returns `None`. **Audited**, under a new `AuditActionKind::ApiServerAuthChange`: no
+  existing variant fits, and FR-024 requires the one cluster write of this feature be recorded.
+- **Denied in hosted** (`Kind`): must *also* be added by name to `server/src/filter.rs`'s `DENIED`
+  const, because `table()` defaults an unrecognised variant to **allowed** — an omission silently
+  permits it. Rationale: writing the flags means editing a manifest on a node, which only ever
+  applies to a local cluster Fathom provisioned; a hosted server has no node to write to.
 - Refused unless the named cluster carries the provenance record of FR-036. Writes in the style the
   cluster already uses, never both (`Legacy` and `Structured` are mutually exclusive).
 - Runs inline in its handler: `audit_summary()` is taken at dispatch (`src/backend.rs:312`), so an
