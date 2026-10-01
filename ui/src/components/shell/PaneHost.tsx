@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon } from '@phosphor-icons/react'
+import { ArrowLineRightIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { useCallback, useLayoutEffect, useRef, type UIEvent } from 'react'
 
 import { InspectorActions, ListActions, SelectionBar } from '@/components/ActionMenu'
@@ -49,13 +49,30 @@ import { OidcConfigView } from '@/resources/oidcConfig'
 import { SignInSettings } from '@/features/identity/SignInSettings'
 import { cn } from '@/lib/utils'
 import { useFirstRun } from '@/lib/use-first-run'
-import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
+import {
+  deniedKey,
+  detailKey,
+  detailKeyOf,
+  listKey,
+  useStore,
+  type PaneId,
+  type PaneState,
+} from '@/store'
 
+import { CASCADE_FIRST_SLOT } from '@/layout/cascade'
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
 
-import { paneTitle } from './labels'
+import { cascadeWaitingTitle, paneTitle } from './labels'
 import { FirstRunState } from './FirstRunState'
-import { Disconnected, Empty, ErrorState, Loading, NotPermitted } from './PaneStates'
+import {
+  Disconnected,
+  Empty,
+  ErrorState,
+  Loading,
+  NoLongerExists,
+  NotPermitted,
+  StateFrame,
+} from './PaneStates'
 
 interface PaneHostProps {
   paneId: PaneId
@@ -72,6 +89,19 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
   const pane = useStore((s) => s.panes[paneId])
   const updatePane = useStore((s) => s.updatePane)
   const focusList = useStore((s) => s.focusList)
+  /** 044: the step the auto-open filled, marked until the operator clicks in the cascade. */
+  const autoOpened = useStore((s) => s.layout.autoOpened)
+  /**
+   * 044 (T023): this column's cascade number, from 1 at slot 2 (contract "Slots and test ids").
+   * Positional, so a chain that shifted left still reads 1, 2, 3 across the row (FR-006).
+   */
+  const stepNumber = useStore((s) =>
+    slotIndex !== undefined &&
+    slotIndex >= CASCADE_FIRST_SLOT &&
+    (s.layout.widthClass === 'wide' || s.layout.widthClass === 'ultra')
+      ? String(slotIndex - CASCADE_FIRST_SLOT + 1)
+      : undefined,
+  )
   const scrollRef = useRef<HTMLDivElement>(null)
   const frame = useRef(0)
 
@@ -92,10 +122,29 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
   )
 
   if (!pane) return null
-  const title = paneTitle(pane)
+  /** An occupied cascade column; an empty one carries `cascade-empty` from `CascadeInspector`. */
+  const step = pane.kind === 'inspector' && pane.target !== undefined ? stepNumber : undefined
+  /** A cascade column with nothing in it yet (T052a): its header says what it is reserved for. */
+  const waiting = pane.kind === 'inspector' && pane.target === undefined ? stepNumber : undefined
+  const title = waiting !== undefined ? cascadeWaitingTitle(waiting) : paneTitle(pane)
   // Lists and the inspector scroll inside (virtualized body, tab panels); the rest scroll here.
   const selfScrolling = pane.kind === 'list' || pane.kind === 'inspector'
   const onFocusWithin = pane.kind === 'list' ? () => focusList(pane.id) : undefined
+  /**
+   * 044: a click anywhere in the cascade is the operator taking over — it drops the auto-open
+   * marker and any arm that has not fired yet, so a slow list cannot steal their selection.
+   * Read imperatively (no subscription) and only dispatched when there is something to drop.
+   */
+  const onPointerDown =
+    slotIndex === undefined
+      ? onFocusWithin
+      : () => {
+          onFocusWithin?.()
+          const { layout, clearAutoOpen } = useStore.getState()
+          if (layout.pendingAutoOpen !== undefined || layout.autoOpened !== undefined) {
+            clearAutoOpen()
+          }
+        }
 
   return (
     <section
@@ -106,7 +155,10 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       data-pane-id={pane.id}
       data-section={pane.route?.section}
       data-tool={pane.kind === 'tool' ? pane.tool : undefined}
-      onPointerDownCapture={onFocusWithin}
+      data-auto-open={autoOpened === pane.id ? 'true' : undefined}
+      data-testid={step !== undefined ? 'cascade-step' : undefined}
+      data-step={step}
+      onPointerDownCapture={onPointerDown}
       onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
     >
@@ -228,7 +280,7 @@ function PaneBody({ pane }: { pane: PaneState }) {
     case 'list':
       return <ListBody pane={pane} />
     case 'inspector':
-      return <Inspector pane={pane} />
+      return <CascadeInspector pane={pane} />
     case 'tool':
       if (pane.tool === 'metrics') return <MetricsPanel />
       if (pane.tool === 'flux') return <FluxPanel />
@@ -249,6 +301,82 @@ function PaneBody({ pane }: { pane: PaneState }) {
         <Empty title="Tool" detail="No data yet. Connect to a cluster to populate this view." />
       )
   }
+}
+
+/**
+ * 044 (FR-002/FR-012/FR-014): at wide and above an inspector is a cascade column. With nothing
+ * open it says what the next click will put there instead of reading as a broken layout; holding
+ * an object the cluster no longer has, it says so and keeps its target, so nothing else is
+ * silently opened in its place. Below wide the inspector keeps its own states, so small windows
+ * are untouched (FR-009).
+ */
+function CascadeInspector({ pane }: { pane: PaneState }) {
+  const cascading = useStore(
+    (s) => s.layout.widthClass === 'wide' || s.layout.widthClass === 'ultra',
+  )
+  const gone = useCascadeGone(pane.target)
+  if (!cascading) return <Inspector pane={pane} />
+  if (!pane.target) return <CascadeEmpty />
+  if (gone) return <CascadeGone target={pane.target} />
+  return <Inspector pane={pane} />
+}
+
+/**
+ * FR-012: a column that is waiting, not broken. The dashed frame marks it as reserved and the
+ * arrow points at where the next level lands; the copy is the contract's
+ * (`contracts/ui-cascade.md` § Slots and test ids). `StateFrame` carries the announcement
+ * (`role="status"`, polite) and the app's AA-checked text tokens (`tests/unit/contrast.test.ts`),
+ * so this adds no colour of its own. Only `h-full`: the pane's own size constraints are untouched,
+ * so filling this column reflows nothing (FR-013).
+ */
+function CascadeEmpty() {
+  return (
+    <div data-testid="cascade-empty" className="h-full p-2">
+      <div className="h-full rounded-sm border border-dashed border-border">
+        <StateFrame
+          kind="cascade-empty"
+          icon={ArrowLineRightIcon}
+          title="Waiting"
+          detail="Follow a link to open the next level here"
+          trace
+        />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * FR-014: the step's object has gone from the list or the cluster. The column keeps `pane.target`
+ * (the header still names it) so the cascade never silently re-points at a different object; the
+ * operator's next click is what moves it.
+ */
+function CascadeGone({ target }: { target: NonNullable<PaneState['target']> }) {
+  const label = target.namespace ? `${target.namespace}/${target.name}` : target.name
+  return (
+    <div data-testid="cascade-gone" className="h-full">
+      <NoLongerExists name={label} />
+    </div>
+  )
+}
+
+/**
+ * FR-014: gone means the object's own section list has refreshed without it, or its read came back
+ * not-found. Mirrors the checks in `Inspector.tsx`, which still serve every width below wide.
+ */
+function useCascadeGone(target: PaneState['target']): boolean {
+  const ctx = useStore((s) => s.session.activeContext)
+  const descriptor = target ? descriptorFor(target.section) : undefined
+  const scope = descriptor?.namespaced === false ? 'Cluster' : 'Namespaced'
+  const list = useStore((s) =>
+    target === undefined ? undefined : s.lists[listKey(ctx, target.section, scope, null)],
+  )
+  const detail = useStore((s) =>
+    target === undefined ? undefined : s.details[detailKeyOf(ctx, target)],
+  )
+  if (!target || !descriptor) return false
+  if (detail?.eventType === 'FluxResourceNotFound') return true
+  const rowKey = target.namespace ? `${target.namespace}/${target.name}` : target.name
+  return list?.status === 'ready' && !list.rows.some((r) => descriptor.rowKey(r) === rowKey)
 }
 
 /** An API 404 on a list means the resource type (a CRD) is not installed, not that it failed. */

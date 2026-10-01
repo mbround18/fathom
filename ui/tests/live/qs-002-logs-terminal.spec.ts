@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process'
 
 import type { Locator, Page } from '@playwright/test'
 
+import { MIN_WIDTH, WIDTH_CLASSES, widthClassOf } from '../../src/layout/width-class'
 import { liveContext } from './env'
 import {
   E2E_LABEL,
@@ -46,6 +47,18 @@ const RESTRICTED = {
 }
 const CONTAINER_SEC = { allowPrivilegeEscalation: false, capabilities: { drop: ['ALL'] } }
 const RES = { requests: { cpu: '5m', memory: '8Mi' }, limits: { cpu: '50m', memory: '32Mi' } }
+
+/**
+ * A wider viewport that is still in the same width class as `width`.
+ *
+ * Half again as wide, capped just below the next class boundary: the pane the terminal lives in
+ * grows, and the cascade does not re-slot it (044).
+ */
+function widerInSameClass(width: number): number {
+  const next = MIN_WIDTH[WIDTH_CLASSES[WIDTH_CLASSES.indexOf(widthClassOf(width)) + 1] ?? 'ultra']
+  const ceiling = next > width ? next - 1 : width * 2
+  return Math.max(width + 100, Math.min(Math.round(width * 1.5), ceiling))
+}
 
 function busybox(name: string, script: string) {
   return {
@@ -264,8 +277,13 @@ test.describe('live 002 quickstart', () => {
     await expect(xterm).toContainText(/SZ1 \d+ \d+ END/)
     const size1 = /SZ1 (\d+ \d+) END/.exec((await xterm.textContent()) ?? '')?.[1]
     expect(size1).toBe(sent1)
-    // Stay inside the wide class (1920-2559) so the pane grows instead of the layout reflowing.
-    await page.setViewportSize({ width: 2400, height: 1300 })
+    // Grow the window without leaving the current width class, so the pane gets wider instead
+    // of the whole layout reflowing into a different slot arrangement. 2400 was hard-coded here,
+    // which only stays put for the wide project — from the phone project it crossed phone -> wide
+    // and the terminal was re-slotted rather than resized.
+    const vp = page.viewportSize()
+    expect(vp).not.toBeNull()
+    await page.setViewportSize({ width: widerInSameClass(vp?.width ?? 0), height: vp?.height ?? 0 })
     await expect.poll(lastResize, { timeout: 15_000 }).not.toBe(sent1)
     const sent2 = lastResize()
     await run(page, xterm, 'echo SZ2 $(ttysize) END')

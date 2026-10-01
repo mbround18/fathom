@@ -39,7 +39,11 @@ test('Topology shows the namespace graph at every width', async ({ page, app }) 
     // Namespaces arrive first; wait for the workload and pod tiers (edges) too.
     await expect(summary).toHaveText(/^[1-9]\d* nodes, [1-9]\d* edges/, { timeout: 30_000 })
     const box = await page.getByTestId('topology-canvas').first().boundingBox()
-    expect(box?.width ?? 0).toBeGreaterThan(size.width >= 1280 ? 600 : 300)
+    // 044: at wide the graph is one cascade column beside the empty placeholders, which the
+    // spec requires to be the same width as an occupied column (FR-002, US4) — so the canvas
+    // is narrower at 1920 than at 1280, where the layout is unchanged.
+    const floor = size.width >= 1920 ? 450 : size.width >= 1280 ? 600 : 300
+    expect(box?.width ?? 0).toBeGreaterThan(floor)
     await page.waitForTimeout(1500) // let the layout settle before the screenshot
     await shot(page, `topology-${name}`)
     await page.keyboard.press('Escape')

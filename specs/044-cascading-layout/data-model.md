@@ -14,7 +14,9 @@ cascade: PaneId[]
 - Invariants:
   - every id exists in `panes`;
   - ids are unique (following a link back to an open item truncates rather than duplicating);
-  - at wide and above, `slotPanes = [navPaneId, ...cascade.slice(-(slotCount - 1))]`;
+  - at wide and above, `slotPanes = [navPaneId, cascade[0], ...cascade.slice(1).slice(-(slotCount - 2))]`,
+    padded with free empty inspector panes: the navigator and the section list are pinned (FR-001)
+    and only the steps scroll (FR-006);
   - below wide, `cascade` is ignored and `slotPanes` is derived exactly as it is today.
 - Lifecycle: reset by a section click, a context change and a kubeconfig reload; truncated by
   selecting a row in a column that is not the last; appended by a drill-in; unchanged by a

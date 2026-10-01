@@ -111,6 +111,28 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 
 *Status: ✅ Done — shipped in `001-tauri-shadcn-frontend` (neon-noir theme, three-pane shell).*
 
+#### Wide screens cascade *(`044-cascading-layout`)*
+
+From 1920 px up, the extra columns are a drill-down trail rather than a set of prefilled panels.
+Slot 1 is the sections navigator and slot 2 the selected section's list; both stay put. Everything
+to their right is a cascade column, filled left to right and empty until there is something to put
+in it — an empty one says "Follow a link to open the next level here" rather than reading as a
+broken layout.
+
+* Clicking a section opens its **most relevant item** in the first cascade column: the first row
+  whose status is an error, else the first warning, else the first row — in the list's current
+  order, so it is always a row the operator can see. An empty section auto-opens nothing.
+* Each follow (a related object, a link, a row in an earlier column) lands one column further
+  right. Selecting a row in a column that is not the last drops every column to its right, and a
+  new section click returns the row to navigator + list + the auto-opened item.
+* With the chain deeper than the window is wide, the oldest steps scroll off the left of the
+  cascade while the navigator and the list stay pinned; narrowing and widening the window
+  re-reveals them with their selections, search text and scroll positions intact.
+* **Below 1920 px nothing changes**: phone, tablet, laptop and desktop keep exactly the behaviour
+  they had, and the inspector waits for the operator's click. Saved layout profiles from earlier
+  releases still load; their slots from the third on resolve to cascade columns, keeping the widths
+  the operator dragged.
+
 ---
 
 ## 3. Navigation & Information Architecture

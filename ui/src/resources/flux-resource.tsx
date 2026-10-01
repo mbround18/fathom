@@ -6,10 +6,11 @@
  */
 import { StatusBadge } from '@/components/StatusBadge'
 import type { FluxResourceSummary } from '@/protocol/types'
+import { FLUX_RESOURCE_SECTION } from '@/store/keys'
 
 import type { DetailSection, ResourceDescriptor } from './types'
 
-const SECTION = 'integrations/flux-resource'
+const SECTION = FLUX_RESOURCE_SECTION
 
 const fluxResourceSections: DetailSection<FluxResourceSummary, FluxResourceSummary>[] = [
   {

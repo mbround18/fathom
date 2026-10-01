@@ -3,7 +3,7 @@ import type { BackendEventEnvelope, ResourceReadEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
 import { applyLiveUpdate } from '../editSession'
-import { detailKey } from '../keys'
+import { detailKey, detailKind, FLUX_RESOURCE_SECTION } from '../keys'
 
 /** `PodDetailsUpdated` → `Pod`; `PodMetricsHistoryUpdated` → `PodMetricsHistory`. */
 export function readKind(type: ResourceReadEvent['type']): string {
@@ -47,11 +47,13 @@ export function readKeyOf(env: BackendEventEnvelope, event: GenericReadEvent): s
   // HelmRelease-kind origins, so the cache key must be keyed by the real k8s kind carried in
   // the payload (`data.kind`), not the syntactic `readKind(event.type)` (which would always say
   // "FluxResource" and collide the two kinds under one key) — `flux-resource.tsx`'s `ref()`
-  // opens the inspector with `target.kind` set to that same real k8s kind.
+  // opens the inspector with `target.kind` set to that same real k8s kind. `detailKind` then
+  // namespaces it to the origin's section, so it cannot collide with the object it is the origin
+  // *of* — a same-namespace, same-name `HelmRelease` CR and its Helm release (see `keys.ts`).
   const kind =
     (event.type === 'FluxResourceDetailsUpdated' || event.type === 'FluxResourceNotFound') &&
     'kind' in data
-      ? data.kind
+      ? detailKind(FLUX_RESOURCE_SECTION, data.kind)
       : readKind(event.type)
   return detailKey(env.route.context, kind, ns, name)
 }

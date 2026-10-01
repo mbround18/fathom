@@ -47,14 +47,30 @@ interface Facts {
   workloads: WorkloadCounts[]
 }
 
+/**
+ * How many of a kind's workloads are fully ready.
+ *
+ * A DaemonSet does not have `replicas`/`readyReplicas` — it reports `desiredNumberScheduled`
+ * and `numberReady` — so reading the Deployment fields for one counted it as 0 of 1 ready and
+ * printed that wrong number into the brochure.
+ */
 function countWorkloads(kind: string, plural: string): WorkloadCounts {
   const list = kubectlJson<{
-    items: { status?: { replicas?: number; readyReplicas?: number } }[]
+    items: {
+      status?: {
+        replicas?: number
+        readyReplicas?: number
+        desiredNumberScheduled?: number
+        numberReady?: number
+      }
+    }[]
   }>(['get', plural])
   const total = list.items.length
-  const ready = list.items.filter(
-    (i) => (i.status?.readyReplicas ?? 0) >= (i.status?.replicas ?? 1),
-  ).length
+  const ready = list.items.filter((i) => {
+    const desired = i.status?.replicas ?? i.status?.desiredNumberScheduled ?? 1
+    const readyNow = i.status?.readyReplicas ?? i.status?.numberReady ?? 0
+    return readyNow >= desired
+  }).length
   return { kind, ready, total }
 }
 
@@ -99,9 +115,16 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
     caption: 'Multi-select deletes list every target by name before anything is sent.',
     scale: 2,
   },
+  'wide-cascade': {
+    title: 'Opens on the one thing that matters',
+    caption:
+      'Pick a section and Fathom already has the resource that most needs attention open beside it — the first failing one, then the first warning, then simply the first row. The column after it says what your next click will put there.',
+    scale: 2,
+  },
   ultra: {
     title: 'Built for the biggest screens',
-    caption: 'Six independent slots on an ultra-wide monitor — nothing crowds the data.',
+    caption:
+      'Every extra column is one more step of the same trail: Deployment, its Pod, the Node it landed on — each follow lands to the right, nothing is prefilled, and the column past the trail waits for the next click.',
     scale: 1,
   },
   tablet: {
@@ -331,6 +354,7 @@ function loadShots(): Shot[] {
   // Narrative order follows SHOT_META's insertion order (not filename/readdir order), so a
   // staged entry (e.g. Terminal) can sit right next to the live entry it belongs beside (Logs).
   const shots: Shot[] = []
+  const notShot: string[] = []
   for (const [name, meta] of Object.entries(SHOT_META)) {
     const staged = STAGED_SHOTS.has(name)
     const dir = staged ? ASSETS_DIR : SHOTS_DIR
@@ -343,6 +367,7 @@ function loadShots(): Shot[] {
         )
       }
     } else if (!present.has(`${name}.png`)) {
+      notShot.push(name)
       continue
     }
     const bytes = readFileSync(path)
@@ -352,6 +377,17 @@ function loadShots(): Shot[] {
       caption: meta.caption,
       dataUrl: `data:image/png;base64,${bytes.toString('base64')}`,
     })
+  }
+  // global-setup.ts empties promo-out/shots/ at the start of every unfiltered run, so a shot that
+  // is absent here is a scene that failed this run, not one that was never written. Building the
+  // PDF anyway is what let a broken scene hide behind the previous run's photograph of it: the
+  // brochure simply dropped a page and still looked finished. Refuse instead.
+  if (notShot.length > 0) {
+    throw new Error(
+      `promo/compose: ${String(notShot.length)} scene(s) produced no shot this run: ` +
+        `${notShot.join(', ')}\nFix the failing scene(s) above and re-run the full promo shoot; ` +
+        'the PDF is only built when every scene was photographed.',
+    )
   }
   return shots
 }

@@ -57,7 +57,47 @@ async function openRelease(page: Page, name: string): Promise<void> {
   await expect(inspector(page)).toContainText(name)
 }
 
+const BARE_CHART = 'oci://ghcr.io/stefanprodan/charts/podinfo'
+const BARE_VERSION = '6.15.0'
+
+/** The two revisions `scripts/sandbox.sh` installs: rev 1 plain, rev 2 with a message. */
+function installBare(): void {
+  const base = ['--version', BARE_VERSION, '--set', 'replicaCount=1']
+  helm(['upgrade', '--install', BARE, BARE_CHART, ...base, '--wait'])
+  helm(['upgrade', BARE, BARE_CHART, ...base, '--set', 'ui.message=qs006-before', '--wait'])
+}
+
+/** Whether `quickstart-bare` is at the fixture's baseline, rather than mid-scenario or gone. */
+function bareIsBaseline(): boolean {
+  try {
+    const values = JSON.parse(helm(['get', 'values', BARE, '-o', 'json'])) as {
+      replicaCount?: number
+      ui?: { message?: string }
+    }
+    return (
+      values.replicaCount === 1 &&
+      values.ui?.message === 'qs006-before' &&
+      history(BARE).length >= 2
+    )
+  } catch {
+    return false
+  }
+}
+
 test.describe('live 006 quickstart', () => {
+  // S3 uninstalls the bare release and S1/S2 move it off its baseline, so the second project —
+  // and every re-run — used to find no release at all and fail on `release: not found`. Put the
+  // fixture back before each project's scenarios instead of asking a human to remember.
+  test.beforeAll(() => {
+    if (bareIsBaseline()) return
+    try {
+      helm(['uninstall', BARE, '--wait'])
+    } catch {
+      // Not installed; nothing to remove.
+    }
+    installBare()
+  })
+
   test.beforeEach(async ({ app }) => {
     await app.open()
     await app.selectContext()
@@ -119,7 +159,10 @@ test.describe('live 006 quickstart', () => {
     expect(before.length).toBeGreaterThanOrEqual(2)
     await openRelease(page, FLUX)
     const insp = inspector(page)
-    await insp.getByTestId('helm-rollback-1').click()
+    // Not revision 1: Flux prunes the release history down to its own limit, so the oldest
+    // revision still on offer moves up every time the HelmRelease is reconciled.
+    const oldest = before[0]?.revision ?? 1
+    await insp.getByTestId(`helm-rollback-${String(oldest)}`).click()
     const warning = insp.getByTestId('helm-rollback-gitops-warning')
     await expect(warning).toBeVisible()
     await expect(warning).toContainText('Flux')
@@ -207,7 +250,9 @@ test.describe('live 006 quickstart', () => {
     await insp.getByTestId('helm-release-uninstall').click()
     await confirmDialog(page).getByTestId('confirm-submit').click()
     await expect(row(page, `${LIVE_NAMESPACE}/${BARE}`, HELM)).toHaveCount(0, { timeout: 60_000 })
-    expect(helm(['list', '-q'])).not.toContain(BARE)
+    // The row goes as soon as the backend reports the uninstall; Helm deletes the release
+    // secret a moment later, so poll rather than read `helm list` once.
+    await expect.poll(() => helm(['list', '-q']), { timeout: 30_000 }).not.toContain(BARE)
     await expect
       .poll(
         () => kubectlGet(['all', '-l', `app.kubernetes.io/instance=${BARE}`, '-o', 'name']).trim(),

@@ -351,6 +351,10 @@ async fn set_context(
     // The CRD catalog describes the previous cluster; `RefreshCrdInstances` resolves kinds it
     // lacks from the API server, so an empty catalog is safe until `RefreshCrds` runs again.
     state.cluster.crd_catalog.clear();
+    // 019: the cached version describes the cluster being left behind.
+    if let Ok(mut cached) = state.cluster.cluster_version.write() {
+        *cached = None;
+    }
 
     state.cluster.current_context = Some(context.clone());
     state.capabilities.invalidate_all();

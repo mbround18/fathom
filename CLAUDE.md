@@ -17,6 +17,8 @@ cleanup as part of finishing a task, not as optional housekeeping.
   It exits 1 when something dangles. `scripts/hygiene.sh clean` removes only what is provably
   safe; items marked `review` need a human (or you) to salvage first.
 - **Parallel agents share one machine** (32 cores, 31GB RAM). A full Playwright suite at default
-  parallelism uses ~12GB of browsers, so two at once run the box out of memory. When other agents
-  are active, use `--workers=6` or fewer and `CARGO_BUILD_JOBS=4`. Run full-parallel suites one at
-  a time, only after `free -g` shows at least 8GB available.
+  parallelism uses ~12GB of browsers, so two at once run the box out of memory. `playwright.config.ts`
+  now sizes its own workers from the current load average and `MemAvailable`
+  (`ui/tests/support/workers.ts`) and prints what it picked, so the main e2e suite no longer needs
+  `--workers=<n>`; override with `PLAYWRIGHT_WORKERS` when you need to pin it. Cargo is not
+  auto-sized: still use `CARGO_BUILD_JOBS=4` when other agents are active.

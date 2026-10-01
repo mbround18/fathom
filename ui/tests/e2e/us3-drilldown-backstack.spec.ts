@@ -14,12 +14,14 @@ import {
   inspector,
   navigateTo,
   open,
+  openedInspector,
   row,
   sent,
   sentMutations,
   sentTypes,
   settleFakeReplies,
 } from './helpers'
+import { widthClass } from './layout-helpers'
 
 const APPLICATIONS = 'applications'
 const NODES = 'nodes'
@@ -112,10 +114,19 @@ async function openWebApplication(page: Page): Promise<void> {
 }
 
 test.describe('US3 drill-down back-stack', () => {
+  /**
+   * 044 (FR-005): at wide and above a drill-in opens the next cascade column instead of pushing
+   * onto one pane's back-stack, so the breadcrumb this covers only exists below wide; the columns
+   * are the trail there and `cascade-drill-in.spec.ts` covers them.
+   */
   test('T036: Application -> Pod -> Node builds a breadcrumb; two backs restore from cache', async ({
     page,
   }) => {
     await openWebApplication(page)
+    test.skip(
+      ['wide', 'ultra'].includes((await widthClass(page)) ?? ''),
+      'the cascade opens the next column instead (FR-005)',
+    )
     const insp = inspector(page)
     await clearSent(page)
 
@@ -228,6 +239,7 @@ test.describe('US3 drill-down back-stack', () => {
       batch([list(3, nsRoute('kind-a', 'workloads/pods'), { type: 'PodsUpdated', data: [] })]),
     )
 
-    await expect(insp).toContainText('No longer exists')
+    // 044 (FR-005): at wide and above that reply lands in the column the link opened.
+    await expect(openedInspector(page)).toContainText('No longer exists')
   })
 })

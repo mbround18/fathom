@@ -8,8 +8,10 @@ import {
   resolveProfile,
 } from '@/layout/defaults'
 import { visibleSlots, WIDTH_CLASSES } from '@/layout/width-class'
+import { SECTION } from '@/protocol/commands'
 import type { DockConfig, LayoutProfile, ToolKind } from '@/protocol/types'
-import { useStore } from '@/store'
+import type { ObjectRef } from '@/resources/types'
+import { initialData, useStore } from '@/store'
 
 const sum = (p: LayoutProfile) => p.slots.reduce((t, s) => t + s.sizePct, 0)
 
@@ -20,10 +22,11 @@ describe('defaultProfile', () => {
     expect(sum(p)).toBeCloseTo(100, 1)
   })
 
-  it('adds a sixth tool slot at ≥ 3840', () => {
+  it('adds a sixth cascade slot at ≥ 3840 (044)', () => {
     const p = defaultProfile('ultra', true)
     expect(p.slots).toHaveLength(6)
-    expect(p.slots.at(-1)).toMatchObject({ kind: 'tool', tool: 'flux' })
+    expect(p.slots.at(-1)).toMatchObject({ kind: 'inspector' })
+    expect(p.slots.at(-1)).not.toHaveProperty('tool')
   })
 
   it('has a dock from laptop up only', () => {
@@ -105,6 +108,87 @@ describe('dock policy (043)', () => {
   })
 })
 
+describe('cascade profiles (044)', () => {
+  const kinds = (p: LayoutProfile) => p.slots.map((s) => s.kind)
+
+  it.each(['wide', 'ultra'] as const)('%s opens with one list and no tool slot', (cls) => {
+    const p = defaultProfile(cls)
+    expect(kinds(p)).toEqual(['nav', 'list', ...p.slots.slice(2).map(() => 'inspector')])
+    expect(kinds(p).filter((k) => k === 'list')).toHaveLength(1)
+    expect(kinds(p)).not.toContain('tool')
+    expect(p.slots.every((s) => s.tool === undefined)).toBe(true)
+  })
+
+  it('keeps the slot count of every class (Principle IV, FR-008)', () => {
+    for (const cls of WIDTH_CLASSES)
+      expect(defaultProfile(cls).slots).toHaveLength(visibleSlots(cls))
+    expect(defaultProfile('ultra', true).slots).toHaveLength(visibleSlots('ultra', Infinity))
+  })
+
+  it('resolves a saved wide profile with a second list to cascade slots, keeping its sizes', () => {
+    const saved: LayoutProfile = {
+      slots: [
+        { kind: 'nav', sizePct: 10 },
+        { kind: 'list', sizePct: 40 },
+        { kind: 'list', sizePct: 30 },
+        { kind: 'inspector', sizePct: 20 },
+      ],
+    }
+    const p = resolveProfile('wide', saved)
+    expect(kinds(p)).toEqual(['nav', 'list', 'inspector', 'inspector'])
+    expect(p.slots.map((s) => s.sizePct)).toEqual([10, 40, 30, 20])
+    expect(sum(p)).toBeCloseTo(100, 1)
+  })
+
+  it('normalises a saved ultra profile that pinned Overview and Flux (FR-011)', () => {
+    const saved: LayoutProfile = {
+      slots: [
+        { kind: 'nav', sizePct: 10 },
+        { kind: 'list', sizePct: 24 },
+        { kind: 'list', sizePct: 24 },
+        { kind: 'inspector', sizePct: 22 },
+        { kind: 'tool', sizePct: 20, tool: 'overview' },
+        { kind: 'tool', sizePct: 16, tool: 'flux' },
+      ],
+    }
+    const p = resolveProfile('ultra', saved, true)
+    expect(kinds(p)).toEqual(['nav', 'list', 'inspector', 'inspector', 'inspector', 'inspector'])
+    expect(p.slots.every((s) => s.tool === undefined)).toBe(true)
+    expect(sum(p)).toBeCloseTo(100, 1)
+    // Truncated to five slots below 3840, still with no tool slot left.
+    expect(kinds(resolveProfile('ultra', saved))).toEqual([
+      'nav',
+      'list',
+      'inspector',
+      'inspector',
+      'inspector',
+    ])
+  })
+
+  it('still falls back to the default for an invalid saved wide profile', () => {
+    const bad = { slots: [{ kind: 'nope', sizePct: 50 }] } as unknown as LayoutProfile
+    expect(resolveProfile('wide', bad)).toEqual(defaultProfile('wide'))
+    expect(resolveProfile('ultra', { slots: [] })).toEqual(defaultProfile('ultra'))
+  })
+
+  it.each(['phone', 'tablet', 'laptop', 'desktop'] as const)(
+    'leaves a saved %s profile untouched (FR-009)',
+    (cls) => {
+      const saved: LayoutProfile = {
+        slots: defaultProfile(cls).slots.map((s, i) =>
+          i === 0 ? { ...s, kind: 'tool', tool: 'overview' } : s,
+        ),
+        ...(defaultProfile(cls).dock
+          ? { dock: { open: true, heightPct: 30, tabs: ['logs'] } }
+          : {}),
+      }
+      const p = resolveProfile(cls, saved)
+      expect(kinds(p)).toEqual(kinds(saved))
+      expect(p.slots[0]?.tool).toBe('overview')
+    },
+  )
+})
+
 describe('resolveProfile', () => {
   it('falls back to the default for missing or malformed profiles', () => {
     expect(resolveProfile('laptop')).toEqual(defaultProfile('laptop'))
@@ -155,5 +239,50 @@ describe('store layout', () => {
     useStore.getState().setWidthClass('ultra', true)
     const ids = useStore.getState().layout.slotPanes
     expect(new Set(ids).size).toBe(6)
+  })
+})
+
+/**
+ * 044 US4 (T043, FR-013): a column filling or emptying is not the operator resizing anything, so
+ * no size may be written back to the profile. `SlotGrid`'s `onRowLayout` already drops every
+ * layout change that is not a user interaction; this guards the store half, so the sizes a drag
+ * put in `layouts.wide` survive an open and a close of a cascade column untouched.
+ */
+describe('cascade fill and empty never rewrite sizes (044 FR-013)', () => {
+  /** What a drag at wide leaves behind: deliberately nothing like the default split. */
+  const DRAGGED: LayoutProfile = {
+    slots: [
+      { kind: 'nav', sizePct: 12 },
+      { kind: 'list', sizePct: 48 },
+      { kind: 'inspector', sizePct: 30 },
+      { kind: 'inspector', sizePct: 10 },
+    ],
+    dock: { open: true, heightPct: 30, tabs: ['logs', 'events'] },
+  }
+  const POD: ObjectRef = { section: SECTION.pods, kind: 'Pod', namespace: 'default', name: 'api-1' }
+
+  it('keeps the dragged sizes across an open and a close', () => {
+    useStore.setState({ ...initialData(), send: () => undefined })
+    useStore.getState().setWidthClass('wide')
+    useStore.getState().setProfile(DRAGGED)
+    const dragged = useStore.getState().layout.profile
+    expect(dragged.slots.map((s) => s.sizePct)).toEqual([12, 48, 30, 10])
+
+    // Fill a waiting column: the profile object is not even replaced, so no size can shift.
+    useStore.getState().navigate(SECTION.pods)
+    useStore.getState().autoOpenStep(useStore.getState().layout.cascade[0] ?? '', POD)
+    expect(
+      useStore.getState().layout.slotPanes.some((id) => useStore.getState().panes[id]?.target),
+    ).toBe(true)
+    expect(useStore.getState().layout.profile).toBe(dragged)
+    expect(useStore.getState().ui.layouts.wide).toBe(dragged)
+
+    // Empty it again.
+    useStore.getState().closeInspector()
+    expect(
+      useStore.getState().layout.slotPanes.every((id) => !useStore.getState().panes[id]?.target),
+    ).toBe(true)
+    expect(useStore.getState().layout.profile).toBe(dragged)
+    expect(useStore.getState().ui.layouts.wide).toBe(dragged)
   })
 })

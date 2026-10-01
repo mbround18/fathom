@@ -4,7 +4,7 @@
  *
  * Dialogs (scale, bulk delete) are opened and photographed, then dismissed: nothing is confirmed.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import { check } from '../e2e/helpers'
 import { DEPLOYMENTS, inspector, key, navigateTo, row, showList, table } from '../live/helpers'
@@ -64,6 +64,48 @@ async function openInspector(page: Page, podName: string): Promise<void> {
   await expect(inspector(page).getByRole('heading', { name: podName })).toBeVisible()
 }
 
+/** A cascade column, numbered from 1 at the first one (slot 2) — see `044-cascading-layout`. */
+const cascade = (page: Page, n: number): Locator =>
+  page.locator(`[data-slot="pane"][data-slot-index="${String(n + 1)}"]`)
+
+/**
+ * Follow the first related link of `kind` out of cascade column `n`, which fills column `n + 1`
+ * (044 FR-005). Following by kind rather than by name keeps the scene reproducible against a live
+ * cluster whose ReplicaSet hashes change on every rollout.
+ */
+/**
+ * Open `label` from the sections navigator and return its pane. 044 retired pinning a tool into a
+ * slot at wide (FR-011: slots 2 and up are cascade columns), so the panels these scenes photograph
+ * are reached the way an operator reaches them now — as their own left-nav section, which is where
+ * 043 moved them anyway.
+ */
+async function openSection(
+  page: Page,
+  label: string,
+  group: string,
+  section: string,
+): Promise<Locator> {
+  await navigateTo(page, label, group)
+  const panel = page.locator(`[data-slot="pane"][data-section="${section}"]`).first()
+  await expect(panel).toBeVisible()
+  return panel
+}
+
+/** An integration panel is a skeleton until its background scan lands; its own `<h3>` is the
+ * signal that real data arrived (`IntegrationSummary`). */
+async function integrationReady(panel: Locator, title: string): Promise<void> {
+  await expect(panel.getByRole('heading', { name: title, level: 3 })).toBeVisible({
+    timeout: 15_000,
+  })
+}
+
+async function followRelated(page: Page, n: number, kind: string): Promise<void> {
+  const link = cascade(page, n).locator(`[data-testid="related-link"][data-kind="${kind}"]`).first()
+  await expect(link).toBeVisible()
+  await link.click()
+  await expect(cascade(page, n + 1)).toHaveAttribute('data-testid', 'cascade-step')
+}
+
 test.describe('wide', () => {
   test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
 
@@ -99,17 +141,23 @@ test.describe('wide', () => {
     await dialog.getByTestId('confirm-cancel').click()
   })
 
-  test('flux panel', async ({ app, page, toolPane }) => {
+  test('flux panel', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await toolPane.open(page, 'flux')
+    await integrationReady(
+      await openSection(page, 'Flux', 'Integrations', 'integrations/flux'),
+      'Flux',
+    )
     await shoot(page, 'wide-flux', pairs)
   })
 
-  test('hubble panel', async ({ app, page, toolPane }) => {
+  test('hubble panel', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
-    await toolPane.open(page, 'hubble')
+    await integrationReady(
+      await openSection(page, 'Hubble', 'Integrations', 'integrations/hubble'),
+      'Hubble',
+    )
     await shoot(page, 'wide-hubble', pairs)
   })
 
@@ -173,10 +221,12 @@ test.describe('wide', () => {
     await expect(podLink).toBeVisible()
     const podName = (await podLink.locator('span').first().innerText()).split('/').pop()
     await podLink.click()
-    const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' })
-    await expect(breadcrumb).toBeVisible()
-    await expect(breadcrumb).toContainText(APP_INSTANCE)
-    if (podName) await expect(inspector(page).getByRole('heading', { name: podName })).toBeVisible()
+    // 044: at wide there is no breadcrumb — the columns are the trail. The Application stays put in
+    // its own column while the Pod it owns opens in the next one, both on screen at once.
+    await expect(cascade(page, 1).getByRole('heading', { name: APP_INSTANCE })).toBeVisible()
+    if (podName) {
+      await expect(cascade(page, 2).getByRole('heading', { name: podName })).toBeVisible()
+    }
     await shoot(page, 'wide-applications-drilldown', pairs)
   })
 
@@ -215,10 +265,10 @@ test.describe('wide', () => {
     const originLink = insp.getByRole('button', { name: `fathom-dev/${HELM_RELEASE}`, exact: true })
     await expect(originLink).toBeVisible()
     await originLink.click()
-    const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' })
-    await expect(breadcrumb).toBeVisible()
-    await expect(breadcrumb).toContainText(HELM_RELEASE)
-    const fluxInsp = inspector(page)
+    // 044: the release keeps its column and the Flux `HelmRelease` that owns it opens in the next
+    // one, so the release and its origin are readable side by side (no breadcrumb at wide).
+    await expect(insp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
+    const fluxInsp = cascade(page, 2)
     await expect(fluxInsp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
     // The Flux resource's own details (Ready state, message, revision) stream in after the
     // click-through; wait for the real reconciliation message before photographing, not the
@@ -227,19 +277,20 @@ test.describe('wide', () => {
     await shoot(page, 'wide-helm-origin-link', pairs)
   })
 
-  test('topology graph view', async ({ app, page, toolPane }) => {
+  test('topology graph view', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
+    await openSection(page, 'Topology', 'Cluster', 'topology')
     // The canvas is hand-drawn (data-model.md: thousands of pods must stay responsive), so
     // "real data rendered" isn't a DOM assertion — sample its own pixels for drawn (non-
     // transparent) content instead of trusting a fixed settle time.
-    await toolPane.open(page, 'topology', async (pg) => {
-      const canvas = pg.getByTestId('topology-canvas')
+    {
+      const canvas = page.getByTestId('topology-canvas')
       await expect(canvas).toBeVisible()
       await expect
         .poll(
           () =>
-            pg.evaluate(() => {
+            page.evaluate(() => {
               const el = document.querySelector<HTMLCanvasElement>(
                 '[data-testid="topology-canvas"]',
               )
@@ -253,7 +304,7 @@ test.describe('wide', () => {
           { timeout: 20_000, message: 'topology graph nodes to render' },
         )
         .toBeGreaterThan(0)
-    })
+    }
     await shoot(page, 'wide-topology', pairs)
   })
 
@@ -400,29 +451,31 @@ test.describe('wide: 036 in-cluster daemon', () => {
     await shoot(page, 'wide-daemon-chip', pairs)
   })
 
-  test('cluster history timeline', async ({ app, page, toolPane }) => {
+  test('cluster history timeline', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
     await enableDaemon(page)
     await page.keyboard.press('Escape')
-    await toolPane.open(page, 'daemon', async (pg) => {
-      await expect(pg.getByTestId('daemon-timeline-entry').first()).toBeVisible({ timeout: 30_000 })
+    const panel = await openSection(page, 'Cluster history', 'Cluster', 'cluster-history')
+    await expect(panel.getByTestId('daemon-timeline-entry').first()).toBeVisible({
+      timeout: 30_000,
     })
     await shoot(page, 'wide-daemon-timeline', pairs)
   })
 
-  test('daemon topology graph with sparkline', async ({ app, page, toolPane }) => {
+  test('daemon topology graph with sparkline', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
     await enableDaemon(page)
     await page.keyboard.press('Escape')
-    await toolPane.open(page, 'topology', async (pg) => {
-      const graph = pg.getByTestId('daemon-topology-graph')
+    await openSection(page, 'Topology', 'Cluster', 'topology')
+    {
+      const graph = page.getByTestId('daemon-topology-graph')
       await expect(graph).toBeVisible({ timeout: 30_000 })
       await expect
         .poll(async () => Number(await graph.getAttribute('data-node-count')))
         .toBeGreaterThan(3)
-    })
+    }
     // Select the real cluster Node: the daemon replies with its metrics-server trend.
     await page
       .getByRole('region', { name: 'Node', exact: true })
@@ -558,13 +611,40 @@ test.describe('wide: 043 setup and navigation', () => {
   })
 })
 
+test.describe('wide: 044 cascading layout', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  /**
+   * 044: what a wide window does the moment you pick a section — it opens the one thing that most
+   * needs looking at, and says what the column beside it is for.
+   */
+  test('section opens on one thing', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await showList(page, DEPLOYMENTS, 'Deployments')
+    await expect(cascade(page, 1)).toHaveAttribute('data-testid', 'cascade-step')
+    await expect(cascade(page, 2).getByTestId('cascade-empty')).toBeVisible()
+    await shoot(page, 'wide-cascade', pairs)
+  })
+})
+
 test.describe('ultra', () => {
   test.use({ viewport: { width: 3840, height: 1600 }, deviceScaleFactor: 1 })
 
-  test('six-slot overview', async ({ app, page }) => {
+  /**
+   * 044: the trail, not a wall of prefilled panels. Each follow lands one column further right —
+   * a Pod, the Node it is scheduled on, then one of that node's neighbours — and the column after
+   * the trail is waiting for the next click. A `web` pod is picked by hand rather than relying on
+   * the section's auto-open: the sandbox's unhealthiest pod can be the unschedulable one, which has
+   * no Node to follow. The auto-open is the wide scene's story instead.
+   */
+  test('cascading drill-down', async ({ app, page }) => {
     const pairs = redactions()
     await ready(page, app)
     await openInspector(page, podOf('web'))
+    await followRelated(page, 1, 'Node')
+    await followRelated(page, 2, 'Pod')
+    await expect(cascade(page, 4).getByTestId('cascade-empty')).toBeVisible()
     await shoot(page, 'ultra', pairs)
   })
 })

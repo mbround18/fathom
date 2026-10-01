@@ -153,8 +153,18 @@ test.describe('043 US6 topology sections', () => {
     ).toBeVisible()
   })
 
+  /**
+   * 044 (FR-005): at wide and above a Follow opens the Pod in the next cascade column instead of
+   * re-rooting the column it was clicked in, so there is no back-stack to walk — the columns are
+   * the trail. The next test covers that; this one keeps the pre-044 behaviour where it still
+   * applies, below wide.
+   */
   test('Follow on a Pod opens it, with Back, and keeps the Topology tab', async ({ page }) => {
     await openDeployment(page)
+    test.skip(
+      ['wide', 'ultra'].includes((await widthClass(page)) ?? ''),
+      'the cascade opens the next column instead (FR-005)',
+    )
     await topologyTab(page).click()
     await expect.poll(() => sentTypes(page)).toContain('RefreshRelatedResources')
     await answerRelated(
@@ -198,6 +208,30 @@ test.describe('043 US6 topology sections', () => {
     await expect(neighbours(page).getByTestId('topology-root')).toContainText(DEPLOYMENT)
   })
 
+  test('at wide, Follow on a Pod opens the next cascade column (044 FR-005)', async ({ page }) => {
+    await openDeployment(page)
+    test.skip(
+      !['wide', 'ultra'].includes((await widthClass(page)) ?? ''),
+      'the cascade starts at wide (FR-009)',
+    )
+    await topologyTab(page).click()
+    await expect.poll(() => sentTypes(page)).toContain('RefreshRelatedResources')
+    await answerRelated(
+      page,
+      500,
+      { section: DEPLOYMENTS, kind: 'Deployment', name: DEPLOYMENT },
+      DEPLOYMENT_RELATED,
+    )
+    await neighbours(page)
+      .getByRole('button', { name: `Follow Pod ${NAMESPACE}/${POD.name}` })
+      .click()
+
+    // Column 1 keeps the Deployment, column 2 is the Pod it led to.
+    const column = (n: number) => page.locator(`[data-testid="cascade-step"][data-step="${n}"]`)
+    await expect(column(1)).toHaveAccessibleName(DEPLOYMENT)
+    await expect(column(2)).toHaveAccessibleName(POD.name)
+  })
+
   test('a ConfigMap has no Topology tab', async ({ page }) => {
     const section = 'config/configmaps'
     await open(page)
@@ -222,7 +256,55 @@ test.describe('043 US6 topology sections', () => {
     await expect(page.getByTestId('topology-canvas-host')).toBeVisible()
   })
 
+  /**
+   * 044 (FR-011): at wide and above every slot past the section list is a cascade column, so a
+   * saved `tool:topology` slot cannot survive there (the test below covers what happens instead).
+   * Below wide a saved tool slot still keeps its place, and 043's mapping still opens the section.
+   */
   test('a saved layout pinned to the old topology dock tool opens the section', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await open(page)
+    test.skip((await widthClass(page)) !== 'desktop', 'desktop only')
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+    const saved: UiConfig = {
+      schema: 1,
+      theme: { mode: 'dark', accent: 'cyan', effects: 'on', glitch: false },
+      density: {},
+      layouts: {
+        desktop: {
+          slots: [
+            { kind: 'nav', sizePct: 16 },
+            { kind: 'list', sizePct: 44 },
+            { kind: 'tool', tool: 'topology', sizePct: 40 },
+          ],
+          dock: { open: true, heightPct: 30, tabs: ['logs', 'events'] },
+        },
+      },
+    }
+    await emit(
+      page,
+      batch([
+        system(2, {
+          type: 'UiConfigLoaded',
+          data: { ui: saved, expanded_groups: ['Workloads'], mcp_stdio_enabled: false },
+        }),
+      ]),
+    )
+    const slot = page.locator('[data-slot="pane"][data-slot-index="2"]')
+    await expect(slot).toHaveAttribute('data-section', 'topology')
+    await expect(slot.getByTestId('topology-panel')).toBeVisible()
+    // The other list slot keeps its own section.
+    await expect(page.locator('[data-slot="pane"][data-slot-index="1"]')).not.toHaveAttribute(
+      'data-section',
+      'topology',
+    )
+    expect(errors).toEqual([])
+  })
+
+  test('at wide the same saved tool slot becomes an empty cascade column (044 FR-011)', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1920, height: 1080 })
@@ -255,14 +337,12 @@ test.describe('043 US6 topology sections', () => {
         }),
       ]),
     )
+    // The row is the cascade, so the tool slot is a drill-in column waiting to be filled; the
+    // Topology section is still reachable from the navigator, which the tests above cover.
     const slot = page.locator('[data-slot="pane"][data-slot-index="2"]')
-    await expect(slot).toHaveAttribute('data-section', 'topology')
-    await expect(slot.getByTestId('topology-panel')).toBeVisible()
-    // The other list slot keeps its own section.
-    await expect(page.locator('[data-slot="pane"][data-slot-index="1"]')).not.toHaveAttribute(
-      'data-section',
-      'topology',
-    )
+    await expect(slot).toHaveAttribute('data-pane-kind', 'inspector')
+    await expect(slot.getByTestId('cascade-empty')).toBeVisible()
+    await expect(page.getByTestId('topology-panel')).toHaveCount(0)
     expect(errors).toEqual([])
   })
 })

@@ -38,15 +38,31 @@ export function SlotGrid({ slotCount }: { slotCount?: number }) {
   const targetSizes = slots.map((slot) => slot.sizePct).join(',')
 
   useEffect(() => {
-    const group = groupRef.current
-    if (!group) return
     const target: Layout = {}
     targetSizes.split(',').forEach((pct, i) => {
       target[`slot-${i}`] = Number(pct)
     })
-    const current = group.getLayout()
-    if (Object.keys(target).some((id) => changed(current[id] ?? -100, target[id] ?? 0))) {
-      group.setLayout(target)
+    let frame = 0
+    let tries = 0
+    const apply = () => {
+      const group = groupRef.current
+      if (!group) return
+      const current = group.getLayout()
+      // 044 (FR-010): a class change with a different slot count runs this effect while the group
+      // still holds the previous class's panels (ultra has five, wide four), and a layout that
+      // names fewer panels than the group has throws and takes the whole row down. Wait for the
+      // counts to agree instead — bounded, so a group that never settles just keeps its sizes.
+      if (Object.keys(current).length !== Object.keys(target).length) {
+        if (tries++ < 30) frame = requestAnimationFrame(apply)
+        return
+      }
+      if (Object.keys(target).some((id) => changed(current[id] ?? -100, target[id] ?? 0))) {
+        group.setLayout(target)
+      }
+    }
+    apply()
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
     }
   }, [groupRef, targetSizes, widthClass, uiLoaded])
 

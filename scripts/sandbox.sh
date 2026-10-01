@@ -38,11 +38,60 @@ wait_ready() {
   kc -n "$NS" rollout status daemonset/node-agent --timeout=180s
 }
 
+# The Helm panes show a revision history and a ROLL BACK control, and the promo shoot photographs
+# them — but Flux installs podinfo at revision 1, where there is nothing to roll back to. Bump one
+# cosmetic chart value once to produce a second revision. Idempotent: a release that already has
+# a history is left alone, and a cluster without Flux is simply skipped.
+second_helm_revision() {
+  local deadline
+  kc -n "$NS" wait --for=condition=Ready helmrelease/podinfo --timeout=300s || {
+    echo "sandbox: podinfo HelmRelease not Ready; skipping the second-revision bump" >&2; return 0
+  }
+  revs() { kc -n "$NS" get secret -l owner=helm,name=podinfo -o name 2>/dev/null | wc -l; }
+  if [[ "$(revs)" -ge 2 ]]; then return 0; fi
+  echo "sandbox: upgrading podinfo once so the Helm panes have a revision history"
+  kc -n "$NS" patch helmrelease podinfo --type merge \
+    -p '{"spec":{"values":{"ui":{"message":"Fathom sandbox"}}}}'
+  deadline=$((SECONDS + 300))
+  until [[ "$(revs)" -ge 2 ]]; do
+    [[ $SECONDS -lt $deadline ]] || die "podinfo did not reach a second Helm revision within 300s"
+    sleep 5
+  done
+}
+
+# The live Helm suite (ui/tests/live/qs-006-helm-mutate.spec.ts) mutates a release that Flux does
+# not own, so it needs a bare `helm install` of the same chart with a history to roll back through.
+# Hand-installing it is how the suite ends up failing on a freshly built cluster. Idempotent, and
+# skipped with a warning when helm is not on PATH.
+BARE_RELEASE=quickstart-bare
+BARE_CHART="oci://ghcr.io/stefanprodan/charts/podinfo"
+BARE_VERSION=6.15.0
+bare_helm_release() {
+  command -v helm >/dev/null 2>&1 || {
+    echo "sandbox: helm not on PATH; skipping the $BARE_RELEASE fixture" >&2; return 0
+  }
+  local h=(helm --kube-context "$CTX" -n "$NS")
+  # -o json is one line, so count the occurrences rather than the matching lines.
+  if [[ "$("${h[@]}" history "$BARE_RELEASE" -o json 2>/dev/null | grep -o '"revision"' | wc -l)" -ge 2 ]]; then
+    return 0
+  fi
+  echo "sandbox: installing $BARE_RELEASE with a two-revision history for the live Helm suite"
+  # replicaCount is set on both revisions on purpose: the upgrade pane preloads the release's
+  # user-supplied values, and S2 edits `replicaCount: 1` into `2` there. A release installed with
+  # no values of its own preloads "null" and the scenario has nothing to edit.
+  "${h[@]}" upgrade --install "$BARE_RELEASE" "$BARE_CHART" --version "$BARE_VERSION" \
+    --set replicaCount=1 --wait
+  "${h[@]}" upgrade "$BARE_RELEASE" "$BARE_CHART" --version "$BARE_VERSION" \
+    --set replicaCount=1 --set ui.message=qs006-before --wait
+}
+
 case "${1:-}" in
   up)
     [[ "$(ns_state)" == foreign ]] && die "namespace $NS exists in context $CTX without the sandbox label; refusing to adopt it"
     kc apply -k "$DIR"
     wait_ready
+    second_helm_revision
+    bare_helm_release
     ;;
   reset)
     # Back to the committed baseline: drop e2e throwaways, re-apply, restore replica counts.
@@ -51,6 +100,8 @@ case "${1:-}" in
     kc apply -k "$DIR"
     kc -n "$NS" scale deploy/scale-me --replicas=1
     wait_ready
+    second_helm_revision
+    bare_helm_release
     ;;
   status)
     require_sandbox
