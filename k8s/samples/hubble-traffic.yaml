@@ -1,5 +1,5 @@
-# Traffic for the Hubble pane (fathom-cilium cluster only; applied by `k8s/cluster.sh up-cilium`).
-# `client` polls `web` (forwarded flows) and `locked` (dropped by the NetworkPolicy below).
+# Traffic for the Hubble pane. Applied to every cluster that gets Cilium: `k8s/cluster.sh up`
+# (fathom-dev) and `k8s/cluster.sh up-cilium` (fathom-cilium).
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -4,15 +4,15 @@ Kustomize manifests for a disposable kind cluster used to test Fathom against re
 Nothing here ever targets a non-kind context (`cluster.sh` pins `--context kind-$CLUSTER`).
 
 ```
-k8s/cluster.sh up            # create kind cluster fathom-dev + all addons + samples
+k8s/cluster.sh up            # create kind cluster fathom-dev (no default CNI: Cilium + Hubble) + all addons + samples
 k8s/cluster.sh up minimal    # cert-manager + KEDA only
 k8s/cluster.sh apply         # re-apply after editing manifests
 k8s/cluster.sh down          # blow it away; `up` recreates it identically
-k8s/cluster.sh up-cilium     # separate kind cluster fathom-cilium: Cilium replaces kindnet, Hubble Relay + sample traffic
+k8s/cluster.sh up-cilium     # throwaway kind cluster fathom-cilium with the same Cilium/Hubble stack
 k8s/cluster.sh down-cilium   # delete fathom-cilium
 ```
 
-- `addons/<name>` — cert-manager, keda, knative (+kourier), gatekeeper, trivy (Helm), velero (Helm + RustFS store), flux (v2 controllers; the fathom-dev sandbox podinfo HelmRelease needs it), argocd (v3.5.3 upstream install; `samples/argocd.yaml` adds a synced guestbook app and a deliberately broken one), grafana (13.2.2, admin/`fathom-dev`, Prometheus datasource for the `prometheus` metrics stack; port-forward `svc/grafana 3000` in namespace `grafana`), cilium (Helm, used only by `up-cilium`)
+- `addons/<name>` — cert-manager, keda, knative (+kourier), gatekeeper, trivy (Helm), velero (Helm + RustFS store), flux (v2 controllers; the fathom-dev sandbox podinfo HelmRelease needs it), argocd (v3.5.3 upstream install; `samples/argocd.yaml` adds a synced guestbook app and a deliberately broken one), grafana (13.2.2, admin/`fathom-dev`, Prometheus datasource for the `prometheus` metrics stack; port-forward `svc/grafana 3000` in namespace `grafana`), cilium (Helm; installed at create time by `up` and `up-cilium`, never by an overlay — it needs a cluster with no other CNI)
 - `overlays/{full,minimal}` — which addons to install
 - `samples/` — workloads/CRs that populate every pane (apply after addons; CRDs must exist)
 
@@ -138,3 +138,22 @@ Caveats:
 - Thanos: the sidecar only uploads completed 2h blocks, so on a short-lived kind cluster the object store stays empty and Query is served by the live sidecar. Store Gateway / Compactor are not packaged.
 - Prometheus retention is 2h (6h for Thanos), VictoriaMetrics 1d (its minimum), Mimir/OpenObserve default.
 - Not packaged: Netdata (GPL-3.0 agent, own API, not PromQL-first), Coroot (Apache-2.0 community edition; needs ClickHouse + its own agent, too heavy for a laptop kind cluster).
+
+## Promo shoot (ui/tests/promo)
+
+`FATHOM_LIVE_CONTEXT=kind-fathom-dev pnpm -C ui promo` photographs every pane from this one
+context and composes `ui/promo-out/fathom-promo.pdf`. It empties `promo-out/shots/` first and
+refuses to build the PDF if any scene produced no shot, so a cluster that is missing a component
+fails the run instead of quietly reusing an older photograph of it. The full set needs:
+
+```
+k8s/cluster.sh up                                            # Cilium/Hubble + every addon + samples
+FATHOM_SANDBOX_CONTEXT=kind-fathom-dev scripts/sandbox.sh up # the labelled fathom-dev namespace, podinfo at revision 2
+k8s/cluster.sh up-metrics metrics-server                     # the daemon topology sparkline reads metrics.k8s.io
+k8s/cluster.sh up-daemon                                     # the three spec-036 daemon scenes
+SKIP_INSTALL=1 PROVIDER=rauthy k8s/cluster.sh up-hosted      # second context for the federation fleet scene
+```
+
+The fleet scene names `kind-fathom-oidc-rauthy` directly, so that cluster has to be in the
+kubeconfig and reachable; nothing is installed into it by the shoot (the whole run is read-only —
+`tests/promo/helpers.ts` drops every write before it reaches the bridge).

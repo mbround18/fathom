@@ -38,11 +38,33 @@ wait_ready() {
   kc -n "$NS" rollout status daemonset/node-agent --timeout=180s
 }
 
+# The Helm panes show a revision history and a ROLL BACK control, and the promo shoot photographs
+# them — but Flux installs podinfo at revision 1, where there is nothing to roll back to. Bump one
+# cosmetic chart value once to produce a second revision. Idempotent: a release that already has
+# a history is left alone, and a cluster without Flux is simply skipped.
+second_helm_revision() {
+  local deadline
+  kc -n "$NS" wait --for=condition=Ready helmrelease/podinfo --timeout=300s || {
+    echo "sandbox: podinfo HelmRelease not Ready; skipping the second-revision bump" >&2; return 0
+  }
+  revs() { kc -n "$NS" get secret -l owner=helm,name=podinfo -o name 2>/dev/null | wc -l; }
+  if [[ "$(revs)" -ge 2 ]]; then return 0; fi
+  echo "sandbox: upgrading podinfo once so the Helm panes have a revision history"
+  kc -n "$NS" patch helmrelease podinfo --type merge \
+    -p '{"spec":{"values":{"ui":{"message":"Fathom sandbox"}}}}'
+  deadline=$((SECONDS + 300))
+  until [[ "$(revs)" -ge 2 ]]; do
+    [[ $SECONDS -lt $deadline ]] || die "podinfo did not reach a second Helm revision within 300s"
+    sleep 5
+  done
+}
+
 case "${1:-}" in
   up)
     [[ "$(ns_state)" == foreign ]] && die "namespace $NS exists in context $CTX without the sandbox label; refusing to adopt it"
     kc apply -k "$DIR"
     wait_ready
+    second_helm_revision
     ;;
   reset)
     # Back to the committed baseline: drop e2e throwaways, re-apply, restore replica counts.
@@ -51,6 +73,7 @@ case "${1:-}" in
     kc apply -k "$DIR"
     kc -n "$NS" scale deploy/scale-me --replicas=1
     wait_ready
+    second_helm_revision
     ;;
   status)
     require_sandbox

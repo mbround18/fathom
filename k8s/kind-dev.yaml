@@ -1,0 +1,12 @@
+# The fathom-dev cluster, created without the default CNI so Cilium can own the datapath and
+# Hubble can observe it (k8s/cluster.sh up installs addons/cilium right after create).
+#
+# kindnet cannot be swapped out after the fact, and the promo shoot photographs every pane from a
+# single context — including Integrations > Hubble — so the dev cluster has to be the one with
+# Cilium on it. kind-cilium.yaml stays for the throwaway `up-cilium` cluster.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+nodes:
+  - role: control-plane

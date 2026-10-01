@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Repeatable local kind cluster for testing Fathom against real CRDs/controllers.
-#   k8s/cluster.sh up [overlay]     create cluster (if needed) + apply addons overlay + samples  (default: full)
+#   k8s/cluster.sh up [overlay]     create cluster (if needed, with Cilium/Hubble) + addons overlay + samples  (default: full)
 #   k8s/cluster.sh apply [overlay]  re-apply addons + samples to the existing cluster
 #   k8s/cluster.sh samples          apply only samples/
 #   k8s/cluster.sh down             delete the cluster (blow it away)
@@ -238,12 +238,15 @@ metrics_down() {  # $1 = stack | all; uninstall by label; leaves nothing behind
 
 # ---- Cilium + Hubble (Integrations > Hubble) ----------------------------------------------------------
 # Cilium must replace kindnet, so it gets its own cluster (CLUSTER defaults to fathom-cilium here).
-cilium_up() {
-  kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --config kind-cilium.yaml
+cilium_install() {  # Cilium + Hubble Relay + the traffic sample; the cluster must have no other CNI
   build_apply addons/cilium
   "${K[@]}" -n kube-system rollout status ds/cilium --timeout=300s
   "${K[@]}" -n kube-system rollout status deploy/hubble-relay --timeout=300s
   "${K[@]}" apply -f samples/hubble-traffic.yaml
+}
+cilium_up() {
+  kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --config kind-cilium.yaml
+  cilium_install
   echo "cluster $CLUSTER ready: select context $CTX in Fathom and open Integrations > Hubble"
 }
 
@@ -259,7 +262,12 @@ case "${1:-}" in
   test-hosted-lifecycle) hosted_lifecycle ;;
   down-hosted) kind delete cluster --name "$CLUSTER" ;;
   up)
-    kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER"
+    # kind-dev.yaml turns the default CNI off so Cilium can own the datapath: the Hubble pane needs
+    # it, and the promo shoot photographs every pane from this one context.
+    if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
+      kind create cluster --name "$CLUSTER" --config kind-dev.yaml
+      cilium_install
+    fi
     build_apply "overlays/${2:-full}"; wait_ready; build_apply samples ;;
   apply) build_apply "overlays/${2:-full}"; wait_ready; build_apply samples ;;
   samples) build_apply samples ;;
