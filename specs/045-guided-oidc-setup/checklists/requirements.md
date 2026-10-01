@@ -27,14 +27,14 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 - [X] **FR-007** — The system MUST NOT persist an issuer, a credential or a claim mapping at any step before the operator saves; abandoning the path MUST discard the dr…
   - `T025`
 
-- [ ] **FR-008** — The system MUST read the active cluster's API server authentication configuration — both the legacy `--oidc-*` flags and a structured `Authentication…
-  - `T033` (open)
+- [X] **FR-008** — The system MUST read the active cluster's API server authentication configuration — both the legacy `--oidc-*` flags and a structured `Authentication…
+  - `T033`
 
-- [ ] **FR-009** — The system MUST compare issuer URL, client id/audience, username claim, groups claim, username prefix and groups prefix one by one, and MUST distingu…
-  - `T036` (open)
+- [X] **FR-009** — The system MUST compare issuer URL, client id/audience, username claim, groups claim, username prefix and groups prefix one by one, and MUST distingu…
+  - `T036`
 
-- [ ] **FR-010** — The system MUST state when the API server's configuration could not be read, with the verbatim reason, and MUST NOT treat an unreadable configuration…
-  - `T034` (open)
+- [X] **FR-010** — The system MUST state when the API server's configuration could not be read, with the verbatim reason, and MUST NOT treat an unreadable configuration…
+  - `T034`
 
 - [X] **FR-011** — The system MUST expose the username and groups prefixes as editable fields with their current values, since they decide whether bindings match.
   - `T031`
@@ -54,29 +54,29 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 - [X] **FR-016** — The system MUST open the same path, pre-filled, when an existing issuer is reviewed, and MUST warn before saving a change to an issuer id that it sig…
   - `T052`
 
-- [ ] **FR-017** — The system MUST refuse to save an issuer whose id is already in use, with an explanation.
-  - `T048` (open)
+- [X] **FR-017** — The system MUST refuse to save an issuer whose id is already in use, with an explanation.
+  - `T048`
 
 - [X] **FR-018** — The system MUST replace the existing flat issuer form for both adding and editing; the issuer list, the per-issuer sign-in controls and the role-map…
   - `T053`
 
-- [ ] **FR-019** — On a local cluster Fathom provisioned, the system MUST be able to apply the API server authentication configuration matching the issuer, and MUST sho…
-  - `T060` (open), `T062`
+- [X] **FR-019** — On a local cluster Fathom provisioned, the system MUST be able to apply the API server authentication configuration matching the issuer, and MUST sho…
+  - `T060`, `T062`
 
-- [ ] **FR-020** — The system MUST write the legacy flags or the structured configuration in whichever style the cluster already uses, MUST NOT produce both, and MUST s…
-  - `T033` (open), `T060` (open)
+- [X] **FR-020** — The system MUST write the legacy flags or the structured configuration in whichever style the cluster already uses, MUST NOT produce both, and MUST s…
+  - `T033`, `T060`
 
-- [ ] **FR-021** — The system MUST keep a copy of the previous API server manifest before changing it, MUST wait for the control plane to become ready afterwards, and o…
-  - `T059` (open)
+- [X] **FR-021** — The system MUST keep a copy of the previous API server manifest before changing it, MUST wait for the control plane to become ready afterwards, and o…
+  - `T059`
 
-- [ ] **FR-022** — The system MUST NOT offer to change the API server of any context Fathom did not provision, and MUST instead show the required configuration as copya…
-  - `T056` (open), `T060` (open), `T063`
+- [X] **FR-022** — The system MUST NOT offer to change the API server of any context Fathom did not provision, and MUST instead show the required configuration as copya…
+  - `T056`, `T060`, `T063`
 
 - [X] **FR-023** — The system MUST offer the read-only API server comparison (FR-008–FR-010) in hosted mode, performed as the signed-in user, and MUST NOT offer the API…
   - `T073`
 
 - [ ] **FR-024** — Every cluster write the path performs MUST appear in the mutation audit log like any other write.
-  - `T061` (open), `T064` (open)
+  - `T061`, `T064` (open)
 
 - [X] **FR-025** — Each step MUST be reachable backwards without losing the draft, and the path MUST be closable at every step.
   - `T015`, `T016`
@@ -87,8 +87,8 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 - [X] **FR-027** — The Fathom role slots (FR-012) and the cluster bindings (FR-013) MUST be presented as two separate, separately refusable steps, and the path MUST NOT…
   - `T041`, `T042`
 
-- [ ] **FR-028** — On saving after a successful test sign-in, the system MUST establish the operator's session from that sign-in's tokens without requiring a second sig…
-  - `T046` (open), `T049` (open)
+- [X] **FR-028** — On saving after a successful test sign-in, the system MUST establish the operator's session from that sign-in's tokens without requiring a second sig…
+  - `T046`, `T049`
 
 - [X] **FR-029** — The path MUST render as a layered overlay, openable unchanged from the identity chip, the Settings sign-in pane and the first-run setup screen. It MU…
   - `T017`, `T054`
@@ -111,8 +111,8 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 - [X] **FR-035** — When that review cannot be completed, the system MUST fail closed and state the unknown verbatim, in the same shape as the API server read of FR-010.
   - `T070`, `T071`
 
-- [ ] **FR-036** — The system MUST record, when it provisions a local cluster, that Fathom provisioned it, and MUST base the ownership test of FR-019 and FR-022 on that…
-  - `T056` (open), `T057` (open)
+- [X] **FR-036** — The system MUST record, when it provisions a local cluster, that Fathom provisioned it, and MUST base the ownership test of FR-019 and FR-022 on that…
+  - `T056`, `T057`
 
 ## Gaps
 
@@ -120,4 +120,4 @@ No requirement is left uncited by `tasks.md`.
 
 ## Totals
 
-25 of 36 requirements have all their tasks complete.
+35 of 36 requirements have all their tasks complete.
