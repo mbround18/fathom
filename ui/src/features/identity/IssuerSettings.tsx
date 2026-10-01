@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import type { OidcIssuerConfig } from '@/protocol/types'
 import { useStore } from '@/store'
 
+import { GuidedIssuerPath } from './GuidedIssuerPath'
 import { RoleMapEditor } from './RoleMapEditor'
 import { SignInPanel } from './SignInPanel'
 
@@ -47,12 +48,27 @@ export function IssuerSettings() {
   const send = useStore((s) => s.send)
   const issuers = useStore((s) => s.identity.config.issuers)
   const configError = useStore((s) => s.identity.errors[''])
+  const origins = useStore((s) => s.identity.origins)
+  // 045: the guided path, opened beside the flat form rather than instead of it. Replacing the
+  // form is T053/T054's job; this is only what makes the path reachable while it is being built.
+  const [path, setPath] = useState<{ issuer?: OidcIssuerConfig } | undefined>(undefined)
   const [form, setForm] = useState<OidcIssuerConfig>(EMPTY_ISSUER)
   const set = (patch: Partial<OidcIssuerConfig>) => setForm((f) => ({ ...f, ...patch }))
   const canSave = form.id.trim() && form.issuer_url.trim() && form.client_id.trim()
 
   return (
     <div className="flex flex-col gap-4" data-testid="oidc-issuer-settings">
+      <div>
+        <Button size="sm" data-testid="oidc-guided-add" onClick={() => setPath({})}>
+          Add issuer with the guided path
+        </Button>
+      </div>
+      <GuidedIssuerPath
+        open={path !== undefined}
+        onOpenChange={(open) => setPath(open ? (path ?? {}) : undefined)}
+        issuer={path?.issuer}
+        origin={path?.issuer ? origins[path.issuer.id]?.origin : undefined}
+      />
       {issuers.length === 0 && (
         <p className="text-xs text-muted-foreground" data-testid="oidc-no-issuers">
           No OIDC issuers configured.
@@ -69,6 +85,14 @@ export function IssuerSettings() {
             <span className="min-w-0 truncate font-mono text-muted-foreground">
               {issuer.issuer_url}
             </span>
+            <Button
+              size="xs"
+              variant="ghost"
+              data-testid={`oidc-review-${issuer.id}`}
+              onClick={() => setPath({ issuer })}
+            >
+              Review
+            </Button>
             <Button
               size="xs"
               variant="ghost"
