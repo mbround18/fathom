@@ -56,12 +56,12 @@
 
 **Independent Test**: Open **Add issuer…**, paste the lab Keycloak URL, and confirm the endpoints, supported scopes and supported claims are shown; paste a URL whose discovery document reports a different `issuer` and confirm the path refuses to continue, showing both values.
 
-- [ ] T019 [P] [US1] Backend test in `src/backend/oidc/flow.rs`'s test module that `Doc` retains `scopes_supported` and `claims_supported`, and that both default to empty when the provider omits them (FR-001)
-- [ ] T020 [P] [US1] Backend test that a discovery document whose `issuer` differs from the URL requested is reported as a mismatch carrying **both** values, not a generic failure (FR-002)
-- [ ] T021 [US1] Handle `OidcDiscoverDraft` in `src/backend/cmd/oidc.rs` beside the `OidcSignIn` arm at `:58`, calling the existing `flow::discover(http, issuer_url)` (`flow.rs:132`, already takes a bare URL — no saved issuer is needed) and emitting one `OidcDraftDiscovered`
-- [ ] T022 [US1] Return discovery failures as `CommandFinished { ok: false, error }` carrying the verbatim transport or HTTP error and the URL tried, and honour `ca_bundle_path` from the draft so a private CA can be supplied before the first successful probe (FR-003)
-- [ ] T023 [US1] Implement the issuer-URL and discovery steps in `ui/src/features/identity/GuidedIssuerPath.tsx`, rendering endpoints, `scopes_supported` and `claims_supported` as the real document rather than a summary, with the issuer-mismatch refusal showing both values (FR-001, FR-002)
-- [ ] T024 [P] [US1] E2E in `ui/tests/e2e/guided-oidc.spec.ts` against the fake transport: paste a URL, assert `OidcDiscoverDraft` was sent, assert the rendered scopes and claims, then assert the mismatch case blocks progress (SC-001, SC-002)
+- [X] T019 [P] [US1] Backend test in `src/backend/oidc/flow.rs`'s test module that `Doc` retains `scopes_supported` and `claims_supported`, and that both default to empty when the provider omits them (FR-001)
+- [X] T020 [P] [US1] Backend test that a discovery document whose `issuer` differs from the URL requested is reported as a mismatch carrying **both** values, not a generic failure (FR-002)
+- [X] T021 [US1] Handle `OidcDiscoverDraft` in `src/backend/cmd/oidc.rs` beside the `OidcSignIn` arm at `:58`, calling the existing `flow::discover(http, issuer_url)` (`flow.rs:132`, already takes a bare URL — no saved issuer is needed) and emitting one `OidcDraftDiscovered`
+- [X] T022 [US1] Return discovery failures as `CommandFinished { ok: false, error }` carrying the verbatim transport or HTTP error and the URL tried, and honour `ca_bundle_path` from the draft so a private CA can be supplied before the first successful probe (FR-003)
+- [X] T023 [US1] Implement the issuer-URL and discovery steps in `ui/src/features/identity/GuidedIssuerPath.tsx`, rendering endpoints, `scopes_supported` and `claims_supported` as the real document rather than a summary, with the issuer-mismatch refusal showing both values (FR-001, FR-002)
+- [X] T024 [P] [US1] E2E in `ui/tests/e2e/guided-oidc.spec.ts` against the fake transport: paste a URL, assert `OidcDiscoverDraft` was sent, assert the rendered scopes and claims, then assert the mismatch case blocks progress (SC-001, SC-002)
 
 **Checkpoint**: US1 is independently usable — the path probes and reports, and still writes nothing.
 
@@ -73,14 +73,14 @@
 
 **Independent Test**: Run the test sign-in from a draft, confirm the claims and the prefixed username/groups preview appear, then close the Sheet and confirm the issuer list is unchanged and no keyring entry exists.
 
-- [ ] T025 [P] [US2] Backend test that a draft sign-in writes **no** keyring entry: assert `store.set` is never called for the draft's id and that `persistence::load_oidc_config()` is byte-identical before and after (FR-007, SC-004)
-- [ ] T026 [P] [US2] Backend test that a draft sign-in for an id matching a saved, signed-in issuer does **not** cancel that issuer's live session — `sign_in` cancels any in-flight sign-in keyed on `cfg.id` at `src/backend/oidc/session.rs:149`, which a draft must not trigger
-- [ ] T027 [US2] Add a draft sign-in path in `src/backend/oidc/session.rs` that reaches the existing flow (`sign_in` already takes `OidcIssuerConfig` **by value** at `:148`) but publishes only to the in-memory `Live` slot (`:455`) and skips the `store.set(SecretKind::RefreshToken, …)` calls that `install()` performs first at `:413`; track the draft under a key that cannot collide with a saved issuer id
-- [ ] T028 [US2] Handle `OidcTestSignIn` in `src/backend/cmd/oidc.rs`, taking the config from the inline draft rather than `find_issuer` (`:91`), reusing the existing browser and device-code progress events and emitting `OidcDraftSignInSucceeded` on success (FR-004)
-- [ ] T029 [US2] Build `DraftSignInResult` from the validated ID token's claims in the draft path, carrying claim names and values but no token material (FR-005)
-- [ ] T030 [US2] Implement the claims step in `ui/src/features/identity/GuidedIssuerPath.tsx`: show every claim with its value, let the username and groups claims be chosen from the claims actually present, and preview the username and group list with the configured prefixes applied (FR-005, FR-006)
-- [ ] T031 [US2] Expose `username_prefix` and `groups_prefix` as editable fields showing their current values in the same step, since they decide whether bindings match (FR-011)
-- [ ] T032 [P] [US2] E2E in `ui/tests/e2e/guided-oidc.spec.ts`: complete a scripted test sign-in, assert the claims table and the prefixed preview, then close the Sheet and assert no `OidcSaveDraft` was sent and the issuer list is unchanged (SC-004, SC-007)
+- [X] T025 [P] [US2] Backend test that a draft sign-in writes **no** keyring entry: assert `store.set` is never called for the draft's id and that `persistence::load_oidc_config()` is byte-identical before and after (FR-007, SC-004)
+- [X] T026 [P] [US2] Backend test that a draft sign-in for an id matching a saved, signed-in issuer does **not** cancel that issuer's live session — `sign_in` cancels any in-flight sign-in keyed on `cfg.id` at `src/backend/oidc/session.rs:149`, which a draft must not trigger
+- [X] T027 [US2] Add a draft sign-in path in `src/backend/oidc/session.rs` that reaches the existing flow (`sign_in` already takes `OidcIssuerConfig` **by value** at `:148`) but publishes only to the in-memory `Live` slot (`:455`) and skips the `store.set(SecretKind::RefreshToken, …)` calls that `install()` performs first at `:413`; track the draft under a key that cannot collide with a saved issuer id
+- [X] T028 [US2] Handle `OidcTestSignIn` in `src/backend/cmd/oidc.rs`, taking the config from the inline draft rather than `find_issuer` (`:91`), reusing the existing browser and device-code progress events and emitting `OidcDraftSignInSucceeded` on success (FR-004)
+- [X] T029 [US2] Build `DraftSignInResult` from the validated ID token's claims in the draft path, carrying claim names and values but no token material (FR-005)
+- [X] T030 [US2] Implement the claims step in `ui/src/features/identity/GuidedIssuerPath.tsx`: show every claim with its value, let the username and groups claims be chosen from the claims actually present, and preview the username and group list with the configured prefixes applied (FR-005, FR-006)
+- [X] T031 [US2] Expose `username_prefix` and `groups_prefix` as editable fields showing their current values in the same step, since they decide whether bindings match (FR-011)
+- [X] T032 [P] [US2] E2E in `ui/tests/e2e/guided-oidc.spec.ts`: complete a scripted test sign-in, assert the claims table and the prefixed preview, then close the Sheet and assert no `OidcSaveDraft` was sent and the issuer list is unchanged (SC-004, SC-007)
 
 **Checkpoint**: US1 and US2 both work independently; the draft still persists nothing.
 
@@ -97,9 +97,9 @@
 - [ ] T035 [US3] Implement the static-pod read in `src/backend/apiserver_auth.rs`: read the `kube-apiserver` pod in `kube-system` as the signed-in user, extract the flags, and return `ApiServerAuthRead` including the context it read from
 - [ ] T036 [US3] Implement the field-by-field comparison producing `Vec<AuthDifference>` over issuer URL, client id/audience, username claim, groups claim, username prefix and groups prefix, distinguishing *absent* (`None`) from *different* (FR-009)
 - [ ] T037 [US3] Handle `ReadApiServerAuth` in `src/backend/cmd/oidc.rs`, emitting one `ApiServerAuthRead` event, and reuse the capability cache's 60s per-context TTL (`src/backend/capabilities.rs:272`) rather than re-reading on every step entry
-- [ ] T038 [US3] Implement the comparison step in `ui/src/features/identity/GuidedIssuerPath.tsx`: a row per difference, the context named, and the stated-unknown rendering that does not block progress (FR-008–FR-010)
-- [ ] T039 [US3] Re-read the comparison, or state that it is stale, when the active context changes while the path is open (FR-026)
-- [ ] T040 [P] [US3] E2E in `ui/tests/e2e/guided-oidc.spec.ts` for three scripted replies: a clean match, a prefix mismatch reported before any save, and an unreadable API server shown verbatim (SC-003)
+- [X] T038 [US3] Implement the comparison step in `ui/src/features/identity/GuidedIssuerPath.tsx`: a row per difference, the context named, and the stated-unknown rendering that does not block progress (FR-008–FR-010)
+- [X] T039 [US3] Re-read the comparison, or state that it is stale, when the active context changes while the path is open (FR-026)
+- [X] T040 [P] [US3] E2E in `ui/tests/e2e/guided-oidc.spec.ts` for three scripted replies: a clean match, a prefix mismatch reported before any save, and an unreadable API server shown verbatim (SC-003)
 
 **Checkpoint**: All three P1 stories work independently. This is the point where the path is more useful than the flat form.
 
@@ -166,15 +166,15 @@
 
 **Purpose**: Hosted gets steps 1–7 including the read, is denied the write, is seeded from its own startup configuration, and gates the whole surface on the cluster's answer. These cut across US1–US5 rather than belonging to one of them.
 
-- [ ] T065 [P] Test in `server/src/oidc_seed.rs` that the projection maps `oidc.issuer_raw` verbatim (a `Url` would append a `/`), carries scopes, claims and prefixes with empty prefixes becoming `None`, carries `ca_file` to `ca_bundle_path`, sets `admin_api_base: None`, and **never** projects `client_secret` (FR-033)
-- [ ] T066 Implement the projection in `server/src/oidc_seed.rs` from the already-validated `HostedConfig` (`server/src/config.rs:157`) into an `OidcIssuerConfig` marked `IssuerOrigin::SeededFromEnvironment`, introducing no second source of truth
-- [ ] T067 Surface the seeded issuer in the hosted issuer list and emit `OidcSeedOrigin` naming its source, so the UI can render it read-only; desktop never emits it and `Saved` is the absence of it (FR-031)
+- [X] T065 [P] Test in `server/src/oidc_seed.rs` that the projection maps `oidc.issuer_raw` verbatim (a `Url` would append a `/`), carries scopes, claims and prefixes with empty prefixes becoming `None`, carries `ca_file` to `ca_bundle_path`, sets `admin_api_base: None`, and **never** projects `client_secret` (FR-033)
+- [X] T066 Implement the projection in `server/src/oidc_seed.rs` from the already-validated `HostedConfig` (`server/src/config.rs:157`) into an `OidcIssuerConfig` marked `IssuerOrigin::SeededFromEnvironment`, introducing no second source of truth
+- [X] T067 Surface the seeded issuer in the hosted issuer list and emit `OidcSeedOrigin` naming its source, so the UI can render it read-only; desktop never emits it and `Saved` is the absence of it (FR-031)
 - [ ] T068 Render a seeded issuer read-only in `ui/src/features/identity/GuidedIssuerPath.tsx` and `IssuerSettings.tsx`: not editable, not deletable, origin stated, the place it is changed named — while discovery, claims and the API server comparison all stay available (FR-032)
-- [ ] T069 Document the mounted Secret/ConfigMap and the `FATHOM_OIDC_*` env overrides in the hosted manifests under `k8s/`, so the seed appears in manifest export like every other object Fathom would apply, with no secret value rendered (FR-033)
-- [ ] T070 [P] Test that the hosted configuration surface is gated by a `SelfSubjectAccessReview` performed as the signed-in user, reusing `review_resource_access` (`src/backend/rbac_access.rs:29`) and `CapabilityResult`'s verbatim `reason` (`src/backend/capabilities.rs:272`), and that a failed review **fails closed** with the unknown stated verbatim (FR-034, FR-035)
-- [ ] T071 Implement that guard on the hosted OIDC configuration surface, with no Fathom-internal role list anywhere in the decision path (FR-034, FR-035)
+- [X] T069 Document the mounted Secret/ConfigMap and the `FATHOM_OIDC_*` env overrides in the hosted manifests under `k8s/`, so the seed appears in manifest export like every other object Fathom would apply, with no secret value rendered (FR-033)
+- [X] T070 [P] Test that the hosted configuration surface is gated by a `SelfSubjectAccessReview` performed as the signed-in user, reusing `review_resource_access` (`src/backend/rbac_access.rs:29`) and `CapabilityResult`'s verbatim `reason` (`src/backend/capabilities.rs:272`), and that a failed review **fails closed** with the unknown stated verbatim (FR-034, FR-035)
+- [X] T071 Implement that guard on the hosted OIDC configuration surface, with no Fathom-internal role list anywhere in the decision path (FR-034, FR-035)
 - [ ] T072 Show the identity surface in hosted, which `ui/src/components/layout/TopBar.tsx:109` hides today via `{!isHosted && <IdentityChip …>}` — the Settings sign-in pane must reach the path even if the chip stays hidden
-- [ ] T073 [P] Hosted E2E in `ui/tests/e2e/hosted-guided-oidc.spec.ts` (run by `pnpm e2e:hosted`): the seeded issuer renders read-only with its origin, steps 1–7 including the comparison are available, `WriteApiServerAuth` is refused with a reason, and a denied user is refused in the API server's own words (FR-023, FR-031–FR-035)
+- [X] T073 [P] Hosted E2E in `ui/tests/e2e/hosted-guided-oidc.spec.ts` (run by `pnpm e2e:hosted`): the seeded issuer renders read-only with its origin, steps 1–7 including the comparison are available, `WriteApiServerAuth` is refused with a reason, and a denied user is refused in the API server's own words (FR-023, FR-031–FR-035)
 
 **Checkpoint**: Hosted and desktop both correct, with the hosted denial enforced in `filter.rs` rather than only in the UI.
 

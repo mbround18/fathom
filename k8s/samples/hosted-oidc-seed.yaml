@@ -1,0 +1,71 @@
+# Hosted OIDC seed (spec 045, FR-031/FR-033/FR-034). In hosted mode the guided path is read-only:
+# the issuer the operator seeded here is what every tab sees, flagged SeededFromEnvironment, and
+# `fathom-oidc` is also the object fathom-server reviews access against before it shows the issuer
+# surface at all (`FATHOM_OIDC_CONFIG_OBJECT`, default `secret/fathom-oidc`). No secret value is
+# rendered: the Secret carries only its shape, so this file is safe in manifest export and in git.
+#
+# Apply it before `helm upgrade --install`, then point the chart at it so the object the operator
+# edits and the object users are reviewed against are the same one:
+#   --set oidc.existingSecret=fathom-oidc
+# The non-secret overrides live in the ConfigMap below; `envFrom` is not part of the chart yet, so
+# set them as Helm values (`oidc.issuer`, `claims.*`) or add the ConfigMap to the pod's envFrom.
+apiVersion: v1
+kind: Namespace
+metadata: {name: fathom}
+---
+# The seeded client secret. Created empty on purpose (FR-033): fill it out of band, e.g.
+#   kubectl -n fathom create secret generic fathom-oidc --from-literal=client-secret=... \
+#     --dry-run=client -o yaml | kubectl apply -f -
+# fathom-server never projects this value to a client; only the issuer, client id, scopes, CA path
+# and claim mapping reach the UI.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fathom-oidc
+  namespace: fathom
+  annotations:
+    fathom.dev/seed: "oidc"   # marks the object the guided path reports as its origin
+type: Opaque
+stringData:
+  client-secret: ""           # replace out of band; never commit a real value
+---
+# Non-secret seed: the same FATHOM_* names the chart's deployment already sets, kept in one place
+# so an operator can see (and diff) the seeded issuer without reading a Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: fathom-oidc-env, namespace: fathom}
+data:
+  # Placeholders: the dev clusters get the real per-provider values from
+  # overlays/hosted/values-<provider>.yaml, since the issuer differs per IdP.
+  FATHOM_OIDC_ISSUER: "https://idp.example.com/"
+  FATHOM_OIDC_CLIENT_ID: "fathom"
+  FATHOM_OIDC_SCOPES: "openid,profile,email,groups"
+  FATHOM_OIDC_CA_FILE: "/etc/fathom/ca/ca.crt"   # only when oidc.caSecret is set
+  FATHOM_CLAIM_USERNAME: "preferred_username"
+  FATHOM_CLAIM_GROUPS: "groups"
+  FATHOM_USERNAME_PREFIX: "oidc:"
+  FATHOM_GROUPS_PREFIX: "oidc:"
+  # Which object the sign-in review asks about. Keep it in step with oidc.existingSecret above.
+  FATHOM_OIDC_CONFIG_OBJECT: "secret/fathom-oidc"
+---
+# FR-034: only a user the API server would let read the seed sees the issuer surface. The review is
+# a SelfSubjectAccessReview for `get` on this object as the signed-in user, and it fails closed, so
+# without this grant nobody reaches the guided path -- which is the intended default.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: fathom-oidc-seed-reader, namespace: fathom}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [fathom-oidc]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [fathom-oidc-env]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: oidc-fathom-admins-seed, namespace: fathom}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: fathom-oidc-seed-reader}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: Group, name: "oidc:fathom-admins"}]

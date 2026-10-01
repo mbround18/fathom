@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use fathom::backend::access::Identity as BackendIdentity;
 use fathom::backend::audit_log::AuditSink;
 use fathom::protocol::{
-    BackendCmd, BridgeError, DevBridgeServerMsg, EventBatch, PublicLimits, RequestId,
-    SubscriptionInfo,
+    BackendCmd, BridgeError, DevBridgeServerMsg, EventBatch, NotificationLevel, PublicLimits,
+    RequestId, SubscriptionInfo, SystemEvent,
 };
 use kube::Config;
 use tokio::sync::Notify;
@@ -23,6 +23,7 @@ use crate::audit::HostedAuditSink;
 use crate::config::{AccessModel, HostedConfig, KubeTokenKind};
 use crate::kubeauth::{self, AuthError, Credentials, Impersonation, TokenCell};
 use crate::oidc::OidcClient;
+use crate::oidc_seed;
 use crate::refresh::{self, RefreshConfig, RefreshParams};
 use crate::session::{Identity, Session, SessionStore, Tokens};
 use crate::tenant::{
@@ -278,6 +279,70 @@ impl HostedTenantHost {
             .map_err(|e| AttachError::Unavailable(e.to_string()))
     }
 
+    /// A kube client carrying this session's own identity. FR-034's review is performed as the
+    /// signed-in user — the same credentials every other read of theirs goes out with — never
+    /// with the server's, and never against a Fathom-internal role list.
+    fn user_client(&self, session: &Session) -> Result<kube::Client, String> {
+        let base = self
+            .base
+            .clone()
+            .map_err(|e| format!("no in-cluster config: {e}"))?;
+        let cell = self
+            .cells
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&session.user_key)
+            .cloned()
+            .ok_or_else(|| "no kube credential for this session".to_owned())?;
+        let creds = credentials_for(&self.cfg, &session.identity, &cell)?;
+        kubeauth::build_client(base, creds).map_err(|e| e.to_string())
+    }
+
+    /// Put the server's own validated OIDC configuration in front of this tab as a seeded,
+    /// read-only issuer (FR-031, FR-032) — but only once the API server has said this user may
+    /// read the object it comes from (FR-034). Anything else refuses, in the API server's own
+    /// words (FR-035).
+    ///
+    /// Off the attach path, because the review is a round trip and the tab's frames start
+    /// flowing only after it subscribes. Run on every attach rather than once per user: the
+    /// fanout hub keeps a backlog only while no tab is attached, so a tab opened later would
+    /// otherwise never see the seed. The issuer snapshot and the refusal are both idempotent.
+    fn spawn_oidc_seed(&self, session: &Session, backend: &Arc<UserBackend>) {
+        let object = oidc_seed::SeedObjectRef::from_env();
+        let client = self.user_client(session);
+        let cfg = Arc::clone(&self.cfg);
+        let backend = Arc::clone(backend);
+        tokio::spawn(async move {
+            let object = match object {
+                Ok(o) => o,
+                // Without the object there is nothing to review against, and an unreviewed
+                // surface is a refused surface: fail closed and state the unknown verbatim.
+                Err(reason) => {
+                    backend.emit_system(SystemEvent::Notification {
+                        level: NotificationLevel::Warn,
+                        message: format!(
+                            "Fathom's OIDC configuration is not shown: it could not be checked, \
+                             so it is treated as not permitted — {reason}"
+                        ),
+                    });
+                    return;
+                }
+            };
+            let verdict = match client {
+                Ok(c) => oidc_seed::review_config_access(c, &object).await,
+                // A credential we cannot even build is an undetermined review, not a denial.
+                Err(reason) => oidc_seed::decide(Err(reason), &object),
+            };
+            if !verdict.allowed {
+                backend.emit_system(oidc_seed::denied_notice(&verdict, &object));
+                return;
+            }
+            for event in oidc_seed::seed_events(&cfg, &object) {
+                backend.emit_system(event);
+            }
+        });
+    }
+
     fn ensure_refresher(&self, session: &Session, backend: &Arc<UserBackend>) {
         let mut r = self.refreshers.lock().unwrap_or_else(|e| e.into_inner());
         if r.get(&session.id).is_some_and(|h| !h.is_finished()) {
@@ -343,6 +408,7 @@ impl TenantHost for HostedTenantHost {
         let backend = self.backend_for(session)?;
         let attachment = backend.attach_tab().map_err(AttachError::Limit)?;
         self.ensure_refresher(session, &backend);
+        self.spawn_oidc_seed(session, &backend);
         Ok(Box::new(HostedConn::new(backend, attachment, frames)))
     }
 }

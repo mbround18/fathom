@@ -6,3 +6,5 @@ kind: Kustomization
 resources:
   - ../../addons/ingress-nginx
   - ../../samples/hosted-rbac.yaml
+  # spec 045: the seeded OIDC issuer and the RBAC that gates reading it (no secret value rendered)
+  - ../../samples/hosted-oidc-seed.yaml

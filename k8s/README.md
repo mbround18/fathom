@@ -50,6 +50,13 @@ stops after the IdP). It waits for the rollout and for `/readyz` through the ing
   its values drop the `groups` scope (the realm's group mapper adds the claim).
 - `.tmp/` (git-ignored) holds a throwaway CA + leaf cert; the script mounts the CA into the API server (`--oidc-ca-file`), injects node `/etc/hosts` entries (API server) and CoreDNS `rewrite` rules (pods) pointing the names at ingress-nginx.
 - Issuers: Rauthy `https://auth.localtest.me/auth/v1/` (trailing slash is part of the issuer), Keycloak `https://keycloak.localtest.me/realms/fathom`. Client `fathom` (confidential, PKCE S256, 60 s token lifetime), secret in `addons/<provider>`.
+- OIDC seed (spec 045): `samples/hosted-oidc-seed.yaml` (in the hosted overlay) is the seeded issuer as an object --
+  Secret `fathom/fathom-oidc` with no value rendered, a ConfigMap of the non-secret `FATHOM_OIDC_*`/`FATHOM_CLAIM_*`
+  overrides, and a Role/RoleBinding granting `get` on the Secret to `oidc:fathom-admins`. Hosted shows the issuer
+  read-only, flagged as seeded, and only to a user the API server would let read that object: the check is a
+  `SelfSubjectAccessReview` for `get` and it fails closed, so without the binding nobody reaches the guided path.
+  Point the chart at the same object with `--set oidc.existingSecret=fathom-oidc`; `FATHOM_OIDC_CONFIG_OBJECT`
+  (default `secret/fathom-oidc`) and `FATHOM_NAMESPACE` name it when it lives elsewhere.
 - Users `alice` (group `fathom-viewers`, view everywhere), `bob` (`fathom-editors`, edit in `demo`), `carol` (no group), all with password `FathomDemo#2026-Pw1`; IdP admin `admin@fathom.test`/`admin` with `FathomAdmin#2026-Pw1`. RBAC: `samples/hosted-rbac.yaml`. Dev-only static secrets, disposable clusters only.
 
 ## Restricted user
