@@ -2,7 +2,7 @@ use crate::backend::access::{ClusterAccess, Identity};
 use crate::backend::audit_log::AuditSink;
 use crate::backend::ns_scope::{self, NamespaceScope};
 use crate::backend::portforward::PortForwardManager;
-use crate::protocol::CrdCatalogEntry;
+use crate::protocol::{ClusterVersionSummary, CrdCatalogEntry};
 use kube::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, atomic::AtomicU64};
@@ -33,6 +33,10 @@ pub(super) struct ClusterContext {
     /// 031: whether namespaces can be listed and, if not, which ones the user reaches. Reset
     /// on every (re)connect; shared with background pollers.
     pub(super) scope: NamespaceScope,
+    /// 019: the last version summary the poll produced, so a UI that reloads mid-session is told
+    /// the version straight away instead of reading "Unknown" until the next 20s tick. Cleared on
+    /// a context switch: it describes the cluster we were on. Shared with the poll task.
+    pub(super) cluster_version: Arc<RwLock<Option<ClusterVersionSummary>>>,
 }
 
 impl ClusterContext {
@@ -338,6 +342,7 @@ impl BackendState {
                 crd_catalog: Vec::new(),
                 connection_epoch: 0,
                 scope: NamespaceScope::default(),
+                cluster_version: Arc::new(RwLock::new(None)),
             },
             log_stream: super::log_streams::LogStreams::default(),
             exec_session: ExecSessionState {

@@ -999,6 +999,24 @@ pub(super) async fn ensure_cluster_version_poll(
     sender: &Sender<BackendEventEnvelope>,
 ) {
     if state.watch_tasks.cluster_version_poll_task.is_some() {
+        // The poll is already running, which means a reload rather than a fresh connect: the UI
+        // store starts empty again and the badge would read "Unknown" until the next 20s tick.
+        // Hand it the version we already know.
+        let cached = state
+            .cluster
+            .cluster_version
+            .read()
+            .ok()
+            .and_then(|c| c.clone());
+        if let Some(summary) = cached {
+            events::emit(
+                state.cluster.seq.as_ref(),
+                sender,
+                Route::global(section_keys::system()),
+                Correlation::None,
+                BackendEvent::System(SystemEvent::ClusterVersionUpdated(summary)),
+            );
+        }
         return;
     }
     let Some(client) = state.cluster.client.clone() else {
@@ -1009,6 +1027,7 @@ pub(super) async fn ensure_cluster_version_poll(
         client,
         state.cluster.seq.clone(),
         sender.clone(),
+        state.cluster.cluster_version.clone(),
     )));
 }
 
@@ -1017,6 +1036,7 @@ async fn poll_cluster_version(
     client: kube::Client,
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
+    cache: Arc<std::sync::RwLock<Option<crate::protocol::ClusterVersionSummary>>>,
 ) {
     // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
     let mut latch = ns_scope::ForbiddenLatch::default();
@@ -1024,6 +1044,9 @@ async fn poll_cluster_version(
         match cluster_version::fetch_cluster_version(&client).await {
             Ok(summary) => {
                 latch.on_ok();
+                if let Ok(mut cached) = cache.write() {
+                    *cached = Some(summary.clone());
+                }
                 events::emit(
                     seq.as_ref(),
                     &sender,
@@ -1050,6 +1073,49 @@ async fn poll_cluster_version(
 mod tests {
     use super::*;
     use crate::protocol::ScopeKind;
+
+    /// A UI reload re-runs the connect path with the poll already running. Before 019's cache the
+    /// badge then read "Unknown" until the next 20s tick; now the known version is re-emitted.
+    #[tokio::test]
+    async fn reload_with_poll_running_re_emits_the_cached_version() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut state = crate::backend::state::BackendState::new();
+        state.watch_tasks.cluster_version_poll_task =
+            Some(tokio::spawn(std::future::pending::<()>()));
+        *state.cluster.cluster_version.write().unwrap() =
+            Some(crate::protocol::ClusterVersionSummary {
+                server_version: Some("v1.32.2".to_owned()),
+                node_kubelet_versions: vec!["v1.32.2".to_owned()],
+                skew_detected: false,
+            });
+
+        ensure_cluster_version_poll(&mut state, &tx).await;
+
+        let envelope = rx
+            .try_recv()
+            .expect("a ClusterVersionUpdated was re-emitted");
+        match envelope.event {
+            BackendEvent::System(SystemEvent::ClusterVersionUpdated(summary)) => {
+                assert_eq!(summary.server_version.as_deref(), Some("v1.32.2"));
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+        state.watch_tasks.abort_all();
+    }
+
+    /// Nothing cached yet (first connect still in flight) means nothing to re-emit.
+    #[tokio::test]
+    async fn reload_without_a_cached_version_emits_nothing() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut state = crate::backend::state::BackendState::new();
+        state.watch_tasks.cluster_version_poll_task =
+            Some(tokio::spawn(std::future::pending::<()>()));
+
+        ensure_cluster_version_poll(&mut state, &tx).await;
+
+        assert!(rx.try_recv().is_err());
+        state.watch_tasks.abort_all();
+    }
 
     #[test]
     fn namespaces_list_carries_originating_context() {
