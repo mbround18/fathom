@@ -10,6 +10,8 @@ use openidconnect::core::{CoreIdToken, CoreIdTokenVerifier, CoreJsonWebKeySet};
 use openidconnect::{ClientId, IssuerUrl, Nonce};
 use serde_json::Value;
 
+use crate::protocol::v1::ClaimPair;
+
 /// Tolerated difference between the IdP clock and ours.
 pub const CLOCK_LEEWAY_SECS: i64 = 60;
 
@@ -23,6 +25,10 @@ pub struct VerifiedClaims {
     pub groups: Vec<String>,
     pub exp: u64,
     pub iat: u64,
+    /// Every claim the token carried, flattened to strings (045 FR-005): the guided path lets the
+    /// operator pick the username and groups claims from what the provider actually emitted
+    /// rather than from its documentation. No token material -- an ID token's payload is claims.
+    pub all_claims: Vec<ClaimPair>,
 }
 
 /// Verification failed; `0` is the operator-facing message (verbatim reason included).
@@ -155,6 +161,7 @@ impl Validator {
             groups: groups_from(&payload, &self.groups_claim),
             exp: u64::try_from(claims.expiration().timestamp()).unwrap_or(0),
             iat: u64::try_from(iat).unwrap_or(0),
+            all_claims: claim_pairs(&payload),
         })
     }
 }
@@ -204,6 +211,26 @@ pub fn payload_json(jwt: &str) -> Result<Value, String> {
         .decode(part.trim_end_matches('='))
         .map_err(|e| format!("malformed JWT payload: {e}"))?;
     serde_json::from_slice(&bytes).map_err(|e| format!("malformed JWT payload: {e}"))
+}
+
+/// Flatten the token payload into name/value pairs. A non-string value is rendered as the
+/// compact JSON it is, so an array claim is shown as an array rather than silently dropped --
+/// FR-005 asks what the token carries, which includes the shape it carried it in.
+fn claim_pairs(payload: &Value) -> Vec<ClaimPair> {
+    payload
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .map(|(name, value)| ClaimPair {
+                    name: name.clone(),
+                    value: match value {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn string_claim(payload: &Value, name: &str) -> Option<String> {

@@ -1,4 +1,5 @@
-//! OIDC identity commands (033 US1/US2): issuer config, sign-in/out and per-context auth mode.
+//! OIDC identity commands (033 US1/US2): issuer config, sign-in/out and per-context auth mode,
+//! plus 045's guided path, which probes and signs in against a draft that was never saved.
 //!
 //! Tokens never appear here: they live in `OidcSessions` and the OS keyring. Every reply is
 //! built from the non-secret protocol types.
@@ -8,6 +9,7 @@ use std::sync::Arc;
 use crossbeam_channel::Sender;
 
 use crate::backend::events;
+use crate::backend::oidc::flow;
 use crate::backend::persistence;
 use crate::backend::state::BackendState;
 use crate::protocol::v1::{ContextAuthConfig, ContextAuthMode, OidcConfig, OidcIssuerConfig};
@@ -63,6 +65,37 @@ pub(super) async fn handle(
                 None => emit_error(state, sender, &issuer_id, "config", "unknown issuer"),
             }
         }
+        BackendCmd::OidcDiscoverDraft {
+            issuer_url,
+            ca_bundle_path,
+        } => {
+            // No saved issuer and no cluster: `flow::discover` takes a bare URL, so the probe
+            // runs before anything exists to look up (045 R1). A private CA has to be
+            // supplyable here, because without it the first probe is the thing that fails
+            // (FR-003).
+            let http =
+                flow::http_client_with_ca(ca_bundle_path.as_deref()).map_err(anyhow::Error::msg)?;
+            // The error is returned, not swallowed: `run_cmd` turns it into this command's
+            // `CommandFinished { ok: false, error }` with the provider's words and the URL
+            // tried, both of which `FlowError` already carries verbatim.
+            let discovery = flow::discover(&http, &issuer_url)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            emit_system(
+                state,
+                sender,
+                SystemEvent::OidcDraftDiscovered {
+                    issuer_url,
+                    discovery,
+                },
+            );
+        }
+        BackendCmd::OidcTestSignIn { draft } => {
+            bind_sink(state, sender);
+            // The config comes from the draft, not `find_issuer`: there is nothing saved to find.
+            // `test_sign_in` writes no credential, so abandoning the path leaves nothing behind.
+            state.oidc.test_sign_in(draft.config, draft.method);
+        }
         BackendCmd::OidcCancelSignIn { issuer_id } => state.oidc.cancel_sign_in(&issuer_id),
         BackendCmd::OidcSignOut {
             issuer_id,
@@ -110,16 +143,25 @@ fn bind_sink(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
     }));
 }
 
-fn emit_config(state: &BackendState, sender: &Sender<BackendEventEnvelope>, config: OidcConfig) {
+/// Identity is global, so every event here goes to the system section.
+fn emit_system(state: &BackendState, sender: &Sender<BackendEventEnvelope>, event: SystemEvent) {
     events::emit(
         state.cluster.seq.as_ref(),
         sender,
         Route::global(section_keys::system()),
         Correlation::None,
-        BackendEvent::System(SystemEvent::OidcConfigLoaded {
+        BackendEvent::System(event),
+    );
+}
+
+fn emit_config(state: &BackendState, sender: &Sender<BackendEventEnvelope>, config: OidcConfig) {
+    emit_system(
+        state,
+        sender,
+        SystemEvent::OidcConfigLoaded {
             config,
             identities: state.oidc.identities(),
-        }),
+        },
     );
 }
 
@@ -128,15 +170,13 @@ fn emit_identity_cleared(
     sender: &Sender<BackendEventEnvelope>,
     issuer_id: &str,
 ) {
-    events::emit(
-        state.cluster.seq.as_ref(),
+    emit_system(
+        state,
         sender,
-        Route::global(section_keys::system()),
-        Correlation::None,
-        BackendEvent::System(SystemEvent::OidcIdentityUpdated {
+        SystemEvent::OidcIdentityUpdated {
             issuer_id: issuer_id.to_owned(),
             identity: None,
-        }),
+        },
     );
 }
 
@@ -147,16 +187,14 @@ fn emit_error(
     stage: &str,
     message: &str,
 ) {
-    events::emit(
-        state.cluster.seq.as_ref(),
+    emit_system(
+        state,
         sender,
-        Route::global(section_keys::system()),
-        Correlation::None,
-        BackendEvent::System(SystemEvent::OidcError {
+        SystemEvent::OidcError {
             issuer_id: issuer_id.to_owned(),
             stage: stage.to_owned(),
             message: message.to_owned(),
-        }),
+        },
     );
 }
 

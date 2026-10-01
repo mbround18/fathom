@@ -92,10 +92,17 @@ pub struct TokenError {
 /// Build the HTTP client, adding a private-CA bundle when configured (T018). A bad bundle is a
 /// hard error with the path in the message rather than a silent fallback to system roots.
 pub fn http_client(cfg: &OidcIssuerConfig) -> Result<reqwest::Client, String> {
+    http_client_with_ca(cfg.ca_bundle_path.as_deref())
+}
+
+/// As [`http_client`], from a CA bundle path alone: 045's guided path probes a bare issuer URL
+/// before any `OidcIssuerConfig` exists, and a private CA must be supplyable for that first probe
+/// (FR-003).
+pub fn http_client_with_ca(ca_bundle_path: Option<&str>) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30));
-    if let Some(path) = cfg.ca_bundle_path.as_deref().filter(|p| !p.is_empty()) {
+    if let Some(path) = ca_bundle_path.filter(|p| !p.is_empty()) {
         let pem =
             std::fs::read(path).map_err(|e| format!("cannot read the CA bundle {path}: {e}"))?;
         let certs = reqwest::Certificate::from_pem_bundle(&pem)
@@ -511,5 +518,100 @@ pub fn fallback_method(
             M::DeviceCode
         }
         (m, _) => m,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use wiremock::matchers::{method as http_method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// A provider serving one discovery document. The document is built from the server's own
+    /// URI so `issuer` agrees with the URL under test unless a test overrides it.
+    async fn provider(doc: impl FnOnce(&str) -> serde_json::Value) -> MockServer {
+        let server = MockServer::start().await;
+        let doc = doc(&server.uri());
+        Mock::given(http_method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(doc))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    /// 045 T019 (FR-001): the operator is shown what the provider advertises, so the two lists
+    /// the document declares must survive parsing rather than being dropped.
+    #[tokio::test]
+    async fn discovery_keeps_the_advertised_scopes_and_claims() {
+        let server = provider(|base| {
+            json!({
+                "issuer": base,
+                "authorization_endpoint": format!("{base}/authorize"),
+                "token_endpoint": format!("{base}/token"),
+                "jwks_uri": format!("{base}/jwks"),
+                "scopes_supported": ["openid", "profile", "email", "groups"],
+                "claims_supported": ["sub", "preferred_username", "groups"],
+            })
+        })
+        .await;
+        let http = http_client_with_ca(None).unwrap();
+
+        let disc = discover(&http, &server.uri()).await.unwrap();
+
+        assert_eq!(
+            disc.scopes_supported,
+            ["openid", "profile", "email", "groups"]
+        );
+        assert_eq!(
+            disc.claims_supported,
+            ["sub", "preferred_username", "groups"]
+        );
+    }
+
+    /// An omitted list means "not advertised", which is not an error: the rest of the document
+    /// is still shown.
+    #[tokio::test]
+    async fn omitted_scopes_and_claims_default_to_empty() {
+        let server = provider(|base| {
+            json!({
+                "issuer": base,
+                "authorization_endpoint": format!("{base}/authorize"),
+                "token_endpoint": format!("{base}/token"),
+                "jwks_uri": format!("{base}/jwks"),
+            })
+        })
+        .await;
+        let http = http_client_with_ca(None).unwrap();
+
+        let disc = discover(&http, &server.uri()).await.unwrap();
+
+        assert!(disc.scopes_supported.is_empty());
+        assert!(disc.claims_supported.is_empty());
+    }
+
+    /// 045 T020 (FR-002): a document whose `issuer` disagrees with the URL asked for makes every
+    /// later token fail validation, so the refusal has to name **both** values -- the operator
+    /// cannot tell which end is wrong from a generic failure.
+    #[tokio::test]
+    async fn mismatched_issuer_reports_both_values() {
+        let declared = "https://declared.example.test/realms/fathom";
+        let server = provider(|base| {
+            json!({
+                "issuer": declared,
+                "authorization_endpoint": format!("{base}/authorize"),
+                "token_endpoint": format!("{base}/token"),
+                "jwks_uri": format!("{base}/jwks"),
+            })
+        })
+        .await;
+        let http = http_client_with_ca(None).unwrap();
+
+        let err = discover(&http, &server.uri()).await.unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains(declared), "{message}");
+        assert!(message.contains(&server.uri()), "{message}");
     }
 }

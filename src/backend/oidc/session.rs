@@ -18,8 +18,8 @@ use super::flow::{self, BrowserResult, Discovery, FlowError, Opener, TokenRespon
 use super::store::{CredentialStore, Secret, SecretKind};
 use super::validate::{ValidationError, Validator, VerifiedClaims};
 use crate::protocol::v1::{
-    OidcIdentity, OidcIdentityState, OidcIssuerConfig, OidcSignInMethod, OidcSignInStage,
-    SystemEvent,
+    DraftSignInResult, OidcIdentity, OidcIdentityState, OidcIssuerConfig, OidcSignInMethod,
+    OidcSignInStage, SystemEvent,
 };
 
 /// Receives every event the sessions emit (the backend wires this to the event channel).
@@ -30,6 +30,15 @@ pub type TokenSource = Arc<dyn Fn() -> Result<String, String> + Send + Sync>;
 
 /// Refresh this long before `exp` (research R6).
 pub const DEFAULT_REFRESH_LEAD: Duration = Duration::from_secs(20);
+
+/// The key 045's draft sign-in is tracked under: its in-flight entry, its `Live` slot and the
+/// `issuer_id` on its progress events.
+///
+/// A saved issuer id is a lowercase slug (`OidcConfig::validate`), so the `:` makes a collision
+/// with one impossible. That matters because [`OidcSessions::sign_in`] cancels any in-flight
+/// sign-in keyed on `cfg.id`: a draft reusing a saved id would kill the very session the operator
+/// is editing from (045 research R2).
+pub const DRAFT_SESSION_KEY: &str = "draft:045";
 const TRANSIENT_RETRY: Duration = Duration::from_secs(5);
 
 struct Live {
@@ -40,6 +49,16 @@ struct Live {
 #[derive(Default)]
 struct Slot {
     live: ArcSwapOption<Live>,
+}
+
+/// What a finished sign-in becomes. The two differ only at the very end of the flow, which is
+/// why 045's guided path needs no second flow of its own (research R1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    /// A persisted session: the refresh token is stored and a refresher is started.
+    Session,
+    /// A draft's evidence: in-memory only, no credential written (045 R2).
+    Draft,
 }
 
 struct Inner {
@@ -121,12 +140,14 @@ impl OidcSessions {
         self.inner.store.clone()
     }
 
-    /// Current identity per signed-in issuer.
+    /// Current identity per signed-in issuer. The draft slot is deliberately absent: a draft is
+    /// evidence of one sign-in, not an issuer the UI lists (045 FR-007).
     pub fn identities(&self) -> Vec<OidcIdentity> {
         let slots = self.inner.slots.lock().expect("slots");
         let mut out: Vec<OidcIdentity> = slots
-            .values()
-            .filter_map(|s| s.live.load_full().map(|l| l.identity.clone()))
+            .iter()
+            .filter(|(id, _)| id.as_str() != DRAFT_SESSION_KEY)
+            .filter_map(|(_, s)| s.live.load_full().map(|l| l.identity.clone()))
             .collect();
         out.sort_by(|a, b| a.issuer_id.cmp(&b.issuer_id));
         out
@@ -146,13 +167,33 @@ impl OidcSessions {
 
     /// Start (or restart) a sign-in in the background. Progress and the outcome arrive as events.
     pub fn sign_in(&self, cfg: OidcIssuerConfig, method: OidcSignInMethod) {
+        self.start_sign_in(cfg, method, Outcome::Session);
+    }
+
+    /// Run a complete sign-in against an unsaved draft (045 US2, FR-004).
+    ///
+    /// Reaches the same flow the saved path does -- the draft is carried inline, which is why
+    /// `sign_in` taking its config by value is enough -- but nothing is persisted: no refresh
+    /// token reaches the credential store and the tokens live in the [`DRAFT_SESSION_KEY`] slot
+    /// until `OidcSaveDraft` adopts them. Abandoning the guided path therefore leaves no
+    /// credential for an issuer that was never saved (FR-007).
+    pub fn test_sign_in(&self, cfg: OidcIssuerConfig, method: OidcSignInMethod) {
+        let mut cfg = cfg;
+        // The flow keys everything on `cfg.id`, and the draft's id may be one a saved, signed-in
+        // issuer already holds: reusing it would cancel that issuer's sign-in and overwrite the
+        // identity it published.
+        cfg.id = DRAFT_SESSION_KEY.to_owned();
+        self.start_sign_in(cfg, method, Outcome::Draft);
+    }
+
+    fn start_sign_in(&self, cfg: OidcIssuerConfig, method: OidcSignInMethod, outcome: Outcome) {
         self.cancel_sign_in(&cfg.id);
         let cancel = CancellationToken::new();
         let this = self.clone();
         let id = cfg.id.clone();
         let token = cancel.clone();
         let handle = tokio::spawn(async move {
-            this.run_sign_in(cfg, method, token).await;
+            this.run_sign_in(cfg, method, token, outcome).await;
         });
         self.inner
             .sign_ins
@@ -302,6 +343,7 @@ impl OidcSessions {
         cfg: OidcIssuerConfig,
         method: OidcSignInMethod,
         cancel: CancellationToken,
+        outcome: Outcome,
     ) {
         let id = cfg.id.clone();
         let http = match flow::http_client(&cfg) {
@@ -373,7 +415,12 @@ impl OidcSessions {
             Ok(c) => c,
             Err(e) => return self.error(&id, "validate", e.0),
         };
-        self.install(&cfg, &http, &disc, Arc::new(validator), tokens, claims, "");
+        match outcome {
+            Outcome::Session => {
+                self.install(&cfg, &http, &disc, Arc::new(validator), tokens, claims, "");
+            }
+            Outcome::Draft => self.publish_draft(&cfg, &tokens.id_token, &claims),
+        }
         self.progress(&id, OidcSignInStage::Done);
         self.inner.sign_ins.lock().expect("sign_ins").remove(&id);
     }
@@ -443,6 +490,25 @@ impl OidcSessions {
         claims: &VerifiedClaims,
         state: OidcIdentityState,
     ) {
+        let identity = self.store_live(cfg, id_token, claims, state);
+        self.emit(SystemEvent::OidcIdentityUpdated {
+            issuer_id: cfg.id.clone(),
+            identity: Some(identity),
+        });
+    }
+
+    /// Put the tokens in the issuer's in-memory slot and return the identity they prove.
+    ///
+    /// Shared by the saved path, which follows it with an identity update, and the draft path,
+    /// which must not: a draft is not an issuer, so announcing an identity for it would make the
+    /// UI believe an issuer it has no record of is signed in.
+    fn store_live(
+        &self,
+        cfg: &OidcIssuerConfig,
+        id_token: &str,
+        claims: &VerifiedClaims,
+        state: OidcIdentityState,
+    ) -> OidcIdentity {
         let identity = OidcIdentity {
             issuer_id: cfg.id.clone(),
             sub: claims.sub.clone(),
@@ -456,9 +522,23 @@ impl OidcSessions {
             id_token: Secret::new(id_token),
             identity: identity.clone(),
         })));
-        self.emit(SystemEvent::OidcIdentityUpdated {
-            issuer_id: cfg.id.clone(),
-            identity: Some(identity),
+        identity
+    }
+
+    /// Finish a draft sign-in (045 T027, T029).
+    ///
+    /// Deliberately not [`Self::install`]: that writes the refresh token to the credential store
+    /// before anything else, under an id that was never saved. It also starts no refresher -- the
+    /// claims a draft shows are the record of one sign-in, not a session Fathom maintains.
+    fn publish_draft(&self, cfg: &OidcIssuerConfig, id_token: &str, claims: &VerifiedClaims) {
+        self.store_live(cfg, id_token, claims, OidcIdentityState::SignedIn);
+        self.emit(SystemEvent::OidcDraftSignInSucceeded {
+            result: DraftSignInResult {
+                username: claims.username.clone(),
+                groups: claims.groups.clone(),
+                claims: claims.all_claims.clone(),
+                expires_at: i64::try_from(claims.exp).unwrap_or(i64::MAX),
+            },
         });
     }
 
