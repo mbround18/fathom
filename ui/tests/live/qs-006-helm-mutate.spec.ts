@@ -57,7 +57,47 @@ async function openRelease(page: Page, name: string): Promise<void> {
   await expect(inspector(page)).toContainText(name)
 }
 
+const BARE_CHART = 'oci://ghcr.io/stefanprodan/charts/podinfo'
+const BARE_VERSION = '6.15.0'
+
+/** The two revisions `scripts/sandbox.sh` installs: rev 1 plain, rev 2 with a message. */
+function installBare(): void {
+  const base = ['--version', BARE_VERSION, '--set', 'replicaCount=1']
+  helm(['upgrade', '--install', BARE, BARE_CHART, ...base, '--wait'])
+  helm(['upgrade', BARE, BARE_CHART, ...base, '--set', 'ui.message=qs006-before', '--wait'])
+}
+
+/** Whether `quickstart-bare` is at the fixture's baseline, rather than mid-scenario or gone. */
+function bareIsBaseline(): boolean {
+  try {
+    const values = JSON.parse(helm(['get', 'values', BARE, '-o', 'json'])) as {
+      replicaCount?: number
+      ui?: { message?: string }
+    }
+    return (
+      values.replicaCount === 1 &&
+      values.ui?.message === 'qs006-before' &&
+      history(BARE).length >= 2
+    )
+  } catch {
+    return false
+  }
+}
+
 test.describe('live 006 quickstart', () => {
+  // S3 uninstalls the bare release and S1/S2 move it off its baseline, so the second project —
+  // and every re-run — used to find no release at all and fail on `release: not found`. Put the
+  // fixture back before each project's scenarios instead of asking a human to remember.
+  test.beforeAll(() => {
+    if (bareIsBaseline()) return
+    try {
+      helm(['uninstall', BARE, '--wait'])
+    } catch {
+      // Not installed; nothing to remove.
+    }
+    installBare()
+  })
+
   test.beforeEach(async ({ app }) => {
     await app.open()
     await app.selectContext()

@@ -76,9 +76,13 @@ bare_helm_release() {
     return 0
   fi
   echo "sandbox: installing $BARE_RELEASE with a two-revision history for the live Helm suite"
-  "${h[@]}" upgrade --install "$BARE_RELEASE" "$BARE_CHART" --version "$BARE_VERSION" --wait
+  # replicaCount is set on both revisions on purpose: the upgrade pane preloads the release's
+  # user-supplied values, and S2 edits `replicaCount: 1` into `2` there. A release installed with
+  # no values of its own preloads "null" and the scenario has nothing to edit.
+  "${h[@]}" upgrade --install "$BARE_RELEASE" "$BARE_CHART" --version "$BARE_VERSION" \
+    --set replicaCount=1 --wait
   "${h[@]}" upgrade "$BARE_RELEASE" "$BARE_CHART" --version "$BARE_VERSION" \
-    --set ui.message="bare release" --wait
+    --set replicaCount=1 --set ui.message=qs006-before --wait
 }
 
 case "${1:-}" in
