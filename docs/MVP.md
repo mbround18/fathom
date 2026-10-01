@@ -672,6 +672,40 @@ Carried over from roadmap discussion, in priority order:
 * A namespace-assignment view: for a given identity (user/group), which namespaces they can act in and with what verbs — computed from `RoleBinding`/`ClusterRoleBinding` + `Role`/`ClusterRole` resolution, read-only first.
 * Ties directly into Tier B's "RBAC-scoped UI" item — once role resolution exists for the signed-in identity, the same data disables/hides actions the identity can't perform.
 
+#### Guided OIDC setup *(`045-guided-oidc-setup`)*
+
+The Tier C bullet above asked for "a guided 'here's what to add to your cluster's OIDC config'
+doc-generation flow rather than a live edit". 045 is that flow, and it replaces the flat issuer
+form rather than sitting beside it: the six `Input` fields are gone, and the one way to add or
+review an issuer is the guided path.
+
+Six steps, each of which can be left and returned to without losing the draft:
+
+* **Issuer** — discovery URL, client id, and whether the issuer is one Fathom seeded (hosted) or
+  one the operator is adding. A seeded issuer is reviewable but not editable or deletable.
+* **Discovery** — fetches `.well-known/openid-configuration` and shows what came back, so a typo
+  in the URL fails here rather than three steps later.
+* **Test sign-in** — a real PKCE sign-in against the draft config before anything is persisted.
+  Its refresh token is held in memory only; the draft lives under a session key that belongs to
+  the protocol, not to the UI.
+* **Claims and role slots** — the claims sample from the test sign-in, mapped onto Fathom's three
+  role slots. Group names are carried raw; the `oidc:` prefix is applied at preview time by the
+  existing `render_subject_name`, and the step warns when the draft's prefix and the cluster's
+  disagree.
+* **Bindings** — hands a chosen group to the existing role-assignment form, reusing 011's
+  diff-preview/confirm path (Principle I) rather than a bespoke mutation.
+* **API server config** — offers to write the authentication config, but only for a control plane
+  Fathom provisioned itself. Everywhere else, including hosted, the same step shows the exact
+  configuration to apply by hand, copyable, with a read of what the cluster currently has beside
+  it. Nothing is hidden: the write is previewed and confirmed like any other mutation.
+
+Hosted skips the write and reaches the path through Settings › Sign-in rather than the identity
+chip, which stays hidden there. The protocol surface is additive and stays v1.
+
+*Status: 🚧 Implemented; live validation against the dev cluster (quickstart) and the restricted
+suite's audit-log check for the API server write are pending.*
+
+
 ### Tier D — In-cluster context daemon & multi-cloud federation
 
 *Status: 🚧 Mostly shipped — P1 (012), P2 (034) and P4 (036) shipped; P3 (035 cloud-auth plugins) implemented with live EKS/GKE/AKS verification pending.*
