@@ -39,29 +39,29 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 - [X] **FR-011** — The system MUST expose the username and groups prefixes as editable fields with their current values, since they decide whether bindings match.
   - `T031`
 
-- [ ] **FR-012** — The system MUST offer the groups observed in the test sign-in, plus free text, as the values of the three Fathom role slots (`viewers_group`, `editor…
-  - `T042` (open)
+- [X] **FR-012** — The system MUST offer the groups observed in the test sign-in, plus free text, as the values of the three Fathom role slots (`viewers_group`, `editor…
+  - `T042`
 
-- [ ] **FR-013** — The system MUST be able to hand a mapped group to the existing role-binding form with the subject pre-filled including the API server's groups prefix…
-  - `T044` (open)
+- [X] **FR-013** — The system MUST be able to hand a mapped group to the existing role-binding form with the subject pre-filled including the API server's groups prefix…
+  - `T044`
 
-- [ ] **FR-014** — The system MUST show a final summary of every field to be stored, including which verification steps were performed and which were skipped, before wr…
-  - `T050` (open)
+- [X] **FR-014** — The system MUST show a final summary of every field to be stored, including which verification steps were performed and which were skipped, before wr…
+  - `T050`
 
-- [ ] **FR-015** — Users MUST be able to save at any step without completing the verification, and the summary MUST record what was not verified.
-  - `T051` (open)
+- [X] **FR-015** — Users MUST be able to save at any step without completing the verification, and the summary MUST record what was not verified.
+  - `T051`
 
-- [ ] **FR-016** — The system MUST open the same path, pre-filled, when an existing issuer is reviewed, and MUST warn before saving a change to an issuer id that it sig…
-  - `T052` (open)
+- [X] **FR-016** — The system MUST open the same path, pre-filled, when an existing issuer is reviewed, and MUST warn before saving a change to an issuer id that it sig…
+  - `T052`
 
 - [ ] **FR-017** — The system MUST refuse to save an issuer whose id is already in use, with an explanation.
   - `T048` (open)
 
-- [ ] **FR-018** — The system MUST replace the existing flat issuer form for both adding and editing; the issuer list, the per-issuer sign-in controls and the role-map…
-  - `T053` (open)
+- [X] **FR-018** — The system MUST replace the existing flat issuer form for both adding and editing; the issuer list, the per-issuer sign-in controls and the role-map…
+  - `T053`
 
 - [ ] **FR-019** — On a local cluster Fathom provisioned, the system MUST be able to apply the API server authentication configuration matching the issuer, and MUST sho…
-  - `T060` (open), `T062` (open)
+  - `T060` (open), `T062`
 
 - [ ] **FR-020** — The system MUST write the legacy flags or the structured configuration in whichever style the cluster already uses, MUST NOT produce both, and MUST s…
   - `T033` (open), `T060` (open)
@@ -70,7 +70,7 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
   - `T059` (open)
 
 - [ ] **FR-022** — The system MUST NOT offer to change the API server of any context Fathom did not provision, and MUST instead show the required configuration as copya…
-  - `T056` (open), `T060` (open), `T063` (open)
+  - `T056` (open), `T060` (open), `T063`
 
 - [X] **FR-023** — The system MUST offer the read-only API server comparison (FR-008–FR-010) in hosted mode, performed as the signed-in user, and MUST NOT offer the API…
   - `T073`
@@ -78,29 +78,29 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 - [ ] **FR-024** — Every cluster write the path performs MUST appear in the mutation audit log like any other write.
   - `T061` (open), `T064` (open)
 
-- [ ] **FR-025** — Each step MUST be reachable backwards without losing the draft, and the path MUST be closable at every step.
-  - **no task cites this requirement**
+- [X] **FR-025** — Each step MUST be reachable backwards without losing the draft, and the path MUST be closable at every step.
+  - `T015`, `T016`
 
 - [X] **FR-026** — The path MUST state which context the cluster comparison was read from, and MUST re-read or say so when the active context changes while it is open.
   - `T039`
 
-- [ ] **FR-027** — The Fathom role slots (FR-012) and the cluster bindings (FR-013) MUST be presented as two separate, separately refusable steps, and the path MUST NOT…
-  - `T041` (open), `T042` (open)
+- [X] **FR-027** — The Fathom role slots (FR-012) and the cluster bindings (FR-013) MUST be presented as two separate, separately refusable steps, and the path MUST NOT…
+  - `T041`, `T042`
 
 - [ ] **FR-028** — On saving after a successful test sign-in, the system MUST establish the operator's session from that sign-in's tokens without requiring a second sig…
   - `T046` (open), `T049` (open)
 
-- [ ] **FR-029** — The path MUST render as a layered overlay, openable unchanged from the identity chip, the Settings sign-in pane and the first-run setup screen. It MU…
-  - `T017`, `T054` (open)
+- [X] **FR-029** — The path MUST render as a layered overlay, openable unchanged from the identity chip, the Settings sign-in pane and the first-run setup screen. It MU…
+  - `T017`, `T054`
 
-- [ ] **FR-030** — The binding handoff MUST carry the id of the issuer being configured, not the first saved issuer. (`RoleAssignmentLauncher.tsx:19` reads `issuers[0]?…
-  - `T043` (open), `T045` (open)
+- [X] **FR-030** — The binding handoff MUST carry the id of the issuer being configured, not the first saved issuer. (`RoleAssignmentLauncher.tsx:19` reads `issuers[0]?…
+  - `T043`, `T045`
 
 - [X] **FR-031** — In hosted mode the system MUST present the server's validated startup OIDC configuration as an issuer in the issuer list, so the path's steps 1–7 ope…
   - `T067`
 
-- [ ] **FR-032** — A seeded issuer MUST state that it came from the server environment and MUST NOT be editable or deletable through the guided path, while remaining fu…
-  - `T068` (open)
+- [X] **FR-032** — A seeded issuer MUST state that it came from the server environment and MUST NOT be editable or deletable through the guided path, while remaining fu…
+  - `T068`
 
 - [X] **FR-033** — The hosted seed MUST be supplied through the process environment from a mounted Secret or ConfigMap, and those objects MUST appear in manifest export…
   - `T065`, `T069`
@@ -116,12 +116,8 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 
 ## Gaps
 
-These requirements are cited by no task in `tasks.md`. They may still be satisfied
-incidentally by a task that does not name them, but nothing in the task list is
-accountable for them:
-
-- **FR-025** — Each step MUST be reachable backwards without losing the draft, and the path MUST be closable at every step.
+No requirement is left uncited by `tasks.md`.
 
 ## Totals
 
-14 of 36 requirements have all their tasks complete.
+25 of 36 requirements have all their tasks complete.
