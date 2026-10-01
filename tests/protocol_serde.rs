@@ -2282,7 +2282,10 @@ fn all_cmds() -> Vec<BackendCmd> {
             role_map: fathom::protocol::FathomRoleMap::default(),
             adopt_test_session: true,
         },
-        BackendCmd::ReadApiServerAuth,
+        BackendCmd::ReadApiServerAuth { draft: None },
+        BackendCmd::ReadApiServerAuth {
+            draft: Some(sample_issuer_draft().config),
+        },
         BackendCmd::WriteApiServerAuth {
             cluster: "kind-fathom-dev".to_owned(),
             style: fathom::protocol::ApiServerAuthStyle::Legacy,
@@ -2353,7 +2356,7 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::OidcDiscoverDraft { .. } => {}
         BackendCmd::OidcTestSignIn { .. } => {}
         BackendCmd::OidcSaveDraft { .. } => {}
-        BackendCmd::ReadApiServerAuth => {}
+        BackendCmd::ReadApiServerAuth { .. } => {}
         BackendCmd::WriteApiServerAuth { .. } => {}
         BackendCmd::SetContextAuthMode { .. } => {}
         BackendCmd::IdpSetAdminKey { .. } => {}

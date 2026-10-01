@@ -223,7 +223,7 @@ impl BackendCmdV1 {
             // server's authentication configuration is an ordinary read.
             | C::OidcDiscoverDraft { .. }
             | C::OidcTestSignIn { .. }
-            | C::ReadApiServerAuth => MutationTarget::ReadOnly,
+            | C::ReadApiServerAuth { .. } => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -498,7 +498,7 @@ impl BackendCmdV1 {
             | C::OidcDiscoverDraft { .. }
             | C::OidcTestSignIn { .. }
             | C::OidcSaveDraft { .. }
-            | C::ReadApiServerAuth
+            | C::ReadApiServerAuth { .. }
             | C::WriteApiServerAuth { .. }
             | C::RefreshOrphanedSubjects { .. } => return None,
             C::RefreshNamespaces | C::SelectNamespace { .. } => section_keys::namespaces(),
@@ -960,7 +960,7 @@ impl BackendCmdV1 {
             | C::OidcDiscoverDraft { .. }
             | C::OidcTestSignIn { .. }
             | C::OidcSaveDraft { .. }
-            | C::ReadApiServerAuth => None,
+            | C::ReadApiServerAuth { .. } => None,
             // 045: FR-024 -- the one cluster write the guided path performs.
             C::WriteApiServerAuth { cluster, .. } => Some(AuditActionSummary {
                 kind: AuditActionKind::ApiServerAuthChange,
@@ -1674,7 +1674,7 @@ impl BackendCmdV1 {
             | C::RefreshAuditLog
             // 045: FR-023 -- reading how the cluster authenticates is a read the signed-in user's
             // own RBAC already governs, which is exactly what hosted is meant to allow.
-            | C::ReadApiServerAuth => HostedPolicy::Allowed,
+            | C::ReadApiServerAuth { .. } => HostedPolicy::Allowed,
         }
     }
 }
@@ -1682,7 +1682,7 @@ impl BackendCmdV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{SectionKey, UiConfig};
+    use crate::protocol::{ApiServerAuthStyle, SectionKey, UiConfig};
 
     fn nsn(namespace: &str) -> MutationTarget {
         MutationTarget::Namespaced {
@@ -1717,6 +1717,41 @@ mod tests {
         .expect("apply is audited");
         assert_eq!(y.kind, AuditActionKind::YamlApply);
         assert_eq!(y.target_namespace.as_deref(), Some("default"));
+    }
+
+    /// 045 FR-024: the guided path's one cluster write is audited like any other write, and the
+    /// read that precedes it is not -- including when it carries the draft being configured.
+    #[test]
+    fn the_api_server_write_is_audited_and_the_read_is_not() {
+        let draft: crate::protocol::OidcIssuerConfig =
+            serde_json::from_str(r#"{"id":"idp","issuer_url":"https://i/","client_id":"fathom"}"#)
+                .unwrap();
+        for draft in [None, Some(draft)] {
+            let cmd = BackendCmdV1::ReadApiServerAuth { draft };
+            assert!(cmd.audit_summary().is_none(), "a read is not a mutation");
+            assert_eq!(cmd.mutation_target(), MutationTarget::ReadOnly);
+        }
+
+        let w = BackendCmdV1::WriteApiServerAuth {
+            cluster: s("fathom-dev"),
+            style: ApiServerAuthStyle::Legacy,
+            issuer_url: s("https://i/"),
+            client_id: s("fathom"),
+            username_claim: s("preferred_username"),
+            groups_claim: s("groups"),
+            username_prefix: Some(s("oidc:")),
+            groups_prefix: Some(s("oidc:")),
+        };
+        // `src/backend.rs` takes this summary at dispatch and records it after the handler
+        // returned, which is why T061 awaits the write inline: the entry is the proof the
+        // control plane was changed, so it must not be written before it was.
+        let a = w.audit_summary().expect("the API server write is audited");
+        assert_eq!(a.kind, AuditActionKind::ApiServerAuthChange);
+        assert_eq!(a.target_kind.as_deref(), Some("APIServer"));
+        assert_eq!(a.target_name.as_deref(), Some("fathom-dev"));
+        assert_eq!(a.target_namespace, None);
+        // And it is the cluster-scoped write every dev bridge refuses to forward.
+        assert_eq!(w.mutation_target(), MutationTarget::ClusterScoped);
     }
 
     #[test]

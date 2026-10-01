@@ -156,7 +156,7 @@
 - [X] T061 [US6] Handle `WriteApiServerAuth` **inline** in `src/backend/cmd/oidc.rs`: `audit_summary()` is taken at dispatch (`src/backend.rs:312`), so a write that completed asynchronously would be audited before it happened (FR-024)
 - [X] T062 [US6] Implement the write step in `ui/src/features/identity/GuidedIssuerPath.tsx`, showing the backup it will take and the exact flags it will set, behind an explicit confirmation that names them (FR-019, SC-007)
 - [X] T063 [US6] Show the copyable required-configuration text instead of the write on any context without the provenance record, saying plainly that Fathom will not change a control plane it does not own (FR-022)
-- [ ] T064 [P] [US6] E2E in `ui/tests/e2e/guided-oidc.spec.ts` asserting the write is offered for a provisioned cluster and replaced by copyable text for an unowned one, and a live check in the restricted suite that the write appears in the mutation audit log (FR-024)
+- [X] T064 [P] [US6] E2E in `ui/tests/e2e/guided-oidc.spec.ts` asserting the write is offered for a provisioned cluster and replaced by copyable text for an unowned one, and a live check in the restricted suite that the write appears in the mutation audit log (FR-024)
 
 **Checkpoint**: All six user stories independently functional on the desktop build.
 

@@ -294,6 +294,38 @@ test.describe('045 US3: what this cluster accepts', () => {
     not_writable_reason: null,
   }
 
+  test('the read carries the draft being configured, so a first setup has a basis (FR-025)', async ({
+    page,
+  }) => {
+    // Nothing of this draft is saved: it is a first-time setup. Without the draft on the command
+    // the backend has nothing to compare against and answers `differences: []`, which this very
+    // UI renders as "every field agrees" -- agreement with a cluster that agrees with nothing.
+    await openPath(page)
+    await probe(page)
+    await deliverDiscovery(page)
+    await clearSent(page)
+    await page.getByTestId('guided-step-cluster-compare').click()
+    await expect
+      .poll(async () => (await sent(page)).find((c) => c.type === 'ReadApiServerAuth'))
+      .toEqual({
+        type: 'ReadApiServerAuth',
+        data: {
+          draft: {
+            id: 'idp',
+            issuer_url: ISSUER_URL,
+            client_id: 'fathom',
+            scopes: ['openid', 'profile', 'email', 'groups'],
+            ca_bundle_path: null,
+            username_claim: 'preferred_username',
+            groups_claim: 'groups',
+            username_prefix: 'oidc:',
+            groups_prefix: 'oidc:',
+            admin_api_base: null,
+          },
+        },
+      })
+  })
+
   test('a clean match names the context and says every field agrees', async ({ page }) => {
     await compareWith(page, matching)
     await expect(page.getByTestId('guided-compare-context')).toContainText('kind-a')

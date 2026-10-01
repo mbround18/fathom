@@ -8,11 +8,15 @@ use std::sync::Arc;
 
 use crossbeam_channel::Sender;
 
+use crate::backend::apiserver_auth;
 use crate::backend::events;
 use crate::backend::oidc::flow;
 use crate::backend::persistence;
 use crate::backend::state::BackendState;
-use crate::protocol::v1::{ContextAuthConfig, ContextAuthMode, OidcConfig, OidcIssuerConfig};
+use crate::protocol::v1::{
+    ApiServerAuthComparison, ContextAuthConfig, ContextAuthMode, OidcConfig, OidcIssuerConfig,
+    ResourceReadEvent,
+};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, Route, SystemEvent, section_keys,
 };
@@ -119,10 +123,10 @@ pub(super) async fn handle(
             bind_sink(state, sender);
             save_draft(state, sender, draft, role_map, adopt_test_session).await;
         }
-        BackendCmd::ReadApiServerAuth => {
+        BackendCmd::ReadApiServerAuth { draft } => {
             // Read-only, and deliberately one event per call: the comparison step asks once and
             // the 60 s cache answers every re-entry (045 US3).
-            crate::backend::apiserver_auth::handle_read_api_server_auth(state, sender).await?;
+            read_api_server_auth(state, sender, draft).await?;
         }
         cmd @ BackendCmd::WriteApiServerAuth { .. } => {
             // Inline, and awaited: `audit_summary()` is taken at dispatch (`src/backend.rs`),
@@ -138,6 +142,57 @@ pub(super) async fn handle(
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+/// `ReadApiServerAuth`: the comparison between what the cluster accepts and the issuer being
+/// configured (FR-025).
+///
+/// The draft wins whenever the command carries one. Without a draft the basis can only come from
+/// saved config -- and on a *first-time* guided setup nothing is saved yet, so there is no basis,
+/// no differences, and the UI renders that empty list as "every field agrees" about a cluster that
+/// agrees with nothing. The draft closes exactly that hole.
+///
+/// The no-draft case is still `apiserver_auth::handle_read_api_server_auth`, which owns the
+/// saved-basis fallback (`comparison_basis`: the issuer bound to the context, else the only saved
+/// one, else nothing). Keeping the two cases apart is what lets this land without reopening that
+/// handler's signature; fold them into one `handle_read_api_server_auth(state, sender, draft)`
+/// the next time that module is touched.
+async fn read_api_server_auth(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    draft: Option<OidcIssuerConfig>,
+) -> anyhow::Result<()> {
+    let Some(draft) = draft else {
+        return apiserver_auth::handle_read_api_server_auth(state, sender).await;
+    };
+    let context = state.cluster.current_context.clone().ok_or_else(|| {
+        anyhow::anyhow!("No cluster is connected, so its API server cannot be read.")
+    })?;
+    // The 60 s per-context cache, the ownership gate and -- for a cluster Fathom provisioned --
+    // the structured `--authentication-config` file. A *denied* read is not an error: it comes
+    // back as a stated unknown (FR-023). Only a missing client is.
+    let read = apiserver_auth::cached_read(state, &context).await?;
+    let (writable, not_writable_reason) = apiserver_auth::writability(
+        &context,
+        &persistence::load_kind_provenance(),
+        state.identity.is_some(),
+    );
+
+    events::emit(
+        state.cluster.seq.as_ref(),
+        sender,
+        Route::cluster(section_keys::access_oidc_config(), Some(context)),
+        Correlation::None,
+        BackendEvent::ResourceRead(ResourceReadEvent::ApiServerAuthRead(
+            ApiServerAuthComparison {
+                differences: apiserver_auth::compare(&read, &draft),
+                read,
+                writable,
+                not_writable_reason,
+            },
+        )),
+    );
+    Ok(())
 }
 
 /// `WriteApiServerAuth`, destructured away from [`handle`] so the command family stays readable.

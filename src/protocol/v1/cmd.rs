@@ -783,7 +783,17 @@ pub enum BackendCmdV1 {
     },
     /// Read the active cluster's API server authentication configuration. Read-only, performed as
     /// the signed-in user. Answered with `ApiServerAuthRead`.
-    ReadApiServerAuth,
+    ///
+    /// `draft` is the issuer the guided path is configuring right now, and when it is present it
+    /// is what the cluster is compared against. Without it the backend falls back to the saved
+    /// issuer bound to the context, which during a *first-time* setup is nothing at all -- and
+    /// "no basis" renders as "every field agrees", the opposite of the truth (FR-025). Optional,
+    /// and protocol v1 is not re-versioned for it (the 034 precedent): a caller that omits it
+    /// gets exactly today's behaviour.
+    ReadApiServerAuth {
+        #[serde(default)]
+        draft: Option<OidcIssuerConfig>,
+    },
     /// Apply the API server authentication configuration of a cluster Fathom provisioned.
     /// Refused without a provenance record, and denied outright in hosted.
     WriteApiServerAuth {
@@ -1761,6 +1771,42 @@ mod tests {
         });
     }
 
+    /// 045 FR-025: `ReadApiServerAuth` gained a `draft`, and gained it *additively* -- protocol
+    /// v1 is not re-versioned for a new optional field (the 034 precedent). Omitting the field,
+    /// or sending it null, must read as "no draft, use the saved basis" rather than a refusal.
+    ///
+    /// The enum is adjacently tagged, so `data` itself is structural: every struct variant of
+    /// `BackendCmdV1` needs it, including the all-optional ones already here
+    /// (`AiOllamaProbe`, `AiSetActiveProvider`). `{"data":{}}` is therefore the empty case, and
+    /// the regenerated TS sends it.
+    #[test]
+    fn read_api_server_auth_draft_is_additive() {
+        for json in [
+            r#"{"type":"ReadApiServerAuth","data":{}}"#,
+            r#"{"type":"ReadApiServerAuth","data":{"draft":null}}"#,
+        ] {
+            let cmd: BackendCmdV1 = serde_json::from_str(json).expect(json);
+            match cmd {
+                BackendCmdV1::ReadApiServerAuth { draft } => assert!(draft.is_none(), "{json}"),
+                other => panic!("wrong variant: {other:?}"),
+            }
+        }
+        // And the command stays read-only with a draft attached: carrying the issuer being
+        // configured is not a write (FR-025).
+        assert_eq!(
+            BackendCmdV1::ReadApiServerAuth {
+                draft: Some(
+                    serde_json::from_str(
+                        r#"{"id":"draft","issuer_url":"https://i/","client_id":"fathom"}"#
+                    )
+                    .unwrap()
+                )
+            }
+            .mutation_target(),
+            crate::protocol::MutationTarget::ReadOnly
+        );
+    }
+
     #[test]
     fn guided_oidc_cmd_roundtrips() {
         use crate::protocol::{ApiServerAuthStyle, IssuerDraft};
@@ -1789,7 +1835,10 @@ mod tests {
                 adopt_test_session: adopt,
             });
         }
-        roundtrip(BackendCmdV1::ReadApiServerAuth);
+        roundtrip(BackendCmdV1::ReadApiServerAuth { draft: None });
+        roundtrip(BackendCmdV1::ReadApiServerAuth {
+            draft: Some(draft.config.clone()),
+        });
         for style in [
             ApiServerAuthStyle::Legacy,
             ApiServerAuthStyle::Structured,

@@ -10,6 +10,7 @@ use std::time::Instant;
 use crossbeam_channel::Sender;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, api::ListParams};
+use serde::Deserialize;
 
 use crate::backend::capabilities::CAPABILITY_TTL;
 use crate::backend::events;
@@ -127,6 +128,140 @@ pub fn parse_command_line(argv: &[String]) -> ParsedAuth {
 }
 
 // ---------------------------------------------------------------------------
+// T033 (FR-008): parsing a structured `AuthenticationConfiguration`
+// ---------------------------------------------------------------------------
+
+/// The subset of `apiserver.config.k8s.io` `AuthenticationConfiguration` that bears on the six
+/// fields Fathom compares. Unknown keys are ignored: the file legitimately carries more than
+/// this (`claimValidationRules`, `userValidationRules`, certificate authorities), and none of it
+/// changes which issuer or claims the API server accepts.
+#[derive(Debug, Default, Deserialize)]
+struct AuthnConfigFile {
+    #[serde(default)]
+    jwt: Vec<JwtAuthenticator>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JwtAuthenticator {
+    #[serde(default)]
+    issuer: JwtIssuer,
+    #[serde(default, rename = "claimMappings")]
+    claim_mappings: ClaimMappings,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct JwtIssuer {
+    url: Option<String>,
+    #[serde(default)]
+    audiences: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ClaimMappings {
+    username: Option<ClaimMapping>,
+    groups: Option<ClaimMapping>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ClaimMapping {
+    claim: Option<String>,
+    prefix: Option<String>,
+    expression: Option<String>,
+}
+
+/// One claim mapping as a claim name and an optional prefix.
+///
+/// An empty `prefix: ""` — which is how the structured form spells *no prefix*, and what Fathom
+/// itself writes — becomes `None`, because the protocol's `Option<String>` means absent and
+/// never the empty string (T006).
+fn claim_mapping(field: &str, m: &ClaimMapping) -> Result<(String, Option<String>), String> {
+    if let Some(expr) = &m.expression {
+        return Err(format!(
+            "its {field} is mapped by the CEL expression `{expr}` rather than by a claim name, \
+             which has no equivalent among the fields Fathom compares"
+        ));
+    }
+    let claim = m.claim.clone().ok_or_else(|| {
+        format!("its {field} claim mapping names neither a claim nor an expression")
+    })?;
+    Ok((claim, m.prefix.clone().filter(|p| !p.is_empty())))
+}
+
+/// What a structured `AuthenticationConfiguration` says, in the same six fields the legacy flags
+/// carry.
+///
+/// Every `Err` here becomes the read's verbatim `reason` with `checked: false` (FR-010): a file
+/// that cannot be mapped onto those six fields is reported as an unknown, never guessed at, and
+/// never quietly treated as agreement. Each message is phrased to follow "…, but ".
+pub fn parse_authentication_config(yaml: &str) -> Result<ParsedAuth, String> {
+    let file: AuthnConfigFile = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
+
+    let authenticator = match file.jwt.as_slice() {
+        [one] => one,
+        [] => {
+            return Err(
+                "it declares no `jwt` authenticator, so it names no issuer to compare".to_owned(),
+            );
+        }
+        many => {
+            return Err(format!(
+                "it declares {} `jwt` authenticators, and Fathom will not guess which one the \
+                 draft should be compared against",
+                many.len()
+            ));
+        }
+    };
+
+    let issuer = authenticator
+        .issuer
+        .url
+        .clone()
+        .ok_or("its `jwt` authenticator declares no issuer url")?;
+
+    // The API server treats `audiences` as a list, while the legacy flag and the draft each hold
+    // one client id. Picking one of several would claim a disagreement that may not exist, so a
+    // list is an unknown that names its entries instead.
+    let client_id = match authenticator.issuer.audiences.as_slice() {
+        [one] => one.clone(),
+        [] => return Err(format!("its issuer {issuer} accepts no audiences")),
+        many => {
+            return Err(format!(
+                "its issuer accepts {} audiences ({}), so comparing the draft's client id \
+                 against one of them would claim a disagreement that may not exist",
+                many.len(),
+                many.join(", ")
+            ));
+        }
+    };
+
+    let username = authenticator
+        .claim_mappings
+        .username
+        .as_ref()
+        .ok_or("it maps no username claim")?;
+    let (username_claim, username_prefix) = claim_mapping("username", username)?;
+    let (groups_claim, groups_prefix) = match &authenticator.claim_mappings.groups {
+        Some(g) => {
+            let (claim, prefix) = claim_mapping("groups", g)?;
+            (Some(claim), prefix)
+        }
+        // Absent, not empty: this API server maps no groups at all.
+        None => (None, None),
+    };
+
+    Ok(ParsedAuth {
+        style: ApiServerAuthStyle::Structured,
+        issuer: Some(issuer),
+        client_id: Some(client_id),
+        username_claim: Some(username_claim),
+        groups_claim,
+        username_prefix,
+        groups_prefix,
+        config_path: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // T034/T035: the read
 // ---------------------------------------------------------------------------
 
@@ -137,8 +272,14 @@ pub fn parse_command_line(argv: &[String]) -> ParsedAuth {
 /// pass, following `detect_kubeadm`'s three-state precedent in `rbac_access.rs`.
 #[must_use]
 pub fn read_from_pods(pods: Result<Vec<Pod>, String>, context: &str) -> ApiServerAuthRead {
-    let unknown = |reason: String| ApiServerAuthRead {
-        style: ApiServerAuthStyle::Unknown,
+    read_from_pods_with_node(pods, context, None)
+}
+
+/// A read that could not be completed: `checked: false` with `reason` verbatim (FR-010).
+#[must_use]
+pub fn unknown_read(context: &str, style: ApiServerAuthStyle, reason: String) -> ApiServerAuthRead {
+    ApiServerAuthRead {
+        style,
         issuer: None,
         client_id: None,
         username_claim: None,
@@ -148,7 +289,23 @@ pub fn read_from_pods(pods: Result<Vec<Pod>, String>, context: &str) -> ApiServe
         context: context.to_owned(),
         checked: false,
         reason: Some(reason),
-    };
+    }
+}
+
+/// As [`read_from_pods`], with an optional control-plane node to read a structured
+/// `--authentication-config` file from.
+///
+/// `node` is `Some` only for a cluster whose provenance record says Fathom provisioned it, so a
+/// managed or hand-built control plane keeps reporting the stated unknown (FR-022/FR-036). The
+/// `cat` failing — file missing, exec denied, cluster gone — is also a stated unknown carrying
+/// the node's own words, never a fall back to "the legacy flags are absent, so all is well".
+#[must_use]
+pub fn read_from_pods_with_node(
+    pods: Result<Vec<Pod>, String>,
+    context: &str,
+    node: Option<&dyn NodeExec>,
+) -> ApiServerAuthRead {
+    let unknown = |reason: String| unknown_read(context, ApiServerAuthStyle::Unknown, reason);
 
     let pods = match pods {
         Ok(pods) => pods,
@@ -170,23 +327,13 @@ pub fn read_from_pods(pods: Result<Vec<Pod>, String>, context: &str) -> ApiServe
         // The structured file lives on the node's filesystem and is not reachable through the
         // Kubernetes API, so its contents are genuinely unknown from here. Saying so is the
         // honest answer; reporting "no differences" would be an assumed pass.
-        ApiServerAuthStyle::Structured => ApiServerAuthRead {
-            style: ApiServerAuthStyle::Structured,
-            context: context.to_owned(),
-            checked: false,
-            reason: Some(format!(
-                "This API server authenticates with --authentication-config={}, a file on the \
-                 control-plane node that the Kubernetes API does not expose. Its issuer cannot \
-                 be compared from here; the legacy --oidc-* flags are not in use.",
-                parsed.config_path.as_deref().unwrap_or(AUTH_CONFIG_PATH)
-            )),
-            issuer: None,
-            client_id: None,
-            username_claim: None,
-            groups_claim: None,
-            username_prefix: None,
-            groups_prefix: None,
-        },
+        ApiServerAuthStyle::Structured => {
+            let path = parsed
+                .config_path
+                .clone()
+                .unwrap_or_else(|| AUTH_CONFIG_PATH.to_owned());
+            read_structured(node, &path, context)
+        }
         ApiServerAuthStyle::Unknown => ApiServerAuthRead {
             style: ApiServerAuthStyle::Unknown,
             context: context.to_owned(),
@@ -216,6 +363,56 @@ pub fn read_from_pods(pods: Result<Vec<Pod>, String>, context: &str) -> ApiServe
             checked: true,
             reason: None,
         },
+    }
+}
+
+/// The structured style's values, from the node when Fathom owns the cluster and as a stated
+/// unknown otherwise.
+fn read_structured(node: Option<&dyn NodeExec>, path: &str, context: &str) -> ApiServerAuthRead {
+    let structured_unknown =
+        |reason: String| unknown_read(context, ApiServerAuthStyle::Structured, reason);
+
+    // Without a node the file is simply out of reach: it lives on the control-plane node's
+    // filesystem and the Kubernetes API does not serve it.
+    let Some(node) = node else {
+        return structured_unknown(format!(
+            "This API server authenticates with --authentication-config={path}, a file on the \
+             control-plane node that the Kubernetes API does not expose. Fathom did not \
+             provision this cluster, so it does not read files from its node; the issuer cannot \
+             be compared from here, and the legacy --oidc-* flags are not in use."
+        ));
+    };
+
+    let yaml = match node.run(&["cat", path]) {
+        Ok(yaml) => yaml,
+        // The node's verbatim words: "No such file or directory" and "No such container" lead
+        // the operator to different fixes.
+        Err(e) => {
+            return structured_unknown(format!(
+                "This API server authenticates with --authentication-config={path}, and reading \
+                 that file from the control-plane node failed: {e}"
+            ));
+        }
+    };
+
+    match parse_authentication_config(&yaml) {
+        Ok(parsed) => ApiServerAuthRead {
+            // Still `Structured`, so the comparison can say the legacy flags are not in use.
+            style: ApiServerAuthStyle::Structured,
+            issuer: parsed.issuer,
+            client_id: parsed.client_id,
+            username_claim: parsed.username_claim,
+            groups_claim: parsed.groups_claim,
+            username_prefix: parsed.username_prefix,
+            groups_prefix: parsed.groups_prefix,
+            context: context.to_owned(),
+            checked: true,
+            reason: None,
+        },
+        Err(why) => structured_unknown(format!(
+            "This API server authenticates with --authentication-config={path}, which Fathom \
+             read from the control-plane node, but {why}."
+        )),
     }
 }
 
@@ -574,12 +771,188 @@ mod tests {
         );
         assert_eq!(structured.style, ApiServerAuthStyle::Structured);
         assert!(!structured.checked);
+        let reason = structured.reason.clone().unwrap();
         assert!(
-            structured
-                .reason
-                .unwrap()
-                .contains("/etc/kubernetes/pki/authn.yaml")
+            reason.contains("/etc/kubernetes/pki/authn.yaml"),
+            "{reason}"
         );
+        // No node is offered for a cluster Fathom did not provision, and the read says so
+        // rather than claiming the file was checked (FR-022).
+        assert!(
+            reason.contains("did not provision this cluster"),
+            "{reason}"
+        );
+        assert!(compare(&structured, &draft()).is_empty());
+    }
+
+    /// A structured file as the API server itself documents it: one `jwt` authenticator with an
+    /// issuer url, one audience and both claim mappings.
+    const STRUCTURED: &str = "apiVersion: apiserver.config.k8s.io/v1beta1
+kind: AuthenticationConfiguration
+jwt:
+- issuer:
+    url: https://idp.example.com/realms/corp
+    audiences:
+    - fathom
+  claimMappings:
+    username:
+      claim: email
+      prefix: \"oidc:\"
+    groups:
+      claim: groups
+      prefix: \"\"
+";
+
+    /// US3 scenario 2 (FR-008): for a cluster Fathom provisioned, the structured file is read off
+    /// the node and compared like the legacy flags. The style stays `Structured`, so the UI can
+    /// still say the legacy flags are not in use.
+    #[test]
+    fn a_structured_file_is_read_off_a_node_fathom_provisioned() {
+        let node =
+            RecordingNode::new(MANIFEST).with_file("/etc/kubernetes/pki/authn.yaml", STRUCTURED);
+        let read = read_from_pods_with_node(
+            Ok(vec![pod(&[
+                "kube-apiserver",
+                "--authentication-config=/etc/kubernetes/pki/authn.yaml",
+            ])]),
+            "kind-ours",
+            Some(&node),
+        );
+
+        assert_eq!(read.style, ApiServerAuthStyle::Structured);
+        assert!(read.checked, "{:?}", read.reason);
+        assert_eq!(read.reason, None);
+        assert_eq!(
+            read.issuer.as_deref(),
+            Some("https://idp.example.com/realms/corp")
+        );
+        // The structured `audiences` entry is the same thing the legacy `--oidc-client-id` is.
+        assert_eq!(read.client_id.as_deref(), Some("fathom"));
+        assert_eq!(read.username_claim.as_deref(), Some("email"));
+        assert_eq!(read.groups_claim.as_deref(), Some("groups"));
+        assert_eq!(read.username_prefix.as_deref(), Some("oidc:"));
+        // An empty prefix is *absent*, never the empty string (T006's rule for the protocol).
+        assert_eq!(read.groups_prefix, None);
+
+        // The path read is the one the flag named, not Fathom's own default location.
+        assert_eq!(node.ops(), vec!["cat /etc/kubernetes/pki/authn.yaml"]);
+
+        // And it compares like any other read: this draft differs only in the groups prefix.
+        let diffs = compare(&read, &draft());
+        assert_eq!(diffs.len(), 1, "{diffs:?}");
+        assert_eq!(diffs[0].field, "groupsPrefix");
+        assert_eq!(diffs[0].cluster, None);
+        assert_eq!(diffs[0].draft.as_deref(), Some("oidc:"));
+    }
+
+    /// FR-010: a `cat` that fails is still a successful command — the node's verbatim words with
+    /// `checked: false`, never a fall back to "the legacy flags are absent, so all is well".
+    #[test]
+    fn a_structured_file_that_cannot_be_read_states_the_nodes_own_words() {
+        let flag = "--authentication-config=/etc/kubernetes/pki/authn.yaml";
+        let argv = || Ok(vec![pod(&["kube-apiserver", flag])]);
+
+        // The file the flag names is not on the node at all.
+        let missing = RecordingNode::new(MANIFEST);
+        let read = read_from_pods_with_node(argv(), "kind-ours", Some(&missing));
+        assert_eq!(read.style, ApiServerAuthStyle::Structured);
+        assert!(!read.checked);
+        let reason = read.reason.clone().unwrap();
+        assert!(
+            reason.contains("cat: /etc/kubernetes/pki/authn.yaml: No such file or directory"),
+            "{reason}"
+        );
+        assert_eq!(read.issuer, None);
+        assert!(compare(&read, &draft()).is_empty());
+
+        // The container is gone, or exec is denied: again the runtime's own words.
+        let denied = RecordingNode::new(MANIFEST)
+            .failing_cat("Error response from daemon: No such container: ours-control-plane");
+        let read = read_from_pods_with_node(argv(), "kind-ours", Some(&denied));
+        assert!(!read.checked);
+        assert!(
+            read.reason
+                .unwrap()
+                .contains("No such container: ours-control-plane")
+        );
+    }
+
+    /// A file Fathom cannot map onto the six compared fields is a stated unknown naming why —
+    /// not a guess, and not a silent pass.
+    #[test]
+    fn a_structured_file_fathom_cannot_map_is_a_stated_unknown() {
+        let unmappable = |yaml: &str| {
+            let node =
+                RecordingNode::new(MANIFEST).with_file("/etc/kubernetes/pki/authn.yaml", yaml);
+            let read = read_from_pods_with_node(
+                Ok(vec![pod(&[
+                    "kube-apiserver",
+                    "--authentication-config=/etc/kubernetes/pki/authn.yaml",
+                ])]),
+                "kind-ours",
+                Some(&node),
+            );
+            assert_eq!(read.style, ApiServerAuthStyle::Structured);
+            assert!(!read.checked, "{read:?}");
+            assert!(compare(&read, &draft()).is_empty());
+            read.reason.unwrap()
+        };
+
+        // Not YAML at all.
+        assert!(!unmappable("{{{").is_empty());
+
+        // No authenticator: there is no issuer to compare against.
+        let none = unmappable(
+            "apiVersion: apiserver.config.k8s.io/v1beta1\nkind: AuthenticationConfiguration\n",
+        );
+        assert!(none.contains("jwt"), "{none}");
+
+        // Two authenticators: Fathom will not pick one for the operator.
+        let two = unmappable(&STRUCTURED.replace(
+            "jwt:\n",
+            "jwt:\n- issuer:\n    url: https://other.example.com\n    audiences:\n    - other\n  claimMappings:\n    username:\n      claim: sub\n",
+        ));
+        assert!(two.contains('2'), "{two}");
+
+        // Two audiences: reporting one of them would claim a disagreement that may not exist.
+        let audiences =
+            unmappable(&STRUCTURED.replace("    - fathom\n", "    - fathom\n    - fathom-cli\n"));
+        assert!(audiences.contains("fathom-cli"), "{audiences}");
+
+        // A CEL expression has no equivalent among the fields Fathom compares.
+        let cel = unmappable(&STRUCTURED.replace(
+            "      claim: email\n",
+            "      expression: \"claims.email\"\n",
+        ));
+        assert!(cel.contains("claims.email"), "{cel}");
+    }
+
+    /// What `apply_write` puts on the node is exactly what the read gets back: the writer and the
+    /// parser cannot drift apart without this failing.
+    #[test]
+    fn what_fathom_writes_is_what_fathom_reads_back() {
+        let d = DesiredAuth {
+            groups_prefix: Some("idp:".into()),
+            ..desired(ApiServerAuthStyle::Structured)
+        };
+        let parsed = parse_authentication_config(&authentication_config_yaml(&d)).unwrap();
+        assert_eq!(parsed.style, ApiServerAuthStyle::Structured);
+        assert_eq!(parsed.issuer.as_deref(), Some(d.issuer_url.as_str()));
+        assert_eq!(parsed.client_id.as_deref(), Some(d.client_id.as_str()));
+        assert_eq!(parsed.username_claim.as_deref(), Some("email"));
+        assert_eq!(parsed.groups_claim.as_deref(), Some("groups"));
+        assert_eq!(parsed.username_prefix.as_deref(), Some("oidc:"));
+        assert_eq!(parsed.groups_prefix.as_deref(), Some("idp:"));
+
+        // And the prefixes Fathom writes as empty come back as absent, not as "".
+        let bare = DesiredAuth {
+            username_prefix: None,
+            groups_prefix: None,
+            ..desired(ApiServerAuthStyle::Structured)
+        };
+        let parsed = parse_authentication_config(&authentication_config_yaml(&bare)).unwrap();
+        assert_eq!(parsed.username_prefix, None);
+        assert_eq!(parsed.groups_prefix, None);
     }
 
     /// T035: a successful read reports the flags and the context it came from.
@@ -673,20 +1046,43 @@ mod tests {
     // T059: the write's ordering and failure handling
     // -----------------------------------------------------------------------
 
+    /// A control-plane node that remembers what was asked of it and serves a small filesystem,
+    /// so both the write's ordering and the read's `cat` are assertable without a cluster.
     struct RecordingNode {
         ops: RefCell<Vec<String>>,
-        manifest: RefCell<String>,
+        files: RefCell<std::collections::BTreeMap<String, String>>,
+        /// What every `cat` fails with, for the exec-denied and cluster-gone cases.
+        cat_error: RefCell<Option<String>>,
     }
 
     impl RecordingNode {
         fn new(manifest: &str) -> Self {
-            Self {
+            let node = Self {
                 ops: RefCell::new(Vec::new()),
-                manifest: RefCell::new(manifest.to_owned()),
-            }
+                files: RefCell::new(std::collections::BTreeMap::new()),
+                cat_error: RefCell::new(None),
+            };
+            node.put(MANIFEST_PATH, manifest);
+            node
+        }
+        fn put(&self, path: &str, contents: &str) {
+            self.files
+                .borrow_mut()
+                .insert(path.to_owned(), contents.to_owned());
+        }
+        fn with_file(self, path: &str, contents: &str) -> Self {
+            self.put(path, contents);
+            self
+        }
+        fn failing_cat(self, error: &str) -> Self {
+            *self.cat_error.borrow_mut() = Some(error.to_owned());
+            self
         }
         fn ops(&self) -> Vec<String> {
             self.ops.borrow().clone()
+        }
+        fn manifest(&self) -> String {
+            self.files.borrow()[MANIFEST_PATH].clone()
         }
     }
 
@@ -694,15 +1090,23 @@ mod tests {
         fn run(&self, args: &[&str]) -> Result<String, String> {
             self.ops.borrow_mut().push(args.join(" "));
             if args.first() == Some(&"cat") {
-                return Ok(self.manifest.borrow().clone());
+                if let Some(e) = self.cat_error.borrow().clone() {
+                    return Err(e);
+                }
+                let path = args.get(1).copied().unwrap_or_default();
+                return self
+                    .files
+                    .borrow()
+                    .get(path)
+                    .cloned()
+                    // The node's own words for a file that is not there.
+                    .ok_or_else(|| format!("cat: {path}: No such file or directory"));
             }
             Ok(String::new())
         }
         fn write_file(&self, path: &str, contents: &str) -> Result<(), String> {
             self.ops.borrow_mut().push(format!("write {path}"));
-            if path == MANIFEST_PATH {
-                *self.manifest.borrow_mut() = contents.to_owned();
-            }
+            self.put(path, contents);
             Ok(())
         }
     }
@@ -740,7 +1144,7 @@ mod tests {
         assert_eq!(ops[2], format!("write {MANIFEST_PATH}"));
         assert_eq!(ops.len(), 3, "a successful write restores nothing: {ops:?}");
 
-        let out = node.manifest.borrow().clone();
+        let out = node.manifest();
         assert!(out.contains("    - --oidc-issuer-url=https://idp.example.com/realms/corp"));
         assert!(out.contains("    - --oidc-username-prefix=oidc:"));
         // An unset prefix is not written as an empty flag.
@@ -952,7 +1356,14 @@ impl ApiServerAuthCache {
 }
 
 /// Read the API server's authentication flags as the signed-in user (T035).
-async fn read_live(client: kube::Client, context: &str) -> ApiServerAuthRead {
+///
+/// `node` is `Some` only for a cluster Fathom provisioned, and only then is a structured
+/// `--authentication-config` file read off that node; see [`owned_node`].
+async fn read_live(
+    client: kube::Client,
+    context: &str,
+    node: Option<ContainerNode>,
+) -> ApiServerAuthRead {
     let api: Api<Pod> = Api::namespaced(client, "kube-system");
     let params = ListParams::default().labels(APISERVER_POD_SELECTOR);
     let pods = api
@@ -962,7 +1373,36 @@ async fn read_live(client: kube::Client, context: &str) -> ApiServerAuthRead {
         // The API server's own words, whatever they are: a 403 explains which verb is missing,
         // and a paraphrase would cost the operator the fix.
         .map_err(|e| e.to_string());
-    read_from_pods(pods, context)
+
+    let Some(node) = node else {
+        return read_from_pods(pods, context);
+    };
+    // The node read is a `docker exec`, which blocks; the pod list above was not.
+    let ctx = context.to_owned();
+    match tokio::task::spawn_blocking(move || read_from_pods_with_node(pods, &ctx, Some(&node)))
+        .await
+    {
+        Ok(read) => read,
+        Err(e) => unknown_read(
+            context,
+            ApiServerAuthStyle::Unknown,
+            format!("Reading this API server's configuration did not complete: {e}"),
+        ),
+    }
+}
+
+/// A control-plane node transport for `context`, or `None` when Fathom did not provision that
+/// cluster.
+///
+/// Ownership comes from the provenance record and nothing else, which is why the caller gates on
+/// [`writability`] — the same test the write uses, so a hand-built `kind-…` context and a hosted
+/// build are both `None` (FR-022/FR-036).
+async fn owned_node(provenance: &KindProvenanceFile, context: &str) -> Option<ContainerNode> {
+    let cluster = provenance.record_for_context(context)?.cluster.clone();
+    let runtime = crate::backend::kind::detect_prerequisites()
+        .await
+        .runtime_kind;
+    Some(ContainerNode::new(runtime, &cluster))
 }
 
 /// Which saved issuer the cluster is compared against.
@@ -1017,6 +1457,35 @@ pub fn writability(
     (true, None)
 }
 
+/// The API server read for `context`, from the 60 s per-context cache or from the cluster.
+///
+/// This is the only read any command handler should use: besides the cache it carries the
+/// ownership decision that decides whether a structured `--authentication-config` file may be
+/// read off the control-plane node (`owned_node`). Calling `read_from_pods` directly skips that
+/// and reports a structured cluster as unknown even where Fathom could have read it.
+///
+/// A *denied* read is not an error — `read_from_pods` has already turned a 403 into a stated
+/// unknown (FR-010). Only a missing client is.
+pub(super) async fn cached_read(
+    state: &BackendState,
+    context: &str,
+) -> anyhow::Result<ApiServerAuthRead> {
+    if let Some(read) = state.apiserver_auth.get(context, Instant::now()) {
+        return Ok(read);
+    }
+    let client = state.cluster.client_or_err()?;
+    // The same ownership test the write uses, from the provenance record alone: a hand-built
+    // `kind-…` context and a hosted build both get no node (FR-022/FR-036).
+    let provenance = crate::backend::persistence::load_kind_provenance();
+    let node = match writability(context, &provenance, state.identity.is_some()) {
+        (true, _) => owned_node(&provenance, context).await,
+        (false, _) => None,
+    };
+    let read = read_live(client, context, node).await;
+    state.apiserver_auth.put(read.clone(), Instant::now());
+    Ok(read)
+}
+
 /// `ReadApiServerAuth`: one `ApiServerAuthRead` event for the active context.
 pub(super) async fn handle_read_api_server_auth(
     state: &BackendState,
@@ -1026,27 +1495,17 @@ pub(super) async fn handle_read_api_server_auth(
         anyhow::anyhow!("No cluster is connected, so its API server cannot be read.")
     })?;
 
-    let read = match state.apiserver_auth.get(&context, Instant::now()) {
-        Some(read) => read,
-        None => {
-            // A connection failure is the command's error; a *denied* read is not, and
-            // `read_from_pods` has already turned that into a stated unknown.
-            let client = state.cluster.client_or_err()?;
-            let read = read_live(client, &context).await;
-            state.apiserver_auth.put(read.clone(), Instant::now());
-            read
-        }
-    };
-
-    let config = crate::backend::persistence::load_oidc_config();
-    let differences = comparison_basis(&config, &context)
-        .map(|basis| compare(&read, &basis))
-        .unwrap_or_default();
+    let read = cached_read(state, &context).await?;
     let (writable, not_writable_reason) = writability(
         &context,
         &crate::backend::persistence::load_kind_provenance(),
         state.identity.is_some(),
     );
+
+    let config = crate::backend::persistence::load_oidc_config();
+    let differences = comparison_basis(&config, &context)
+        .map(|basis| compare(&read, &basis))
+        .unwrap_or_default();
 
     events::emit(
         state.cluster.seq.as_ref(),
@@ -1222,7 +1681,9 @@ pub(super) async fn handle_write_api_server_auth(
             // Re-read and emit, so the comparison the operator is looking at shows the cluster
             // as it now is rather than as it was before the write.
             if let Ok(client) = state.cluster.client_or_err() {
-                let read = read_live(client, &context).await;
+                // Writable by definition here, so the structured file just written is read back.
+                let node = ContainerNode::new(runtime, &cluster);
+                let read = read_live(client, &context, Some(node)).await;
                 state.apiserver_auth.put(read, Instant::now());
             }
             handle_read_api_server_auth(state, sender).await

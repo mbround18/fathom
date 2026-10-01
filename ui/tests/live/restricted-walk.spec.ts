@@ -11,11 +11,15 @@
  */
 import type { Locator, Page, WebSocketRoute } from '@playwright/test'
 
-import type { DevBridgeServerMsg } from '../../src/protocol/types'
+import type {
+  ApiServerAuthComparison,
+  BackendCmd,
+  DevBridgeServerMsg,
+} from '../../src/protocol/types'
 import { NAV_GROUPS, NAV_TOOLS } from '../../src/resources/nav'
 
-import { restrictedKubeconfig } from './env'
-import { LIVE_NAMESPACE, expect, test } from './helpers'
+import { liveContext, restrictedKubeconfig } from './env'
+import { LIVE_NAMESPACE, expect, navigateTo, test } from './helpers'
 
 const STUB =
   /section unavailable|coming soon|not implemented|under construction|\bTODO\b|lorem ipsum/i
@@ -110,6 +114,35 @@ function report(results: readonly Result[]): string {
     .join('\n')
 }
 
+/**
+ * Comparisons (`ApiServerAuthRead`) and refusals the bridge sent back, recorded off the page's
+ * own socket. Install before `app.open()`.
+ */
+async function tapApiServerAuth(page: Page): Promise<{
+  comparisons: ApiServerAuthComparison[]
+  errors: string[]
+}> {
+  const out = { comparisons: [] as ApiServerAuthComparison[], errors: [] as string[] }
+  await page.routeWebSocket(/^ws:\/\/127\.0\.0\.1:\d+\//, (ws: WebSocketRoute) => {
+    const server = ws.connectToServer()
+    ws.onMessage((raw) => server.send(raw))
+    server.onMessage((raw) => {
+      const msg = JSON.parse(String(raw)) as DevBridgeServerMsg
+      if (msg.op === 'error') out.errors.push(JSON.stringify(msg.error))
+      if (msg.op === 'batch') {
+        for (const env of msg.batch.envelopes) {
+          const ev = env.event
+          if (ev.type === 'ResourceRead' && ev.data.type === 'ApiServerAuthRead') {
+            out.comparisons.push(ev.data.data)
+          }
+        }
+      }
+      ws.send(raw)
+    })
+  })
+  return out
+}
+
 test.describe('restricted-user walk', () => {
   test.skip(!restrictedKubeconfig(), 'FATHOM_RESTRICTED_KUBECONFIG is not set')
 
@@ -153,6 +186,123 @@ test.describe('restricted-user walk', () => {
     await info.attach('results', { body: report(results), contentType: 'text/plain' })
     console.log(`\n[tools]\n${report(results)}`)
     expect(results.filter((r) => r.outcome === 'broken')).toEqual([])
+  })
+
+  /**
+   * 045 T064/FR-024, live: the guided path's API server step and the one cluster write it can
+   * offer, against the real backend as the namespace-scoped identity.
+   *
+   * Both commands are raw-sent through `window.__fathomDevBridge` (the convention
+   * tests/live/actions.spec.ts uses to prove the write guard) rather than driven through the
+   * guided path's UI: reaching the comparison step needs a reachable OIDC provider to answer a
+   * discovery probe, and there is no IdP in a restricted walk.
+   *
+   * What FR-024 asks for -- the write showing up in the mutation audit log -- cannot be asserted
+   * from any devbridge-backed suite: `WriteApiServerAuth` is `MutationTarget::ClusterScoped`, and
+   * every bridge configuration refuses a cluster-scoped write before the backend ever dispatches
+   * it (`tools/devbridge/src/guard.rs`), so nothing is there to audit. That refusal is what is
+   * asserted here instead, which is the stronger half of the guarantee: no write can reach a
+   * control plane through this transport at all, audited or not. The audited dispatch itself is
+   * covered where it is reachable -- `BackendCmdV1::audit_summary` in src/protocol/v1/mutation.rs,
+   * and the UI's own "audit log" wording in tests/e2e/guided-oidc.spec.ts.
+   */
+  test('the API server read answers live, and the write is refused before it can go unaudited', async ({
+    app,
+    page,
+  }) => {
+    const tap = await tapApiServerAuth(page)
+    const pageErrors: string[] = []
+    page.on('pageerror', (e) => pageErrors.push(e.message))
+    await app.open()
+
+    // 1. The read, carrying the draft being configured (FR-025). Read-only, so the bridge
+    //    forwards it and the backend performs it as this identity.
+    const accepted = await page.evaluate(async () => {
+      const bridge = window.__fathomDevBridge
+      if (!bridge) return 'no __fathomDevBridge on the page'
+      const cmd: BackendCmd = {
+        type: 'ReadApiServerAuth',
+        data: {
+          draft: {
+            id: 'restricted-walk',
+            issuer_url: 'https://idp.invalid/realms/fathom',
+            client_id: 'fathom',
+            scopes: ['openid', 'profile', 'email', 'groups'],
+            ca_bundle_path: null,
+            username_claim: 'preferred_username',
+            groups_claim: 'groups',
+            username_prefix: 'oidc:',
+            groups_prefix: 'oidc:',
+            admin_api_base: null,
+          },
+        },
+      }
+      try {
+        await bridge.send(cmd)
+        return 'ACCEPTED'
+      } catch (err) {
+        const e = err as { type?: string; data?: string }
+        return `${e.type ?? '?'}: ${e.data ?? ''}`
+      }
+    })
+    // Carrying a draft is not a write: the read-only bridge still forwards it (FR-025).
+    expect(accepted).toBe('ACCEPTED')
+
+    await expect.poll(() => tap.comparisons.length, { timeout: 30_000 }).toBeGreaterThan(0)
+    const comparison = tap.comparisons[tap.comparisons.length - 1]
+    if (!comparison) throw new Error('no ApiServerAuthRead')
+    test.info().annotations.push({
+      type: 'ApiServerAuthRead',
+      description: JSON.stringify(comparison),
+    })
+    expect(comparison.read.context).toBe(liveContext())
+    // FR-023/FR-010: a namespace-scoped identity cannot list kube-system pods, and a denied read
+    // is a stated unknown in the API server's own words -- never an assumed pass, never an error.
+    expect(comparison.read.checked).toBe(false)
+    expect(comparison.read.reason ?? '').not.toBe('')
+    // An unchecked read claims no differences either way, draft or no draft.
+    expect(comparison.differences).toEqual([])
+    // FR-022/FR-036: ownership comes from the provenance record, so a context Fathom did not
+    // provision is not writable and is told why, naming itself.
+    expect(comparison.writable).toBe(false)
+    expect(comparison.not_writable_reason ?? '').toContain(liveContext())
+
+    // 2. The write, raw. Cluster-scoped, so the guard refuses it before the backend sees it.
+    const refused = await page.evaluate(async (cluster) => {
+      const bridge = window.__fathomDevBridge
+      if (!bridge) return 'no __fathomDevBridge on the page'
+      const cmd: BackendCmd = {
+        type: 'WriteApiServerAuth',
+        data: {
+          cluster,
+          style: 'Legacy',
+          issuer_url: 'https://idp.invalid/realms/fathom',
+          client_id: 'fathom',
+          username_claim: 'preferred_username',
+          groups_claim: 'groups',
+          username_prefix: 'oidc:',
+          groups_prefix: 'oidc:',
+        },
+      }
+      try {
+        await bridge.send(cmd)
+        return 'ACCEPTED'
+      } catch (err) {
+        const e = err as { type?: string; data?: string }
+        return `${e.type ?? '?'}: ${e.data ?? ''}`
+      }
+    }, liveContext())
+    expect(refused).toMatch(/^Forbidden: /)
+    expect(refused).toContain('WriteApiServerAuth')
+    expect(refused).toContain('cluster-scoped')
+
+    // 3. The place the write would be recorded still works for this identity, and the pane says
+    //    what it is: Fathom's own mutation log, not the API server's.
+    await navigateTo(page, 'Audit Log', 'Team')
+    await expect(page.getByTestId('audit-log-note')).toContainText('not Kubernetes')
+    // A refused command never reached the backend, so there is nothing to have audited.
+    await expect(page.getByTestId('audit-entry').filter({ hasText: 'APIServer' })).toHaveCount(0)
+    expect(pageErrors).toEqual([])
   })
 
   test('namespace picker falls back to the context namespace and accepts a typed one', async ({

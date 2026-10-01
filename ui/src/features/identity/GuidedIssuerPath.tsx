@@ -218,6 +218,16 @@ function Body({
   // does a context change underneath the open path; until the new read lands the old one is
   // rendered with the context it came from and marked stale.
   const readFor = useRef<string | undefined>(undefined)
+  // The draft the read is compared against, in the effect without re-running it: a keystroke must
+  // not re-ask the cluster. The read is asked once per context, so this is the draft as it stood
+  // when the comparison step was entered.
+  const compareDraft = useRef(draft.config)
+  // Written in an effect, not during render: a ref mutated while rendering is a lint error and,
+  // under StrictMode's double render, a lie about when the value changed. This effect is declared
+  // before the read below, so it has already run when the read fires in the same commit.
+  useEffect(() => {
+    compareDraft.current = draft.config
+  }, [draft.config])
   useEffect(() => {
     if (draft.step !== 'cluster-compare' || activeContext === undefined) return
     if (storeComparison?.read.context === activeContext) return
@@ -226,7 +236,10 @@ function Body({
     // would be the polling Principle V forbids.
     if (readFor.current === activeContext) return
     readFor.current = activeContext
-    send({ type: 'ReadApiServerAuth' })
+    // FR-025: the draft travels with the read. On a first-time setup nothing is saved, so without
+    // it the backend has no basis for the comparison and answers `differences: []` -- which this
+    // component renders as "every field agrees" about a cluster that agrees with nothing.
+    send({ type: 'ReadApiServerAuth', data: { draft: compareDraft.current } })
   }, [draft.step, activeContext, storeComparison, send])
 
   // T049-T052: the one save. It is offered at every step (FR-015), not only on the summary, and
