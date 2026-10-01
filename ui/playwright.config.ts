@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { autoWorkers } from './tests/support/workers'
+
 /**
  * One project per width class × engine (contracts/layout.md § Verification). Each project's
  * metadata carries what the shell must render at that viewport.
@@ -100,6 +102,10 @@ const FUNCTIONAL_PROJECTS = ENGINES.flatMap(({ engine, device }) =>
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
+  // Sized from the machine's current load and free memory rather than Playwright's default of
+  // half the cores, which on a 32-core box is 16 browsers and enough to make the desktop crawl
+  // while another agent is building. `PLAYWRIGHT_WORKERS=<n>` overrides.
+  workers: autoWorkers(),
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: [
