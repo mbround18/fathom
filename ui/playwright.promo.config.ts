@@ -19,12 +19,14 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  // A shaky cluster read retries the scene; the composer checks every shot exists.
+  // A shaky cluster read retries the scene. The shots directory is emptied before the run
+  // (tests/promo/global-setup.ts) and the composer refuses to build a PDF with a scene missing,
+  // so a scene that fails for real cannot hide behind the previous run's photograph of it.
   retries: 1,
   timeout: 120_000,
   expect: { timeout: 20_000 },
   reporter: 'list',
-  globalSetup: './tests/live/global-setup.ts',
+  globalSetup: './tests/promo/global-setup.ts',
   globalTeardown: './tests/live/global-teardown.ts',
   use: {
     ...devices['Desktop Chrome'],

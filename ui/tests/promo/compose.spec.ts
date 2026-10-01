@@ -338,6 +338,7 @@ function loadShots(): Shot[] {
   // Narrative order follows SHOT_META's insertion order (not filename/readdir order), so a
   // staged entry (e.g. Terminal) can sit right next to the live entry it belongs beside (Logs).
   const shots: Shot[] = []
+  const notShot: string[] = []
   for (const [name, meta] of Object.entries(SHOT_META)) {
     const staged = STAGED_SHOTS.has(name)
     const dir = staged ? ASSETS_DIR : SHOTS_DIR
@@ -350,6 +351,7 @@ function loadShots(): Shot[] {
         )
       }
     } else if (!present.has(`${name}.png`)) {
+      notShot.push(name)
       continue
     }
     const bytes = readFileSync(path)
@@ -359,6 +361,17 @@ function loadShots(): Shot[] {
       caption: meta.caption,
       dataUrl: `data:image/png;base64,${bytes.toString('base64')}`,
     })
+  }
+  // global-setup.ts empties promo-out/shots/ at the start of every unfiltered run, so a shot that
+  // is absent here is a scene that failed this run, not one that was never written. Building the
+  // PDF anyway is what let a broken scene hide behind the previous run's photograph of it: the
+  // brochure simply dropped a page and still looked finished. Refuse instead.
+  if (notShot.length > 0) {
+    throw new Error(
+      `promo/compose: ${String(notShot.length)} scene(s) produced no shot this run: ` +
+        `${notShot.join(', ')}\nFix the failing scene(s) above and re-run the full promo shoot; ` +
+        'the PDF is only built when every scene was photographed.',
+    )
   }
   return shots
 }
