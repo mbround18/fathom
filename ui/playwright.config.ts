@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-import { autoWorkers } from './tests/support/workers'
+import { autoWorkers } from './tests/support/workers.js'
 
 /**
  * One project per width class × engine (contracts/layout.md § Verification). Each project's
