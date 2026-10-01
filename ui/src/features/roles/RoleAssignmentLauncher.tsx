@@ -12,13 +12,32 @@ import { useStore } from '@/store'
 
 import { RoleAssignmentDialog } from './RoleAssignmentDialog'
 
-export function RoleAssignmentLauncher({ kind }: { kind: 'RoleBinding' | 'ClusterRoleBinding' }) {
+export function RoleAssignmentLauncher({
+  kind,
+  issuerId: given,
+}: {
+  kind: 'RoleBinding' | 'ClusterRoleBinding'
+  /**
+   * 045 T043/FR-030: the issuer this launcher belongs to, given rather than guessed. Reading
+   * `issuers[0]` was wrong the moment a second issuer existed: the directory it offers, the
+   * orphaned-subject join it asks for and the prefixes the preview renders all belong to one
+   * issuer, so picking the first one silently bound subjects from another provider's directory.
+   */
+  issuerId?: string
+}) {
   const [open, setOpen] = useState(false)
   const namespace = useStore((s) => s.session.activeNamespace)
   const context = useStore((s) => s.session.activeContext)
-  const issuerId = useStore((s) => s.identity.config.issuers[0]?.id)
+  const contexts = useStore((s) => s.identity.config.contexts)
+  const issuers = useStore((s) => s.identity.config.issuers)
   const send = useStore((s) => s.send)
   const ns = kind === 'RoleBinding' ? namespace : null
+  // Without one given, the issuer is the one this context authenticates with — the binding screens
+  // are about a cluster, and that is the provider whose subjects it accepts. A single configured
+  // issuer is the same answer by another route; with several and no context choice there is no
+  // issuer to guess, and `RoleAssignmentDialog`'s own picker is what resolves it.
+  const bound = contexts.find((c) => c.context_name === context)?.issuer_id ?? undefined
+  const issuerId = given ?? bound ?? (issuers.length === 1 ? issuers[0]?.id : undefined)
 
   useEffect(() => {
     if (issuerId && context) {
@@ -49,7 +68,13 @@ export function RoleAssignmentLauncher({ kind }: { kind: 'RoleBinding' | 'Cluste
           <SheetHeader>
             <SheetTitle>Assign role</SheetTitle>
           </SheetHeader>
-          {open && <RoleAssignmentDialog namespace={ns} onClose={() => setOpen(false)} />}
+          {open && (
+            <RoleAssignmentDialog
+              namespace={ns}
+              issuerId={issuerId}
+              onClose={() => setOpen(false)}
+            />
+          )}
         </SheetContent>
       </Sheet>
     </>

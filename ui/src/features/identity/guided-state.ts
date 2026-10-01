@@ -140,6 +140,10 @@ export function canAdvance(d: GuidedDraft): boolean {
     case 'issuer-url':
       return d.config.issuer_url.trim() !== '' && d.config.client_id.trim() !== ''
     case 'discovery':
+      // A seeded issuer is reviewed, never configured: it was validated by the running server
+      // before it bound a socket, and hosted cannot probe it at all, so a refusal here would
+      // only make the rest of the review unreachable (FR-032).
+      if (isFrozen(d)) return true
       // The one refusal in the path: carrying an issuer mismatch forward would configure an
       // issuer whose every token is rejected, which is what FR-002 exists to stop.
       return d.discovery !== undefined && issuerMismatch(d) === undefined
@@ -156,6 +160,38 @@ export function canSave(d: GuidedDraft): boolean {
   if (isFrozen(d)) return false
   const { id, issuer_url, client_id } = d.config
   return id.trim() !== '' && issuer_url.trim() !== '' && client_id.trim() !== ''
+}
+
+/**
+ * What this draft has *not* verified, in the operator's words. FR-015's "name what was not
+ * verified" and FR-014's "which verification steps were performed and which were skipped" are the
+ * same list read two ways, so it is computed once and pure.
+ */
+export function unverified(d: GuidedDraft): readonly string[] {
+  const out: string[] = []
+  if (d.discovery === undefined && !isFrozen(d)) {
+    out.push(
+      'The provider’s discovery document was never fetched, so nothing it declares was seen.',
+    )
+  }
+  if (d.signIn === undefined) {
+    out.push(
+      'No test sign-in was run: the client id is unproven and no token’s claims were observed.',
+    )
+  }
+  const c = d.comparison
+  if (c === undefined) {
+    out.push('This cluster’s API server configuration was not read, so nothing was compared.')
+  } else if (!c.read.checked) {
+    out.push(
+      `This cluster’s API server configuration could not be read (${c.read.reason ?? 'no reason was given'}), so nothing was compared.`,
+    )
+  } else if (c.differences.length > 0) {
+    out.push(
+      `This cluster’s API server disagrees on ${c.differences.map((x) => x.field).join(', ')}, and that was not resolved.`,
+    )
+  }
+  return out
 }
 
 export function guidedReducer(d: GuidedDraft, action: GuidedAction): GuidedDraft {

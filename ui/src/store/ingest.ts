@@ -71,6 +71,16 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
     handleCommandFinished(d, env, event.data)
     return
   }
+  // 045-guided-oidc-setup: an `ApiServerAuthComparison` names the context it was read from and is
+  // keyed by it, so Rule 1 has nothing to protect here — and it would actively break FR-023: the
+  // hosted server reads its own in-cluster context, which this UI never calls active, so the one
+  // read hosted is allowed to make would be dropped on arrival. A read for a context the operator
+  // has switched away from is still stored under *its* context, and the guided path names that
+  // context and marks the comparison stale rather than passing it off as the current one (FR-026).
+  if (event.type === 'ResourceRead' && event.data.type === 'ApiServerAuthRead') {
+    reduceApiServerAuth(d.edit('identity'), event.data.data)
+    return
+  }
   // Rule 1: results for another context are stale (the operator switched away).
   if (env.route.context !== null && env.route.context !== d.read('session').activeContext) return
 
@@ -126,13 +136,6 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
         handleExecAccess(d, event.data)
         return
       }
-      // 045-guided-oidc-setup: an `ApiServerAuthComparison` carries no top-level `name` either,
-      // and belongs to the context it was read from, so it is keyed per context in the identity
-      // slice (`reduceApiServerAuth`) rather than by the generic `details` keying.
-      if (event.data.type === 'ApiServerAuthRead') {
-        reduceApiServerAuth(d.edit('identity'), event.data.data)
-        return
-      }
       // 011-rbac-oidc-administration: same reasoning, see handlers/rbacAccess.ts.
       if (
         event.data.type === 'RbacSelfAccessUpdated' ||
@@ -144,6 +147,9 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
         handleRbacAccess(d, event.data)
         return
       }
+      // 045's `ApiServerAuthRead` was handled above, before the staleness rule; saying so here is
+      // what keeps the generic read handler's narrowing honest about what can still arrive.
+      if (event.data.type === 'ApiServerAuthRead') return
       const latest = d.read('details')[readKeyOf(env, event.data)]?.latestRequest
       if (isSuperseded(env, latest)) return
       handleRead(d, env, event.data)

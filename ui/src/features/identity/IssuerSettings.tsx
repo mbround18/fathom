@@ -1,8 +1,17 @@
-/** 033 US1: add/edit/remove OIDC issuers (public client, no secrets). */
+/**
+ * 033 US1, rebuilt by 045 US5: the issuer list, and the guided path as the only way in or out of
+ * it. The flat six-field form this screen used to carry is gone (T053/FR-018): it asked for an
+ * issuer URL, a client id and two claim names with nothing to check them against, which is the
+ * problem the guided path exists to solve. The list, the per-issuer sign-in controls and the
+ * role-map editor stay.
+ *
+ * One mount of `GuidedIssuerPath` serves every surface this component appears on — the identity
+ * chip's dialog, Settings › Sign-in and the first-run setup step all render `IssuerSettings`, so
+ * the path comes with it, as a Sheet layered over whatever opened it (FR-029).
+ */
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import type { OidcIssuerConfig } from '@/protocol/types'
 import { useStore } from '@/store'
 
@@ -10,51 +19,13 @@ import { GuidedIssuerPath } from './GuidedIssuerPath'
 import { RoleMapEditor } from './RoleMapEditor'
 import { SignInPanel } from './SignInPanel'
 
-const EMPTY_ISSUER: OidcIssuerConfig = {
-  id: '',
-  issuer_url: '',
-  client_id: '',
-  scopes: ['openid', 'profile', 'email', 'groups'],
-  ca_bundle_path: null,
-  username_claim: 'preferred_username',
-  groups_claim: 'groups',
-  username_prefix: 'oidc:',
-  groups_prefix: 'oidc:',
-  admin_api_base: null,
-}
-
-function Field({
-  label,
-  testId,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string
-  testId: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-}) {
-  return (
-    <label className="flex flex-col gap-1 text-xs" data-testid={testId}>
-      <span className="text-muted-foreground">{label}</span>
-      <Input value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
-    </label>
-  )
-}
-
 export function IssuerSettings() {
   const send = useStore((s) => s.send)
   const issuers = useStore((s) => s.identity.config.issuers)
-  const configError = useStore((s) => s.identity.errors[''])
   const origins = useStore((s) => s.identity.origins)
-  // 045: the guided path, opened beside the flat form rather than instead of it. Replacing the
-  // form is T053/T054's job; this is only what makes the path reachable while it is being built.
+  // `undefined` is closed; `{}` adds a new issuer and `{ issuer }` reviews an existing one. Both
+  // are the same component on the same draft machine (FR-016).
   const [path, setPath] = useState<{ issuer?: OidcIssuerConfig } | undefined>(undefined)
-  const [form, setForm] = useState<OidcIssuerConfig>(EMPTY_ISSUER)
-  const set = (patch: Partial<OidcIssuerConfig>) => setForm((f) => ({ ...f, ...patch }))
-  const canSave = form.id.trim() && form.issuer_url.trim() && form.client_id.trim()
 
   return (
     <div className="flex flex-col gap-4" data-testid="oidc-issuer-settings">
@@ -74,115 +45,56 @@ export function IssuerSettings() {
           No OIDC issuers configured.
         </p>
       )}
-      {issuers.map((issuer) => (
-        <section
-          key={issuer.id}
-          className="border border-border p-2"
-          data-testid={`oidc-issuer-${issuer.id}`}
-        >
-          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-            <span className="font-semibold">{issuer.id}</span>
-            <span className="min-w-0 truncate font-mono text-muted-foreground">
-              {issuer.issuer_url}
-            </span>
-            <Button
-              size="xs"
-              variant="ghost"
-              data-testid={`oidc-review-${issuer.id}`}
-              onClick={() => setPath({ issuer })}
-            >
-              Review
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              data-testid={`oidc-edit-${issuer.id}`}
-              onClick={() => setForm(issuer)}
-            >
-              Edit
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              data-testid={`oidc-delete-${issuer.id}`}
-              onClick={() => send({ type: 'OidcDeleteIssuer', data: { issuer_id: issuer.id } })}
-            >
-              Remove
-            </Button>
-          </div>
-          <SignInPanel issuer={issuer} />
-        </section>
-      ))}
+      {issuers.map((issuer) => {
+        // 045 FR-032: a seeded issuer is the server's, not this screen's. It is reviewable like any
+        // other, and the only place it changes is the object it was seeded from.
+        const seed = origins[issuer.id]
+        const seeded = seed?.origin === 'SeededFromEnvironment'
+        return (
+          <section
+            key={issuer.id}
+            className="border border-border p-2"
+            data-testid={`oidc-issuer-${issuer.id}`}
+          >
+            <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+              <span className="font-semibold">{issuer.id}</span>
+              <span className="min-w-0 truncate font-mono text-muted-foreground">
+                {issuer.issuer_url}
+              </span>
+              <Button
+                size="xs"
+                variant="ghost"
+                data-testid={`oidc-review-${issuer.id}`}
+                onClick={() => setPath({ issuer })}
+              >
+                {seeded ? 'Review' : 'Review and edit'}
+              </Button>
+              {!seeded && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  data-testid={`oidc-delete-${issuer.id}`}
+                  onClick={() => send({ type: 'OidcDeleteIssuer', data: { issuer_id: issuer.id } })}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+            {seeded && (
+              <p
+                className="mb-2 text-xs text-muted-foreground"
+                data-testid={`oidc-issuer-origin-${issuer.id}`}
+              >
+                This issuer is seeded from the server environment and cannot be changed or removed
+                here. It is set in <span className="font-mono break-all">{seed.source}</span>.
+              </p>
+            )}
+            <SignInPanel issuer={issuer} />
+          </section>
+        )
+      })}
 
       <RoleMapEditor />
-
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Field
-          label="Issuer id"
-          testId="oidc-form-id"
-          value={form.id}
-          onChange={(id) => set({ id })}
-        />
-        <Field
-          label="Issuer URL"
-          testId="oidc-form-issuer-url"
-          value={form.issuer_url}
-          placeholder="https://auth.example.com/auth/v1"
-          onChange={(issuer_url) => set({ issuer_url })}
-        />
-        <Field
-          label="Client ID (public client)"
-          testId="oidc-form-client-id"
-          value={form.client_id}
-          onChange={(client_id) => set({ client_id })}
-        />
-        <Field
-          label="Private CA bundle path (optional)"
-          testId="oidc-form-ca"
-          value={form.ca_bundle_path ?? ''}
-          onChange={(v) => set({ ca_bundle_path: v.trim() || null })}
-        />
-        <Field
-          label="Username claim"
-          testId="oidc-form-username-claim"
-          value={form.username_claim}
-          onChange={(username_claim) => set({ username_claim })}
-        />
-        <Field
-          label="Groups claim"
-          testId="oidc-form-groups-claim"
-          value={form.groups_claim}
-          onChange={(groups_claim) => set({ groups_claim })}
-        />
-      </div>
-      {configError && (
-        <p role="alert" className="text-status-error text-xs" data-testid="oidc-config-error">
-          {configError.message}
-        </p>
-      )}
-      <div>
-        <Button
-          size="sm"
-          disabled={!canSave}
-          data-testid="oidc-form-save"
-          onClick={() => {
-            send({
-              type: 'OidcSaveIssuer',
-              data: {
-                issuer: {
-                  ...form,
-                  id: form.id.trim(),
-                  issuer_url: form.issuer_url.trim(),
-                  client_id: form.client_id.trim(),
-                },
-              },
-            })
-            setForm(EMPTY_ISSUER)
-          }}
-        >
-          Save issuer
-        </Button>
-      </div>
     </div>
   )
 }

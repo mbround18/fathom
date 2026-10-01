@@ -111,11 +111,11 @@
 
 **Independent Test**: Fill the three slots from observed groups and confirm the step says they grant nothing in the cluster; then after saving, take the bindings handoff and confirm the subject arrives pre-filled with the API server's prefix applied and carries the issuer just configured.
 
-- [ ] T041 [P] [US4] Unit test in `ui/tests/unit/guided-state.test.ts` that the Fathom role slots and the cluster bindings are two separate, separately refusable steps, and that refusing the bindings step leaves a saved issuer intact (FR-027)
-- [ ] T042 [US4] Implement the Fathom role-slot step in `ui/src/features/identity/GuidedIssuerPath.tsx`, offering the groups observed in the test sign-in plus free text for `viewers_group`, `editors_group` and `admins_group`, and stating that these gate Fathom's own features and grant nothing in the cluster (FR-012, FR-027)
-- [ ] T043 [US4] Fix `ui/src/features/roles/RoleAssignmentLauncher.tsx:19` to take the issuer being configured as a prop instead of reading `issuers[0]?.id`, which is wrong as soon as a second issuer exists, keeping the `if (!issuerId) return null` guard at `:29` (FR-030)
-- [ ] T044 [US4] Implement the bindings handoff from the path into the existing role-binding form with the subject pre-filled including the API server's prefix, reached only after the save because 042's `RoleAssignmentDraft` requires a saved `issuer_id` (FR-013)
-- [ ] T045 [P] [US4] E2E in `ui/tests/e2e/guided-oidc.spec.ts` with two saved issuers, asserting the handoff carries the second one's id and that the two role steps are labelled distinctly (FR-030)
+- [X] T041 [P] [US4] Unit test in `ui/tests/unit/guided-state.test.ts` that the Fathom role slots and the cluster bindings are two separate, separately refusable steps, and that refusing the bindings step leaves a saved issuer intact (FR-027)
+- [X] T042 [US4] Implement the Fathom role-slot step in `ui/src/features/identity/GuidedIssuerPath.tsx`, offering the groups observed in the test sign-in plus free text for `viewers_group`, `editors_group` and `admins_group`, and stating that these gate Fathom's own features and grant nothing in the cluster (FR-012, FR-027)
+- [X] T043 [US4] Fix `ui/src/features/roles/RoleAssignmentLauncher.tsx:19` to take the issuer being configured as a prop instead of reading `issuers[0]?.id`, which is wrong as soon as a second issuer exists, keeping the `if (!issuerId) return null` guard at `:29` (FR-030)
+- [X] T044 [US4] Implement the bindings handoff from the path into the existing role-binding form with the subject pre-filled including the API server's prefix, reached only after the save because 042's `RoleAssignmentDraft` requires a saved `issuer_id` (FR-013)
+- [X] T045 [P] [US4] E2E in `ui/tests/e2e/guided-oidc.spec.ts` with two saved issuers, asserting the handoff carries the second one's id and that the two role steps are labelled distinctly (FR-030)
 
 **Checkpoint**: US1–US4 all independently functional.
 
@@ -131,12 +131,12 @@
 - [ ] T047 [P] [US5] Backend test that `OidcSaveDraft` is refused when `adopt_test_session` is set but no test sign-in is live, and that `save_oidc_config`'s existing refusal to overwrite unparseable JSON (`src/backend/persistence.rs:419`) still holds
 - [ ] T048 [P] [US5] Backend test that saving an issuer whose id is already in use is refused with an explanation rather than silently merging (FR-017)
 - [ ] T049 [US5] Handle `OidcSaveDraft` in `src/backend/cmd/oidc.rs` as a single transactional save: validate, persist the issuer via `save_oidc_config`, persist the role map, then adopt the draft's in-memory tokens into the credential store under the saved id (FR-028)
-- [ ] T050 [US5] Implement the final summary step in `ui/src/features/identity/GuidedIssuerPath.tsx` listing every field to be stored and recording which verification steps were performed and which were skipped (FR-014)
-- [ ] T051 [US5] Offer **Save without testing** at every step, naming what has not been verified, and carry that into the summary (FR-015)
-- [ ] T052 [US5] Open the same path pre-filled from an existing issuer's **Review…**, and warn before saving a change to an issuer that currently has a live session (FR-016)
-- [ ] T053 [US5] Remove the six bare `Input` fields from `ui/src/features/identity/IssuerSettings.tsx` and mount the path for both add and edit, keeping the issuer list, `SignInPanel` and `RoleMapEditor` (`:93`); also drop the dead `s.identity.errors['']` read at `:49`, which `reduceIdentity` never writes (FR-018)
-- [ ] T054 [US5] Mount the path unchanged from all three existing surfaces — `IdentityChip.tsx:49`, the Settings pane via `SignInSettings` (`PaneHost.tsx:483`) and `SetupSignIn.tsx:43` — verifying the Sheet layers over the chip's open dialog instead of nesting (FR-029)
-- [ ] T055 [P] [US5] E2E in `ui/tests/e2e/guided-oidc.spec.ts`: save-then-signed-in with a single sign-in, reopen pre-filled, duplicate-id refusal, and the save-without-testing summary (SC-005, SC-007)
+- [X] T050 [US5] Implement the final summary step in `ui/src/features/identity/GuidedIssuerPath.tsx` listing every field to be stored and recording which verification steps were performed and which were skipped (FR-014)
+- [X] T051 [US5] Offer **Save without testing** at every step, naming what has not been verified, and carry that into the summary (FR-015)
+- [X] T052 [US5] Open the same path pre-filled from an existing issuer's **Review…**, and warn before saving a change to an issuer that currently has a live session (FR-016)
+- [X] T053 [US5] Remove the six bare `Input` fields from `ui/src/features/identity/IssuerSettings.tsx` and mount the path for both add and edit, keeping the issuer list, `SignInPanel` and `RoleMapEditor` (`:93`); also drop the dead `s.identity.errors['']` read at `:49`, which `reduceIdentity` never writes (FR-018)
+- [X] T054 [US5] Mount the path unchanged from all three existing surfaces — `IdentityChip.tsx:49`, the Settings pane via `SignInSettings` (`PaneHost.tsx:483`) and `SetupSignIn.tsx:43` — verifying the Sheet layers over the chip's open dialog instead of nesting (FR-029)
+- [X] T055 [P] [US5] E2E in `ui/tests/e2e/guided-oidc.spec.ts`: save-then-signed-in with a single sign-in, reopen pre-filled, duplicate-id refusal, and the save-without-testing summary (SC-005, SC-007)
 
 **Checkpoint**: The path fully replaces the flat form. US1–US5 complete.
 
@@ -154,8 +154,8 @@
 - [ ] T059 [P] [US6] Backend tests in `src/backend/apiserver_auth.rs` for the write: a backup is taken before any change, the control plane is waited for after it, and a failure reports the verbatim error (FR-021)
 - [ ] T060 [US6] Implement the API server write, in the style the cluster already uses and never both, refusing unless the named cluster carries the provenance record (FR-019, FR-020, FR-022). `k8s/kind-oidc-apiserver/apply.sh` is a reference only — it is 18 lines marked "Lab only" with no readiness wait, no rollback and a `sed` anchored on `- --authorization-mode=Node,RBAC`
 - [ ] T061 [US6] Handle `WriteApiServerAuth` **inline** in `src/backend/cmd/oidc.rs`: `audit_summary()` is taken at dispatch (`src/backend.rs:312`), so a write that completed asynchronously would be audited before it happened (FR-024)
-- [ ] T062 [US6] Implement the write step in `ui/src/features/identity/GuidedIssuerPath.tsx`, showing the backup it will take and the exact flags it will set, behind an explicit confirmation that names them (FR-019, SC-007)
-- [ ] T063 [US6] Show the copyable required-configuration text instead of the write on any context without the provenance record, saying plainly that Fathom will not change a control plane it does not own (FR-022)
+- [X] T062 [US6] Implement the write step in `ui/src/features/identity/GuidedIssuerPath.tsx`, showing the backup it will take and the exact flags it will set, behind an explicit confirmation that names them (FR-019, SC-007)
+- [X] T063 [US6] Show the copyable required-configuration text instead of the write on any context without the provenance record, saying plainly that Fathom will not change a control plane it does not own (FR-022)
 - [ ] T064 [P] [US6] E2E in `ui/tests/e2e/guided-oidc.spec.ts` asserting the write is offered for a provisioned cluster and replaced by copyable text for an unowned one, and a live check in the restricted suite that the write appears in the mutation audit log (FR-024)
 
 **Checkpoint**: All six user stories independently functional on the desktop build.
@@ -169,11 +169,11 @@
 - [X] T065 [P] Test in `server/src/oidc_seed.rs` that the projection maps `oidc.issuer_raw` verbatim (a `Url` would append a `/`), carries scopes, claims and prefixes with empty prefixes becoming `None`, carries `ca_file` to `ca_bundle_path`, sets `admin_api_base: None`, and **never** projects `client_secret` (FR-033)
 - [X] T066 Implement the projection in `server/src/oidc_seed.rs` from the already-validated `HostedConfig` (`server/src/config.rs:157`) into an `OidcIssuerConfig` marked `IssuerOrigin::SeededFromEnvironment`, introducing no second source of truth
 - [X] T067 Surface the seeded issuer in the hosted issuer list and emit `OidcSeedOrigin` naming its source, so the UI can render it read-only; desktop never emits it and `Saved` is the absence of it (FR-031)
-- [ ] T068 Render a seeded issuer read-only in `ui/src/features/identity/GuidedIssuerPath.tsx` and `IssuerSettings.tsx`: not editable, not deletable, origin stated, the place it is changed named — while discovery, claims and the API server comparison all stay available (FR-032)
+- [X] T068 Render a seeded issuer read-only in `ui/src/features/identity/GuidedIssuerPath.tsx` and `IssuerSettings.tsx`: not editable, not deletable, origin stated, the place it is changed named — while discovery, claims and the API server comparison all stay available (FR-032)
 - [X] T069 Document the mounted Secret/ConfigMap and the `FATHOM_OIDC_*` env overrides in the hosted manifests under `k8s/`, so the seed appears in manifest export like every other object Fathom would apply, with no secret value rendered (FR-033)
 - [X] T070 [P] Test that the hosted configuration surface is gated by a `SelfSubjectAccessReview` performed as the signed-in user, reusing `review_resource_access` (`src/backend/rbac_access.rs:29`) and `CapabilityResult`'s verbatim `reason` (`src/backend/capabilities.rs:272`), and that a failed review **fails closed** with the unknown stated verbatim (FR-034, FR-035)
 - [X] T071 Implement that guard on the hosted OIDC configuration surface, with no Fathom-internal role list anywhere in the decision path (FR-034, FR-035)
-- [ ] T072 Show the identity surface in hosted, which `ui/src/components/layout/TopBar.tsx:109` hides today via `{!isHosted && <IdentityChip …>}` — the Settings sign-in pane must reach the path even if the chip stays hidden
+- [X] T072 Show the identity surface in hosted, which `ui/src/components/layout/TopBar.tsx:109` hides today via `{!isHosted && <IdentityChip …>}` — the Settings sign-in pane must reach the path even if the chip stays hidden
 - [X] T073 [P] Hosted E2E in `ui/tests/e2e/hosted-guided-oidc.spec.ts` (run by `pnpm e2e:hosted`): the seeded issuer renders read-only with its origin, steps 1–7 including the comparison are available, `WriteApiServerAuth` is refused with a reason, and a denied user is refused in the API server's own words (FR-023, FR-031–FR-035)
 
 **Checkpoint**: Hosted and desktop both correct, with the hosted denial enforced in `filter.rs` rather than only in the UI.

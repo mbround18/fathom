@@ -25,11 +25,22 @@ export interface RoleAssignmentDialogProps {
   namespace: string | null
   /** Test seam; defaults to the store-backed directory. */
   source?: DirectorySource
+  /**
+   * 045 FR-030: the issuer this form belongs to. The guided path hands over the issuer it just
+   * configured, which is not necessarily the first saved one.
+   */
+  issuerId?: string
+  /**
+   * 045 FR-013: a subject chosen elsewhere. The *raw* name: the backend's `render_subject_name`
+   * applies the issuer's prefix when it renders the preview, so a pre-prefixed name would be
+   * prefixed twice.
+   */
+  subject?: { kind: 'Group' | 'User'; name: string }
 }
 
 export function RoleAssignmentDialog(props: RoleAssignmentDialogProps) {
   const issuers = useStore((s) => s.identity.config.issuers)
-  const [issuerId, setIssuerId] = useState<string>(issuers[0]?.id ?? '')
+  const [issuerId, setIssuerId] = useState<string>(props.issuerId ?? issuers[0]?.id ?? '')
   const storeSource = useStoreDirectory(issuerId)
   const source = props.source ?? storeSource
   return <Body {...props} issuerId={issuerId} setIssuerId={setIssuerId} source={source} />
@@ -41,7 +52,7 @@ interface BodyProps extends RoleAssignmentDialogProps {
   source: DirectorySource
 }
 
-function Body({ onClose, namespace, issuerId, setIssuerId, source }: BodyProps) {
+function Body({ onClose, namespace, issuerId, setIssuerId, source, subject: handed }: BodyProps) {
   const issuers = useStore((s) => s.identity.config.issuers)
   const context = useStore((s) => s.session.activeContext)
   const send = useStore((s) => s.send)
@@ -52,8 +63,8 @@ function Body({ onClose, namespace, issuerId, setIssuerId, source }: BodyProps) 
   const applyEditSession = useStore((s) => s.applyEditSession)
   const closeEditSession = useStore((s) => s.closeEditSession)
 
-  const [subjectKind, setSubjectKind] = useState<'Group' | 'User'>('Group')
-  const [subjectName, setSubjectName] = useState('')
+  const [subjectKind, setSubjectKind] = useState<'Group' | 'User'>(handed?.kind ?? 'Group')
+  const [subjectName, setSubjectName] = useState(handed?.name ?? '')
   const [filter, setFilter] = useState('')
   const [roleKind, setRoleKind] = useState<RoleRefKind>('ClusterRole')
   const [roleName, setRoleName] = useState('')
@@ -126,6 +137,13 @@ function Body({ onClose, namespace, issuerId, setIssuerId, source }: BodyProps) 
       {issuers.length === 0 && (
         <p className="text-xs text-muted-foreground">
           Configure an OIDC issuer first: subjects are rendered with its prefixes.
+        </p>
+      )}
+      {handed && (
+        <p className="text-xs" data-testid="role-subject-prefilled">
+          Subject: <span className="font-mono">{handed.name}</span> ({handed.kind.toLowerCase()}),
+          handed over with the issuer <span className="font-mono">{issuerId}</span>. The prefix is
+          applied when the binding is rendered below.
         </p>
       )}
       {source.error && (

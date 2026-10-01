@@ -7,8 +7,8 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 
-import { batch, clusterRoute, read, system } from '../fixtures/builders'
-import { clearSent, emit, open, sent, settleFakeReplies } from './helpers'
+import { batch, clusterRoute, read as readEvent, system } from '../fixtures/builders'
+import { clearSent, emit, finish, open, requestIdOf, sent, settleFakeReplies } from './helpers'
 
 const ISSUER_URL = 'https://idp.example.com/realms/fathom'
 
@@ -40,18 +40,22 @@ const SAVED_ISSUER = {
 }
 
 /** The path opens from the identity dialog; mounting it elsewhere is T053's job, not these tests'. */
-async function openPath(page: Page): Promise<void> {
+async function openIdentity(page: Page, issuers: object[] = [SAVED_ISSUER]): Promise<void> {
   await open(page)
   await emit(
     page,
     batch([
       system(10, {
         type: 'OidcConfigLoaded',
-        data: { config: { issuers: [SAVED_ISSUER], contexts: [], role_map: {} }, identities: [] },
+        data: { config: { issuers, contexts: [], role_map: {} }, identities: [] },
       } as never),
     ]),
   )
   await page.getByTestId('identity-chip').click()
+}
+
+async function openPath(page: Page): Promise<void> {
+  await openIdentity(page)
   await page.getByTestId('oidc-guided-add').click()
   await expect(page.getByTestId('guided-issuer-path')).toBeVisible()
 }
@@ -264,7 +268,10 @@ test.describe('045 US3: what this cluster accepts', () => {
     await emit(
       page,
       batch([
-        read(40, clusterRoute(context), { type: 'ApiServerAuthRead', data: comparison } as never),
+        readEvent(40, clusterRoute(context), {
+          type: 'ApiServerAuthRead',
+          data: comparison,
+        } as never),
       ]),
     )
   }
@@ -362,5 +369,306 @@ test.describe('045 US3: what this cluster accepts', () => {
     await expect
       .poll(async () => (await sent(page)).some((c) => c.type === 'ReadApiServerAuth'))
       .toBe(true)
+  })
+})
+
+/** A successful test sign-in, as `OidcDraftSignInSucceeded` delivers it. */
+async function deliverSignIn(page: Page, groups = ['platform', 'oncall']): Promise<void> {
+  await emit(
+    page,
+    batch([
+      system(30, {
+        type: 'OidcDraftSignInSucceeded',
+        data: {
+          result: {
+            username: 'ada',
+            groups,
+            claims: [
+              { name: 'sub', value: 'u-1' },
+              { name: 'preferred_username', value: 'ada' },
+            ],
+            expires_at: 1790000000,
+          },
+        },
+      } as never),
+    ]),
+  )
+  await expect(page.getByTestId('guided-sign-in-username')).toHaveText('ada')
+}
+
+/** Click the one save and let it succeed, as `OidcSaveDraft` does when it persists. */
+async function save(page: Page): Promise<void> {
+  await page.getByTestId('guided-save').click()
+  const id = await requestIdOf(page, 'OidcSaveDraft')
+  await finish(page, id, true)
+  await expect(page.getByTestId('guided-saved')).toBeVisible()
+}
+
+test.describe('045 US5: the one save, reachable from every step', () => {
+  test('a tested draft saves and signs in from that sign-in, with no second one', async ({
+    page,
+  }) => {
+    await openPath(page)
+    await probe(page)
+    await deliverDiscovery(page)
+    await page.getByTestId('guided-step-test-sign-in').click()
+    await page.getByTestId('guided-test-sign-in').click()
+    await deliverSignIn(page)
+
+    await page.getByTestId('guided-step-review-save').click()
+    // FR-014: every stored field, and what was and was not verified to get here.
+    await expect(page.getByTestId('guided-summary-issuer-id')).toHaveText('idp')
+    await expect(page.getByTestId('guided-summary-issuer-url')).toHaveText(ISSUER_URL)
+    await expect(page.getByTestId('guided-summary-verified')).toContainText(
+      'test sign-in succeeded',
+    )
+
+    await clearSent(page)
+    await page.getByTestId('guided-save').click()
+    // FR-028: the save adopts the sign-in that already happened.
+    await expect
+      .poll(async () => (await sent(page)).find((c) => c.type === 'OidcSaveDraft'))
+      .toMatchObject({
+        type: 'OidcSaveDraft',
+        data: {
+          draft: { config: { id: 'idp', issuer_url: ISSUER_URL, client_id: 'fathom' } },
+          adopt_test_session: true,
+        },
+      })
+    await finish(page, await requestIdOf(page, 'OidcSaveDraft'), true)
+    await expect(page.getByTestId('guided-saved')).toContainText('no second sign-in')
+    expect((await sent(page)).map((c) => c.type)).not.toContain('OidcSignIn')
+  })
+
+  test('an untested draft saves, naming what was never verified (FR-015)', async ({ page }) => {
+    await openPath(page)
+    await probe(page)
+    await deliverDiscovery(page)
+
+    // The save is offered here, three steps before the summary, and says what it is skipping.
+    const bar = page.getByTestId('guided-save-bar')
+    await expect(page.getByTestId('guided-save')).toHaveText('Save without testing')
+    await expect(bar).toContainText('No test sign-in was run')
+    await expect(bar).toContainText('API server configuration was not read')
+
+    await page.getByTestId('guided-step-review-save').click()
+    const skipped = page.getByTestId('guided-summary-skipped')
+    await expect(skipped).toContainText('No test sign-in was run')
+    await expect(page.getByTestId('guided-summary-verified')).toContainText('discovery document')
+
+    await page.getByTestId('guided-save').click()
+    await expect
+      .poll(async () => (await sent(page)).find((c) => c.type === 'OidcSaveDraft'))
+      .toMatchObject({ type: 'OidcSaveDraft', data: { adopt_test_session: false } })
+  })
+
+  test('reviewing a saved issuer opens the same path, pre-filled (FR-016)', async ({ page }) => {
+    await openIdentity(page)
+    await page.getByTestId('oidc-review-rauthy').click()
+    await expect(page.getByTestId('guided-issuer-path')).toBeVisible()
+    await expect(page.getByTestId('guided-issuer-id')).toHaveValue('rauthy')
+    await expect(page.getByTestId('guided-issuer-url')).toHaveValue(SAVED_ISSUER.issuer_url)
+    await expect(page.getByTestId('guided-client-id')).toHaveValue('fathom')
+
+    // FR-016: renaming it signs it out, because the id keys the stored credentials.
+    await page.getByTestId('guided-issuer-id').fill('renamed')
+    await expect(page.getByTestId('guided-id-change-warning')).toContainText('signs')
+    await page.getByTestId('guided-save').click()
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await expect(page.getByTestId('guided-save-consequences')).toContainText('no longer reachable')
+    await clearSent(page)
+    await page.getByTestId('confirm-cancel').click()
+    expect((await sent(page)).map((c) => c.type)).not.toContain('OidcSaveDraft')
+  })
+
+  test('an id already in use is refused, with the reason (FR-017)', async ({ page }) => {
+    await openPath(page)
+    await probe(page)
+    await page.getByTestId('guided-issuer-id').fill('rauthy')
+    const refusal = page.getByTestId('guided-duplicate-id')
+    await expect(refusal).toContainText('already exists')
+    await expect(refusal).toContainText('keys the stored credentials')
+    await expect(page.getByTestId('guided-save')).toBeDisabled()
+    // Another id clears it: the refusal is about the collision, not about the draft.
+    await page.getByTestId('guided-issuer-id').fill('idp')
+    await expect(page.getByTestId('guided-duplicate-id')).toHaveCount(0)
+    await expect(page.getByTestId('guided-save')).toBeEnabled()
+  })
+})
+
+test.describe('045 US4: Fathom slots and cluster bindings, separately', () => {
+  const OTHER_ISSUER = { ...SAVED_ISSUER, id: 'okta', issuer_url: 'https://okta.example.com' }
+
+  test('the handoff carries the issuer being configured, not the first saved one', async ({
+    page,
+  }) => {
+    await openIdentity(page, [SAVED_ISSUER, OTHER_ISSUER])
+    await page.getByTestId('oidc-review-okta').click()
+    await expect(page.getByTestId('guided-issuer-id')).toHaveValue('okta')
+
+    // FR-027: two steps, named for what they do, and neither implies the other.
+    await expect(page.getByTestId('guided-step-fathom-roles')).toContainText('Fathom role groups')
+    await page.getByTestId('guided-step-fathom-roles').click()
+    await expect(page.getByTestId('guided-roles-scope')).toContainText(
+      'grant nothing in the cluster',
+    )
+    await page.getByTestId('guided-role-admins_group').fill('platform')
+
+    await page.getByTestId('guided-step-review-save').click()
+    await save(page)
+    // The bindings step exists only behind the save, and is named for the cluster, not for Fathom.
+    await expect(page.getByTestId('guided-step-bindings')).toContainText('Cluster bindings')
+    await expect(page.getByTestId('guided-step-body-bindings')).toBeVisible()
+    await expect(page.getByTestId('guided-bindings-optional')).toContainText(
+      'leave this step without creating any',
+    )
+
+    await clearSent(page)
+    await page.getByTestId('guided-binding-subject-platform').click()
+    await expect(page.getByTestId('role-assignment-dialog')).toBeVisible()
+    // FR-030: `okta`, the issuer this path configured — `issuers[0]` is `rauthy`.
+    await expect(page.getByTestId('role-issuer')).toHaveValue('okta')
+    await expect(page.getByTestId('role-subject-prefilled')).toContainText('platform')
+    await expect
+      .poll(async () => (await sent(page)).find((c) => c.type === 'IdpRefreshDirectory'))
+      .toEqual({ type: 'IdpRefreshDirectory', data: { issuer_id: 'okta' } })
+    // The handoff carries the raw group name: the backend applies the prefix when it renders.
+    expect((await sent(page)).map((c) => c.type)).not.toContain('ApplyResourceYaml')
+  })
+
+  test('refusing the bindings step leaves the issuer saved', async ({ page }) => {
+    await openIdentity(page, [SAVED_ISSUER, OTHER_ISSUER])
+    await page.getByTestId('oidc-review-okta').click()
+    await save(page)
+    await page.getByTestId('guided-step-bindings').click()
+    await clearSent(page)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('guided-issuer-path')).toHaveCount(0)
+    await settleFakeReplies(page)
+    const types = (await sent(page)).map((c) => c.type)
+    expect(types).not.toContain('PreviewRoleAssignment')
+    expect(types).not.toContain('ApplyResourceYaml')
+    await expect(page.getByTestId('oidc-issuer-okta')).toBeVisible()
+  })
+})
+
+test.describe('045 US6: the API server write, only where Fathom owns the control plane', () => {
+  const read = {
+    style: 'Legacy',
+    issuer: ISSUER_URL,
+    client_id: 'fathom',
+    username_claim: 'preferred_username',
+    groups_claim: 'groups',
+    username_prefix: 'oidc:',
+    groups_prefix: 'oidc:',
+    context: 'kind-a',
+    checked: true,
+    reason: null,
+  }
+
+  /** Walk to the write step with a comparison of the given ownership. */
+  async function reachWriteStep(page: Page, comparison: object): Promise<void> {
+    await openPath(page)
+    await probe(page)
+    await deliverDiscovery(page)
+    await page.getByTestId('guided-step-cluster-compare').click()
+    await expect
+      .poll(async () => (await sent(page)).some((c) => c.type === 'ReadApiServerAuth'))
+      .toBe(true)
+    await emit(
+      page,
+      batch([
+        readEvent(40, clusterRoute('kind-a'), {
+          type: 'ApiServerAuthRead',
+          data: comparison,
+        } as never),
+      ]),
+    )
+    await expect(page.getByTestId('guided-compare-context')).toBeVisible()
+    await save(page)
+    await page.getByTestId('guided-step-apiserver-write').click()
+  }
+
+  test('a cluster Fathom provisioned is offered the write, naming the change', async ({ page }) => {
+    await reachWriteStep(page, {
+      read,
+      differences: [{ field: 'issuer', cluster: 'https://old.example.com', draft: ISSUER_URL }],
+      writable: true,
+      not_writable_reason: null,
+    })
+
+    // FR-019/FR-020: the exact change, in the style this API server already uses.
+    const change = page.getByTestId('guided-write-change')
+    await expect(change).toContainText('--oidc-issuer-url')
+    await expect(change).toContainText(ISSUER_URL)
+    await expect(page.getByTestId('guided-write-style')).toContainText('legacy')
+    // FR-021: the backup is named before anything is changed.
+    await expect(page.getByTestId('guided-write-backup')).toContainText('kube-apiserver.yaml')
+    await expect(page.getByTestId('guided-write-backup')).toContainText('does not retry')
+
+    await page.getByTestId('guided-write-apply').click()
+    const detail = page.getByTestId('guided-write-confirm-detail')
+    await expect(detail).toContainText('restarts')
+    await expect(detail).toContainText('--oidc-client-id')
+    await clearSent(page)
+    await page.getByTestId('confirm-submit').click()
+    await expect
+      .poll(async () => (await sent(page)).find((c) => c.type === 'WriteApiServerAuth'))
+      .toEqual({
+        type: 'WriteApiServerAuth',
+        data: {
+          // The command names the cluster Fathom provisioned; kind writes its context as
+          // `kind-<cluster>`, so `kind-a` is the cluster `a`.
+          cluster: 'a',
+          style: 'Legacy',
+          issuer_url: ISSUER_URL,
+          client_id: 'fathom',
+          username_claim: 'preferred_username',
+          groups_claim: 'groups',
+          username_prefix: 'oidc:',
+          groups_prefix: 'oidc:',
+        },
+      })
+    await finish(page, await requestIdOf(page, 'WriteApiServerAuth'), true)
+    await expect(page.getByTestId('guided-write-done')).toContainText('audit log')
+  })
+
+  test('a failed write shows the error verbatim and does not retry', async ({ page }) => {
+    await reachWriteStep(page, { read, differences: [], writable: true, not_writable_reason: null })
+    await page.getByTestId('guided-write-apply').click()
+    await page.getByTestId('confirm-submit').click()
+    const id = await requestIdOf(page, 'WriteApiServerAuth')
+    await finish(
+      page,
+      id,
+      false,
+      'the API server did not become ready; the previous manifest is at /etc/kubernetes/manifests/.fathom-backup/kube-apiserver.yaml',
+    )
+    const error = page.getByTestId('guided-write-error')
+    await expect(error).toContainText('did not become ready')
+    await expect(error).toContainText('.fathom-backup/kube-apiserver.yaml')
+    await clearSent(page)
+    await settleFakeReplies(page)
+    expect((await sent(page)).map((c) => c.type)).not.toContain('WriteApiServerAuth')
+  })
+
+  test('a control plane Fathom does not own gets copyable text instead (FR-022)', async ({
+    page,
+  }) => {
+    await reachWriteStep(page, {
+      read,
+      differences: [],
+      writable: false,
+      not_writable_reason: 'This control plane was not provisioned by Fathom.',
+    })
+    await expect(page.getByTestId('guided-write-refused')).toContainText(
+      'not provisioned by Fathom',
+    )
+    // No write is offered at all, and the configuration is there to copy instead.
+    await expect(page.getByTestId('guided-write-apply')).toHaveCount(0)
+    await expect(page.getByTestId('guided-required-config')).toContainText('--oidc-issuer-url')
+    await expect(page.getByTestId('guided-config-copy')).toBeVisible()
+    await settleFakeReplies(page)
+    expect((await sent(page)).map((c) => c.type)).not.toContain('WriteApiServerAuth')
   })
 })

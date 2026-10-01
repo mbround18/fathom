@@ -10,9 +10,10 @@
  * The body is guarded by `{open && …}` (042's `RoleAssignmentLauncher:47`), so the draft is built
  * fresh on every open and discarded on close — FR-007 by construction, not by cleanup.
  */
-import { useEffect, useReducer, useState } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import { cn } from 'cn'
 
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -23,9 +24,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { ManifestActions } from '@/features/manifest-export/ManifestActions'
+import { RoleAssignmentDialog } from '@/features/roles/RoleAssignmentDialog'
 import type {
   ApiServerAuthComparison,
   ApiServerAuthRead,
+  ApiServerAuthStyle,
   DraftSignInResult,
   FathomRoleMap,
   IssuerOrigin,
@@ -40,6 +44,7 @@ import { waitForCommandResult } from '@/store/actions'
 
 import {
   canAdvance,
+  canSave,
   EMPTY_ISSUER_CONFIG,
   EMPTY_ROLE_MAP,
   guidedReducer,
@@ -47,10 +52,12 @@ import {
   isFrozen,
   issuerMismatch,
   stepsOf,
+  unverified,
   type GuidedAction,
   type GuidedDraft,
   type GuidedStep,
 } from './guided-state'
+import { isSignedIn } from './state'
 
 /** Step titles, in the operator's words rather than the state machine's. */
 const STEP_TITLES: Record<GuidedStep, string> = {
@@ -120,6 +127,9 @@ type ProbeState =
   | { state: 'running'; url: string }
   | { state: 'failed'; url: string; error: string }
 
+/** The save, which is the only write this path performs before the last two steps. */
+type SaveState = { state: 'idle' } | { state: 'saving' } | { state: 'failed'; error: string }
+
 function Body({
   issuer,
   roleMap,
@@ -140,9 +150,16 @@ function Body({
   const activeContext = useStore((s) => s.session.activeContext)
   const storeDiscovery = useStore((s) => s.identity.draftDiscovery)
   const storeSignIn = useStore((s) => s.identity.draftSignIn)
-  const storeComparison = useStore((s) =>
-    activeContext === undefined ? undefined : s.identity.apiServerAuth[activeContext],
-  )
+  // The read for the active context when there is one, and otherwise the last read there was.
+  // Hosted reads its own `in-cluster` context while the UI calls another one active, and FR-026's
+  // answer to that is to render the comparison and name the context it came from — not to wait
+  // for a read that will never be keyed the way this path expects.
+  const storeComparison = useStore((s) => {
+    const forActive =
+      activeContext === undefined ? undefined : s.identity.apiServerAuth[activeContext]
+    const last = s.identity.apiServerAuthLast
+    return forActive ?? (last === undefined ? undefined : s.identity.apiServerAuth[last])
+  })
   const [probe, setProbe] = useState<ProbeState>({ state: 'idle' })
 
   // The three replies the path renders arrive in the identity slice, which is the single source
@@ -200,17 +217,107 @@ function Body({
   // T039/FR-026: the comparison belongs to a named context. Entering the step reads it, and so
   // does a context change underneath the open path; until the new read lands the old one is
   // rendered with the context it came from and marked stale.
+  const readFor = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (draft.step !== 'cluster-compare' || activeContext === undefined) return
     if (storeComparison?.read.context === activeContext) return
+    // Asked once per context: a reply keyed to a context the UI does not call active (hosted reads
+    // `in-cluster`) must not be read as "still unanswered" and asked again on every render, which
+    // would be the polling Principle V forbids.
+    if (readFor.current === activeContext) return
+    readFor.current = activeContext
     send({ type: 'ReadApiServerAuth' })
   }, [draft.step, activeContext, storeComparison, send])
+
+  // T049-T052: the one save. It is offered at every step (FR-015), not only on the summary, and
+  // it is the only place in the path that writes anything at all.
+  const savedIssuers = useStore((s) => s.identity.config.issuers)
+  const liveSession = useStore((s) => isSignedIn(s.identity.identities[issuer.id]))
+  const seedSource = useStore((s) => s.identity.origins[issuer.id]?.source)
+  const [saveState, setSaveState] = useState<SaveState>({ state: 'idle' })
+  const [confirming, setConfirming] = useState(false)
+
+  const typedId = draft.config.id.trim()
+  const reviewing = issuer.id !== ''
+  // FR-017, refused here rather than only on the reply: the id keys the stored credentials, so a
+  // save under a name already taken would re-point the other issuer's session.
+  const duplicateId = savedIssuers.some((i) => i.id === typedId && i.id !== issuer.id)
+  const idChanged = reviewing && typedId !== issuer.id
+  const missing = unverified(draft)
+
+  // What a confirmation has to say before this save happens (FR-016). An id change is the serious
+  // one: the credentials are stored under the old id, so renaming is a sign-out.
+  const consequences: string[] = []
+  if (idChanged) {
+    consequences.push(
+      `The id keys the stored credentials, so saving this as ${typedId} signs ${issuer.id} out: the tokens held under ${issuer.id} are no longer reachable and you will sign in again.`,
+    )
+  }
+  if (liveSession && !idChanged) {
+    consequences.push(
+      `You are signed in with ${issuer.id} right now. Saving re-points that session's configuration, and a changed issuer URL, client id or claim takes effect on its next token.`,
+    )
+  }
+
+  const runSave = () => {
+    setSaveState({ state: 'saving' })
+    void (async () => {
+      try {
+        const id = await request({
+          type: 'OidcSaveDraft',
+          data: {
+            draft: {
+              config: {
+                ...draft.config,
+                id: typedId,
+                issuer_url: draft.config.issuer_url.trim(),
+                client_id: draft.config.client_id.trim(),
+              },
+              // The method is only how a sign-in would run; the save adopts the session the test
+              // sign-in already established, so nothing here starts a new one.
+              method: 'Browser',
+            },
+            role_map: draft.roleMap,
+            // FR-028: the sign-in that was already proved becomes the operator's session rather
+            // than asking for a second one. With no test sign-in there is nothing to adopt.
+            adopt_test_session: draft.signIn !== undefined,
+          },
+        })
+        const result = await waitForCommandResult(id)
+        if (result === 'timeout') {
+          setSaveState({ state: 'failed', error: 'The save did not complete.' })
+        } else if (!result.ok) {
+          // Verbatim: the backend's refusal, including FR-017's duplicate id, in its own words.
+          setSaveState({ state: 'failed', error: result.error ?? 'The issuer could not be saved.' })
+        } else {
+          setSaveState({ state: 'idle' })
+          dispatch({ type: 'saved' })
+          // The two steps behind the save exist now; the bindings are the next thing to do.
+          dispatch({ type: 'goto', step: 'bindings' })
+        }
+      } catch (err) {
+        setSaveState({
+          state: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    })()
+  }
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4"
       data-testid="guided-body"
     >
+      {isFrozen(draft) && (
+        <p className="border border-border p-2 text-xs" data-testid="guided-seeded-origin">
+          This issuer is seeded from the server&apos;s environment and is shown here, not edited: it
+          is set in{' '}
+          <span className="font-mono break-all">{seedSource ?? 'the server environment'}</span> and
+          the server validated it before it accepted a connection. Change it there; everything below
+          — the discovery document, the claims, what this cluster accepts — is still yours to read.
+        </p>
+      )}
       <ol className="flex flex-wrap gap-1 text-xs" data-testid="guided-steps">
         {steps.map((step, i) => (
           <li key={step}>
@@ -231,10 +338,7 @@ function Body({
         ))}
       </ol>
 
-      {/*
-        One section per step. Still unfilled: T042 (role groups), T050 (summary), T044 (bindings),
-        T062 (API server write).
-      */}
+      {/* One section per step; `StepBody` is the only place that decides which one. */}
       <section
         className="flex min-h-0 flex-1 flex-col gap-3 text-xs"
         aria-label={STEP_TITLES[draft.step]}
@@ -251,6 +355,87 @@ function Body({
           }
         />
       </section>
+
+      {/* FR-015: the save is reachable from every step, and says what it is saving unverified. */}
+      {!isFrozen(draft) && !draft.saved && (
+        <div
+          className="flex flex-col gap-1 border-t border-border pt-2 text-xs"
+          data-testid="guided-save-bar"
+        >
+          {missing.length > 0 && (
+            <ul
+              className="flex flex-col gap-1 text-muted-foreground"
+              data-testid="guided-unverified"
+            >
+              {missing.map((m) => (
+                <li key={m}>{m}</li>
+              ))}
+            </ul>
+          )}
+          {duplicateId && (
+            <p role="alert" className="text-status-error" data-testid="guided-duplicate-id">
+              An issuer with the id <span className="font-mono">{typedId}</span> already exists. The
+              id keys the stored credentials, so two issuers cannot share one. Choose another id.
+            </p>
+          )}
+          {idChanged && (
+            <p role="alert" className="text-status-warn" data-testid="guided-id-change-warning">
+              Saving this as <span className="font-mono">{typedId}</span> signs{' '}
+              <span className="font-mono">{issuer.id}</span> out: the id keys the stored
+              credentials, so the tokens held under the old id are no longer reachable.
+            </p>
+          )}
+          {liveSession && !idChanged && (
+            <p role="alert" className="text-status-warn" data-testid="guided-live-session-warning">
+              You are signed in with <span className="font-mono">{issuer.id}</span>. Saving changes
+              the configuration that session uses.
+            </p>
+          )}
+          {saveState.state === 'failed' && (
+            <p role="alert" className="text-status-error" data-testid="guided-save-error">
+              {saveState.error}
+            </p>
+          )}
+          <div>
+            <Button
+              size="sm"
+              data-testid="guided-save"
+              disabled={!canSave(draft) || duplicateId || saveState.state === 'saving'}
+              onClick={() => (consequences.length > 0 ? setConfirming(true) : runSave())}
+            >
+              {missing.length === 0 ? 'Save issuer' : 'Save without testing'}
+            </Button>
+          </div>
+        </div>
+      )}
+      {draft.saved && (
+        <p
+          className="border-t border-border pt-2 text-xs text-status-ok"
+          data-testid="guided-saved"
+        >
+          Saved as <span className="font-mono">{typedId}</span>
+          {draft.signIn ? ', and signed in from the test sign-in — no second sign-in needed.' : '.'}
+        </p>
+      )}
+
+      <ConfirmDialog
+        open={confirming}
+        title={`Save ${typedId}`}
+        items={[{ namespace: null, name: typedId }]}
+        detail={
+          <ul className="flex flex-col gap-1" data-testid="guided-save-consequences">
+            {consequences.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        }
+        confirmLabel="Save issuer"
+        onConfirm={() => {
+          setConfirming(false)
+          runSave()
+        }}
+        onCancel={() => setConfirming(false)}
+      />
 
       <SheetFooter className="flex-row justify-between gap-2 px-0">
         <Button
@@ -296,8 +481,14 @@ function StepBody(p: StepProps) {
       return <ClaimsStep {...p} />
     case 'cluster-compare':
       return <ClusterCompareStep {...p} />
-    default:
-      return null
+    case 'fathom-roles':
+      return <FathomRolesStep {...p} />
+    case 'review-save':
+      return <ReviewSaveStep {...p} />
+    case 'bindings':
+      return <BindingsStep {...p} />
+    case 'apiserver-write':
+      return <ApiServerWriteStep {...p} />
   }
 }
 
@@ -1001,14 +1192,14 @@ function ClusterCompareStep({ draft, activeContext }: StepProps) {
  * maps the issuer onto `OidcFormInput`, `buildKubeadmFlags` renders the legacy flags and
  * `buildAuthenticationConfiguration` the structured file. Text only; Fathom applies nothing here.
  */
-function RequiredConfiguration({ draft }: { draft: GuidedDraft }) {
+function RequiredConfiguration({ draft, open }: { draft: GuidedDraft; open?: boolean }) {
   const input = prefillFromIssuer(draft.config)
   const legacy = draft.comparison?.read.style === 'Legacy'
   const text = legacy
     ? buildKubeadmFlags(input).join('\n')
     : buildAuthenticationConfiguration(input)
   return (
-    <details className="border border-border p-2">
+    <details className="border border-border p-2" open={open}>
       <summary className="cursor-pointer text-muted-foreground">
         {legacy
           ? 'What these kube-apiserver flags would have to be'
@@ -1020,6 +1211,444 @@ function RequiredConfiguration({ draft }: { draft: GuidedDraft }) {
       >
         {text}
       </pre>
+      {/* T063/FR-022: on a control plane Fathom does not own this text *is* the output, so it is
+          copyable with the same bar every other manifest in Fathom offers. */}
+      <ManifestActions
+        text={text}
+        filename={legacy ? 'kube-apiserver-oidc-flags.txt' : 'authentication-config.yaml'}
+        what={legacy ? 'flags' : 'configuration'}
+        idPrefix="guided-config"
+      />
     </details>
+  )
+}
+
+/** The three slots, with what each one actually gates inside Fathom. */
+const ROLE_SLOTS: readonly { key: keyof FathomRoleMap; label: string; detail: string }[] = [
+  {
+    key: 'viewers_group',
+    label: 'Viewers group',
+    detail: 'Reads what Fathom shows, and is offered no action.',
+  },
+  {
+    key: 'editors_group',
+    label: 'Editors group',
+    detail: 'Is offered Fathom’s actions, each still subject to the cluster’s own RBAC.',
+  },
+  {
+    key: 'admins_group',
+    label: 'Admins group',
+    detail: 'May change Fathom’s own settings, including this mapping.',
+  },
+]
+
+/**
+ * T042, FR-012 and the first half of FR-027. The three Fathom role slots, filled from the groups a
+ * real token carried (or typed, for a group nobody has signed in with yet).
+ *
+ * These grant nothing in the cluster, and the step says so rather than leaving it to be inferred:
+ * Kubernetes authorises on its own RoleBindings, which is the *next* step and separately refusable.
+ */
+function FathomRolesStep({ draft, dispatch }: StepProps) {
+  const frozen = isFrozen(draft)
+  const observed = draft.signIn?.groups ?? []
+  const set = (patch: Partial<FathomRoleMap>) => dispatch({ type: 'edit-role-map', patch })
+
+  return (
+    <>
+      <p data-testid="guided-roles-scope">
+        These three groups gate <strong>Fathom&apos;s own features</strong> — what this application
+        shows you and offers you. They <strong>grant nothing in the cluster</strong>: Kubernetes
+        authorises on its own RoleBindings, which is a separate step you can skip entirely.
+      </p>
+      {observed.length === 0 && (
+        <p className="text-muted-foreground" data-testid="guided-roles-no-observed">
+          No test sign-in has shown which groups this provider emits, so type the group names. A
+          name that matches no group simply never matches anyone.
+        </p>
+      )}
+      <div className="flex flex-col gap-3">
+        {ROLE_SLOTS.map((slot) => (
+          <div key={slot.key} className="flex flex-col gap-1">
+            <Field
+              label={slot.label}
+              testId={`guided-role-${slot.key}`}
+              value={draft.roleMap[slot.key]}
+              hint={slot.detail}
+              disabled={frozen}
+              onChange={(v) => set({ [slot.key]: v })}
+            />
+            {!frozen && observed.length > 0 && (
+              <ul className="flex flex-wrap gap-1">
+                {observed.map((g) => (
+                  <li key={g}>
+                    <Button
+                      size="xs"
+                      variant={draft.roleMap[slot.key] === g ? 'default' : 'outline'}
+                      data-testid={`guided-role-option-${slot.key}-${g}`}
+                      onClick={() => set({ [slot.key]: g })}
+                    >
+                      {g}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/** Every field the save stores, in the order the issuer is written. */
+const SUMMARY_FIELDS: readonly { label: string; value: (c: OidcIssuerConfig) => string }[] = [
+  { label: 'Issuer id', value: (c) => c.id },
+  { label: 'Issuer URL', value: (c) => c.issuer_url },
+  { label: 'Client ID', value: (c) => c.client_id },
+  { label: 'Scopes', value: (c) => c.scopes.join(' ') },
+  { label: 'Private CA bundle', value: (c) => c.ca_bundle_path ?? 'none' },
+  { label: 'Username claim', value: (c) => c.username_claim },
+  { label: 'Groups claim', value: (c) => c.groups_claim },
+  { label: 'Username prefix', value: (c) => c.username_prefix ?? 'none' },
+  { label: 'Groups prefix', value: (c) => c.groups_prefix ?? 'none' },
+  { label: 'Admin API base', value: (c) => c.admin_api_base ?? 'none' },
+]
+
+/**
+ * T050-T052. Every field that will be stored, and what was and was not verified to get here
+ * (FR-014). The save itself is the bar below, which every step shows (FR-015), so this step adds
+ * no second save button — there is one save, reachable from everywhere.
+ */
+function ReviewSaveStep({ draft }: StepProps) {
+  const missing = unverified(draft)
+  const done: string[] = []
+  if (draft.discovery) {
+    done.push(
+      `The provider's discovery document was fetched and declares ${draft.discovery.issuer}.`,
+    )
+  }
+  if (draft.signIn) {
+    done.push(
+      `A test sign-in succeeded as ${draft.signIn.username}, carrying ${
+        draft.signIn.groups.length === 0 ? 'no groups' : draft.signIn.groups.join(', ')
+      }.`,
+    )
+  }
+  const c = draft.comparison
+  if (c?.read.checked && c.differences.length === 0) {
+    done.push(`Every field agrees with the API server read from ${c.read.context}.`)
+  }
+
+  return (
+    <>
+      <p className="text-muted-foreground">
+        This is everything the save stores. Nothing has been written yet.
+      </p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1" data-testid="guided-summary">
+        {SUMMARY_FIELDS.map((f) => (
+          <div key={f.label} className="col-span-2 flex flex-wrap items-baseline gap-2">
+            <dt className="text-muted-foreground">{f.label}</dt>
+            <dd
+              className="min-w-0 font-mono break-all"
+              data-testid={`guided-summary-${f.label.toLowerCase().replaceAll(' ', '-')}`}
+            >
+              {f.value(draft.config) || 'not set'}
+            </dd>
+          </div>
+        ))}
+        {ROLE_SLOTS.map((slot) => (
+          <div key={slot.key} className="col-span-2 flex flex-wrap items-baseline gap-2">
+            <dt className="text-muted-foreground">{slot.label}</dt>
+            <dd className="min-w-0 font-mono break-all" data-testid={`guided-summary-${slot.key}`}>
+              {draft.roleMap[slot.key] || 'not set'}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-muted-foreground">Verified</span>
+        {done.length === 0 ? (
+          <p data-testid="guided-summary-verified-none">Nothing was verified.</p>
+        ) : (
+          <ul className="flex flex-col gap-1" data-testid="guided-summary-verified">
+            {done.map((d) => (
+              <li key={d}>{d}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-muted-foreground">Not verified</span>
+        {missing.length === 0 ? (
+          <p data-testid="guided-summary-skipped-none">
+            Every verification step in this path was performed.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1" data-testid="guided-summary-skipped">
+            {missing.map((m) => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  )
+}
+
+/**
+ * T044, FR-013 and the second half of FR-027: the handoff into 042's role-binding form, with the
+ * issuer being configured and the group already chosen. It exists only after the save, because
+ * `RoleAssignmentDraft` needs a saved `issuer_id` to resolve prefixes and the directory.
+ *
+ * Separately refusable: the issuer is already saved, so leaving this step creates no binding and
+ * un-saves nothing. The subject is handed over as the *raw* group name — `render_subject_name` in
+ * `src/backend/role_assignment.rs` applies the issuer's prefix when it renders the preview, so
+ * pre-prefixing it here would produce `oidc:oidc:platform`. What the cluster will see is shown
+ * beside it instead.
+ */
+function BindingsStep({ draft }: StepProps) {
+  const namespace = useStore((s) => s.session.activeNamespace)
+  const [subject, setSubject] = useState<string | undefined>(undefined)
+  const gp = draft.config.groups_prefix ?? ''
+  const mapped = ROLE_SLOTS.map((s) => draft.roleMap[s.key]).filter((g) => g !== '')
+  const observed = draft.signIn?.groups ?? []
+  const groups = [...new Set([...mapped, ...observed])]
+  const prefixDiff = draft.comparison?.differences.find((d) => d.field === 'groups_prefix')
+
+  if (subject !== undefined) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="guided-bindings-form">
+        <p>
+          Binding <span className="font-mono">{`${gp}${subject}`}</span> in{' '}
+          <span className="font-mono">{namespace ?? 'the whole cluster'}</span>, with the issuer{' '}
+          <span className="font-mono">{draft.config.id}</span>.
+        </p>
+        {/* 042's form, unchanged: it previews the YAML, shows the diff and applies it behind its
+            own confirmation and RBAC gate. Nothing here creates a binding on its own (FR-013). */}
+        <RoleAssignmentDialog
+          namespace={namespace}
+          issuerId={draft.config.id}
+          subject={{ kind: 'Group', name: subject }}
+          onClose={() => setSubject(undefined)}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <p data-testid="guided-bindings-optional">
+        The issuer is saved. Cluster access is separate: Kubernetes grants it through RoleBindings,
+        and you can leave this step without creating any. Nothing here is undone by skipping it.
+      </p>
+      {prefixDiff && (
+        <p role="alert" className="text-status-warn" data-testid="guided-binding-prefix-mismatch">
+          This API server uses the groups prefix{' '}
+          <span className="font-mono">{prefixDiff.cluster ?? 'none'}</span> while this issuer uses{' '}
+          <span className="font-mono">{prefixDiff.draft ?? 'none'}</span>, so a binding written with
+          this issuer&apos;s prefix will not match the groups the cluster sees.
+        </p>
+      )}
+      {groups.length === 0 ? (
+        <p className="text-muted-foreground" data-testid="guided-bindings-no-groups">
+          No group to bind: nothing was mapped to a Fathom slot and no test sign-in showed a group.
+          The role-binding screens can still bind one by hand.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {groups.map((g) => (
+            <li key={g} className="flex flex-wrap items-center gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                data-testid={`guided-binding-subject-${g}`}
+                onClick={() => setSubject(g)}
+              >
+                Bind {g}…
+              </Button>
+              <span className="font-mono text-muted-foreground">Kubernetes sees {`${gp}${g}`}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
+/** The write, which only ever runs against a control plane Fathom provisioned. */
+type WriteState =
+  { state: 'idle' } | { state: 'writing' } | { state: 'failed'; error: string } | { state: 'done' }
+
+/**
+ * T062 and T063. On a cluster Fathom provisioned, the API server's authentication configuration
+ * written in the style it already uses (FR-019, FR-020) behind a confirmation that names the exact
+ * change and the restart. On every other context there is no write at all, only the same
+ * configuration as copyable text, with the refusal in the backend's own words (FR-022).
+ */
+function ApiServerWriteStep({ draft }: StepProps) {
+  const request = useStore((s) => s.request)
+  const [confirming, setConfirming] = useState(false)
+  const [write, setWrite] = useState<WriteState>({ state: 'idle' })
+  const c = draft.comparison
+
+  if (!c) {
+    return (
+      <p className="text-muted-foreground" data-testid="guided-write-unread">
+        This API server&apos;s configuration has not been read, so there is nothing to change. Go
+        back to <em>What this cluster accepts</em> first.
+      </p>
+    )
+  }
+
+  if (!c.writable) {
+    return (
+      <>
+        <p role="alert" data-testid="guided-write-refused">
+          {c.not_writable_reason ??
+            'Fathom will not change a control plane it did not provision. Apply this yourself with your cluster tooling.'}
+        </p>
+        <p className="text-muted-foreground">
+          Here is what <span className="font-mono break-all">{c.read.context}</span> would have to
+          say for this issuer to be accepted. Copy it; Fathom applies nothing here.
+        </p>
+        <RequiredConfiguration draft={draft} open />
+      </>
+    )
+  }
+
+  const input = prefillFromIssuer(draft.config)
+  // FR-020: whichever style the cluster already uses, never both. With no OIDC configuration at
+  // all there is nothing to match, so the legacy flags are written — the style kubeadm, and so
+  // every cluster Fathom provisions with kind, starts from.
+  const style: ApiServerAuthStyle = c.read.style === 'Structured' ? 'Structured' : 'Legacy'
+  const text =
+    style === 'Structured'
+      ? buildAuthenticationConfiguration(input)
+      : buildKubeadmFlags(input).join('\n')
+  // `WriteApiServerAuth` names the cluster Fathom provisioned; the read names the kubeconfig
+  // context, which kind writes as `kind-<cluster>`.
+  const cluster = c.read.context.startsWith('kind-')
+    ? c.read.context.slice('kind-'.length)
+    : c.read.context
+
+  const runWrite = () => {
+    setWrite({ state: 'writing' })
+    void (async () => {
+      try {
+        const id = await request({
+          type: 'WriteApiServerAuth',
+          data: {
+            cluster,
+            style,
+            issuer_url: draft.config.issuer_url.trim(),
+            client_id: draft.config.client_id.trim(),
+            username_claim: draft.config.username_claim,
+            groups_claim: draft.config.groups_claim,
+            username_prefix: draft.config.username_prefix,
+            groups_prefix: draft.config.groups_prefix,
+          },
+        })
+        const result = await waitForCommandResult(id)
+        if (result === 'timeout') {
+          setWrite({ state: 'failed', error: 'The API server did not report back.' })
+        } else if (!result.ok) {
+          // Verbatim, including the backup's location and how to restore it (FR-021). Fathom does
+          // not retry on its own: the next attempt is the operator's.
+          setWrite({ state: 'failed', error: result.error ?? 'The write failed.' })
+        } else {
+          setWrite({ state: 'done' })
+        }
+      } catch (err) {
+        setWrite({ state: 'failed', error: err instanceof Error ? err.message : String(err) })
+      }
+    })()
+  }
+
+  return (
+    <>
+      <p data-testid="guided-write-target">
+        This changes how the API server of <span className="font-mono">{cluster}</span>{' '}
+        authenticates — the cluster Fathom provisioned, read from context{' '}
+        <span className="font-mono break-all">{c.read.context}</span>.
+      </p>
+      <p data-testid="guided-write-style">
+        {style === 'Structured'
+          ? 'This API server already uses a structured AuthenticationConfiguration, so the file is replaced. The legacy --oidc-* flags are mutually exclusive with it and are not added.'
+          : c.read.style === 'Legacy'
+            ? 'This API server already uses the legacy --oidc-* flags, so those flags are set. No AuthenticationConfiguration is added: the two are mutually exclusive.'
+            : 'This API server accepts no OIDC tokens yet, so the legacy --oidc-* flags are set — the style kubeadm, and so every kind cluster, starts from. No AuthenticationConfiguration is added; adding one would require removing these flags.'}
+      </p>
+      <p className="text-muted-foreground" data-testid="guided-write-backup">
+        Before changing anything, Fathom copies the current{' '}
+        <span className="font-mono">/etc/kubernetes/manifests/kube-apiserver.yaml</span> aside on
+        the control-plane node, then waits for the API server to come back. If it does not, the
+        error, the backup&apos;s path and how to restore it are shown here, and Fathom does not
+        retry on its own.
+      </p>
+      <pre
+        className="overflow-x-auto border border-border p-2 font-mono whitespace-pre"
+        data-testid="guided-write-change"
+      >
+        {text}
+      </pre>
+      <ManifestActions
+        text={text}
+        filename={
+          style === 'Structured' ? 'authentication-config.yaml' : 'kube-apiserver-oidc-flags.txt'
+        }
+        what={style === 'Structured' ? 'configuration' : 'flags'}
+        idPrefix="guided-write-config"
+      />
+      {write.state === 'failed' && (
+        <p
+          role="alert"
+          className="text-status-error font-mono break-words"
+          data-testid="guided-write-error"
+        >
+          {write.error}
+        </p>
+      )}
+      {write.state === 'done' && (
+        <p className="text-status-ok" data-testid="guided-write-done">
+          Written, and the API server came back. It is in the mutation audit log like every other
+          cluster write.
+        </p>
+      )}
+      <div>
+        <Button
+          size="sm"
+          data-testid="guided-write-apply"
+          disabled={write.state === 'writing' || write.state === 'done'}
+          onClick={() => setConfirming(true)}
+        >
+          {style === 'Structured'
+            ? 'Write the AuthenticationConfiguration…'
+            : 'Set these kube-apiserver flags…'}
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={confirming}
+        title={`Change how ${cluster} authenticates`}
+        items={[{ namespace: null, name: cluster }]}
+        detail={
+          <div className="flex flex-col gap-2" data-testid="guided-write-confirm-detail">
+            <p>
+              The API server of <span className="font-mono">{cluster}</span> restarts. Until it is
+              back, nothing can reach that cluster — including Fathom.
+            </p>
+            <pre className="max-h-40 overflow-auto font-mono text-xs whitespace-pre">{text}</pre>
+          </div>
+        }
+        confirmLabel="Write and restart the API server"
+        onConfirm={() => {
+          setConfirming(false)
+          runWrite()
+        }}
+        onCancel={() => setConfirming(false)}
+      />
+    </>
   )
 }

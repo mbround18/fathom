@@ -34,6 +34,13 @@ export interface IdentityState {
    */
   apiServerAuth: Record<string, ApiServerAuthComparison>
   /**
+   * 045: the context the last `ApiServerAuthRead` was read from. The guided path renders the
+   * comparison it was given even when the server read a context the UI does not call active —
+   * hosted reads its own in-cluster context — and the step names that context and marks it
+   * stale rather than waiting for a read that will never be keyed the way it expects (FR-026).
+   */
+  apiServerAuthLast?: string
+  /**
    * 045: issuer origins the server declared (FR-031). Only hosted emits them; `Saved` is the
    * absence of an entry, so an empty map is the desktop case rather than a missing read.
    */
@@ -115,6 +122,7 @@ export function reduceIdentity(s: IdentityState, event: SystemEvent): boolean {
  */
 export function reduceApiServerAuth(s: IdentityState, read: ApiServerAuthComparison): void {
   s.apiServerAuth[read.read.context] = read
+  s.apiServerAuthLast = read.read.context
 }
 
 export function isSignedIn(i: OidcIdentity | undefined): boolean {

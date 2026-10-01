@@ -11,6 +11,7 @@ import {
   issuerMismatch,
   isFrozen,
   stepsOf,
+  unverified,
   type GuidedAction,
   type GuidedDraft,
   type GuidedStep,
@@ -340,5 +341,101 @@ describe('open', () => {
       origin: 'Saved',
     })
     expect(d).toEqual(initialGuidedDraft())
+  })
+})
+
+/**
+ * T041/FR-027: the Fathom role slots and the cluster bindings are two separate steps, and refusing
+ * the second one is not a refusal of the first. "Refusing" is leaving — the bindings step offers a
+ * handoff and nothing else, so walking away from it is the whole refusal, and the draft it walks
+ * away from must still be the saved issuer.
+ */
+describe('the Fathom slots and the cluster bindings are separate (FR-027)', () => {
+  it('are two distinct steps, with the save between them', () => {
+    const steps = stepsOf(at('fathom-roles', { saved: true }))
+    expect(steps).toContain('fathom-roles')
+    expect(steps).toContain('bindings')
+    expect(steps.indexOf('fathom-roles')).toBeLessThan(steps.indexOf('review-save'))
+    expect(steps.indexOf('review-save')).toBeLessThan(steps.indexOf('bindings'))
+  })
+
+  it('offers no bindings step before the save, because a binding needs a saved issuer id', () => {
+    expect(stepsOf(at('fathom-roles'))).not.toContain('bindings')
+    // And the step cannot be jumped to either: `goto` only visits steps this draft has.
+    expect(run(at('fathom-roles'), { type: 'goto', step: 'bindings' }).step).toBe('fathom-roles')
+  })
+
+  it('lets the Fathom slots be filled and left without touching the bindings', () => {
+    const d = run(at('fathom-roles', { signIn: SIGN_IN }), {
+      type: 'edit-role-map',
+      patch: { admins_group: 'platform' },
+    })
+    expect(d.roleMap.admins_group).toBe('platform')
+    // Filling a Fathom slot is not a cluster grant, and the machine models no such coupling.
+    expect(d.saved).toBe(false)
+    expect(canAdvance(d)).toBe(true)
+  })
+
+  it('leaves the saved issuer intact when the bindings step is refused', () => {
+    const saved = run(at('review-save'), { type: 'saved' })
+    expect(saved.saved).toBe(true)
+    const refused = run(saved, { type: 'goto', step: 'bindings' }, { type: 'back' })
+    // Back out of the bindings and the issuer is still saved, with its config and role map.
+    expect(refused.saved).toBe(true)
+    expect(refused.config).toEqual(saved.config)
+    expect(refused.roleMap).toEqual(saved.roleMap)
+    // Nothing about refusing the bindings removes the steps the save unlocked.
+    expect(stepsOf(refused)).toContain('bindings')
+  })
+})
+
+describe('unverified', () => {
+  it('names each verification that was skipped (FR-014, FR-015)', () => {
+    const bare = { ...initialGuidedDraft(CONFIG), discovery: undefined }
+    const missing = unverified(bare).join(' ')
+    expect(missing).toContain('discovery document')
+    expect(missing).toContain('test sign-in')
+    expect(missing).toContain('API server configuration')
+  })
+
+  it('is empty once all three were performed and the cluster agrees', () => {
+    expect(unverified(at('review-save', { signIn: SIGN_IN, comparison: COMPARISON }))).toEqual([])
+  })
+
+  it('counts an unreadable API server as unverified, with its verbatim reason (FR-010)', () => {
+    const comparison: ApiServerAuthComparison = {
+      ...COMPARISON,
+      read: { ...COMPARISON.read, checked: false, reason: 'pods "kube-apiserver" is forbidden' },
+    }
+    expect(unverified(at('review-save', { signIn: SIGN_IN, comparison })).join(' ')).toContain(
+      'pods "kube-apiserver" is forbidden',
+    )
+  })
+
+  it('counts a disagreeing API server as unverified, naming the fields', () => {
+    const comparison: ApiServerAuthComparison = {
+      ...COMPARISON,
+      differences: [{ field: 'groups_prefix', cluster: 'k8s:', draft: 'oidc:' }],
+    }
+    expect(unverified(at('review-save', { signIn: SIGN_IN, comparison })).join(' ')).toContain(
+      'groups_prefix',
+    )
+  })
+
+  it('does not ask a seeded issuer for a discovery document it cannot fetch (FR-032)', () => {
+    const seeded = at('claims', { origin: 'SeededFromEnvironment', discovery: undefined })
+    expect(unverified(seeded).join(' ')).not.toContain('discovery document')
+  })
+})
+
+describe('a seeded draft can be read end to end (FR-032)', () => {
+  it('advances past the discovery step with no document, which hosted cannot fetch', () => {
+    const seeded = at('discovery', { origin: 'SeededFromEnvironment', discovery: undefined })
+    expect(canAdvance(seeded)).toBe(true)
+    expect(run(seeded, { type: 'next' }).step).toBe('test-sign-in')
+  })
+
+  it('still refuses to leave the discovery step of a saved draft with no document', () => {
+    expect(canAdvance(at('discovery', { discovery: undefined }))).toBe(false)
   })
 })
