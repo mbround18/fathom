@@ -20,6 +20,10 @@
 - Q: Can Fathom always read the API server's configuration? → A: No. It is readable as the `kube-apiserver` static pod in `kube-system` on self-hosted and kind clusters, and not at all on managed control planes; RBAC may also deny it. A failed read is a stated unknown ("could not read the API server's configuration: <verbatim reason>"), never an assumed pass, and never blocks the path.
 - Q: Is the test sign-in mandatory before saving? → A: No, but skipping it is explicit. "Save without testing" is available at every step and says what has not been verified. Reason: an operator configuring an issuer that is not reachable from this machine yet is a real case, and Principle I says the operator decides.
 - Q: Does the path write anything before its final step? → A: No. The draft lives in UI state until the operator saves. A test sign-in uses the draft directly and does not persist an issuer, so abandoning the path leaves no half-configured issuer behind.
+- Q: US4 says "map groups to roles", but the code has two unrelated things by that name — which does the path do? → A: Both, as two visibly separate steps. `FathomRoleMap` (`src/protocol/v1/oidc.rs`) is three fixed slots (`viewers_group`, `editors_group`, `admins_group`) whose doc comment says they "Gate Fathom-only features; never cluster access"; 042's `RoleAssignmentDraft` → `PreviewRoleAssignment` → `ApplyResourceYaml` is actual cluster RBAC. Step A fills the three Fathom slots from the groups the test sign-in returned. Step B offers the handoff to 042 for real bindings. They are labelled so that neither is mistaken for the other: filling the Fathom map grants nothing in the cluster, and the path must say so.
+- Q: After a successful test sign-in, the operator saves. Are they now signed in? → A: Yes — one sign-in, not two. The draft sign-in holds its tokens in process memory and commits them to the credential store under the issuer id at save time. This needs a command that carries the whole draft inline, because the existing `OidcSignIn { issuer_id, method }` (`src/protocol/v1/cmd.rs:757`) resolves the issuer out of *saved* config and `store.rs` keys credentials on `fathom.oidc.<issuer_id>`. Abandoning the path still discards the tokens and writes nothing.
+- Q: Where does the stepped path render? → A: A dialog, like 042's `RoleAssignmentDialog`. It is the only option that works unchanged from all three places `IssuerSettings` is mounted today — the identity chip popover (`IdentityChip.tsx:49`), the Settings pane (`PaneHost.tsx:483` via `SignInSettings`) and the first-run setup screen (`SetupSignIn.tsx:43`) — none of which can navigate away to a full-screen view without losing their own context.
+- Q: Does the path run in hosted mode? → A: Yes, in full, including the cluster steps: the hosted server performs the API server read and write on the browser's behalf. The *precondition* is unchanged, which is what keeps the blast radius identical to desktop — the API server step is offered only for a kind cluster that Fathom itself provisioned (ownership checked against `KindClusterSummary.context_name`), the difference being that hosted the provisioner is the server rather than the desktop. A hosted tenant can never write flags on a control plane Fathom did not create, and the step is subject to the same role gating as any other hosted mutation.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -101,8 +105,10 @@ the mismatch is named and explains that bindings will not match.
 
 ### User Story 4 - Map groups to roles, and create the bindings (Priority: P2)
 
-With a real group list from step 2 in hand, the operator maps groups to what they should be able to
-do, then — in the same path — is offered the bindings that would grant it. Choosing to create them
+With a real group list from step 2 in hand, the operator does two separate things. First they fill
+Fathom's three role slots — viewers, editors, admins — which gate Fathom's own features and grant
+nothing in the cluster. Then, as its own step, they are offered the cluster bindings that would
+actually grant access. Choosing to create them
 hands off to the existing role and binding forms (042), which show the manifest, diff it and require
 the same confirmation as any other mutation.
 
@@ -116,9 +122,9 @@ subject, and assert nothing is applied until that form's own confirmation.
 
 **Acceptance Scenarios**:
 
-1. **Given** groups from the test sign-in, **When** step 5 opens, **Then** those groups are offered as the subjects to map, alongside free text for groups not in this operator's own token.
+1. **Given** groups from the test sign-in, **When** step 5 opens, **Then** those groups are offered as the values for the three Fathom role slots, alongside free text for groups not in this operator's own token, and the step states that these grant nothing in the cluster.
 2. **Given** a group and a chosen role, **When** the operator asks for the binding, **Then** 042's binding form opens with the subject pre-filled as the group name with the API server's groups prefix applied, and the operator completes that form's existing review → confirm → apply.
-3. **Given** the operator declines the bindings, **When** the path finishes, **Then** the issuer and the group→role map are still saved, and the path says which groups have no binding yet.
+3. **Given** the operator declines the bindings, **When** the path finishes, **Then** the issuer and the Fathom role slots are still saved, and the path says which groups have no cluster binding yet.
 4. **Given** the active context denies creating bindings, **When** step 5 opens, **Then** the offer is gated and disabled with the API server's verbatim reason, exactly as every other mutating control.
 
 ---
@@ -192,15 +198,15 @@ offered and the copyable text appears instead.
 - **FR-001**: The system MUST fetch an OIDC provider's discovery document from an issuer URL before any issuer is saved, and show the endpoints, signing-key location, advertised scopes and claims, and device-code support it declares.
 - **FR-002**: The system MUST refuse to continue when the discovery document's `issuer` differs from the URL entered, showing both values.
 - **FR-003**: The system MUST report discovery failures with the verbatim transport or HTTP error and the URL tried, and MUST allow a private CA bundle path to be supplied and the fetch retried without losing the rest of the draft.
-- **FR-004**: The system MUST be able to run a complete sign-in against a draft issuer that has not been saved, using the existing browser and device-code flows and the existing sign-in progress stages.
+- **FR-004**: The system MUST be able to run a complete sign-in against a draft issuer that has not been saved, using the existing browser and device-code flows and the existing sign-in progress stages. The draft's tokens MUST be held in process memory only, since the existing sign-in command resolves its issuer out of saved config and the credential store is keyed by issuer id.
 - **FR-005**: The system MUST show the validated ID token's claims with their values, and MUST let the username and groups claims be chosen from the claims the token actually carries.
 - **FR-006**: The system MUST preview the username and the group list as Kubernetes will see them, with the configured prefixes applied.
-- **FR-007**: The system MUST NOT persist an issuer, a credential or a claim mapping at any step before the operator saves; abandoning the path MUST leave no trace.
+- **FR-007**: The system MUST NOT persist an issuer, a credential or a claim mapping at any step before the operator saves; abandoning the path MUST discard the draft's tokens and leave no trace.
 - **FR-008**: The system MUST read the active cluster's API server authentication configuration — both the legacy `--oidc-*` flags and a structured `AuthenticationConfiguration` — and display it verbatim beside the draft.
 - **FR-009**: The system MUST compare issuer URL, client id/audience, username claim, groups claim, username prefix and groups prefix one by one, and MUST distinguish a disagreement that causes tokens to be *rejected* from one that causes bindings to *not match*.
 - **FR-010**: The system MUST state when the API server's configuration could not be read, with the verbatim reason, and MUST NOT treat an unreadable configuration as agreement.
 - **FR-011**: The system MUST expose the username and groups prefixes as editable fields with their current values, since they decide whether bindings match.
-- **FR-012**: The system MUST offer the groups observed in the test sign-in, plus free text, as the subjects of a group→role mapping, and MUST save that mapping with the issuer.
+- **FR-012**: The system MUST offer the groups observed in the test sign-in, plus free text, as the values of the three Fathom role slots (`viewers_group`, `editors_group`, `admins_group`), and MUST save them with the issuer. It MUST state that these gate Fathom's own features and grant nothing in the cluster.
 - **FR-013**: The system MUST be able to hand a mapped group to the existing role-binding form with the subject pre-filled including the API server's groups prefix, and MUST NOT create any binding except through that form's existing review, confirmation and gating.
 - **FR-014**: The system MUST show a final summary of every field to be stored, including which verification steps were performed and which were skipped, before writing.
 - **FR-015**: Users MUST be able to save at any step without completing the verification, and the summary MUST record what was not verified.
@@ -211,10 +217,14 @@ offered and the copyable text appears instead.
 - **FR-020**: The system MUST write the legacy flags or the structured configuration in whichever style the cluster already uses, MUST NOT produce both, and MUST state when adding the structured configuration requires removing the legacy flags.
 - **FR-021**: The system MUST keep a copy of the previous API server manifest before changing it, MUST wait for the control plane to become ready afterwards, and on failure MUST show the verbatim error, the backup's location and how to restore it, without retrying on its own.
 - **FR-022**: The system MUST NOT offer to change the API server of any context Fathom did not provision, and MUST instead show the required configuration as copyable text.
-- **FR-023**: The system MUST NOT offer the API server step in hosted mode.
+- **FR-023**: The system MUST offer every step in hosted mode, including the API server read and write, performed by the hosted server on the browser's behalf, subject to the same ownership precondition as desktop (FR-019, FR-022) and to hosted role gating.
 - **FR-024**: Every cluster write the path performs MUST appear in the mutation audit log like any other write.
 - **FR-025**: Each step MUST be reachable backwards without losing the draft, and the path MUST be closable at every step.
 - **FR-026**: The path MUST state which context the cluster comparison was read from, and MUST re-read or say so when the active context changes while it is open.
+- **FR-027**: The Fathom role slots (FR-012) and the cluster bindings (FR-013) MUST be presented as two separate, separately refusable steps, and the path MUST NOT imply that filling the Fathom slots granted any cluster access.
+- **FR-028**: On saving after a successful test sign-in, the system MUST establish the operator's session from that sign-in's tokens without requiring a second sign-in.
+- **FR-029**: The path MUST render as a dialog, openable unchanged from the identity chip, the Settings sign-in pane and the first-run setup screen.
+- **FR-030**: The binding handoff MUST carry the id of the issuer being configured, not the first saved issuer. (`RoleAssignmentLauncher.tsx:19` reads `issuers[0]?.id` today, which is wrong as soon as a second issuer exists.)
 
 ### Key Entities
 
@@ -241,8 +251,9 @@ offered and the copyable text appears instead.
 - The provider is a public client using PKCE; no client secret is ever configured. This matches the existing issuer model and is not revisited here.
 - Discovery, token validation, the browser and device-code flows and claim decoding already exist in the backend and are reused rather than rebuilt; what is new is reaching them before an issuer is saved, and a read of the API server's configuration.
 - Reading the API server's configuration means reading the `kube-apiserver` static pod in `kube-system`. Managed control planes do not expose it, and RBAC may deny it; both are stated unknowns, not failures.
-- "A cluster Fathom provisioned" means one created through the local-cluster feature (030) and still listed there. Any other context, including a kind cluster created outside Fathom, is treated as not owned.
-- The group→role mapping and the bindings it suggests operate on groups, not individual users; per-user bindings remain available through the existing forms.
+- "A cluster Fathom provisioned" means one created through the local-cluster feature (030) and still listed there, whether the provisioner was the desktop app or a hosted server. Any other context, including a kind cluster created outside Fathom, is treated as not owned.
+- The Fathom role slots and the cluster bindings the path suggests both operate on groups, not individual users; per-user bindings remain available through the existing forms.
+- The cluster bindings step runs after the save, because 042's `RoleAssignmentDraft` requires a saved `issuer_id`. The path's save is therefore the boundary between "nothing written" and "bindings offered".
 - Multi-issuer setups keep working: the path configures one issuer at a time and never alters another.
 - This feature does not change how sign-in works once configured, how sessions refresh, or how the per-context auth mode is chosen.
 - The constitution's Principle I tension ("wizards… are out of scope") is to be recorded in the plan's Complexity Tracking, with the same justification the setup screen used in 043.
