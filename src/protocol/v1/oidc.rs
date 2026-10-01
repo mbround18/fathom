@@ -52,6 +52,29 @@ pub struct OidcIssuerConfig {
     pub admin_api_base: Option<String>,
 }
 
+/// A provider's OIDC discovery document, as fetched from `/.well-known/openid-configuration`.
+///
+/// Defined here rather than in the backend because 045 renders it before any issuer is saved:
+/// the operator is shown the real document, not a summary of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Discovery {
+    /// The issuer string exactly as the IdP reports it (tokens carry this in `iss`).
+    pub issuer: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    #[serde(default)]
+    pub device_authorization_endpoint: Option<String>,
+    pub jwks_uri: String,
+    #[serde(default)]
+    pub end_session_endpoint: Option<String>,
+    /// What the provider says it supports. A provider may omit either list, which is not an
+    /// error -- it means "not advertised", not "none".
+    #[serde(default)]
+    pub scopes_supported: Vec<String>,
+    #[serde(default)]
+    pub claims_supported: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum OidcSignInMethod {
     Browser,
@@ -217,6 +240,122 @@ impl OidcConfig {
         cfg.validate()?;
         Ok(cfg)
     }
+}
+
+// ---------------------------------------------------------------------------
+// 045-guided-oidc-setup: the draft an operator builds before anything is saved,
+// and what Fathom learns about the cluster while they build it.
+// ---------------------------------------------------------------------------
+
+/// A whole unsaved issuer, carried inline so a sign-in can run before a save.
+///
+/// `OidcSignIn { issuer_id, .. }` resolves its config out of *saved* config, and the credential
+/// store keys on the issuer id, so a draft cannot go through that path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct IssuerDraft {
+    pub config: OidcIssuerConfig,
+    pub method: OidcSignInMethod,
+}
+
+/// One claim as the provider actually emitted it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ClaimPair {
+    pub name: String,
+    pub value: String,
+}
+
+/// What a draft sign-in proved. Carries no token material of any kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct DraftSignInResult {
+    pub username: String,
+    #[serde(default)]
+    pub groups: Vec<String>,
+    #[serde(default)]
+    pub claims: Vec<ClaimPair>,
+    /// Unix seconds at which the ID token this sign-in produced expires.
+    #[ts(type = "number")]
+    pub expires_at: i64,
+}
+
+/// Which authentication style an API server is configured with.
+///
+/// `Legacy` and `Structured` are mutually exclusive: `--authentication-config` cannot be combined
+/// with the `--oidc-*` flags, which is why the repo's own lab script had to delete one to add the
+/// other. Representing them as one enum makes writing both unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ApiServerAuthStyle {
+    /// `--oidc-issuer-url` and friends.
+    Legacy,
+    /// `--authentication-config=<file>`.
+    Structured,
+    /// Read successfully, and the API server has no OIDC authentication configured.
+    None,
+    /// Could not be determined. Never an assumed pass; `reason` says why.
+    Unknown,
+}
+
+/// The API server's authentication configuration as Fathom read it.
+///
+/// `checked` plus `reason` is the three-state "stated unknown" shape `detect_kubeadm` uses: a
+/// successful read, a definite negative, and an undetermined read carrying the API server's own
+/// words. An `Option<String>` field means *absent*, never empty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ApiServerAuthRead {
+    pub style: ApiServerAuthStyle,
+    #[serde(default)]
+    pub issuer: Option<String>,
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub username_claim: Option<String>,
+    #[serde(default)]
+    pub groups_claim: Option<String>,
+    #[serde(default)]
+    pub username_prefix: Option<String>,
+    #[serde(default)]
+    pub groups_prefix: Option<String>,
+    /// The kubeconfig context this was read from.
+    pub context: String,
+    /// False when the read could not be completed at all.
+    pub checked: bool,
+    /// Verbatim reason from the API server when the read was denied or impossible.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// One field on which the cluster and the draft disagree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuthDifference {
+    pub field: String,
+    /// `None` means the cluster does not set this field at all.
+    #[serde(default)]
+    pub cluster: Option<String>,
+    /// `None` means the draft does not set it.
+    #[serde(default)]
+    pub draft: Option<String>,
+}
+
+/// The read plus what it means for the draft being configured.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ApiServerAuthComparison {
+    pub read: ApiServerAuthRead,
+    #[serde(default)]
+    pub differences: Vec<AuthDifference>,
+    /// Whether Fathom may change this API server: false without a provenance record, and always
+    /// false in hosted.
+    pub writable: bool,
+    #[serde(default)]
+    pub not_writable_reason: Option<String>,
+}
+
+/// Where an issuer in the list came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+pub enum IssuerOrigin {
+    /// Read from this installation's saved config.
+    #[default]
+    Saved,
+    /// Projected from the hosted server's validated startup configuration. Not editable here.
+    SeededFromEnvironment,
 }
 
 #[cfg(test)]

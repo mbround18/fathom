@@ -217,7 +217,13 @@ impl BackendCmdV1 {
             | C::RefreshApiResources
             // 026-mutation-audit-log-viewer: reads the persisted, bounded local audit log
             // only; never mutates anything.
-            | C::RefreshAuditLog => MutationTarget::ReadOnly,
+            | C::RefreshAuditLog
+            // 045-guided-oidc-setup: a draft probe and a draft sign-in persist nothing at all --
+            // the tokens stay in memory until `OidcSaveDraft` adopts them -- and reading the API
+            // server's authentication configuration is an ordinary read.
+            | C::OidcDiscoverDraft { .. }
+            | C::OidcTestSignIn { .. }
+            | C::ReadApiServerAuth => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -248,6 +254,8 @@ impl BackendCmdV1 {
             | C::OidcSignIn { .. }
             | C::OidcCancelSignIn { .. }
             | C::OidcSignOut { .. }
+            // 045: the one write of the guided path, and the only thing in it that persists.
+            | C::OidcSaveDraft { .. }
             | C::SetContextAuthMode { .. }
             | C::IdpSetAdminKey { .. }
             | C::LinkTeamProfile { .. }
@@ -304,6 +312,9 @@ impl BackendCmdV1 {
             // 040-manifest-export: writes a kubeconfig file on the operator's machine.
             | C::ExportKubeconfig { .. } => MutationTarget::Local,
 
+            // 045: rewrites the control plane's authentication for every user of the cluster,
+            // so it is cluster-scoped however it reaches the node.
+            C::WriteApiServerAuth { .. } => MutationTarget::ClusterScoped,
             C::SetContext { context } => MutationTarget::ContextSwitch {
                 context: context.clone(),
             },
@@ -483,6 +494,12 @@ impl BackendCmdV1 {
             | C::ResolveCapabilities { .. }
             | C::CheckCapability { .. }
             | C::PreviewRoleAssignment { .. }
+            // 045-guided-oidc-setup: the guided path is identity, which is global.
+            | C::OidcDiscoverDraft { .. }
+            | C::OidcTestSignIn { .. }
+            | C::OidcSaveDraft { .. }
+            | C::ReadApiServerAuth
+            | C::WriteApiServerAuth { .. }
             | C::RefreshOrphanedSubjects { .. } => return None,
             C::RefreshNamespaces | C::SelectNamespace { .. } => section_keys::namespaces(),
             C::RefreshNodes
@@ -937,7 +954,20 @@ impl BackendCmdV1 {
             // 040-manifest-export: reads, and a local file write with no cluster target.
             | C::FetchManifests { .. }
             | C::PreviewKubeconfigExport { .. }
-            | C::ExportKubeconfig { .. } => None,
+            | C::ExportKubeconfig { .. }
+            // 045-guided-oidc-setup: the draft commands and the config save write no cluster
+            // object, exactly like `OidcSaveIssuer` above them.
+            | C::OidcDiscoverDraft { .. }
+            | C::OidcTestSignIn { .. }
+            | C::OidcSaveDraft { .. }
+            | C::ReadApiServerAuth => None,
+            // 045: FR-024 -- the one cluster write the guided path performs.
+            C::WriteApiServerAuth { cluster, .. } => Some(AuditActionSummary {
+                kind: AuditActionKind::ApiServerAuthChange,
+                target_kind: Some("APIServer".to_owned()),
+                target_namespace: None,
+                target_name: Some(cluster.clone()),
+            }),
 
             // Local settings/state changes worth recording.
             C::SaveUiConfig { .. } => {
@@ -1354,7 +1384,11 @@ impl BackendCmdV1 {
             | C::RefreshKindClusters
             | C::CreateKindCluster { .. }
             | C::CancelCreateKindCluster { .. }
-            | C::DeleteKindCluster { .. } => HostedPolicy::Denied(HostedDenial::Kind),
+            | C::DeleteKindCluster { .. }
+            // 045-guided-oidc-setup: writing the API server's authentication flags means editing
+            // the manifest on a node, which only ever applies to a local cluster Fathom
+            // provisioned (FR-019). A hosted server has no node to write to.
+            | C::WriteApiServerAuth { .. } => HostedPolicy::Denied(HostedDenial::Kind),
             // 040-manifest-export: the hosted server's kubeconfig is never exported.
             C::RefreshContexts
             | C::PreviewKubeconfigExport { .. }
@@ -1396,6 +1430,10 @@ impl BackendCmdV1 {
             | C::AgentRecordExecutedAction { .. } => HostedPolicy::Denied(HostedDenial::Agent),
             C::TestPrometheusConnection { .. }
             | C::TestGrafanaConnection { .. }
+            // 045: discovery makes the process fetch a URL the caller chose, which is exactly
+            // why `TestPrometheusConnection` is refused here. Hosted does not need it: the server
+            // already discovered its own issuer before it bound a socket.
+            | C::OidcDiscoverDraft { .. }
             | C::SimulateSlowCall => HostedPolicy::Denied(HostedDenial::ServerSideProbe),
             C::Shutdown => HostedPolicy::Denied(HostedDenial::Lifecycle),
             // 033-038 additions. Per-user cluster operations stay allowed (the API server
@@ -1422,7 +1460,15 @@ impl BackendCmdV1 {
             | C::RefreshDaemon { .. }
             | C::RequestDaemonTimeline { .. }
             | C::RequestDaemonTopology { .. }
-            | C::RequestDaemonMetrics { .. } => HostedPolicy::Denied(HostedDenial::SharedState),
+            | C::RequestDaemonMetrics { .. }
+            // 045-guided-oidc-setup: the guided path's *writes* stay denied for the reason every
+            // OIDC command above is denied -- `config.json` is the state directory shared by every
+            // user of the process, so one user's issuer edit would re-point everyone's sign-in.
+            // Hosted's issuer comes from the server's validated startup configuration instead
+            // (FR-031), and is read-only there (FR-032). A draft sign-in is denied for the same
+            // reason: it drives the process-wide session machinery.
+            | C::OidcTestSignIn { .. }
+            | C::OidcSaveDraft { .. } => HostedPolicy::Denied(HostedDenial::SharedState),
             C::AiProviderLoginStart { .. }
             | C::AiProviderSubmitApiKey { .. }
             | C::AiProviderLoginCancel
@@ -1625,7 +1671,10 @@ impl BackendCmdV1 {
             | C::PreviewHelmUpgrade { .. }
             | C::ApplyHelmUpgrade { .. }
             | C::UninstallHelmRelease { .. }
-            | C::RefreshAuditLog => HostedPolicy::Allowed,
+            | C::RefreshAuditLog
+            // 045: FR-023 -- reading how the cluster authenticates is a read the signed-in user's
+            // own RBAC already governs, which is exactly what hosted is meant to allow.
+            | C::ReadApiServerAuth => HostedPolicy::Allowed,
         }
     }
 }

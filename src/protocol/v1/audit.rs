@@ -80,6 +80,8 @@ pub enum AuditActionKind {
     KindClusterCreate,
     /// Local kind cluster deleted via the provisioning UI (030).
     KindClusterDelete,
+    /// API server authentication configuration applied to a cluster Fathom provisioned (045).
+    ApiServerAuthChange,
 }
 
 impl AuditActionKind {
@@ -107,6 +109,7 @@ impl AuditActionKind {
             Self::EphemeralContainer => "Debug Container",
             Self::KindClusterCreate => "Kind Cluster Create",
             Self::KindClusterDelete => "Kind Cluster Delete",
+            Self::ApiServerAuthChange => "API Server Auth Change",
         }
     }
 }

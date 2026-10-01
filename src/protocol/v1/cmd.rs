@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
-    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ApiKeyInput, CapabilityQuery,
-    ClusterSettings, ContextAuthMode, FathomRoleMap, KindClusterProfileId, NodeShellPodRef,
-    NodeShellSettings, OidcIssuerConfig, OidcSignInMethod, Provider, RbacAccessCheck, RequestId,
-    RoleAssignmentDraft, SectionKey, StreamId, UiConfig,
+    ActionOutcome, AgentAuthModeInput, AgentObjectRef, ApiKeyInput, ApiServerAuthStyle,
+    CapabilityQuery, ClusterSettings, ContextAuthMode, FathomRoleMap, IssuerDraft,
+    KindClusterProfileId, NodeShellPodRef, NodeShellSettings, OidcIssuerConfig, OidcSignInMethod,
+    Provider, RbacAccessCheck, RequestId, RoleAssignmentDraft, SectionKey, StreamId, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -757,6 +757,44 @@ pub enum BackendCmdV1 {
     OidcSignIn {
         issuer_id: String,
         method: OidcSignInMethod,
+    },
+
+    // 045-guided-oidc-setup: the guided path works on a draft, so every command here takes the
+    // issuer inline rather than by id. Nothing below persists anything except `OidcSaveDraft`.
+    /// Fetch a provider's discovery document from a bare issuer URL, before any issuer exists.
+    /// Answered with `OidcDraftDiscovered`.
+    OidcDiscoverDraft {
+        issuer_url: String,
+        /// PEM bundle for a private CA, so a probe can succeed before the issuer is saved.
+        ca_bundle_path: Option<String>,
+    },
+    /// Run a complete sign-in against an unsaved draft. Writes **no** credential: the tokens stay
+    /// in memory until `OidcSaveDraft` adopts them. Answered with the usual `OidcSignInProgress`
+    /// events, then `OidcDraftSignInSucceeded`.
+    OidcTestSignIn {
+        draft: IssuerDraft,
+    },
+    /// The single transactional save: the issuer, the role map, and optionally the live test
+    /// sign-in's tokens, so the operator is signed in without signing in twice.
+    OidcSaveDraft {
+        draft: IssuerDraft,
+        role_map: FathomRoleMap,
+        adopt_test_session: bool,
+    },
+    /// Read the active cluster's API server authentication configuration. Read-only, performed as
+    /// the signed-in user. Answered with `ApiServerAuthRead`.
+    ReadApiServerAuth,
+    /// Apply the API server authentication configuration of a cluster Fathom provisioned.
+    /// Refused without a provenance record, and denied outright in hosted.
+    WriteApiServerAuth {
+        cluster: String,
+        style: ApiServerAuthStyle,
+        issuer_url: String,
+        client_id: String,
+        username_claim: String,
+        groups_claim: String,
+        username_prefix: Option<String>,
+        groups_prefix: Option<String>,
     },
     /// Abort an in-flight sign-in.
     OidcCancelSignIn {
@@ -1721,6 +1759,54 @@ mod tests {
                 message: "deployments.apps \"api\" not found".to_owned(),
             },
         });
+    }
+
+    #[test]
+    fn guided_oidc_cmd_roundtrips() {
+        use crate::protocol::{ApiServerAuthStyle, IssuerDraft};
+
+        // The draft is an issuer that has no id in the config yet -- nothing is saved.
+        let draft: IssuerDraft = serde_json::from_str(
+            r#"{"config":{"id":"draft","issuer_url":"https://i/","client_id":"fathom-desktop"},
+                "method":"DeviceCode"}"#,
+        )
+        .unwrap();
+        roundtrip(BackendCmdV1::OidcDiscoverDraft {
+            issuer_url: "https://i/".to_owned(),
+            ca_bundle_path: None,
+        });
+        roundtrip(BackendCmdV1::OidcDiscoverDraft {
+            issuer_url: "https://i/".to_owned(),
+            ca_bundle_path: Some("/etc/ssl/corp.pem".to_owned()),
+        });
+        roundtrip(BackendCmdV1::OidcTestSignIn {
+            draft: draft.clone(),
+        });
+        for adopt in [false, true] {
+            roundtrip(BackendCmdV1::OidcSaveDraft {
+                draft: draft.clone(),
+                role_map: FathomRoleMap::default(),
+                adopt_test_session: adopt,
+            });
+        }
+        roundtrip(BackendCmdV1::ReadApiServerAuth);
+        for style in [
+            ApiServerAuthStyle::Legacy,
+            ApiServerAuthStyle::Structured,
+            ApiServerAuthStyle::None,
+            ApiServerAuthStyle::Unknown,
+        ] {
+            roundtrip(BackendCmdV1::WriteApiServerAuth {
+                cluster: "kind-fathom-dev".to_owned(),
+                style,
+                issuer_url: "https://i/".to_owned(),
+                client_id: "fathom-desktop".to_owned(),
+                username_claim: "sub".to_owned(),
+                groups_claim: "groups".to_owned(),
+                username_prefix: Some("oidc:".to_owned()),
+                groups_prefix: None,
+            });
+        }
     }
 
     #[test]

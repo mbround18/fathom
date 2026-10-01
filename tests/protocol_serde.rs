@@ -2269,7 +2269,64 @@ fn all_cmds() -> Vec<BackendCmd> {
         BackendCmd::SetNodeShellSettings {
             settings: NodeShellSettings::default(),
         },
+        // 045-guided-oidc-setup: the guided path carries the issuer inline, not by id.
+        BackendCmd::OidcDiscoverDraft {
+            issuer_url: "https://idp.example.com/realms/fathom".to_owned(),
+            ca_bundle_path: None,
+        },
+        BackendCmd::OidcTestSignIn {
+            draft: sample_issuer_draft(),
+        },
+        BackendCmd::OidcSaveDraft {
+            draft: sample_issuer_draft(),
+            role_map: fathom::protocol::FathomRoleMap::default(),
+            adopt_test_session: true,
+        },
+        BackendCmd::ReadApiServerAuth,
+        BackendCmd::WriteApiServerAuth {
+            cluster: "kind-fathom-dev".to_owned(),
+            style: fathom::protocol::ApiServerAuthStyle::Legacy,
+            issuer_url: "https://idp.example.com/realms/fathom".to_owned(),
+            client_id: "fathom".to_owned(),
+            username_claim: "sub".to_owned(),
+            groups_claim: "groups".to_owned(),
+            username_prefix: Some("oidc:".to_owned()),
+            groups_prefix: Some("oidc:".to_owned()),
+        },
     ]
+}
+
+/// 045-guided-oidc-setup: an unsaved issuer, which is what every guided command operates on.
+fn sample_issuer_draft() -> fathom::protocol::IssuerDraft {
+    fathom::protocol::IssuerDraft {
+        config: fathom::protocol::OidcIssuerConfig {
+            id: "draft".to_owned(),
+            issuer_url: "https://idp.example.com/realms/fathom".to_owned(),
+            client_id: "fathom".to_owned(),
+            scopes: vec!["openid".to_owned(), "groups".to_owned()],
+            ca_bundle_path: None,
+            username_claim: "sub".to_owned(),
+            groups_claim: "groups".to_owned(),
+            username_prefix: None,
+            groups_prefix: None,
+            admin_api_base: None,
+        },
+        method: fathom::protocol::OidcSignInMethod::DeviceCode,
+    }
+}
+
+/// 045: a discovery document as a provider actually returns one, both optional lists present.
+fn sample_discovery() -> fathom::protocol::Discovery {
+    fathom::protocol::Discovery {
+        issuer: "https://idp.example.com/realms/fathom".to_owned(),
+        authorization_endpoint: "https://idp.example.com/realms/fathom/auth".to_owned(),
+        token_endpoint: "https://idp.example.com/realms/fathom/token".to_owned(),
+        device_authorization_endpoint: Some("https://idp.example.com/realms/fathom/dc".to_owned()),
+        jwks_uri: "https://idp.example.com/realms/fathom/certs".to_owned(),
+        end_session_endpoint: None,
+        scopes_supported: vec!["openid".to_owned(), "groups".to_owned()],
+        claims_supported: vec!["sub".to_owned(), "groups".to_owned()],
+    }
 }
 
 fn sample_agent_object_ref() -> AgentObjectRef {
@@ -2293,6 +2350,11 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::OidcSignIn { .. } => {}
         BackendCmd::OidcCancelSignIn { .. } => {}
         BackendCmd::OidcSignOut { .. } => {}
+        BackendCmd::OidcDiscoverDraft { .. } => {}
+        BackendCmd::OidcTestSignIn { .. } => {}
+        BackendCmd::OidcSaveDraft { .. } => {}
+        BackendCmd::ReadApiServerAuth => {}
+        BackendCmd::WriteApiServerAuth { .. } => {}
         BackendCmd::SetContextAuthMode { .. } => {}
         BackendCmd::IdpSetAdminKey { .. } => {}
         BackendCmd::IdpRefreshDirectory { .. } => {}
@@ -2978,6 +3040,27 @@ fn all_system_events() -> Vec<SystemEvent> {
             context: "ctx".to_owned(),
             settings: NodeShellSettings::default(),
         },
+        // 045-guided-oidc-setup
+        SystemEvent::OidcDraftDiscovered {
+            issuer_url: "https://idp.example.com/realms/fathom".to_owned(),
+            discovery: sample_discovery(),
+        },
+        SystemEvent::OidcDraftSignInSucceeded {
+            result: fathom::protocol::DraftSignInResult {
+                username: "alice".to_owned(),
+                groups: vec!["platform".to_owned()],
+                claims: vec![fathom::protocol::ClaimPair {
+                    name: "preferred_username".to_owned(),
+                    value: "alice".to_owned(),
+                }],
+                expires_at: 1_790_000_000,
+            },
+        },
+        SystemEvent::OidcSeedOrigin {
+            issuer_id: "hosted".to_owned(),
+            origin: fathom::protocol::IssuerOrigin::SeededFromEnvironment,
+            source: "FATHOM_OIDC_* (mounted Secret)".to_owned(),
+        },
     ]
 }
 
@@ -3208,6 +3291,9 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::NodeShellStatus { .. } => {}
         SystemEvent::NodeShellOrphans { .. } => {}
         SystemEvent::NodeShellSettingsLoaded { .. } => {}
+        SystemEvent::OidcDraftDiscovered { .. } => {}
+        SystemEvent::OidcDraftSignInSucceeded { .. } => {}
+        SystemEvent::OidcSeedOrigin { .. } => {}
     }
 }
 
@@ -3494,6 +3580,28 @@ fn all_resource_read_events() -> Vec<ResourceReadEvent> {
             allowed: false,
             reason: Some("s".to_owned()),
         },
+        // 045-guided-oidc-setup
+        ResourceReadEvent::ApiServerAuthRead(fathom::protocol::ApiServerAuthComparison {
+            read: fathom::protocol::ApiServerAuthRead {
+                style: fathom::protocol::ApiServerAuthStyle::Legacy,
+                issuer: Some("https://old.example.com/realms/k8s".to_owned()),
+                client_id: Some("kubernetes".to_owned()),
+                username_claim: Some("sub".to_owned()),
+                groups_claim: Some("groups".to_owned()),
+                username_prefix: None,
+                groups_prefix: None,
+                context: "kind-fathom-dev".to_owned(),
+                checked: true,
+                reason: None,
+            },
+            differences: vec![fathom::protocol::AuthDifference {
+                field: "issuer".to_owned(),
+                cluster: Some("https://old.example.com/realms/k8s".to_owned()),
+                draft: Some("https://idp.example.com/realms/fathom".to_owned()),
+            }],
+            writable: true,
+            not_writable_reason: None,
+        }),
     ]
 }
 
@@ -3603,6 +3711,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
         ResourceReadEvent::KubeadmDetectionUpdated(..) => {}
         ResourceReadEvent::ApiResourcesUpdated(..) => {}
         ResourceReadEvent::PodExecAccessChecked { .. } => {}
+        ResourceReadEvent::ApiServerAuthRead(..) => {}
     }
 }
 

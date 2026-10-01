@@ -18,7 +18,9 @@ import type { CrdListFailure } from "./CrdListFailure";
 import type { CredentialMigrationOutcome } from "./CredentialMigrationOutcome";
 import type { DaemonStatus } from "./DaemonStatus";
 import type { DaemonTimelineEntry } from "./DaemonTimelineEntry";
+import type { Discovery } from "./Discovery";
 import type { DiskUsage } from "./DiskUsage";
+import type { DraftSignInResult } from "./DraftSignInResult";
 import type { FederationCombinedRollup } from "./FederationCombinedRollup";
 import type { FederationContextRollup } from "./FederationContextRollup";
 import type { FetchedManifest } from "./FetchedManifest";
@@ -31,6 +33,7 @@ import type { HelmMutationFailed } from "./HelmMutationFailed";
 import type { HelmMutationPreviewReady } from "./HelmMutationPreviewReady";
 import type { HubbleTrafficSummary } from "./HubbleTrafficSummary";
 import type { IdpDirectorySnapshot } from "./IdpDirectorySnapshot";
+import type { IssuerOrigin } from "./IssuerOrigin";
 import type { KedaOverview } from "./KedaOverview";
 import type { KedaResourceDetails } from "./KedaResourceDetails";
 import type { KnativeOverview } from "./KnativeOverview";
@@ -130,4 +133,12 @@ detail: string | null,
 /**
  * True when deleting the pod failed and it still exists.
  */
-leftover: boolean, } } | { "type": "NodeShellOrphans", "data": { pods: Array<OrphanedNodeShellPod>, } } | { "type": "NodeShellSettingsLoaded", "data": { context: string, settings: NodeShellSettings, } };
+leftover: boolean, } } | { "type": "NodeShellOrphans", "data": { pods: Array<OrphanedNodeShellPod>, } } | { "type": "NodeShellSettingsLoaded", "data": { context: string, settings: NodeShellSettings, } } | { "type": "OidcDraftDiscovered", "data": { 
+/**
+ * Echoed back so a reply that arrives after the operator edited the field is ignorable.
+ */
+issuer_url: string, discovery: Discovery, } } | { "type": "OidcDraftSignInSucceeded", "data": { result: DraftSignInResult, } } | { "type": "OidcSeedOrigin", "data": { issuer_id: string, origin: IssuerOrigin, 
+/**
+ * Where the operator changes it, in their words -- a deployment, not a Fathom screen.
+ */
+source: string, } };

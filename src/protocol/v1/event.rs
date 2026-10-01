@@ -28,9 +28,10 @@ use super::{
     WorkloadMetricsAggregate,
 };
 use super::{
-    CapabilityQuery, CapabilityResult, CapabilitySet, IdpDirectorySnapshot, OidcConfig,
-    OidcIdentity, OidcSignInStage, OrgClusterSettings, OrphanedSubject, TeamLink,
-    TeamPublishRejection, TeamStoreStatus,
+    ApiServerAuthComparison, CapabilityQuery, CapabilityResult, CapabilitySet, Discovery,
+    DraftSignInResult, IdpDirectorySnapshot, IssuerOrigin, OidcConfig, OidcIdentity,
+    OidcSignInStage, OrgClusterSettings, OrphanedSubject, TeamLink, TeamPublishRejection,
+    TeamStoreStatus,
 };
 use super::{KindClusterSummary, KindPrerequisites};
 use serde::{Deserialize, Serialize};
@@ -602,6 +603,28 @@ pub enum SystemEvent {
         context: String,
         settings: NodeShellSettings,
     },
+    /// 045-guided-oidc-setup: reply to `OidcDiscoverDraft`. The whole document, not a summary:
+    /// FR-001 shows the operator what the provider actually advertised. Failure keeps using
+    /// `OidcError`, which already carries the provider's words verbatim.
+    OidcDraftDiscovered {
+        /// Echoed back so a reply that arrives after the operator edited the field is ignorable.
+        issuer_url: String,
+        discovery: Discovery,
+    },
+    /// 045: reply to `OidcTestSignIn`. Nothing here is token material -- only what the sign-in
+    /// proved, which is what FR-008 renders and what `adopt_test_session` later carries over.
+    OidcDraftSignInSucceeded {
+        result: DraftSignInResult,
+    },
+    /// 045: emitted by the hosted server at startup so the UI can render its seeded issuer
+    /// read-only and name where it is changed (FR-031, FR-032). Desktop never emits it, and
+    /// `IssuerOrigin::Saved` is the absence of it.
+    OidcSeedOrigin {
+        issuer_id: String,
+        origin: IssuerOrigin,
+        /// Where the operator changes it, in their words -- a deployment, not a Fathom screen.
+        source: String,
+    },
 }
 
 /// One installed CustomResourceDefinition, discovered via `kube::discovery`. See
@@ -849,6 +872,11 @@ pub enum ResourceReadEvent {
         allowed: bool,
         reason: Option<String>,
     },
+    /// Reply for `ReadApiServerAuth` (045-guided-oidc-setup): how the cluster authenticates
+    /// today, how it differs from the draft, and whether Fathom may change it. Never an error --
+    /// an unreadable control plane yields `checked: false` with the reason stated verbatim
+    /// (FR-023), the same shape `KubeadmDetectionUpdated` above uses.
+    ApiServerAuthRead(ApiServerAuthComparison),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1153,6 +1181,102 @@ mod tests {
             namespace: "default".to_owned(),
             name: "gone".to_owned(),
         });
+    }
+
+    /// 045-guided-oidc-setup: the three events the guided path adds, plus the read.
+    #[test]
+    fn guided_oidc_events_roundtrip() {
+        use crate::protocol::{
+            ApiServerAuthComparison, ApiServerAuthRead as AuthRead, ApiServerAuthStyle,
+            AuthDifference, ClaimPair, DraftSignInResult,
+        };
+
+        let discovery = Discovery {
+            issuer: "https://i/".to_owned(),
+            authorization_endpoint: "https://i/auth".to_owned(),
+            token_endpoint: "https://i/token".to_owned(),
+            device_authorization_endpoint: Some("https://i/dc".to_owned()),
+            jwks_uri: "https://i/certs".to_owned(),
+            end_session_endpoint: None,
+            scopes_supported: vec!["openid".to_owned()],
+            claims_supported: vec!["sub".to_owned()],
+        };
+        system_roundtrip(SystemEvent::OidcDraftDiscovered {
+            issuer_url: "https://i/".to_owned(),
+            discovery,
+        });
+        system_roundtrip(SystemEvent::OidcDraftSignInSucceeded {
+            result: DraftSignInResult {
+                username: "alice".to_owned(),
+                groups: vec!["platform".to_owned()],
+                claims: vec![ClaimPair {
+                    name: "sub".to_owned(),
+                    value: "alice".to_owned(),
+                }],
+                expires_at: 1_790_000_000,
+            },
+        });
+        system_roundtrip(SystemEvent::OidcSeedOrigin {
+            issuer_id: "hosted".to_owned(),
+            origin: IssuerOrigin::SeededFromEnvironment,
+            source: "FATHOM_OIDC_* (mounted Secret)".to_owned(),
+        });
+
+        resource_read_roundtrip(ResourceReadEvent::ApiServerAuthRead(
+            ApiServerAuthComparison {
+                read: AuthRead {
+                    style: ApiServerAuthStyle::Legacy,
+                    issuer: Some("https://old/".to_owned()),
+                    client_id: Some("kubernetes".to_owned()),
+                    username_claim: Some("sub".to_owned()),
+                    groups_claim: Some("groups".to_owned()),
+                    username_prefix: None,
+                    groups_prefix: None,
+                    context: "kind-fathom-dev".to_owned(),
+                    checked: true,
+                    reason: None,
+                },
+                differences: vec![AuthDifference {
+                    field: "issuer".to_owned(),
+                    cluster: Some("https://old/".to_owned()),
+                    draft: Some("https://i/".to_owned()),
+                }],
+                writable: true,
+                not_writable_reason: None,
+            },
+        ));
+    }
+
+    /// A stated unknown is the same event, not an error one: FR-023/FR-035 say the operator sees
+    /// what could not be determined and the reason in the API server's own words.
+    #[test]
+    fn an_unreadable_api_server_is_a_stated_unknown() {
+        let json = r#"{"style":"Unknown","context":"kind-fathom-dev","checked":false,
+                       "reason":"forbidden: User \"alice\" cannot get pods"}"#;
+        let read: crate::protocol::ApiServerAuthRead = serde_json::from_str(json).unwrap();
+        assert!(!read.checked);
+        assert!(read.issuer.is_none());
+        assert_eq!(
+            read.reason.as_deref(),
+            Some("forbidden: User \"alice\" cannot get pods")
+        );
+    }
+
+    /// A provider that advertises neither list is not an error: it means "not advertised".
+    #[test]
+    fn discovery_tolerates_a_provider_that_advertises_nothing() {
+        let json = r#"{"issuer":"https://i/","authorization_endpoint":"https://i/auth",
+                       "token_endpoint":"https://i/token","jwks_uri":"https://i/certs"}"#;
+        let d: Discovery = serde_json::from_str(json).unwrap();
+        assert!(d.scopes_supported.is_empty());
+        assert!(d.claims_supported.is_empty());
+        assert!(d.device_authorization_endpoint.is_none());
+    }
+
+    /// The absence of a seed is `Saved`: desktop never emits `OidcSeedOrigin`.
+    #[test]
+    fn issuer_origin_defaults_to_saved() {
+        assert_eq!(IssuerOrigin::default(), IssuerOrigin::Saved);
     }
 
     fn system_roundtrip(event: SystemEvent) {

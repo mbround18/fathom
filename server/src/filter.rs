@@ -166,6 +166,12 @@ mod tests {
             "FederateContext",
             "UnfederateContext",
             "RequestFederationSnapshot",
+            // 045-guided-oidc-setup. `ReadApiServerAuth` is deliberately absent: reading how the
+            // cluster authenticates is the one step of the guided path hosted keeps (FR-023).
+            "OidcDiscoverDraft",
+            "OidcTestSignIn",
+            "OidcSaveDraft",
+            "WriteApiServerAuth",
         ];
         let mut t = BTreeMap::new();
         for n in declared_variants() {
@@ -207,6 +213,17 @@ mod tests {
     #[test]
     fn denied_struct_variants_are_refused_with_a_reason() {
         let s = |k: &str| json!(k);
+        // 045: the guided path carries the issuer inline rather than by id.
+        let draft = || {
+            json!({
+                "config": {
+                    "id": "draft",
+                    "issuer_url": "https://idp.example.com",
+                    "client_id": "fathom",
+                },
+                "method": "DeviceCode",
+            })
+        };
         let samples = vec![
             ("CancelCreateKindCluster", json!({"request_id": "r"})),
             ("DeleteKindCluster", json!({"request_id": "r", "name": "n"})),
@@ -243,6 +260,22 @@ mod tests {
             (
                 "AgentAsk",
                 json!({"object":{"kind":"Pod","namespace":"n","name":"p"},"question":"q"}),
+            ),
+            (
+                "OidcDiscoverDraft",
+                json!({"issuer_url":"https://idp.example.com","ca_bundle_path":null}),
+            ),
+            ("OidcTestSignIn", json!({"draft": draft()})),
+            (
+                "OidcSaveDraft",
+                json!({"draft": draft(), "role_map": {}, "adopt_test_session": true}),
+            ),
+            (
+                "WriteApiServerAuth",
+                json!({"cluster":"kind-fathom-dev","style":"Legacy",
+                       "issuer_url":"https://idp.example.com","client_id":"fathom",
+                       "username_claim":"sub","groups_claim":"groups",
+                       "username_prefix":null,"groups_prefix":null}),
             ),
             (
                 "AgentReviewSuggestedAction",

@@ -45,16 +45,8 @@ pub fn system_opener() -> Opener {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Discovery {
-    /// The issuer string exactly as the IdP reports it (tokens carry this in `iss`).
-    pub issuer: String,
-    pub authorization_endpoint: String,
-    pub token_endpoint: String,
-    pub device_authorization_endpoint: Option<String>,
-    pub jwks_uri: String,
-    pub end_session_endpoint: Option<String>,
-}
+/// Re-exported from the protocol module, which owns it: 045 sends the document to the UI.
+pub use crate::protocol::v1::Discovery;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FlowError {
@@ -140,6 +132,11 @@ pub async fn discover(http: &reqwest::Client, issuer_url: &str) -> Result<Discov
         device_authorization_endpoint: Option<String>,
         #[serde(default)]
         end_session_endpoint: Option<String>,
+        /// A provider may omit either list; absent means "not advertised", not "none".
+        #[serde(default)]
+        scopes_supported: Vec<String>,
+        #[serde(default)]
+        claims_supported: Vec<String>,
     }
     let url = format!(
         "{}/.well-known/openid-configuration",
@@ -173,6 +170,8 @@ pub async fn discover(http: &reqwest::Client, issuer_url: &str) -> Result<Discov
         device_authorization_endpoint: doc.device_authorization_endpoint,
         jwks_uri: doc.jwks_uri,
         end_session_endpoint: doc.end_session_endpoint,
+        scopes_supported: doc.scopes_supported,
+        claims_supported: doc.claims_supported,
     })
 }
 
