@@ -159,7 +159,10 @@ test.describe('live 006 quickstart', () => {
     expect(before.length).toBeGreaterThanOrEqual(2)
     await openRelease(page, FLUX)
     const insp = inspector(page)
-    await insp.getByTestId('helm-rollback-1').click()
+    // Not revision 1: Flux prunes the release history down to its own limit, so the oldest
+    // revision still on offer moves up every time the HelmRelease is reconciled.
+    const oldest = before[0]?.revision ?? 1
+    await insp.getByTestId(`helm-rollback-${String(oldest)}`).click()
     const warning = insp.getByTestId('helm-rollback-gitops-warning')
     await expect(warning).toBeVisible()
     await expect(warning).toContainText('Flux')
@@ -247,7 +250,9 @@ test.describe('live 006 quickstart', () => {
     await insp.getByTestId('helm-release-uninstall').click()
     await confirmDialog(page).getByTestId('confirm-submit').click()
     await expect(row(page, `${LIVE_NAMESPACE}/${BARE}`, HELM)).toHaveCount(0, { timeout: 60_000 })
-    expect(helm(['list', '-q'])).not.toContain(BARE)
+    // The row goes as soon as the backend reports the uninstall; Helm deletes the release
+    // secret a moment later, so poll rather than read `helm list` once.
+    await expect.poll(() => helm(['list', '-q']), { timeout: 30_000 }).not.toContain(BARE)
     await expect
       .poll(
         () => kubectlGet(['all', '-l', `app.kubernetes.io/instance=${BARE}`, '-o', 'name']).trim(),

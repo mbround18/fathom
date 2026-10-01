@@ -117,10 +117,12 @@ test.describe('live 004 quickstart scenario 4', () => {
     await showApplications(page)
     const r = row(page, `${LIVE_NAMESPACE}/${FLUX_APP}`, APPS)
     await expect(r).toBeVisible()
+    // Read the list before opening anything: at phone width there is one slot, so the Inspector
+    // takes the list's place and the row is no longer in the DOM to be asserted on.
+    await expect(statusCell(r)).toHaveText(/Available|Progressing/)
     // The Managed By column is dropped at this list width; the Inspector always shows it.
     await r.click()
     await expect(inspector(page)).toContainText(/Managed by\s*Flux/)
-    await expect(statusCell(r)).toHaveText(/Available|Progressing/)
 
     k(['delete', 'deployment', FLUX_APP, '--wait=true'])
     try {
