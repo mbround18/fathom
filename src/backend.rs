@@ -12,6 +12,7 @@ use crate::config::Args;
 pub mod access;
 mod agent;
 mod ai;
+mod apiserver_auth;
 mod applications;
 mod apply;
 pub mod audit_log;

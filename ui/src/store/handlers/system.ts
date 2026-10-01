@@ -669,7 +669,12 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'OidcSignInProgress':
     case 'OidcIdentityUpdated':
     case 'OidcSessionEnded':
-    case 'OidcError': {
+    case 'OidcError':
+    case 'OidcDraftDiscovered':
+    case 'OidcDraftSignInSucceeded':
+    case 'OidcSeedOrigin': {
+      // 045's guided-path replies land in the same slice. `ApiServerAuthRead` does not: it is a
+      // `ResourceRead`, which `ingest.ts` routes to `reduceApiServerAuth` instead.
       reduceIdentity(d.edit('identity'), event)
       return
     }

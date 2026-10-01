@@ -274,7 +274,8 @@ export interface ListState {
  * 013-agent-sdk-ops's `AgentConversationUpdated`, and the three 011-rbac-oidc-administration
  * ones, none of which are stored here — they live in `imageInspections`/`agentConversations`/
  * `rbacAccess` instead (their payloads have no `name` field for this generic namespace/kind/name
- * keying). Must match `handlers/read.ts`'s identical `GenericReadEvent`.
+ * keying), and 045's `ApiServerAuthRead`, which lives in `identity` for the same reason. Must
+ * match `handlers/read.ts`'s identical `GenericReadEvent`.
  */
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
@@ -291,6 +292,9 @@ type GenericReadEvent = Exclude<
     }
   // 024-pod-exec-terminal: routed by `handleExecAccess` into `execAccess`.
   | { type: 'PodExecAccessChecked' }
+  // 045-guided-oidc-setup: an `ApiServerAuthComparison` with no `name` field, keyed per context
+  // in the `identity` slice by `reduceApiServerAuth`.
+  | { type: 'ApiServerAuthRead' }
 >
 
 /** 024-pod-exec-terminal: result of a `CheckPodExecAccess` pre-check. */

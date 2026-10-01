@@ -65,7 +65,7 @@ A pure projection of the already-validated `HostedConfig`, with no new source of
 
 ```ts
 type GuidedStep =
-  | 'issuer-url' | 'discovery' | 'claims' | 'test-sign-in'
+  | 'issuer-url' | 'discovery' | 'test-sign-in' | 'claims'
   | 'cluster-compare' | 'fathom-roles' | 'review-save' | 'bindings' | 'apiserver-write'
 
 type GuidedDraft = {
@@ -88,3 +88,8 @@ type GuidedDraft = {
   `RoleAssignmentDraft` needs a saved `issuer_id`. The save is the boundary between "nothing
   written" and "writes offered".
 - `origin === 'SeededFromEnvironment'` freezes `config` and skips `review-save`.
+- `claims` follows `test-sign-in`, because FR-005 chooses the username and groups claims from the
+  claims a real token carried. With the sign-in skipped (FR-015) the step falls back to the
+  document's advertised `claims_supported`, labelled as advertised rather than observed.
+- `saved: boolean` is part of the draft too: a completed save is not derivable from the other
+  fields, and it is the boundary that makes `bindings` and `apiserver-write` reachable.

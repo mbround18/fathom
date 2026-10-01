@@ -17,6 +17,7 @@
  */
 import type { StoreApi } from 'zustand'
 
+import { reduceApiServerAuth } from '@/features/identity/state'
 import { PROTOCOL_VERSION, type BackendEventEnvelope, type EventBatch } from '@/protocol/types'
 
 import { Draft } from './draft'
@@ -123,6 +124,13 @@ function applyEnvelope(d: Draft, env: BackendEventEnvelope): void {
       // 024-pod-exec-terminal: keyed by namespace/name/container, not the generic details key.
       if (event.data.type === 'PodExecAccessChecked') {
         handleExecAccess(d, event.data)
+        return
+      }
+      // 045-guided-oidc-setup: an `ApiServerAuthComparison` carries no top-level `name` either,
+      // and belongs to the context it was read from, so it is keyed per context in the identity
+      // slice (`reduceApiServerAuth`) rather than by the generic `details` keying.
+      if (event.data.type === 'ApiServerAuthRead') {
+        reduceApiServerAuth(d.edit('identity'), event.data.data)
         return
       }
       // 011-rbac-oidc-administration: same reasoning, see handlers/rbacAccess.ts.

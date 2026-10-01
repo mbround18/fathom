@@ -8,6 +8,7 @@ pub mod http;
 pub mod kubeauth;
 pub mod limits;
 pub mod oidc;
+pub mod oidc_seed;
 pub mod refresh;
 pub mod session;
 pub mod tenant;

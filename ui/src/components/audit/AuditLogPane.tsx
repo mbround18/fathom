@@ -35,6 +35,7 @@ const ACTION_LABELS: Record<AuditActionKind, string> = {
   ephemeralContainer: 'Debug Container',
   kindClusterCreate: 'Kind Cluster Create',
   kindClusterDelete: 'Kind Cluster Delete',
+  apiServerAuthChange: 'API Server Authentication Change',
 }
 
 const SELECT_CLASS =

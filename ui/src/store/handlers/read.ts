@@ -13,9 +13,10 @@ export function readKind(type: ResourceReadEvent['type']): string {
 /**
  * Every `ResourceReadEvent` variant except the two 010-container-image-inspection ones,
  * 013-agent-sdk-ops's `AgentConversationUpdated`, and 011-rbac-oidc-administration's
- * no-`name`-field variants, which `ingest.ts` routes to `handleImageInspect`/
- * `handleAgentConversation`/`handleRbacAccess` before this is ever reached (none of their
- * payloads have a top-level `name` field for the generic `details` keying below to key on).
+ * no-`name`-field variants, plus 045's `ApiServerAuthRead`, which `ingest.ts` routes to
+ * `handleImageInspect`/`handleAgentConversation`/`handleRbacAccess`/`reduceApiServerAuth` before
+ * this is ever reached (none of their payloads have a top-level `name` field for the generic
+ * `details` keying below to key on).
  */
 type GenericReadEvent = Exclude<
   ResourceReadEvent,
@@ -33,6 +34,9 @@ type GenericReadEvent = Exclude<
     }
   // 024-pod-exec-terminal: routed by `handleExecAccess`.
   | { type: 'PodExecAccessChecked' }
+  // 045-guided-oidc-setup: an `ApiServerAuthComparison` with no `name` field, keyed per context
+  // in the `identity` slice by `reduceApiServerAuth`.
+  | { type: 'ApiServerAuthRead' }
 >
 
 export function readKeyOf(env: BackendEventEnvelope, event: GenericReadEvent): string {
