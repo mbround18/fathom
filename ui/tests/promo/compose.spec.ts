@@ -47,14 +47,30 @@ interface Facts {
   workloads: WorkloadCounts[]
 }
 
+/**
+ * How many of a kind's workloads are fully ready.
+ *
+ * A DaemonSet does not have `replicas`/`readyReplicas` — it reports `desiredNumberScheduled`
+ * and `numberReady` — so reading the Deployment fields for one counted it as 0 of 1 ready and
+ * printed that wrong number into the brochure.
+ */
 function countWorkloads(kind: string, plural: string): WorkloadCounts {
   const list = kubectlJson<{
-    items: { status?: { replicas?: number; readyReplicas?: number } }[]
+    items: {
+      status?: {
+        replicas?: number
+        readyReplicas?: number
+        desiredNumberScheduled?: number
+        numberReady?: number
+      }
+    }[]
   }>(['get', plural])
   const total = list.items.length
-  const ready = list.items.filter(
-    (i) => (i.status?.readyReplicas ?? 0) >= (i.status?.replicas ?? 1),
-  ).length
+  const ready = list.items.filter((i) => {
+    const desired = i.status?.replicas ?? i.status?.desiredNumberScheduled ?? 1
+    const readyNow = i.status?.readyReplicas ?? i.status?.numberReady ?? 0
+    return readyNow >= desired
+  }).length
   return { kind, ready, total }
 }
 
