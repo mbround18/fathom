@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use crate::backend::state::BackendState;
-use crate::backend::{events, kind, kube};
+use crate::backend::{events, kind, kube, persistence};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, KindClusterOperationKind,
     KindClusterProfileId, KindClusterSummary, KindPrerequisites, Route, StreamEvent, SystemEvent,
@@ -165,6 +165,15 @@ async fn create(
             );
         })
         .await;
+        if result.is_ok() {
+            // 045 FR-036: this record is the *only* evidence that Fathom provisioned the
+            // cluster, and so the only thing that will later permit an API server write to it.
+            // Written after success, never before, so a failed create cannot leave a claim
+            // behind.
+            if let Err(e) = persistence::record_kind_provision(&name, Some(profile)) {
+                tracing::warn!("Failed to record kind provenance for {name}: {e}");
+            }
+        }
         registry.finish(&rid);
         after_action(&seq, &sender, selected, &registry, rid, result).await;
     });
@@ -247,6 +256,14 @@ async fn delete(
         );
     })
     .await;
+    if result.is_ok() {
+        // The cluster is gone, so the ownership claim must go with it: otherwise a cluster
+        // someone else later creates under the same name would inherit Fathom's permission to
+        // rewrite its API server (045 FR-036).
+        if let Err(e) = persistence::forget_kind_provision(&name) {
+            tracing::warn!("Failed to clear kind provenance for {name}: {e}");
+        }
+    }
     state.kind_actions.finish(&request_id);
 
     let mut selected = state.cluster.current_context.clone();

@@ -1249,3 +1249,224 @@ mod daemon_file_tests {
         assert!(dir.path().join("daemon.json.corrupt").exists());
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// 045-guided-oidc-setup (FR-036): which local clusters Fathom provisioned itself.
+// ---------------------------------------------------------------------------------------
+
+/// One kind cluster Fathom created, as `~/.fathom/kind-provenance.json` records it.
+///
+/// This file is the *only* answer to "did Fathom provision this cluster?". The question cannot
+/// be asked of `kind get clusters`, which reports every cluster on the machine, nor of the
+/// context name, which an operator's own `kind create cluster` produces identically. 045's API
+/// server write (FR-019) and its refusal on anything else (FR-022) both turn on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KindProvenanceRecord {
+    /// The cluster name as `kind get clusters` reports it (not the `kind-` context name).
+    pub cluster: String,
+    /// Unix seconds at which Fathom's provision succeeded.
+    pub provisioned_at: i64,
+    /// The profile the cluster was created from, which `summaries_from_names` could only
+    /// hardcode as `None` before this record existed.
+    #[serde(default)]
+    pub profile: Option<crate::protocol::KindClusterProfileId>,
+}
+
+/// `kind-provenance.json`'s on-disk shape. Cluster names only: no credentials, no kubeconfig.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KindProvenanceFile {
+    #[serde(default)]
+    pub clusters: Vec<KindProvenanceRecord>,
+}
+
+impl KindProvenanceFile {
+    /// The record for `cluster`, or `None` — which means *not owned*, whatever the cluster's
+    /// context name looks like.
+    #[must_use]
+    pub fn record_for(&self, cluster: &str) -> Option<&KindProvenanceRecord> {
+        self.clusters.iter().find(|r| r.cluster == cluster)
+    }
+
+    /// The record for a kubeconfig context, which kind names `kind-<cluster>`.
+    ///
+    /// The prefix is only how the cluster name is recovered from the context; it is never the
+    /// ownership test itself, because a cluster created outside Fathom has an identical one.
+    #[must_use]
+    pub fn record_for_context(&self, context: &str) -> Option<&KindProvenanceRecord> {
+        self.record_for(context.strip_prefix("kind-")?)
+    }
+}
+
+/// Path of `kind-provenance.json`.
+pub fn kind_provenance_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("kind-provenance.json"))
+}
+
+/// Load the provenance record from `path`. Absent or unparseable yields an empty record — which
+/// means "Fathom owns nothing", the safe answer — and an unparseable file is preserved as
+/// `.corrupt` rather than overwritten (Principle VI).
+pub fn load_kind_provenance_from(path: &Path) -> KindProvenanceFile {
+    let Ok(content) = fs::read_to_string(path) else {
+        return KindProvenanceFile::default();
+    };
+    serde_json::from_str::<KindProvenanceFile>(&content).unwrap_or_else(|e| {
+        tracing::warn!("Failed to parse {}: {}; owning nothing", path.display(), e);
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".corrupt");
+        if let Err(e) = fs::copy(path, PathBuf::from(backup)) {
+            tracing::warn!("Failed to preserve corrupt kind provenance file: {}", e);
+        }
+        KindProvenanceFile::default()
+    })
+}
+
+/// Atomically write the provenance record to `path` (temp file + rename).
+pub fn save_kind_provenance_to(path: &Path, file: &KindProvenanceFile) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, serde_json::to_string_pretty(file)?)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+pub fn load_kind_provenance() -> KindProvenanceFile {
+    kind_provenance_path()
+        .map(|p| load_kind_provenance_from(&p))
+        .unwrap_or_default()
+}
+
+/// Record that Fathom provisioned `cluster`, in `path`. Called only when a provision succeeded,
+/// so the record never claims a cluster Fathom failed to create. Re-recording replaces the
+/// previous entry rather than duplicating it.
+pub fn record_kind_provision_at(
+    path: &Path,
+    cluster: &str,
+    profile: Option<crate::protocol::KindClusterProfileId>,
+    provisioned_at: i64,
+) -> Result<()> {
+    let mut file = load_kind_provenance_from(path);
+    file.clusters.retain(|r| r.cluster != cluster);
+    file.clusters.push(KindProvenanceRecord {
+        cluster: cluster.to_owned(),
+        provisioned_at,
+        profile,
+    });
+    save_kind_provenance_to(path, &file)
+}
+
+/// Drop `cluster` from `path`'s record, because Fathom deleted it. A cluster that is gone must
+/// not leave behind a record that would make a later same-named cluster look owned.
+pub fn forget_kind_provision_at(path: &Path, cluster: &str) -> Result<()> {
+    let mut file = load_kind_provenance_from(path);
+    if file.record_for(cluster).is_none() {
+        return Ok(());
+    }
+    file.clusters.retain(|r| r.cluster != cluster);
+    save_kind_provenance_to(path, &file)
+}
+
+/// Unix seconds now, for a provision's timestamp.
+#[must_use]
+pub fn now_unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+pub fn record_kind_provision(
+    cluster: &str,
+    profile: Option<crate::protocol::KindClusterProfileId>,
+) -> Result<()> {
+    record_kind_provision_at(&kind_provenance_path()?, cluster, profile, now_unix_secs())
+}
+
+pub fn forget_kind_provision(cluster: &str) -> Result<()> {
+    forget_kind_provision_at(&kind_provenance_path()?, cluster)
+}
+
+#[cfg(test)]
+mod kind_provenance_tests {
+    use super::*;
+    use crate::protocol::KindClusterProfileId;
+
+    /// T056 (FR-036, FR-022): ownership comes from the record and from nothing else. A kind
+    /// cluster created outside Fathom has a `kind-`-prefixed context exactly like one Fathom
+    /// created, so the context name can never be the test.
+    #[test]
+    fn a_cluster_without_a_record_is_not_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kind-provenance.json");
+
+        // Nothing recorded yet: nothing is owned, including a plausible-looking context.
+        let empty = load_kind_provenance_from(&path);
+        assert_eq!(empty, KindProvenanceFile::default());
+        assert!(empty.record_for("hand-built").is_none());
+        assert!(empty.record_for_context("kind-hand-built").is_none());
+
+        record_kind_provision_at(&path, "fathom-dev", Some(KindClusterProfileId::Bare), 1_700)
+            .unwrap();
+        let file = load_kind_provenance_from(&path);
+
+        // The one cluster Fathom created is owned, by name and through its context.
+        let ours = file.record_for_context("kind-fathom-dev").unwrap();
+        assert_eq!(ours.cluster, "fathom-dev");
+        assert_eq!(ours.provisioned_at, 1_700);
+        assert_eq!(ours.profile, Some(KindClusterProfileId::Bare));
+
+        // A cluster the operator built by hand is not owned, although `kind get clusters` lists
+        // it beside ours and its context name is indistinguishable in shape.
+        assert!(file.record_for("hand-built").is_none());
+        assert!(file.record_for_context("kind-hand-built").is_none());
+        // Nor is a non-kind context, which carries no cluster name to look up at all.
+        assert!(file.record_for_context("prod-eks").is_none());
+    }
+
+    #[test]
+    fn re_recording_replaces_and_deleting_forgets() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kind-provenance.json");
+        record_kind_provision_at(&path, "dev", Some(KindClusterProfileId::Bare), 1).unwrap();
+        record_kind_provision_at(&path, "dev", Some(KindClusterProfileId::CustomYaml), 2).unwrap();
+        let file = load_kind_provenance_from(&path);
+        assert_eq!(file.clusters.len(), 1);
+        assert_eq!(
+            file.record_for("dev").unwrap().profile,
+            Some(KindClusterProfileId::CustomYaml)
+        );
+
+        // Deleting the cluster drops the record, so a later same-named cluster someone else
+        // creates is not inherited as owned.
+        forget_kind_provision_at(&path, "dev").unwrap();
+        assert!(load_kind_provenance_from(&path).record_for("dev").is_none());
+        // Forgetting something that was never recorded is not an error.
+        forget_kind_provision_at(&path, "dev").unwrap();
+    }
+
+    #[test]
+    fn unknown_fields_tolerated_and_corrupt_file_owns_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kind-provenance.json");
+        fs::write(
+            &path,
+            r#"{"future":1,"clusters":[{"cluster":"a","provisionedAt":5}]}"#,
+        )
+        .unwrap();
+        let file = load_kind_provenance_from(&path);
+        assert_eq!(file.record_for("a").unwrap().provisioned_at, 5);
+        assert_eq!(file.record_for("a").unwrap().profile, None);
+
+        fs::write(&path, "{not json").unwrap();
+        assert_eq!(
+            load_kind_provenance_from(&path),
+            KindProvenanceFile::default()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
+        assert!(dir.path().join("kind-provenance.json.corrupt").exists());
+    }
+}

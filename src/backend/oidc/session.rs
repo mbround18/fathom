@@ -67,6 +67,13 @@ struct Inner {
     slots: Mutex<HashMap<String, Arc<Slot>>>,
     sign_ins: Mutex<HashMap<String, (CancellationToken, JoinHandle<()>)>>,
     refreshers: Mutex<HashMap<String, JoinHandle<()>>>,
+    /// 045 US5: the draft sign-in's refresh token, in memory and nowhere else.
+    ///
+    /// It never reaches the keyring or `config.json` while the draft is a draft -- that is what
+    /// FR-007 protects -- but one sign-in has to be enough to leave the operator with a
+    /// *refreshing* session, so the token is held here until the save commits it under the
+    /// issuer id that save creates. Abandoning the draft drops it.
+    draft_refresh: Mutex<Option<String>>,
 }
 
 #[derive(Clone)]
@@ -92,6 +99,7 @@ impl OidcSessions {
                 slots: Mutex::default(),
                 sign_ins: Mutex::default(),
                 refreshers: Mutex::default(),
+                draft_refresh: Mutex::default(),
             }),
         }
     }
@@ -180,6 +188,8 @@ impl OidcSessions {
         // issuer already holds: reusing it would cancel that issuer's sign-in and overwrite the
         // identity it published.
         cfg.id = DRAFT_SESSION_KEY.to_owned();
+        // A second attempt replaces the first: the previous draft's token is not kept around.
+        self.abandon_draft();
         self.start_sign_in(cfg, method, Outcome::Draft);
     }
 
@@ -200,6 +210,10 @@ impl OidcSessions {
     }
 
     pub fn cancel_sign_in(&self, issuer_id: &str) {
+        if issuer_id == DRAFT_SESSION_KEY {
+            // Nothing about an abandoned draft outlives it (FR-007).
+            self.abandon_draft();
+        }
         if let Some((cancel, handle)) = self
             .inner
             .sign_ins
@@ -244,6 +258,69 @@ impl OidcSessions {
         self.stop_refresher(issuer_id);
         self.inner.slots.lock().expect("slots").remove(issuer_id);
         self.inner.store.clear_issuer(issuer_id, true);
+    }
+
+    /// Drop everything the draft sign-in left in memory: its tokens and its refresh token.
+    ///
+    /// Nothing is deleted from the credential store because nothing was ever written there.
+    pub fn abandon_draft(&self) {
+        self.slot(DRAFT_SESSION_KEY).live.store(None);
+        *self.inner.draft_refresh.lock().expect("draft_refresh") = None;
+    }
+
+    /// True when a draft sign-in is live and could be adopted by a save (045 US5).
+    #[must_use]
+    pub fn has_draft_session(&self) -> bool {
+        self.slot(DRAFT_SESSION_KEY).live.load().is_some()
+    }
+
+    /// Promote the draft's sign-in to a real session under `cfg`'s now-saved id (045 T046).
+    ///
+    /// One sign-in has to be enough: the draft's refresh token is committed to the credential
+    /// store under the saved id and a refresher is started, so the operator is left signed in
+    /// and stays that way rather than being signed out again at the ID token's `exp`.
+    pub async fn adopt_draft(&self, cfg: &OidcIssuerConfig) -> Result<(), String> {
+        let live = self
+            .slot(DRAFT_SESSION_KEY)
+            .live
+            .load_full()
+            .ok_or_else(|| {
+                "No test sign-in to adopt: sign in on the test step first.".to_owned()
+            })?;
+        let refresh = self
+            .inner
+            .draft_refresh
+            .lock()
+            .expect("draft_refresh")
+            .clone();
+
+        // The live session moves to the saved id first, so the operator is signed in whether or
+        // not the refresher's discovery call succeeds a moment later.
+        let mut identity = live.identity.clone();
+        identity.issuer_id = cfg.id.clone();
+        identity.state = OidcIdentityState::SignedIn;
+        self.slot(&cfg.id).live.store(Some(Arc::new(Live {
+            id_token: Secret::new(live.id_token.expose()),
+            identity: identity.clone(),
+        })));
+        if let Some(refresh) = refresh.clone() {
+            self.inner
+                .store
+                .set(SecretKind::RefreshToken, &cfg.id, &Secret::new(refresh));
+        }
+        self.abandon_draft();
+        self.emit(SystemEvent::OidcIdentityUpdated {
+            issuer_id: cfg.id.clone(),
+            identity: Some(identity.clone()),
+        });
+
+        // Without a refresh token the IdP gave us nothing to refresh with: the session is real
+        // but lasts until `exp`, which is the IdP's decision and not a failure of the save.
+        if let Some(refresh) = refresh {
+            self.start_refresher(cfg, refresh, identity.expires_at)
+                .await;
+        }
+        Ok(())
     }
 
     /// Resume a previous session from the stored refresh token (app start). Silent when there is
@@ -416,7 +493,12 @@ impl OidcSessions {
             Outcome::Session => {
                 self.install(&cfg, &http, &disc, Arc::new(validator), tokens, claims, "");
             }
-            Outcome::Draft => self.publish_draft(&cfg, &tokens.id_token, &claims),
+            Outcome::Draft => self.publish_draft(
+                &cfg,
+                &tokens.id_token,
+                &claims,
+                tokens.refresh_token.clone(),
+            ),
         }
         self.progress(&id, OidcSignInStage::Done);
         self.inner.sign_ins.lock().expect("sign_ins").remove(&id);
@@ -434,6 +516,34 @@ impl OidcSessions {
             .lock()
             .expect("sign_ins")
             .remove(issuer_id);
+    }
+
+    /// Start a refresh task for a session whose tokens are already live.
+    ///
+    /// Discovery is repeated here rather than carried from the sign-in, because the session may
+    /// have been established under a different id (a draft that has just been saved) and the
+    /// issuer's keys are the saved config's to fetch.
+    async fn start_refresher(&self, cfg: &OidcIssuerConfig, refresh: String, exp: u64) {
+        let Ok(http) = flow::http_client(cfg) else {
+            return;
+        };
+        let Ok(disc) = flow::discover(&http, &cfg.issuer_url).await else {
+            return;
+        };
+        let Ok(validator) = self.validator(&http, &disc, cfg).await else {
+            return;
+        };
+        self.stop_refresher(&cfg.id);
+        let (this, cfg2, id) = (self.clone(), cfg.clone(), cfg.id.clone());
+        let handle = tokio::spawn(async move {
+            this.refresh_loop(cfg2, http, disc, Arc::new(validator), refresh, exp)
+                .await;
+        });
+        self.inner
+            .refreshers
+            .lock()
+            .expect("refreshers")
+            .insert(id, handle);
     }
 
     /// Make `tokens` the live session and start its refresh task.
@@ -527,8 +637,17 @@ impl OidcSessions {
     /// Deliberately not [`Self::install`]: that writes the refresh token to the credential store
     /// before anything else, under an id that was never saved. It also starts no refresher -- the
     /// claims a draft shows are the record of one sign-in, not a session Fathom maintains.
-    fn publish_draft(&self, cfg: &OidcIssuerConfig, id_token: &str, claims: &VerifiedClaims) {
+    fn publish_draft(
+        &self,
+        cfg: &OidcIssuerConfig,
+        id_token: &str,
+        claims: &VerifiedClaims,
+        refresh: Option<String>,
+    ) {
         self.store_live(cfg, id_token, claims, OidcIdentityState::SignedIn);
+        // Held in memory only, for [`Self::adopt_draft`] to commit if the operator saves.
+        *self.inner.draft_refresh.lock().expect("draft_refresh") =
+            refresh.filter(|r| !r.is_empty());
         self.emit(SystemEvent::OidcDraftSignInSucceeded {
             result: DraftSignInResult {
                 username: claims.username.clone(),

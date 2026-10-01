@@ -284,6 +284,9 @@ pub(super) struct BackendState {
     pub(super) image_inspect_cache: HashMap<String, crate::protocol::ImageInspection>,
     /// 033 US5: capability cache (rules reviews per context/identity/namespace, 60 s TTL).
     pub(super) capabilities: crate::backend::capabilities::CapabilityCache,
+    /// 045 US3: the API server's authentication flags per context, on the capability cache's
+    /// same 60 s TTL. Flags only — no tokens, nothing persisted.
+    pub(super) apiserver_auth: crate::backend::apiserver_auth::ApiServerAuthCache,
     /// 021-trivy-vulnerability-pane: per-Pod vulnerability inspections keyed `namespace/pod`.
     pub(super) pod_vuln_inspect_cache: HashMap<String, crate::protocol::PodVulnerabilityInspection>,
     /// 013-agent-sdk-ops: per-object assistant conversations, keyed by
@@ -384,6 +387,7 @@ impl BackendState {
             port_forward_manager: PortForwardManager::new(),
             image_inspect_cache: HashMap::new(),
             capabilities: crate::backend::capabilities::CapabilityCache::default(),
+            apiserver_auth: crate::backend::apiserver_auth::ApiServerAuthCache::default(),
             pod_vuln_inspect_cache: HashMap::new(),
             agent_conversations: HashMap::new(),
             mcp: crate::backend::mcp::McpState::default(),

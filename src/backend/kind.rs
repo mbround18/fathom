@@ -15,6 +15,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
+use crate::backend::persistence::KindProvenanceFile;
 use crate::protocol::{
     KindClusterOperationKind, KindClusterProfileId, KindClusterStatus, KindClusterSummary,
     KindPrerequisites, KindRuntimeKind,
@@ -204,10 +205,21 @@ pub fn list_cluster_names_with(runner: &dyn Runner) -> Result<Vec<String>, Strin
     }
 }
 
+/// The profile a cluster was created from, which only Fathom's own provenance record knows:
+/// `kind get clusters` reports names and nothing else (045 T058, FR-036).
+fn profile_of(provenance: &KindProvenanceFile, name: &str) -> Option<KindClusterProfileId> {
+    provenance.record_for(name).and_then(|r| r.profile)
+}
+
 /// Builds summaries; names with a tracked in-flight operation report `in_progress`.
+///
+/// `provenance` is Fathom's record of the clusters it provisioned itself; a cluster absent from
+/// it keeps `profile: None`, because nothing on the machine can tell us how someone else's
+/// cluster was built.
 pub fn summaries_from_names(
     names: Vec<String>,
     registry: &KindActionRegistry,
+    provenance: &KindProvenanceFile,
 ) -> Vec<KindClusterSummary> {
     names
         .into_iter()
@@ -219,9 +231,9 @@ pub fn summaries_from_names(
             };
             KindClusterSummary {
                 context_name: context_name_for(&name),
+                profile: profile_of(provenance, &name),
                 name,
                 status,
-                profile: None,
             }
         })
         .collect()
@@ -239,7 +251,12 @@ pub async fn list_cluster_names() -> Result<Vec<String>, String> {
 pub async fn list_clusters(
     registry: &KindActionRegistry,
 ) -> Result<Vec<KindClusterSummary>, String> {
-    Ok(summaries_from_names(list_cluster_names().await?, registry))
+    let provenance = crate::backend::persistence::load_kind_provenance();
+    Ok(summaries_from_names(
+        list_cluster_names().await?,
+        registry,
+        &provenance,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +428,7 @@ async fn run_streaming(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::persistence::KindProvenanceRecord;
 
     struct Mock(HashMap<&'static str, Result<CmdOutput, RunError>>);
     impl Runner for Mock {
@@ -485,9 +503,36 @@ mod tests {
         assert!(parse_cluster_names("No kind clusters found.\n").is_empty());
         let r = Mock(HashMap::from([("kind", ok(""))]));
         assert!(list_cluster_names_with(&r).unwrap().is_empty());
-        let s = summaries_from_names(vec!["dev".into()], &KindActionRegistry::default());
+        let s = summaries_from_names(
+            vec!["dev".into()],
+            &KindActionRegistry::default(),
+            &KindProvenanceFile::default(),
+        );
         assert_eq!(s[0].context_name, "kind-dev");
         assert_eq!(s[0].status, KindClusterStatus::Ready);
+    }
+
+    /// T058 (FR-036): the profile is read from the provenance record, and a cluster Fathom did
+    /// not provision reports no profile however its context name looks.
+    #[test]
+    fn provenance_supplies_the_profile() {
+        let provenance = KindProvenanceFile {
+            clusters: vec![KindProvenanceRecord {
+                cluster: "ours".into(),
+                provisioned_at: 42,
+                profile: Some(KindClusterProfileId::CustomYaml),
+            }],
+        };
+        let s = summaries_from_names(
+            vec!["ours".into(), "theirs".into()],
+            &KindActionRegistry::default(),
+            &provenance,
+        );
+        assert_eq!(s[0].name, "ours");
+        assert_eq!(s[0].profile, Some(KindClusterProfileId::CustomYaml));
+        // Listed by `kind get clusters`, context `kind-theirs`, but not ours and so profileless.
+        assert_eq!(s[1].name, "theirs");
+        assert_eq!(s[1].profile, None);
     }
 
     #[test]
