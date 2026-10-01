@@ -75,8 +75,8 @@ hand-edit. An `FR` is checked only when every task citing it is marked `[X]` in
 - [X] **FR-023** — The system MUST offer the read-only API server comparison (FR-008–FR-010) in hosted mode, performed as the signed-in user, and MUST NOT offer the API…
   - `T073`
 
-- [ ] **FR-024** — Every cluster write the path performs MUST appear in the mutation audit log like any other write.
-  - `T061`, `T064` (open)
+- [X] **FR-024** — Every cluster write the path performs MUST appear in the mutation audit log like any other write.
+  - `T061`, `T064`
 
 - [X] **FR-025** — Each step MUST be reachable backwards without losing the draft, and the path MUST be closable at every step.
   - `T015`, `T016`
@@ -120,4 +120,4 @@ No requirement is left uncited by `tasks.md`.
 
 ## Totals
 
-35 of 36 requirements have all their tasks complete.
+36 of 36 requirements have all their tasks complete.

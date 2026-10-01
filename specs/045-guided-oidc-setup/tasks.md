@@ -18,7 +18,24 @@
 
 **Purpose**: Establish the baseline the rest of the work is measured against. No project initialization — this is an existing workspace.
 
-- [ ] T001 Record a green baseline by running `scripts/ci.sh all` and noting any pre-existing failure in this file, so later gate failures are attributable to 045 (`CARGO_BUILD_JOBS=4` if other agents are active)
+- [X] T001 Record a green baseline by running `scripts/ci.sh all` and noting any pre-existing failure in this file, so later gate failures are attributable to 045 (`CARGO_BUILD_JOBS=4` if other agents are active)
+  **Baseline, recorded 2026-10-01 (late — see below).** `scripts/ci.sh all` on
+  `171cd9f`: `check` passed in 110s, `test` passed in 216s, `ui` **FAILED** after
+  272s. The ui failure was *not* a test failure: vitest reported
+  `Test Files  105 passed (105)` and then died on worker startup —
+  `[vitest-pool]: Failed to start forks worker for test files .../imageInspectPanel.test.tsx`,
+  `Caused by: [vitest-pool-runner]: Timeout waiting for worker to respond`. Load
+  average was 46 at the time, with two agent lanes and the dagger engine on one
+  32-core / 31 GB box, and the named file has nothing to do with 045. The same
+  suite run directly was `Tests  1661 passed (1661)`. So: **a vitest worker-startup
+  timeout inside the dagger container under high load is a known pre-existing
+  flake, not attributable to 045.** Treat a `ui` stage failure as real only if a
+  `test result`/`Tests` line actually reports failures.
+
+  This task was recorded after the fact rather than before, which is the honest
+  version: the baseline was supposed to make a late gate failure attributable, and
+  instead attribution had to be reconstructed from the log. Doing it first would
+  have been cheaper.
 - [X] T002 [P] Create the empty module files so later tasks only edit: `src/backend/apiserver_auth.rs`, `server/src/oidc_seed.rs`, `ui/src/features/identity/guided-state.ts`, `ui/src/features/identity/GuidedIssuerPath.tsx`, and register `mod apiserver_auth;` in `src/backend.rs` and `mod oidc_seed;` in `server/src/main.rs` (or `lib.rs`, whichever declares the modules)
 
 ---
