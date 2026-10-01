@@ -59,12 +59,35 @@ second_helm_revision() {
   done
 }
 
+# The live Helm suite (ui/tests/live/qs-006-helm-mutate.spec.ts) mutates a release that Flux does
+# not own, so it needs a bare `helm install` of the same chart with a history to roll back through.
+# Hand-installing it is how the suite ends up failing on a freshly built cluster. Idempotent, and
+# skipped with a warning when helm is not on PATH.
+BARE_RELEASE=quickstart-bare
+BARE_CHART="oci://ghcr.io/stefanprodan/charts/podinfo"
+BARE_VERSION=6.15.0
+bare_helm_release() {
+  command -v helm >/dev/null 2>&1 || {
+    echo "sandbox: helm not on PATH; skipping the $BARE_RELEASE fixture" >&2; return 0
+  }
+  local h=(helm --kube-context "$CTX" -n "$NS")
+  # -o json is one line, so count the occurrences rather than the matching lines.
+  if [[ "$("${h[@]}" history "$BARE_RELEASE" -o json 2>/dev/null | grep -o '"revision"' | wc -l)" -ge 2 ]]; then
+    return 0
+  fi
+  echo "sandbox: installing $BARE_RELEASE with a two-revision history for the live Helm suite"
+  "${h[@]}" upgrade --install "$BARE_RELEASE" "$BARE_CHART" --version "$BARE_VERSION" --wait
+  "${h[@]}" upgrade "$BARE_RELEASE" "$BARE_CHART" --version "$BARE_VERSION" \
+    --set ui.message="bare release" --wait
+}
+
 case "${1:-}" in
   up)
     [[ "$(ns_state)" == foreign ]] && die "namespace $NS exists in context $CTX without the sandbox label; refusing to adopt it"
     kc apply -k "$DIR"
     wait_ready
     second_helm_revision
+    bare_helm_release
     ;;
   reset)
     # Back to the committed baseline: drop e2e throwaways, re-apply, restore replica counts.
@@ -74,6 +97,7 @@ case "${1:-}" in
     kc -n "$NS" scale deploy/scale-me --replicas=1
     wait_ready
     second_helm_revision
+    bare_helm_release
     ;;
   status)
     require_sandbox

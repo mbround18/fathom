@@ -150,9 +150,14 @@ fails the run instead of quietly reusing an older photograph of it. The full set
 k8s/cluster.sh up                                            # Cilium/Hubble + every addon + samples
 FATHOM_SANDBOX_CONTEXT=kind-fathom-dev scripts/sandbox.sh up # the labelled fathom-dev namespace, podinfo at revision 2
 k8s/cluster.sh up-metrics metrics-server                     # the daemon topology sparkline reads metrics.k8s.io
+k8s/cluster.sh up-metrics prometheus                         # the live observability suite auto-connects to it
 k8s/cluster.sh up-daemon                                     # the three spec-036 daemon scenes
 SKIP_INSTALL=1 PROVIDER=rauthy k8s/cluster.sh up-hosted      # second context for the federation fleet scene
 ```
+
+The live suite (`pnpm e2e:live` from `ui/`) wants the same cluster: `sandbox.sh up` also installs
+the bare `quickstart-bare` Helm release the mutation specs roll back and upgrade, and the
+observability specs need the `prometheus` stack above.
 
 The fleet scene names `kind-fathom-oidc-rauthy` directly, so that cluster has to be in the
 kubeconfig and reachable; nothing is installed into it by the shoot (the whole run is read-only —
