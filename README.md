@@ -18,7 +18,7 @@ Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri]
 - Sub-200ms UI interactions, even on large clusters
 
 **Non-goals:**
-- Beginner onboarding / wizards
+- Abstractions that hide Kubernetes objects (guided setup paths are fine — they show every artifact and confirm every write)
 - Multi-cloud abstractions
 - Replacing `kubectl` for one-off operations
 
