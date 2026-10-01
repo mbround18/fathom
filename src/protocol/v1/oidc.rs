@@ -9,6 +9,16 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// The issuer id a guided-path test sign-in runs under (spec `045-guided-oidc-setup`, FR-007).
+///
+/// A draft is not a saved issuer, but it goes through the same sign-in machinery, which keys
+/// cancellation and progress on the issuer id. So the draft borrows a reserved id instead of its
+/// own: a saved issuer id is a lowercase slug, so the colon makes a collision unrepresentable and
+/// a test sign-in cannot cancel a real issuer's in-flight one. It is here rather than in the
+/// backend because `OidcSignInProgress` and `OidcError` reach the UI carrying it, and the UI has
+/// to recognise them as the draft's.
+pub const OIDC_DRAFT_SESSION_KEY: &str = "draft:045";
+
 fn default_scopes() -> Vec<String> {
     ["openid", "profile", "email", "groups"]
         .into_iter()

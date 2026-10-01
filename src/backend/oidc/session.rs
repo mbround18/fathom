@@ -32,13 +32,10 @@ pub type TokenSource = Arc<dyn Fn() -> Result<String, String> + Send + Sync>;
 pub const DEFAULT_REFRESH_LEAD: Duration = Duration::from_secs(20);
 
 /// The key 045's draft sign-in is tracked under: its in-flight entry, its `Live` slot and the
-/// `issuer_id` on its progress events.
-///
-/// A saved issuer id is a lowercase slug (`OidcConfig::validate`), so the `:` makes a collision
-/// with one impossible. That matters because [`OidcSessions::sign_in`] cancels any in-flight
-/// sign-in keyed on `cfg.id`: a draft reusing a saved id would kill the very session the operator
-/// is editing from (045 research R2).
-pub const DRAFT_SESSION_KEY: &str = "draft:045";
+/// `issuer_id` on its progress events. The protocol owns the value because the UI matches on it;
+/// see [`crate::protocol::v1::OIDC_DRAFT_SESSION_KEY`] for why it cannot collide with a saved id.
+pub use crate::protocol::v1::OIDC_DRAFT_SESSION_KEY as DRAFT_SESSION_KEY;
+
 const TRANSIENT_RETRY: Duration = Duration::from_secs(5);
 
 struct Live {

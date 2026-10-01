@@ -12,3 +12,12 @@ export type BackendEventEnvelope = BackendEventEnvelopeV1
 
 /** The only protocol version this UI understands (contracts/ipc.md). */
 export const PROTOCOL_VERSION = 1
+
+/**
+ * The `issuer_id` a guided-path test sign-in's progress and error events arrive under.
+ *
+ * Mirrors `OIDC_DRAFT_SESSION_KEY` in `src/protocol/v1/oidc.rs` — ts-rs generates types, not
+ * constants, so this is the one hand-written copy, as `PROTOCOL_VERSION` above is. A draft is not
+ * a saved issuer, so it signs in under a reserved id no saved issuer slug can equal.
+ */
+export const OIDC_DRAFT_SESSION_KEY = 'draft:045'
