@@ -9,6 +9,10 @@ import { expect, test, type Page } from '@playwright/test'
 import type { HelmReleaseDetails } from '../../src/protocol/types'
 import { batch, list, nsRoute, read } from '../fixtures/builders'
 import { emit, inspector, navigateTo, open, openedInspector, row, sent, sentTypes } from './helpers'
+import { widthClass } from './layout-helpers'
+
+/** Widths where slots 2 and up are cascade columns (044 FR-005), so both panes stay on screen. */
+const CASCADE_WIDTHS = ['wide', 'ultra', 'ultra-plus']
 
 const HELM = 'helm/releases'
 const FLUX_RESOURCE = 'integrations/flux-resource'
@@ -141,6 +145,61 @@ test.describe('US2 Helm release GitOps origin linking', () => {
     // 044 (FR-005): at wide and above the followed origin opens the next cascade column.
     await expect(openedInspector(page)).toContainText('HelmRelease')
     await expect(openedInspector(page)).toContainText('bitnami')
+  })
+
+  /**
+   * The common real-world arrangement: the `HelmRelease` CR lives in the release's own namespace
+   * under the release's own name (`origin_from_labels` falls back to that namespace when the Flux
+   * namespace label is absent). Both objects then key identically unless `detailKind` namespaces
+   * the origin, and the Flux reply blanks the release column it was opened from — invisible before
+   * 044 replaced the one inspector, plainly visible once both columns are on screen.
+   */
+  test('T031: a same-namespace origin does not blank the release column it was opened from', async ({
+    page,
+  }) => {
+    const sameNs = { ...ORIGIN, namespace: REDIS.namespace }
+    await selectRelease(page, REDIS)
+    // Below wide the origin retargets the single inspector, so the release pane is *meant* to go.
+    test.skip(!CASCADE_WIDTHS.includes((await widthClass(page)) ?? ''), 'wide and above only')
+    await emit(
+      page,
+      batch([
+        read(2, nsRoute('kind-a', HELM, REDIS.namespace), {
+          type: 'HelmReleaseDetailsUpdated',
+          data: details({ origin: sameNs }),
+        }),
+      ]),
+    )
+
+    const insp = inspector(page)
+    await expect(insp).toContainText('replicaCount: 3')
+    await insp.getByText(`${REDIS.namespace}/redis`).click()
+    await emit(
+      page,
+      batch([
+        read(3, nsRoute('kind-a', FLUX_RESOURCE, REDIS.namespace), {
+          type: 'FluxResourceDetailsUpdated',
+          data: {
+            kind: 'HelmRelease',
+            name: 'redis',
+            namespace: REDIS.namespace,
+            ready: 'Ready',
+            message: 'Release reconciliation succeeded',
+            revision: 'redis@18.6.1',
+            source_ref: 'HelmRepository/bitnami',
+            suspended: false,
+            interval: '5m',
+            last_transition: '2024-03-01T09:00:00Z',
+          },
+        }),
+      ]),
+    )
+
+    await expect(openedInspector(page)).toContainText('bitnami')
+    // The release's own detail-only sections are still rendered, not back to skeletons.
+    await expect(insp).toContainText('replicaCount: 3')
+    await expect(insp).toContainText('kind: Service')
+    await expect(insp.getByRole('status', { name: 'Loading' })).toHaveCount(0)
   })
 
   test('T031: omits the origin link for a bare Helm release with no Flux ownership labels', async ({

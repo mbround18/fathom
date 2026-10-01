@@ -18,7 +18,15 @@ import type {
 import { descriptorFor, type ObjectRef } from '@/resources'
 import { formatAge } from '@/resources/format'
 import { jsonToYaml } from '@/resources/yaml'
-import { detailKey, listKey, useStore, type ListRow, type PaneId, type PaneState } from '@/store'
+import {
+  detailKey,
+  detailKeyOf,
+  listKey,
+  useStore,
+  type ListRow,
+  type PaneId,
+  type PaneState,
+} from '@/store'
 import { cn } from '@/lib/utils'
 
 import { DetailSections } from './DetailSections'
@@ -62,9 +70,7 @@ function InspectorBody({ pane, target }: { pane: PaneState; target: ObjectRef })
   const ctx = useStore((s) => s.session.activeContext)
   const listScope = descriptor?.namespaced === false ? 'Cluster' : 'Namespaced'
   const list = useStore((s) => s.lists[listKey(ctx, target.section, listScope, null)])
-  const detailState = useStore(
-    (s) => s.details[detailKey(ctx, target.kind, target.namespace, target.name)],
-  )
+  const detailState = useStore((s) => s.details[detailKeyOf(ctx, target)])
   // US3: `RefreshRelatedResources`'s reply, keyed like every other `ResourceReadEvent` (its
   // derived kind is `RelatedResources`, from `readKind()` stripping the trailing "Updated").
   const relatedState = useStore(

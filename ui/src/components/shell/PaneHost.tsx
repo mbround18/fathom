@@ -49,7 +49,15 @@ import { OidcConfigView } from '@/resources/oidcConfig'
 import { SignInSettings } from '@/features/identity/SignInSettings'
 import { cn } from '@/lib/utils'
 import { useFirstRun } from '@/lib/use-first-run'
-import { deniedKey, detailKey, listKey, useStore, type PaneId, type PaneState } from '@/store'
+import {
+  deniedKey,
+  detailKey,
+  detailKeyOf,
+  listKey,
+  useStore,
+  type PaneId,
+  type PaneState,
+} from '@/store'
 
 import { CASCADE_FIRST_SLOT } from '@/layout/cascade'
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
@@ -363,9 +371,7 @@ function useCascadeGone(target: PaneState['target']): boolean {
     target === undefined ? undefined : s.lists[listKey(ctx, target.section, scope, null)],
   )
   const detail = useStore((s) =>
-    target === undefined
-      ? undefined
-      : s.details[detailKey(ctx, target.kind, target.namespace, target.name)],
+    target === undefined ? undefined : s.details[detailKeyOf(ctx, target)],
   )
   if (!target || !descriptor) return false
   if (detail?.eventType === 'FluxResourceNotFound') return true

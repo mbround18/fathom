@@ -119,7 +119,17 @@ import { INITIAL_SETUP, setupInputsOf, startupContextOf, type SetupFlow } from '
 export type { ResourceEditSession, ResourceEditTarget, EditSessionStatus } from './editSession'
 export type { HelmMutationSession, HelmMutationStatus } from './helmMutation'
 
-export { deniedKey, detailKey, listKey, listKeyOf, type DetailKey, type ListKey } from './keys'
+export {
+  deniedKey,
+  detailKey,
+  detailKeyOf,
+  detailKind,
+  FLUX_RESOURCE_SECTION,
+  listKey,
+  listKeyOf,
+  type DetailKey,
+  type ListKey,
+} from './keys'
 
 // ------------------------------------------------------------------ UI-owned types
 
