@@ -34,6 +34,11 @@ pub const BACKUP_PATH: &str = "/etc/kubernetes/kube-apiserver.yaml.fathom-backup
 /// Where a structured `AuthenticationConfiguration` is written, beside the other API server
 /// files that are already mounted into the static pod.
 pub const AUTH_CONFIG_PATH: &str = "/etc/kubernetes/pki/fathom-authentication-config.yaml";
+/// Where a replacement file is staged before being renamed into place.
+///
+/// Deliberately *outside* `/etc/kubernetes/manifests/`: the kubelet parses every file in that
+/// directory, and a staging file there would be read as a (broken) static pod of its own.
+pub const STAGING_PATH: &str = "/etc/kubernetes/.fathom-write-in-progress";
 
 // ---------------------------------------------------------------------------
 // T033: parsing the API server's command line
@@ -514,18 +519,20 @@ pub fn authentication_config_yaml(d: &DesiredAuth) -> String {
     let mut y = String::from(
         "apiVersion: apiserver.config.k8s.io/v1beta1\nkind: AuthenticationConfiguration\njwt:\n",
     );
+    // Every scalar quoted, for the same reason the flags are: an operator-supplied claim or
+    // prefix must not be able to change the shape of the document it lands in.
     y.push_str(&format!(
-        "- issuer:\n    url: {}\n    audiences:\n    - {}\n",
+        "- issuer:\n    url: {:?}\n    audiences:\n    - {:?}\n",
         d.issuer_url, d.client_id
     ));
     y.push_str("  claimMappings:\n");
     let prefix = d.username_prefix.clone().unwrap_or_default();
     y.push_str(&format!(
-        "    username:\n      claim: {}\n      prefix: {:?}\n",
+        "    username:\n      claim: {:?}\n      prefix: {:?}\n",
         d.username_claim, prefix
     ));
     y.push_str(&format!(
-        "    groups:\n      claim: {}\n      prefix: {:?}\n",
+        "    groups:\n      claim: {:?}\n      prefix: {:?}\n",
         d.groups_claim,
         d.groups_prefix.clone().unwrap_or_default()
     ));
@@ -533,18 +540,38 @@ pub fn authentication_config_yaml(d: &DesiredAuth) -> String {
 }
 
 /// The legacy flag lines for a static pod manifest, at `indent`.
+/// One kube-apiserver flag as a YAML scalar the kubelet reads back as a *string*.
+///
+/// A plain scalar is not safe here. `- --oidc-username-prefix=oidc:` ends in a colon, so YAML
+/// reads the sequence item as a mapping key rather than a string, and the kubelet rejects the
+/// whole manifest:
+///
+/// ```text
+/// couldn't parse as pod(json: cannot unmarshal object into Go struct field
+/// Container.spec.containers.command of type string)
+/// ```
+///
+/// The API server then never starts at all — and `oidc:` is the prefix the guided path offers by
+/// default, so this was the default configuration. Quoting every flag, not just the ones that
+/// currently need it, keeps the question from arising for whatever claim or prefix an operator
+/// types next.
+fn flag_line(indent: &str, flag: &str, value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("{indent}- \"{flag}={escaped}\"")
+}
+
 fn legacy_flag_lines(d: &DesiredAuth, indent: &str) -> Vec<String> {
     let mut lines = vec![
-        format!("{indent}- --oidc-issuer-url={}", d.issuer_url),
-        format!("{indent}- --oidc-client-id={}", d.client_id),
-        format!("{indent}- --oidc-username-claim={}", d.username_claim),
-        format!("{indent}- --oidc-groups-claim={}", d.groups_claim),
+        flag_line(indent, "--oidc-issuer-url", &d.issuer_url),
+        flag_line(indent, "--oidc-client-id", &d.client_id),
+        flag_line(indent, "--oidc-username-claim", &d.username_claim),
+        flag_line(indent, "--oidc-groups-claim", &d.groups_claim),
     ];
     if let Some(p) = &d.username_prefix {
-        lines.push(format!("{indent}- --oidc-username-prefix={p}"));
+        lines.push(flag_line(indent, "--oidc-username-prefix", p));
     }
     if let Some(p) = &d.groups_prefix {
-        lines.push(format!("{indent}- --oidc-groups-prefix={p}"));
+        lines.push(flag_line(indent, "--oidc-groups-prefix", p));
     }
     lines
 }
@@ -569,8 +596,10 @@ pub fn rewrite_manifest(manifest: &str, d: &DesiredAuth) -> Result<String, Strin
 
     let new_lines: Vec<String> = match d.style {
         ApiServerAuthStyle::Structured => {
-            vec![format!(
-                "{indent}- --authentication-config={AUTH_CONFIG_PATH}"
+            vec![flag_line(
+                indent,
+                "--authentication-config",
+                AUTH_CONFIG_PATH,
             )]
         }
         ApiServerAuthStyle::Legacy | ApiServerAuthStyle::None => legacy_flag_lines(d, indent),
@@ -602,6 +631,32 @@ pub fn rewrite_manifest(manifest: &str, d: &DesiredAuth) -> Result<String, Strin
     Ok(joined)
 }
 
+/// Replace `path` with `contents` by staging and renaming, never by writing in place.
+///
+/// The kubelet watches `/etc/kubernetes/manifests` with inotify and re-reads a file the instant
+/// it changes. `cat > <manifest>` truncates first and writes second, so the kubelet can read the
+/// file while it is empty or half written -- and live, against a real kind node, it did:
+///
+/// ```text
+/// Unable to process watch event ... couldn't parse as pod(Object 'Kind' is missing in 'null')
+/// ```
+///
+/// The cost was not a failed write but a *silently misreported* one. The kubelet did eventually
+/// restart the API server with the new flags, yet its mirror pod stayed on the old spec, and the
+/// mirror pod is exactly what `read_from_pods` reads. The guided path's comparison step then told
+/// the operator the write had not taken effect while the running API server already had it.
+///
+/// A rename is atomic within a filesystem, so a watcher sees either the whole old file or the
+/// whole new one and never something in between.
+fn write_atomically(exec: &dyn NodeExec, path: &str, contents: &str) -> Result<(), String> {
+    exec.write_file(STAGING_PATH, contents)?;
+    // `mv` carries the staging file's mode across, not the target's, and a fresh `cat >` file is
+    // created with the node's umask. The manifest it replaces is root-only; match that before
+    // the rename rather than quietly loosening it.
+    exec.run(&["chmod", "600", STAGING_PATH])?;
+    exec.run(&["mv", STAGING_PATH, path]).map(|_| ())
+}
+
 /// Apply `d` to the control-plane node behind `exec`, then wait for the API server to come back.
 ///
 /// Order is the contract (FR-021): back the manifest up first, mutate second, wait third. If the
@@ -621,23 +676,62 @@ pub fn apply_write(
     if d.style == ApiServerAuthStyle::Structured {
         // The config file must exist before the flag pointing at it does, or the API server
         // crash-loops on a missing file.
-        exec.write_file(AUTH_CONFIG_PATH, &authentication_config_yaml(d))?;
+        write_atomically(exec, AUTH_CONFIG_PATH, &authentication_config_yaml(d))?;
     }
-    exec.write_file(MANIFEST_PATH, &rewritten)?;
+    write_atomically(exec, MANIFEST_PATH, &rewritten)?;
+
+    // Read the manifest back before trusting it. A write that "succeeded" is not the same as a
+    // manifest that holds what we meant: a `docker exec` with no stdin attached truncated this
+    // file to zero bytes and still exited 0 (see `ContainerNode::exec`). The readiness wait did
+    // eventually catch that, but only by accident of the API server failing to start — a
+    // destroyed manifest must be caught as a write failure, not diagnosed as an unhealthy
+    // control plane.
+    let landed = exec.run(&["cat", MANIFEST_PATH]);
+    match landed {
+        Ok(ref got) if got.trim() == rewritten.trim() => {}
+        other => {
+            let detail = match other {
+                Ok(got) => format!(
+                    "the manifest on the node is not what Fathom wrote ({} bytes written, \
+                     {} bytes read back)",
+                    rewritten.len(),
+                    got.len()
+                ),
+                Err(e) => format!("the manifest could not be read back after writing it: {e}"),
+            };
+            return Err(restore(exec, &detail));
+        }
+    }
 
     match wait() {
         Ok(()) => Ok(()),
-        Err(e) => {
-            let restored = exec.run(&["cp", BACKUP_PATH, MANIFEST_PATH]);
-            Err(match restored {
-                Ok(_) => format!(
-                    "{e}\nThe previous kube-apiserver manifest has been restored from \
-                     {BACKUP_PATH}."
-                ),
-                Err(r) => format!(
-                    "{e}\nRestoring the previous manifest from {BACKUP_PATH} also failed: {r}"
-                ),
-            })
+        Err(e) => Err(restore(exec, &e)),
+    }
+}
+
+/// Put the backed-up manifest back, through the staging file for the same reason the write goes
+/// through it: `cp` onto the manifest truncates it in place, and the kubelet reads what it finds.
+///
+/// This is the path that runs when something has *already* gone wrong, so an in-place copy here
+/// is the worst version of the bug: live, it left the kubelet's mirror pod stuck on the
+/// configuration being rolled back, which is precisely the state the operator is told was undone.
+pub fn restore_manifest(exec: &dyn NodeExec) -> Result<(), String> {
+    exec.run(&["cp", BACKUP_PATH, STAGING_PATH])?;
+    exec.run(&["chmod", "600", STAGING_PATH])?;
+    exec.run(&["mv", STAGING_PATH, MANIFEST_PATH]).map(|_| ())
+}
+
+/// Put the backed-up manifest back, and say so in the words of the failure that prompted it.
+fn restore(exec: &dyn NodeExec, because: &str) -> String {
+    match restore_manifest(exec) {
+        Ok(_) => format!(
+            "{because}\nThe previous kube-apiserver manifest has been restored from \
+             {BACKUP_PATH}."
+        ),
+        Err(r) => {
+            format!(
+                "{because}\nRestoring the previous manifest from {BACKUP_PATH} also failed: {r}"
+            )
         }
     }
 }
@@ -1053,6 +1147,9 @@ jwt:
         files: RefCell<std::collections::BTreeMap<String, String>>,
         /// What every `cat` fails with, for the exec-denied and cluster-gone cases.
         cat_error: RefCell<Option<String>>,
+        /// Reports every write as a success but stores nothing — a real `docker exec` with no
+        /// stdin attached behaves exactly like this.
+        swallow_writes: RefCell<bool>,
     }
 
     impl RecordingNode {
@@ -1061,6 +1158,7 @@ jwt:
                 ops: RefCell::new(Vec::new()),
                 files: RefCell::new(std::collections::BTreeMap::new()),
                 cat_error: RefCell::new(None),
+                swallow_writes: RefCell::new(false),
             };
             node.put(MANIFEST_PATH, manifest);
             node
@@ -1072,6 +1170,10 @@ jwt:
         }
         fn with_file(self, path: &str, contents: &str) -> Self {
             self.put(path, contents);
+            self
+        }
+        fn swallowing_writes(self) -> Self {
+            *self.swallow_writes.borrow_mut() = true;
             self
         }
         fn failing_cat(self, error: &str) -> Self {
@@ -1102,11 +1204,42 @@ jwt:
                     // The node's own words for a file that is not there.
                     .ok_or_else(|| format!("cat: {path}: No such file or directory"));
             }
+            // `cp`/`mv` move real content around in the fake too, or the read-back check in
+            // `apply_write` would be testing the fake's forgetfulness rather than the code.
+            // `cp -n` keeps an existing destination, which is the whole point of the backup.
+            if let Some(&verb @ ("cp" | "mv")) = args.first() {
+                let rest: Vec<&str> = args[1..]
+                    .iter()
+                    .copied()
+                    .filter(|a| !a.starts_with('-'))
+                    .collect();
+                let no_clobber = args.contains(&"-n");
+                if let [from, to] = rest[..] {
+                    let existing = self.files.borrow().get(to).cloned();
+                    if no_clobber && existing.is_some() {
+                        return Ok(String::new());
+                    }
+                    let content = self
+                        .files
+                        .borrow()
+                        .get(from)
+                        .cloned()
+                        .ok_or_else(|| format!("{verb}: {from}: No such file or directory"))?;
+                    self.put(to, &content);
+                    if verb == "mv" {
+                        self.files.borrow_mut().remove(from);
+                    }
+                }
+            }
             Ok(String::new())
         }
         fn write_file(&self, path: &str, contents: &str) -> Result<(), String> {
             self.ops.borrow_mut().push(format!("write {path}"));
-            self.put(path, contents);
+            if *self.swallow_writes.borrow() {
+                self.put(path, "");
+            } else {
+                self.put(path, contents);
+            }
             Ok(())
         }
     }
@@ -1141,17 +1274,119 @@ jwt:
         // Backup strictly before the read and the write (FR-021).
         assert_eq!(ops[0], format!("cp -n {MANIFEST_PATH} {BACKUP_PATH}"));
         assert_eq!(ops[1], format!("cat {MANIFEST_PATH}"));
-        assert_eq!(ops[2], format!("write {MANIFEST_PATH}"));
-        assert_eq!(ops.len(), 3, "a successful write restores nothing: {ops:?}");
+        // Staged, mode-matched and renamed into place — never written in place, because the
+        // kubelet reads this file the moment it changes (see `write_atomically`).
+        assert_eq!(ops[2], format!("write {STAGING_PATH}"));
+        assert_eq!(ops[3], format!("chmod 600 {STAGING_PATH}"));
+        assert_eq!(ops[4], format!("mv {STAGING_PATH} {MANIFEST_PATH}"));
+        // And the manifest is read back before the wait, so a write that landed as something
+        // other than what Fathom produced is a write failure rather than an unhealthy cluster.
+        assert_eq!(ops[5], format!("cat {MANIFEST_PATH}"));
+        assert_eq!(ops.len(), 6, "a successful write restores nothing: {ops:?}");
 
         let out = node.manifest();
-        assert!(out.contains("    - --oidc-issuer-url=https://idp.example.com/realms/corp"));
-        assert!(out.contains("    - --oidc-username-prefix=oidc:"));
+        // Quoted, because `oidc:` would otherwise make the kubelet read the item as a mapping
+        // key — see `flag_line`.
+        assert!(out.contains(r#"    - "--oidc-issuer-url=https://idp.example.com/realms/corp""#));
+        assert!(out.contains(r#"    - "--oidc-username-prefix=oidc:""#));
         // An unset prefix is not written as an empty flag.
         assert!(!out.contains("--oidc-groups-prefix"));
         // The flags Fathom did not touch survive, in place.
         assert!(out.contains("    - --authorization-mode=Node,RBAC"));
         assert!(out.contains("image: registry.k8s.io/kube-apiserver:v1.34.0"));
+    }
+
+    /// T076 (FR-021): what Fathom writes must still be a pod the kubelet can parse, for every
+    /// prefix an operator may type — above all `oidc:`, the one the guided path suggests.
+    ///
+    /// Live, the unquoted form made the kubelet reject the manifest outright
+    /// (`cannot unmarshal object into Go struct field Container.spec.containers.command of type
+    /// string`), so the API server never started and the readiness wait blamed the cluster. No
+    /// string assertion caught it; parsing the result back as a `Pod` does.
+    #[test]
+    fn the_rewritten_manifest_is_still_a_parseable_pod() {
+        for prefix in ["oidc:", "", "oidc-", "a: b", "say \"hi\"", "back\\slash"] {
+            let mut d = desired(ApiServerAuthStyle::Legacy);
+            d.username_prefix = Some(prefix.to_owned());
+            d.groups_prefix = Some(prefix.to_owned());
+            d.username_claim = prefix.to_owned();
+
+            let out = rewrite_manifest(MANIFEST, &d).expect("rewrite");
+            let parsed: Pod = serde_yaml::from_str(&out).unwrap_or_else(|e| {
+                panic!("prefix {prefix:?} produced an unparseable pod: {e}\n{out}")
+            });
+            let argv = parsed
+                .spec
+                .expect("spec")
+                .containers
+                .into_iter()
+                .next()
+                .expect("the kube-apiserver container")
+                .command
+                .expect("a command");
+
+            // And the flags survive the round trip verbatim, quoting and all.
+            assert!(
+                argv.contains(&format!("--oidc-username-prefix={prefix}")),
+                "prefix {prefix:?} round-trips: {argv:?}"
+            );
+            assert!(
+                argv.contains(&format!("--oidc-username-claim={prefix}")),
+                "claim {prefix:?} round-trips: {argv:?}"
+            );
+            // Reading it straight back is the comparison step's view of the same cluster.
+            assert_eq!(
+                parse_command_line(&argv).username_prefix.as_deref(),
+                Some(prefix)
+            );
+        }
+    }
+
+    /// The structured document gets the same treatment, for the same reason.
+    #[test]
+    fn the_authentication_config_is_parseable_yaml_for_any_prefix() {
+        for prefix in ["oidc:", "", "a: b", "say \"hi\""] {
+            let mut d = desired(ApiServerAuthStyle::Structured);
+            d.username_prefix = Some(prefix.to_owned());
+            d.username_claim = prefix.to_owned();
+            let yaml = authentication_config_yaml(&d);
+            let v: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap_or_else(|e| {
+                panic!("prefix {prefix:?} produced unparseable YAML: {e}\n{yaml}")
+            });
+            let mapping = &v["jwt"][0]["claimMappings"]["username"];
+            assert_eq!(mapping["prefix"].as_str(), Some(prefix));
+            assert_eq!(mapping["claim"].as_str(), Some(prefix));
+        }
+    }
+
+    /// T076: a write the node reports as a success but which did not land is a failed write, and
+    /// the manifest comes back. Found live: `docker exec` without `-i` truncated the real
+    /// manifest to zero bytes and exited 0, and only the readiness wait noticed — by which point
+    /// the diagnosis on screen blamed the control plane rather than the write.
+    #[test]
+    fn a_write_that_did_not_land_is_a_failure_and_restores() {
+        let node = RecordingNode::new(MANIFEST).swallowing_writes();
+        let waited = RefCell::new(false);
+        let err = apply_write(&node, &desired(ApiServerAuthStyle::Legacy), &|| {
+            *waited.borrow_mut() = true;
+            Ok(())
+        })
+        .expect_err("a manifest that did not land is a failed write");
+        assert!(
+            !*waited.borrow(),
+            "readiness is never waited for on a write that did not land"
+        );
+        assert!(
+            err.contains("not what Fathom wrote"),
+            "the failure says the manifest is wrong, not that the cluster is sick: {err}"
+        );
+        assert!(err.contains(BACKUP_PATH), "and names the restore: {err}");
+        let ops = node.ops();
+        assert_eq!(
+            ops.last().map(String::as_str),
+            Some(format!("mv {STAGING_PATH} {MANIFEST_PATH}").as_str()),
+            "the last thing it does is rename the backup back into place: {ops:?}"
+        );
     }
 
     #[test]
@@ -1167,10 +1402,18 @@ jwt:
         );
         assert!(err.contains(BACKUP_PATH));
         let ops = node.ops();
+        // Staged and renamed, not copied in place: the rollback must not hand the kubelet a
+        // half-written manifest either (see `restore_manifest`).
         assert_eq!(
-            ops.last().unwrap(),
-            &format!("cp {BACKUP_PATH} {MANIFEST_PATH}")
+            &ops[ops.len() - 3..],
+            &[
+                format!("cp {BACKUP_PATH} {STAGING_PATH}"),
+                format!("chmod 600 {STAGING_PATH}"),
+                format!("mv {STAGING_PATH} {MANIFEST_PATH}"),
+            ]
         );
+        // And the manifest really is the original again.
+        assert_eq!(node.manifest(), MANIFEST);
     }
 
     /// T060: the write follows the cluster's existing style and never produces both.
@@ -1205,12 +1448,14 @@ jwt:
         let node = RecordingNode::new(&structured_existing);
         apply_write(&node, &desired(ApiServerAuthStyle::Structured), &|| Ok(())).unwrap();
         let ops = node.ops();
+        // Both are staged and renamed, so the rename is where the destination shows up.
         let config_at = ops
             .iter()
-            .position(|o| o == &format!("write {AUTH_CONFIG_PATH}"));
+            .position(|o| o == &format!("mv {STAGING_PATH} {AUTH_CONFIG_PATH}"));
         let manifest_at = ops
             .iter()
-            .position(|o| o == &format!("write {MANIFEST_PATH}"));
+            .position(|o| o == &format!("mv {STAGING_PATH} {MANIFEST_PATH}"));
+        assert!(config_at.is_some() && manifest_at.is_some(), "{ops:?}");
         assert!(config_at < manifest_at, "{ops:?}");
 
         // A style Fathom could not determine is never written.
@@ -1317,6 +1562,175 @@ jwt:
                 .get("kind-dev", t0 + CAPABILITY_TTL + Duration::from_secs(1))
                 .is_none()
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // T076: live validation against a real cluster.
+    //
+    // Everything above this line runs against `RecordingNode`, which is why the node side of the
+    // write — the readiness grace, the restart race, the rollback, and whether `docker exec cat`
+    // can read the manifest at all — was unverified. These two tests are the only thing that
+    // exercises it, and they are ignored by default because one of them restarts a control plane.
+    // -----------------------------------------------------------------------
+
+    /// Live read (ignored by default):
+    /// `FATHOM_APISERVER_LIVE_CONTEXT=kind-fathom-dev cargo test -p fathom --lib live_api_server_read -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "needs a live cluster"]
+    async fn live_api_server_read() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let context =
+            std::env::var("FATHOM_APISERVER_LIVE_CONTEXT").expect("FATHOM_APISERVER_LIVE_CONTEXT");
+        let cfg = kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
+            context: Some(context.clone()),
+            ..Default::default()
+        })
+        .await
+        .expect("kubeconfig");
+        let client = kube::Client::try_from(cfg).expect("client");
+
+        let api: Api<Pod> = Api::namespaced(client, "kube-system");
+        let listed = api
+            .list(&ListParams::default().labels(APISERVER_POD_SELECTOR))
+            .await
+            .map(|l| l.items)
+            .map_err(|e| e.to_string());
+        let read = read_from_pods_with_node(listed, &context, None);
+        println!("live read: {read:#?}");
+
+        assert_eq!(read.context, context, "the read names the context it read");
+        if read.checked {
+            // A cluster with no OIDC configured is a *checked* read whose six fields are absent;
+            // that is not the same as a read that could not happen.
+            assert!(read.reason.is_none(), "a checked read states no unknown");
+        } else {
+            assert!(
+                read.reason.as_deref().is_some_and(|r| !r.is_empty()),
+                "an unchecked read carries the cluster's own words"
+            );
+            assert!(
+                compare(&read, &draft()).is_empty(),
+                "an unchecked read can never render as agreement"
+            );
+        }
+
+        // Ownership is a recorded fact: a cluster Fathom did not provision is not writable, and
+        // the refusal names the context rather than guessing from its `kind-` prefix.
+        let provenance = crate::backend::persistence::load_kind_provenance();
+        let (writable, reason) = writability(&context, &provenance, false);
+        println!("writable={writable} reason={reason:?}");
+        if provenance.record_for_context(&context).is_none() {
+            assert!(!writable, "no provenance record means no write");
+            assert!(
+                reason.as_deref().is_some_and(|r| r.contains(&context)),
+                "the refusal names the context"
+            );
+        }
+    }
+
+    /// Live write, rollback and restore (ignored by default; **restarts the control plane**):
+    /// `FATHOM_APISERVER_LIVE_CLUSTER=fathom-prov-045 cargo test -p fathom --lib live_api_server_write -- --ignored --nocapture`
+    ///
+    /// Run this only against a throwaway cluster. It rewrites the real static pod manifest twice,
+    /// so the API server restarts twice, and it leaves the cluster back on its original manifest.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs a live cluster and restarts its control plane"]
+    async fn live_api_server_write() {
+        let cluster =
+            std::env::var("FATHOM_APISERVER_LIVE_CLUSTER").expect("FATHOM_APISERVER_LIVE_CLUSTER");
+        let runtime = crate::backend::kind::detect_prerequisites()
+            .await
+            .runtime_kind;
+        let node = ContainerNode::new(runtime, &cluster);
+
+        // The thing no unit test could show: that `docker|podman exec <node> cat <manifest>`
+        // actually reaches a real control plane's filesystem.
+        let original = node
+            .run(&["cat", MANIFEST_PATH])
+            .expect("the control-plane node's manifest is readable");
+        assert!(
+            original.contains("kube-apiserver"),
+            "read a kube-apiserver manifest, got:\n{original}"
+        );
+
+        let desired = DesiredAuth {
+            style: ApiServerAuthStyle::Legacy,
+            issuer_url: "https://idp.example.com/realms/fathom".to_owned(),
+            client_id: "fathom".to_owned(),
+            username_claim: "preferred_username".to_owned(),
+            groups_claim: "groups".to_owned(),
+            username_prefix: Some("oidc:".to_owned()),
+            groups_prefix: Some("oidc:".to_owned()),
+        };
+
+        // 1. The rollback path, with a wait that fails on purpose: the manifest must come back.
+        let failed = apply_write(&node, &desired, &|| Err("forced failure".to_owned()))
+            .expect_err("a failed wait is a failed write");
+        println!("rollback reported: {failed}");
+        assert!(
+            failed.contains(BACKUP_PATH),
+            "the failure names the backup it restored from"
+        );
+        let after_rollback = node
+            .run(&["cat", MANIFEST_PATH])
+            .expect("manifest readable");
+        assert_eq!(
+            after_rollback, original,
+            "the rollback restored the manifest byte for byte"
+        );
+
+        // 2. The success path, against the real readiness wait. This is the restart race and the
+        //    grace period that only a live cluster can prove.
+        let marker = marker_flag(&desired);
+        apply_write(&node, &desired, &|| wait_for_control_plane(&node, &marker))
+            .expect("the control plane comes back with the new flags");
+        let written = node
+            .run(&["cat", MANIFEST_PATH])
+            .expect("manifest readable");
+        assert!(
+            written.contains("--oidc-issuer-url=https://idp.example.com/realms/fathom"),
+            "the flag Fathom wrote is in the manifest:\n{written}"
+        );
+
+        // 3. And what the *API server itself* now reports, read back through the Kubernetes API
+        //    rather than off the node, which is what the guided path's comparison step shows.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let context = crate::backend::kind::context_name_for(&cluster);
+        let cfg = kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
+            context: Some(context.clone()),
+            ..Default::default()
+        })
+        .await
+        .expect("kubeconfig");
+        let client = kube::Client::try_from(cfg).expect("client");
+        let api: Api<Pod> = Api::namespaced(client, "kube-system");
+        let listed = api
+            .list(&ListParams::default().labels(APISERVER_POD_SELECTOR))
+            .await
+            .map(|l| l.items)
+            .map_err(|e| e.to_string());
+        let read = read_from_pods_with_node(listed, &context, Some(&node));
+        println!("live read after the write: {read:#?}");
+        assert!(read.checked, "the written config reads back as checked");
+        assert_eq!(
+            read.issuer.as_deref(),
+            Some("https://idp.example.com/realms/fathom")
+        );
+        assert!(
+            compare(&read, &draft()).iter().any(|d| d.field == "issuer"),
+            "a draft for a different issuer disagrees on the issuer field"
+        );
+
+        // Leave the cluster as it was found.
+        restore_manifest(&node).expect("restore the original manifest");
+        // A flag the original manifest carries and Fathom never touches, so this waits for the
+        // restored API server rather than for anything 045 wrote.
+        wait_for_control_plane(&node, "--authorization-mode=Node,RBAC")
+            .expect("the control plane comes back on the original");
+        let restored = node
+            .run(&["cat", MANIFEST_PATH])
+            .expect("manifest readable");
+        assert_eq!(restored, original, "the cluster is left as it was found");
     }
 }
 
@@ -1549,8 +1963,19 @@ impl ContainerNode {
     }
 
     fn command(&self, args: &[&str]) -> std::process::Command {
+        self.exec(false, args)
+    }
+
+    /// `docker exec` *without* `-i` hands the child no stdin at all. `cat > file` then reads EOF
+    /// immediately, truncates the file to zero bytes and exits 0 — the manifest is destroyed and
+    /// the write reports success. `live_api_server_write` found this against a real node; no fake
+    /// `NodeExec` could, because the bug is in how the process is spawned.
+    fn exec(&self, interactive: bool, args: &[&str]) -> std::process::Command {
         let mut cmd = std::process::Command::new(self.binary);
         cmd.arg("exec");
+        if interactive {
+            cmd.arg("-i");
+        }
         cmd.arg(&self.node);
         cmd.args(args);
         cmd
@@ -1582,7 +2007,7 @@ impl NodeExec for ContainerNode {
         // Through stdin rather than an argument: the manifest is multi-line and must not be
         // re-quoted on its way through a shell.
         let mut child = self
-            .command(&["sh", "-c", &format!("cat > {path}")])
+            .exec(true, &["sh", "-c", &format!("cat > {path}")])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -1614,13 +2039,49 @@ const RESTART_GRACE_SECS: u32 = 20;
 /// Run on the node rather than through Fathom's own client: the client's connection is being
 /// torn down by the very change being made, and the node has the admin kubeconfig the API
 /// server's own health check uses.
-fn wait_for_control_plane(node: &ContainerNode) -> Result<(), String> {
+/// The flag whose presence on the live API server proves *this* write took effect.
+fn marker_flag(d: &DesiredAuth) -> String {
+    match d.style {
+        ApiServerAuthStyle::Structured => format!("--authentication-config={AUTH_CONFIG_PATH}"),
+        _ => format!("--oidc-issuer-url={}", d.issuer_url),
+    }
+}
+
+/// Wait until the API server is both answering *and* running the configuration just written.
+///
+/// Readiness alone is not enough. The grace period exists because the kubelet needs a moment to
+/// notice the manifest, and during it the *previous* API server is still up and still answers
+/// `/readyz` — so a readiness-only wait can return success while the old configuration is live,
+/// and would report a write as applied before it was. Worse, a new configuration that then
+/// crash-loops would already have been called a success, past the point where `apply_write` would
+/// roll it back.
+///
+/// So the wait also looks for `marker` in the live API server's own argv. The node container
+/// shares its PID namespace with the containers on it, which is why `/proc` can be read for this
+/// at all; only processes whose `argv[0]` is `kube-apiserver` are considered, so the matching
+/// `grep` cannot find its own command line.
+fn wait_for_control_plane(node: &ContainerNode, marker: &str) -> Result<(), String> {
+    // Single-quoted into the script, so the `=`, `:` and `/` in a flag are inert.
+    let quoted = marker.replace('\'', r"'\''");
     let script = format!(
         "sleep {RESTART_GRACE_SECS}; \
-         i=0; while [ $i -lt {READY_TIMEOUT_SECS} ]; do \
-         kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz >/dev/null 2>&1 && \
-         exit 0; sleep 2; i=$((i+2)); done; \
-         echo \"the kube-apiserver did not become ready within {READY_TIMEOUT_SECS}s\" >&2; exit 1"
+         has_marker() {{ \
+         for c in /proc/[0-9]*/cmdline; do \
+         first=$(tr '\\0' '\\n' < \"$c\" 2>/dev/null | head -1); \
+         case \"$first\" in kube-apiserver) ;; *) continue ;; esac; \
+         tr '\\0' '\\n' < \"$c\" 2>/dev/null | grep -qxF -- '{quoted}' && return 0; \
+         done; return 1; }}; \
+         i=0; ready=0; \
+         while [ $i -lt {READY_TIMEOUT_SECS} ]; do \
+         if kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz >/dev/null 2>&1; \
+         then ready=1; has_marker && exit 0; fi; \
+         sleep 2; i=$((i+2)); done; \
+         if [ $ready -eq 1 ]; then \
+         echo \"the kube-apiserver is answering but has not picked up the new authentication \
+         configuration within {READY_TIMEOUT_SECS}s\" >&2; \
+         else \
+         echo \"the kube-apiserver did not become ready within {READY_TIMEOUT_SECS}s\" >&2; fi; \
+         exit 1"
     );
     node.run(&["sh", "-c", &script]).map(|_| ())
 }
@@ -1669,7 +2130,8 @@ pub(super) async fn handle_write_api_server_auth(
     // minutes), but the command must not finish before the cluster has actually changed.
     let node = ContainerNode::new(runtime, &cluster);
     let result = tokio::task::spawn_blocking(move || {
-        apply_write(&node, &desired, &|| wait_for_control_plane(&node))
+        let marker = marker_flag(&desired);
+        apply_write(&node, &desired, &|| wait_for_control_plane(&node, &marker))
     })
     .await?;
 
