@@ -2,17 +2,21 @@
 //!
 //! A plain directory the operator's install is pointed at — a local path, or a mounted
 //! network share/self-hosted sync target the team already controls (spec.md's
-//! Assumptions; FR-015: never a Fathom-hosted service). Holds two things:
+//! Assumptions; FR-015: never a Fathom-hosted service). Holds three things:
 //!
 //! - `connection-profiles.json`: `{ "rev": u64, "profiles": { "<id>": ConnectionProfile } }`
 //! - `cluster-settings/<context>.json`: one `OrgClusterSettings` per shared context
+//! - `fleet-definitions.json`: `{ "rev": u64, "definitions": { "<id>": SharedFleetDefinition } }`
+//!   — 046's shared labels and group definitions (046 US3)
 //!
 //! Every write is optimistic-concurrency-checked against the `rev` the caller last saw
 //! (FR-012): a stale write is refused with `StoreError::Conflict`, never silently
 //! overwritten. Writes are atomic (write to a sibling temp file, then rename) so a crash
 //! mid-write can never corrupt the shared file for other teammates.
 
-use crate::protocol::{ConnectionProfile, OrgClusterSettings, TeamLink, scan_fields_for_secrets};
+use crate::protocol::{
+    ConnectionProfile, OrgClusterSettings, SharedFleetDefinition, TeamLink, scan_fields_for_secrets,
+};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -276,6 +280,111 @@ pub fn publish_org_cluster_settings(
     Ok(settings.rev)
 }
 
+/// `fleet-definitions.json`'s shape: `{ "rev": u64, "definitions": { "<id>": … } }` — the
+/// `ProfilesFile` shape, one file for the whole fleet-definition set (046 data-model.md).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct FleetDefinitionsFile {
+    #[serde(default)]
+    rev: u64,
+    #[serde(default)]
+    definitions: BTreeMap<String, SharedFleetDefinition>,
+}
+
+fn fleet_definitions_file_path(store_root: &Path) -> PathBuf {
+    store_root.join("fleet-definitions.json")
+}
+
+/// Reads every shared fleet definition in the store. Rows marked `removed` are returned
+/// too: the caller decides what to show, and an operator who adopted a removed definition
+/// has to be told "no longer shared" rather than handed a shorter list (FR-014).
+pub fn read_fleet_definitions(store_root: &Path) -> Result<Vec<SharedFleetDefinition>, StoreError> {
+    check_reachable(store_root)?;
+    Ok(read_fleet_definitions_file(store_root)?
+        .definitions
+        .into_values()
+        .collect())
+}
+
+/// The file as stored, or `Default` when it was never written. A file that *is* there and
+/// does not parse is `Invalid`, never silently replaced with defaults: overwriting it would
+/// destroy a teammate's published definitions (Constitution Principle VI).
+fn read_fleet_definitions_file(store_root: &Path) -> Result<FleetDefinitionsFile, StoreError> {
+    let path = fleet_definitions_file_path(store_root);
+    if !path.exists() {
+        return Ok(FleetDefinitionsFile::default());
+    }
+    let content = fs::read_to_string(&path)
+        .map_err(|e| StoreError::Unreachable(format!("cannot read {}: {e}", path.display())))?;
+    serde_json::from_str(&content)
+        .map_err(|e| StoreError::Invalid(format!("fleet-definitions.json: {e}")))
+}
+
+/// Publishes (creates or updates) one shared fleet definition. `expected_rev` is the `rev`
+/// the caller last saw **for this definition** (0 for one that was never published); a
+/// mismatch is a conflict (FR-012), never a silent overwrite. Returns the new store rev.
+///
+/// The check is per definition, as `publish_org_cluster_settings` does it, not against the
+/// store-wide `rev` as `publish_profile` does: one `fleet-definitions.json` holds every
+/// team's definitions, so a store-wide check would refuse the second definition anyone ever
+/// publishes. The store-wide `rev` still advances on every write, so it remains a usable
+/// "something changed here" marker.
+pub fn publish_fleet_definition(
+    store_root: &Path,
+    mut definition: SharedFleetDefinition,
+    expected_rev: u64,
+) -> Result<u64, StoreError> {
+    check_reachable(store_root)?;
+    let mut file = read_fleet_definitions_file(store_root)?;
+    let current_rev = file.definitions.get(&definition.id).map_or(0, |d| d.rev);
+    if current_rev != expected_rev {
+        return Err(StoreError::Conflict {
+            expected_rev,
+            current_rev,
+        });
+    }
+    file.rev += 1;
+    definition.rev = file.rev;
+    definition.removed = false;
+    file.definitions.insert(definition.id.clone(), definition);
+    write_fleet_definitions_file(store_root, &file)?;
+    Ok(file.rev)
+}
+
+/// Marks a definition as no longer shared. The row is **kept** with `removed = true` — the
+/// same promise `remove_profile` makes, and the store half of FR-014: a teammate who adopted
+/// it must be able to learn that it was withdrawn, which a vanished row cannot tell them.
+pub fn remove_fleet_definition(
+    store_root: &Path,
+    definition_id: &str,
+    expected_rev: u64,
+) -> Result<u64, StoreError> {
+    check_reachable(store_root)?;
+    let mut file = read_fleet_definitions_file(store_root)?;
+    let current_rev = file.definitions.get(definition_id).map_or(0, |d| d.rev);
+    if current_rev != expected_rev {
+        return Err(StoreError::Conflict {
+            expected_rev,
+            current_rev,
+        });
+    }
+    file.rev += 1;
+    if let Some(d) = file.definitions.get_mut(definition_id) {
+        d.removed = true;
+        d.rev = file.rev;
+    }
+    write_fleet_definitions_file(store_root, &file)?;
+    Ok(file.rev)
+}
+
+fn write_fleet_definitions_file(
+    store_root: &Path,
+    file: &FleetDefinitionsFile,
+) -> Result<(), StoreError> {
+    let content =
+        serde_json::to_string_pretty(file).map_err(|e| StoreError::Invalid(e.to_string()))?;
+    write_atomic(&fleet_definitions_file_path(store_root), &content)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,5 +552,136 @@ mod tests {
         link_team(dir.path(), link("fathom-editors", "kind-abc123")).unwrap();
         let raw = fs::read_to_string(profiles_file_path(dir.path())).unwrap();
         assert!(scan_fields_for_secrets(&[("file", &raw)]).is_ok());
+    }
+    // -- 046 US3: shared fleet definitions ----------------------------------------------
+
+    fn sample_definition(id: &str) -> SharedFleetDefinition {
+        SharedFleetDefinition {
+            id: id.to_owned(),
+            members: std::collections::BTreeMap::from([(
+                "prod-a".to_owned(),
+                crate::protocol::FleetMemberShare {
+                    display_name: Some("prod a".to_owned()),
+                    labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+                },
+            )]),
+            groups: BTreeMap::from([("prod".to_owned(), "env in (prod)".to_owned())]),
+            rev: 0,
+            shared_by: "alice".to_owned(),
+            updated_at: "2026-10-02T00:00:00Z".to_owned(),
+            removed: false,
+        }
+    }
+
+    #[test]
+    fn fleet_definitions_publish_then_read_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_fleet_definitions(dir.path()).unwrap().is_empty());
+        let rev = publish_fleet_definition(dir.path(), sample_definition("prod"), 0).unwrap();
+        assert_eq!(rev, 1);
+        let back = read_fleet_definitions(dir.path()).unwrap();
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].id, "prod");
+        assert_eq!(back[0].rev, 1);
+        assert_eq!(back[0].groups["prod"], "env in (prod)");
+        assert_eq!(
+            back[0].members["prod-a"].display_name.as_deref(),
+            Some("prod a")
+        );
+    }
+
+    /// A second definition is publishable: the concurrency check is per definition, so the
+    /// store-wide `rev` that the first publish advanced is not mistaken for a conflict.
+    #[test]
+    fn a_second_fleet_definition_is_not_a_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        publish_fleet_definition(dir.path(), sample_definition("prod"), 0).unwrap();
+        publish_fleet_definition(dir.path(), sample_definition("staging"), 0).unwrap();
+        let ids: Vec<String> = read_fleet_definitions(dir.path())
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(ids, vec!["prod".to_owned(), "staging".to_owned()]);
+    }
+
+    #[test]
+    fn a_stale_fleet_definition_publish_is_a_conflict_not_a_silent_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        publish_fleet_definition(dir.path(), sample_definition("prod"), 0).unwrap();
+        let mut stale = sample_definition("prod");
+        stale.shared_by = "bob".to_owned();
+        assert_eq!(
+            publish_fleet_definition(dir.path(), stale, 0),
+            Err(StoreError::Conflict {
+                expected_rev: 0,
+                current_rev: 1
+            })
+        );
+        // Alice's definition is untouched.
+        assert_eq!(
+            read_fleet_definitions(dir.path()).unwrap()[0].shared_by,
+            "alice"
+        );
+    }
+
+    /// FR-014's store half: removal marks the row, it does not erase it. A teammate who
+    /// adopted the definition has to be able to read that it was withdrawn.
+    #[test]
+    fn removing_a_fleet_definition_marks_it_instead_of_erasing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let rev = publish_fleet_definition(dir.path(), sample_definition("prod"), 0).unwrap();
+        remove_fleet_definition(dir.path(), "prod", rev).unwrap();
+        let back = read_fleet_definitions(dir.path()).unwrap();
+        assert_eq!(back.len(), 1, "the row must survive its removal");
+        assert!(back[0].removed);
+        assert_eq!(back[0].groups["prod"], "env in (prod)");
+    }
+
+    #[test]
+    fn a_stale_fleet_definition_removal_is_a_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        publish_fleet_definition(dir.path(), sample_definition("prod"), 0).unwrap();
+        assert!(matches!(
+            remove_fleet_definition(dir.path(), "prod", 0),
+            Err(StoreError::Conflict { .. })
+        ));
+        assert!(!read_fleet_definitions(dir.path()).unwrap()[0].removed);
+    }
+
+    /// An unreachable store is a distinct error from an empty one, and an unparseable
+    /// `fleet-definitions.json` is `Invalid` and is left on disk byte-for-byte.
+    #[test]
+    fn an_unreadable_definitions_file_is_invalid_and_is_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fleet_definitions_file_path(dir.path());
+        fs::write(&path, "{ not json").unwrap();
+        assert!(matches!(
+            read_fleet_definitions(dir.path()),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            publish_fleet_definition(dir.path(), sample_definition("prod"), 0),
+            Err(StoreError::Invalid(_))
+        ));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+
+        let missing = dir.path().join("file-not-a-dir");
+        fs::write(&missing, "x").unwrap();
+        assert!(matches!(
+            read_fleet_definitions(&missing),
+            Err(StoreError::Unreachable(_))
+        ));
+    }
+
+    /// Fleet definitions and connection profiles live in different files: publishing one
+    /// cannot disturb the other.
+    #[test]
+    fn fleet_definitions_do_not_disturb_connection_profiles() {
+        let dir = tempfile::tempdir().unwrap();
+        publish_profile(dir.path(), sample_profile("p1"), 0).unwrap();
+        publish_fleet_definition(dir.path(), sample_definition("prod"), 0).unwrap();
+        assert_eq!(read_profiles(dir.path()).unwrap().len(), 1);
+        assert_eq!(read_fleet_definitions(dir.path()).unwrap().len(), 1);
     }
 }
