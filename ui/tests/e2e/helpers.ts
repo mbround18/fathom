@@ -222,9 +222,14 @@ export async function finish(
 
 /** Tick a row's checkbox (multi-select). */
 export async function check(page: Page, key: string, section: string = PODS): Promise<void> {
-  const box = row(page, key, section).getByRole('checkbox', { name: `Select ${key}` })
+  const target = row(page, key, section)
+  const box = target.getByRole('checkbox', { name: `Select ${key}` })
   await box.click()
   await expect(box).toHaveAttribute('aria-checked', 'true')
+  // The grid is `aria-multiselectable`, so a screen reader hears selection from the row, not only
+  // from the checkbox it contains. This used to track "open in the inspector" instead, which
+  // announced the wrong rows as selected before a bulk delete.
+  await expect(target).toHaveAttribute('aria-selected', 'true')
 }
 
 /** Make `section`'s list visible (wide/ultra show deployments beside pods already). */

@@ -22,7 +22,7 @@ test.describe('US2 reflow', () => {
     const key = await visibleRowKey(page)
     await row(page, key).click()
     await expect(inspector(page)).toBeVisible()
-    await expect(row(page, key)).toHaveAttribute('aria-selected', 'true')
+    await expect(row(page, key)).toHaveAttribute('aria-current', 'true')
     await page.waitForTimeout(200)
     const scrolled = await listScroll(page)
 
@@ -33,7 +33,7 @@ test.describe('US2 reflow', () => {
 
     await expect(searchBox(page)).toHaveValue('a')
     await expect(table(page)).toHaveAttribute('data-row-count', filtered)
-    await expect(row(page, key)).toHaveAttribute('aria-selected', 'true')
+    await expect(row(page, key)).toHaveAttribute('aria-current', 'true')
     await expect.poll(() => listScroll(page)).toBeGreaterThanOrEqual(scrolled - 5)
     await expect(listPane(page)).toBeVisible()
   })

@@ -77,7 +77,7 @@ test.describe('044 US1 clean start on a wide screen', () => {
       await expect(autoOpened(page)).toHaveAttribute('data-slot-index', '2')
       await expect(autoOpened(page)).toHaveAccessibleName(expected)
       // The list shows the same row as the open one, exactly as a click would leave it.
-      await expect(row(page, `default/${expected}`)).toHaveAttribute('aria-selected', 'true')
+      await expect(row(page, `default/${expected}`)).toHaveAttribute('aria-current', 'true')
     })
   }
 

@@ -101,7 +101,7 @@ test.describe('US1 inspector', () => {
 
     await expect(inspector(page).getByRole('heading', { name: second.name })).toBeVisible()
     if (!isPhone(info)) {
-      await expect(row(page, key(second))).toHaveAttribute('aria-selected', 'true')
+      await expect(row(page, key(second))).toHaveAttribute('aria-current', 'true')
     }
 
     await page.keyboard.press('Escape')

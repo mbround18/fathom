@@ -559,8 +559,13 @@ const GridRow = memo(function GridRow({
       id={id}
       role="row"
       aria-rowindex={index + 2}
-      aria-selected={open}
+      // `aria-selected` is the grid's selection state, which is what the checkboxes set and what
+      // a bulk action consumes. Being open in the inspector is `aria-current`: it is where the
+      // user is, not what they have picked. Styling hangs off `data-open`, never off the ARIA.
+      aria-selected={checked}
+      aria-current={open ? 'true' : undefined}
       data-row-key={rowKey}
+      data-open={open ? 'true' : undefined}
       data-focused={cursor ? 'true' : undefined}
       data-checked={checked ? 'true' : undefined}
       tabIndex={-1}
@@ -585,7 +590,7 @@ const GridRow = memo(function GridRow({
           <span
             aria-hidden="true"
             data-cursor=""
-            className="absolute top-0 left-0 flex h-full items-center text-base leading-none text-accent-neon drop-shadow-[0_0_4px_var(--accent-neon)] group-aria-selected/row:text-primary-foreground"
+            className="absolute top-0 left-0 flex h-full items-center text-base leading-none text-accent-neon drop-shadow-[0_0_4px_var(--accent-neon)] group-data-[open=true]/row:text-primary-foreground"
           >
             ▌
           </span>
@@ -658,7 +663,7 @@ function RowCheckbox({
           'flex size-3.5 items-center justify-center border text-xs leading-none',
           checked
             ? 'border-accent-neon bg-accent-neon text-background'
-            : 'border-muted-foreground group-hover/cb:border-foreground group-aria-selected/row:border-primary-foreground',
+            : 'border-muted-foreground group-hover/cb:border-foreground group-data-[open=true]/row:border-primary-foreground',
         )}
       >
         {checked ? '✓' : ''}

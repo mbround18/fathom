@@ -20,7 +20,7 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
       className={cn(
         'inline-flex min-w-0 items-center gap-1.5',
         TONE[tone],
-        'group-aria-selected/row:text-primary-foreground',
+        'group-data-[open=true]/row:text-primary-foreground',
       )}
     >
       <span aria-hidden="true" className="shrink-0 text-[0.8em]">

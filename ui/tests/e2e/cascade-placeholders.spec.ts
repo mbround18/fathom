@@ -116,8 +116,8 @@ test.describe('044 US4 cascade placeholders', () => {
     await expect(gone).toContainText('default')
     // The step keeps its target, and nothing else is selected in its place (FR-014).
     await expect(slot(page, 2)).toHaveAccessibleName('cascade-err')
-    await expect(table(page, PODS).locator('[role="row"][aria-selected="true"]')).toHaveCount(0)
-    await expect(row(page, 'default/cascade-warn')).toHaveAttribute('aria-selected', 'false')
+    await expect(table(page, PODS).locator('[role="row"][aria-current="true"]')).toHaveCount(0)
+    await expect(row(page, 'default/cascade-warn')).not.toHaveAttribute('aria-current', 'true')
   })
 
   test('the keyboard reaches every column and its dividers (T052)', async ({ page }) => {
