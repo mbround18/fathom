@@ -27,7 +27,7 @@ const SETTLE_MS = 20_000
 /** Late errors (a background poller's first tick) get this long to show up per item. */
 const GRACE_MS = 1_500
 
-type Outcome = 'works' | 'not permitted' | 'broken'
+type Outcome = 'works' | 'not permitted' | 'broken' | 'hidden'
 interface Result {
   item: string
   outcome: Outcome
@@ -60,12 +60,27 @@ async function tapErrors(page: Page): Promise<string[]> {
   return errors
 }
 
-async function pick(page: Page, selector: string) {
+/**
+ * Open a section from the nav, or report that the nav never offered it.
+ *
+ * `integrationVisible` (src/resources/nav.ts) hides Velero unless its scan came back
+ * `installed === true`, and a scan this identity is not allowed to run is `undefined`, so the
+ * entry is absent rather than denied. Waiting the full test timeout on a click that can never
+ * land tells us nothing; returning false lets the caller record it as what it is.
+ */
+async function pick(page: Page, selector: string): Promise<boolean> {
   const nav = page.getByRole('navigation', { name: 'Sections' })
   await expect(nav).toBeVisible()
   const collapsed = nav.locator('button[aria-expanded="false"]')
   while ((await collapsed.count()) > 0) await collapsed.first().click()
-  await nav.locator(selector).click()
+  const entry = nav.locator(selector)
+  try {
+    await entry.waitFor({ state: 'visible', timeout: 10_000 })
+  } catch {
+    return false
+  }
+  await entry.click()
+  return true
 }
 
 async function classify(
@@ -157,7 +172,14 @@ test.describe('restricted-user walk', () => {
       for (const s of group.sections) {
         const before = errors.length
         pageErrors.length = 0
-        await pick(page, `[data-section="${s.key}"]`)
+        if (!(await pick(page, `[data-section="${s.key}"]`))) {
+          results.push({
+            item: s.key,
+            outcome: 'hidden',
+            detail: 'the nav never offered this entry',
+          })
+          continue
+        }
         const pane = page.locator(`section[data-slot="pane"][data-section="${s.key}"]`).first()
         results.push(await classify(page, pane, s.key, errors, pageErrors, before))
       }
@@ -177,7 +199,7 @@ test.describe('restricted-user walk', () => {
     for (const tool of NAV_TOOLS) {
       const before = errors.length
       pageErrors.length = 0
-      await pick(page, `[data-tool="${tool}"]`)
+      expect(await pick(page, `[data-tool="${tool}"]`), `nav tool ${tool} is missing`).toBe(true)
       const region = page.getByTestId('tools-sheet')
       results.push(await classify(page, region, `tool:${tool}`, errors, pageErrors, before))
       await page.keyboard.press('Escape')
@@ -294,7 +316,11 @@ test.describe('restricted-user walk', () => {
     }, liveContext())
     expect(refused).toMatch(/^Forbidden: /)
     expect(refused).toContain('WriteApiServerAuth')
-    expect(refused).toContain('cluster-scoped')
+    // Both bridge configurations refuse it, in their own words: a read-only bridge says "is a
+    // cluster write; this bridge is create-only/read-only", a sandbox bridge "writes a
+    // cluster-scoped resource". What matters is that the refusal names the command and happens
+    // here, in the bridge, before the backend could dispatch it unaudited.
+    expect(refused).toMatch(/^Forbidden: WriteApiServerAuth .*(cluster write|cluster-scoped)/)
 
     // 3. The place the write would be recorded still works for this identity, and the pane says
     //    what it is: Fathom's own mutation log, not the API server's.
@@ -319,7 +345,7 @@ test.describe('restricted-user walk', () => {
     await page.getByPlaceholder('Find namespace…').fill('demo')
     await page.getByRole('option', { name: /use namespace.*demo/i }).click()
     await expect(page.getByRole('combobox', { name: 'Namespace' })).toContainText('demo')
-    await pick(page, '[data-section="workloads/deployments"]')
+    expect(await pick(page, '[data-section="workloads/deployments"]')).toBe(true)
     const pane = page
       .locator('section[data-slot="pane"][data-section="workloads/deployments"]')
       .first()
