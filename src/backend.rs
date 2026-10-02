@@ -33,6 +33,7 @@ mod exec;
 mod federation;
 mod first_run;
 mod fleet;
+mod fleet_model;
 mod flux;
 mod gatekeeper;
 mod helm;
