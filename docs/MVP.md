@@ -61,6 +61,8 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Role and ClusterRole create/edit (rules editor, discovery-fed pickers, presets, YAML review, confirm-gated apply, escalation errors surfaced) | ✅ | 042-role-create (pre-flight SSAR escalation hints and the aggregation-label editor are deferred to the backlog) |
 | Cascading wide-screen layout (navigator + section list pinned, slots 3+ fill only as the operator drills in, the section's most relevant item auto-opens) | ✅ | 044-cascading-layout (wide/ultra/ultra-plus only; phone, tablet, laptop and desktop keep today's behaviour) |
 | Guided OIDC setup (replaces the flat issuer form for add and edit: configuration, read-only cluster checks, an offer to create the bindings through 042's forms, and API server authentication config emitted and applied for clusters Fathom provisioned) | ✅ | 045-guided-oidc-setup — 79/79 tasks done; gate green, restricted walk 13/13, promo 40/40 |
+| Fleet model (clusters as named, labelled, groupable members; groups are label selectors; definitions shareable through 014's store; rollups state their own coverage) | ⬜ | 046-fleet-model — spec only; from the 2026-10-02 adversarial review, finding 1: "you don't have a fleet model, you have a context list" |
+| Cross-cluster search (one query over a fleet group: label selector, CRD presence, name substring, container image; streamed per-cluster outcomes with explicit coverage) | ⬜ | 047-cross-cluster-search — spec only; depends on 046 |
 
 ---
 
