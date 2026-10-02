@@ -3,13 +3,9 @@
  * `setDensityOverride`; main.tsx re-applies the theme via `applyTheme` and the store persists
  * with a debounced `SaveUiConfig`.
  */
+import { SHORTCUTS } from '@/lib/shortcuts'
 import type { Density, ThemeAccent, ThemeEffects, ThemeMode } from '@/protocol/types'
 import { useStore } from '@/store'
-
-const SHORTCUTS: readonly (readonly [string, string])[] = [
-  ['Ctrl/Cmd + K', 'Open the command palette'],
-  ['Esc', 'Close the inspector or dialog'],
-]
 
 function Select<T extends string>({
   label,
@@ -84,10 +80,12 @@ export function AppearanceSettings() {
 
       <h3 className="mt-2 text-xs font-semibold tracking-wider uppercase">Keyboard shortcuts</h3>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 text-xs" data-testid="shortcuts">
-        {SHORTCUTS.map(([keys, what]) => (
-          <div key={keys} className="contents">
-            <dt className="font-mono">{keys}</dt>
-            <dd>{what}</dd>
+        {SHORTCUTS.map((s) => (
+          <div key={s.keys} className="contents">
+            <dt className="font-mono">{s.keys}</dt>
+            <dd>
+              {s.description} <span className="text-muted-foreground">({s.scope})</span>
+            </dd>
           </div>
         ))}
       </dl>

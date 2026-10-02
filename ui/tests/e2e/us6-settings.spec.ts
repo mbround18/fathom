@@ -165,7 +165,7 @@ test.describe('US6 settings', () => {
 
   test('shortcuts reference and About show the real app version', async ({ page }) => {
     await openSettings(page)
-    await expect(page.getByTestId('shortcuts')).toContainText('Ctrl/Cmd + K')
+    await expect(page.getByTestId('shortcuts')).toContainText('Ctrl/Cmd+K')
     await expect(page.getByTestId('shortcuts')).toContainText('Esc')
     const conf = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as {
       version: string

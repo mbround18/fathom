@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MetricsChart } from '@/components/MetricsChart'
 import { InspectorMetrics } from '@/components/InspectorMetrics'
 import { AppearanceSettings } from '@/components/panels/AppearanceSettings'
+import { SHORTCUTS } from '@/lib/shortcuts'
 import type { BackendCmd } from '@/protocol/types'
 import { SAVE_DEBOUNCE_MS, useStore } from '@/store'
 
@@ -72,7 +73,15 @@ describe('AppearanceSettings (T117)', () => {
 
   it('lists shortcuts and About', () => {
     render(<AppearanceSettings />)
-    expect(screen.getByTestId('shortcuts').textContent).toContain('Ctrl/Cmd + K')
+    // Every binding in the registry, not a sample: this panel and the `?` overlay used to keep
+    // their own lists, which drifted to two entries here against twelve there.
+    const text = screen.getByTestId('shortcuts').textContent
+    for (const s of SHORTCUTS) {
+      expect(text, `settings panel is missing the shortcut ${s.keys}`).toContain(s.keys)
+      expect(text, `settings panel is missing the description of ${s.keys}`).toContain(
+        s.description,
+      )
+    }
     expect(screen.getByTestId('about')).toBeTruthy()
     expect(screen.getByTestId('about-version').textContent).toBe('v9.8.7-test')
   })
