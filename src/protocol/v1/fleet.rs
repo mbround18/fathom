@@ -105,6 +105,16 @@ pub struct FleetMember {
     #[serde(default)]
     pub origins: BTreeMap<String, SettingOrigin>,
     pub availability: FleetMemberAvailability,
+    /// The names of every group whose selector matches this member's labels, resolved by the
+    /// backend.
+    ///
+    /// Membership is computed, never stored (FR-004), and it is computed **once** — here, by
+    /// `src/backend/fleet_model.rs`, the only parser of the selector grammar (Principle II). The
+    /// UI reads this list; it does not evaluate a selector to rediscover it. A group whose stored
+    /// selector no longer parses appears in no member's list and says so through
+    /// `FleetGroup::selector_error`.
+    #[serde(default)]
+    pub groups: Vec<String>,
 }
 
 /// A named label selector over members. Membership is computed on every model update,
@@ -119,6 +129,16 @@ pub struct FleetGroup {
     /// (FR-006). Round-trips to the string `ListParams::labels()` takes.
     pub selector: String,
     pub origin: SettingOrigin,
+    /// The parser's own message when the **stored** selector no longer parses, verbatim;
+    /// `None` when it parses.
+    ///
+    /// A selector is refused at entry (FR-006), so a stored one that fails to parse now is a file
+    /// edited outside Fathom or written by an older version. Such a group matches no member, and
+    /// that is not the same thing as a group whose selector matches nothing (FR-005): this field
+    /// is how the UI tells the two apart without parsing anything itself. Verbatim backend text,
+    /// like `FleetModelRejected::reason` and the `FleetGapReason` details.
+    #[serde(default)]
+    pub selector_error: Option<String>,
 }
 
 /// Why one member of a group is not covered by a rollup.
@@ -327,6 +347,7 @@ mod tests {
                 ("labels/env".to_owned(), SettingOrigin::OrgDefault),
             ]),
             availability: FleetMemberAvailability::Present,
+            groups: vec!["prod".to_owned(), "eu".to_owned()],
         }
     }
 
@@ -338,8 +359,14 @@ mod tests {
             labels: BTreeMap::new(),
             origins: BTreeMap::new(),
             availability: FleetMemberAvailability::Absent,
+            groups: Vec::new(),
             ..member()
         });
+        // A member in two groups keeps both, in order.
+        let two = member();
+        assert_eq!(two.groups, vec!["prod".to_owned(), "eu".to_owned()]);
+        let json = serde_json::to_string(&two).unwrap();
+        assert!(json.contains(r#""groups":["prod","eu"]"#), "{json}");
         rt(&FleetMemberAvailability::Present);
         rt(&FleetMemberAvailability::Absent);
     }
@@ -350,12 +377,33 @@ mod tests {
             name: "prod".to_owned(),
             selector: "env in (prod,staging),!canary".to_owned(),
             origin: SettingOrigin::Local,
+            selector_error: None,
         });
         rt(&FleetGroup {
             name: "shared".to_owned(),
             selector: "env=prod".to_owned(),
             origin: SettingOrigin::OrgDefault,
+            selector_error: None,
         });
+        // A group whose stored selector no longer parses carries the parser's words, verbatim.
+        let unparseable = FleetGroup {
+            name: "legacy".to_owned(),
+            selector: "env = = prod".to_owned(),
+            origin: SettingOrigin::Local,
+            selector_error: Some(
+                "invalid selector \"env = = prod\": expected a value after \"=\"".to_owned(),
+            ),
+        };
+        rt(&unparseable);
+        // "cannot be read" and "matches nothing" are different states, not one.
+        assert_ne!(
+            unparseable.selector_error,
+            FleetGroup {
+                selector_error: None,
+                ..unparseable.clone()
+            }
+            .selector_error
+        );
     }
 
     /// One case per variant. If `NotPermitted`, `Unreachable`, `Absent` and `Pending` are

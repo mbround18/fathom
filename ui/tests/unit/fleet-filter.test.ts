@@ -6,6 +6,10 @@
  * (FR-017), and how a rollup's coverage and its gaps read (FR-010, FR-011). Principle III requires
  * a unit test for exactly that class of logic, and SC-007 puts a 100 ms budget on the filter for a
  * fleet of 100.
+ *
+ * Membership arrives resolved: `FleetMember.groups` is the backend's answer and `selector_error`
+ * is the backend's parse failure (Principle II). The fixture therefore *supplies* both, exactly as
+ * `FleetModelUpdated` would — nothing here evaluates a selector expression.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -17,11 +21,9 @@ import {
   gapDetail,
   gapHeadline,
   isGrouped,
-  matchesSelector,
   membersOfGroup,
   orderedGaps,
   partitionFleet,
-  selectorReadable,
   showingLabel,
 } from '@/resources/fleet'
 
@@ -33,26 +35,52 @@ function pick(values: readonly string[], i: number): string {
   return values[i % values.length] ?? values[0] ?? ''
 }
 
+/**
+ * The membership the backend would have resolved for these labels, against the groups below.
+ *
+ * This stands in for `fleet_model::groups_matching`; the fixture states the answer rather than
+ * deriving it, because deriving it in TypeScript is the thing T052 removed.
+ */
+function resolved(labels: Record<string, string>): string[] {
+  const names: string[] = []
+  if (labels.env === 'prod') names.push('prod')
+  if (labels.region === 'us-east-1' || labels.region === 'us-west-2') names.push('us')
+  if (labels.owner !== undefined) names.push('owned')
+  return names
+}
+
 /** A hundred contexts shaped like the ones a real kubeconfig holds — ARNs and GKE strings. */
 function fleet(n = 100): FleetMember[] {
   return Array.from({ length: n }, (_, i) => {
     const env = i % 5 === 0 ? 'prod' : i % 5 === 1 ? 'staging' : 'dev'
+    // Four members carry no labels at all: they belong to no group (FR-017).
+    const labels: Record<string, string> =
+      i % 25 === 24 ? {} : { env, region: pick(REGIONS, i), owner: pick(OWNERS, i) }
     const member: FleetMember = {
       context:
         i % 2 === 0
           ? `arn:aws:eks:${pick(REGIONS, i)}:1234567890${i}:cluster/cluster-${i}`
           : `gke_my-project_${pick(REGIONS, i)}_cluster-${i}`,
       display_name: i % 3 === 0 ? `cluster ${i}` : null,
-      labels: { env, region: pick(REGIONS, i), owner: pick(OWNERS, i) },
+      labels,
       origins: {},
       availability: i === 97 ? 'Absent' : 'Present',
+      groups: resolved(labels),
     }
-    // Four members carry no labels at all: they belong to no group (FR-017).
-    return i % 25 === 24 ? { ...member, labels: {} } : member
+    return member
   })
 }
 
-const group = (name: string, selector: string): FleetGroup => ({ name, selector, origin: 'local' })
+const group = (
+  name: string,
+  selector: string,
+  selector_error: string | null = null,
+): FleetGroup => ({
+  name,
+  selector,
+  origin: 'local',
+  selector_error,
+})
 
 const MEMBERS = fleet()
 const PROD = group('prod', 'env=prod')
@@ -86,10 +114,12 @@ describe('membership follows the labels, with nothing filed per cluster', () => 
   })
 
   it('separates a selector that matches nothing from one that cannot be read at all', () => {
-    const broken = group('broken', 'env = = prod')
-    expect(selectorReadable('env in (prod, staging)')).toBe(true)
-    expect(selectorReadable('!owner')).toBe(true)
-    expect(selectorReadable('env = = prod')).toBe(false)
+    // The backend's verbatim parse failure, as `FleetGroup.selector_error` carries it.
+    const broken = group(
+      'broken',
+      'env = = prod',
+      'invalid selector "env = = prod": expected a value after "=" at offset 6',
+    )
 
     const view = partitionFleet(MEMBERS, [NONE, broken])
     // Both hold no members, and the view can still tell the operator which is which: one matched
@@ -98,23 +128,18 @@ describe('membership follows the labels, with nothing filed per cluster', () => 
     expect(view.groups[0]?.readable).toBe(true)
     expect(view.groups[1]?.members).toEqual([])
     expect(view.groups[1]?.readable).toBe(false)
+    // And a group nobody could parse is in no member's membership at all.
+    expect(MEMBERS.some((m) => m.groups.includes('broken'))).toBe(false)
   })
 
-  it('reads the kubectl -l subset the backend accepts, and nothing it does not', () => {
-    const labels = { env: 'prod', region: 'us-east-1' }
-    expect(matchesSelector('env=prod', labels)).toBe(true)
-    expect(matchesSelector('env==prod', labels)).toBe(true)
-    expect(matchesSelector('env!=dev', labels)).toBe(true)
-    expect(matchesSelector('env!=prod', labels)).toBe(false)
-    expect(matchesSelector('env in (prod, staging)', labels)).toBe(true)
-    expect(matchesSelector('region notin (eu-west-1)', labels)).toBe(true)
-    expect(matchesSelector('env, region', labels)).toBe(true)
-    expect(matchesSelector('!owner', labels)).toBe(true)
-    expect(matchesSelector('!env', labels)).toBe(false)
-    expect(matchesSelector('env=prod, region=us-west-2', labels)).toBe(false)
-    // An expression this module cannot read matches nothing: the group renders as matching
-    // nothing rather than the UI inventing a membership the backend never resolved.
-    expect(matchesSelector('env = = prod', labels)).toBe(false)
+  it('reads the membership the event carried, and evaluates no expression itself', () => {
+    // A selector this module could never read still resolves correctly, because it does not read
+    // it: the backend already said who is in the group (Principle II).
+    const opaque = group('opaque', 'env = = prod != !(((')
+    const held = MEMBERS.slice(0, 2).map((m) => ({ ...m, groups: ['opaque'] }))
+    const view = partitionFleet([...held, ...MEMBERS.slice(2)], [opaque])
+    expect(view.groups[0]?.readable).toBe(true)
+    expect(view.groups[0]?.members.map((m) => m.context)).toEqual(held.map((m) => m.context))
   })
 })
 

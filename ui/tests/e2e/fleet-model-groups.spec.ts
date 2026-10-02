@@ -31,15 +31,22 @@ const DEV = 'kind-dev'
 const LOOSE = 'kind-scratch'
 
 /** The backend's own parse error. The UI renders this string and never composes its own. */
-const PARSE_ERROR =
-  'invalid selector "env = = prod": expected a value after "=" at offset 6'
+const PARSE_ERROR = 'invalid selector "env = = prod": expected a value after "=" at offset 6'
 
-function member(context: string, labels: Record<string, string> = {}): FleetMember {
-  return { context, display_name: null, labels, origins: {}, availability: 'Present' }
+/**
+ * A member as `FleetModelUpdated` carries it: `groups` is the membership the backend resolved
+ * (FR-004). The UI parses no selector, so the fixture states the answer the backend would give.
+ */
+function member(
+  context: string,
+  labels: Record<string, string> = {},
+  groups: string[] = [],
+): FleetMember {
+  return { context, display_name: null, labels, origins: {}, availability: 'Present', groups }
 }
 
-function group(name: string, selector: string): FleetGroup {
-  return { name, selector, origin: 'local' }
+function group(name: string, selector: string, selector_error: string | null = null): FleetGroup {
+  return { name, selector, origin: 'local', selector_error }
 }
 
 function rollup(over: Partial<FleetGroupRollup> & { group: string }): FleetGroupRollup {
@@ -63,16 +70,16 @@ const groupMember = (page: Page, name: string, context: string): Locator =>
   )
 
 const gap = (page: Page, name: string, context: string): Locator =>
-  page.locator(
-    `[data-testid="fleet-gap"][data-group="${name}"][data-context-name="${context}"]`,
-  )
+  page.locator(`[data-testid="fleet-gap"][data-group="${name}"][data-context-name="${context}"]`)
 
 /** Open the shell with the kubeconfig's contexts and the fleet sheet showing. */
 async function openFleetWith(page: Page, contexts: string[]): Promise<void> {
   await open(page, 'manual')
   await emit(
     page,
-    batch([system(1, { type: 'ContextsUpdated', data: { contexts, current: contexts[0] ?? null } })]),
+    batch([
+      system(1, { type: 'ContextsUpdated', data: { contexts, current: contexts[0] ?? null } }),
+    ]),
   )
   await openFleet(page)
 }
@@ -96,8 +103,8 @@ test('one selector expression lists the group, with no per-cluster filing step',
     page,
     2,
     [
-      member(PROD_A, { env: 'prod', region: 'us-east-1' }),
-      member(PROD_B, { env: 'prod', region: 'us-central1' }),
+      member(PROD_A, { env: 'prod', region: 'us-east-1' }, ['prod', 'us']),
+      member(PROD_B, { env: 'prod', region: 'us-central1' }, ['prod']),
       member(DEV, { env: 'dev' }),
     ],
     [group('prod', 'env=prod'), group('us', 'region in (us-east-1, us-west-2)')],
@@ -112,7 +119,9 @@ test('one selector expression lists the group, with no per-cluster filing step',
   await expect(groupSection(page, 'prod').getByTestId('fleet-group-member')).toHaveCount(2)
 
   // The group's own expression is on screen, verbatim as typed.
-  await expect(groupSection(page, 'prod').getByTestId('fleet-group-selector')).toHaveText('env=prod')
+  await expect(groupSection(page, 'prod').getByTestId('fleet-group-selector')).toHaveText(
+    'env=prod',
+  )
 
   // SC-002: nothing was filed per cluster. The view asks for each group's rollup and nothing else.
   const commands = await sent(page)
@@ -130,7 +139,7 @@ test('labelling a cluster joins it to every matching group with no further actio
   await emitModel(
     page,
     2,
-    [member(PROD_A, { env: 'prod' }), member(DEV, { env: 'dev' })],
+    [member(PROD_A, { env: 'prod' }, ['prod']), member(DEV, { env: 'dev' })],
     [group('prod', 'env=prod')],
   )
   await expect(groupMember(page, 'prod', DEV)).toHaveCount(0)
@@ -140,7 +149,7 @@ test('labelling a cluster joins it to every matching group with no further actio
   await emitModel(
     page,
     3,
-    [member(PROD_A, { env: 'prod' }), member(DEV, { env: 'prod' })],
+    [member(PROD_A, { env: 'prod' }, ['prod']), member(DEV, { env: 'prod' }, ['prod'])],
     [group('prod', 'env=prod')],
   )
 
@@ -172,7 +181,7 @@ test('members matching no group are reachable through an explicit ungrouped list
   await emitModel(
     page,
     2,
-    [member(PROD_A, { env: 'prod' }), member(LOOSE)],
+    [member(PROD_A, { env: 'prod' }, ['prod']), member(LOOSE)],
     [group('prod', 'env=prod')],
   )
 
@@ -194,10 +203,10 @@ test('a partial rollup states n of m, names the member it missed, and says which
     page,
     2,
     [
-      member(PROD_A, { env: 'prod' }),
-      member(PROD_B, { env: 'prod' }),
-      member(DEV, { env: 'prod' }),
-      member(LOOSE, { env: 'prod' }),
+      member(PROD_A, { env: 'prod' }, ['prod']),
+      member(PROD_B, { env: 'prod' }, ['prod']),
+      member(DEV, { env: 'prod' }, ['prod']),
+      member(LOOSE, { env: 'prod' }, ['prod']),
     ],
     [group('prod', 'env=prod')],
   )
@@ -247,7 +256,9 @@ test('a partial rollup states n of m, names the member it missed, and says which
   for (const g of [denied, unreachable, absent]) await expect(g).toBeVisible()
   await expect(denied).toContainText(PROD_B)
   await expect(denied).toContainText(/not permitted/i)
-  await expect(denied).toContainText('nodes is forbidden: User "deploy" cannot list resource "nodes"')
+  await expect(denied).toContainText(
+    'nodes is forbidden: User "deploy" cannot list resource "nodes"',
+  )
 
   // FR-011: three reasons, three renderings. A UI that collapsed them would pass a test that only
   // looked at `notPermitted`, so compare them against each other.
@@ -263,7 +274,9 @@ test('a partial rollup states n of m, names the member it missed, and says which
   )
   expect(new Set(texts).size).toBe(3)
   const classes = await Promise.all(
-    [denied, unreachable, absent].map((g) => g.getByTestId('fleet-gap-reason').getAttribute('class')),
+    [denied, unreachable, absent].map((g) =>
+      g.getByTestId('fleet-gap-reason').getAttribute('class'),
+    ),
   )
   expect(new Set(classes).size).toBe(3)
 })
@@ -273,7 +286,7 @@ test('a fully covered rollup still states its coverage', async ({ page }) => {
   await emitModel(
     page,
     2,
-    [member(PROD_A, { env: 'prod' }), member(PROD_B, { env: 'prod' })],
+    [member(PROD_A, { env: 'prod' }, ['prod']), member(PROD_B, { env: 'prod' }, ['prod'])],
     [group('prod', 'env=prod')],
   )
   await emit(
@@ -305,8 +318,8 @@ test('the filter states how many of how many members it is showing', async ({ pa
     page,
     2,
     [
-      member(PROD_A, { env: 'prod' }),
-      member(PROD_B, { env: 'prod' }),
+      member(PROD_A, { env: 'prod' }, ['prod']),
+      member(PROD_B, { env: 'prod' }, ['prod']),
       member(DEV, { env: 'dev' }),
     ],
     [group('prod', 'env=prod')],
@@ -332,7 +345,9 @@ test('an invalid selector is refused in the backend words, and creates no group'
 
   // The backend owns the grammar: the UI sends the expression verbatim and waits (Principle II).
   const saves = (await sent(page)).filter((c) => c.type === 'SaveFleetGroup')
-  expect(saves).toEqual([{ type: 'SaveFleetGroup', data: { name: 'prod', selector: 'env = = prod' } }])
+  expect(saves).toEqual([
+    { type: 'SaveFleetGroup', data: { name: 'prod', selector: 'env = = prod' } },
+  ])
 
   await emit(
     page,

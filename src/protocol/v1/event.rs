@@ -1801,14 +1801,13 @@ mod tests {
         }));
     }
 
-    /// 046-fleet-model: one round-trip per new event variant (FR-019), including one
-    /// `FleetGapReason` case per variant so a collapsed enum fails the build (FR-011).
+    /// 046-fleet-model: the model events (FR-019). `FleetMember::groups` carries the membership
+    /// the backend resolved, and `FleetGroup::selector_error` the parse failure of a *stored*
+    /// selector — the two fields that keep the selector grammar in one place (Principle II).
     #[test]
     fn fleet_model_events_roundtrip() {
         use crate::protocol::v1::{
-            AdoptedFleetDefinition, FleetCoverageGap, FleetGapReason, FleetGroup, FleetGroupRollup,
-            FleetMember, FleetMemberAvailability, FleetMemberShare, SettingOrigin,
-            SharedFleetDefinition,
+            FleetGroup, FleetMember, FleetMemberAvailability, SettingOrigin,
         };
         use std::collections::BTreeMap;
 
@@ -1820,6 +1819,8 @@ mod tests {
                     labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
                     origins: BTreeMap::from([("display_name".to_owned(), SettingOrigin::Local)]),
                     availability: FleetMemberAvailability::Present,
+                    // A member in two groups: membership is resolved by the backend (FR-004).
+                    groups: vec!["prod".to_owned(), "eu".to_owned()],
                 },
                 FleetMember {
                     context: "retired".to_owned(),
@@ -1827,13 +1828,34 @@ mod tests {
                     labels: BTreeMap::new(),
                     origins: BTreeMap::new(),
                     availability: FleetMemberAvailability::Absent,
+                    groups: Vec::new(),
                 },
             ],
-            groups: vec![FleetGroup {
-                name: "prod".to_owned(),
-                selector: "env in (prod,staging)".to_owned(),
-                origin: SettingOrigin::OrgDefault,
-            }],
+            groups: vec![
+                FleetGroup {
+                    name: "prod".to_owned(),
+                    selector: "env in (prod,staging)".to_owned(),
+                    origin: SettingOrigin::OrgDefault,
+                    selector_error: None,
+                },
+                FleetGroup {
+                    name: "eu".to_owned(),
+                    selector: "region".to_owned(),
+                    origin: SettingOrigin::Local,
+                    selector_error: None,
+                },
+                // A stored selector that no longer parses: it matches nobody *and* says why,
+                // which is what keeps it distinct from a group matching nothing (FR-005).
+                FleetGroup {
+                    name: "legacy".to_owned(),
+                    selector: "env = = prod".to_owned(),
+                    origin: SettingOrigin::Local,
+                    selector_error: Some(
+                        "invalid selector \"env = = prod\": expected a value after \"=\" at offset 6"
+                            .to_owned(),
+                    ),
+                },
+            ],
         });
         system_roundtrip(SystemEvent::FleetModelUpdated {
             members: vec![],
@@ -1851,6 +1873,17 @@ mod tests {
             path: "/home/op/.fathom/fleet.json".to_owned(),
             reason: "EOF while parsing an object at line 4 column 0".to_owned(),
         });
+    }
+
+    /// 046-fleet-model: the rollup and sharing events, one `FleetGapReason` case per variant so
+    /// a collapsed enum fails the build (FR-011).
+    #[test]
+    fn fleet_rollup_and_sharing_events_roundtrip() {
+        use crate::protocol::v1::{
+            AdoptedFleetDefinition, FleetCoverageGap, FleetGapReason, FleetGroupRollup,
+            FleetMemberShare, SharedFleetDefinition,
+        };
+        use std::collections::BTreeMap;
 
         for reason in [
             FleetGapReason::NotPermitted {

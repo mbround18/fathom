@@ -53,9 +53,19 @@ function pending(context: string): FleetContextSummary {
   }
 }
 
-/** A context the kubeconfig has but `fleet.json` has nothing to say about yet. */
+/**
+ * A context the kubeconfig has but `fleet.json` has nothing to say about yet. With no labels it is
+ * in no group, which is exactly what the backend would have resolved for it.
+ */
 function unnamed(context: string): FleetMember {
-  return { context, display_name: null, labels: {}, origins: {}, availability: 'Present' }
+  return {
+    context,
+    display_name: null,
+    labels: {},
+    origins: {},
+    availability: 'Present',
+    groups: [],
+  }
 }
 
 /** One rendering per gap reason — the three the operator confuses at their peril look different. */
@@ -209,7 +219,10 @@ export function FleetDashboardView({ onSelected }: { onSelected?: () => void }) 
                         <span className="truncate font-mono">{g.context}</span>
                         <span
                           data-testid="fleet-gap-reason"
-                          className={cn('shrink-0 rounded border px-1.5 py-0.5', GAP_CLASS[g.reason.kind])}
+                          className={cn(
+                            'shrink-0 rounded border px-1.5 py-0.5',
+                            GAP_CLASS[g.reason.kind],
+                          )}
                         >
                           {gapHeadline(g.reason)}
                         </span>
@@ -231,6 +244,12 @@ export function FleetDashboardView({ onSelected }: { onSelected?: () => void }) 
               <p data-testid="fleet-group-unreadable" className="text-xs text-amber-300">
                 This group&apos;s selector could not be read, so its membership is unknown — not
                 empty. Re-save the group to have the backend parse it again.
+                {/* The parser's own words, verbatim (Principle I). */}
+                {group.selector_error === null ? null : (
+                  <span data-testid="fleet-group-selector-error" className="mt-1 block break-words">
+                    {group.selector_error}
+                  </span>
+                )}
               </p>
             ) : held.length === 0 ? (
               <p data-testid="fleet-group-empty" className="text-xs text-muted-foreground">

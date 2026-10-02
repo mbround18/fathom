@@ -2977,11 +2977,30 @@ fn all_system_events() -> Vec<SystemEvent> {
         // 046-fleet-model
         SystemEvent::FleetModelUpdated {
             members: vec![sample_fleet_member()],
-            groups: vec![FleetGroup {
-                name: "prod".to_owned(),
-                selector: "env in (prod,staging)".to_owned(),
-                origin: SettingOrigin::Local,
-            }],
+            groups: vec![
+                FleetGroup {
+                    name: "prod".to_owned(),
+                    selector: "env in (prod,staging)".to_owned(),
+                    origin: SettingOrigin::Local,
+                    selector_error: None,
+                },
+                FleetGroup {
+                    name: "eu".to_owned(),
+                    selector: "region".to_owned(),
+                    origin: SettingOrigin::Local,
+                    selector_error: None,
+                },
+                // A group whose stored selector no longer parses, with the parser's own words.
+                FleetGroup {
+                    name: "legacy".to_owned(),
+                    selector: "env = = prod".to_owned(),
+                    origin: SettingOrigin::Local,
+                    selector_error: Some(
+                        "invalid selector \"env = = prod\": expected a value after \"=\""
+                            .to_owned(),
+                    ),
+                },
+            ],
         },
         SystemEvent::FleetModelRejected {
             reason: "label key \"a//b\" is invalid".to_owned(),
@@ -3172,6 +3191,8 @@ fn sample_fleet_member() -> FleetMember {
         labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
         origins: BTreeMap::from([("display_name".to_owned(), SettingOrigin::Local)]),
         availability: FleetMemberAvailability::Present,
+        // Two groups: `FleetMember::groups` is the backend's resolved membership (FR-004).
+        groups: vec!["prod".to_owned(), "eu".to_owned()],
     }
 }
 

@@ -19,6 +19,20 @@ import { useStore } from '@/store'
 
 /** The `FleetModelRejected.field` values this editor can place a message against. */
 const DISPLAY_NAME_FIELD = 'display_name'
+/** Every label rejection names the key it refused: `labels/<key>` (data-model.md `origins`). */
+const LABEL_FIELD_PREFIX = 'labels/'
+
+/**
+ * Does this rejection belong to *this* editor at all?
+ *
+ * `fleetRejection` is one session-wide slot, so a refusal from the group editor
+ * (`field: "selector"`) arrives here too. Only `display_name` and `labels/<key>` are fields this
+ * editor owns; anything else is someone else's refusal and must not be rendered against an input
+ * the operator did not touch.
+ */
+function owned(field: string | null): boolean {
+  return field === DISPLAY_NAME_FIELD || (field !== null && field.startsWith(LABEL_FIELD_PREFIX))
+}
 
 export function FleetMemberEditor({ context, member }: { context: string; member?: FleetMember }) {
   const send = useStore((s) => s.send)
@@ -30,9 +44,12 @@ export function FleetMemberEditor({ context, member }: { context: string; member
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
 
-  // The rejection names a field; `labels/<key>` and a null field both belong to the label block.
-  const nameRejected = rejection !== null && rejection.field === DISPLAY_NAME_FIELD
-  const labelsRejected = rejection !== null && !nameRejected
+  // Only a rejection this editor owns is shown here. `labels/<key>` and a null field — a refusal
+  // that names no input, e.g. the disk refusing the write — belong to the label block; a
+  // `field: "selector"` refusal from the group editor belongs to neither and renders nowhere.
+  const mine = rejection !== null && (rejection.field === null || owned(rejection.field))
+  const nameRejected = mine && rejection.field === DISPLAY_NAME_FIELD
+  const labelsRejected = mine && !nameRejected
 
   const message = (show: boolean) =>
     show && rejection !== null ? (

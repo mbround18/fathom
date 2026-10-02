@@ -134,7 +134,6 @@ fn edit_model(
 fn emit_model(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>, file: &FleetFile) {
     let contexts = kubeconfig_contexts(state);
     let (members, groups) = model_from(file, &contexts);
-    log_group_membership(&members, &groups);
     emit(
         state,
         sender,
@@ -570,7 +569,7 @@ fn model_from(file: &FleetFile, contexts: &[String]) -> (Vec<FleetMember>, Vec<F
         .chain(present.iter().copied())
         .collect();
 
-    let members = names
+    let mut members: Vec<FleetMember> = names
         .into_iter()
         .map(|context| {
             let record = file.members.get(context);
@@ -584,53 +583,69 @@ fn model_from(file: &FleetFile, contexts: &[String]) -> (Vec<FleetMember>, Vec<F
                 } else {
                     FleetMemberAvailability::Absent
                 },
+                // Filled in by `resolve_membership` below, once the selectors are parsed.
+                groups: Vec::new(),
             }
         })
         .collect();
 
-    let groups = file
+    let mut groups: Vec<FleetGroup> = file
         .groups
         .iter()
         .map(|(name, record)| FleetGroup {
             name: name.clone(),
             selector: record.selector.clone(),
             origin: record.origin,
+            selector_error: None,
         })
         .collect();
 
+    resolve_membership(&mut members, &mut groups);
     (members, groups)
 }
 
-/// Compute each member's group membership (FR-004) and record it in the log.
+/// Resolve group membership once, here, and record what each group reported (FR-004).
 ///
-/// Membership is not carried in `FleetModelUpdated`: the UI derives it from the same labels
-/// and selectors the event already contains, so there is one definition of it rather than
-/// two. What this pass is for is the backend's own check that every *stored* selector still
-/// parses — a group whose expression no longer parses would otherwise show as a group
-/// matching nothing, which is indistinguishable from a group whose selector matches nothing
-/// (FR-005). Here it says so by name instead.
-fn log_group_membership(members: &[FleetMember], groups: &[FleetGroup]) {
-    let mut parsed: Vec<(&str, Selector)> = Vec::with_capacity(groups.len());
-    for group in groups {
+/// This is the **only** evaluation of the selector grammar: `src/backend/fleet_model.rs` parses
+/// the expression and `FleetMember::groups` carries the answer to the UI, so nothing downstream
+/// has to re-derive it (Principle II). A group whose *stored* selector no longer parses — a file
+/// edited outside Fathom, or written by an older version — contributes to no member's list and
+/// records the parser's verbatim message in `selector_error`. That is what keeps it
+/// distinguishable from a group that parses and matches nothing (FR-005): the latter has an empty
+/// membership and `selector_error: None`, and the UI reads the difference without parsing a thing.
+fn resolve_membership(members: &mut [FleetMember], groups: &mut [FleetGroup]) {
+    let mut parsed: Vec<(String, Selector)> = Vec::with_capacity(groups.len());
+    for group in groups.iter_mut() {
         match fleet_model::parse_selector(&group.selector) {
-            Ok(selector) => parsed.push((group.name.as_str(), selector)),
-            Err(e) => tracing::warn!(
-                "fleet group {:?} has an unparseable selector and matches nothing: {}",
-                group.name,
-                e
-            ),
+            Ok(selector) => {
+                group.selector_error = None;
+                parsed.push((group.name.clone(), selector));
+            }
+            Err(e) => {
+                // Verbatim, like every other refusal this feature reports (Principle I).
+                group.selector_error = Some(e.to_string());
+                tracing::warn!(
+                    "fleet group {:?} has an unparseable selector and matches nothing: {}",
+                    group.name,
+                    e
+                );
+            }
         }
     }
-    if parsed.is_empty() {
-        return;
-    }
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for member in members {
-        for name in fleet_model::groups_matching(
-            parsed.iter().map(|(name, selector)| (*name, selector)),
+
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for member in members.iter_mut() {
+        member.groups = fleet_model::groups_matching(
+            parsed
+                .iter()
+                .map(|(name, selector)| (name.as_str(), selector)),
             &member.labels,
-        ) {
-            *counts.entry(name).or_default() += 1;
+        )
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        for name in &member.groups {
+            *counts.entry(name.clone()).or_default() += 1;
         }
     }
     tracing::debug!(
@@ -719,13 +734,76 @@ mod tests {
     #[test]
     fn membership_is_computed_from_labels() {
         let (members, groups) = model_from(&file(), &["prod-a".to_owned()]);
-        let selector = fleet_model::parse_selector(&groups[0].selector).unwrap();
+        // The answer travels in the event: no caller re-evaluates the selector (Principle II).
         let matched: Vec<&str> = members
             .iter()
-            .filter(|m| !fleet_model::groups_matching([("prod", &selector)], &m.labels).is_empty())
+            .filter(|m| m.groups.iter().any(|g| g == &groups[0].name))
             .map(|m| m.context.as_str())
             .collect();
         assert_eq!(matched, ["prod-a", "retired"]);
+        // A group that parses carries no error, whether or not it matched anyone.
+        assert!(groups.iter().all(|g| g.selector_error.is_none()));
+    }
+
+    /// A member matches every group it matches, and the list is the group definition order.
+    #[test]
+    fn a_member_in_two_groups_names_both() {
+        let mut f = file();
+        f.groups.insert(
+            "all".to_owned(),
+            FleetGroupRecord {
+                selector: "env".to_owned(),
+                origin: SettingOrigin::Local,
+            },
+        );
+        let (members, _) = model_from(&f, &["prod-a".to_owned()]);
+        let prod_a = members.iter().find(|m| m.context == "prod-a").unwrap();
+        assert_eq!(prod_a.groups, ["all".to_owned(), "prod".to_owned()]);
+    }
+
+    /// FR-005/FR-011: "matches nothing" and "cannot be read" are two states, not one. A group
+    /// that parses and matches nobody has an empty membership and no error; a group whose stored
+    /// selector no longer parses has an empty membership *and* the parser's verbatim message, and
+    /// appears in no member's `groups`.
+    #[test]
+    fn a_group_that_matches_nothing_reads_differently_from_one_that_cannot_be_parsed() {
+        let mut f = file();
+        f.groups.insert(
+            "empty".to_owned(),
+            FleetGroupRecord {
+                selector: "env=nowhere".to_owned(),
+                origin: SettingOrigin::Local,
+            },
+        );
+        f.groups.insert(
+            "broken".to_owned(),
+            FleetGroupRecord {
+                selector: "env = = prod".to_owned(),
+                origin: SettingOrigin::Local,
+            },
+        );
+        let (members, groups) = model_from(&f, &["prod-a".to_owned()]);
+
+        let find = |name: &str| {
+            groups
+                .iter()
+                .find(|g| g.name == name)
+                .unwrap_or_else(|| panic!("no group {name}"))
+        };
+        assert_eq!(find("empty").selector_error, None);
+        let expected = fleet_model::parse_selector("env = = prod")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(find("broken").selector_error.as_deref(), Some(&*expected));
+
+        // Neither holds a member — and the unparseable one is in nobody's list at all.
+        for member in &members {
+            assert!(!member.groups.iter().any(|g| g == "empty"));
+            assert!(
+                !member.groups.iter().any(|g| g == "broken"),
+                "an unparseable selector must not resolve any membership"
+            );
+        }
     }
 
     /// The four 014-sharing commands are US3's (T039-T042) and must still fall through to the
@@ -1036,6 +1114,7 @@ mod tests {
             labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
             origins: BTreeMap::new(),
             availability,
+            groups: Vec::new(),
         }
     }
 

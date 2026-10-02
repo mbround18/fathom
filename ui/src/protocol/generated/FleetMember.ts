@@ -28,4 +28,15 @@ labels: { [key in string]: string },
  * Mirrors `ClusterSettingsFieldOrigin`. A local value wins, is marked local, and the
  * shared value it overrode stays visible (FR-013).
  */
-origins: { [key in string]: SettingOrigin }, availability: FleetMemberAvailability, };
+origins: { [key in string]: SettingOrigin }, availability: FleetMemberAvailability, 
+/**
+ * The names of every group whose selector matches this member's labels, resolved by the
+ * backend.
+ *
+ * Membership is computed, never stored (FR-004), and it is computed **once** — here, by
+ * `src/backend/fleet_model.rs`, the only parser of the selector grammar (Principle II). The
+ * UI reads this list; it does not evaluate a selector to rediscover it. A group whose stored
+ * selector no longer parses appears in no member's list and says so through
+ * `FleetGroup::selector_error`.
+ */
+groups: Array<string>, };

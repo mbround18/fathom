@@ -32,6 +32,7 @@ function member(context: string, over: Partial<FleetMember> = {}): FleetMember {
     labels: {},
     origins: {},
     availability: 'Present',
+    groups: [],
     ...over,
   }
 }
@@ -147,6 +148,24 @@ test('an invalid label is refused in the backend’s words and nothing is shown 
   const persisted = subject.getByTestId('fleet-member-labels')
   await expect(persisted.getByTestId('fleet-member-label')).toHaveCount(2)
   await expect(persisted.locator('[data-label-key="env/team/prod"]')).toHaveCount(0)
+
+  // T052: a refusal this editor does not own must not render here. `fleetRejection` is one
+  // session-wide slot, so a `field: "selector"` refusal from the *group* editor would otherwise
+  // appear under the label block of every open member editor — a message pointed at an input the
+  // operator never touched. Only `display_name` and `labels/<key>` belong to this editor.
+  await emit(
+    page,
+    batch([
+      system(4, {
+        type: 'FleetModelRejected',
+        data: {
+          reason: 'invalid selector "env = = prod": expected a value after "=" at offset 6',
+          field: 'selector',
+        },
+      }),
+    ]),
+  )
+  await expect(subject.getByTestId('fleet-member-rejection')).toHaveCount(0)
 })
 
 test('a display name and labels are both there after a reload', async ({ page }) => {

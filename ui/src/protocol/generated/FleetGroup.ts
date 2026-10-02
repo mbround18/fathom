@@ -16,4 +16,15 @@ name: string,
  * expression is rejected with the parse error verbatim and no group is created
  * (FR-006). Round-trips to the string `ListParams::labels()` takes.
  */
-selector: string, origin: SettingOrigin, };
+selector: string, origin: SettingOrigin, 
+/**
+ * The parser's own message when the **stored** selector no longer parses, verbatim;
+ * `None` when it parses.
+ *
+ * A selector is refused at entry (FR-006), so a stored one that fails to parse now is a file
+ * edited outside Fathom or written by an older version. Such a group matches no member, and
+ * that is not the same thing as a group whose selector matches nothing (FR-005): this field
+ * is how the UI tells the two apart without parsing anything itself. Verbatim backend text,
+ * like `FleetModelRejected::reason` and the `FleetGapReason` details.
+ */
+selector_error: string | null, };
