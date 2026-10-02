@@ -1,6 +1,11 @@
 /** 027-fleet-rollup-dashboard: `SystemEvent::FleetSummaryUpdated` handling; 046-fleet-model:
- * `FleetModelUpdated` and `FleetModelRejected`. */
-import type { FleetContextSummary, FleetGroup, FleetMember } from '@/protocol/types'
+ * `FleetModelUpdated`, `FleetModelRejected` and `FleetGroupRollupUpdated`. */
+import type {
+  FleetContextSummary,
+  FleetGroup,
+  FleetGroupRollup,
+  FleetMember,
+} from '@/protocol/types'
 
 import type { Draft } from '../draft'
 
@@ -32,4 +37,14 @@ export function applyFleetRejection(
   data: { reason: string; field: string | null },
 ): void {
   d.edit('session').fleetRejection = { reason: data.reason, field: data.field }
+}
+
+/**
+ * 046-fleet-model US2 (FR-010): one group's rollup, stored whole and keyed by group name. The
+ * coverage fields travel with the sums because the type cannot express a sum without them — the
+ * UI stores what arrived and derives no total of its own.
+ */
+export function applyFleetGroupRollup(d: Draft, rollup: FleetGroupRollup): void {
+  const session = d.edit('session')
+  session.fleetRollups = { ...session.fleetRollups, [rollup.group]: rollup }
 }

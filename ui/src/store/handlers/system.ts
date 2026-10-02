@@ -41,7 +41,12 @@ import {
   applyDaemonTopology,
 } from './daemon'
 import { applyFederationRollup, applyFederationState } from './federation'
-import { applyFleetModel, applyFleetRejection, applyFleetSummary } from './fleet'
+import {
+  applyFleetGroupRollup,
+  applyFleetModel,
+  applyFleetRejection,
+  applyFleetSummary,
+} from './fleet'
 import { clearDenied, deniedKeyOf, rowId } from './list'
 
 const CRD_FAILURE_STATUS: Record<CrdListFailure['type'], CrdInstancesState['status']> = {
@@ -254,6 +259,10 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
 
     case 'FleetModelRejected':
       applyFleetRejection(d, event.data)
+      return
+
+    case 'FleetGroupRollupUpdated':
+      applyFleetGroupRollup(d, event.data)
       return
 
     case 'DaemonStatusUpdated':

@@ -74,6 +74,7 @@ import type {
   ToolKind,
   FleetContextSummary,
   FleetGroup,
+  FleetGroupRollup,
   FleetMember,
   CloudAuthInfo,
   PluginError,
@@ -254,6 +255,9 @@ export interface SessionState {
   /** 046-fleet-model: the last `FleetModelRejected`, verbatim, with the field it names. Cleared
    * by the next accepted `FleetModelUpdated`. */
   fleetRejection: { reason: string; field: string | null } | null
+  /** 046-fleet-model US2: the rollup per group name, exactly as `FleetGroupRollupUpdated`
+   * delivered it — its coverage and its gaps included, so no sum is ever held without them. */
+  fleetRollups: Record<string, FleetGroupRollup>
   /** 034-simultaneous-federation: the live federated set and its rollups (backend-owned). */
   federation: FederationSlice
   /** 031: the identity cannot list namespaces; `namespaces` holds only the ones it reaches
@@ -1354,6 +1358,7 @@ export function initialData(): StoreData {
       fleetMembers: {},
       fleetGroups: [],
       fleetRejection: null,
+      fleetRollups: {},
       federation: initialFederation(),
     },
     lists: {},
