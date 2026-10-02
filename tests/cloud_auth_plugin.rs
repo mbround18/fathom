@@ -19,7 +19,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    /// A tempdir holding a copy of the fake plugin named like a real provider plugin.
+    /// A tempdir holding the fake plugin named like a real provider plugin.
     fn new(name: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join(if cfg!(windows) {
@@ -27,6 +27,14 @@ impl Fixture {
         } else {
             name.to_owned()
         });
+        // A symlink, not a copy. These tests run concurrently in one process, and a copy opens the
+        // destination for writing: any sibling test that forks between that open and its close
+        // inherits the writable descriptor, and its `exec` of the same inode fails with ETXTBSY
+        // ("Text file busy"). A symlink never opens the target for writing, and `fs::metadata`
+        // follows it, so discovery still sees an executable regular file.
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(FAKE, &bin).unwrap();
+        #[cfg(not(unix))]
         std::fs::copy(FAKE, &bin).unwrap();
         Self { dir }
     }
