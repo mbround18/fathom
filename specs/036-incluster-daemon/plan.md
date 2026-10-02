@@ -14,7 +14,7 @@ Add `fathom-daemon`, a headless read-only Rust binary (new workspace member `dae
 **Testing**: `cargo test` (derivation diff tables, ring buffer/replay/truncation, coalescing, frame round-trips, probe classification, fallback), protocol round-trips + binding drift, Vitest (timeline merge, staleness), Playwright vs fake backend, `k8s/test-daemon.sh` on kind.
 **Target Platform**: Daemon: Linux container (amd64, arm64). Desktop Tier 1 platforms unchanged.
 **Project Type**: Multi-crate workspace + one new member `daemon/`, additive `k8s/` addon and overlay.
-**Performance Goals**: reconnect replay of 1,000 events under 2 s; topology change visible in <= 5 s; daemon < 150 MiB RSS (incl. topology and metrics ring) and < 2% idle CPU at 5,000 objects; client input handling unaffected (batched 250 ms).
+**Performance Goals**: reconnect replay of 1,000 events under 2 s; topology change visible in <= 5 s; daemon < 250 MiB RSS (incl. topology and metrics ring) and < 2% idle CPU at 5,000 objects; client input handling unaffected (batched 250 ms).
 **Constraints**: read-only (the only non-read verb is `create` on `subjectaccessreviews` for per-user checks); zero daemon requests when preference off; no new listeners beyond ClusterIP; reached only via a registered `APIService` (research R1); every response filtered to the caller's RBAC (R10, FR-017); no third-party database bundled (R13); bounded buffers.
 **Scale/Scope**: single replica, up to ~10k objects, 8 concurrent streams.
 

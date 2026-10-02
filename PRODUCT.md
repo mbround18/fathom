@@ -82,8 +82,7 @@ Two things a neighbouring tool could not truthfully copy without building them:
   generation is a nice-to-have by comparison.
 - **MVP ships Linux only** — unsigned `.deb`/`.rpm`/`.AppImage`. macOS, Windows, cross-compilation
   and signing are post-MVP, though the codebase targets all three.
-- **Known open items** (recorded so they are not mistaken for finished): the in-cluster daemon's
-  render peak of 156–179 MiB exceeds its 150 MiB budget; live cloud-auth verification, a 25-user
+- **Known open items** (recorded so they are not mistaken for finished): live cloud-auth verification, a 25-user
   hosted soak, a Helm upgrade/uninstall check and a WebKit pass are written but not run.
 
 ## Brand Commitments

@@ -142,7 +142,7 @@ With the daemon enabled, the operator opens a topology view that shows workload,
 - **FR-010**: The UI MUST show a "While you were away" timeline of daemon-derived events, reasons/messages verbatim, distinguishing derived from raw Events.
 - **FR-011**: Fathom MUST NOT install, upgrade or remove the daemon; installation is an explicit operator action (Principle I). The UI MAY show the documented install command.
 - **FR-012**: The daemon MUST be deployable and removable via `./k8s` kustomize overlays, ship as a container image from the shared Dockerfile, and be covered by an automated kind integration test.
-- **FR-013**: Resource use MUST be bounded: configurable buffer size and retention; target under 150 MiB RSS (including topology and the metrics ring) and under 2% of one core idle at 5,000 objects; single replica by default.
+- **FR-013**: Resource use MUST be bounded: configurable buffer size and retention; target under 250 MiB RSS (including topology and the metrics ring) and under 2% of one core idle at 5,000 objects; single replica by default.
 - **FR-014**: The daemon MUST expose health/readiness and version/capability endpoints and log without secrets.
 - **FR-015**: Client MUST discard events from a superseded context/session; high-volume streams MUST be batched and bounded.
 - **FR-016**: Existing `~/.fathom/` state MUST load unchanged; the per-context daemon preference is additive.

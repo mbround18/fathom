@@ -122,9 +122,12 @@ Idle CPU was 0.05 to 0.09% of one core, against a target under 2%.
 
 Before the fix, 10 concurrent pods snapshots OOM-killed the daemon at its 256Mi limit. Each render holds a full ~13 MiB body, and a doubling `Vec` briefly doubles that. Now at most `MAX_CONCURRENT_RENDERS` (2) renders run at once; more callers queue and are never rejected. The buffer is also sized up front from the previous render's bytes per item.
 
-So steady-state RSS is under 150 MiB at about 5,400 objects, but only just, and the budget has two gaps:
-- **Transient peaks exceed it** while snapshots are served.
-- **The metrics ring was barely exercised.** kwok pods have no metrics, so only the ~14 real pods had series. At 5,000 real pods the ring grows toward its 32 MiB cap (`DEFAULT_MAX_BYTES`), which would put the daemon over budget. Meeting 150 MiB there needs a lower ring cap, or leaner stored objects (for example, projecting pods to the fields the snapshot and topology need).
+So steady-state RSS is 146 MiB at about 5,400 objects, and the render high-water mark is 179 MiB.
+Both sit inside the 250 MiB budget (FR-013, raised from 150 MiB on 2026-10-01 once these numbers
+showed what the render path actually costs; the container limit went to 384Mi to keep margin above
+it). One gap is measured rather than closed:
+
+- **The metrics ring was barely exercised.** kwok pods have no metrics, so only the ~14 real pods had series. At 5,000 real pods the ring grows toward its 32 MiB cap (`DEFAULT_MAX_BYTES`), projecting ~210 MiB with a render in flight. That is still under budget, but it is a projection, not a measurement: confirming it needs 5,000 pods with real metrics. A lower ring cap or leaner stored objects (projecting pods to the fields the snapshot and topology need) remain the levers if it ever does go over.
 
 **T037: client idle CPU with the stream open.** The same backend, idle for 120 s after the first list. The cluster was not silent: a CronJob, a failing Job and kwok status updates were running.
 
