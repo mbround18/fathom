@@ -351,9 +351,17 @@ function Body({
         ))}
       </ol>
 
-      {/* One section per step; `StepBody` is the only place that decides which one. */}
+      {/*
+        One section per step; `StepBody` is the only place that decides which one.
+
+        No `min-h-0` here: the parent is the scroll container, so overriding this section's
+        `min-height: auto` let it shrink below its own content. At phone height the step's last
+        control then rendered *outside* the section — 17px past its bottom edge — while the
+        scroller still reported nothing to scroll, so it landed on top of the next sibling and
+        that sibling, painting later, swallowed the click.
+      */}
       <section
-        className="flex min-h-0 flex-1 flex-col gap-3 text-xs"
+        className="flex flex-1 flex-col gap-3 text-xs"
         aria-label={STEP_TITLES[draft.step]}
         data-testid={`guided-step-body-${draft.step}`}
       >

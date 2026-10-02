@@ -309,6 +309,10 @@ export function NodeShellPanel({ nodeName }: { nodeName: string }) {
       <ConfirmDialog
         open={confirmOpen}
         title="Open node shell"
+        // Two entries, but one action: the node being opened and the pod that will be created
+        // for it. `items` is a manifest here, not a count of objects being mutated, so the typed
+        // count that guards bulk actions would ask the operator to type "2" about nothing.
+        requireTypedCount={false}
         items={[
           { namespace: null, name: `node ${nodeName}` },
           { namespace, name: 'fathom-node-shell-* (created for this session)' },
