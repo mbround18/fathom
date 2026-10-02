@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [X] No [NEEDS CLARIFICATION] markers remain
 - [X] Requirements are testable and unambiguous
 - [X] Success criteria are measurable
 - [X] Success criteria are technology-agnostic (no implementation details)
@@ -31,20 +31,19 @@
 
 ## Notes
 
-- Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
-- **Two `[NEEDS CLARIFICATION]` markers remain**, both deliberate and both scope-or-safety
-  decisions the operator has to make rather than ones a default can settle honestly:
-  - **FR-025 / Q1** — whether creation is form-driven over documented object fields only, or also
-    offers a free-text command field. This is not cosmetic: a free-text field is arbitrary command
-    execution launched from the UI, and its blast radius cannot be enumerated in advance, so it
-    cannot satisfy FR-012 or FR-019 as written. If it is wanted, it needs its own carve-out.
-  - **FR-026 / Q2** — whether containers belonging to projects Fathom did not create are mutable,
-    read-only until adopted, or mutable behind a heavier confirmation. The daemon on the target
-    machine is shared by unrelated projects and a careless destructive action has already cost
-    work, so the two readings lead to materially different features.
-- Both questions are carried in the spec's **Outstanding Questions** section with options and
-  their implications, so the spec is reviewable as it stands and the answers drop in without a
-  rewrite.
+- All items pass. The specification is ready for `/speckit-plan`.
+- The two open questions were answered on 2026-10-02 and are recorded in the spec's Clarifications
+  section, so no `[NEEDS CLARIFICATION]` markers remain:
+  - **Creation is form-driven only.** No free-text command field. This is what makes FR-018's
+    preview guarantee keepable rather than aspirational — FR-019 now states the general rule that
+    every operation the feature can issue must be describable in advance, which a free-text field
+    could not satisfy. FR-034 requires the feature to say plainly when a case is not covered,
+    so the missing escape hatch is honest rather than merely absent.
+  - **Read-only unless adopted.** Adoption became its own requirement group (FR-012 to FR-017) and
+    its own entity, and it reaches into blast radius as FR-025: a destructive operation must
+    *exclude* an object belonging to an unadopted project and say that it did. FR-016 keeps local
+    clusters actionable without a separate adoption step, and FR-047 makes a lost adoption record
+    fail closed — everything unadopted, never everything adopted.
 - Content-quality note: the spec names a "Docker section" and refers to "local clusters" because
   those are the product's own operator-facing vocabulary, not implementation choices. No language,
   framework, crate, label key or API surface appears in the requirements or success criteria.

@@ -16,6 +16,8 @@
 - Q: How far does mutation go? → A: Full parity with the container CLI's object operations — lifecycle, removal, creation, build, and project-level up/down. Chosen over a narrower lifecycle-only scope with the larger surface stated as the trade-off.
 - Q: What is managed beyond bare containers? → A: All of it — containers grouped by project, images, volumes and networks with their reclaimable space and references, streamed logs and an interactive shell, and live CPU/memory per container and per project.
 - Q: Are containers and clusters cross-linked? → A: Yes, both directions. A container that backs a local cluster says which cluster, and a cluster says which containers back it.
+- Q: Does creation include a free-text command field? → A: Form-driven only, over documented object fields. A free-text field is arbitrary command execution launched from the UI and its effect cannot be enumerated in advance, so it cannot satisfy the preview guarantee the rest of the feature rests on. Flags no form covers are reached from a terminal, deliberately.
+- Q: May Fathom act on projects it did not create? → A: No — read-only unless adopted. Every project is visible, readable, loggable and measurable from the start, and becomes mutable only after the operator adopts it explicitly. A mis-click cannot reach an unrelated project at all.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -50,27 +52,33 @@ container's state, image, ports and uptime match what the runtime reports.
 
 ### User Story 2 - Act on a container or a whole project without leaving Fathom (Priority: P2)
 
-The operator has a stuck service. From the Docker section they start, stop, restart, pause, unpause
-or kill a single container, or do the same to every container in one project at once. Before
-anything runs, Fathom shows the exact operation it is about to issue, against the exact objects,
-and nothing happens until the operator confirms. The result is reported from what the runtime
-actually did, not assumed.
+The operator has a stuck service. They adopt its project once — declaring that Fathom may act on
+it — and from then on they start, stop, restart, pause, unpause or kill a single container, or do
+the same to every container in that project at once. Projects they have not adopted stay fully
+visible and fully readable, but offer no action at all, so a mis-click cannot reach an unrelated
+project. Before anything runs, Fathom shows the exact operation it is about to issue, against the
+exact objects, and nothing happens until the operator confirms. The result is reported from what
+the runtime actually did, not assumed.
 
 **Why this priority**: It is the daily-workflow win and the reason the feature was asked for. On
 its own, with only US1 beneath it, it already replaces the common trip to a terminal.
 
-**Independent Test**: Stop a single running container and confirm the preview named that container
-and that operation, the container is stopped afterwards, and the row's state came from the runtime
-rather than being set optimistically. Then restart a whole project and confirm every member was
-named in the preview.
+**Independent Test**: With one project adopted and another not, confirm the unadopted project
+offers no action and says why. Then stop a single running container in the adopted project and
+confirm the preview named that container and that operation, the container is stopped afterwards,
+and the row's state came from the runtime rather than being set optimistically. Then restart the
+whole project and confirm every member was named in the preview.
 
 **Acceptance Scenarios**:
 
-1. **Given** a running container, **When** the operator chooses Stop, **Then** the exact operation and the container it targets are shown before it is issued, and the operator must confirm.
-2. **Given** the operator confirms, **When** the runtime reports the result, **Then** the row's new state reflects what the runtime reported, and a failure is shown with the runtime's own message verbatim.
-3. **Given** a project with four containers, **When** the operator restarts the project, **Then** all four are named in the preview before anything runs, and a per-container outcome is reported for each.
-4. **Given** a project-level operation where one container fails, **When** the operation finishes, **Then** the outcome states which succeeded and which failed, and does not report overall success.
-5. **Given** a container is removed outside Fathom between the preview and the confirmation, **When** the operation is issued, **Then** the runtime's "no such container" is reported verbatim and no other object is touched.
+1. **Given** a project the operator has not adopted, **When** they view its containers, **Then** every detail is readable and no mutating action is offered, and the absence is explained as "not adopted" with adoption offered — not an unexplained missing control.
+2. **Given** an unadopted project, **When** the operator adopts it, **Then** actions become available for every container in it, including containers that join it later, and the adoption survives restarting Fathom.
+3. **Given** an adopted project, **When** the operator releases it, **Then** it returns to read-only and no action is offered for it.
+4. **Given** a running container in an adopted project, **When** the operator chooses Stop, **Then** the exact operation and the container it targets are shown before it is issued, and the operator must confirm.
+5. **Given** the operator confirms, **When** the runtime reports the result, **Then** the row's new state reflects what the runtime reported, and a failure is shown with the runtime's own message verbatim.
+6. **Given** an adopted project with four containers, **When** the operator restarts the project, **Then** all four are named in the preview before anything runs, and a per-container outcome is reported for each.
+7. **Given** a project-level operation where one container fails, **When** the operation finishes, **Then** the outcome states which succeeded and which failed, and does not report overall success.
+8. **Given** a container is removed outside Fathom between the preview and the confirmation, **When** the operation is issued, **Then** the runtime's "no such container" is reported verbatim and no other object is touched.
 
 ---
 
@@ -179,8 +187,10 @@ collected when the scene is closed.
 ### User Story 7 - Create, run and build from here too (Priority: P7)
 
 The operator creates and starts a new container, builds an image from a context, creates a network
-or a volume, and brings a whole project up or down from its own definition file — each one showing
-the exact operation before it runs.
+or a volume, and brings a whole project up or down from its own definition file — each one from a
+form over the object's documented fields, and each one showing the exact operation before it runs.
+There is no free-text command field: everything this feature can issue is something it can also
+describe in advance.
 
 **Why this priority**: It completes the parity the operator asked for, but it is the part their
 existing definition files and CLI already serve well, and it is the largest surface with the least
@@ -197,6 +207,7 @@ operation's preview named exactly what it would do and that the result matches.
 3. **Given** a project whose definition file is present, **When** the operator brings it up or down, **Then** the preview names the file it will act on and every container the operation affects, and bringing it down is treated as destructive and guarded accordingly.
 4. **Given** a project whose definition file is missing or unreadable, **When** project-level operations are offered, **Then** they are unavailable for that project with the reason stated, and the file is never rewritten or deleted.
 5. **Given** a creation the runtime rejects, **When** it fails, **Then** the runtime's message is shown verbatim and nothing partially created is left unreported.
+6. **Given** a setting no form covers, **When** the operator looks for a free-text command field, **Then** there is none, and the feature says plainly that this case belongs in a terminal rather than offering an unpreviewable escape hatch.
 
 ---
 
@@ -214,6 +225,11 @@ operation's preview named exactly what it would do and that the result matches.
 - An image is referenced only by a stopped container — reclaimable, but not unreferenced, and the difference must be visible.
 - A cluster node container is stopped externally while the operator is connected to that cluster.
 - The runtime restarts, invalidating every open stream and session.
+- A project is adopted, then its last container is removed and later recreated — the adoption must still apply.
+- A project is released while one of its operations is still in flight.
+- A local cluster's node containers belong to no project, yet the cluster itself is one Fathom manages; the adoption rule must not leave them unactionable.
+- An object is referenced by both an adopted and an unadopted project.
+- The operator needs a setting no form exposes; the feature must say so rather than appearing to be unable to do it at all.
 - The feature is reached in hosted mode, where no local runtime exists and exposing the host's daemon would escalate privilege.
 
 ## Requirements *(mandatory)*
@@ -237,60 +253,72 @@ operation's preview named exactly what it would do and that the result matches.
 - **FR-010**: The system MUST distinguish tagged from untagged images everywhere either can be removed.
 - **FR-011**: Inventory MUST be identified by runtime object identity, and every operation MUST target that identity rather than a display name.
 
+**Adoption: which projects Fathom may act on**
+
+- **FR-012**: Every project, and the group of containers belonging to no project, MUST be either adopted or unadopted, and MUST state which it is.
+- **FR-013**: An unadopted project MUST be fully readable — its containers, states, ports, images, references, sizes, log output and resource usage — and MUST NOT offer any mutating operation and MUST NOT offer an interactive session, because a session inside a container is unbounded execution in someone else's project.
+- **FR-014**: The operator MUST be able to adopt a project explicitly, and to release an adopted project afterwards; releasing MUST return it to read-only.
+- **FR-015**: Adoption MUST be recorded per project rather than per container, MUST persist across restarts, and MUST apply to containers that join an adopted project after it was adopted.
+- **FR-016**: A local cluster that Fathom manages, and the containers backing it, MUST be actionable without a separate adoption step, and the cross-link in FR-039 and FR-040 MUST NOT be weakened by the adoption rule.
+- **FR-017**: Wherever an operation is unavailable because its project is unadopted, the system MUST state that as the reason and MUST offer adoption. A control MUST NOT be silently absent.
+
 **Mutation: shared discipline**
 
-- **FR-012**: Every mutating operation MUST show, before it is issued, the exact operation and the exact objects it will act on, in a form the operator could reproduce themselves.
-- **FR-013**: No mutating operation MUST be issued without explicit operator confirmation, and the system MUST NOT reflect a changed state until the runtime reports the result.
-- **FR-014**: Failures MUST be reported with the runtime's own message verbatim.
-- **FR-015**: An operation affecting several objects MUST report a per-object outcome and MUST NOT report overall success when any object failed.
-- **FR-016**: Destructive operations — any removal, any prune, and bringing a project down — MUST require a typed confirmation, MUST show the full list of objects to be removed with nothing reduced to a bare count, and MUST be verified afterwards against what was actually removed, with any discrepancy reported.
+- **FR-018**: Every mutating operation MUST show, before it is issued, the exact operation and the exact objects it will act on, in a form the operator could reproduce themselves.
+- **FR-019**: Every operation this feature can issue MUST be describable in advance. The system MUST NOT offer a free-text command field or any other path to an operation whose effect cannot be previewed and whose objects cannot be enumerated.
+- **FR-020**: No mutating operation MUST be issued without explicit operator confirmation, and the system MUST NOT reflect a changed state until the runtime reports the result.
+- **FR-021**: Failures MUST be reported with the runtime's own message verbatim.
+- **FR-022**: An operation affecting several objects MUST report a per-object outcome and MUST NOT report overall success when any object failed.
+- **FR-023**: Destructive operations — any removal, any prune, and bringing a project down — MUST require a typed confirmation, MUST show the full list of objects to be removed with nothing reduced to a bare count, and MUST be verified afterwards against what was actually removed, with any discrepancy reported.
 
-**Mutation: blast radius on a shared daemon**
+**Blast radius on a shared daemon**
 
-- **FR-017**: Every destructive preview MUST name which projects fall inside its blast radius, including projects other than the one the operator is working in.
-- **FR-018**: A prune or removal whose effect extends beyond the selected project MUST say so explicitly, naming those projects, before it can be confirmed.
-- **FR-019**: The system MUST NOT offer any destructive operation whose scope cannot be enumerated in advance.
+- **FR-024**: Every destructive preview MUST name which projects fall inside its blast radius, including projects other than the one the operator is working in.
+- **FR-025**: A destructive operation MUST NOT remove an object belonging to an unadopted project. Where such an object falls inside a blast radius, the operation MUST exclude it, and the preview MUST say it was excluded and which project it belongs to.
+- **FR-026**: A prune or removal whose effect extends beyond the selected project MUST say so explicitly, naming those projects, before it can be confirmed.
+- **FR-027**: The system MUST NOT offer any destructive operation whose scope cannot be enumerated in advance.
 
 **Mutation: operations**
 
-- **FR-020**: Operators MUST be able to start, stop, restart, pause, unpause and kill an individual container.
-- **FR-021**: Operators MUST be able to apply those lifecycle operations to every container in one project as a single action with a single preview.
-- **FR-022**: Operators MUST be able to remove containers, images, volumes and networks, and to prune each of those classes.
-- **FR-023**: Operators MUST be able to create and start a container, build an image from a context, and create a network and a volume.
-- **FR-024**: Operators MUST be able to bring a project up, down, and restart it, acting on the project's own definition file.
-- **FR-025**: When a project's definition file is absent or unreadable, project-level operations MUST be unavailable for that project with the reason stated, and the file MUST NOT be rewritten, moved or deleted. [NEEDS CLARIFICATION: see Q1 — whether creation is form-driven over documented object fields only, or includes a free-text command field]
-- **FR-026**: [NEEDS CLARIFICATION: see Q2 — whether containers belonging to projects other than those Fathom manages are read-only by default]
+- **FR-028**: Operators MUST be able to start, stop, restart, pause, unpause and kill an individual container in an adopted project.
+- **FR-029**: Operators MUST be able to apply those lifecycle operations to every container in one adopted project as a single action with a single preview.
+- **FR-030**: Operators MUST be able to remove containers, images, volumes and networks, and to prune each of those classes, subject to FR-025.
+- **FR-031**: Operators MUST be able to create and start a container, build an image from a context, and create a network and a volume, each from a form over that object's documented fields.
+- **FR-032**: Operators MUST be able to bring an adopted project up, down, and restart it, acting on the project's own definition file.
+- **FR-033**: When a project's definition file is absent or unreadable, project-level operations MUST be unavailable for that project with the reason stated, and the file MUST NOT be rewritten, moved or deleted.
+- **FR-034**: Where a setting is not exposed by any form, the system MUST say plainly that the case is not covered, rather than implying the operation is impossible.
 
 **Logs, sessions and usage**
 
-- **FR-027**: Operators MUST be able to follow a container's log output live, with the same bounding, explicit truncation marking and search behaviour as cluster log views.
-- **FR-028**: Operators MUST be able to open an interactive session inside a running container, and closing the view MUST end the session leaving no process behind.
-- **FR-029**: The system MUST report current CPU and memory per container, and an aggregate per project, and MUST show an unavailable figure as unavailable with its reason rather than as zero.
-- **FR-030**: Usage history MUST be bounded with an explicit cap, and reaching that cap MUST be visible.
+- **FR-035**: Operators MUST be able to follow any container's log output live, adopted or not, with the same bounding, explicit truncation marking and search behaviour as cluster log views.
+- **FR-036**: Operators MUST be able to open an interactive session inside a running container in an adopted project, and closing the view MUST end the session leaving no process behind.
+- **FR-037**: The system MUST report current CPU and memory per container and an aggregate per project, for adopted and unadopted projects alike, and MUST show an unavailable figure as unavailable with its reason rather than as zero.
+- **FR-038**: Usage history MUST be bounded with an explicit cap, and reaching that cap MUST be visible.
 
 **Cluster cross-link**
 
-- **FR-031**: A container that the runtime identifies as a node of a local cluster MUST state which cluster, and MUST link to that cluster's views.
-- **FR-032**: A local cluster MUST list the containers backing it, with their current state, linking back to the Docker section.
-- **FR-033**: A preview of stopping or removing a container that backs a cluster MUST warn that the cluster will break and name it, and MUST additionally state when the operator is currently connected to that cluster.
-- **FR-034**: A container that carries no cluster identity MUST NOT have a cluster inferred for it.
+- **FR-039**: A container that the runtime identifies as a node of a local cluster MUST state which cluster, and MUST link to that cluster's views.
+- **FR-040**: A local cluster MUST list the containers backing it, with their current state, linking back to the Docker section.
+- **FR-041**: A preview of stopping or removing a container that backs a cluster MUST warn that the cluster will break and name it, and MUST additionally state when the operator is currently connected to that cluster.
+- **FR-042**: A container that carries no cluster identity MUST NOT have a cluster inferred for it.
 
 **Hosted mode, contract and quietness**
 
-- **FR-035**: Every command in this feature MUST be denied in hosted mode, and the denial MUST state the reason: a server has no local container runtime, and exposing the host's daemon to signed-in users would grant them privileges they do not have.
-- **FR-036**: All runtime access MUST live in the backend, with the protocol defined once and client types generated from it; drift MUST fail the build or tests.
-- **FR-037**: The system MUST NOT poll or sample the runtime while the Docker section is not being shown, and MUST NOT measurably increase idle resource use.
-- **FR-038**: Streams and sessions belonging to a view the operator has left MUST be closed, and events from a superseded request MUST be discarded rather than rendered.
-- **FR-039**: An unreadable or invalid project definition file, or unreadable runtime metadata, MUST fall back to a usable empty state without deleting or modifying the operator's files.
+- **FR-043**: Every command in this feature MUST be denied in hosted mode, and the denial MUST state the reason: a server has no local container runtime, and exposing the host's daemon to signed-in users would grant them privileges they do not have.
+- **FR-044**: All runtime access MUST live in the backend, with the protocol defined once and client types generated from it; drift MUST fail the build or tests.
+- **FR-045**: The system MUST NOT poll or sample the runtime while the Docker section is not being shown, and MUST NOT measurably increase idle resource use.
+- **FR-046**: Streams and sessions belonging to a view the operator has left MUST be closed, and events from a superseded request MUST be discarded rather than rendered.
+- **FR-047**: An unreadable or invalid project definition file, unreadable runtime metadata, or an unreadable record of which projects are adopted MUST fall back to a usable state without deleting or modifying the operator's files. A lost adoption record MUST fall back to everything unadopted, never to everything adopted.
 
 ### Key Entities
 
 - **Runtime**: the detected container runtime — which one, whether installed, whether running, which endpoint, and whether this account can reach it.
 - **Container**: one container as the runtime reports it — identity, name, image, state, health, ports, times, owning project, and cluster identity when it is a cluster node.
-- **Project**: a named group of containers declared by the containers themselves, with its definition file when one is known, its member count and its running count.
+- **Project**: a named group of containers declared by the containers themselves, with its definition file when one is known, its member count, its running count, and whether it is adopted.
+- **Adoption**: the operator's recorded declaration that Fathom may act on one project, persisted across restarts and revocable. Its absence is the default.
 - **Image / Volume / Network**: a removable runtime object with its size or reclaimable space, whether it is tagged (images), and the objects currently referencing it.
 - **Usage sample**: CPU and memory for one container at one instant, aggregated per project, retained in a bounded history.
-- **Operation preview**: the exact operation about to be issued, the objects it targets, and — for destructive operations — the full removal list, the space it frees, the projects in its blast radius, and any cluster it would break.
+- **Operation preview**: the exact operation about to be issued, the objects it targets, and — for destructive operations — the full removal list, the space it frees, the projects in its blast radius, any object excluded for belonging to an unadopted project, and any cluster it would break.
 - **Operation outcome**: what the runtime actually did, per object, including verbatim failures and any discrepancy against the preview.
 
 ## Success Criteria *(mandatory)*
@@ -299,20 +327,26 @@ operation's preview named exactly what it would do and that the result matches.
 
 - **SC-001**: On a machine with no container runtime, the Docker section does not appear; on a machine where the runtime is installed but stopped, the operator is told exactly that, naming the runtime, in 100% of cases. "No containers" is never shown for a runtime that is absent, stopped or unreachable.
 - **SC-002**: Given a daemon shared by four unrelated projects, an operator can state which containers belong to which project without opening any individual container, on first viewing.
-- **SC-003**: 100% of destructive operations enumerate every object they will remove before they can be confirmed; no destructive operation can be issued from a summary count alone.
-- **SC-004**: 100% of destructive previews whose effect reaches a project other than the selected one name those projects before confirmation.
-- **SC-005**: 100% of previews for stopping or removing a container that backs a local cluster name that cluster, and say when the operator is connected to it.
-- **SC-006**: Restarting a known stuck service takes under 15 seconds and no terminal, from the Docker section being open.
-- **SC-007**: The operator can answer "what is safe to delete, and how much does it free" for images, volumes and networks without issuing any operation, and the space actually reclaimed matches the predicted figure to within the runtime's own reporting granularity.
-- **SC-008**: With the Docker section closed, the app's idle resource use is indistinguishable from before this feature, and stays under the existing idle budget of 2% of one core.
-- **SC-009**: With 500 containers present, operator input in the Docker section is handled in under 100 ms.
-- **SC-010**: A corrupt or unreadable project definition file leaves that file byte-identical on disk, and the Docker section stays usable.
-- **SC-011**: Every command in this feature is denied in hosted mode, with a reason that states why rather than only that it was refused.
-- **SC-012**: After any destructive operation, the operator is shown what was actually removed, and a mismatch against the preview is surfaced rather than ignored.
+- **SC-003**: Zero mutating operations can be issued against a project the operator has not adopted, and 100% of the controls that are unavailable for that reason say so and offer adoption.
+- **SC-004**: Every project is readable — containers, states, logs and usage — without adopting it, so read-only is the default without being a reduced view.
+- **SC-005**: 100% of destructive operations enumerate every object they will remove before they can be confirmed; no destructive operation can be issued from a summary count alone.
+- **SC-006**: 100% of destructive previews whose effect reaches a project other than the selected one name those projects before confirmation, and any object excluded for belonging to an unadopted project is named as excluded.
+- **SC-007**: Every operation reachable from this feature can be described in advance; there is no path from the interface to an operation whose objects are not enumerable. Verified by inspection of the available operations, with zero exceptions.
+- **SC-008**: 100% of previews for stopping or removing a container that backs a local cluster name that cluster, and say when the operator is connected to it.
+- **SC-009**: Restarting a known stuck service in an adopted project takes under 15 seconds and no terminal, from the Docker section being open.
+- **SC-010**: The operator can answer "what is safe to delete, and how much does it free" for images, volumes and networks without issuing any operation, and the space actually reclaimed matches the predicted figure to within the runtime's own reporting granularity.
+- **SC-011**: With the Docker section closed, the app's idle resource use is indistinguishable from before this feature, and stays under the existing idle budget of 2% of one core.
+- **SC-012**: With 500 containers present, operator input in the Docker section is handled in under 100 ms.
+- **SC-013**: A corrupt or unreadable project definition file leaves that file byte-identical on disk, and the Docker section stays usable; a lost adoption record results in nothing being actionable rather than everything.
+- **SC-014**: Every command in this feature is denied in hosted mode, with a reason that states why rather than only that it was refused.
+- **SC-015**: After any destructive operation, the operator is shown what was actually removed, and a mismatch against the preview is surfaced rather than ignored.
 
 ## Assumptions
 
-- "Full parity" means the object operations an operator performs on containers, images, volumes, networks and projects — lifecycle, removal, prune, creation, build, and project up/down/restart. It does not mean reimplementing every flag of the runtime's command-line interface; flags without a documented object-level meaning are out of scope, and Q1 below settles whether a free-text escape hatch exists at all.
+- Creation is form-driven over documented object fields only. There is deliberately no free-text command field: such a field is arbitrary command execution launched from the interface, its objects cannot be enumerated in advance, and it would make the preview guarantee in FR-018 unkeepable. Flags and combinations no form covers are reached from a terminal, and the feature says so rather than pretending to cover them.
+- "Full parity" accordingly means the object operations an operator performs on containers, images, volumes, networks and projects — lifecycle, removal, prune, creation, build, and project up/down/restart — not every flag of the runtime's command-line interface.
+- Read-only is the default for every project, and mutability is something the operator grants per project. This is a deliberate cost: stopping one container in an unrelated project requires adopting that project first. The daemon on the target machine is shared by several unrelated projects and a careless destructive action has already cost real work, so an action that cannot reach an unadopted project is worth the extra step.
+- Local clusters Fathom manages are actionable without adoption, because the operator already created them through Fathom and the cluster views already guard those operations.
 - Docker-compatible alternative runtimes are in scope, because the existing probe already detects them and their socket API is compatible. Object identity, labels, sizes and references are read from whichever runtime answered, never assumed from one implementation's behaviour.
 - If the environment points at a daemon that is not on this machine, the feature still works and names which daemon it reached, so "local" is never implied falsely. Hosted mode is denied regardless, because the objection there is privilege, not locality.
 - A container's owning project and a cluster node's cluster identity are read from the labels the respective tools already write. A container without those labels has no project and no cluster — nothing is inferred from naming patterns.
@@ -321,40 +355,3 @@ operation's preview named exactly what it would do and that the result matches.
 - The typed-confirmation, preview and post-action verification guard is the one already established for destructive cluster actions, applied to runtime objects.
 - This feature manages a runtime, not a cluster. It introduces no new cluster access, and adds no API server requests.
 - Specification only: no plan, no tasks and no implementation are produced by this document.
-
-## Outstanding Questions
-
-### Q1: Does creation include a free-text command field?
-
-**Context**: FR-023 and FR-025 — "Operators MUST be able to create and start a container, build an
-image from a context, and create a network and a volume."
-
-**What we need to know**: Whether creating and running is driven by forms over documented object
-fields only, or whether there is also a free-text field where an arbitrary runtime command can be
-typed and executed.
-
-| Option | Answer | Implications |
-|--------|--------|--------------|
-| A      | Form-driven only, over documented object fields | Every operation is enumerable, previewable and auditable, which is what makes FR-012 and FR-016 possible. Some rarely used flags become unreachable, and the operator drops to a terminal for those. |
-| B      | Forms, plus a free-text command field | True parity, including flags no form covers. But a free-text field is arbitrary command execution launched from the UI: its blast radius cannot be enumerated in advance, so it cannot satisfy FR-012 or FR-019, and it would need its own carve-out and its own warning. |
-| C      | Forms now, free-text deferred to a later feature | Keeps this feature's guarantees intact and leaves the escape hatch as a deliberate, separately specified decision rather than a side effect. |
-| Custom | Provide your own answer | For example: free-text allowed but read-only operations only, or allowed with mandatory confirmation of the literal command string. |
-
-**Your choice**: _[awaiting answer]_
-
-### Q2: Are other projects' containers read-only by default?
-
-**Context**: FR-026, and the shared-daemon requirement behind FR-017 and FR-018. This daemon runs
-several unrelated projects at once, and a careless destructive action has already cost real work.
-
-**What we need to know**: Whether Fathom may mutate containers belonging to any project it finds,
-or only to projects the operator has explicitly adopted, with everything else visible but read-only.
-
-| Option | Answer | Implications |
-|--------|--------|--------------|
-| A      | Everything is mutable; blast-radius naming is the only protection | Simplest and most flexible — the operator can stop any container from one place. Protection rests entirely on reading the preview. |
-| B      | Read-only unless the project is explicitly adopted | A mis-click cannot reach an unrelated project at all. Costs an adopt step per project, and an operator who just wants to stop one foreign container has to adopt its project first. |
-| C      | Mutable, but foreign projects require the typed confirmation even for non-destructive lifecycle actions | Keeps one place to act from, while making a foreign action deliberate. Heavier than it needs to be for your own projects, lighter than adoption for the rest. |
-| Custom | Provide your own answer | For example: adoption required only for destructive operations, with lifecycle actions open everywhere. |
-
-**Your choice**: _[awaiting answer]_
