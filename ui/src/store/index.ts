@@ -73,6 +73,8 @@ import type {
   Density,
   ToolKind,
   FleetContextSummary,
+  FleetGroup,
+  FleetMember,
   CloudAuthInfo,
   PluginError,
   TunnelStatus,
@@ -244,6 +246,14 @@ export interface SessionState {
   /** 027-fleet-rollup-dashboard: latest poll summary per context; runtime-only, populated only
    * while the Fleet Dashboard is open. Last write per context wins. */
   fleetSummaries: Record<string, FleetContextSummary>
+  /** 046-fleet-model: the fleet's identity model, keyed by context name and replaced wholesale
+   * by `FleetModelUpdated`. A member may be `Absent` — present here, gone from the kubeconfig. */
+  fleetMembers: Record<string, FleetMember>
+  /** 046-fleet-model: the named label selectors, as the backend reported them. */
+  fleetGroups: FleetGroup[]
+  /** 046-fleet-model: the last `FleetModelRejected`, verbatim, with the field it names. Cleared
+   * by the next accepted `FleetModelUpdated`. */
+  fleetRejection: { reason: string; field: string | null } | null
   /** 034-simultaneous-federation: the live federated set and its rollups (backend-owned). */
   federation: FederationSlice
   /** 031: the identity cannot list namespaces; `namespaces` holds only the ones it reaches
@@ -1341,6 +1351,9 @@ export function initialData(): StoreData {
       kubeconfigLoads: 0,
       cloudAuth: {},
       fleetSummaries: {},
+      fleetMembers: {},
+      fleetGroups: [],
+      fleetRejection: null,
       federation: initialFederation(),
     },
     lists: {},

@@ -92,11 +92,11 @@ the names and labels survive a restart.
 one, reload, and confirm both are shown beside the still-copyable context string; enter an invalid
 label and confirm the backend's own message appears and nothing is persisted.
 
-- [ ] T025 [US1] Add the E2E spec `ui/tests/e2e/fleet-model-identity.spec.ts` against the scripted fake backend (`emit`/`open`/`sent` from `./helpers`, builders from `../fixtures/builders`): display name and context string both visible on one card, context string copies verbatim, invalid label rejected with the backend's verbatim message and no `SetFleetMemberLabels` persisted, both values present after reload. Write it red, before T026–T028
+- [X] T025 [US1] Add the E2E spec `ui/tests/e2e/fleet-model-identity.spec.ts` against the scripted fake backend (`emit`/`open`/`sent` from `./helpers`, builders from `../fixtures/builders`): display name and context string both visible on one card, context string copies verbatim, invalid label rejected with the backend's verbatim message and no `SetFleetMemberLabels` persisted, both values present after reload. Write it red, before T026–T028
 - [ ] T026 [US1] Implement `SetFleetMemberDisplayName` in `src/backend/cmd/fleet.rs`: trim, empty → `None`, mark the `display_name` origin local, persist, emit `FleetModelUpdated`
 - [ ] T027 [US1] Implement `SetFleetMemberLabels` and `ForgetFleetMember` in `src/backend/cmd/fleet.rs`: validate every key and value through `fleet_model` **before writing anything**; on failure emit `FleetModelRejected { reason, field }` with the verbatim message and persist nothing. `ForgetFleetMember` is the only path that removes metadata and works whether the member is `Present` or `Absent` (FR-003, FR-009)
-- [ ] T028 [US1] Extend `ui/src/components/fleet/FleetContextCard.tsx` to show the display name beside the context string at line 57 — both, never one instead of the other — keep the context string copyable verbatim, and render the member's labels. Render `Absent` members as unavailable with their metadata intact (FR-002, FR-009)
-- [ ] T029 [P] [US1] Add `ui/src/components/fleet/FleetMemberEditor.tsx`: display name and label entry, surfacing `FleetModelRejected.reason` verbatim against the named field. No client-side grammar — the backend owns it (Principle II)
+- [X] T028 [US1] Extend `ui/src/components/fleet/FleetContextCard.tsx` to show the display name beside the context string at line 57 — both, never one instead of the other — keep the context string copyable verbatim, and render the member's labels. Render `Absent` members as unavailable with their metadata intact (FR-002, FR-009)
+- [X] T029 [P] [US1] Add `ui/src/components/fleet/FleetMemberEditor.tsx`: display name and label entry, surfacing `FleetModelRejected.reason` verbatim against the named field. No client-side grammar — the backend owns it (Principle II)
 
 **Checkpoint**: US1 is independently shippable and satisfies SC-001 and SC-003.
 
