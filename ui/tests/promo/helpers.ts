@@ -213,14 +213,18 @@ async function redact(page: Page, pairs: Array<[string, string]>): Promise<void>
       const hits: string[] = []
       for (const el of document.body.querySelectorAll<HTMLElement>('*')) {
         if (el.children.length > 0) continue
-        const text = el.innerText ?? ''
+        const text = el.innerText
         for (const name of remaining) {
-          if (text.includes(name)) hits.push(`<${el.tagName.toLowerCase()}> ${el.outerHTML.slice(0, 300)}`)
+          if (text.includes(name))
+            hits.push(`<${el.tagName.toLowerCase()}> ${el.outerHTML.slice(0, 300)}`)
         }
       }
       return hits.slice(0, 5)
     }, leaked)
-    expect(leaked, `redacted names still visible in: ${where.join(' | ') || '(no leaf element — split across elements or an attribute)'}`).toEqual([])
+    expect(
+      leaked,
+      `redacted names still visible in: ${where.join(' | ') || '(no leaf element — split across elements or an attribute)'}`,
+    ).toEqual([])
   }
 }
 
