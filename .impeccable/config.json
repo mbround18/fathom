@@ -1,0 +1,9 @@
+{
+  "detector": {
+    "ignoreRules": [
+      "ai-color-palette",
+      "dark-glow",
+      "repeating-stripes-gradient"
+    ]
+  }
+}
