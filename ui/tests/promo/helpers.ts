@@ -191,7 +191,6 @@ export function redactions(): Array<[string, string]> {
  */
 async function redact(page: Page, pairs: Array<[string, string]>): Promise<void> {
   if (pairs.length === 0) return
-  const names = pairs.map(([from]) => from)
   const sweep = async (): Promise<string[]> =>
     page.evaluate((replacements) => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
