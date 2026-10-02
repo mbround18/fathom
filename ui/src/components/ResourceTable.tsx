@@ -587,10 +587,13 @@ const GridRow = memo(function GridRow({
     >
       <div role="gridcell" className="relative flex h-full items-center justify-center">
         {cursor && (
+          // `pointer-events-none`: this glyph is decoration, it sits on top of the checkbox in the
+          // same cell, and without it the widest viewports hand every click to the cursor instead
+          // of the control. `aria-hidden` hides it from assistive tech but not from hit testing.
           <span
             aria-hidden="true"
             data-cursor=""
-            className="absolute top-0 left-0 flex h-full items-center text-base leading-none text-accent-neon drop-shadow-[0_0_4px_var(--accent-neon)] group-data-[open=true]/row:text-primary-foreground"
+            className="pointer-events-none absolute top-0 left-0 flex h-full items-center text-base leading-none text-accent-neon drop-shadow-[0_0_4px_var(--accent-neon)] group-data-[open=true]/row:text-primary-foreground"
           >
             ▌
           </span>

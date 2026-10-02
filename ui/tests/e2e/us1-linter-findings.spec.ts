@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { batch, list, nsRoute, read } from '../fixtures/builders'
-import { emit, inspector, open, openToolPane, sentTypes } from './helpers'
+import { emit, inspector, open, openToolPane, sentTypes, settleFakeReplies } from './helpers'
 
 const PODS = 'workloads/pods'
 
@@ -48,6 +48,11 @@ test.describe('US1 linter findings', () => {
     await expect
       .poll(() => sentTypes(page))
       .toEqual(expect.arrayContaining(['RefreshPods', 'RefreshDeployments', 'RefreshRoles']))
+
+    // The poll above proves the refreshes were *sent*, not answered. At ultra-plus the cascade
+    // mounts six panes at once, so enough canned replies are still queued that one lands after the
+    // injection below and takes `naked-pod` back out of the pod list.
+    await settleFakeReplies(page)
 
     await emit(
       page,
