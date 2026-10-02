@@ -12,6 +12,7 @@ mod ai;
 mod cloud_auth;
 mod cluster;
 pub(super) use cluster::{PostConnect, post_connect};
+mod fleet;
 mod idp;
 mod integrations;
 mod kind_cluster;
@@ -31,6 +32,10 @@ mod workloads;
 /// workloads, resources, integrations). Each family handler returns the command
 /// back when it does not own it, so the next family gets a chance to handle it.
 /// Returns `Ok(true)` when the backend loop should exit.
+// Cognitive-complexity counts one branch per family, so this grows by one with every
+// feature that adds a handler; the body is a flat chain of independent hand-offs, not real
+// nesting. Splitting it would only move the same chain behind one more call.
+#[allow(clippy::cognitive_complexity)]
 pub async fn dispatch_cmd(
     cmd: BackendCmd,
     state: &mut BackendState,
@@ -130,6 +135,11 @@ pub async fn dispatch_cmd(
         return Ok(false);
     };
     let Some(cmd) = node_shell::handle(cmd, state, sender).await? else {
+        return Ok(false);
+    };
+    // 046-fleet-model: the fleet's names, labels, groups and shared definitions. Reads and
+    // writes `~/.fathom/fleet.json`; starts no poller, client or watch (FR-015).
+    let Some(cmd) = fleet::handle(cmd, state, sender)? else {
         return Ok(false);
     };
     // Any command left over after the integrations family is intentionally a no-op.

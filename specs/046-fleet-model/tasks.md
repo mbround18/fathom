@@ -69,15 +69,15 @@ story depends on all of it.
 
 ### Persistence (Principle VI)
 
-- [ ] T019 Add `fleet_file_path()`, `fleet_file_version() -> u32` (currently `1`), `load_fleet_model()` and `save_fleet_model()` to `src/backend/persistence.rs`, following the `TeamConfig` discipline at `persistence.rs:669-700`. File shape `{ schema: u32, members, groups, adopted }` per `data-model.md`. An unreadable or invalid file yields in-memory defaults and leaves the file **byte-for-byte untouched**, reporting the verbatim reason (FR-007). Unknown keys at a known schema are ignored
-- [ ] T020 Add a test in `src/backend/persistence.rs` that writes a truncated and a non-JSON `fleet.json`, asserts defaults are returned, asserts the verbatim reason is reported, and asserts the file's **bytes** before and after are identical — not merely that no error surfaced (SC-003)
-- [ ] T021 [P] Add a test asserting a serialized `fleet.json` contains no credential-shaped value, reusing `scan_fields_for_secrets` from `src/protocol/v1/team.rs` if it applies (FR-020)
-- [ ] T022 Add a test asserting that saving the fleet model writes only `fleet.json` — `cluster-settings.json` and `federation.json` are unmodified (FR-008)
+- [X] T019 Add `fleet_file_path()`, `fleet_file_version() -> u32` (currently `1`), `load_fleet_model()` and `save_fleet_model()` to `src/backend/persistence.rs`, following the `TeamConfig` discipline at `persistence.rs:669-700`. File shape `{ schema: u32, members, groups, adopted }` per `data-model.md`. An unreadable or invalid file yields in-memory defaults and leaves the file **byte-for-byte untouched**, reporting the verbatim reason (FR-007). Unknown keys at a known schema are ignored
+- [X] T020 Add a test in `src/backend/persistence.rs` that writes a truncated and a non-JSON `fleet.json`, asserts defaults are returned, asserts the verbatim reason is reported, and asserts the file's **bytes** before and after are identical — not merely that no error surfaced (SC-003)
+- [X] T021 [P] Add a test asserting a serialized `fleet.json` contains no credential-shaped value, reusing `scan_fields_for_secrets` from `src/protocol/v1/team.rs` if it applies (FR-020)
+- [X] T022 Add a test asserting that saving the fleet model writes only `fleet.json` — `cluster-settings.json` and `federation.json` are unmodified (FR-008)
 
 ### Command plumbing
 
-- [ ] T023 Create `src/backend/cmd/fleet.rs` with `handle(cmd, state, sender) -> anyhow::Result<Option<BackendCmd>>` in the family-chain form `src/backend/cmd/team.rs:21-78` uses, claiming the 11 new commands and returning the rest. Register it in the chain in `src/backend/cmd.rs`
-- [ ] T024 Implement `RefreshFleetModel` in `src/backend/cmd/fleet.rs`: load the file, reconcile each member's `availability` against the contexts in the current kubeconfig, compute group membership, emit `FleetModelUpdated`. On a load failure emit `FleetModelLoadFailed`. Start no poller, client or watch (FR-015)
+- [X] T023 Create `src/backend/cmd/fleet.rs` with `handle(cmd, state, sender) -> anyhow::Result<Option<BackendCmd>>` in the family-chain form `src/backend/cmd/team.rs:21-78` uses, claiming the 11 new commands and returning the rest. Register it in the chain in `src/backend/cmd.rs`
+- [X] T024 Implement `RefreshFleetModel` in `src/backend/cmd/fleet.rs`: load the file, reconcile each member's `availability` against the contexts in the current kubeconfig, compute group membership, emit `FleetModelUpdated`. On a load failure emit `FleetModelLoadFailed`. Start no poller, client or watch (FR-015)
 
 **Checkpoint**: protocol, grammar and persistence are in place; the three user stories can proceed in parallel.
 

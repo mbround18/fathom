@@ -20,10 +20,6 @@
 //! and kube's own types, so the protocol types (`FleetMember`, `FleetGroup`) can evolve without
 //! touching the grammar.
 
-// The command handlers that call all of this land with `src/backend/cmd/fleet.rs` (T023–T031).
-// Until then only the tests below exercise these functions, so the lib-only build would warn.
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -201,6 +197,10 @@ pub fn validate_label_value(value: &str) -> Result<(), LabelError> {
 }
 
 /// Validate one key/value pair.
+// `SetFleetMemberLabels` is the only caller, and it lands with T027; until then the table
+// test below is what exercises this. The selector half of the module is already live in
+// `src/backend/cmd/fleet.rs`, which is why the allow is on these two and not the module.
+#[allow(dead_code)]
 pub fn validate_label(key: &str, value: &str) -> Result<(), LabelError> {
     validate_label_key(key)?;
     validate_label_value(value)
@@ -208,6 +208,7 @@ pub fn validate_label(key: &str, value: &str) -> Result<(), LabelError> {
 
 /// Validate a whole label map, failing on the first offender. Callers validate *everything*
 /// before writing anything (FR-003).
+#[allow(dead_code)]
 pub fn validate_labels(labels: &BTreeMap<String, String>) -> Result<(), LabelError> {
     for (key, value) in labels {
         validate_label(key, value)?;

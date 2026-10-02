@@ -1470,3 +1470,366 @@ mod kind_provenance_tests {
         assert!(dir.path().join("kind-provenance.json.corrupt").exists());
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// 046-fleet-model: `~/.fathom/fleet.json`.
+//
+// Operator-authored fleet metadata: context names, display names, labels, selector
+// expressions and the adopted shared definitions. Nothing else belongs in this file, and
+// none of this belongs anywhere else — not `cluster-settings.json`, not `federation.json`,
+// not any per-context file (FR-008). It MUST NOT contain a credential, token or secret of
+// any kind (FR-020); `fleet_file_holds_no_credential_shaped_value` asserts that.
+//
+// Schema evolution is **additive only**: a new version adds fields, never renames or
+// removes one, and a reader at schema `n` reads a file written at schema `n` while ignoring
+// every key it does not know (FR-007). That is why every field below carries
+// `#[serde(default)]` and why there is no `deny_unknown_fields` anywhere in this block.
+// ---------------------------------------------------------------------------------------
+
+/// One member's persisted metadata. The context name is the map key, so it is not repeated
+/// here — `FleetMember::context` is filled in from the key on load.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FleetMemberRecord {
+    /// Trimmed; empty-after-trim is stored as absent, never `""`.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+    /// Per-field provenance, keyed `display_name` or `labels/<key>` (FR-013).
+    #[serde(default)]
+    pub origins: BTreeMap<String, crate::protocol::SettingOrigin>,
+}
+
+/// One group's persisted definition. The group name is the map key.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FleetGroupRecord {
+    /// The operator's expression, verbatim as typed (FR-006).
+    #[serde(default)]
+    pub selector: String,
+    #[serde(default)]
+    pub origin: crate::protocol::SettingOrigin,
+}
+
+/// `fleet.json`'s on-disk shape: `{ schema, members, groups, adopted }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FleetFile {
+    #[serde(default = "fleet_file_version")]
+    pub schema: u32,
+    /// Keyed by kubeconfig context name, verbatim (FR-001).
+    #[serde(default)]
+    pub members: BTreeMap<String, FleetMemberRecord>,
+    /// Keyed by group name.
+    #[serde(default)]
+    pub groups: BTreeMap<String, FleetGroupRecord>,
+    /// Adopted shared definitions, keyed by definition id. Never deleted because the store
+    /// became unreachable or the upstream definition disappeared — only `still_shared`
+    /// changes (FR-014).
+    #[serde(default)]
+    pub adopted: BTreeMap<String, crate::protocol::AdoptedFleetDefinition>,
+}
+
+impl Default for FleetFile {
+    fn default() -> Self {
+        Self {
+            schema: fleet_file_version(),
+            members: BTreeMap::new(),
+            groups: BTreeMap::new(),
+            adopted: BTreeMap::new(),
+        }
+    }
+}
+
+/// The schema version this build writes, and the highest it understands. Currently `1`.
+#[must_use]
+pub fn fleet_file_version() -> u32 {
+    1
+}
+
+/// Path of `fleet.json`.
+pub fn fleet_file_path() -> Result<PathBuf> {
+    Ok(fathom_config_dir()?.join("fleet.json"))
+}
+
+/// The outcome of a load: the model to use, and — when the file was there but unusable —
+/// the reason to show the operator, verbatim.
+///
+/// `failure` is `None` for a file that simply does not exist yet: that is the ordinary
+/// first-run state, not a problem to report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FleetLoad {
+    pub file: FleetFile,
+    /// The parse/read error's own message, verbatim (FR-007). `Some` implies `file` is
+    /// `FleetFile::default()` and the file on disk was left byte-for-byte untouched.
+    pub failure: Option<String>,
+}
+
+/// Load the fleet model from `path`. An unreadable or invalid file yields in-memory
+/// defaults, reports the verbatim reason, and leaves the file **byte-for-byte untouched** —
+/// no rewrite, no `.corrupt` sidecar, nothing (FR-007, Principle VI). Unknown keys at a
+/// known schema are ignored.
+pub fn load_fleet_model_from(path: &Path) -> FleetLoad {
+    if !path.exists() {
+        return FleetLoad {
+            file: FleetFile::default(),
+            failure: None,
+        };
+    }
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            return FleetLoad {
+                file: FleetFile::default(),
+                failure: Some(e.to_string()),
+            };
+        }
+    };
+    match serde_json::from_str::<FleetFile>(&content) {
+        Ok(file) => FleetLoad {
+            file,
+            failure: None,
+        },
+        Err(e) => {
+            tracing::warn!(
+                "{} is invalid; using defaults and leaving it untouched: {}",
+                path.display(),
+                e
+            );
+            FleetLoad {
+                file: FleetFile::default(),
+                failure: Some(e.to_string()),
+            }
+        }
+    }
+}
+
+/// Load `fleet.json` from the configured state root.
+pub fn load_fleet_model() -> FleetLoad {
+    match fleet_file_path() {
+        Ok(p) => load_fleet_model_from(&p),
+        Err(e) => FleetLoad {
+            file: FleetFile::default(),
+            failure: Some(e.to_string()),
+        },
+    }
+}
+
+/// Atomically write the fleet model to `path` (temp file + rename). Writes `fleet.json` and
+/// nothing else (FR-008).
+pub fn save_fleet_model_to(path: &Path, file: &FleetFile) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, serde_json::to_string_pretty(file)?)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Save `fleet.json` in full (it is small and entirely owned by this feature).
+pub fn save_fleet_model(file: &FleetFile) -> Result<()> {
+    let path = fleet_file_path()?;
+    ensure_config_dir()?;
+    save_fleet_model_to(&path, file)
+}
+
+#[cfg(test)]
+mod fleet_file_tests {
+    use super::*;
+    use crate::protocol::{SettingOrigin, scan_fields_for_secrets};
+
+    fn populated() -> FleetFile {
+        FleetFile {
+            schema: fleet_file_version(),
+            members: BTreeMap::from([(
+                "arn:aws:eks:eu-west-1:1234:cluster/prod-a".to_owned(),
+                FleetMemberRecord {
+                    display_name: Some("prod a".to_owned()),
+                    labels: BTreeMap::from([
+                        ("env".to_owned(), "prod".to_owned()),
+                        ("region".to_owned(), "eu-west-1".to_owned()),
+                    ]),
+                    origins: BTreeMap::from([("display_name".to_owned(), SettingOrigin::Local)]),
+                },
+            )]),
+            groups: BTreeMap::from([(
+                "prod".to_owned(),
+                FleetGroupRecord {
+                    selector: "env in (prod,staging)".to_owned(),
+                    origin: SettingOrigin::Local,
+                },
+            )]),
+            adopted: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn roundtrip_and_unknown_keys_at_a_known_schema_are_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fleet.json");
+        // Nothing on disk is the ordinary first-run state, not a failure to report.
+        let fresh = load_fleet_model_from(&path);
+        assert_eq!(fresh.file, FleetFile::default());
+        assert_eq!(fresh.failure, None);
+        assert_eq!(fresh.file.schema, 1);
+
+        save_fleet_model_to(&path, &populated()).unwrap();
+        let back = load_fleet_model_from(&path);
+        assert_eq!(back.failure, None);
+        assert_eq!(back.file, populated());
+
+        // A future build's additive field is ignored, not a parse failure (FR-007).
+        fs::write(
+            &path,
+            r#"{"schema":1,"members":{"a":{"labels":{"env":"prod"},"tier":"gold"}},"groups":{},"adopted":{},"fleetNickname":"team-a"}"#,
+        )
+        .unwrap();
+        let forward = load_fleet_model_from(&path);
+        assert_eq!(forward.failure, None, "unknown keys must be ignored");
+        assert_eq!(
+            forward.file.members["a"].labels["env"], "prod",
+            "the keys we do know must still be read"
+        );
+    }
+
+    /// T020 (SC-003, FR-007): "we fell back to defaults" and "we rewrote the operator's
+    /// file" both look like success from outside. The bytes are what tell them apart, so
+    /// this test reads them before and after and compares.
+    #[test]
+    fn invalid_file_yields_defaults_reports_the_reason_and_is_never_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fleet.json");
+
+        for broken in [
+            // Truncated mid-object: valid JSON prefix, no closing brace.
+            "{\n  \"schema\": 1,\n  \"members\": {\n    \"prod-a\": {\n      \"display_name\": \"prod a\"\n",
+            // Not JSON at all.
+            "this is not json, it is a note the operator left in the file\n",
+        ] {
+            fs::write(&path, broken).unwrap();
+            let before = fs::read(&path).unwrap();
+
+            let load = load_fleet_model_from(&path);
+            assert_eq!(
+                load.file,
+                FleetFile::default(),
+                "an invalid file must yield in-memory defaults"
+            );
+            let reason = load
+                .failure
+                .expect("an invalid file must report its own reason, not fail silently");
+            // Verbatim: serde_json's own message, not a sentence we invented.
+            let verbatim = serde_json::from_str::<FleetFile>(broken)
+                .expect_err("the fixture must not parse")
+                .to_string();
+            assert_eq!(
+                reason, verbatim,
+                "the reason must be the parser's, verbatim"
+            );
+
+            let after = fs::read(&path).unwrap();
+            assert_eq!(
+                before, after,
+                "fleet.json must be left byte-for-byte untouched: {broken:?}"
+            );
+            // Not rewritten *anywhere*: no sidecar either, so a later build that learns the
+            // newer schema still has the operator's original bytes to read.
+            let strays: Vec<_> = fs::read_dir(dir.path())
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .filter(|n| n != "fleet.json")
+                .collect();
+            assert!(strays.is_empty(), "nothing else may be written: {strays:?}");
+        }
+    }
+
+    /// T021 (FR-020): the file holds context names, operator-authored strings and selector
+    /// expressions. `scan_fields_for_secrets` is 014's own credential-shape detector
+    /// (markers, bare tokens, JWTs, PEM blocks); every string we persist goes through it,
+    /// and the serialized bytes are scanned as one field too so a secret smuggled in via a
+    /// field this test forgot still trips it.
+    #[test]
+    fn fleet_file_holds_no_credential_shaped_value() {
+        let file = populated();
+        let json = serde_json::to_string_pretty(&file).unwrap();
+
+        let mut fields: Vec<(String, String)> = Vec::new();
+        for (context, member) in &file.members {
+            fields.push(("members/<context>".to_owned(), context.clone()));
+            if let Some(name) = &member.display_name {
+                fields.push((format!("members/{context}/display_name"), name.clone()));
+            }
+            for (k, v) in &member.labels {
+                fields.push((format!("members/{context}/labels/<key>"), k.clone()));
+                fields.push((format!("members/{context}/labels/{k}"), v.clone()));
+            }
+        }
+        for (name, group) in &file.groups {
+            fields.push(("groups/<name>".to_owned(), name.clone()));
+            fields.push((format!("groups/{name}/selector"), group.selector.clone()));
+        }
+        fields.push(("fleet.json".to_owned(), json.clone()));
+
+        let borrowed: Vec<(&str, &str)> = fields
+            .iter()
+            .map(|(n, v)| (n.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(
+            scan_fields_for_secrets(&borrowed),
+            Ok(()),
+            "fleet.json must hold no credential-shaped value"
+        );
+
+        // And the shape itself has nowhere to put one: these are the only keys.
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let mut keys: Vec<&str> = parsed
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["adopted", "groups", "members", "schema"]);
+    }
+
+    /// T022 (FR-008): saving the fleet model writes `fleet.json` and nothing else. The two
+    /// neighbours most at risk of being co-written are compared byte-for-byte.
+    #[test]
+    fn saving_the_fleet_model_touches_no_other_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let cluster_settings = dir.path().join("cluster-settings.json");
+        let federation = dir.path().join("federation.json");
+        fs::write(&cluster_settings, r#"{"prod-a":{"schema":1}}"#).unwrap();
+        fs::write(
+            &federation,
+            r#"{"version":1,"contexts":["prod-a"],"softCap":8}"#,
+        )
+        .unwrap();
+        let settings_before = fs::read(&cluster_settings).unwrap();
+        let federation_before = fs::read(&federation).unwrap();
+
+        save_fleet_model_to(&dir.path().join("fleet.json"), &populated()).unwrap();
+
+        assert_eq!(
+            fs::read(&cluster_settings).unwrap(),
+            settings_before,
+            "cluster-settings.json must be unmodified"
+        );
+        assert_eq!(
+            fs::read(&federation).unwrap(),
+            federation_before,
+            "federation.json must be unmodified"
+        );
+        let mut written: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        written.sort();
+        assert_eq!(
+            written,
+            ["cluster-settings.json", "federation.json", "fleet.json"],
+            "only fleet.json may appear"
+        );
+    }
+}
