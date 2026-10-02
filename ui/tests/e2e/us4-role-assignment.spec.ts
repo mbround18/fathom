@@ -13,6 +13,7 @@ import {
   navigateTo,
   nextRequestId,
   open,
+  requestIdOf,
   sent,
   sentTypes,
   table,
@@ -136,9 +137,12 @@ test.describe('033 US4 role assignment', () => {
   test('conflict on apply shows the error and keeps Apply disabled', async ({ page }) => {
     await setup(page)
     await fillAndPreview(page)
-    const id = await nextRequestId(page)
     await page.getByTestId('yaml-apply').click()
     await confirmDialog(page).getByTestId('confirm-submit').click()
+    // The id the fake actually assigned, not the one it was about to assign: a background
+    // command landing between the prediction and the click takes the predicted id, and the
+    // rejection then belongs to a request nothing is waiting on, so no error ever renders.
+    const id = await requestIdOf(page, 'CreateResourceYaml')
     await finish(page, id, false, 'conflict: already exists')
     await expect(page.getByTestId('yaml-apply-error')).toContainText('conflict')
     await expect(page.getByTestId('yaml-apply')).toBeDisabled()
