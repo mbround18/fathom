@@ -57,8 +57,17 @@ sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev
 git clone https://github.com/mbround18/fathom
 cd fathom
 pnpm -C ui install
-pnpm -C ui tauri build      # host-platform bundles under the cargo target dir's release/bundle/
+
+make build-linux            # deb + rpm + AppImage + the binary, all into ./dist
+make build-windows          # NSIS installer (cross-compiles via cargo-xwin; see `make windows-deps`)
+make build-macos            # .app + .dmg, macOS host only
+make                        # the full target list
 ```
+
+Each target stages into `./dist` beside a regenerated `SHA256SUMS`; the underlying
+`pnpm -C ui tauri build` leaves its output under the cargo target dir instead. Bundles
+built this way are **unsigned** — signing and notarization are post-MVP.
+
 
 ### Hosted server mode (in-cluster, browser)
 
