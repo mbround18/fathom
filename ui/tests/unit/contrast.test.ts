@@ -235,6 +235,7 @@ const RAW_PALETTE_DEBT: Record<string, string> = {
   'emerald-500/50': 'fleet Healthy / Live state',
   'red-500/60': 'fleet Unreachable state',
   'fuchsia-500/60': 'fleet AuthError state',
+  'sky-500/50': 'fleet Pending coverage state (046)',
 }
 
 /** Boundaries that identify a control. These may not carry an alpha modifier at all. */

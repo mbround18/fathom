@@ -9,12 +9,18 @@
  *
  * Nothing is hidden behind a wizard step (Principle I): both fields and the member's current labels
  * are on screen at once, and the removal of a label is one click.
+ *
+ * US3 (T043) adds provenance: each persisted value says whether it is local or the team's shared
+ * default, and a local value prints the shared value it overrode right beside it (FR-013). The
+ * local value is the one in force — that is what "local wins" means — but the operator can still
+ * read what the team agreed, which is the only way to tell a deliberate override from a drift.
  */
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { FleetMember } from '@/protocol/types'
+import { sharedShareFor, valueOrigins } from '@/resources/fleet'
 import { useStore } from '@/store'
 
 /** The `FleetModelRejected.field` values this editor can place a message against. */
@@ -37,6 +43,7 @@ function owned(field: string | null): boolean {
 export function FleetMemberEditor({ context, member }: { context: string; member?: FleetMember }) {
   const send = useStore((s) => s.send)
   const rejection = useStore((s) => s.session.fleetRejection)
+  const adoptedDefinitions = useStore((s) => s.session.fleetAdopted)
 
   const persisted = member?.labels ?? {}
   const [name, setName] = useState(member?.display_name ?? '')
@@ -74,6 +81,24 @@ export function FleetMemberEditor({ context, member }: { context: string; member
 
   const entries = Object.entries(labels)
 
+  /**
+   * US3 (FR-013): where each **persisted** value came from. A local value is the one in force and
+   * is marked local; the shared value it overrode is printed beside it, because an override the
+   * operator cannot see is an override they cannot reason about. The rows read from the member the
+   * backend reported, never from the draft above — a draft has no provenance yet.
+   */
+  const origins = valueOrigins(
+    member ?? {
+      context,
+      display_name: null,
+      labels: {},
+      origins: {},
+      availability: 'Present',
+      groups: [],
+    },
+    sharedShareFor(context, adoptedDefinitions),
+  )
+
   return (
     <div
       data-testid="fleet-member-editor"
@@ -108,6 +133,15 @@ export function FleetMemberEditor({ context, member }: { context: string; member
       {message(nameRejected)}
 
       <span className="text-xs text-muted-foreground">Labels</span>
+      {/*
+       * Principle I: say where these live. An operator who has met Kubernetes labels will assume
+       * these are the same thing and that editing one writes to a cluster — so the screen says
+       * plainly that it does not, rather than leaving them to find out. Spec Assumptions.
+       */}
+      <p data-testid="fleet-labels-scope-note" className="text-xs text-muted-foreground">
+        Labels are your own notes about these clusters, stored only by Fathom. They are not
+        Kubernetes labels: nothing here is read from or written to any cluster object.
+      </p>
       {entries.length > 0 && (
         <ul data-testid="fleet-editor-labels" className="flex flex-wrap gap-1">
           {entries.map(([k, v]) => (
@@ -153,6 +187,48 @@ export function FleetMemberEditor({ context, member }: { context: string; member
           Add
         </Button>
       </span>
+      {origins.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Where these values come from</span>
+          <ul data-testid="fleet-value-origins" className="flex min-w-0 flex-col gap-1">
+            {origins.map((o) => (
+              <li key={o.field} className="flex min-w-0 flex-col gap-0.5 text-xs">
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="truncate font-mono">
+                    {/* A label reads `key=value`; a display name is not a label. */}
+                    {o.field === DISPLAY_NAME_FIELD
+                      ? `${o.label}: ${o.value}`
+                      : `${o.label}=${o.value}`}
+                  </span>
+                  <span
+                    data-testid="fleet-value-origin"
+                    data-field={o.field}
+                    data-origin={o.origin}
+                    className={
+                      o.origin === 'local'
+                        ? 'shrink-0 rounded border border-accent-neon/60 px-1.5 py-0.5 font-medium text-foreground'
+                        : 'shrink-0 rounded border border-border/60 bg-muted/30 px-1.5 py-0.5 text-muted-foreground'
+                    }
+                  >
+                    {o.origin === 'local' ? 'local' : 'shared with your team'}
+                  </span>
+                </span>
+                {/* The shared value stays on screen beside the local one that beat it (FR-013). */}
+                {o.shared === null ? null : (
+                  <span
+                    data-testid="fleet-overridden-value"
+                    data-field={o.field}
+                    className="break-words text-muted-foreground"
+                  >
+                    Overrides the shared value {o.shared}, which your team still has.
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <span className="flex items-center gap-2">
         <Button
           data-testid="fleet-labels-save"

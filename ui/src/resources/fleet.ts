@@ -14,7 +14,16 @@
  * nothing: an evaluator here could disagree with the one that writes `fleet.json`, which is
  * exactly the drift Principle II forbids (T052 deleted the one that had grown).
  */
-import type { FleetCoverageGap, FleetGapReason, FleetGroup, FleetMember } from '@/protocol/types'
+import type {
+  AdoptedFleetDefinition,
+  FleetCoverageGap,
+  FleetGapReason,
+  FleetGroup,
+  FleetMember,
+  FleetMemberShare,
+  SettingOrigin,
+  SharedFleetDefinition,
+} from '@/protocol/types'
 
 /** A group and the members it currently holds. Empty is a legitimate state (FR-005). */
 export interface FleetGroupView {
@@ -141,4 +150,160 @@ export function gapDetail(reason: FleetGapReason): string | null {
 /** Gaps in a stable order — by context name — so a rollup renders the same way twice. */
 export function orderedGaps(gaps: readonly FleetCoverageGap[]): FleetCoverageGap[] {
   return [...gaps].sort((a, b) => a.context.localeCompare(b.context))
+}
+
+/**
+ * 046-fleet-model US3 (T043): one shared definition as the sharing panel renders it.
+ *
+ * A row exists for every definition the store reported **and** for every definition this machine
+ * adopted, even one the store no longer lists. Dropping an adopted row because the store could not
+ * be read is the failure FR-014 exists to forbid: the copy is local, it still works, and only the
+ * operator removes it.
+ */
+export interface SharedDefinitionRow {
+  definition: SharedFleetDefinition
+  /** Is there a local adopted copy of this definition? */
+  adopted: boolean
+  /** RFC 3339, from the adopted row; `null` when nothing was adopted. */
+  adoptedAt: string | null
+  /** Is the adopted copy still following the shared one? */
+  following: boolean
+  /** Why it is not following — the three causes read differently, so they stay three. */
+  cause: 'following' | 'removedUpstream' | 'storeUnreachable' | 'notFollowing'
+}
+
+/**
+ * The rows to render: the store's list in order, then anything adopted that the store did not
+ * list. An adopted copy is preferred as the rendering source for a definition the store still
+ * lists, because the adopted copy is what this machine actually holds.
+ */
+export function sharedDefinitionRows(
+  definitions: readonly SharedFleetDefinition[],
+  adopted: readonly AdoptedFleetDefinition[],
+  storeUnreachable = false,
+): SharedDefinitionRow[] {
+  const byId = new Map<string, AdoptedFleetDefinition>()
+  for (const a of adopted) byId.set(a.definition.id, a)
+
+  const row = (definition: SharedFleetDefinition, held?: AdoptedFleetDefinition) => {
+    const cause: SharedDefinitionRow['cause'] = definition.removed
+      ? 'removedUpstream'
+      : storeUnreachable
+        ? 'storeUnreachable'
+        : held !== undefined && !held.still_shared
+          ? 'notFollowing'
+          : 'following'
+    return {
+      definition,
+      adopted: held !== undefined,
+      adoptedAt: held?.adopted_at ?? null,
+      following: cause === 'following',
+      cause,
+    }
+  }
+
+  const listed = definitions.map((d) => {
+    const held = byId.get(d.id)
+    // `removed` is the store's own flag, so the store's copy decides that; the rest renders from
+    // whichever copy is at hand.
+    return row(held === undefined ? d : { ...held.definition, removed: d.removed }, held)
+  })
+  const seen = new Set(definitions.map((d) => d.id))
+  const orphans = adopted.filter((a) => !seen.has(a.definition.id)).map((a) => row(a.definition, a))
+  return [...listed, ...orphans]
+}
+
+/**
+ * Why a row is no longer following, in words that say what is true: the copy is **here**. None of
+ * these sentences may suggest the adopted definition was removed, reset or lost (FR-014,
+ * Constitution Principle VI).
+ */
+export function notFollowingReason(row: SharedDefinitionRow): string {
+  switch (row.cause) {
+    case 'removedUpstream':
+      return (
+        'No longer shared: whoever published it took it out of the store. ' +
+        'Your adopted copy is kept here and still in use — it goes away only when you say so.'
+      )
+    case 'storeUnreachable':
+      return (
+        'No longer following the shared copy: the store could not be reached. ' +
+        'Your adopted copy is kept here and still in use.'
+      )
+    case 'notFollowing':
+      return 'No longer following the shared copy. Your adopted copy is kept here and still in use.'
+    case 'following':
+      return ''
+  }
+}
+
+/** One value, where it came from, and — when it is a local override — what it overrode (FR-013). */
+export interface FleetValueOrigin {
+  /** `display_name` or `labels/<key>`, as `FleetMember.origins` keys it. */
+  field: string
+  /** What to call the field on screen. */
+  label: string
+  /** The value in force — the local one, when there is one. */
+  value: string
+  origin: SettingOrigin
+  /** The shared value this one overrides, when it differs; `null` when there is nothing behind it. */
+  shared: string | null
+}
+
+/**
+ * The shared slice for one context, as the adopted definitions describe it. Later adoptions win on
+ * a key they both carry. A definition that is no longer followed still answers here — it is the
+ * origin a local value overrode, and FR-013 says that stays visible.
+ */
+export function sharedShareFor(
+  context: string,
+  adopted: readonly AdoptedFleetDefinition[],
+): FleetMemberShare | null {
+  let display_name: string | null = null
+  const labels: Record<string, string> = {}
+  let found = false
+  for (const a of adopted) {
+    const share = a.definition.members[context]
+    if (share === undefined) continue
+    found = true
+    if (share.display_name != null) display_name = share.display_name
+    Object.assign(labels, share.labels)
+  }
+  return found ? { display_name, labels } : null
+}
+
+/**
+ * Per-value provenance for one member: the local winner, marked local, beside the shared value it
+ * overrode (FR-013).
+ *
+ * A field appears when the backend reported an origin for it or when a shared value exists for it;
+ * a purely local fleet that nobody shares anything with therefore says nothing about origins at
+ * all, which is the honest rendering of "there is no shared copy to compare against".
+ */
+export function valueOrigins(
+  member: FleetMember,
+  shared: FleetMemberShare | null,
+): FleetValueOrigin[] {
+  const rows: FleetValueOrigin[] = []
+  const at = (field: string, label: string, value: string, sharedValue: string | null) => {
+    const origin = member.origins[field]
+    if (origin === undefined && sharedValue === null) return
+    const resolved: SettingOrigin = origin ?? 'local'
+    rows.push({
+      field,
+      label,
+      value,
+      origin: resolved,
+      shared:
+        resolved === 'local' && sharedValue !== null && sharedValue !== value ? sharedValue : null,
+    })
+  }
+
+  if (member.display_name !== null) {
+    at('display_name', 'Display name', member.display_name, shared?.display_name ?? null)
+  }
+  for (const [k, v] of Object.entries(member.labels)) {
+    at(`labels/${k}`, k, v, shared?.labels[k] ?? null)
+  }
+  return rows
 }

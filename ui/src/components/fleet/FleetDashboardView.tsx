@@ -14,6 +14,13 @@
  * where a *denied* scan renders as "not installed": a conclusion drawn over what could be read,
  * presented as the whole truth. A sum over a subset is never shown here without its subset.
  *
+ * 046 US3 (T043) and T051 add the two states where an honest message and a convenient one differ.
+ * `FleetModelLoadFailed` says the fleet **file could not be read** and names it, because the
+ * convenient rendering — an empty grid, "connect a context" — explains the operator's unread data
+ * as data they never had; the backend left the bytes untouched (FR-007, Principle VI). And the
+ * sharing panel renders `FleetStoreUnavailable` as "nothing is being followed", never as "nothing
+ * is here": an adopted definition survives an unreachable store (FR-014).
+ *
  * No new background work: the mount-scoped `start()`/`stop()` pair is unchanged, and a rollup is
  * requested only when the model the backend reported actually changes (FR-015, Principle V).
  */
@@ -35,6 +42,7 @@ import { useStore } from '@/store'
 
 import { FleetContextCard } from './FleetContextCard'
 import { FleetGroupEditor } from './FleetGroupEditor'
+import { FleetSharingPanel } from './FleetSharingPanel'
 
 function pending(context: string): FleetContextSummary {
   return {
@@ -83,6 +91,7 @@ export function FleetDashboardView({ onSelected }: { onSelected?: () => void }) 
   const fleetMembers = useStore((s) => s.session.fleetMembers)
   const groups = useStore((s) => s.session.fleetGroups)
   const rollups = useStore((s) => s.session.fleetRollups)
+  const loadFailure = useStore((s) => s.session.fleetLoadFailure)
   const selectContext = useStore((s) => s.selectContext)
   const send = useStore((s) => s.send)
   const start = useStore((s) => s.startFleetPolling)
@@ -133,16 +142,55 @@ export function FleetDashboardView({ onSelected }: { onSelected?: () => void }) 
     />
   )
 
+  /**
+   * FR-007, US1 scenario 4: `fleet.json` could not be read, so the backend is running on defaults
+   * and **left the file exactly as it was**. Saying "no clusters yet" here would explain an
+   * unreadable file as an empty fleet and invite the operator to start over on top of data that is
+   * still on disk — the one thing Constitution Principle VI forbids. So the path and the loader's
+   * own words are stated, and the file is described as unread, never as discarded.
+   */
+  const failure =
+    loadFailure === null ? null : (
+      <p
+        data-testid="fleet-load-failure"
+        className="flex min-w-0 flex-col gap-1 rounded border border-amber-500/60 bg-amber-500/10 p-2 text-xs text-amber-300"
+      >
+        <span>
+          Your fleet metadata could not be read, so Fathom is working from defaults for now. The
+          file is still on disk exactly as it was — it has not been rewritten, and nothing in it has
+          been thrown away.
+        </span>
+        <span className="flex min-w-0 flex-col gap-0.5 font-mono text-muted-foreground">
+          <span data-testid="fleet-load-failure-path" className="break-all">
+            {loadFailure.path}
+          </span>
+          {/* The loader's own message, verbatim (Principle I). */}
+          <span data-testid="fleet-load-failure-reason" className="break-words">
+            {loadFailure.reason}
+          </span>
+        </span>
+      </p>
+    )
+
   if (contexts.length === 0 && members.length === 0) {
     return (
-      <p data-testid="fleet-empty" className="p-4 text-sm text-muted-foreground">
-        Connect a context to see fleet health.
-      </p>
+      <div data-testid="fleet-dashboard" className="flex min-w-0 flex-col gap-3 p-2">
+        {failure}
+        {/* With a load failure on screen, "connect a context" would be a second, false
+            explanation of the same emptiness, so only the true one is shown. */}
+        {loadFailure === null ? (
+          <p data-testid="fleet-empty" className="text-sm text-muted-foreground">
+            Connect a context to see fleet health.
+          </p>
+        ) : null}
+        <FleetSharingPanel />
+      </div>
     )
   }
 
   return (
     <div data-testid="fleet-dashboard" className="flex min-w-0 flex-col gap-3 p-2">
+      {failure}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Input
           data-testid="fleet-filter"
@@ -159,6 +207,8 @@ export function FleetDashboardView({ onSelected }: { onSelected?: () => void }) 
       </div>
 
       <FleetGroupEditor />
+      {/* US3: publish, adopt and remove — and the two states that must not lie (FR-012/FR-014). */}
+      <FleetSharingPanel />
 
       {view.groups.map(({ group, members: held, readable }) => {
         const rollup = rollups[group.name]

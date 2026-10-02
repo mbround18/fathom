@@ -72,10 +72,12 @@ import type {
   ThemePrefs,
   Density,
   ToolKind,
+  AdoptedFleetDefinition,
   FleetContextSummary,
   FleetGroup,
   FleetGroupRollup,
   FleetMember,
+  SharedFleetDefinition,
   CloudAuthInfo,
   PluginError,
   TunnelStatus,
@@ -258,6 +260,19 @@ export interface SessionState {
   /** 046-fleet-model US2: the rollup per group name, exactly as `FleetGroupRollupUpdated`
    * delivered it — its coverage and its gaps included, so no sum is ever held without them. */
   fleetRollups: Record<string, FleetGroupRollup>
+  /** 046-fleet-model US3: the shared store's fleet definitions, as `SharedFleetDefinitionsUpdated`
+   * reported them. Rows flagged `removed` are kept, never filtered out (FR-014). */
+  fleetDefinitions: SharedFleetDefinition[]
+  /** 046-fleet-model US3: this machine's adopted copies. Losing the store, or an upstream removal,
+   * never removes an entry here — only its `still_shared` flag changes (FR-014). */
+  fleetAdopted: AdoptedFleetDefinition[]
+  /** 046-fleet-model US3: the last `FleetStoreUnavailable` reason, verbatim. Non-null means nothing
+   * is being followed right now; it does **not** mean anything adopted was lost. */
+  fleetStoreError: string | null
+  /** 046-fleet-model FR-007: the last `FleetModelLoadFailed`. The backend fell back to defaults and
+   * left the file untouched, so this is what the view reports instead of an empty fleet. Cleared by
+   * the next `FleetModelUpdated`. */
+  fleetLoadFailure: { path: string; reason: string } | null
   /** 034-simultaneous-federation: the live federated set and its rollups (backend-owned). */
   federation: FederationSlice
   /** 031: the identity cannot list namespaces; `namespaces` holds only the ones it reaches
@@ -1359,6 +1374,10 @@ export function initialData(): StoreData {
       fleetGroups: [],
       fleetRejection: null,
       fleetRollups: {},
+      fleetDefinitions: [],
+      fleetAdopted: [],
+      fleetStoreError: null,
+      fleetLoadFailure: null,
       federation: initialFederation(),
     },
     lists: {},

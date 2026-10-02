@@ -43,9 +43,12 @@ import {
 import { applyFederationRollup, applyFederationState } from './federation'
 import {
   applyFleetGroupRollup,
+  applyFleetLoadFailure,
   applyFleetModel,
   applyFleetRejection,
+  applyFleetStoreUnavailable,
   applyFleetSummary,
+  applySharedFleetDefinitions,
 } from './fleet'
 import { clearDenied, deniedKeyOf, rowId } from './list'
 
@@ -259,6 +262,20 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
 
     case 'FleetModelRejected':
       applyFleetRejection(d, event.data)
+      return
+
+    case 'FleetModelLoadFailed':
+      // The file was left untouched and defaults are in use — the view says exactly that (FR-007).
+      applyFleetLoadFailure(d, event.data)
+      return
+
+    case 'SharedFleetDefinitionsUpdated':
+      applySharedFleetDefinitions(d, event.data)
+      return
+
+    case 'FleetStoreUnavailable':
+      // Adopted copies are untouched; only what they follow changes (FR-014).
+      applyFleetStoreUnavailable(d, event.data)
       return
 
     case 'FleetGroupRollupUpdated':
