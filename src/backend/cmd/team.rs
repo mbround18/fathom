@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crossbeam_channel::Sender;
 
 use crate::backend::events;
-use crate::backend::idp_directory::{self, FathomRole};
+use crate::backend::idp_directory::FathomRole;
 use crate::backend::persistence::{self, TeamConfig};
 use crate::backend::state::BackendState;
 use crate::backend::team_store::{self, StoreError};
@@ -85,9 +85,7 @@ pub(super) async fn handle(
 /// 033 US3 (R9): the Fathom role map gates team publish/sync/link. Kubeconfig-only contexts
 /// (no OIDC identity in play) are unrestricted. Refusals are surfaced, never silent.
 fn gate(state: &BackendState, sender: &Sender<BackendEventEnvelope>, required: FathomRole) -> bool {
-    let identity = super::idp::active_identity(state);
-    let map = persistence::load_oidc_config().role_map;
-    match idp_directory::require_role(identity.as_ref(), &map, required) {
+    match super::role_check(state, required) {
         Ok(()) => true,
         Err(reason) => {
             emit_rejection(

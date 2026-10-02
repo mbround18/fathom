@@ -1,6 +1,7 @@
 use crossbeam_channel::Sender;
 
 use super::apply;
+use super::idp_directory::{self, FathomRole};
 use super::state::BackendState;
 use super::{events, persistence};
 use crate::protocol::{
@@ -161,6 +162,22 @@ async fn shutdown(state: &mut BackendState, sender: &Sender<BackendEventEnvelope
 }
 
 /// UI preference commands: `config.json` reads/writes on behalf of UI clients.
+/// Whether the active identity holds `required`, as one rule shared by every family.
+///
+/// The rule lives here rather than in a family module because each family refuses in its own
+/// voice — 014 emits `TeamPublishRejection::RoleForbidden`, 046 emits `FleetModelRejected` —
+/// while the question being asked must stay identical. Two copies of the predicate would
+/// drift the first time the role map grows a case. `Err` carries the directory's own reason,
+/// verbatim, for the caller to put in its event.
+///
+/// No OIDC identity in play means unrestricted: a single operator on their laptop is not
+/// gated by a role map they never configured.
+pub(super) fn role_check(state: &BackendState, required: FathomRole) -> Result<(), String> {
+    let identity = self::idp::active_identity(state);
+    let map = persistence::load_oidc_config().role_map;
+    idp_directory::require_role(identity.as_ref(), &map, required)
+}
+
 fn handle_ui_config_cmd(
     cmd: BackendCmd,
     state: &BackendState,

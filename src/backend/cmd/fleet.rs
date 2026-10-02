@@ -19,7 +19,7 @@ use kube::core::Selector;
 
 use super::{events, persistence};
 use crate::backend::fleet_model;
-use crate::backend::idp_directory::{self, FathomRole};
+use crate::backend::idp_directory::FathomRole;
 use crate::backend::persistence::{FleetFile, FleetGroupRecord, FleetLoad, FleetMemberRecord};
 use crate::backend::state::BackendState;
 use crate::backend::team_store::{self, StoreError};
@@ -708,9 +708,7 @@ fn store_root() -> Result<PathBuf, StoreError> {
 /// refusal is reported, never silent — `FleetModelRejected` with the directory's own reason
 /// and `field: None`, because no value the operator typed is at fault.
 fn gate(state: &BackendState, sender: &Sender<BackendEventEnvelope>, required: FathomRole) -> bool {
-    let identity = super::idp::active_identity(state);
-    let map = persistence::load_oidc_config().role_map;
-    match idp_directory::require_role(identity.as_ref(), &map, required) {
+    match super::role_check(state, required) {
         Ok(()) => true,
         Err(reason) => {
             emit(
