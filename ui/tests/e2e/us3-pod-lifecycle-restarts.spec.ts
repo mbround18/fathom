@@ -10,7 +10,7 @@ import { DETAIL_POD } from '../fixtures'
 import { podLifecycleDetail, podLifecycleEvents } from '../fixtures/batches'
 import { batch, nsRoute, read } from '../fixtures/builders'
 import { podDetailsWithLifecycle } from '../fixtures/gen-pods'
-import { emit, inspector, open, row, sentTypes } from './helpers'
+import { emit, inspector, open, row, sentTypes, settleFakeReplies } from './helpers'
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
 
@@ -24,6 +24,11 @@ test.describe('US3 pod lifecycle: restart history', () => {
     const insp = inspector(page)
     await expect(insp).toBeVisible()
     await expect.poll(() => sentTypes(page)).toContain('SelectPod')
+
+    // The poll above proves `SelectPod` was *sent*, not answered. At ultra-plus the cascade mounts
+    // six panes at once, so canned replies are still queued; drain them or one lands after the
+    // injection below and takes the lifecycle detail back out.
+    await settleFakeReplies(page)
 
     await emit(page, podLifecycleDetail('kind-a', DETAIL_POD))
     await emit(page, podLifecycleEvents(DETAIL_POD))
@@ -71,6 +76,11 @@ test.describe('US3 pod lifecycle: restart history', () => {
         },
       ],
     }
+    // The poll above proves `SelectPod` was *sent*, not answered. At ultra-plus the cascade mounts
+    // six panes at once, so canned replies are still queued; drain them or one lands after the
+    // injection below and takes the lifecycle detail back out.
+    await settleFakeReplies(page)
+
     await emit(
       page,
       batch([
