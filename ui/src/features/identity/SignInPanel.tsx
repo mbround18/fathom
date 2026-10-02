@@ -38,7 +38,7 @@ export function SignInPanel({ issuer }: { issuer: OidcIssuerConfig }) {
       )}
       {progress?.type === 'Validating' && <p>Validating the ID token...</p>}
       {error && (
-        <p role="alert" className="text-status-error" data-testid={`oidc-error-${id}`}>
+        <p role="alert" className="text-status-err" data-testid={`oidc-error-${id}`}>
           {error.stage}: {error.message}
         </p>
       )}

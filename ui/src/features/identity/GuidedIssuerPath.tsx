@@ -386,7 +386,7 @@ function Body({
             </ul>
           )}
           {duplicateId && (
-            <p role="alert" className="text-status-error" data-testid="guided-duplicate-id">
+            <p role="alert" className="text-status-err" data-testid="guided-duplicate-id">
               An issuer with the id <span className="font-mono">{typedId}</span> already exists. The
               id keys the stored credentials, so two issuers cannot share one. Choose another id.
             </p>
@@ -405,7 +405,7 @@ function Body({
             </p>
           )}
           {saveState.state === 'failed' && (
-            <p role="alert" className="text-status-error" data-testid="guided-save-error">
+            <p role="alert" className="text-status-err" data-testid="guided-save-error">
               {saveState.error}
             </p>
           )}
@@ -628,7 +628,7 @@ function IssuerUrlStep({ draft, dispatch, probe, runProbe }: StepProps) {
         )}
       </div>
       {probe.state === 'failed' && (
-        <p role="alert" className="text-status-error" data-testid="guided-probe-error">
+        <p role="alert" className="text-status-err" data-testid="guided-probe-error">
           {probe.error} (tried <span className="font-mono break-all">{probe.url}</span>)
         </p>
       )}
@@ -670,10 +670,10 @@ function DiscoveryStep({ draft, probe, runProbe }: StepProps) {
       {mismatch && (
         <div
           role="alert"
-          className="border-status-error border p-2"
+          className="border-status-err border p-2"
           data-testid="guided-issuer-mismatch"
         >
-          <p className="text-status-error">
+          <p className="text-status-err">
             This provider declares a different issuer than the URL you entered. Tokens carry the
             declared value in <span className="font-mono">iss</span>, so every token from it would
             fail validation. Correct the URL before continuing.
@@ -796,7 +796,7 @@ function TestSignInStep({ draft, onTestSignIn }: StepProps) {
         )
       )}
       {error && (
-        <p role="alert" className="text-status-error" data-testid="guided-sign-in-error">
+        <p role="alert" className="text-status-err" data-testid="guided-sign-in-error">
           {error.stage}: {error.message}
         </p>
       )}
@@ -1617,7 +1617,7 @@ function ApiServerWriteStep({ draft }: StepProps) {
       {write.state === 'failed' && (
         <p
           role="alert"
-          className="text-status-error font-mono break-words"
+          className="text-status-err font-mono break-words"
           data-testid="guided-write-error"
         >
           {write.error}
