@@ -272,7 +272,7 @@ test.describe('live: write actions in fathom-dev', () => {
     const dialog = confirmDialog(page)
     await expect(dialog.getByTestId('confirm-item')).toHaveCount(3)
     for (const name of names) await expect(dialog).toContainText(key(name))
-    await expect(dialog.getByTestId('confirm-typed-count')).toHaveCount(0)
+    await dialog.getByTestId('confirm-typed-count').fill('3')
     await dialog.getByTestId('confirm-submit').click()
     await expect(successToast(page, 'Deleted 3 pods')).toBeVisible({ timeout: 60_000 })
 

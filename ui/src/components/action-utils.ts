@@ -10,8 +10,12 @@ export interface ConfirmItem {
   name: string
 }
 
-/** More than this many objects requires typing the count. */
-export const TYPED_CONFIRM_THRESHOLD = 5
+/**
+ * More than this many objects requires typing the count. At 1, only a single-object delete — whose
+ * manifest is one line the user can read in full — arms on first paint; every bulk action makes
+ * them state how many they meant.
+ */
+export const TYPED_CONFIRM_THRESHOLD = 1
 
 export function itemName(i: ConfirmItem): string {
   return i.namespace ? `${i.namespace}/${i.name}` : i.name

@@ -30,7 +30,7 @@ export interface ConfirmDialogProps {
   items: readonly ConfirmItem[]
   /** Extra context under the list (what the action does). */
   detail?: ReactNode
-  /** Defaults to `items.length > 5`. */
+  /** Defaults to `items.length > TYPED_CONFIRM_THRESHOLD`. */
   requireTypedCount?: boolean
   destructive?: boolean
   /** Confirm button text, e.g. `Delete 3 pods`. */

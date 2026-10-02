@@ -32,12 +32,12 @@ describe('ConfirmDialog', () => {
     confirm(3)
     const names = screen.getAllByTestId('confirm-item').map((li) => li.textContent)
     expect(names).toEqual(['✖default/api-0', '✖default/api-1', '✖default/api-2'])
-    expect(screen.queryByTestId('confirm-typed-count')).toBeNull()
+    expect(screen.getByTestId('confirm-typed-count')).toBeTruthy()
   })
 
   it('confirms with the button; Cancel and Esc send nothing', async () => {
     const user = userEvent.setup()
-    const { onConfirm, onCancel } = confirm(2)
+    const { onConfirm, onCancel } = confirm(1)
     await user.click(screen.getByTestId('confirm-cancel'))
     expect(onCancel).toHaveBeenCalledTimes(1)
     await user.keyboard('{Escape}')
@@ -46,7 +46,7 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
-  it('more than five objects: the count must be typed first', async () => {
+  it('more than one object: the count must be typed first', async () => {
     const user = userEvent.setup()
     const { onConfirm } = confirm(6)
     const submit = screen.getByTestId('confirm-submit')
@@ -59,10 +59,16 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
-  it('exactly five objects need no typing', () => {
-    confirm(5)
+  it('a single object needs no typing: its manifest is one readable line', () => {
+    confirm(1)
     expect(screen.queryByTestId('confirm-typed-count')).toBeNull()
     expect(screen.getByTestId('confirm-submit')).toBeEnabled()
+  })
+
+  it('two objects already require the count, so no bulk delete arms on first paint', () => {
+    confirm(2)
+    expect(screen.getByTestId('confirm-typed-count')).toBeTruthy()
+    expect(screen.getByTestId('confirm-submit')).toBeDisabled()
   })
 })
 
