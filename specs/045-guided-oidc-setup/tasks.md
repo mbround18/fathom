@@ -201,7 +201,7 @@
 
 - [X] T074 [P] Update `docs/MVP.md` with 045's entry, noting the protocol surface is additive and stays v1 (the 034 precedent)
 - [X] T075 [P] Fill `specs/045-guided-oidc-setup/checklists/requirements.md` mapping every FR-001–FR-036 to the task that satisfies it, so an unimplemented requirement is visible
-- [ ] T076 Run `specs/045-guided-oidc-setup/quickstart.md` end to end on the dev cluster and correct any step that does not match what shipped
+- [X] T076 Run `specs/045-guided-oidc-setup/quickstart.md` end to end on the dev cluster and correct any step that does not match what shipped
 - [ ] T077 Run the full gate: `scripts/ci.sh all`, plus `pnpm -C ui e2e -- hosted-guided-oidc` (not `pnpm e2e:hosted`, whose `testDir` is `./tests/hosted`) and the restricted suite, and fix what 045 broke
 - [ ] T078 Capture the promo screenshots of the new path per the brochure convention — **last step of the batch**, after everything else is green
 - [ ] T079 Run `scripts/hygiene.sh` and clean up anything 045's work left behind before reporting done
