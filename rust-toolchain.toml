@@ -1,0 +1,10 @@
+# Pinned deliberately. `scripts/ci.sh` ran on the floating `rust:1-bookworm` image, so when
+# upstream released 1.99 the gate went red with no commit touching the repo: clippy's
+# `double_must_use` began firing on every `#[async_trait]` trait method, 13 errors in the lib.
+#
+# A gate that can break overnight is not a gate. Bumping this is a deliberate, reviewable change
+# that carries whatever lint fixes the new toolchain wants, and local dev gets the same compiler
+# CI uses.
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]

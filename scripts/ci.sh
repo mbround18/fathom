@@ -13,6 +13,7 @@
 #   PLAYWRIGHT_WORKERS  Playwright workers inside the container     (default 2)
 #   CI_NICE             nice level for paws and every step          (default 10)
 #   CI_MIN_FREE_GB      GB of available memory the ui job needs     (default 8)
+#   CI_MAX_LOAD         1-min load average the ui job will start at (default half the cores)
 #   CI_RUN_ID           part of every step's cache key         (default: new per invocation)
 #                       Dagger caches a step whose inputs are unchanged and replays its old
 #                       output, so without this a second run on the same tree re-runs nothing.
@@ -27,6 +28,7 @@ cd "$(dirname "$0")/.."
 : "${PLAYWRIGHT_WORKERS:=2}"
 : "${CI_NICE:=10}"
 : "${CI_MIN_FREE_GB:=8}"
+: "${CI_MAX_LOAD:=$(( $(nproc) / 2 ))}"
 : "${CI_RUN_ID:=$(date +%s%N)}"
 export CARGO_BUILD_JOBS PLAYWRIGHT_WORKERS CI_RUN_ID DAGGER_NO_NAG=1
 
@@ -81,11 +83,21 @@ echo 'error: ui/src/protocol/generated is stale. Run cargo test -p fathom --test
 }
 
 job_ui() {
-  local avail
+  local avail load
   avail=$(free -g | awk '/^Mem:/ {print $7}')
   if [ "${avail:-0}" -lt "$CI_MIN_FREE_GB" ]; then
     echo "ci: only ${avail}GB memory available, the ui job wants ${CI_MIN_FREE_GB}GB (CI_MIN_FREE_GB)." >&2
     echo "ci: wait for other Playwright/cargo runs to finish, or lower PLAYWRIGHT_WORKERS." >&2
+    return 1
+  fi
+  # Memory alone is not enough. A box with free RAM but a saturated CPU starves vitest's workers
+  # at startup: they never answer the pool's handshake, `pnpm test` reports "Failed to start forks
+  # worker", and the job fails with every test that did run passing. Load decays, so this is worth
+  # waiting out rather than debugging.
+  load=$(awk '{printf "%d", $1}' /proc/loadavg 2>/dev/null || echo 0)
+  if [ "${load:-0}" -gt "$CI_MAX_LOAD" ]; then
+    echo "ci: load average is ${load}, the ui job wants ${CI_MAX_LOAD} or less (CI_MAX_LOAD)." >&2
+    echo "ci: wait for the machine to settle; a saturated box fails vitest at worker startup." >&2
     return 1
   fi
   # pnpm comes from ui/package.json's packageManager via corepack.
