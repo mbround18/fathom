@@ -389,6 +389,9 @@ struct Publisher {
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
     latest: Arc<Mutex<HashMap<String, FederationContextRollup>>>,
+    /// 046: the live tier's rows land in the same summary cache the 027 poller fills, so a
+    /// group rollup covers a federated member without asking its cluster anything.
+    summaries: fleet::SummaryCache,
 }
 
 impl Publisher {
@@ -416,7 +419,12 @@ impl Publisher {
                 latest.values(),
             )
         };
-        fleet::emit_summary(&self.seq, &self.sender, fleet_summary(&rollup));
+        fleet::emit_summary(
+            &self.seq,
+            &self.sender,
+            &self.summaries,
+            fleet_summary(&rollup),
+        );
         emit_rollup(&self.seq, &self.sender, rollup, combined);
         true
     }
@@ -722,6 +730,7 @@ fn spawn_context(
         seq: state.cluster.seq.clone(),
         sender: sender.clone(),
         latest: state.federation.latest.clone(),
+        summaries: state.fleet.summaries.clone(),
     };
     let initial = if exists {
         status_rollup(
@@ -747,7 +756,12 @@ fn spawn_context(
         .insert(context.to_owned(), FederationHandle { tasks: Vec::new() });
     // Announce the (Pending / unavailable) row.
     let combined = current_combined(state);
-    fleet::emit_summary(&state.cluster.seq, sender, fleet_summary(&initial));
+    fleet::emit_summary(
+        &state.cluster.seq,
+        sender,
+        &state.fleet.summaries,
+        fleet_summary(&initial),
+    );
     emit_rollup(&state.cluster.seq, sender, initial, combined);
 
     if exists {
@@ -1106,6 +1120,7 @@ mod tests {
             seq: Arc::new(AtomicU64::new(0)),
             sender: tx,
             latest: Arc::new(Mutex::new(HashMap::new())),
+            summaries: Arc::new(Mutex::new(std::collections::BTreeMap::new())),
         };
         let mk = |generation, state| status_rollup("a", generation, state, None);
         // Unknown (never federated / already removed) context: dropped.

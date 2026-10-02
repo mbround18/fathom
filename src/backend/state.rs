@@ -180,6 +180,10 @@ pub(super) struct FleetState {
     pub(super) pollers: HashMap<String, tokio::task::JoinHandle<()>>,
     /// Shared across all pollers to bound concurrent polls (FR-012).
     pub(super) poll_semaphore: Arc<tokio::sync::Semaphore>,
+    /// 046: the last summary emitted per context, written on the way out by
+    /// `fleet::emit_summary`. `RequestFleetGroupRollup` aggregates this and nothing else, so a
+    /// rollup costs no client, no poller and no API server request (046 FR-015).
+    pub(super) summaries: crate::backend::fleet::SummaryCache,
 }
 
 impl Default for FleetState {
@@ -190,6 +194,7 @@ impl Default for FleetState {
             poll_semaphore: Arc::new(tokio::sync::Semaphore::new(
                 crate::backend::fleet::MAX_CONCURRENT_POLLS,
             )),
+            summaries: Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new())),
         }
     }
 }

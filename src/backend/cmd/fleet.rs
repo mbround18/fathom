@@ -18,12 +18,16 @@ use kube::core::Selector;
 
 use super::{events, persistence};
 use crate::backend::fleet_model;
-use crate::backend::persistence::{FleetFile, FleetLoad};
+use crate::backend::persistence::{FleetFile, FleetGroupRecord, FleetLoad};
 use crate::backend::state::BackendState;
 use crate::protocol::{
-    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, FleetGroup, FleetMember,
-    FleetMemberAvailability, Route, SystemEvent, section_keys,
+    BackendCmd, BackendEvent, BackendEventEnvelope, Correlation, FleetContextSummary,
+    FleetCoverageGap, FleetGapReason, FleetGroup, FleetGroupRollup, FleetHealthState, FleetMember,
+    FleetMemberAvailability, Route, SettingOrigin, SystemEvent, section_keys,
 };
+
+/// The maximum length of a display name and of a group name (`data-model.md`).
+const MAX_NAME_CHARS: usize = 128;
 
 /// Handles every 046 command; returns the command back if it belongs to another family.
 pub(super) fn handle(
@@ -33,9 +37,475 @@ pub(super) fn handle(
 ) -> anyhow::Result<Option<BackendCmd>> {
     match cmd {
         BackendCmd::RefreshFleetModel => refresh_fleet_model(state, sender),
+        BackendCmd::SetFleetMemberDisplayName {
+            context,
+            display_name,
+        } => edit_model(state, sender, |file| {
+            set_display_name(file, &context, display_name.as_deref())
+        }),
+        BackendCmd::SetFleetMemberLabels { context, labels } => {
+            edit_model(state, sender, |file| set_labels(file, &context, labels))
+        }
+        BackendCmd::ForgetFleetMember { context } => {
+            edit_model(state, sender, |file| forget_member(file, &context))
+        }
+        BackendCmd::SaveFleetGroup { name, selector } => {
+            edit_model(state, sender, |file| save_group(file, &name, &selector))
+        }
+        BackendCmd::DeleteFleetGroup { name } => {
+            edit_model(state, sender, |file| delete_group(file, &name))
+        }
+        BackendCmd::RequestFleetGroupRollup { group } => request_rollup(state, sender, &group),
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+/// A refused edit: the validator's or parser's own message, verbatim, and the field it names.
+///
+/// This exists so every editing command refuses the same way — load, validate *everything*,
+/// then write — and so a rejection cannot be constructed without a reason (FR-003, FR-006).
+#[derive(Debug)]
+struct Rejection {
+    reason: String,
+    field: Option<String>,
+}
+
+impl Rejection {
+    fn new(reason: impl Into<String>, field: &str) -> Self {
+        Self {
+            reason: reason.into(),
+            field: Some(field.to_owned()),
+        }
+    }
+}
+
+/// The one write path: load the file, let `edit` mutate it or refuse, persist, emit the model.
+///
+/// Three properties the commands all inherit from it:
+/// - **Nothing is persisted on a refusal.** `edit` mutates a copy that is dropped unread, and
+///   `FleetModelRejected` is emitted instead of — never alongside — `FleetModelUpdated`.
+/// - **An unparseable file is never written over** (Principle VI). A load failure reports itself
+///   and stops: overwriting would turn one unreadable file into one *lost* file, and the operator
+///   has had no chance to look at it yet.
+/// - **No cluster is touched.** One file read, one kubeconfig read, one file write (FR-015).
+fn edit_model(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    edit: impl FnOnce(&mut FleetFile) -> Result<(), Rejection>,
+) {
+    let FleetLoad { mut file, failure } = persistence::load_fleet_model();
+    if let Some(reason) = failure {
+        emit(
+            state,
+            sender,
+            SystemEvent::FleetModelLoadFailed {
+                path: fleet_path_display(),
+                reason,
+            },
+        );
+        return;
+    }
+    if let Err(Rejection { reason, field }) = edit(&mut file) {
+        emit(
+            state,
+            sender,
+            SystemEvent::FleetModelRejected { reason, field },
+        );
+        return;
+    }
+    if let Err(e) = persistence::save_fleet_model(&file) {
+        // The edit was valid but the disk refused it, so nothing was persisted — which is
+        // exactly what `FleetModelRejected` promises. `field` is `None`: no input is at fault.
+        emit(
+            state,
+            sender,
+            SystemEvent::FleetModelRejected {
+                reason: format!("{e:#}"),
+                field: None,
+            },
+        );
+        return;
+    }
+    emit_model(state, sender, &file);
+}
+
+/// Emit the whole model as reconciled against the current kubeconfig.
+fn emit_model(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>, file: &FleetFile) {
+    let contexts = kubeconfig_contexts(state);
+    let (members, groups) = model_from(file, &contexts);
+    log_group_membership(&members, &groups);
+    emit(
+        state,
+        sender,
+        SystemEvent::FleetModelUpdated { members, groups },
+    );
+}
+
+fn fleet_path_display() -> String {
+    persistence::fleet_file_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "~/.fathom/fleet.json".to_owned())
+}
+
+/// A context name is a member's identity (FR-001); an empty one names nothing.
+fn check_context(context: &str) -> Result<(), Rejection> {
+    if context.trim().is_empty() {
+        return Err(Rejection::new(
+            "a member is identified by its kubeconfig context name, which must not be empty",
+            "context",
+        ));
+    }
+    Ok(())
+}
+
+/// T026 `SetFleetMemberDisplayName`: trim, and store an empty name as *absent*.
+///
+/// `Some("")` is not a display name, it is the absence of one rendered as a value — and FR-002
+/// says the display name is shown beside the context, so an empty string would render as a blank
+/// where a name should be. Clearing the name also clears its origin: there is no such thing as a
+/// locally-set nothing.
+fn set_display_name(
+    file: &mut FleetFile,
+    context: &str,
+    display_name: Option<&str>,
+) -> Result<(), Rejection> {
+    check_context(context)?;
+    let trimmed = display_name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if let Some(name) = &trimmed
+        && name.chars().count() > MAX_NAME_CHARS
+    {
+        return Err(Rejection::new(
+            format!(
+                "display name \"{name}\" is invalid: must be 1-{MAX_NAME_CHARS} characters, and it is {}",
+                name.chars().count()
+            ),
+            "display_name",
+        ));
+    }
+    let record = file.members.entry(context.to_owned()).or_default();
+    match &trimmed {
+        Some(_) => {
+            record
+                .origins
+                .insert("display_name".to_owned(), SettingOrigin::Local);
+        }
+        None => {
+            record.origins.remove("display_name");
+        }
+    }
+    record.display_name = trimmed;
+    Ok(())
+}
+
+/// T027 `SetFleetMemberLabels`: validate the whole map first, then write it.
+///
+/// `validate_labels` fails on the first offender in `BTreeMap` order and mutates nothing, so
+/// validating before touching `file` is what makes "persist nothing on failure" true rather than
+/// merely likely (FR-003).
+///
+/// Origins: a key is marked `Local` only when this edit *changed* it. A label adopted from a
+/// shared definition and resubmitted unchanged stays shared, so FR-013's "a local value wins" does
+/// not quietly claim every value the operator has ever seen. Keys dropped from the map lose their
+/// origin with them.
+fn set_labels(
+    file: &mut FleetFile,
+    context: &str,
+    labels: BTreeMap<String, String>,
+) -> Result<(), Rejection> {
+    check_context(context)?;
+    fleet_model::validate_labels(&labels).map_err(|e| Rejection {
+        reason: e.to_string(),
+        field: Some(e.part.noun().to_owned()),
+    })?;
+
+    let record = file.members.entry(context.to_owned()).or_default();
+    let changed: Vec<&String> = labels
+        .iter()
+        .filter(|(key, value)| record.labels.get(*key) != Some(*value))
+        .map(|(key, _)| key)
+        .collect();
+    let mut origins: BTreeMap<String, SettingOrigin> = record
+        .origins
+        .iter()
+        .filter(|(key, _)| !key.starts_with("labels/"))
+        .map(|(key, origin)| (key.clone(), *origin))
+        .collect();
+    for key in labels.keys() {
+        let origin_key = format!("labels/{key}");
+        let origin = if changed.contains(&key) {
+            SettingOrigin::Local
+        } else {
+            record
+                .origins
+                .get(&origin_key)
+                .copied()
+                .unwrap_or(SettingOrigin::Local)
+        };
+        origins.insert(origin_key, origin);
+    }
+    record.origins = origins;
+    record.labels = labels;
+    Ok(())
+}
+
+/// T027 `ForgetFleetMember`: the only path that removes a member's metadata (FR-009).
+///
+/// It does not consult availability. An `Absent` member is precisely the one an operator most
+/// wants to forget — the decommissioned cluster still on the dashboard — and refusing to forget it
+/// because its context is gone would leave that row unremovable. Forgetting a member that was
+/// never recorded is a no-op, not an error: the end state the operator asked for already holds.
+fn forget_member(file: &mut FleetFile, context: &str) -> Result<(), Rejection> {
+    check_context(context)?;
+    file.members.remove(context.trim());
+    Ok(())
+}
+
+/// T031 `SaveFleetGroup`: parse first, then upsert by name.
+///
+/// The selector is stored **verbatim as typed**, not as the parser's `Display`: `Expression::In`
+/// holds a `BTreeSet`, so round-tripping `env in (stage,prod)` through the parser would hand the
+/// operator back `env in (prod,stage)` — a different string from the one they wrote, in a field
+/// whose whole purpose is to be the expression they wrote. Parsing is the gate; it is not the
+/// storage format.
+fn save_group(file: &mut FleetFile, name: &str, selector: &str) -> Result<(), Rejection> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Rejection::new("a group name must not be empty", "name"));
+    }
+    if name.chars().count() > MAX_NAME_CHARS {
+        return Err(Rejection::new(
+            format!(
+                "group name \"{name}\" is invalid: must be 1-{MAX_NAME_CHARS} characters, and it is {}",
+                name.chars().count()
+            ),
+            "name",
+        ));
+    }
+    fleet_model::parse_selector(selector).map_err(|e| Rejection {
+        reason: e.to_string(),
+        field: Some("selector".to_owned()),
+    })?;
+    file.groups.insert(
+        name.to_owned(),
+        FleetGroupRecord {
+            selector: selector.to_owned(),
+            origin: SettingOrigin::Local,
+        },
+    );
+    Ok(())
+}
+
+/// T031 `DeleteFleetGroup`: drop the group; members are untouched, because membership was never
+/// stored on them in the first place (FR-004).
+fn delete_group(file: &mut FleetFile, name: &str) -> Result<(), Rejection> {
+    file.groups.remove(name.trim());
+    Ok(())
+}
+
+/// T032 `RequestFleetGroupRollup`: aggregate what the backend already holds, and say what it
+/// could not.
+///
+/// This command issues no cluster request of any kind. It reads `fleet.json`, the kubeconfig
+/// context list, and `state.fleet.summaries` — the cache `fleet::emit_summary` fills on the way
+/// out of the 027 poller and 034's live tier — and nothing else. There is no client built here and
+/// no task spawned (FR-015, Principle V).
+///
+/// Three outcomes, deliberately distinct in what the UI receives:
+/// - **no such group** → `FleetModelRejected`, field `group`. Not an empty rollup, which would
+///   read as "the group matches nothing".
+/// - **a stored selector that no longer parses** → `FleetModelRejected`, field `selector`, with
+///   the parser's own message. Also not an empty rollup: a group Fathom cannot evaluate is not a
+///   group that matches nobody (FR-005).
+/// - **a group that genuinely matches nothing** → a rollup with `members_total: 0`, which says so.
+fn request_rollup(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>, group: &str) {
+    let FleetLoad { file, failure } = persistence::load_fleet_model();
+    if let Some(reason) = failure {
+        emit(
+            state,
+            sender,
+            SystemEvent::FleetModelLoadFailed {
+                path: fleet_path_display(),
+                reason,
+            },
+        );
+        return;
+    }
+    let name = group.trim();
+    let Some(record) = file.groups.get(name) else {
+        emit(
+            state,
+            sender,
+            SystemEvent::FleetModelRejected {
+                reason: format!("there is no fleet group named \"{name}\""),
+                field: Some("group".to_owned()),
+            },
+        );
+        return;
+    };
+    let selector = match fleet_model::parse_selector(&record.selector) {
+        Ok(selector) => selector,
+        Err(e) => {
+            emit(
+                state,
+                sender,
+                SystemEvent::FleetModelRejected {
+                    reason: e.to_string(),
+                    field: Some("selector".to_owned()),
+                },
+            );
+            return;
+        }
+    };
+
+    let contexts = kubeconfig_contexts(state);
+    let (members, _) = model_from(&file, &contexts);
+    let matching = members
+        .iter()
+        .filter(|m| fleet_model::selector_matches(&selector, &m.labels));
+    let rollup = match state.fleet.summaries.lock() {
+        Ok(summaries) => rollup_for(name, matching, &summaries),
+        // A poisoned cache is not a licence to report an uncovered fleet as a healthy one: every
+        // member becomes `Pending`, which is what "we hold no summary for it" means.
+        Err(_) => rollup_for(name, matching, &BTreeMap::new()),
+    };
+    emit(state, sender, SystemEvent::FleetGroupRollupUpdated(rollup));
+}
+
+/// Aggregate the summaries held for `members`, and name every member that is not in the sum.
+///
+/// Every member lands in exactly one of two places — the sums or `gaps` — which is what makes
+/// both invariants true by construction rather than by inspection:
+/// `members_covered <= members_total`, and `gaps.len() == members_total - members_covered`.
+///
+/// The defect this is written against is `ui/src/resources/nav.ts`'s rendering of a *denied* CRD
+/// scan as "not installed". A rollup that summed the three clusters it could read and called it
+/// the group's health would be the same untruth with bigger numbers, so there is no path through
+/// this function that drops a member silently.
+fn rollup_for<'a>(
+    group: &str,
+    members: impl IntoIterator<Item = &'a FleetMember>,
+    summaries: &BTreeMap<String, FleetContextSummary>,
+) -> FleetGroupRollup {
+    let mut rollup = FleetGroupRollup {
+        group: group.to_owned(),
+        members_total: 0,
+        members_covered: 0,
+        gaps: Vec::new(),
+        node_ready: 0,
+        node_total: 0,
+        unhealthy_pods: 0,
+    };
+    for member in members {
+        rollup.members_total = rollup.members_total.saturating_add(1);
+        match covered_counts(member, summaries) {
+            Ok(counts) => {
+                rollup.members_covered = rollup.members_covered.saturating_add(1);
+                rollup.node_ready = rollup.node_ready.saturating_add(counts.node_ready);
+                rollup.node_total = rollup.node_total.saturating_add(counts.node_total);
+                rollup.unhealthy_pods = rollup.unhealthy_pods.saturating_add(counts.unhealthy_pods);
+            }
+            Err(reason) => rollup.gaps.push(FleetCoverageGap {
+                context: member.context.clone(),
+                reason,
+            }),
+        }
+    }
+    debug_assert!(rollup.members_covered <= rollup.members_total);
+    debug_assert_eq!(
+        rollup.gaps.len() as u32,
+        rollup.members_total - rollup.members_covered
+    );
+    rollup
+}
+
+/// What one covered member contributes to the sums.
+struct MemberCounts {
+    node_ready: u32,
+    node_total: u32,
+    unhealthy_pods: u32,
+}
+
+/// One member's contribution, or the reason it has none. The four reasons map to four distinct
+/// states of the world and are never folded together (FR-011):
+///
+/// - `Absent` — the context is not in the current kubeconfig. Nothing was asked of it, because
+///   there is nothing to ask.
+/// - `Pending` — in the kubeconfig, but no summary has arrived yet (no poll, or the poller's own
+///   `Pending` placeholder). It was asked and has not answered.
+/// - `NotPermitted` — a 403. Either the credentials were refused outright
+///   (`FleetHealthState::AuthError`, whose `error` is the API server's own message verbatim) or
+///   the cluster answered but denied a resource group, which 027 records in `restricted` with the
+///   matching counts `None`. A member whose node or pod list was forbidden is **not** covered:
+///   counting it would state a sum over numbers nobody was allowed to read.
+/// - `Unreachable` — the connection or the API call failed, with the transport error verbatim.
+fn covered_counts(
+    member: &FleetMember,
+    summaries: &BTreeMap<String, FleetContextSummary>,
+) -> Result<MemberCounts, FleetGapReason> {
+    if member.availability == FleetMemberAvailability::Absent {
+        return Err(FleetGapReason::Absent);
+    }
+    let Some(summary) = summaries.get(&member.context) else {
+        return Err(FleetGapReason::Pending);
+    };
+    match summary.health {
+        FleetHealthState::Pending => Err(FleetGapReason::Pending),
+        FleetHealthState::AuthError => Err(FleetGapReason::NotPermitted {
+            detail: reported_detail(summary),
+        }),
+        FleetHealthState::Unreachable => Err(FleetGapReason::Unreachable {
+            detail: reported_detail(summary),
+        }),
+        FleetHealthState::Healthy | FleetHealthState::Degraded => {
+            if !summary.restricted.is_empty() {
+                return Err(FleetGapReason::NotPermitted {
+                    detail: restricted_detail(summary),
+                });
+            }
+            match (
+                summary.node_ready_count,
+                summary.node_total_count,
+                summary.unhealthy_pod_count,
+            ) {
+                (Some(node_ready), Some(node_total), Some(unhealthy_pods)) => Ok(MemberCounts {
+                    node_ready,
+                    node_total,
+                    unhealthy_pods,
+                }),
+                // Reachable, nothing denied, and still no counts: the summary does not say this
+                // member was read, so it is not covered. `Pending` is the honest reading.
+                _ => Err(FleetGapReason::Pending),
+            }
+        }
+    }
+}
+
+/// The cluster's own words for a failure, never Fathom's (Principle I). 027 puts the API server's
+/// or transport's message in `error` verbatim; `plugin_error` carries 035's typed credential
+/// failure when the exec plugin is what broke.
+fn reported_detail(summary: &FleetContextSummary) -> String {
+    if let Some(error) = &summary.error {
+        return error.clone();
+    }
+    if let Some(plugin) = &summary.plugin_error {
+        return plugin.message.clone();
+    }
+    "the cluster reported no reason".to_owned()
+}
+
+/// A partial denial's detail. 027's `FleetContextSummary` keeps only the denied resource groups,
+/// not the API server's 403 body, so this names the groups it was refused — the most specific
+/// truth the summary actually holds. (Carrying the server's message through
+/// `fleet::restrict_forbidden` would change 027's summary shape; noted for a follow-up.)
+fn restricted_detail(summary: &FleetContextSummary) -> String {
+    format!(
+        "the API server refused to list {} for these credentials",
+        summary.restricted.join(" and ")
+    )
 }
 
 /// Every event in this family is routed globally on the `system` section, matching
@@ -58,25 +528,18 @@ fn emit(state: &BackendState, sender: &Sender<BackendEventEnvelope>, event: Syst
 /// with no model at all — an operator with an unparseable file sees an empty fleet and the
 /// parser's own reason, rather than a view that never resolves.
 fn refresh_fleet_model(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>) {
-    let path = persistence::fleet_file_path()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "~/.fathom/fleet.json".to_owned());
     let FleetLoad { file, failure } = persistence::load_fleet_model();
     if let Some(reason) = failure {
         emit(
             state,
             sender,
-            SystemEvent::FleetModelLoadFailed { path, reason },
+            SystemEvent::FleetModelLoadFailed {
+                path: fleet_path_display(),
+                reason,
+            },
         );
     }
-    let contexts = kubeconfig_contexts(state);
-    let (members, groups) = model_from(&file, &contexts);
-    log_group_membership(&members, &groups);
-    emit(
-        state,
-        sender,
-        SystemEvent::FleetModelUpdated { members, groups },
-    );
+    emit_model(state, sender, &file);
 }
 
 /// The contexts the fleet reconciles against: the kubeconfig's own list, as 027's poller
@@ -265,21 +728,517 @@ mod tests {
         assert_eq!(matched, ["prod-a", "retired"]);
     }
 
-    /// Every command but `RefreshFleetModel` falls through to the next family, so the
-    /// commands this family does not implement yet behave exactly as they did before it
-    /// existed rather than being silently swallowed here.
+    /// The four 014-sharing commands are US3's (T039-T042) and must still fall through to the
+    /// next family, so they behave exactly as they did before this family existed rather than
+    /// being silently swallowed here.
     #[test]
     fn unclaimed_commands_are_handed_back() {
         let mut state = BackendState::new();
         let (tx, _rx) = crossbeam_channel::unbounded();
-        let back = handle(
-            BackendCmd::ForgetFleetMember {
-                context: "prod-a".to_owned(),
+        for cmd in [
+            BackendCmd::RefreshSharedFleetDefinitions,
+            BackendCmd::PublishFleetDefinition {
+                id: "prod".to_owned(),
             },
-            &mut state,
-            &tx,
+            BackendCmd::AdoptFleetDefinition {
+                id: "prod".to_owned(),
+            },
+            BackendCmd::RemoveFleetDefinition {
+                id: "prod".to_owned(),
+            },
+        ] {
+            let back = handle(cmd, &mut state, &tx).unwrap();
+            assert!(back.is_some(), "a US3 command must fall through to team.rs");
+        }
+    }
+
+    // -----------------------------------------------------------------------------------
+    // T026 / T027 / T031: the editing commands.
+    // -----------------------------------------------------------------------------------
+
+    /// Run `cmd` against a fleet file in a throwaway state root, and return the file's bytes
+    /// afterwards together with every system event emitted. `set_thread_state_root` is
+    /// thread-local and every test gets its own thread, so this does not leak between tests.
+    fn run(initial: &FleetFile, cmd: BackendCmd) -> (Vec<u8>, Vec<SystemEvent>) {
+        let dir = tempfile::tempdir().unwrap();
+        crate::backend::persistence::set_thread_state_root(dir.path().to_path_buf());
+        let path = crate::backend::persistence::fleet_file_path().unwrap();
+        crate::backend::persistence::save_fleet_model(initial).unwrap();
+
+        let mut state = BackendState::new();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        handle(cmd, &mut state, &tx).unwrap();
+
+        let bytes = std::fs::read(&path).unwrap();
+        let events = rx
+            .try_iter()
+            .filter_map(|env| match env.event {
+                BackendEvent::System(event) => Some(event),
+                _ => None,
+            })
+            .collect();
+        (bytes, events)
+    }
+
+    fn saved(bytes: &[u8]) -> FleetFile {
+        serde_json::from_slice(bytes).unwrap()
+    }
+
+    /// T026: trimmed, and empty-after-trim is `None` — never `Some("")`, which would render as
+    /// a blank where FR-002 promises a name beside the context.
+    #[test]
+    fn a_display_name_is_trimmed_and_an_empty_one_becomes_absent() {
+        let (bytes, events) = run(
+            &file(),
+            BackendCmd::SetFleetMemberDisplayName {
+                context: "prod-a".to_owned(),
+                display_name: Some("  london prod  ".to_owned()),
+            },
+        );
+        let record = &saved(&bytes).members["prod-a"];
+        assert_eq!(record.display_name.as_deref(), Some("london prod"));
+        assert_eq!(record.origins["display_name"], SettingOrigin::Local);
+        assert!(matches!(
+            events.last(),
+            Some(SystemEvent::FleetModelUpdated { .. })
+        ));
+
+        for cleared in [Some("   ".to_owned()), None] {
+            let (bytes, _) = run(
+                &file(),
+                BackendCmd::SetFleetMemberDisplayName {
+                    context: "prod-a".to_owned(),
+                    display_name: cleared.clone(),
+                },
+            );
+            let record = &saved(&bytes).members["prod-a"];
+            assert_eq!(record.display_name, None, "cleared by {cleared:?}");
+            assert!(
+                !record.origins.contains_key("display_name"),
+                "a cleared name has no local origin to report"
+            );
+        }
+    }
+
+    /// T026: 129 characters is refused by name, and the file is not touched.
+    #[test]
+    fn an_over_long_display_name_is_refused() {
+        let before = file();
+        let (bytes, events) = run(
+            &before,
+            BackendCmd::SetFleetMemberDisplayName {
+                context: "prod-a".to_owned(),
+                display_name: Some("x".repeat(MAX_NAME_CHARS + 1)),
+            },
+        );
+        assert_eq!(saved(&bytes), before, "nothing may be persisted");
+        let Some(SystemEvent::FleetModelRejected { reason, field }) = events.last() else {
+            panic!("expected a rejection, got {events:?}");
+        };
+        assert_eq!(field.as_deref(), Some("display_name"));
+        assert!(
+            reason.contains("129"),
+            "the reason names the length: {reason}"
+        );
+    }
+
+    /// T027 (FR-003): the validator's message reaches the UI verbatim, the field it names is
+    /// the validator's own noun, and `fleet.json` is byte-for-byte what it was.
+    #[test]
+    fn an_invalid_label_is_refused_verbatim_and_persists_nothing() {
+        let before = file();
+        let bad: BTreeMap<String, String> = BTreeMap::from([
+            ("env".to_owned(), "prod".to_owned()),
+            ("tier/of/too/many".to_owned(), "gold".to_owned()),
+        ]);
+        let expected = fleet_model::validate_labels(&bad).unwrap_err();
+        let (bytes, events) = run(
+            &before,
+            BackendCmd::SetFleetMemberLabels {
+                context: "prod-a".to_owned(),
+                labels: bad,
+            },
+        );
+        assert_eq!(saved(&bytes), before, "a refused edit persists nothing");
+        let Some(SystemEvent::FleetModelRejected { reason, field }) = events.last() else {
+            panic!("expected a rejection, got {events:?}");
+        };
+        assert_eq!(reason, &expected.to_string(), "the message is not reworded");
+        assert_eq!(field.as_deref(), Some(expected.part.noun()));
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, SystemEvent::FleetModelUpdated { .. })),
+            "a rejection is emitted instead of an update, never alongside it"
+        );
+    }
+
+    /// T027: the whole map is validated before anything is written, so the *valid* entries of a
+    /// map with one offender do not land either.
+    #[test]
+    fn a_map_with_one_offender_writes_none_of_its_valid_entries() {
+        let mut file = file();
+        let err = set_labels(
+            &mut file,
+            "prod-a",
+            BTreeMap::from([
+                ("aaa".to_owned(), "ok".to_owned()),
+                ("zzz".to_owned(), "NOT A VALUE".to_owned()),
+            ]),
+        )
+        .unwrap_err();
+        assert_eq!(err.field.as_deref(), Some("label value"));
+        assert_eq!(
+            file.members["prod-a"].labels,
+            BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+            "the record is untouched, including the key that was valid"
+        );
+    }
+
+    /// T027 (FR-013): only the keys this edit changed become local. A shared
+    /// (`SettingOrigin::OrgDefault`) label resubmitted unchanged stays shared, so adoption
+    /// (T040) can still update it.
+    #[test]
+    fn only_a_changed_label_becomes_local() {
+        let mut file = FleetFile {
+            members: BTreeMap::from([(
+                "prod-a".to_owned(),
+                FleetMemberRecord {
+                    display_name: None,
+                    labels: BTreeMap::from([
+                        ("env".to_owned(), "prod".to_owned()),
+                        ("tier".to_owned(), "gold".to_owned()),
+                    ]),
+                    origins: BTreeMap::from([
+                        ("labels/env".to_owned(), SettingOrigin::OrgDefault),
+                        ("labels/tier".to_owned(), SettingOrigin::OrgDefault),
+                    ]),
+                },
+            )]),
+            ..FleetFile::default()
+        };
+        set_labels(
+            &mut file,
+            "prod-a",
+            BTreeMap::from([
+                ("env".to_owned(), "prod".to_owned()),
+                ("tier".to_owned(), "silver".to_owned()),
+            ]),
         )
         .unwrap();
-        assert!(matches!(back, Some(BackendCmd::ForgetFleetMember { .. })));
+        let origins = &file.members["prod-a"].origins;
+        assert_eq!(origins["labels/env"], SettingOrigin::OrgDefault);
+        assert_eq!(origins["labels/tier"], SettingOrigin::Local);
+    }
+
+    /// T027 (FR-009): forgetting works whether the member is `Present` or `Absent`. `retired` is
+    /// absent from the kubeconfig here and is still removable — it is the row an operator most
+    /// wants gone.
+    #[test]
+    fn forgetting_removes_metadata_for_a_present_and_an_absent_member() {
+        for context in ["prod-a", "retired"] {
+            let (bytes, events) = run(
+                &file(),
+                BackendCmd::ForgetFleetMember {
+                    context: context.to_owned(),
+                },
+            );
+            assert!(
+                !saved(&bytes).members.contains_key(context),
+                "{context} should be forgotten"
+            );
+            assert!(matches!(
+                events.last(),
+                Some(SystemEvent::FleetModelUpdated { .. })
+            ));
+        }
+    }
+
+    /// T031: the selector is stored exactly as typed. `Expression::In` holds a `BTreeSet`, so
+    /// the parser's own `Display` would hand back `env in (prod,stage)` — a string the operator
+    /// never wrote.
+    #[test]
+    fn a_selector_is_stored_verbatim_not_normalized() {
+        let (bytes, _) = run(
+            &FleetFile::default(),
+            BackendCmd::SaveFleetGroup {
+                name: "  staging-and-prod ".to_owned(),
+                selector: "env in (stage,prod)".to_owned(),
+            },
+        );
+        let saved = saved(&bytes);
+        let group = &saved.groups["staging-and-prod"];
+        assert_eq!(group.selector, "env in (stage,prod)");
+        assert_eq!(group.origin, SettingOrigin::Local);
+    }
+
+    /// T031 (FR-006): a parse error is reported verbatim against `selector`, and no group is
+    /// created — not an empty one, not a disabled one.
+    #[test]
+    fn an_unparseable_selector_creates_no_group() {
+        let expected = fleet_model::parse_selector("env in prod").unwrap_err();
+        let (bytes, events) = run(
+            &FleetFile::default(),
+            BackendCmd::SaveFleetGroup {
+                name: "prod".to_owned(),
+                selector: "env in prod".to_owned(),
+            },
+        );
+        assert!(saved(&bytes).groups.is_empty(), "no group may be created");
+        let Some(SystemEvent::FleetModelRejected { reason, field }) = events.last() else {
+            panic!("expected a rejection, got {events:?}");
+        };
+        assert_eq!(reason, &expected.to_string());
+        assert!(
+            reason.contains(&expected.offending),
+            "the offending substring survives"
+        );
+        assert_eq!(field.as_deref(), Some("selector"));
+    }
+
+    /// T031: upsert by name, and deleting a group leaves every member's labels alone.
+    #[test]
+    fn saving_upserts_by_name_and_deleting_leaves_members_alone() {
+        let mut file = file();
+        save_group(&mut file, "prod", "env=prod").unwrap();
+        assert_eq!(file.groups.len(), 1, "upsert, not a second group");
+        assert_eq!(file.groups["prod"].selector, "env=prod");
+        delete_group(&mut file, "prod").unwrap();
+        assert!(file.groups.is_empty());
+        assert_eq!(file.members["prod-a"].labels["env"], "prod");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // T032 / T033: the rollup and its coverage.
+    // -----------------------------------------------------------------------------------
+
+    fn summary(context: &str, health: FleetHealthState) -> FleetContextSummary {
+        FleetContextSummary {
+            context: context.to_owned(),
+            health,
+            error: None,
+            node_ready_count: None,
+            node_total_count: None,
+            unhealthy_pod_count: None,
+            cluster_version: None,
+            flux: None,
+            restricted: Vec::new(),
+            last_updated: "2026-01-01T00:00:00Z".to_owned(),
+            live: false,
+            plugin_error: None,
+        }
+    }
+
+    fn member(context: &str, availability: FleetMemberAvailability) -> FleetMember {
+        FleetMember {
+            context: context.to_owned(),
+            display_name: None,
+            labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+            origins: BTreeMap::new(),
+            availability,
+        }
+    }
+
+    /// T033 (FR-010, FR-011): a mixed fleet — one covered, one denied outright, one denied a
+    /// resource group, one unreachable, one absent, one not yet polled.
+    ///
+    /// Both invariants are asserted, and so is the *distinctness* of the reasons: a test that
+    /// only counted gaps would pass against a version that collapsed all four into one, which is
+    /// precisely the `integrationVisible` defect this feature exists to stop repeating.
+    #[test]
+    fn a_mixed_fleet_rollup_states_its_own_coverage() {
+        let members = vec![
+            member("covered", FleetMemberAvailability::Present),
+            member("denied", FleetMemberAvailability::Present),
+            member("partly-denied", FleetMemberAvailability::Present),
+            member("unreachable", FleetMemberAvailability::Present),
+            member("retired", FleetMemberAvailability::Absent),
+            member("unpolled", FleetMemberAvailability::Present),
+        ];
+        let summaries = BTreeMap::from([
+            (
+                "covered".to_owned(),
+                FleetContextSummary {
+                    node_ready_count: Some(2),
+                    node_total_count: Some(3),
+                    unhealthy_pod_count: Some(4),
+                    ..summary("covered", FleetHealthState::Degraded)
+                },
+            ),
+            (
+                "denied".to_owned(),
+                FleetContextSummary {
+                    error: Some(
+                        "nodes is forbidden: User \"alice\" cannot list resource \"nodes\" in API group \"\" at the cluster scope"
+                            .to_owned(),
+                    ),
+                    ..summary("denied", FleetHealthState::AuthError)
+                },
+            ),
+            (
+                "partly-denied".to_owned(),
+                FleetContextSummary {
+                    restricted: vec!["nodes".to_owned()],
+                    unhealthy_pod_count: Some(9),
+                    ..summary("partly-denied", FleetHealthState::Healthy)
+                },
+            ),
+            (
+                "unreachable".to_owned(),
+                FleetContextSummary {
+                    error: Some("error trying to connect: tcp connect error: timed out".to_owned()),
+                    ..summary("unreachable", FleetHealthState::Unreachable)
+                },
+            ),
+            // `retired` has a stale summary on purpose: absence from the kubeconfig wins, so a
+            // forgotten cluster's last numbers can never be counted as current coverage.
+            (
+                "retired".to_owned(),
+                FleetContextSummary {
+                    node_ready_count: Some(100),
+                    node_total_count: Some(100),
+                    unhealthy_pod_count: Some(0),
+                    ..summary("retired", FleetHealthState::Healthy)
+                },
+            ),
+        ]);
+
+        let rollup = rollup_for("prod", &members, &summaries);
+
+        // Invariant 1 and 2.
+        assert_eq!(rollup.members_total, 6);
+        assert_eq!(rollup.members_covered, 1);
+        assert!(rollup.members_covered <= rollup.members_total);
+        assert_eq!(
+            rollup.gaps.len() as u32,
+            rollup.members_total - rollup.members_covered,
+            "every uncovered member is named, never merely counted"
+        );
+
+        // The sums cover the one member that was read in full, and nothing else: the denied
+        // member's readable pod count and the absent member's stale 100 nodes stay out.
+        assert_eq!((rollup.node_ready, rollup.node_total), (2, 3));
+        assert_eq!(rollup.unhealthy_pods, 4);
+
+        let by_context: BTreeMap<&str, &FleetGapReason> = rollup
+            .gaps
+            .iter()
+            .map(|g| (g.context.as_str(), &g.reason))
+            .collect();
+
+        // Four reasons, four shapes. A version that reduced them to one would fail here even
+        // though the counts above would still add up.
+        let FleetGapReason::NotPermitted { detail } = by_context["denied"] else {
+            panic!("a 403 is NotPermitted, got {:?}", by_context["denied"]);
+        };
+        assert!(
+            detail.contains("cannot list resource \"nodes\""),
+            "the API server's own reason, verbatim: {detail}"
+        );
+        assert!(matches!(
+            by_context["partly-denied"],
+            FleetGapReason::NotPermitted { .. }
+        ));
+        let FleetGapReason::Unreachable { detail } = by_context["unreachable"] else {
+            panic!("a connection failure is Unreachable");
+        };
+        assert!(detail.contains("tcp connect error"), "{detail}");
+        assert_eq!(by_context["retired"], &FleetGapReason::Absent);
+        assert_eq!(by_context["unpolled"], &FleetGapReason::Pending);
+
+        // FR-011 explicitly: denied and absent never reduce to the same reason.
+        assert_ne!(
+            by_context["denied"], by_context["retired"],
+            "a denied member must not read as an absent one"
+        );
+        assert_ne!(by_context["denied"], by_context["unreachable"]);
+        assert_ne!(by_context["retired"], by_context["unpolled"]);
+    }
+
+    /// T032 (FR-015): the rollup answers from the cache `fleet::emit_summary` fills, so with an
+    /// empty cache every present member is `Pending` — it does not go and poll one.
+    #[test]
+    fn an_empty_cache_yields_pending_not_a_poll() {
+        let rollup = rollup_for(
+            "prod",
+            &[member("prod-a", FleetMemberAvailability::Present)],
+            &BTreeMap::new(),
+        );
+        assert_eq!(rollup.members_covered, 0);
+        assert_eq!(rollup.gaps[0].reason, FleetGapReason::Pending);
+    }
+
+    /// T032: a group whose *stored* selector no longer parses is reported as a parse error, not
+    /// as a rollup over zero members (FR-005) — the two are different facts about the fleet and
+    /// the UI must be able to tell the operator which one happened.
+    #[test]
+    fn a_group_with_an_unparseable_stored_selector_is_not_a_group_matching_nothing() {
+        let broken = FleetFile {
+            groups: BTreeMap::from([(
+                "prod".to_owned(),
+                FleetGroupRecord {
+                    selector: "env in prod".to_owned(),
+                    origin: SettingOrigin::Local,
+                },
+            )]),
+            ..FleetFile::default()
+        };
+        let (_, events) = run(
+            &broken,
+            BackendCmd::RequestFleetGroupRollup {
+                group: "prod".to_owned(),
+            },
+        );
+        let Some(SystemEvent::FleetModelRejected { reason, field }) = events.last() else {
+            panic!("expected a rejection, got {events:?}");
+        };
+        assert_eq!(field.as_deref(), Some("selector"));
+        assert!(reason.contains("env in prod"), "{reason}");
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, SystemEvent::FleetGroupRollupUpdated(_))),
+            "no rollup may be emitted for a group that cannot be evaluated"
+        );
+
+        // And a group that does parse but matches nobody *does* get a rollup, saying so.
+        let empty = FleetFile {
+            groups: BTreeMap::from([(
+                "prod".to_owned(),
+                FleetGroupRecord {
+                    selector: "env=nowhere".to_owned(),
+                    origin: SettingOrigin::Local,
+                },
+            )]),
+            ..FleetFile::default()
+        };
+        let (_, events) = run(
+            &empty,
+            BackendCmd::RequestFleetGroupRollup {
+                group: "prod".to_owned(),
+            },
+        );
+        let Some(SystemEvent::FleetGroupRollupUpdated(rollup)) = events.last() else {
+            panic!("expected a rollup, got {events:?}");
+        };
+        assert_eq!(rollup.members_total, 0);
+        assert!(rollup.gaps.is_empty());
+    }
+
+    /// T032: an unknown group name is a rejection naming `group`, distinct again from an empty
+    /// rollup.
+    #[test]
+    fn an_unknown_group_is_rejected_by_name() {
+        let (_, events) = run(
+            &FleetFile::default(),
+            BackendCmd::RequestFleetGroupRollup {
+                group: "nope".to_owned(),
+            },
+        );
+        let Some(SystemEvent::FleetModelRejected { reason, field }) = events.last() else {
+            panic!("expected a rejection, got {events:?}");
+        };
+        assert_eq!(field.as_deref(), Some("group"));
+        assert!(reason.contains("nope"), "{reason}");
     }
 }

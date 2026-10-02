@@ -19,8 +19,9 @@
 //! status filter would make this dashboard show a single card, defeating its purpose. Polling
 //! attempts a real client build per context; unreachable ones just report `Unreachable`.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
 use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
@@ -36,6 +37,16 @@ use crate::protocol::{
 use super::events;
 use super::kube::load_kubeconfig;
 use super::state::BackendState;
+
+/// The last summary emitted for each context, keyed by context name.
+///
+/// 046 (FR-015): `RequestFleetGroupRollup` aggregates what the backend *already* holds, so
+/// something has to hold it. Every summary this module emits — the `Pending` placeholder, each
+/// poll's result, and 034's live-tier rows published through [`emit_summary`] — is recorded here
+/// on its way out, which is why the rollup can be answered without building a client, spawning a
+/// poller or issuing a single API server request. Nothing reads a cluster to fill it: it is a
+/// by-product of emissions that were happening anyway.
+pub(super) type SummaryCache = Arc<Mutex<BTreeMap<String, FleetContextSummary>>>;
 
 /// Poll interval while the dashboard is open (research.md R3).
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
@@ -144,12 +155,19 @@ pub(super) fn sync_pollers_with<F, Fut>(
         }
         let seq = state.cluster.seq.clone();
         let sender_clone = sender.clone();
-        emit_summary(&seq, &sender_clone, pending_summary(context.clone()));
+        let summaries = state.fleet.summaries.clone();
+        emit_summary(
+            &seq,
+            &sender_clone,
+            &summaries,
+            pending_summary(context.clone()),
+        );
         let handle = spawn_poller(
             context.clone(),
             start_offset(index),
             seq,
             sender_clone,
+            summaries,
             state.fleet.poll_semaphore.clone(),
             poll.clone(),
         );
@@ -201,6 +219,7 @@ fn spawn_poller<F, Fut>(
     start_delay: Duration,
     seq: Arc<AtomicU64>,
     sender: Sender<BackendEventEnvelope>,
+    summaries: SummaryCache,
     semaphore: Arc<tokio::sync::Semaphore>,
     poll: F,
 ) -> tokio::task::JoinHandle<()>
@@ -219,17 +238,24 @@ where
                 };
                 poll(context.clone()).await
             };
-            emit_summary(&seq, &sender, summary);
+            emit_summary(&seq, &sender, &summaries, summary);
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     })
 }
 
+/// Record `summary` in `cache` and emit it. The cache write is deliberately part of this one
+/// function rather than a call its callers must remember: every emitted summary is a summary the
+/// rollup may be asked about, so the two cannot drift (046 FR-015).
 pub(super) fn emit_summary(
     seq: &AtomicU64,
     sender: &Sender<BackendEventEnvelope>,
+    cache: &SummaryCache,
     summary: FleetContextSummary,
 ) {
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(summary.context.clone(), summary.clone());
+    }
     debug_assert!(
         summary.error.is_none()
             || matches!(
