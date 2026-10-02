@@ -40,7 +40,8 @@
   --ring: var(--accent-neon);
 
   --border: oklch(19.12% 0.0637 272.24); /* #0b1030 */
-  --input: var(--border);
+  --control-border: var(--border); /* already opaque here: 14.86:1 on --muted, its worst surface */
+  --input: var(--control-border);
 
   --destructive: oklch(47.97% 0.1923 18.46); /* #b00030 */
   --status-ok: oklch(51.28% 0.11 163.56); /* #007a55 */
@@ -107,7 +108,14 @@
   /* Intent #8b6cff @ 55% (L 63.61%) composites to only 2.36:1 on navy. SC-008 tuning: L raised to
      74% at the same hue; chroma is the in-gamut maximum at that lightness (what browsers render). */
   --border: oklch(74% 0.1431 288.73 / 55%);
-  --input: var(--border);
+
+  /* Decorative seams may use --border and may thin it further with an alpha modifier. A boundary
+     that is the only thing identifying a control may not: Tailwind's /NN multiplies with the 55%
+     above, so border-border/60 renders at 1.90:1 against --card, under the 3:1 SC 1.4.11 floor.
+     This token is opaque so a modifier cannot thin it, at the quietest lightness that still clears
+     3:1 on every dark surface: 3.85:1 on --card, 4.42:1 on --background, 3.78:1 on --muted. */
+  --control-border: oklch(58% 0.1122 288.73); /* #786eb8 */
+  --input: var(--control-border);
 
   --destructive: oklch(67.85% 0.2131 14.72); /* #ff4d6d */
   --status-ok: oklch(88.82% 0.1869 160.56); /* #39ffb0 */
@@ -156,6 +164,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-control-border: var(--control-border);
   --color-input: var(--input);
   --color-ring: var(--ring);
 

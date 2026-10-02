@@ -658,7 +658,7 @@ function RowCheckbox({
           'flex size-3.5 items-center justify-center border text-xs leading-none',
           checked
             ? 'border-accent-neon bg-accent-neon text-background'
-            : 'border-muted-foreground/60 group-hover/cb:border-foreground group-aria-selected/row:border-primary-foreground/70',
+            : 'border-muted-foreground group-hover/cb:border-foreground group-aria-selected/row:border-primary-foreground',
         )}
       >
         {checked ? '✓' : ''}
