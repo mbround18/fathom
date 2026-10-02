@@ -1176,6 +1176,64 @@ pub enum BackendCmdV1 {
     /// Re-emit the federated set and every current rollup (sent on UI mount).
     RequestFederationSnapshot,
 
+    // 046-fleet-model: the fleet as a named, labelled, groupable set of kubeconfig
+    // contexts. See `specs/046-fleet-model/contracts/protocol.md`. None of these start a
+    // poller, a client or a watch (FR-015), and none read or write a Kubernetes object:
+    // the model lives in `~/.fathom/fleet.json`.
+    /// Load `~/.fathom/fleet.json`, reconcile each member's availability against the
+    /// current kubeconfig, compute group membership, emit `FleetModelUpdated`.
+    RefreshFleetModel,
+    /// Trim; empty after trimming becomes `None`. Persist, mark the `display_name` origin
+    /// local, emit `FleetModelUpdated`.
+    SetFleetMemberDisplayName {
+        context: String,
+        display_name: Option<String>,
+    },
+    /// Validate every key and value before writing anything. On failure emit
+    /// `FleetModelRejected` with the verbatim reason and persist nothing (FR-003).
+    SetFleetMemberLabels {
+        context: String,
+        labels: std::collections::BTreeMap<String, String>,
+    },
+    /// The only path that removes a member's metadata; permitted whether the member is
+    /// `Present` or `Absent` (FR-009).
+    ForgetFleetMember {
+        context: String,
+    },
+    /// Parse the selector first. On a parse error emit `FleetModelRejected` carrying the
+    /// error verbatim and create no group (FR-006). Upsert by name.
+    SaveFleetGroup {
+        name: String,
+        selector: String,
+    },
+    /// Remove the group. Members are untouched.
+    DeleteFleetGroup {
+        name: String,
+    },
+    /// Aggregate the summaries already held for the matching members and emit
+    /// `FleetGroupRollupUpdated`. Issues no new cluster requests of its own (FR-015).
+    RequestFleetGroupRollup {
+        group: String,
+    },
+    /// Read `fleet-definitions.json` from the 014 store; emit
+    /// `SharedFleetDefinitionsUpdated`, or `FleetStoreUnavailable` with the store's reason.
+    RefreshSharedFleetDefinitions,
+    /// Publish the local labels and groups as a shared definition. Requires
+    /// `FathomRole::Editor`, as `PublishConnectionProfile` does; optimistic-concurrency
+    /// checked against the last seen `rev`, and a conflict is reported, never overwritten.
+    PublishFleetDefinition {
+        id: String,
+    },
+    /// Copy a shared definition locally. Must not overwrite any value whose origin is
+    /// local (FR-013).
+    AdoptFleetDefinition {
+        id: String,
+    },
+    /// Mark the store row `removed`. Adopted local copies survive (FR-014).
+    RemoveFleetDefinition {
+        id: String,
+    },
+
     // 036-incluster-daemon: optional in-cluster daemon (see `specs/036-incluster-daemon`).
     /// Persist the per-context preference; probe when `Auto`, tear down the stream when `Off`.
     SetDaemonPreference {
@@ -2002,6 +2060,56 @@ mod tests {
     fn fleet_cmd_roundtrips() {
         roundtrip(BackendCmdV1::StartFleetPolling);
         roundtrip(BackendCmdV1::StopFleetPolling);
+    }
+
+    /// 046-fleet-model: one round-trip per new command variant (FR-019).
+    #[test]
+    fn fleet_model_cmd_roundtrips() {
+        use std::collections::BTreeMap;
+
+        roundtrip(BackendCmdV1::RefreshFleetModel);
+        roundtrip(BackendCmdV1::SetFleetMemberDisplayName {
+            context: "arn:aws:eks:eu-west-1:1234:cluster/prod-a".to_owned(),
+            display_name: Some("prod a".to_owned()),
+        });
+        roundtrip(BackendCmdV1::SetFleetMemberDisplayName {
+            context: "prod-a".to_owned(),
+            display_name: None,
+        });
+        roundtrip(BackendCmdV1::SetFleetMemberLabels {
+            context: "prod-a".to_owned(),
+            labels: BTreeMap::from([
+                ("env".to_owned(), "prod".to_owned()),
+                ("team.example.com/owner".to_owned(), String::new()),
+            ]),
+        });
+        roundtrip(BackendCmdV1::SetFleetMemberLabels {
+            context: "prod-a".to_owned(),
+            labels: BTreeMap::new(),
+        });
+        roundtrip(BackendCmdV1::ForgetFleetMember {
+            context: "prod-a".to_owned(),
+        });
+        roundtrip(BackendCmdV1::SaveFleetGroup {
+            name: "prod".to_owned(),
+            selector: "env in (prod,staging),!canary".to_owned(),
+        });
+        roundtrip(BackendCmdV1::DeleteFleetGroup {
+            name: "prod".to_owned(),
+        });
+        roundtrip(BackendCmdV1::RequestFleetGroupRollup {
+            group: "prod".to_owned(),
+        });
+        roundtrip(BackendCmdV1::RefreshSharedFleetDefinitions);
+        roundtrip(BackendCmdV1::PublishFleetDefinition {
+            id: "prod-definition".to_owned(),
+        });
+        roundtrip(BackendCmdV1::AdoptFleetDefinition {
+            id: "prod-definition".to_owned(),
+        });
+        roundtrip(BackendCmdV1::RemoveFleetDefinition {
+            id: "prod-definition".to_owned(),
+        });
     }
 
     #[test]

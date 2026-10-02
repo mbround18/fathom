@@ -537,6 +537,42 @@ pub enum SystemEvent {
     /// `.context` on receipt.
     FleetSummaryUpdated(crate::protocol::v1::FleetContextSummary),
 
+    // 046-fleet-model: the fleet model itself — names, labels, groups and their coverage.
+    // See `specs/046-fleet-model/contracts/protocol.md`.
+    /// The whole model, after a load, an edit or a kubeconfig reconcile. Group membership
+    /// is computed here, not stored (FR-004).
+    FleetModelUpdated {
+        members: Vec<crate::protocol::v1::FleetMember>,
+        groups: Vec<crate::protocol::v1::FleetGroup>,
+    },
+    /// A label or selector was refused. `reason` is the validator's or parser's own
+    /// message, verbatim; `field` names the input it refers to. Emitted instead of —
+    /// never alongside — a successful update, and nothing was persisted (FR-003, FR-006).
+    FleetModelRejected {
+        reason: String,
+        field: Option<String>,
+    },
+    /// `~/.fathom/fleet.json` could not be read or parsed. In-memory defaults are in use
+    /// and the file was left byte-for-byte untouched (FR-007).
+    FleetModelLoadFailed {
+        path: String,
+        reason: String,
+    },
+    /// One group's aggregated health. Always carries `members_covered`, `members_total`
+    /// and `gaps` (FR-010) — see `FleetGroupRollup`'s invariants.
+    FleetGroupRollupUpdated(crate::protocol::v1::FleetGroupRollup),
+    /// Shared definitions from the 014 store, plus the local adopted copies with their
+    /// origins resolved. `still_shared: false` rows are included, never dropped (FR-014).
+    SharedFleetDefinitionsUpdated {
+        definitions: Vec<crate::protocol::v1::SharedFleetDefinition>,
+        adopted: Vec<crate::protocol::v1::AdoptedFleetDefinition>,
+    },
+    /// The shared config store could not be reached or read. `reason` is `StoreError`'s
+    /// own message. Adopted copies remain in place and usable (FR-014).
+    FleetStoreUnavailable {
+        reason: String,
+    },
+
     /// 034-simultaneous-federation: the federated set changed (or a snapshot was requested).
     FederationStateUpdated {
         federated: Vec<String>,
@@ -1763,5 +1799,111 @@ mod tests {
                 }],
             }],
         }));
+    }
+
+    /// 046-fleet-model: one round-trip per new event variant (FR-019), including one
+    /// `FleetGapReason` case per variant so a collapsed enum fails the build (FR-011).
+    #[test]
+    fn fleet_model_events_roundtrip() {
+        use crate::protocol::v1::{
+            AdoptedFleetDefinition, FleetCoverageGap, FleetGapReason, FleetGroup, FleetGroupRollup,
+            FleetMember, FleetMemberAvailability, FleetMemberShare, SettingOrigin,
+            SharedFleetDefinition,
+        };
+        use std::collections::BTreeMap;
+
+        system_roundtrip(SystemEvent::FleetModelUpdated {
+            members: vec![
+                FleetMember {
+                    context: "arn:aws:eks:eu-west-1:1234:cluster/prod-a".to_owned(),
+                    display_name: Some("prod a".to_owned()),
+                    labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+                    origins: BTreeMap::from([("display_name".to_owned(), SettingOrigin::Local)]),
+                    availability: FleetMemberAvailability::Present,
+                },
+                FleetMember {
+                    context: "retired".to_owned(),
+                    display_name: None,
+                    labels: BTreeMap::new(),
+                    origins: BTreeMap::new(),
+                    availability: FleetMemberAvailability::Absent,
+                },
+            ],
+            groups: vec![FleetGroup {
+                name: "prod".to_owned(),
+                selector: "env in (prod,staging)".to_owned(),
+                origin: SettingOrigin::OrgDefault,
+            }],
+        });
+        system_roundtrip(SystemEvent::FleetModelUpdated {
+            members: vec![],
+            groups: vec![],
+        });
+        system_roundtrip(SystemEvent::FleetModelRejected {
+            reason: "label key \"a//b\" is invalid: a key may contain at most one \"/\"".to_owned(),
+            field: Some("labels/a//b".to_owned()),
+        });
+        system_roundtrip(SystemEvent::FleetModelRejected {
+            reason: "unparsable selector".to_owned(),
+            field: None,
+        });
+        system_roundtrip(SystemEvent::FleetModelLoadFailed {
+            path: "/home/op/.fathom/fleet.json".to_owned(),
+            reason: "EOF while parsing an object at line 4 column 0".to_owned(),
+        });
+
+        for reason in [
+            FleetGapReason::NotPermitted {
+                detail: "nodes is forbidden".to_owned(),
+            },
+            FleetGapReason::Unreachable {
+                detail: "connection refused".to_owned(),
+            },
+            FleetGapReason::Absent,
+            FleetGapReason::Pending,
+        ] {
+            system_roundtrip(SystemEvent::FleetGroupRollupUpdated(FleetGroupRollup {
+                group: "prod".to_owned(),
+                members_total: 2,
+                members_covered: 1,
+                gaps: vec![FleetCoverageGap {
+                    context: "prod-b".to_owned(),
+                    reason,
+                }],
+                node_ready: 3,
+                node_total: 3,
+                unhealthy_pods: 0,
+            }));
+        }
+
+        let definition = SharedFleetDefinition {
+            id: "prod-definition".to_owned(),
+            members: BTreeMap::from([(
+                "prod-a".to_owned(),
+                FleetMemberShare {
+                    display_name: Some("prod a".to_owned()),
+                    labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+                },
+            )]),
+            groups: BTreeMap::from([("prod".to_owned(), "env in (prod)".to_owned())]),
+            rev: 7,
+            shared_by: "alice".to_owned(),
+            updated_at: "2026-10-02T12:00:00Z".to_owned(),
+            removed: false,
+        };
+        system_roundtrip(SystemEvent::SharedFleetDefinitionsUpdated {
+            definitions: vec![definition.clone()],
+            adopted: vec![AdoptedFleetDefinition {
+                definition: SharedFleetDefinition {
+                    removed: true,
+                    ..definition
+                },
+                adopted_at: "2026-10-02T12:05:00Z".to_owned(),
+                still_shared: false,
+            }],
+        });
+        system_roundtrip(SystemEvent::FleetStoreUnavailable {
+            reason: "store path /mnt/team-fathom is not readable".to_owned(),
+        });
     }
 }

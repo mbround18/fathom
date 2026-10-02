@@ -2213,6 +2213,39 @@ fn all_cmds() -> Vec<BackendCmd> {
         },
         BackendCmd::StartFleetPolling,
         BackendCmd::StopFleetPolling,
+        // 046-fleet-model
+        BackendCmd::RefreshFleetModel,
+        BackendCmd::SetFleetMemberDisplayName {
+            context: "prod-a".to_owned(),
+            display_name: Some("prod a".to_owned()),
+        },
+        BackendCmd::SetFleetMemberLabels {
+            context: "prod-a".to_owned(),
+            labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+        },
+        BackendCmd::ForgetFleetMember {
+            context: "prod-a".to_owned(),
+        },
+        BackendCmd::SaveFleetGroup {
+            name: "prod".to_owned(),
+            selector: "env in (prod,staging)".to_owned(),
+        },
+        BackendCmd::DeleteFleetGroup {
+            name: "prod".to_owned(),
+        },
+        BackendCmd::RequestFleetGroupRollup {
+            group: "prod".to_owned(),
+        },
+        BackendCmd::RefreshSharedFleetDefinitions,
+        BackendCmd::PublishFleetDefinition {
+            id: "d1".to_owned(),
+        },
+        BackendCmd::AdoptFleetDefinition {
+            id: "d1".to_owned(),
+        },
+        BackendCmd::RemoveFleetDefinition {
+            id: "d1".to_owned(),
+        },
         BackendCmd::FederateContext {
             context: "dev".to_owned(),
         },
@@ -2612,6 +2645,17 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::ResizeMcpDemoChat { .. } => {}
         BackendCmd::StartFleetPolling => {}
         BackendCmd::StopFleetPolling => {}
+        BackendCmd::RefreshFleetModel => {}
+        BackendCmd::SetFleetMemberDisplayName { .. } => {}
+        BackendCmd::SetFleetMemberLabels { .. } => {}
+        BackendCmd::ForgetFleetMember { .. } => {}
+        BackendCmd::SaveFleetGroup { .. } => {}
+        BackendCmd::DeleteFleetGroup { .. } => {}
+        BackendCmd::RequestFleetGroupRollup { .. } => {}
+        BackendCmd::RefreshSharedFleetDefinitions => {}
+        BackendCmd::PublishFleetDefinition { .. } => {}
+        BackendCmd::AdoptFleetDefinition { .. } => {}
+        BackendCmd::RemoveFleetDefinition { .. } => {}
         BackendCmd::FederateContext { .. } => {}
         BackendCmd::UnfederateContext { .. } => {}
         BackendCmd::RequestFederationSnapshot => {}
@@ -2930,6 +2974,48 @@ fn all_system_events() -> Vec<SystemEvent> {
             instructions: "Install Claude Code.".to_owned(),
         },
         SystemEvent::FleetSummaryUpdated(sample_fleet_context_summary()),
+        // 046-fleet-model
+        SystemEvent::FleetModelUpdated {
+            members: vec![sample_fleet_member()],
+            groups: vec![FleetGroup {
+                name: "prod".to_owned(),
+                selector: "env in (prod,staging)".to_owned(),
+                origin: SettingOrigin::Local,
+            }],
+        },
+        SystemEvent::FleetModelRejected {
+            reason: "label key \"a//b\" is invalid".to_owned(),
+            field: Some("labels/a//b".to_owned()),
+        },
+        SystemEvent::FleetModelLoadFailed {
+            path: "/home/op/.fathom/fleet.json".to_owned(),
+            reason: "EOF while parsing an object".to_owned(),
+        },
+        SystemEvent::FleetGroupRollupUpdated(FleetGroupRollup {
+            group: "prod".to_owned(),
+            members_total: 2,
+            members_covered: 1,
+            gaps: vec![FleetCoverageGap {
+                context: "prod-b".to_owned(),
+                reason: FleetGapReason::NotPermitted {
+                    detail: "nodes is forbidden".to_owned(),
+                },
+            }],
+            node_ready: 3,
+            node_total: 3,
+            unhealthy_pods: 0,
+        }),
+        SystemEvent::SharedFleetDefinitionsUpdated {
+            definitions: vec![sample_shared_fleet_definition()],
+            adopted: vec![AdoptedFleetDefinition {
+                definition: sample_shared_fleet_definition(),
+                adopted_at: "2026-10-02T12:05:00Z".to_owned(),
+                still_shared: false,
+            }],
+        },
+        SystemEvent::FleetStoreUnavailable {
+            reason: "store path /mnt/team-fathom is not readable".to_owned(),
+        },
         SystemEvent::FederationStateUpdated {
             federated: vec!["dev".to_owned()],
             soft_cap: 8,
@@ -3075,6 +3161,35 @@ fn sample_plugin_error() -> fathom::protocol::PluginError {
         command: "gke-gcloud-auth-plugin".to_owned(),
         message: "s".to_owned(),
         hint: Some("s".to_owned()),
+    }
+}
+
+/// 046-fleet-model samples.
+fn sample_fleet_member() -> FleetMember {
+    FleetMember {
+        context: "arn:aws:eks:eu-west-1:1234:cluster/prod-a".to_owned(),
+        display_name: Some("prod a".to_owned()),
+        labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+        origins: BTreeMap::from([("display_name".to_owned(), SettingOrigin::Local)]),
+        availability: FleetMemberAvailability::Present,
+    }
+}
+
+fn sample_shared_fleet_definition() -> SharedFleetDefinition {
+    SharedFleetDefinition {
+        id: "prod-definition".to_owned(),
+        members: BTreeMap::from([(
+            "prod-a".to_owned(),
+            FleetMemberShare {
+                display_name: Some("prod a".to_owned()),
+                labels: BTreeMap::from([("env".to_owned(), "prod".to_owned())]),
+            },
+        )]),
+        groups: BTreeMap::from([("prod".to_owned(), "env in (prod)".to_owned())]),
+        rev: 7,
+        shared_by: "alice".to_owned(),
+        updated_at: "2026-10-02T12:00:00Z".to_owned(),
+        removed: true,
     }
 }
 
@@ -3284,6 +3399,12 @@ fn all_system_events_is_exhaustive(v: &SystemEvent) {
         SystemEvent::McpDemoChatEnded { .. } => {}
         SystemEvent::McpDemoChatNotDetected { .. } => {}
         SystemEvent::FleetSummaryUpdated(..) => {}
+        SystemEvent::FleetModelUpdated { .. } => {}
+        SystemEvent::FleetModelRejected { .. } => {}
+        SystemEvent::FleetModelLoadFailed { .. } => {}
+        SystemEvent::FleetGroupRollupUpdated(..) => {}
+        SystemEvent::SharedFleetDefinitionsUpdated { .. } => {}
+        SystemEvent::FleetStoreUnavailable { .. } => {}
         SystemEvent::FederationStateUpdated { .. } => {}
         SystemEvent::FederationRollupUpdated { .. } => {}
         SystemEvent::DaemonStatusUpdated { .. } => {}

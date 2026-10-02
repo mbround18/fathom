@@ -223,7 +223,13 @@ impl BackendCmdV1 {
             // server's authentication configuration is an ordinary read.
             | C::OidcDiscoverDraft { .. }
             | C::OidcTestSignIn { .. }
-            | C::ReadApiServerAuth { .. } => MutationTarget::ReadOnly,
+            | C::ReadApiServerAuth { .. }
+            // 046-fleet-model: reads of `~/.fathom/fleet.json`, of the shared store, and a
+            // rollup over summaries already held. None of them issue a cluster request
+            // (FR-015) and none of them persist anything.
+            | C::RefreshFleetModel
+            | C::RequestFleetGroupRollup { .. }
+            | C::RefreshSharedFleetDefinitions => MutationTarget::ReadOnly,
 
             // App-local state.
             C::Shutdown
@@ -310,7 +316,18 @@ impl BackendCmdV1 {
             // 035-cloud-auth-plugins: persists a per-context exec policy only.
             | C::SetExecPolicy { .. }
             // 040-manifest-export: writes a kubeconfig file on the operator's machine.
-            | C::ExportKubeconfig { .. } => MutationTarget::Local,
+            | C::ExportKubeconfig { .. }
+            // 046-fleet-model: writes `~/.fathom/fleet.json` or the self-hosted shared
+            // store. Fleet labels are operator-authored metadata, never a Kubernetes
+            // object, so nothing here can reach a cluster.
+            | C::SetFleetMemberDisplayName { .. }
+            | C::SetFleetMemberLabels { .. }
+            | C::ForgetFleetMember { .. }
+            | C::SaveFleetGroup { .. }
+            | C::DeleteFleetGroup { .. }
+            | C::PublishFleetDefinition { .. }
+            | C::AdoptFleetDefinition { .. }
+            | C::RemoveFleetDefinition { .. } => MutationTarget::Local,
 
             // 045: rewrites the control plane's authentication for every user of the cluster,
             // so it is cluster-scoped however it reaches the node.
@@ -440,6 +457,19 @@ impl BackendCmdV1 {
             | C::LoadUiConfig
             | C::StartFleetPolling
             | C::StopFleetPolling
+            // 046-fleet-model: the fleet model is global, like the fleet dashboard's own
+            // commands — it describes every context, not one section's resources.
+            | C::RefreshFleetModel
+            | C::SetFleetMemberDisplayName { .. }
+            | C::SetFleetMemberLabels { .. }
+            | C::ForgetFleetMember { .. }
+            | C::SaveFleetGroup { .. }
+            | C::DeleteFleetGroup { .. }
+            | C::RequestFleetGroupRollup { .. }
+            | C::RefreshSharedFleetDefinitions
+            | C::PublishFleetDefinition { .. }
+            | C::AdoptFleetDefinition { .. }
+            | C::RemoveFleetDefinition { .. }
             | C::FederateContext { .. }
             | C::UnfederateContext { .. }
             | C::RequestFederationSnapshot
@@ -864,6 +894,19 @@ impl BackendCmdV1 {
             | C::CancelCreateKindCluster { .. }
             | C::StartFleetPolling
             | C::StopFleetPolling
+            // 046-fleet-model: operator-authored local metadata. No cluster object changes,
+            // so there is nothing for the cluster-mutation audit log to record.
+            | C::RefreshFleetModel
+            | C::SetFleetMemberDisplayName { .. }
+            | C::SetFleetMemberLabels { .. }
+            | C::ForgetFleetMember { .. }
+            | C::SaveFleetGroup { .. }
+            | C::DeleteFleetGroup { .. }
+            | C::RequestFleetGroupRollup { .. }
+            | C::RefreshSharedFleetDefinitions
+            | C::PublishFleetDefinition { .. }
+            | C::AdoptFleetDefinition { .. }
+            | C::RemoveFleetDefinition { .. }
             | C::CheckPodExecAccess { .. }
             | C::CheckResourceMutationAccess { .. }
             | C::RefreshKeda
@@ -1400,6 +1443,33 @@ impl BackendCmdV1 {
             | C::SendMcpDemoChatInput { .. }
             | C::ResizeMcpDemoChat { .. } => HostedPolicy::Denied(HostedDenial::Mcp),
             C::StartFleetPolling | C::StopFleetPolling => HostedPolicy::Denied(HostedDenial::Fleet),
+            // 046-fleet-model (FR-018): a hosted install is a fleet of exactly one member,
+            // the `home` context. Naming it is allowed; naming any other context is the
+            // same cross-context reach `SetContext` is denied for, so it gets the same
+            // denial. Nothing here relaxes an existing one: fleet *polling* and the
+            // federation snapshot still read the kubeconfig and still deny above/below.
+            C::SetFleetMemberDisplayName { context, .. }
+            | C::SetFleetMemberLabels { context, .. }
+            | C::ForgetFleetMember { context }
+                if context == home =>
+            {
+                HostedPolicy::Allowed
+            }
+            C::SetFleetMemberDisplayName { .. }
+            | C::SetFleetMemberLabels { .. }
+            | C::ForgetFleetMember { .. } => HostedPolicy::Denied(HostedDenial::ContextSwitch),
+            // No context to scope: the model has one member, groups are selectors over it,
+            // and a rollup over one member states its coverage as 1/1. The sharing commands
+            // run under the signed-in user's existing role gate (`FathomRole::Editor` for a
+            // publish), which is enforced where the command is handled, not here.
+            C::RefreshFleetModel
+            | C::SaveFleetGroup { .. }
+            | C::DeleteFleetGroup { .. }
+            | C::RequestFleetGroupRollup { .. }
+            | C::RefreshSharedFleetDefinitions
+            | C::PublishFleetDefinition { .. }
+            | C::AdoptFleetDefinition { .. }
+            | C::RemoveFleetDefinition { .. } => HostedPolicy::Allowed,
             C::ConfigurePrometheus { .. }
             | C::ConfigureGrafana { .. }
             | C::ClearGrafanaKey
@@ -2109,5 +2179,91 @@ mod tests {
             );
             assert!(!target.writes_cluster(), "{cmd:?}");
         }
+    }
+
+    /// 046-fleet-model FR-018. Two halves, both load-bearing:
+    /// 1. the fleet *model* works in hosted, scoped to the `home` context; and
+    /// 2. not one pre-existing hosted denial is relaxed by adding it.
+    #[test]
+    fn fleet_model_hosted_policy_scoped_to_home() {
+        use std::collections::BTreeMap;
+        const HOME: &str = "home";
+
+        // Allowed, scoped to `home`.
+        for cmd in [
+            BackendCmdV1::RefreshFleetModel,
+            BackendCmdV1::SetFleetMemberDisplayName {
+                context: s(HOME),
+                display_name: Some(s("this cluster")),
+            },
+            BackendCmdV1::SetFleetMemberLabels {
+                context: s(HOME),
+                labels: BTreeMap::from([(s("env"), s("prod"))]),
+            },
+            BackendCmdV1::ForgetFleetMember { context: s(HOME) },
+            BackendCmdV1::SaveFleetGroup {
+                name: s("prod"),
+                selector: s("env=prod"),
+            },
+            BackendCmdV1::DeleteFleetGroup { name: s("prod") },
+            BackendCmdV1::RequestFleetGroupRollup { group: s("prod") },
+            BackendCmdV1::RefreshSharedFleetDefinitions,
+            BackendCmdV1::PublishFleetDefinition { id: s("d1") },
+            BackendCmdV1::AdoptFleetDefinition { id: s("d1") },
+            BackendCmdV1::RemoveFleetDefinition { id: s("d1") },
+        ] {
+            assert_eq!(
+                cmd.hosted_policy(HOME),
+                HostedPolicy::Allowed,
+                "hosted must allow {cmd:?} for the home context"
+            );
+        }
+
+        // A member command naming any other context is denied.
+        for cmd in [
+            BackendCmdV1::SetFleetMemberDisplayName {
+                context: s("prod-a"),
+                display_name: Some(s("prod a")),
+            },
+            BackendCmdV1::SetFleetMemberLabels {
+                context: s("prod-a"),
+                labels: BTreeMap::new(),
+            },
+            BackendCmdV1::ForgetFleetMember {
+                context: s("prod-a"),
+            },
+        ] {
+            assert_eq!(
+                cmd.hosted_policy(HOME),
+                HostedPolicy::Denied(HostedDenial::ContextSwitch),
+                "hosted must deny {cmd:?}: it names a context other than home"
+            );
+        }
+
+        // The four pre-existing denials still deny, unchanged.
+        assert_eq!(
+            BackendCmdV1::StartFleetPolling.hosted_policy(HOME),
+            HostedPolicy::Denied(HostedDenial::Fleet)
+        );
+        assert_eq!(
+            BackendCmdV1::StopFleetPolling.hosted_policy(HOME),
+            HostedPolicy::Denied(HostedDenial::Fleet)
+        );
+        assert_eq!(
+            BackendCmdV1::RequestFederationSnapshot.hosted_policy(HOME),
+            HostedPolicy::Denied(HostedDenial::Fleet)
+        );
+        assert_eq!(
+            BackendCmdV1::SetContext {
+                context: s("prod-a")
+            }
+            .hosted_policy(HOME),
+            HostedPolicy::Denied(HostedDenial::ContextSwitch)
+        );
+        // ... and the one allowance `SetContext` has stays exactly as narrow as it was.
+        assert_eq!(
+            BackendCmdV1::SetContext { context: s(HOME) }.hosted_policy(HOME),
+            HostedPolicy::Allowed
+        );
     }
 }
