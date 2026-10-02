@@ -179,22 +179,50 @@ export function redactions(): Array<[string, string]> {
   return nodes.sort().map((n, i) => [n, `node-${String(i + 1)}`])
 }
 
-/** Rewrite visible text (not inputs the app reads) so redacted names never reach a pixel. */
+/**
+ * Rewrite visible text (not inputs the app reads) so redacted names never reach a pixel.
+ *
+ * One pass is not enough: a column that is still streaming can mount a node name between the walk
+ * and the check, and the drilldown scenes photograph exactly those columns. So walk, check, and
+ * walk again — the loop ends when a walk finds nothing left to rewrite, which is the only state in
+ * which the screenshot is safe. The failure names the element that still holds the name, because
+ * "still visible" alone does not say whether the text arrived late or sits somewhere a text-node
+ * walk cannot reach (an attribute, a `title`, a name split across two elements).
+ */
 async function redact(page: Page, pairs: Array<[string, string]>): Promise<void> {
   if (pairs.length === 0) return
-  await page.evaluate((replacements) => {
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      let text = n.nodeValue ?? ''
-      for (const [from, to] of replacements) text = text.split(from).join(to)
-      if (text !== n.nodeValue) n.nodeValue = text
-    }
-  }, pairs)
-  const leaked = await page.evaluate(
-    (names) => names.filter((name) => document.body.innerText.includes(name)),
-    pairs.map(([from]) => from),
-  )
-  expect(leaked, 'redacted names still visible').toEqual([])
+  const names = pairs.map(([from]) => from)
+  const sweep = async (): Promise<string[]> =>
+    page.evaluate((replacements) => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        let text = n.nodeValue ?? ''
+        for (const [from, to] of replacements) text = text.split(from).join(to)
+        if (text !== n.nodeValue) n.nodeValue = text
+      }
+      const body = document.body.innerText
+      return replacements.map(([from]) => from).filter((from) => body.includes(from))
+    }, pairs)
+
+  let leaked = await sweep()
+  for (let attempt = 0; attempt < 10 && leaked.length > 0; attempt++) {
+    await page.waitForTimeout(200)
+    leaked = await sweep()
+  }
+  if (leaked.length > 0) {
+    const where = await page.evaluate((remaining) => {
+      const hits: string[] = []
+      for (const el of document.body.querySelectorAll<HTMLElement>('*')) {
+        if (el.children.length > 0) continue
+        const text = el.innerText ?? ''
+        for (const name of remaining) {
+          if (text.includes(name)) hits.push(`<${el.tagName.toLowerCase()}> ${el.outerHTML.slice(0, 300)}`)
+        }
+      }
+      return hits.slice(0, 5)
+    }, leaked)
+    expect(leaked, `redacted names still visible in: ${where.join(' | ') || '(no leaf element — split across elements or an attribute)'}`).toEqual([])
+  }
 }
 
 /** Fonts loaded, no loading panes, no hover, then a PNG in promo-out/shots/. */

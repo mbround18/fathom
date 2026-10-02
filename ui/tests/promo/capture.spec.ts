@@ -249,9 +249,13 @@ test.describe('wide', () => {
     await row(page, key(HELM_RELEASE), HELM).click()
     const insp = inspector(page)
     await expect(insp.getByRole('heading', { name: HELM_RELEASE })).toBeVisible()
-    // Revision history streams in after the initial select; wait for both real revisions
-    // (v1 install, v2 upgrade) before photographing.
-    await expect.poll(async () => insp.getByText('#2', { exact: true }).count()).toBeGreaterThan(0)
+    // Revision history streams in after the initial select, so wait for more than one entry
+    // before photographing — a one-revision shot does not show the rollback affordance. Count the
+    // rows rather than naming a number: Helm keeps only the last 10 revisions, so a sandbox that
+    // has been upgraded repeatedly has no `#2` any more (podinfo currently runs 6–10).
+    await expect
+      .poll(async () => insp.locator('[data-testid^="helm-rollback-"]').count())
+      .toBeGreaterThan(1)
     await shoot(page, 'wide-helm-inspector', pairs)
   })
 
