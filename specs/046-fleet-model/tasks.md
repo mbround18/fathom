@@ -149,9 +149,9 @@ longer following.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T044 Add `ui/tests/hosted/fleet-model.spec.ts`: display name, labels and sharing work for `home`; a command naming any other context is denied; the four pre-existing denials still deny (FR-018)
+- [X] T044 Add `ui/tests/hosted/fleet-model.spec.ts`: display name, labels and sharing work for `home`; a command naming any other context is denied; the four pre-existing denials still deny (FR-018)
 - [ ] T045 [P] Verify SC-005 — run `./scripts/measure-idle-cpu.sh` and compare against the pre-046 figure; the feature must add no measurable idle CPU and no additional API server requests
-- [ ] T046 [P] Confirm the fleet grid still reflows at every width per Principle IV: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` with the new label row and group headers, no fixed-width surface
+- [X] T046 [P] Confirm the fleet grid still reflows at every width per Principle IV: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` with the new label row and group headers, no fixed-width surface
 - [ ] T047 [P] Add the UI note that fleet labels are operator-authored metadata, not Kubernetes objects, and are never read from or written to any cluster object (spec Assumptions, Principle I)
 - [ ] T048 Run the full gate: `./scripts/ci.sh` green, including the bindings-drift step
 - [ ] T049 Capture the promo screenshots for the new fleet screens (`cd ui && pnpm promo`) — the final step of the batch
