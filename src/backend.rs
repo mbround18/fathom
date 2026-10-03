@@ -20,6 +20,7 @@ mod cert_manager;
 pub mod cloud_auth;
 mod cluster_version;
 mod cmd;
+mod container_runtime;
 mod context_status;
 mod crds;
 mod cronjobs;

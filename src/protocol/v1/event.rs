@@ -33,6 +33,10 @@ use super::{
     OidcSignInStage, OrgClusterSettings, OrphanedSubject, TeamLink, TeamPublishRejection,
     TeamStoreStatus,
 };
+use super::{
+    ClusterLink, ContainerInventory, OperationOutcome, OperationPreview, OperationRefusal,
+    RuntimePresence, UsageSample,
+};
 use super::{KindClusterSummary, KindPrerequisites};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -980,6 +984,58 @@ pub enum StreamEvent {
         ok: bool,
         error: Option<String>,
     },
+    /// 048: whether a local container runtime is usable, in four distinct states.
+    ContainerRuntimePresenceUpdated { presence: RuntimePresence },
+    /// 048: the inventory, grouped by project. `as_of` lets the UI mark a list stale rather than
+    /// blanking it when the runtime goes away mid-scene.
+    ContainerInventoryUpdated(Box<ContainerInventory>),
+    /// 048: the runtime stopped answering. The last inventory stays on screen, marked stale.
+    ContainerInventoryUnavailable { reason: String },
+    /// 048: which projects the operator has adopted. `fell_back` is true when the stored record
+    /// could not be read and everything was treated as unadopted (FR-047).
+    ContainerAdoptionUpdated {
+        adopted: Vec<String>,
+        fell_back: bool,
+    },
+    /// 048: what an operation will do, before it does it.
+    ContainerOperationPreviewed {
+        request_id: String,
+        /// Boxed: a preview carries the request, the argv, every removal line, the blast radius
+        /// and the exclusions, which is far more than any other event, and the enum is sized by
+        /// its largest variant whatever is actually in flight.
+        preview: Box<OperationPreview>,
+    },
+    /// 048: what the operation actually did, per object.
+    ContainerOperationFinished {
+        request_id: String,
+        outcome: OperationOutcome,
+    },
+    /// 048: the operation was not attempted, and why.
+    ContainerOperationRefused {
+        request_id: String,
+        reason: OperationRefusal,
+    },
+    /// 048: bounded batch of container log lines.
+    ContainerLogBatch {
+        stream_id: StreamId,
+        lines: Vec<String>,
+        truncated: bool,
+    },
+    /// 048: output from an interactive container session.
+    ContainerSessionOutput { stream_id: StreamId, data: String },
+    /// 048: the session ended, with the runtime's reason when it had one.
+    ContainerSessionClosed {
+        stream_id: StreamId,
+        error: Option<String>,
+    },
+    /// 048: one discrete usage tick. `at_cap` says the bounded history is full and older samples
+    /// are being dropped, so the window's limit is visible rather than implied.
+    ContainerUsageSampled {
+        samples: Vec<UsageSample>,
+        at_cap: bool,
+    },
+    /// 048: which containers back which clusters, in both directions.
+    ContainerClusterLinksUpdated { links: Vec<ClusterLink> },
 }
 
 /// Tunnel status carried by `StreamEvent::PortForwardTunnel`.

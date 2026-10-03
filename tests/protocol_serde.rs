@@ -1526,6 +1526,58 @@ fn all_cmds() -> Vec<BackendCmd> {
             request_id: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::RefreshContainerRuntimePresence,
+        BackendCmd::RefreshContainerInventory {
+            classes: vec![ObjectClass::Container, ObjectClass::Image],
+        },
+        BackendCmd::LoadProjectDefinition {
+            project: "s".to_owned(),
+        },
+        BackendCmd::AdoptContainerProject {
+            project: "s".to_owned(),
+        },
+        BackendCmd::ReleaseContainerProject {
+            project: "s".to_owned(),
+        },
+        BackendCmd::PreviewContainerOperation {
+            request_id: "s".to_owned(),
+            request: sample_operation_request(),
+        },
+        BackendCmd::IssueContainerOperation {
+            request_id: "s".to_owned(),
+            preview_id: "s".to_owned(),
+            typed_confirmation: Some("s".to_owned()),
+        },
+        BackendCmd::StartContainerLogStream {
+            stream_id: StreamId(1 << 32),
+            container_id: "s".to_owned(),
+            follow: true,
+            tail_lines: Some(200),
+        },
+        BackendCmd::StopContainerLogStream {
+            stream_id: StreamId(1 << 32),
+        },
+        BackendCmd::StartContainerSession {
+            stream_id: StreamId(1 << 32),
+            container_id: "s".to_owned(),
+            shell: Some("/bin/sh".to_owned()),
+        },
+        BackendCmd::StopContainerSession {
+            stream_id: StreamId(1 << 32),
+        },
+        BackendCmd::SendContainerSessionInput {
+            stream_id: StreamId(1 << 32),
+            data: "s".to_owned(),
+        },
+        BackendCmd::ResizeContainerSession {
+            stream_id: StreamId(1 << 32),
+            cols: 120,
+            rows: 40,
+        },
+        BackendCmd::StartContainerUsageSampling {
+            container_ids: vec!["s".to_owned()],
+        },
+        BackendCmd::StopContainerUsageSampling,
         BackendCmd::TaintNode {
             name: "s".to_owned(),
             op: fathom::protocol::TaintOp::Add,
@@ -2373,6 +2425,126 @@ fn sample_agent_object_ref() -> AgentObjectRef {
     }
 }
 
+fn sample_runtime_presence() -> RuntimePresence {
+    RuntimePresence {
+        state: RuntimePresenceState::Ready,
+        runtime: Some(KindRuntimeKind::Docker),
+        endpoint: Some("unix:///var/run/docker.sock".to_owned()),
+        detail: Some("s".to_owned()),
+    }
+}
+
+fn sample_runtime_container() -> Container {
+    Container {
+        id: "s".to_owned(),
+        name: "s".to_owned(),
+        image: "busybox:latest".to_owned(),
+        state: RuntimeContainerState::Running,
+        health: Some(ContainerHealth::Healthy),
+        status: "Up 1 hour (healthy)".to_owned(),
+        created_at: "s".to_owned(),
+        command: "sleep 3600".to_owned(),
+        ports: vec![PublishedPort {
+            container_port: 80,
+            host_port: Some(8080),
+            host_ip: Some("0.0.0.0".to_owned()),
+            protocol: "tcp".to_owned(),
+        }],
+        project: Some("s".to_owned()),
+        service: Some("s".to_owned()),
+        cluster: Some("s".to_owned()),
+    }
+}
+
+fn sample_container_project() -> Project {
+    Project {
+        group: ProjectGroup::Project("s".to_owned()),
+        members: 2,
+        running: 1,
+        adoption: AdoptionState::Adopted,
+        definition_file: Some("/s/compose.yaml".to_owned()),
+        definition_state: DefinitionFileState::Present,
+        containers: vec![sample_runtime_container()],
+    }
+}
+
+fn sample_object_ref() -> ObjectRef {
+    ObjectRef {
+        class: ObjectClass::Image,
+        id: "s".to_owned(),
+        name: "s".to_owned(),
+    }
+}
+
+fn sample_removable_object() -> RemovableObject {
+    RemovableObject {
+        class: ObjectClass::Image,
+        id: "s".to_owned(),
+        name: "s".to_owned(),
+        size_bytes: Some(4_260_000),
+        tagged: Some(true),
+        created_at: Some("s".to_owned()),
+        project: Some("s".to_owned()),
+        referenced_by: vec![ObjectReference {
+            kind: ReferenceKind::RunningContainer,
+            id: "s".to_owned(),
+            name: "s".to_owned(),
+            project: Some("s".to_owned()),
+        }],
+    }
+}
+
+fn sample_operation_request() -> OperationRequest {
+    OperationRequest::Lifecycle {
+        action: LifecycleAction::Stop,
+        scope: OperationScope::Container { id: "s".to_owned() },
+    }
+}
+
+fn sample_operation_preview() -> OperationPreview {
+    OperationPreview {
+        preview_id: "s".to_owned(),
+        request: sample_operation_request(),
+        command: vec!["docker".to_owned(), "stop".to_owned(), "s".to_owned()],
+        destructive: false,
+        removals: vec![RemovalLine {
+            object: sample_object_ref(),
+            size_bytes: Some(1),
+            project: Some("s".to_owned()),
+        }],
+        total_size_bytes: Some(1),
+        blast_radius: vec!["s".to_owned()],
+        excluded: vec![ExcludedObject {
+            object: sample_object_ref(),
+            reason: ExclusionReason::UnadoptedProject("s".to_owned()),
+        }],
+        breaks_clusters: vec![ClusterBreak {
+            cluster: "s".to_owned(),
+            connected: true,
+        }],
+        required_confirmation: Some("s".to_owned()),
+        as_of: "s".to_owned(),
+    }
+}
+
+fn sample_operation_outcome() -> OperationOutcome {
+    OperationOutcome {
+        preview_id: "s".to_owned(),
+        command: vec!["docker".to_owned(), "stop".to_owned(), "s".to_owned()],
+        overall: OutcomeStatus::Succeeded,
+        objects: vec![ObjectOutcome {
+            object: sample_object_ref(),
+            status: OutcomeStatus::Succeeded,
+            error: None,
+        }],
+        discrepancies: vec![Discrepancy {
+            object: sample_object_ref(),
+            expected: "s".to_owned(),
+            observed: "s".to_owned(),
+        }],
+    }
+}
+
 #[allow(dead_code)]
 #[allow(clippy::too_many_lines)] // a single exhaustive match is the point; it cannot be split
 fn all_cmds_is_exhaustive(v: &BackendCmd) {
@@ -2416,6 +2588,21 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::CreateKindCluster { .. } => {}
         BackendCmd::CancelCreateKindCluster { .. } => {}
         BackendCmd::DeleteKindCluster { .. } => {}
+        BackendCmd::RefreshContainerRuntimePresence => {}
+        BackendCmd::RefreshContainerInventory { .. } => {}
+        BackendCmd::LoadProjectDefinition { .. } => {}
+        BackendCmd::AdoptContainerProject { .. } => {}
+        BackendCmd::ReleaseContainerProject { .. } => {}
+        BackendCmd::PreviewContainerOperation { .. } => {}
+        BackendCmd::IssueContainerOperation { .. } => {}
+        BackendCmd::StartContainerLogStream { .. } => {}
+        BackendCmd::StopContainerLogStream { .. } => {}
+        BackendCmd::StartContainerSession { .. } => {}
+        BackendCmd::StopContainerSession { .. } => {}
+        BackendCmd::SendContainerSessionInput { .. } => {}
+        BackendCmd::ResizeContainerSession { .. } => {}
+        BackendCmd::StartContainerUsageSampling { .. } => {}
+        BackendCmd::StopContainerUsageSampling => {}
         BackendCmd::TaintNode { .. } => {}
         BackendCmd::RefreshEvents => {}
         BackendCmd::RefreshPods => {}
@@ -3861,6 +4048,7 @@ fn all_resource_read_events_is_exhaustive(v: &ResourceReadEvent) {
 }
 
 /// Every `StreamEvent` variant. The match in `all_stream_events_is_exhaustive` fails to compile when a variant is added.
+#[allow(clippy::too_many_lines)] // one sample per variant is the point; it cannot be split
 fn all_stream_events() -> Vec<StreamEvent> {
     vec![
         StreamEvent::PodLogsOpened {
@@ -3930,6 +4118,65 @@ fn all_stream_events() -> Vec<StreamEvent> {
             ok: true,
             error: None,
         },
+        StreamEvent::ContainerRuntimePresenceUpdated {
+            presence: sample_runtime_presence(),
+        },
+        StreamEvent::ContainerInventoryUpdated(Box::new(ContainerInventory {
+            projects: vec![sample_container_project()],
+            images: vec![sample_removable_object()],
+            volumes: vec![sample_removable_object()],
+            networks: vec![sample_removable_object()],
+            as_of: "s".to_owned(),
+        })),
+        StreamEvent::ContainerInventoryUnavailable {
+            reason: "s".to_owned(),
+        },
+        StreamEvent::ContainerAdoptionUpdated {
+            adopted: vec!["s".to_owned()],
+            fell_back: true,
+        },
+        StreamEvent::ContainerOperationPreviewed {
+            request_id: "s".to_owned(),
+            preview: Box::new(sample_operation_preview()),
+        },
+        StreamEvent::ContainerOperationFinished {
+            request_id: "s".to_owned(),
+            outcome: sample_operation_outcome(),
+        },
+        StreamEvent::ContainerOperationRefused {
+            request_id: "s".to_owned(),
+            reason: OperationRefusal::NotAdopted("s".to_owned()),
+        },
+        StreamEvent::ContainerLogBatch {
+            stream_id: StreamId(1 << 32),
+            lines: vec!["s".to_owned()],
+            truncated: true,
+        },
+        StreamEvent::ContainerSessionOutput {
+            stream_id: StreamId(1 << 32),
+            data: "s".to_owned(),
+        },
+        StreamEvent::ContainerSessionClosed {
+            stream_id: StreamId(1 << 32),
+            error: Some("s".to_owned()),
+        },
+        StreamEvent::ContainerUsageSampled {
+            samples: vec![UsageSample {
+                container_id: "s".to_owned(),
+                at: "s".to_owned(),
+                cpu_percent: Some(1.5),
+                memory_bytes: Some(1),
+                memory_limit_bytes: Some(2),
+            }],
+            at_cap: true,
+        },
+        StreamEvent::ContainerClusterLinksUpdated {
+            links: vec![ClusterLink {
+                cluster: "s".to_owned(),
+                container_ids: vec!["s".to_owned()],
+                managed_by_fathom: true,
+            }],
+        },
     ]
 }
 
@@ -3949,6 +4196,18 @@ fn all_stream_events_is_exhaustive(v: &StreamEvent) {
         StreamEvent::KindClustersUpdated { .. } => {}
         StreamEvent::KindProvisionProgress { .. } => {}
         StreamEvent::KindClusterActionFinished { .. } => {}
+        StreamEvent::ContainerRuntimePresenceUpdated { .. } => {}
+        StreamEvent::ContainerInventoryUpdated(_) => {}
+        StreamEvent::ContainerInventoryUnavailable { .. } => {}
+        StreamEvent::ContainerAdoptionUpdated { .. } => {}
+        StreamEvent::ContainerOperationPreviewed { .. } => {}
+        StreamEvent::ContainerOperationFinished { .. } => {}
+        StreamEvent::ContainerOperationRefused { .. } => {}
+        StreamEvent::ContainerLogBatch { .. } => {}
+        StreamEvent::ContainerSessionOutput { .. } => {}
+        StreamEvent::ContainerSessionClosed { .. } => {}
+        StreamEvent::ContainerUsageSampled { .. } => {}
+        StreamEvent::ContainerClusterLinksUpdated { .. } => {}
     }
 }
 

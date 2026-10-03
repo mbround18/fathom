@@ -207,6 +207,16 @@ impl BackendCmdV1 {
             // 030-kind-cluster-provisioning: host tool/runtime probes and `kind get clusters`.
             | C::RefreshKindPrerequisites
             | C::RefreshKindClusters
+            // 048-docker-management: probes and listings of the local container runtime.
+            | C::RefreshContainerRuntimePresence
+            | C::RefreshContainerInventory { .. }
+            | C::LoadProjectDefinition { .. }
+            | C::StartContainerLogStream { .. }
+            | C::StopContainerLogStream { .. }
+            | C::StartContainerUsageSampling { .. }
+            | C::StopContainerUsageSampling
+            // 048: previewing derives an argv and a removal set. It runs nothing.
+            | C::PreviewContainerOperation { .. }
             // 011-rbac-oidc-administration: self-access checks, namespace-access lookup, and
             // kubeadm ConfigMap detection are all read-only.
             | C::RefreshRbacSelfAccess { .. }
@@ -293,6 +303,17 @@ impl BackendCmdV1 {
             | C::CreateKindCluster { .. }
             | C::CancelCreateKindCluster { .. }
             | C::DeleteKindCluster { .. }
+            // 048-docker-management: adoption is app-local state, and every runtime operation
+            // acts on the host's containers, images, volumes and networks. None of it reaches a
+            // cluster's objects — a container that happens to back a kind node is still a host
+            // object, and the cluster it breaks is named by the preview, not written to.
+            | C::AdoptContainerProject { .. }
+            | C::ReleaseContainerProject { .. }
+            | C::IssueContainerOperation { .. }
+            | C::StartContainerSession { .. }
+            | C::StopContainerSession { .. }
+            | C::SendContainerSessionInput { .. }
+            | C::ResizeContainerSession { .. }
             // 015-mcp-agent-exposure US4: the demo chat is a subprocess on the operator's own
             // machine (`claude` from `PATH`) talking to Fathom's stdio MCP server; nothing here
             // reaches the cluster except through that server's own guarded tools.
@@ -446,6 +467,22 @@ impl BackendCmdV1 {
             // 030-kind-cluster-provisioning: host-level, not tied to a UI section.
             | C::RefreshKindPrerequisites
             | C::RefreshKindClusters
+            // 048-docker-management: its own top-level scene, not a kubeconfig-backed section.
+            | C::RefreshContainerRuntimePresence
+            | C::RefreshContainerInventory { .. }
+            | C::LoadProjectDefinition { .. }
+            | C::AdoptContainerProject { .. }
+            | C::ReleaseContainerProject { .. }
+            | C::PreviewContainerOperation { .. }
+            | C::IssueContainerOperation { .. }
+            | C::StartContainerLogStream { .. }
+            | C::StopContainerLogStream { .. }
+            | C::StartContainerSession { .. }
+            | C::StopContainerSession { .. }
+            | C::SendContainerSessionInput { .. }
+            | C::ResizeContainerSession { .. }
+            | C::StartContainerUsageSampling { .. }
+            | C::StopContainerUsageSampling
             | C::CreateKindCluster { .. }
             | C::CancelCreateKindCluster { .. }
             | C::DeleteKindCluster { .. }
@@ -892,6 +929,23 @@ impl BackendCmdV1 {
             | C::RefreshKindPrerequisites
             | C::RefreshKindClusters
             | C::CancelCreateKindCluster { .. }
+            // 048-docker-management: host container objects have no audit kind of their own;
+            // the audit log records cluster mutations.
+            | C::RefreshContainerRuntimePresence
+            | C::RefreshContainerInventory { .. }
+            | C::LoadProjectDefinition { .. }
+            | C::AdoptContainerProject { .. }
+            | C::ReleaseContainerProject { .. }
+            | C::PreviewContainerOperation { .. }
+            | C::IssueContainerOperation { .. }
+            | C::StartContainerLogStream { .. }
+            | C::StopContainerLogStream { .. }
+            | C::StartContainerSession { .. }
+            | C::StopContainerSession { .. }
+            | C::SendContainerSessionInput { .. }
+            | C::ResizeContainerSession { .. }
+            | C::StartContainerUsageSampling { .. }
+            | C::StopContainerUsageSampling
             | C::StartFleetPolling
             | C::StopFleetPolling
             // 046-fleet-model: operator-authored local metadata. No cluster object changes,
@@ -1404,6 +1458,13 @@ pub enum HostedDenial {
     ServerSideProbe,
     /// Backend lifecycle is owned by the server, not the client.
     Lifecycle,
+    /// 048: the local container runtime.
+    ///
+    /// Separate from `Kind` rather than folded into it. `Kind` means "this provisions a local
+    /// cluster"; this means "this reaches the host's container daemon", which a server pod does
+    /// not have — and if it did, handing it to every signed-in user would grant privileges none of
+    /// them has. The two denials read differently to an operator, so they stay apart.
+    ContainerRuntime,
 }
 
 /// Hosted-mode verdict for one command.
@@ -1432,6 +1493,25 @@ impl BackendCmdV1 {
             // the manifest on a node, which only ever applies to a local cluster Fathom
             // provisioned (FR-019). A hosted server has no node to write to.
             | C::WriteApiServerAuth { .. } => HostedPolicy::Denied(HostedDenial::Kind),
+            // 048-docker-management: no local runtime on a server, and exposing the host's
+            // daemon through a multi-user process would be a privilege escalation.
+            C::RefreshContainerRuntimePresence
+            | C::RefreshContainerInventory { .. }
+            | C::LoadProjectDefinition { .. }
+            | C::AdoptContainerProject { .. }
+            | C::ReleaseContainerProject { .. }
+            | C::PreviewContainerOperation { .. }
+            | C::IssueContainerOperation { .. }
+            | C::StartContainerLogStream { .. }
+            | C::StopContainerLogStream { .. }
+            | C::StartContainerSession { .. }
+            | C::StopContainerSession { .. }
+            | C::SendContainerSessionInput { .. }
+            | C::ResizeContainerSession { .. }
+            | C::StartContainerUsageSampling { .. }
+            | C::StopContainerUsageSampling => {
+                HostedPolicy::Denied(HostedDenial::ContainerRuntime)
+            }
             // 040-manifest-export: the hosted server's kubeconfig is never exported.
             C::RefreshContexts
             | C::PreviewKubeconfigExport { .. }
@@ -2265,5 +2345,150 @@ mod tests {
             BackendCmdV1::SetContext { context: s(HOME) }.hosted_policy(HOME),
             HostedPolicy::Allowed
         );
+    }
+
+    /// 048-docker-management: every container-runtime command is denied in hosted mode, and the
+    /// denial is its own reason rather than kind's. Asserted, not assumed — `hosted_policy` is
+    /// exhaustive with no wildcard precisely so a new command has to be classified, and this test
+    /// is what notices if it gets classified wrongly.
+    #[test]
+    #[allow(clippy::too_many_lines)] // one sample per command is the point; splitting it hides gaps
+    fn container_runtime_denied_in_hosted_with_its_own_reason() {
+        use crate::protocol::v1::{
+            ContainerSpec, ImageBuildSpec, LifecycleAction, NetworkSpec, ObjectClass, ObjectRef,
+            OperationRequest, OperationScope, ProjectAction, PruneFilter, VolumeSpec,
+        };
+        const HOME: &str = "home";
+        let sid = crate::protocol::v1::StreamId(1 << 32);
+
+        for cmd in [
+            BackendCmdV1::RefreshContainerRuntimePresence,
+            BackendCmdV1::RefreshContainerInventory {
+                classes: vec![ObjectClass::Container, ObjectClass::Image],
+            },
+            BackendCmdV1::LoadProjectDefinition { project: s("p") },
+            BackendCmdV1::AdoptContainerProject { project: s("p") },
+            BackendCmdV1::ReleaseContainerProject { project: s("p") },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r1"),
+                request: OperationRequest::Lifecycle {
+                    action: LifecycleAction::Stop,
+                    scope: OperationScope::Container { id: s("c1") },
+                },
+            },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r2"),
+                request: OperationRequest::Remove {
+                    objects: vec![ObjectRef {
+                        class: ObjectClass::Image,
+                        id: s("sha256:a"),
+                        name: s("busybox:latest"),
+                    }],
+                },
+            },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r3"),
+                request: OperationRequest::PruneSelection {
+                    class: ObjectClass::Image,
+                    filter: PruneFilter::DanglingImages,
+                },
+            },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r4"),
+                request: OperationRequest::CreateContainer {
+                    spec: ContainerSpec {
+                        image: s("busybox"),
+                        name: None,
+                        ports: vec![],
+                        env: vec![],
+                        volumes: vec![],
+                        networks: vec![],
+                        command: vec![s("sleep"), s("3600")],
+                        restart_policy: None,
+                        detach: true,
+                    },
+                },
+            },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r5"),
+                request: OperationRequest::BuildImage {
+                    spec: ImageBuildSpec {
+                        context_path: s("."),
+                        dockerfile: None,
+                        tag: s("t:1"),
+                        build_args: vec![],
+                        target: None,
+                        no_cache: false,
+                    },
+                },
+            },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r6"),
+                request: OperationRequest::CreateNetwork {
+                    spec: NetworkSpec {
+                        name: s("n"),
+                        driver: None,
+                        subnet: None,
+                        gateway: None,
+                        internal: false,
+                        labels: vec![],
+                    },
+                },
+            },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r7"),
+                request: OperationRequest::CreateVolume {
+                    spec: VolumeSpec {
+                        name: s("v"),
+                        driver: None,
+                        labels: vec![],
+                    },
+                },
+            },
+            BackendCmdV1::PreviewContainerOperation {
+                request_id: s("r8"),
+                request: OperationRequest::ProjectLifecycle {
+                    project: s("p"),
+                    action: ProjectAction::Down,
+                },
+            },
+            BackendCmdV1::IssueContainerOperation {
+                request_id: s("r1"),
+                preview_id: s("p1"),
+                typed_confirmation: None,
+            },
+            BackendCmdV1::StartContainerLogStream {
+                stream_id: sid,
+                container_id: s("c1"),
+                follow: true,
+                tail_lines: Some(200),
+            },
+            BackendCmdV1::StopContainerLogStream { stream_id: sid },
+            BackendCmdV1::StartContainerSession {
+                stream_id: sid,
+                container_id: s("c1"),
+                shell: None,
+            },
+            BackendCmdV1::StopContainerSession { stream_id: sid },
+            BackendCmdV1::SendContainerSessionInput {
+                stream_id: sid,
+                data: s("ls\n"),
+            },
+            BackendCmdV1::ResizeContainerSession {
+                stream_id: sid,
+                cols: 80,
+                rows: 24,
+            },
+            BackendCmdV1::StartContainerUsageSampling {
+                container_ids: vec![s("c1")],
+            },
+            BackendCmdV1::StopContainerUsageSampling,
+        ] {
+            assert_eq!(
+                cmd.hosted_policy(HOME),
+                HostedPolicy::Denied(HostedDenial::ContainerRuntime),
+                "{cmd:?}"
+            );
+        }
     }
 }

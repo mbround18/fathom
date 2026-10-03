@@ -4,8 +4,9 @@ use ts_rs::TS;
 use super::{
     ActionOutcome, AgentAuthModeInput, AgentObjectRef, ApiKeyInput, ApiServerAuthStyle,
     CapabilityQuery, ClusterSettings, ContextAuthMode, FathomRoleMap, IssuerDraft,
-    KindClusterProfileId, NodeShellPodRef, NodeShellSettings, OidcIssuerConfig, OidcSignInMethod,
-    Provider, RbacAccessCheck, RequestId, RoleAssignmentDraft, SectionKey, StreamId, UiConfig,
+    KindClusterProfileId, NodeShellPodRef, NodeShellSettings, ObjectClass, OidcIssuerConfig,
+    OidcSignInMethod, OperationRequest, Provider, RbacAccessCheck, RequestId, RoleAssignmentDraft,
+    SectionKey, StreamId, UiConfig,
 };
 
 /// Commands sent from a UI client to the backend. Fire-and-forget: results arrive as events.
@@ -64,6 +65,68 @@ pub enum BackendCmdV1 {
         request_id: String,
         name: String,
     },
+    // 048-docker-management: the local container runtime. Every command here is denied in
+    // hosted mode (`HostedDenial::ContainerRuntime`) and every mutating one passes the adoption
+    // gate in `backend::container_runtime::adoption`.
+    RefreshContainerRuntimePresence,
+    RefreshContainerInventory {
+        classes: Vec<ObjectClass>,
+    },
+    LoadProjectDefinition {
+        project: String,
+    },
+    AdoptContainerProject {
+        project: String,
+    },
+    ReleaseContainerProject {
+        project: String,
+    },
+    /// First half of the two-phase mutation path: derive the argv and the removal set, and hand
+    /// them back without running anything.
+    PreviewContainerOperation {
+        request_id: String,
+        request: OperationRequest,
+    },
+    /// Second half: run the argv the preview already showed. The backend re-derives it from
+    /// `preview_id` rather than trusting a client-supplied command, and refuses when the
+    /// inventory has moved under it.
+    IssueContainerOperation {
+        request_id: String,
+        preview_id: String,
+        typed_confirmation: Option<String>,
+    },
+    StartContainerLogStream {
+        stream_id: StreamId,
+        container_id: String,
+        follow: bool,
+        tail_lines: Option<u32>,
+    },
+    StopContainerLogStream {
+        stream_id: StreamId,
+    },
+    /// Requires adoption: an interactive session inside a container is a mutation path by any
+    /// other name (FR-013).
+    StartContainerSession {
+        stream_id: StreamId,
+        container_id: String,
+        shell: Option<String>,
+    },
+    StopContainerSession {
+        stream_id: StreamId,
+    },
+    SendContainerSessionInput {
+        stream_id: StreamId,
+        data: String,
+    },
+    ResizeContainerSession {
+        stream_id: StreamId,
+        cols: u16,
+        rows: u16,
+    },
+    StartContainerUsageSampling {
+        container_ids: Vec<String>,
+    },
+    StopContainerUsageSampling,
     TaintNode {
         name: String,
         op: TaintOp,
