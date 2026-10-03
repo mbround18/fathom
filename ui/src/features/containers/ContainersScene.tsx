@@ -23,6 +23,7 @@ import type { KindRuntimeKind } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { ContainerGroupList } from './ContainerGroupList'
+import { ContainerStreams } from './ContainerStreams'
 import { groupKey, type Selection } from './labels'
 import { ProjectActions } from './ProjectActions'
 
@@ -211,7 +212,17 @@ export function ContainersScene() {
         // looking for is in the same place as the buttons that would refuse (FR-017).
         for (const project of inventory.projects) {
           const container = project.containers.find((c) => c.id === selected.id)
-          if (container) return <ProjectActions project={project} container={container} />
+          if (container) {
+            return (
+              <>
+                <ProjectActions project={project} container={container} />
+                {/* Reading and attaching are the container's own, not the project's: logs are
+                    offered for every container (FR-035) and a shell only where the project's
+                    grant allows a change (FR-013). */}
+                <ContainerStreams key={container.id} container={container} />
+              </>
+            )
+          }
         }
         return null
       })()}

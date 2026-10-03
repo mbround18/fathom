@@ -2049,6 +2049,7 @@ dependencies = [
  "k8s-openapi",
  "keyring",
  "kube",
+ "libc",
  "oci-client",
  "oci-spec",
  "openidconnect",

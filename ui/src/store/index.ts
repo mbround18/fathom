@@ -400,6 +400,52 @@ export interface ExecStreamState {
   rev: number
 }
 
+/**
+ * 048-docker-management US5: one container's output, followed under a client-chosen id.
+ *
+ * A separate kind from `LogStreamState` rather than a widened `target`, because a pod log stream
+ * is addressed by namespace/pod/container and a container's by a daemon id — collapsing the two
+ * into one shape would mean every reader carrying a branch to find out which it had.
+ *
+ * `truncated` is the backend's own admission (`ContainerLogBatch.truncated`): lines it dropped to
+ * stay bounded. It is kept beside the buffer's own `truncated` count because the two are
+ * different gaps — one happened in the backend, one in this ring buffer — and the pane must not
+ * imply it knows how many lines the first one lost.
+ */
+export interface ContainerLogStreamState {
+  kind: 'container-logs'
+  containerId: string
+  /** The view that started it, so it can find its stream again without holding the id. */
+  owner?: string
+  lines: RingBuffer<string>
+  /** Bumped on every append; the buffer itself is mutated in place. */
+  rev: number
+  /** True once the backend has said it dropped earlier output. */
+  truncated: boolean
+  status: 'starting' | 'streaming' | 'closed' | 'error'
+  reason?: string
+  error?: string
+}
+
+/**
+ * 048-docker-management US5: the interactive session inside one adopted container.
+ *
+ * Shaped like `ExecStreamState` and deliberately not merged with it: the backend keeps one
+ * container session at a time under an id this client chose, so there is no "find the newest exec
+ * entry" guessing, and a stale pane cannot adopt the session that replaced its own.
+ */
+export interface ContainerSessionState {
+  kind: 'container-session'
+  containerId: string
+  /** A short-lived handoff queue; xterm.js owns the rendered scrollback. */
+  chunks: RingBuffer<string>
+  /** Bumped on every appended chunk. */
+  rev: number
+  status: 'attaching' | 'active' | 'ended' | 'error'
+  /** The backend's verbatim reason, shown as it was said (FR-004). */
+  reason?: string
+}
+
 export interface TunnelState {
   kind: 'portforward'
   status: TunnelStatus
@@ -808,8 +854,11 @@ export interface StoreData {
   daemon: DaemonSlice
   lists: Record<ListKey, ListState>
   details: Record<DetailKey, DetailState>
-  /** Log and exec streams by `StreamId`. */
-  streams: Record<number, LogStreamState | ExecStreamState>
+  /** Log, exec and container streams by `StreamId`. */
+  streams: Record<
+    number,
+    LogStreamState | ExecStreamState | ContainerLogStreamState | ContainerSessionState
+  >
   /** Port-forward tunnels by tunnel id. */
   tunnels: Record<string, TunnelState>
   /** 009: decorative Service-origin tags for forwards, by tunnel id. */
@@ -1037,6 +1086,21 @@ export interface StoreState extends StoreData {
   issueContainerOperation: (typedConfirmation: string | null) => void
   /** 048: drop the current preview or outcome. The operator's dismissal, not a timer's. */
   dismissContainerOperation: () => void
+  /**
+   * 048 FR-035: follow one container's output and return the stream's id. Ungated — reading a
+   * container is readable whether its project was adopted or not.
+   */
+  startContainerLogs: (containerId: string, owner?: string, tailLines?: number) => number
+  /** 048: stop one container follow and forget its lines. Other streams keep running. */
+  stopContainerLogs: (streamId: number) => void
+  /**
+   * 048 FR-036: open an interactive session inside one container and return the stream's id.
+   * Gated: the backend refuses unless the project was adopted, and the refusal arrives as the
+   * session's own close so the waiting pane is the thing that is told.
+   */
+  startContainerSession: (containerId: string, shell?: string) => number
+  /** 048 FR-036: end the session, leaving no process behind. */
+  stopContainerSession: (streamId: number) => void
   requestDaemonTopology: (context: string) => void
   requestDaemonMetrics: (context: string, uid: string, metric: 'cpu' | 'memory') => void
   /** Ask the backend to re-emit its buffered timeline (newest `limit` entries). */
@@ -1839,6 +1903,96 @@ export const useStore = create<StoreState>()((set, get) => ({
     useStore.setState((s) => ({
       containerRuntime: { ...s.containerRuntime, operation: undefined },
     }))
+  },
+
+  startContainerLogs: (containerId, owner, tailLines) => {
+    const streamId = newLogStreamId()
+    const entry: ContainerLogStreamState = {
+      kind: 'container-logs',
+      containerId,
+      owner,
+      lines: new RingBuffer<string>(),
+      rev: 0,
+      truncated: false,
+      status: 'starting',
+    }
+    useStore.setState((s) => ({ streams: { ...s.streams, [streamId]: entry } }))
+    // A refused send (backend gone, hosted denial) never reaches the backend, so no close will
+    // ever come: surface it on the stream itself rather than leave a pane starting forever.
+    get()
+      .request({
+        type: 'StartContainerLogStream',
+        data: {
+          stream_id: streamId,
+          container_id: containerId,
+          follow: true,
+          tail_lines: tailLines ?? 200,
+        },
+      })
+      .catch((err: unknown) => {
+        useStore.setState((s) => {
+          const prev = s.streams[streamId]
+          if (prev?.kind !== 'container-logs' || prev.status !== 'starting') return s
+          const error = err instanceof Error ? err.message : String(err)
+          return {
+            streams: {
+              ...s.streams,
+              [streamId]: { ...prev, status: 'error', reason: 'error', error },
+            },
+          }
+        })
+      })
+    return streamId
+  },
+
+  stopContainerLogs: (streamId) => {
+    get().send({ type: 'StopContainerLogStream', data: { stream_id: streamId } })
+    useStore.setState((s) => {
+      if (!(streamId in s.streams)) return s
+      return {
+        streams: Object.fromEntries(
+          Object.entries(s.streams).filter(([id]) => Number(id) !== streamId),
+        ),
+      }
+    })
+  },
+
+  startContainerSession: (containerId, shell) => {
+    const streamId = newLogStreamId()
+    const entry: ContainerSessionState = {
+      kind: 'container-session',
+      containerId,
+      chunks: new RingBuffer<string>(),
+      rev: 0,
+      status: 'attaching',
+    }
+    useStore.setState((s) => ({ streams: { ...s.streams, [streamId]: entry } }))
+    get()
+      .request({
+        type: 'StartContainerSession',
+        data: { stream_id: streamId, container_id: containerId, shell: shell ?? null },
+      })
+      .catch((err: unknown) => {
+        useStore.setState((s) => {
+          const prev = s.streams[streamId]
+          if (prev?.kind !== 'container-session' || prev.status !== 'attaching') return s
+          const reason = err instanceof Error ? err.message : String(err)
+          return { streams: { ...s.streams, [streamId]: { ...prev, status: 'error', reason } } }
+        })
+      })
+    return streamId
+  },
+
+  stopContainerSession: (streamId) => {
+    get().send({ type: 'StopContainerSession', data: { stream_id: streamId } })
+    useStore.setState((s) => {
+      if (!(streamId in s.streams)) return s
+      return {
+        streams: Object.fromEntries(
+          Object.entries(s.streams).filter(([id]) => Number(id) !== streamId),
+        ),
+      }
+    })
   },
 
   refreshDaemon: (context) => get().send({ type: 'RefreshDaemon', data: { context } }),

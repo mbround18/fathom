@@ -6,10 +6,11 @@
  * this computer running" — and because the gate the backend applies in one place
  * (`src/backend/cmd/container_runtime.rs`) deserves one place to land on this side too.
  *
- * Only the facts Phase 2 and US1 need are reduced here: presence, inventory, adoption and the
- * cluster links. Usage samples, log batches and session output arrive on the same channel and are
- * deliberately left to the tasks that render them (T056-T068), because a slice that stored facts
- * nobody displays would be the first place a stale one could hide.
+ * Presence, inventory, adoption and the cluster links are reduced here, and so are the US5
+ * streams: a container's log batches and its session's output land on the `streams` record under
+ * the id this client chose, beside pod logs and pod exec. Usage samples are still left to the
+ * task that renders them (T068-T071), because a slice that stored figures nobody displays would
+ * be the first place a stale one could hide.
  *
  * The three operation arms (US2) land against the one in-flight `operation` and only when the
  * `request_id` still matches: a reply for a preview the operator has already dismissed must not
@@ -30,6 +31,9 @@ export function isContainerEvent(event: StreamEvent): boolean {
     case 'ContainerOperationPreviewed':
     case 'ContainerOperationFinished':
     case 'ContainerOperationRefused':
+    case 'ContainerLogBatch':
+    case 'ContainerSessionOutput':
+    case 'ContainerSessionClosed':
       return true
     default:
       return false
@@ -95,6 +99,50 @@ export function handleContainers(d: Draft, event: StreamEvent): void {
       const rt = d.edit('containerRuntime')
       if (rt.operation?.requestId !== event.data.request_id) return
       rt.operation = { ...rt.operation, phase: 'refused', refusal: event.data.reason }
+      return
+    }
+    // US5 FR-035: a batch of one container's output. An id this client did not start — a late
+    // batch after a stop, or another tab's stream on a shared backend — is ignored rather than
+    // seeding an entry nobody will ever clean up.
+    case 'ContainerLogBatch': {
+      const prev = d.read('streams')[event.data.stream_id]
+      if (prev?.kind !== 'container-logs') return
+      prev.lines.pushAll(event.data.lines)
+      d.edit('streams')[event.data.stream_id] = {
+        ...prev,
+        rev: prev.rev + 1,
+        // Once admitted, never un-admitted: a later batch that dropped nothing does not undo the
+        // gap an earlier one left.
+        truncated: prev.truncated || event.data.truncated,
+        // Output proves the follow is live even if nothing else said so.
+        status: prev.status === 'starting' ? 'streaming' : prev.status,
+      }
+      return
+    }
+    // US5 FR-036: terminal bytes from the session. Plain text, not base64: the pty's bytes are
+    // already a string by the time the backend emits them.
+    case 'ContainerSessionOutput': {
+      const prev = d.read('streams')[event.data.stream_id]
+      if (prev?.kind !== 'container-session') return
+      prev.chunks.push(event.data.data)
+      d.edit('streams')[event.data.stream_id] = {
+        ...prev,
+        rev: prev.rev + 1,
+        status: prev.status === 'attaching' ? 'active' : prev.status,
+      }
+      return
+    }
+    // The session is over, or was refused before it began. `error` is the backend's own sentence
+    // — a refusal (FR-013), or the runtime's words about a shell it could not start (FR-004) —
+    // and it is shown as it was said.
+    case 'ContainerSessionClosed': {
+      const prev = d.read('streams')[event.data.stream_id]
+      if (prev?.kind !== 'container-session') return
+      d.edit('streams')[event.data.stream_id] = {
+        ...prev,
+        status: event.data.error == null ? 'ended' : 'error',
+        reason: event.data.error ?? undefined,
+      }
       return
     }
     default:

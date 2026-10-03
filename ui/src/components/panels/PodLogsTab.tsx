@@ -7,21 +7,16 @@
  * starting (skeleton), streaming (lines, or "No log output yet" for a quiet container), closed,
  * and error (inline message with Retry). A failed pod-details read is an inline error too.
  */
-import { ArrowClockwiseIcon, ArrowLineDownIcon, WarningIcon } from '@phosphor-icons/react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import type { PodDetails } from '@/protocol/types'
 import type { ObjectRef } from '@/resources'
-import { cn } from '@/lib/utils'
 import { detailKey, useStore, type LogStreamState, type StoreState } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 
+import { LogScroller } from './LogScroller'
 import { Picker } from '../Picker'
-import { ErrorState, Loading } from '../shell/PaneStates'
-
-/** How close to the bottom (px) still counts as "at the bottom" for auto-follow. */
-const FOLLOW_THRESHOLD_PX = 24
+import { ErrorState } from '../shell/PaneStates'
 
 /** This view's live stream: the (single) log stream tagged with its owner. */
 function ownedStream(streams: StoreState['streams'], owner: string): LogStreamState | undefined {
@@ -144,29 +139,6 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
   const restart = useCallback(() => setAttempt((n) => n + 1), [])
 
   const lines = stream?.lines.toArray() ?? []
-  const [follow, setFollow] = useState(true)
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll to the newest line whenever it changes, unless the operator scrolled up.
-  useEffect(() => {
-    if (!follow) return
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [follow, stream?.rev])
-
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX
-    setFollow(atBottom)
-  }, [])
-
-  const jumpToLatest = useCallback(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-    setFollow(true)
-  }, [])
 
   if (!detail && detailsRead.error !== undefined) {
     return (
@@ -177,9 +149,6 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
       />
     )
   }
-
-  const status = stream?.status ?? 'starting'
-  const failedEmpty = status === 'error' && lines.length === 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -194,90 +163,17 @@ export function PodLogsTab({ target }: { target: ObjectRef }) {
           />
         </div>
       )}
-      <div className="relative min-h-0 flex-1">
-        {failedEmpty ? (
-          <ErrorState
-            title="Could not stream logs"
-            detail={stream?.error ?? stream?.reason}
-            onRetry={restart}
-          />
-        ) : (
-          <div
-            ref={scrollRef}
-            onScroll={onScroll}
-            data-testid="pod-logs-scroll"
-            data-stream-status={status}
-            className="h-full min-w-0 overflow-y-auto bg-background/40 p-2 font-mono text-xs leading-relaxed"
-          >
-            {status === 'starting' ? (
-              <Loading rows={6} label={detail ? 'Starting log stream' : 'Loading pod'} />
-            ) : lines.length === 0 ? (
-              <p
-                role="status"
-                data-pane-state="logs-empty"
-                className="font-sans text-xs text-muted-foreground"
-              >
-                {status === 'streaming' ? 'No log output yet.' : 'No log output.'}
-              </p>
-            ) : (
-              <>
-                {(stream?.lines.truncated ?? 0) > 0 && (
-                  <p className="mb-1 text-xs text-muted-foreground">
-                    … {stream?.lines.truncated} earlier line
-                    {stream?.lines.truncated === 1 ? '' : 's'} truncated
-                  </p>
-                )}
-                <pre className="min-w-0 break-words whitespace-pre-wrap text-foreground/90">
-                  {lines.join('\n')}
-                </pre>
-              </>
-            )}
-          </div>
-        )}
-        {!follow && !failedEmpty && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={jumpToLatest}
-            className={cn(
-              'absolute right-3 bottom-3 border-accent-neon/60 bg-background/90 shadow-[0_0_16px_-4px_var(--accent-neon)]',
-            )}
-          >
-            <ArrowLineDownIcon data-icon="inline-start" /> Jump to latest
-          </Button>
-        )}
-      </div>
-      {stream && (status === 'closed' || (status === 'error' && !failedEmpty)) && (
-        <StreamEndBar stream={stream} onRestart={restart} />
-      )}
-    </div>
-  )
-}
-
-function StreamEndBar({ stream, onRestart }: { stream: LogStreamState; onRestart: () => void }) {
-  const failed = stream.status === 'error'
-  const text = failed
-    ? `Stream failed${stream.error ? `: ${stream.error}` : ''}`
-    : stream.reason === 'stopped'
-      ? 'Stream stopped'
-      : `Stream ended${stream.reason && stream.reason !== 'ended' ? `: ${stream.reason}` : ''}`
-  return (
-    <div
-      role={failed ? 'alert' : 'status'}
-      data-pane-state={failed ? 'stream-error' : 'stream-ended'}
-      className={cn(
-        'flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-xs',
-        failed
-          ? 'border-status-err/40 bg-status-err/10 text-status-err'
-          : 'border-status-warn/40 bg-status-warn/10 text-status-warn',
-      )}
-    >
-      <WarningIcon aria-hidden="true" className="size-4 shrink-0" />
-      <span className="min-w-0 flex-1 break-words">{text}</span>
-      <Button type="button" variant="ghost" size="xs" onClick={onRestart}>
-        <ArrowClockwiseIcon data-icon="inline-start" /> {failed ? 'Retry' : 'Restart'}
-      </Button>
+      <LogScroller
+        lines={lines}
+        truncated={stream?.lines.truncated ?? 0}
+        rev={stream?.rev ?? 0}
+        status={stream?.status ?? 'starting'}
+        error={stream?.error}
+        reason={stream?.reason}
+        startingLabel={detail ? 'Starting log stream' : 'Loading pod'}
+        errorTitle="Could not stream logs"
+        onRestart={restart}
+      />
     </div>
   )
 }

@@ -107,19 +107,26 @@ export function handleStream(d: Draft, event: StreamEvent): void {
         }
         return
       }
-      d.edit('streams')[event.data.stream_id] =
-        prev.kind === 'logs'
-          ? {
-              ...prev,
-              status: event.data.reason === 'error' || event.data.error ? 'error' : 'closed',
-              reason: event.data.reason,
-              error: event.data.error ?? undefined,
-            }
-          : {
-              ...prev,
-              status: event.data.reason === 'exit' ? 'ended' : 'error',
-              reason: event.data.reason,
-            }
+      // A container follow (048) runs on the same stream registry as a pod's, so its close
+      // arrives here too and reads the same way: a reason of `error`, or any error text, is a
+      // failure; anything else is an ordinary end.
+      if (prev.kind === 'logs' || prev.kind === 'container-logs') {
+        d.edit('streams')[event.data.stream_id] = {
+          ...prev,
+          status: event.data.reason === 'error' || event.data.error ? 'error' : 'closed',
+          reason: event.data.reason,
+          error: event.data.error ?? undefined,
+        }
+        return
+      }
+      // A container session is not on that registry: it closes with its own
+      // `ContainerSessionClosed`, handled in `handlers/containers.ts`.
+      if (prev.kind === 'container-session') return
+      d.edit('streams')[event.data.stream_id] = {
+        ...prev,
+        status: event.data.reason === 'exit' ? 'ended' : 'error',
+        reason: event.data.reason,
+      }
       return
     }
     case 'PortForwardTunnel':
