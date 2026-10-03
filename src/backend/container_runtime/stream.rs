@@ -70,16 +70,29 @@ impl StreamRunner for SystemStreamRunner {
         };
 
         let (tx, rx) = sync_channel(BACKLOG);
-        if let Some(out) = child.stdout.take() {
-            pump(out, tx.clone(), StreamLine::Stdout);
-        }
-        if let Some(err) = child.stderr.take() {
-            pump(err, tx.clone(), StreamLine::Stderr);
-        }
+        let pumps = [
+            child
+                .stdout
+                .take()
+                .map(|out| pump(out, tx.clone(), StreamLine::Stdout)),
+            child
+                .stderr
+                .take()
+                .map(|err| pump(err, tx.clone(), StreamLine::Stderr)),
+        ];
 
         let handle = Arc::new(Mutex::new(child));
         let waiter = Arc::clone(&handle);
         std::thread::spawn(move || {
+            // Wait for the pipes to close *before* taking the lock. `Child::wait` needs `&mut`, so
+            // waiting under the mutex would hold it for the whole life of the process — and
+            // `kill` would then block on that lock until the process it is trying to kill exits
+            // on its own. A follow could never be stopped. Both pipes reach EOF when the process
+            // goes (whether it finished or was killed), so by the time the pumps are joined
+            // `wait` returns immediately and the lock is held for an instant.
+            for pump in pumps.into_iter().flatten() {
+                drop(pump.join());
+            }
             let success = waiter
                 .lock()
                 .is_ok_and(|mut c| c.wait().is_ok_and(|s| s.success()));
@@ -95,7 +108,7 @@ fn pump<R: std::io::Read + Send + 'static>(
     reader: R,
     tx: SyncSender<StreamLine>,
     wrap: fn(String) -> StreamLine,
-) {
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
             let Ok(line) = line else { break };
@@ -103,7 +116,7 @@ fn pump<R: std::io::Read + Send + 'static>(
                 break;
             }
         }
-    });
+    })
 }
 
 struct SpawnedProcess {
@@ -229,10 +242,32 @@ mod tests {
         );
         proc.kill();
         // Drains whatever was already buffered, then ends. Without the kill this loops forever.
-        let tail: Vec<StreamLine> = proc.lines().iter().collect();
+        //
+        // Every read is bounded, because the failure this guards against is a hang: `kill` once
+        // blocked on the same lock the waiter thread held for the whole life of the process, and
+        // an unbounded `iter()` here turned that deadlock into a test run that never finished
+        // rather than a test that failed.
+        let mut tail = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            match proc
+                .lines()
+                .recv_timeout(std::time::Duration::from_millis(250))
+            {
+                Ok(line) => {
+                    let last = matches!(line, StreamLine::Exited { .. });
+                    tail.push(line);
+                    if last {
+                        break;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
         assert!(
             tail.iter().any(|l| matches!(l, StreamLine::Exited { .. })),
-            "the stream closed without an exit marker: {tail:?}"
+            "a killed follow never reported its exit: {tail:?}"
         );
     }
 

@@ -16,12 +16,14 @@ use std::sync::atomic::AtomicU64;
 use crate::backend::container_runtime::adoption::{
     self, AdoptionStore, Ownership, ReleaseRefusal, Requirement,
 };
-use crate::backend::container_runtime::{Cli, compose, grouping, inventory, probe};
+use crate::backend::container_runtime::preview::{NotPreviewable, PreviewContext, PreviewStore};
+use crate::backend::container_runtime::{Cli, compose, grouping, inventory, mutate, probe};
 use crate::backend::state::BackendState;
 use crate::backend::{events, kind, persistence};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Container, ContainerInventory, Correlation,
-    OperationRefusal, Route, RuntimePresenceState, StreamEvent, section_keys,
+    DefinitionFileState, OperationRefusal, OperationRequest, OperationScope, Route,
+    RuntimePresenceState, StreamEvent, section_keys,
 };
 
 /// Handles container-runtime commands; returns the command back if it belongs to another family.
@@ -33,6 +35,36 @@ pub(super) async fn handle(
     // Classify first, refuse first. `requirement` returns `OutOfScope` for every command this
     // family does not own, so a foreign command passes through untouched.
     let requirement = adoption::requirement(&cmd);
+    // `FromPreview` is not a requirement, it is an instruction to go and find one. The preview is
+    // what knows the scope; the command carries only an id, deliberately, so a client cannot name
+    // a target the preview never showed. A preview that is no longer stored cannot be issued at
+    // all, and `PreviewStale` is both the honest answer and the safe one.
+    let requirement = if matches!(requirement, Requirement::FromPreview) {
+        let BackendCmd::IssueContainerOperation { preview_id, .. } = &cmd else {
+            // Only `IssueContainerOperation` is classified `FromPreview`; anything else arriving
+            // here is a classification bug, and refusing is the safe way to find out about it.
+            refuse(state, sender, &cmd, OperationRefusal::PreviewStale);
+            return None;
+        };
+        match state
+            .containers
+            .previews
+            .get(preview_id)
+            .map(|p| p.scope.clone())
+        {
+            None => {
+                refuse(state, sender, &cmd, OperationRefusal::PreviewStale);
+                return None;
+            }
+            // A creation owns nothing yet: there is no existing project whose work it could
+            // disturb, and demanding a grant over a project that does not exist would make
+            // creation unreachable rather than careful.
+            Some(None) => Requirement::Free,
+            Some(Some(scope)) => adoption::requirement_for_scope(&scope),
+        }
+    } else {
+        requirement
+    };
     if !matches!(requirement, Requirement::OutOfScope) {
         let ownership = InventoryOwnership::from(&state.containers);
         let store = state
@@ -61,14 +93,23 @@ pub(super) async fn handle(
         }
         BackendCmd::AdoptContainerProject { project } => adopt(state, sender, project),
         BackendCmd::ReleaseContainerProject { project } => release(state, sender, project),
-        BackendCmd::PreviewContainerOperation { .. } => {
-            // T040-T042: derive the argv and the removal set. Deliberately silent until then —
-            // emitting an empty preview would let the UI show an operation with no blast radius.
-        }
-        BackendCmd::IssueContainerOperation { .. } => {
-            // T043-T045: re-derive from the stored preview and run it. The gate above has already
-            // refused this with `PreviewStale`, which is the correct answer while no preview can
-            // be stored: nothing runs.
+        BackendCmd::PreviewContainerOperation {
+            request_id,
+            request,
+        } => preview_operation(state, sender, request_id, &request),
+        BackendCmd::IssueContainerOperation {
+            request_id,
+            preview_id,
+            typed_confirmation,
+        } => {
+            issue_operation(
+                state,
+                sender,
+                request_id,
+                &preview_id,
+                typed_confirmation.as_deref(),
+            )
+            .await;
         }
         BackendCmd::StartContainerLogStream { .. } | BackendCmd::StopContainerLogStream { .. } => {
             // T056-T058: the log follow, over `container_runtime::stream`.
@@ -109,6 +150,19 @@ pub(crate) struct RuntimeState {
     /// which project a container id belongs to, and asking the daemon again mid-gate would let
     /// the answer change between the check and the act.
     containers: Vec<Container>,
+    /// The networks of the last inventory, kept because a `compose down` preview has to name
+    /// every one it takes with it and cannot ask the daemon mid-preview without the answer
+    /// changing between the showing and the acting.
+    networks: Vec<crate::protocol::RemovableObject>,
+    /// Definition file per project, kept only when it was readable. A project whose file is
+    /// missing or unreadable is absent from here, which is how FR-033 is enforced: the preview
+    /// cannot be built, so the operation is never offered.
+    definitions: std::collections::BTreeMap<String, String>,
+    /// When the inventory the previews are derived from was read. A preview whose snapshot has
+    /// been replaced is stale, whatever it still says.
+    inventory_as_of: Option<String>,
+    /// Previews taken this session. Bounded; see `preview::PreviewStore`.
+    previews: PreviewStore,
 }
 
 impl RuntimeState {
@@ -252,6 +306,23 @@ async fn refresh_inventory(state: &mut BackendState, sender: &Sender<BackendEven
     let projects = grouping::group_containers(&containers, &compose::Disk, store);
 
     state.containers.containers = containers.iter().map(|r| r.container.clone()).collect();
+    state.containers.networks = networks.clone();
+    // Only a file that was readable at this reading. A project whose file is missing or
+    // unreadable drops out, which is how a project-level operation stops being offered for it
+    // (FR-033) — and nothing here reads or writes the file to find out.
+    state.containers.definitions = projects
+        .iter()
+        .filter(|p| matches!(p.definition_state, DefinitionFileState::Present))
+        .filter_map(|p| match (&p.group, &p.definition_file) {
+            (crate::protocol::ProjectGroup::Project(name), Some(file)) => {
+                Some((name.clone(), file.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let as_of = chrono::Utc::now().to_rfc3339();
+    state.containers.inventory_as_of = Some(as_of.clone());
 
     emit(
         state.cluster.seq.as_ref(),
@@ -261,7 +332,7 @@ async fn refresh_inventory(state: &mut BackendState, sender: &Sender<BackendEven
             images,
             volumes,
             networks,
-            as_of: chrono::Utc::now().to_rfc3339(),
+            as_of,
         })),
     );
     emit(
@@ -295,6 +366,216 @@ fn runtime_error_text(e: &kind::RunError) -> String {
         kind::RunError::NotFound => "The container runtime binary is no longer on PATH.".to_owned(),
         kind::RunError::Other(detail) => detail.clone(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+/// Derives the argv and hands it back. Runs nothing.
+///
+/// Available for an unadopted project on purpose (the gate says `Free`): a preview is how an
+/// operator decides whether to adopt, and refusing to show them what an operation would do makes
+/// adoption a blind choice.
+fn preview_operation(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    request_id: String,
+    request: &OperationRequest,
+) {
+    let seq = state.cluster.seq.clone();
+    // No runtime, no argv. Deriving one against a daemon that is not answering would produce a
+    // command the operator could confirm and that could then only fail.
+    let Some(cli) = state.containers.cli else {
+        emit(
+            seq.as_ref(),
+            sender,
+            StreamEvent::ContainerOperationRefused {
+                request_id,
+                reason: OperationRefusal::PresenceLost,
+            },
+        );
+        return;
+    };
+
+    let project = project_of(request);
+    let definition_file = project
+        .as_deref()
+        .and_then(|p| state.containers.definitions.get(p))
+        .map(String::as_str);
+    let as_of = state
+        .containers
+        .inventory_as_of
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+    let ctx = PreviewContext {
+        cli,
+        containers: &state.containers.containers,
+        networks: &state.containers.networks,
+        definition_file,
+        active_context: state.cluster.current_context.as_deref(),
+        as_of: &as_of,
+    };
+
+    match state.containers.previews.take(request, &ctx) {
+        Ok(preview) => emit(
+            seq.as_ref(),
+            sender,
+            StreamEvent::ContainerOperationPreviewed {
+                request_id,
+                preview: Box::new(preview),
+            },
+        ),
+        // There is no `OperationRefusal` variant for "this cannot be described in advance", and
+        // inventing one would be a protocol change to carry a sentence. The operator is told
+        // instead of the request being dropped, which is the part that matters: a control that
+        // does nothing and says nothing is the failure FR-017 names.
+        Err(e) => notify_not_previewable(seq.as_ref(), sender, &e),
+    }
+}
+
+fn notify_not_previewable(
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    reason: &NotPreviewable,
+) {
+    events::notify_error(seq, sender, reason.detail());
+}
+
+/// The project an operation is scoped to, if any.
+fn project_of(request: &OperationRequest) -> Option<String> {
+    match request {
+        OperationRequest::ProjectLifecycle { project, .. } => Some(project.clone()),
+        OperationRequest::Lifecycle {
+            scope: OperationScope::Project { project },
+            ..
+        } => Some(project.clone()),
+        _ => None,
+    }
+}
+
+/// Runs a preview the operator confirmed.
+///
+/// Nothing is rebuilt here. The argv comes out of the store, which is what makes the preview a
+/// guarantee rather than a rendering — see `container_runtime::mutate`.
+async fn issue_operation(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    request_id: String,
+    preview_id: &str,
+    typed_confirmation: Option<&str>,
+) {
+    let seq = state.cluster.seq.clone();
+
+    // The argv already carries its own program, so the runtime is not consulted for one here.
+    // It is still checked: issuing a command at a daemon that stopped answering would report a
+    // failure that is really an absence, and the operator would read it as the operation's fault.
+    if state.containers.cli.is_none() {
+        refuse_operation(
+            seq.as_ref(),
+            sender,
+            request_id,
+            OperationRefusal::PresenceLost,
+        );
+        return;
+    }
+
+    let Some(stored) = state.containers.previews.get(preview_id).cloned() else {
+        refuse_operation(
+            seq.as_ref(),
+            sender,
+            request_id,
+            OperationRefusal::PreviewStale,
+        );
+        return;
+    };
+
+    // The inventory may have been re-read since the preview was taken; that alone is harmless.
+    // What is not harmless is the target set having changed under it, because then the argv names
+    // objects the operator did not see, or no longer names ones they did.
+    if target_set_moved(&stored, &state.containers.containers) {
+        refuse_operation(
+            seq.as_ref(),
+            sender,
+            request_id,
+            OperationRefusal::PreviewStale,
+        );
+        return;
+    }
+
+    if let Err(reason) = mutate::confirmation_ok(&stored, typed_confirmation) {
+        refuse_operation(seq.as_ref(), sender, request_id, reason);
+        return;
+    }
+
+    // Consumed before it runs, not after: a preview that has been acted on must not be issuable a
+    // second time even if the run itself fails half way.
+    state.containers.previews.consume(preview_id);
+
+    let run =
+        tokio::task::spawn_blocking(move || mutate::issue(&kind::SystemRunner, &stored)).await;
+    match run {
+        Ok(Ok(outcome)) => {
+            emit(
+                seq.as_ref(),
+                sender,
+                StreamEvent::ContainerOperationFinished {
+                    request_id,
+                    outcome,
+                },
+            );
+            // FR-020: the UI reflects nothing until the runtime has been asked again. The outcome
+            // above says what the runtime reported; this says what the daemon now looks like.
+            refresh_inventory(state, sender).await;
+        }
+        Ok(Err(e)) => events::notify_error(seq.as_ref(), sender, runtime_error_text(&e)),
+        Err(e) => events::notify_error(seq.as_ref(), sender, e.to_string()),
+    }
+}
+
+/// Whether the objects the preview named are still the objects the inventory has.
+///
+/// By identity, not by count: a project that lost one container and gained another has the same
+/// number of members and a different argv.
+fn target_set_moved(
+    stored: &crate::backend::container_runtime::preview::StoredPreview,
+    containers: &[Container],
+) -> bool {
+    // A creation names no existing object, so there is no set to have moved.
+    if stored.targets.is_empty() {
+        return false;
+    }
+    if stored
+        .targets
+        .iter()
+        .any(|t| !containers.iter().any(|c| c.id == t.id))
+    {
+        return true;
+    }
+    match &stored.scope {
+        Some(OperationScope::Project { project }) => {
+            let now = containers
+                .iter()
+                .filter(|c| c.project.as_deref() == Some(project.as_str()))
+                .count();
+            now != stored.targets.len()
+        }
+        _ => false,
+    }
+}
+
+fn refuse_operation(
+    seq: &AtomicU64,
+    sender: &Sender<BackendEventEnvelope>,
+    request_id: String,
+    reason: OperationRefusal,
+) {
+    emit(
+        seq,
+        sender,
+        StreamEvent::ContainerOperationRefused { request_id, reason },
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,8 @@ pub mod adoption;
 pub mod compose;
 pub mod grouping;
 pub mod inventory;
+pub mod mutate;
+pub mod preview;
 pub mod probe;
 pub mod stream;
 
