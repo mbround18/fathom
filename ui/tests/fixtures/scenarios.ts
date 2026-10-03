@@ -417,6 +417,24 @@ export const SCENARIOS = {
       ...containerReplies({ adopted: ['shop'], vanishedMember: 'shop-db' }),
     },
   },
+  'containers-volume-in-use': {
+    description: '`shop` is adopted; the daemon refuses to remove the volume shop-web holds.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({ adopted: ['shop'], failingMember: 'in_use_data' }),
+    },
+  },
+  'containers-lying-runtime': {
+    description: 'A removal the runtime calls a success, over a volume the next reading still has.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({ adopted: ['shop'], lyingAbout: 'shop_db_data' }),
+    },
+  },
   'containers-stale-preview': {
     description: 'Every issue is refused as stale, whatever was previewed.',
     initialState: { context: 'kind-a', namespaceFilter: [] },
