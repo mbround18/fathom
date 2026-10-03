@@ -76,6 +76,14 @@ export const SECTION = {
   clusterRoleBindings: 'access/clusterrolebindings',
   namespaceAccess: 'access/namespace-access',
   oidcConfig: 'access/oidc-config',
+  // 048-docker-management: this computer's container runtime. A top-level group of its own, not
+  // a pseudo-context — a daemon has no kubeconfig context and no labels, so putting it in the
+  // context switcher would corrupt 046's fleet model (spec FR-005).
+  containers: 'containers/containers',
+  containerProjects: 'containers/projects',
+  containerImages: 'containers/images',
+  containerVolumes: 'containers/volumes',
+  containerNetworks: 'containers/networks',
 } as const satisfies Record<string, SectionKey>
 
 /** Commands sent once the event subscription is up (mirrors egui's startup in src/app/mod.rs). */
@@ -132,6 +140,19 @@ const REFRESH: Partial<Record<SectionKey, BackendCmd>> = {
   [SECTION.roleBindings]: { type: 'RefreshRoleBindings' },
   [SECTION.clusterRoles]: { type: 'RefreshClusterRoles' },
   [SECTION.clusterRoleBindings]: { type: 'RefreshClusterRoleBindings' },
+  // 048: each sub-section refreshes only its own class, so opening Volumes never costs a
+  // container listing (Principle V).
+  [SECTION.containers]: { type: 'RefreshContainerInventory', data: { classes: ['container'] } },
+  [SECTION.containerProjects]: {
+    type: 'RefreshContainerInventory',
+    data: { classes: ['container'] },
+  },
+  [SECTION.containerImages]: { type: 'RefreshContainerInventory', data: { classes: ['image'] } },
+  [SECTION.containerVolumes]: { type: 'RefreshContainerInventory', data: { classes: ['volume'] } },
+  [SECTION.containerNetworks]: {
+    type: 'RefreshContainerInventory',
+    data: { classes: ['network'] },
+  },
 }
 
 /** The refresh command for a list section, if the UI knows one yet. */

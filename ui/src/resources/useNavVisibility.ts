@@ -27,8 +27,12 @@ export function useInstalledIntegrations(): Record<string, boolean | undefined> 
 export function useNavVisibility(): NavVisibilityContext {
   const installed = useInstalledIntegrations()
   const hosted = useStore((s) => s.hosted.mode === 'hosted')
+  // 048: the Containers group follows the probe's answer. Before it lands the state is
+  // `undefined` and the group is hidden, which is also what an absent runtime looks like — the
+  // group never appears on a guess (FR-002).
+  const runtime = useStore((s) => s.containerRuntime.presence?.state)
   return useMemo(
-    () => ({ hosted, desktop: !hosted, installed: (key: SectionKey) => installed[key] }),
-    [hosted, installed],
+    () => ({ hosted, desktop: !hosted, installed: (key: SectionKey) => installed[key], runtime }),
+    [hosted, installed, runtime],
   )
 }

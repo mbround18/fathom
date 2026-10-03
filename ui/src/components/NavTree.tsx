@@ -46,6 +46,16 @@ export function NavTree() {
   })
 
   const visibility = useNavVisibility()
+  // 048-docker-management (FR-001/FR-002): ask once, on the navigator's first render, whether
+  // this computer has a container runtime — the Containers group cannot decide whether it exists
+  // without an answer. One bounded probe per session, never polled (Principle V).
+  // Not in hosted mode: a server pod has no local daemon and every command in the family is
+  // denied there, so asking would only earn an honest refusal nobody asked for.
+  const probeContainerRuntime = useStore((s) => s.probeContainerRuntime)
+  const hostedMode = visibility.hosted
+  useEffect(() => {
+    if (!hostedMode) probeContainerRuntime()
+  }, [hostedMode, probeContainerRuntime])
   const groups = useMemo<NavSectionGroup[]>(
     () =>
       NAV_GROUPS.map((g) => ({

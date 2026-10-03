@@ -33,6 +33,10 @@ import type {
   KindClusterSummary,
   KubeconfigIssue,
   KindPrerequisites,
+  ClusterLink,
+  ObjectClass,
+  ContainerInventory,
+  RuntimePresence,
   CrdCatalogEntry,
   DiskUsage,
   ClusterVersionSummary,
@@ -649,6 +653,32 @@ export interface KindState {
 }
 
 /**
+ * 048-docker-management: what this computer's container runtime is doing.
+ *
+ * Every field is `undefined` until something asked, because a scene nobody has opened must not
+ * cost a probe (Principle V). `probed` is what separates "not asked yet" from "asked, and there
+ * is no runtime here" — the navigator needs that distinction to decide whether the section is
+ * absent (FR-002) or merely unknown, and an entry that appeared on a guess would be worse than
+ * one that appears a moment late.
+ */
+export interface ContainerRuntimeState {
+  /** `undefined` until the first `ContainerRuntimePresenceUpdated`. */
+  presence?: RuntimePresence
+  /** True once the backend has answered the presence probe, whatever it answered. */
+  probed: boolean
+  /** The last inventory, kept across a runtime that goes away so `stale` has something to mark. */
+  inventory?: ContainerInventory
+  /** The backend's verbatim reason the inventory could not be refreshed (FR-003). */
+  stale?: string
+  /** Projects the operator has adopted; everything else is read-only (FR-012). */
+  adopted: string[]
+  /** True when the grant record could not be read, so refusals are explained honestly. */
+  adoptionFellBack: boolean
+  /** Containers backing each local cluster, both directions of the cross-link. */
+  clusterLinks: ClusterLink[]
+}
+
+/**
  * 015-mcp-agent-exposure: the stdio MCP server's operator-visible status, kept in sync by
  * `McpServerStatusChanged` (`store/handlers/system.ts`) — the reply to `LoadMcpServerStatus`
  * and the broadcast after every `SetMcpServerEnabled`.
@@ -890,6 +920,7 @@ export interface StoreData {
   mcp: McpState
   /** 030-kind-cluster-provisioning: local kind cluster readiness, inventory, and operations. */
   kind: KindState
+  containerRuntime: ContainerRuntimeState
   /**
    * 008-pod-lifecycle-diagnostics: a "view logs for this container" click from the Lifecycle
    * section's Init Containers list, so the Inspector can switch to the Logs tab and
@@ -954,6 +985,13 @@ export interface StoreState extends StoreData {
   /** 036: opt a context in/out of the in-cluster daemon; manual re-probe; metrics on demand. */
   setDaemonPreference: (context: string, mode: 'off' | 'auto') => void
   refreshDaemon: (context: string) => void
+  /**
+   * 048: ask once whether this computer has a container runtime. The navigator calls this on
+   * first render and never again: one bounded `info` call per session, no polling (Principle V).
+   */
+  probeContainerRuntime: () => void
+  /** 048: re-read the inventory for the given object classes (the visible scene's classes only). */
+  refreshContainerInventory: (classes: ObjectClass[]) => void
   requestDaemonTopology: (context: string) => void
   requestDaemonMetrics: (context: string, uid: string, metric: 'cpu' | 'memory') => void
   /** Ask the backend to re-emit its buffered timeline (newest `limit` entries). */
@@ -1453,6 +1491,7 @@ export function initialData(): StoreData {
       demoChat: { status: 'idle', chunks: new RingBuffer<string>(), rev: 0 },
     },
     kind: { prerequisites: undefined, clusters: undefined, operations: {} },
+    containerRuntime: { probed: false, adopted: [], adoptionFellBack: false, clusterLinks: [] },
     podLogsIntent: null,
     setup: INITIAL_SETUP,
   }
@@ -1695,6 +1734,17 @@ export const useStore = create<StoreState>()((set, get) => ({
     })
     s.send({ type: 'SetDaemonPreference', data: { context, mode } })
   },
+  // 048-docker-management. `probed` is set by the reply, not here: a probe that never answers
+  // must not look like an answer of "no runtime".
+  probeContainerRuntime: () => {
+    if (get().containerRuntime.probed) return
+    get().send({ type: 'RefreshContainerRuntimePresence' })
+  },
+
+  refreshContainerInventory: (classes) => {
+    get().send({ type: 'RefreshContainerInventory', data: { classes } })
+  },
+
   refreshDaemon: (context) => get().send({ type: 'RefreshDaemon', data: { context } }),
   requestDaemonTopology: (context) =>
     get().send({ type: 'RequestDaemonTopology', data: { context } }),

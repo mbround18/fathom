@@ -4,6 +4,7 @@ import { resetCapabilities } from '@/lib/capabilities'
 import type { StreamEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
+import { handleContainers, isContainerEvent } from './containers'
 import { markApplied } from '../editSession'
 import { type ExecStreamState, type LogStreamState, useStore } from '../index'
 import { isClientStreamId } from '../log-streams'
@@ -18,6 +19,13 @@ function decodeExecChunk(base64: string): string {
 }
 
 export function handleStream(d: Draft, event: StreamEvent): void {
+  // 048-docker-management: the local container runtime's events reduce in their own handler, for
+  // the same reason the backend gates them in one place — this family is about the computer, not
+  // the cluster, and mixing it into the switch below is how an arm gets missed.
+  if (isContainerEvent(event)) {
+    handleContainers(d, event)
+    return
+  }
   switch (event.type) {
     // Log streams exist from `startPodLogs` on (feedback #2). Events for an id this client did
     // not start, or already stopped (another tab of a shared hosted backend, a late chunk after

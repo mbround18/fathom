@@ -101,6 +101,9 @@ describe('nav model', () => {
       'Access Control',
       'Custom Resources',
       'Integrations',
+      // 048-docker-management: this computer's container runtime, a scene of its own rather
+      // than a setting, so it sits above Settings and below the cluster's own groups.
+      'Containers',
       'Settings',
     ])
   })

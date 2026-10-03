@@ -405,6 +405,12 @@ export const CLUSTERLESS_SECTIONS: ReadonlySet<string> = new Set([
   SECTION.appSettings,
   SECTION.localClusters,
   SIGN_IN_SECTION,
+  // 048: this computer's runtime has nothing to do with a cluster being connected.
+  SECTION.containers,
+  SECTION.containerProjects,
+  SECTION.containerImages,
+  SECTION.containerVolumes,
+  SECTION.containerNetworks,
 ])
 
 /** A list pane: one clear state (FR-015), else the table with a strip for refresh/errors. */

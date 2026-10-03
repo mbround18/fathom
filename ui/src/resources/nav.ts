@@ -7,7 +7,7 @@
  * `NAV_MODEL` is the one source for the tree, the palette index and the coverage tests.
  * `NAV_GROUPS` is the flat, render-ready view older callers use.
  */
-import type { SectionKey } from '@/protocol/types'
+import type { RuntimePresenceState, SectionKey } from '@/protocol/types'
 
 import { descriptorFor } from './index'
 
@@ -18,6 +18,12 @@ export interface NavVisibilityContext {
   desktop: boolean
   /** Integration detection for the active context; `undefined` = not detected yet. */
   installed: (key: SectionKey) => boolean | undefined
+  /**
+   * 048: this computer's container runtime, once probed. `undefined` means not asked yet, which
+   * hides the group the same way `'absent'` does — the difference is that `undefined` will
+   * change, and it must not be guessed at in the meantime (FR-002).
+   */
+  runtime?: RuntimePresenceState
 }
 
 export interface NavEntry {
@@ -74,6 +80,19 @@ const integration = (key: SectionKey): EntryExtra => ({
     ? { visible: (ctx: NavVisibilityContext) => integrationVisible(key, ctx.installed(key)) }
     : {}),
 })
+
+/**
+ * 048-docker-management: the group exists only when a runtime does.
+ *
+ * Its absence is a presence decision, not a feature flag: no runtime on this computer means no
+ * group at all, rather than a group that opens onto an error (FR-002). "Installed but stopped" is
+ * still a runtime, so the group stays and the scene says exactly that (FR-003).
+ */
+export function runtimeVisible(ctx: NavVisibilityContext): boolean {
+  return !ctx.hosted && ctx.runtime !== undefined && ctx.runtime !== 'absent'
+}
+
+const runtimeGroup = (): EntryExtra => ({ visible: runtimeVisible })
 
 export const NAV_MODEL: readonly NavGroup[] = [
   group(
@@ -291,6 +310,39 @@ export const NAV_MODEL: readonly NavGroup[] = [
       integration('integrations/grafana'),
     ],
   ]),
+  // 048-docker-management: a top-level sibling of the cluster groups, not a pseudo-context.
+  group('Containers', '函', [
+    [
+      'containers/containers',
+      'Containers',
+      'What this computer is running right now, grouped by project',
+      runtimeGroup(),
+    ],
+    [
+      'containers/projects',
+      'Compose projects',
+      'Each project as one unit, with the file that declares it',
+      runtimeGroup(),
+    ],
+    [
+      'containers/images',
+      'Images',
+      'Size, and what still uses each one, of everything stored locally',
+      runtimeGroup(),
+    ],
+    [
+      'containers/volumes',
+      'Volumes',
+      'Stored data on this computer and which containers hold it',
+      runtimeGroup(),
+    ],
+    [
+      'containers/networks',
+      'Networks',
+      'Which containers can reach each other, and over what',
+      runtimeGroup(),
+    ],
+  ]),
   group('Settings', '調', [
     [
       'integrations/cluster-settings',
@@ -345,6 +397,11 @@ export const moreKey = (groupLabel: string): string => `${groupLabel}/More`
  * becomes navigable once it is listed here (or has a descriptor): see `NAV_GROUPS`.
  */
 export const PANEL_SECTIONS: ReadonlySet<SectionKey> = new Set([
+  'containers/containers',
+  'containers/projects',
+  'containers/images',
+  'containers/volumes',
+  'containers/networks',
   'overview',
   'topology',
   'events',
