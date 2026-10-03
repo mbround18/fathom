@@ -7,27 +7,32 @@
 //! intention and the two could drift without anyone noticing.
 //! `mutate::tests::issued_argv_is_byte_identical_to_the_preview` is what keeps that honest.
 //!
-//! What is *not* here: the removal set and the blast radius. Those are computed in
-//! `blast_radius.rs` against the same inventory snapshot, and until they are, a removal has no
-//! preview — so [`build`] refuses to produce one (FR-027: an operation whose scope cannot be
-//! enumerated is not offered at all). Returning an empty `removals` list instead would show the
-//! operator a destructive operation whose blast radius appears to be nothing.
+//! The removal set and the blast radius are not computed here: `blast_radius.rs` resolves them
+//! against the same inventory snapshot, and this module asks it. What is enforced here is the
+//! consequence — an operation whose scope cannot be enumerated is not offered at all (FR-027), so
+//! a removal that resolves to nothing, or to objects of more than one kind, is refused rather than
+//! previewed with a blast radius that appears to be nothing.
 
 use std::collections::VecDeque;
 
 use crate::protocol::v1::{
-    ClusterBreak, Container, ContainerSpec, ImageBuildSpec, LifecycleAction, NetworkSpec,
-    ObjectClass, ObjectRef, OperationPreview, OperationRequest, OperationScope, ProjectAction,
-    RemovableObject, RemovalLine, VolumeSpec,
+    ClusterBreak, Container, ContainerSpec, ImageBuildSpec, LifecycleAction,
+    NetworkSpec, ObjectClass, ObjectRef, OperationPreview, OperationRequest, OperationScope,
+    ProjectAction, RemovableObject, RemovalLine, VolumeSpec,
 };
 
 use super::Cli;
+use super::blast_radius::{Scene, resolve_objects, resolve_prune};
 
 /// Everything a preview is derived from, as of one reading of the runtime.
 pub struct PreviewContext<'a> {
     pub cli: Cli,
     /// The containers of the inventory the preview is derived from.
     pub containers: &'a [Container],
+    /// The images and volumes of that same inventory. Needed only by the destructive operations,
+    /// which are resolved to identities here rather than handed to the runtime as a filter.
+    pub images: &'a [RemovableObject],
+    pub volumes: &'a [RemovableObject],
     /// The networks of that same inventory, needed because bringing a project down takes its
     /// networks with it and FR-023 forbids summarising any of them as a count.
     pub networks: &'a [RemovableObject],
@@ -38,6 +43,9 @@ pub struct PreviewContext<'a> {
     /// The kubeconfig context the operator is connected to right now, used only to decide whether
     /// a cluster this operation breaks is *the* cluster they are looking at.
     pub active_context: Option<&'a str>,
+    /// The projects the operator has adopted, which is what decides whether an object inside a
+    /// removal set is touched or excluded (FR-025).
+    pub adopted: &'a [String],
     /// The inventory timestamp. Everything derived here is only as true as this.
     pub as_of: &'a str,
 }
@@ -165,6 +173,16 @@ pub fn build(
     request: &OperationRequest,
     ctx: &PreviewContext<'_>,
 ) -> Result<StoredPreview, NotPreviewable> {
+    // Resolved first, because for a destructive request the removal set *is* the argv: the
+    // identities decide what runs, and nothing downstream may widen them.
+    let radius = match request {
+        OperationRequest::Remove { objects } => Some(resolve_objects(&scene(ctx), objects)?),
+        OperationRequest::PruneSelection { class, filter } => {
+            Some(resolve_prune(&scene(ctx), *class, *filter)?)
+        }
+        _ => None,
+    };
+
     let (command, targets, scope) = match request {
         OperationRequest::Lifecycle { action, scope } => {
             let (command, targets) = lifecycle(ctx, *action, scope)?;
@@ -186,16 +204,15 @@ pub fn build(
         OperationRequest::BuildImage { spec } => (build_image(ctx.cli, spec), vec![], None),
         OperationRequest::CreateNetwork { spec } => (create_network(ctx.cli, spec), vec![], None),
         OperationRequest::CreateVolume { spec } => (create_volume(ctx.cli, spec), vec![], None),
-        // Deliberately refused rather than half-previewed: the removal set and the projects it
-        // reaches are computed in `blast_radius.rs`, and a destructive operation with neither is
-        // exactly what FR-027 forbids offering.
-        OperationRequest::Remove { .. } => {
-            return Err(NotPreviewable::NotEnumerable(
-                "removing these objects".to_owned(),
-            ));
-        }
-        OperationRequest::PruneSelection { .. } => {
-            return Err(NotPreviewable::NotEnumerable("this prune".to_owned()));
+        // Both resolve the same way: by identity, never by filter. A prune is not issued as a
+        // prune (FR-026) — what runs is a removal of exactly the objects the preview listed, so
+        // the daemon cannot add to the set between reading it and acting on it.
+        OperationRequest::Remove { .. } | OperationRequest::PruneSelection { .. } => {
+            let radius = radius.as_ref().expect("resolved for destructive requests");
+            let command = removal_argv(ctx.cli, &radius.removals)?;
+            let targets: Vec<ObjectRef> =
+                radius.removals.iter().map(|r| r.object.clone()).collect();
+            (command, targets, removal_scope(&radius.removals))
         }
     };
 
@@ -204,7 +221,7 @@ pub fn build(
     // it. Enumerated by identity, every one named — a count would be exactly what FR-023 forbids.
     // Volumes are absent on purpose: `compose down` leaves them unless asked with `-v`, and
     // listing them would warn about a loss that is not going to happen.
-    let (removals, blast_radius, required_confirmation) = match request {
+    let (removals, blast_radius, excluded, required_confirmation) = match request {
         OperationRequest::ProjectLifecycle {
             project,
             action: ProjectAction::Down,
@@ -234,13 +251,22 @@ pub fn build(
             (
                 lines,
                 vec![project.clone()],
+                vec![],
                 // The project's own name, not a constant: a confirmation that is the same word
                 // every time is a reflex, and a reflex confirms the wrong project as readily as
                 // the right one.
                 Some(project.clone()),
             )
         }
-        _ => (vec![], vec![], None),
+        // One resolution fills all four, so the list, the radius and the exclusions cannot
+        // disagree about the same selection.
+        _ => match radius {
+            Some(r) => {
+                let confirmation = confirmation_for(&r.removals);
+                (r.removals, r.projects, r.excluded, Some(confirmation))
+            }
+            None => (vec![], vec![], vec![], None),
+        },
     };
     debug_assert!(
         !destructive || required_confirmation.is_some(),
@@ -255,9 +281,7 @@ pub fn build(
             total_size_bytes: sum_sizes(&removals),
             removals,
             blast_radius,
-            // Nothing previewed here removes an object belonging to another project, so there is
-            // nothing to exclude yet. `blast_radius.rs` fills this for the operations that can.
-            excluded: vec![],
+            excluded,
             breaks_clusters: cluster_breaks(ctx, request, &targets),
             required_confirmation,
             as_of: ctx.as_of.to_owned(),
@@ -265,6 +289,84 @@ pub fn build(
         targets,
         scope,
     })
+}
+
+/// The scene a destructive request is resolved against: this reading of the runtime, and the
+/// grants in force over it.
+fn scene<'a>(ctx: &'a PreviewContext<'a>) -> Scene<'a> {
+    Scene {
+        containers: ctx.containers,
+        images: ctx.images,
+        volumes: ctx.volumes,
+        networks: ctx.networks,
+        adopted: ctx.adopted,
+    }
+}
+
+/// One argv for the whole removal, which is what forces a selection to be of one kind.
+///
+/// `docker rm`, `docker image rm`, `docker volume rm` and `docker network rm` are four different
+/// commands. A mixed selection would therefore need several argvs, and a preview that showed one
+/// of them while running all four would be the drift this whole two-phase path exists to prevent.
+/// So it is refused, and the operator removes the images and then the volumes — two previews, two
+/// confirmations, each of them true.
+fn removal_argv(cli: Cli, removals: &[RemovalLine]) -> Result<Vec<String>, NotPreviewable> {
+    let mut classes: Vec<ObjectClass> = removals.iter().map(|r| r.object.class).collect();
+    classes.dedup();
+    let [class] = classes[..] else {
+        return Err(NotPreviewable::NotEnumerable(
+            "removing objects of more than one kind in one command".to_owned(),
+        ));
+    };
+    let mut command: Vec<String> = match class {
+        // A container is removed by `rm` alone; the others carry their class first.
+        ObjectClass::Container => vec![cli.bin().to_owned(), "rm".to_owned()],
+        ObjectClass::Image => vec![cli.bin().to_owned(), "image".to_owned(), "rm".to_owned()],
+        ObjectClass::Volume => vec![cli.bin().to_owned(), "volume".to_owned(), "rm".to_owned()],
+        ObjectClass::Network => vec![cli.bin().to_owned(), "network".to_owned(), "rm".to_owned()],
+    };
+    command.extend(removals.iter().map(|r| r.object.id.clone()));
+    Ok(command)
+}
+
+/// What the adoption gate is re-checked against when the operation is issued.
+///
+/// Every object in the set belongs to one adopted project, or to none at all — `blast_radius`
+/// excluded anything else. When they share a project, that project is the scope and the gate
+/// applies again at issue time. When they belong to none, there is no scope: the no-project bucket
+/// is deliberately not adoptable (`adoption.rs`), so demanding a grant over it would make a
+/// dangling image impossible to ever remove.
+fn removal_scope(removals: &[RemovalLine]) -> Option<OperationScope> {
+    let mut projects = removals.iter().map(|r| r.project.as_deref());
+    let first = projects.next().flatten()?;
+    projects
+        .all(|p| p == Some(first))
+        .then(|| OperationScope::Project {
+            project: first.to_owned(),
+        })
+}
+
+/// The string the operator types to confirm a removal.
+///
+/// It is the object's own name when there is one, and the count with the kind when there are
+/// several. Either way it changes with what is being removed, which is the point: a confirmation
+/// that reads the same every time is a reflex, and a reflex approves the wrong list as readily as
+/// the right one. The list itself is above it, in full — this is the deliberate act, not the
+/// summary.
+fn confirmation_for(removals: &[RemovalLine]) -> String {
+    match removals {
+        [one] => one.object.name.clone(),
+        many => format!("remove {} {}", many.len(), plural(many[0].object.class)),
+    }
+}
+
+fn plural(class: ObjectClass) -> &'static str {
+    match class {
+        ObjectClass::Container => "containers",
+        ObjectClass::Image => "images",
+        ObjectClass::Volume => "volumes",
+        ObjectClass::Network => "networks",
+    }
 }
 
 /// Total of the sizes that are known.

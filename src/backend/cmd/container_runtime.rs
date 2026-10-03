@@ -154,6 +154,11 @@ pub(crate) struct RuntimeState {
     /// every one it takes with it and cannot ask the daemon mid-preview without the answer
     /// changing between the showing and the acting.
     networks: Vec<crate::protocol::RemovableObject>,
+    /// The images and volumes of that same reading, kept for the same reason: a removal set is
+    /// resolved against the inventory the operator is looking at, never against a fresh listing
+    /// that may have grown an object since they read it (`blast_radius.rs`).
+    images: Vec<crate::protocol::RemovableObject>,
+    volumes: Vec<crate::protocol::RemovableObject>,
     /// Definition file per project, kept only when it was readable. A project whose file is
     /// missing or unreadable is absent from here, which is how FR-033 is enforced: the preview
     /// cannot be built, so the operation is never offered.
@@ -307,6 +312,8 @@ async fn refresh_inventory(state: &mut BackendState, sender: &Sender<BackendEven
 
     state.containers.containers = containers.iter().map(|r| r.container.clone()).collect();
     state.containers.networks = networks.clone();
+    state.containers.images = images.clone();
+    state.containers.volumes = volumes.clone();
     // Only a file that was readable at this reading. A project whose file is missing or
     // unreadable drops out, which is how a project-level operation stops being offered for it
     // (FR-033) — and nothing here reads or writes the file to find out.
@@ -398,6 +405,14 @@ fn preview_operation(
         return;
     };
 
+    // Taken before the context borrows the state: the grants decide what a removal set may
+    // touch, and reading them here is also what emits `fell_back` on first use.
+    let adopted = state
+        .containers
+        .adoption(seq.as_ref(), sender)
+        .adopted()
+        .to_vec();
+
     let project = project_of(request);
     let definition_file = project
         .as_deref()
@@ -413,6 +428,9 @@ fn preview_operation(
         cli,
         containers: &state.containers.containers,
         networks: &state.containers.networks,
+        images: &state.containers.images,
+        volumes: &state.containers.volumes,
+        adopted: &adopted,
         definition_file,
         active_context: state.cluster.current_context.as_deref(),
         as_of: &as_of,

@@ -148,14 +148,14 @@ exactly what disappears, names every project touched, and requires a typed confi
 ### Tests first
 
 - [ ] T048 [P] [US3] E2E spec `ui/tests/e2e/us3-reclaim-space.spec.ts` covering all six acceptance scenarios, including that a prune cannot be issued while any object is summarised as a count alone, and that a cancelled removal issues nothing
-- [ ] T049 [P] [US3] Unit tests in `src/backend/container_runtime/blast_radius.rs`: the radius names projects other than the selected one; an object belonging to an unadopted project is **excluded** with `ExclusionReason::UnadoptedProject`, not merely warned about; an object referenced by both an adopted and an unadopted project is excluded
+- [X] T049 [P] [US3] Unit tests in `src/backend/container_runtime/blast_radius.rs`: the radius names projects other than the selected one; an object belonging to an unadopted project is **excluded** with `ExclusionReason::UnadoptedProject`, not merely warned about; an object referenced by both an adopted and an unadopted project is excluded
 - [ ] T050 [P] [US3] Unit tests for post-verification: a re-read inventory differing from the preview produces a `Discrepancy` that is reported rather than swallowed
 
 ### Implementation
 
 - [ ] T051 [US3] Implement removable-object inventory in `src/backend/container_runtime/inventory.rs`: images, volumes and networks with sizes and `referenced_by`, distinguishing tagged from dangling images, and keeping an unreported size as `None` rather than `0`
-- [ ] T052 [US3] Implement `src/backend/container_runtime/blast_radius.rs`: compute the removal set from Fathom's own inventory — the runtime offers no dry-run (research D3) — name every project reached, and exclude objects belonging to unadopted projects
-- [ ] T053 [US3] Implement prune as a reviewed *selection* resolving to targeted removals by identity, never a broad prune handed to the runtime; an operation whose scope cannot be enumerated is not offered at all (FR-027)
+- [X] T052 [US3] Implement `src/backend/container_runtime/blast_radius.rs`: compute the removal set from Fathom's own inventory — the runtime offers no dry-run (research D3) — name every project reached, and exclude objects belonging to unadopted projects
+- [X] T053 [US3] Implement prune as a reviewed *selection* resolving to targeted removals by identity, never a broad prune handed to the runtime; an operation whose scope cannot be enumerated is not offered at all (FR-027)
 - [ ] T054 [US3] Extend `mutate.rs` with the destructive guard: typed confirmation checked against the object being destroyed, then post-verification against a re-read inventory with any discrepancy reported
 - [ ] T055 [US3] Implement `ObjectPanes.tsx` in `ui/src/features/containers/` for images, volumes and networks with size, tagged/dangling, references and in-use state
 - [ ] T056 [US3] Extend `OperationPreview.tsx` for destructive operations: the full removal list with nothing reduced to a count, total space reclaimed, the blast-radius project names, the excluded objects with their reason, and the typed-confirmation field

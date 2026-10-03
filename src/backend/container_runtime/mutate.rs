@@ -233,11 +233,19 @@ mod tests {
     /// No networks unless a test says otherwise; `compose down` is the only path that reads them.
     const NO_NETWORKS: &[crate::protocol::v1::RemovableObject] = &[];
 
+    /// The removal paths are previewed in `blast_radius`'s own tests; these fixtures exercise the
+    /// lifecycle half, so there is nothing here for a removal to reach and no project is adopted.
+    const NO_OBJECTS: &[crate::protocol::v1::RemovableObject] = &[];
+    const NO_GRANTS: &[String] = &[];
+
     fn ctx<'a>(containers: &'a [Container]) -> PreviewContext<'a> {
         PreviewContext {
             cli: Cli::docker(),
             containers,
+            images: NO_OBJECTS,
+            volumes: NO_OBJECTS,
             networks: NO_NETWORKS,
+            adopted: NO_GRANTS,
             definition_file: Some("/srv/proj/compose.yaml"),
             active_context: None,
             as_of: "2026-10-02T12:00:00Z",
@@ -542,6 +550,10 @@ mod tests {
 
     /// FR-027. A removal has no preview until its blast radius can be enumerated, and an
     /// operation with no preview is not offered at all.
+    ///
+    /// This context carries no images, so the id names nothing the operator can be looking at.
+    /// The refusal says which id, because "the list you are reading is older than you think" is
+    /// an answer and "could not enumerate" is not.
     #[test]
     fn a_removal_is_refused_rather_than_previewed_with_an_empty_blast_radius() {
         let containers = four_member_project();
@@ -552,10 +564,10 @@ mod tests {
                 name: "busybox:latest".to_owned(),
             }],
         };
-        assert!(matches!(
-            preview::build("prev-8".to_owned(), &request, &ctx(&containers)),
-            Err(preview::NotPreviewable::NotEnumerable(_))
-        ));
+        assert_eq!(
+            preview::build("prev-8".to_owned(), &request, &ctx(&containers)).err(),
+            Some(preview::NotPreviewable::UnknownTarget("sha256:abc".to_owned()))
+        );
     }
 
     /// A preview is good for one issue. Confirming the same button twice would run the operation
