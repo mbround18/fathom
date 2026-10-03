@@ -134,7 +134,8 @@ fn pump(proc: &dyn RunningProcess, sink: &StreamSink) -> Result<(), String> {
                     Ok(())
                 } else {
                     Err(complaint.unwrap_or_else(|| {
-                        "The container runtime stopped following this container's output.".to_owned()
+                        "The container runtime stopped following this container's output."
+                            .to_owned()
                     }))
                 };
             }

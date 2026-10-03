@@ -267,7 +267,10 @@ mod tests {
     }
 
     /// Output and closes received within `within`, as (text, closed-with-error).
-    fn drain(rx: &Receiver<BackendEventEnvelope>, within: Duration) -> (String, Vec<Option<String>>) {
+    fn drain(
+        rx: &Receiver<BackendEventEnvelope>,
+        within: Duration,
+    ) -> (String, Vec<Option<String>>) {
         let deadline = Instant::now() + within;
         let mut text = String::new();
         let mut closes = Vec::new();
@@ -321,7 +324,11 @@ mod tests {
             text.contains("/dev/pts/") || text.contains("/dev/tty"),
             "the session was not on a terminal: {text:?}"
         );
-        assert_eq!(closes, vec![None], "a shell that ended must report one close");
+        assert_eq!(
+            closes,
+            vec![None],
+            "a shell that ended must report one close"
+        );
     }
 
     /// FR-036: closing the view ends the session with no process left behind. A shell that would

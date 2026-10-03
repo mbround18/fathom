@@ -10,8 +10,8 @@
 //! reaches us.
 
 use crate::protocol::v1::{
-    AdoptionState, Container, ContainerHealth, ObjectClass, ObjectReference, PublishedPort, ReferenceKind,
-    RemovableObject, RuntimeContainerState,
+    AdoptionState, Container, ContainerHealth, ObjectClass, ObjectReference, PublishedPort,
+    ReferenceKind, RemovableObject, RuntimeContainerState,
 };
 
 use super::super::kind::{RunError, Runner};
