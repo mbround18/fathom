@@ -2453,6 +2453,7 @@ fn sample_runtime_container() -> Container {
         project: Some("s".to_owned()),
         service: Some("s".to_owned()),
         cluster: Some("s".to_owned()),
+        adoption: AdoptionState::ImplicitViaManagedCluster("s".to_owned()),
     }
 }
 
