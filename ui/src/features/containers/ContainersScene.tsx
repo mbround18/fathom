@@ -222,56 +222,65 @@ export function ContainersScene() {
         </div>
       )}
 
-      <ContainerGroupList
-        projects={inventory.projects}
-        selected={selected}
-        onSelect={(next) => {
-          // Changing selection drops whatever preview was open: a preview belongs to the operation
-          // it was taken for, and one left on screen beside another object's verbs is the kind of
-          // mismatch FR-018 exists to prevent.
-          setSelected((current) => (sameSelection(current, next) ? null : next))
-          dismiss()
-        }}
-      />
+      {/* A floor under the inventory. Everything below is mounted by a selection, and at laptop
+          height a log follow (16rem) over the usage figures took the whole pane: the virtualized
+          list measured zero and rendered no rows, so selecting a container made the inventory it
+          was selected from disappear. The list keeps its floor and the panes below scroll. */}
+      <div className="flex min-h-28 min-w-0 flex-1 flex-col">
+        <ContainerGroupList
+          projects={inventory.projects}
+          selected={selected}
+          onSelect={(next) => {
+            // Changing selection drops whatever preview was open: a preview belongs to the
+            // operation it was taken for, and one left on screen beside another object's verbs is
+            // the kind of mismatch FR-018 exists to prevent.
+            setSelected((current) => (sameSelection(current, next) ? null : next))
+            dismiss()
+          }}
+        />
+      </div>
 
       {/* The selected object's verbs live outside the virtualized list: a row whose height grows
-          when it is chosen would move every row below it. */}
-      {(() => {
-        if (selected === null) return null
-        if (selected.kind === 'project') {
-          const project = inventory.projects.find((p) => groupKey(p) === selected.key)
-          if (!project) return null
-          return (
-            <>
-              <ProjectActions project={project} />
-              {/* Usage is the project read as one unit, which is what grouping was for. It is
-                  mounted under the selection, so leaving the selection stops the sampling
-                  (FR-045) without anything here having to say so. */}
-              <UsagePanel key={selected.key} containers={project.containers} />
-            </>
-          )
-        }
-        // A container's verbs are governed by its project's grant, so the project is found first
-        // and the panel carries both — the adoption control a refusal would send the operator
-        // looking for is in the same place as the buttons that would refuse (FR-017).
-        for (const project of inventory.projects) {
-          const container = project.containers.find((c) => c.id === selected.id)
-          if (container) {
+          when it is chosen would move every row below it. Bounded and scrolling, so the panes a
+          selection mounts can never be taller than the inventory they belong to. */}
+      <div className="flex max-h-[60%] min-w-0 shrink-0 flex-col overflow-y-auto">
+        {(() => {
+          if (selected === null) return null
+          if (selected.kind === 'project') {
+            const project = inventory.projects.find((p) => groupKey(p) === selected.key)
+            if (!project) return null
             return (
               <>
-                <ProjectActions project={project} container={container} />
-                {/* One container's own figures, sampled only for it. */}
-                <UsagePanel key={container.id} containers={[container]} />
-                {/* Reading and attaching are the container's own, not the project's: logs are
-                    offered for every container (FR-035) and a shell only where the project's
-                    grant allows a change (FR-013). */}
-                <ContainerStreams key={container.id} container={container} />
+                <ProjectActions project={project} />
+                {/* Usage is the project read as one unit, which is what grouping was for. It is
+                  mounted under the selection, so leaving the selection stops the sampling
+                  (FR-045) without anything here having to say so. */}
+                <UsagePanel key={selected.key} containers={project.containers} />
               </>
             )
           }
-        }
-        return null
-      })()}
+          // A container's verbs are governed by its project's grant, so the project is found first
+          // and the panel carries both — the adoption control a refusal would send the operator
+          // looking for is in the same place as the buttons that would refuse (FR-017).
+          for (const project of inventory.projects) {
+            const container = project.containers.find((c) => c.id === selected.id)
+            if (container) {
+              return (
+                <>
+                  <ProjectActions project={project} container={container} />
+                  {/* One container's own figures, sampled only for it. */}
+                  <UsagePanel key={container.id} containers={[container]} />
+                  {/* Reading and attaching are the container's own, not the project's: logs are
+                    offered for every container (FR-035) and a shell only where the project's
+                    grant allows a change (FR-013). */}
+                  <ContainerStreams key={container.id} container={container} />
+                </>
+              )
+            }
+          }
+          return null
+        })()}
+      </div>
     </div>
   )
 }

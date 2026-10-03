@@ -17,18 +17,15 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { ALL_CONTAINERS, noSuchContainer } from '../fixtures/containers'
-import { open, sentMutations, sentTypes } from './helpers'
+import { navigateTo, open, sentMutations, sentTypes } from './helpers'
 
-/** The group and its first section share the label "Containers", so the click is scoped by row. */
+/**
+ * The Containers group holds a section of its own name, so the click is scoped to the group's
+ * own section list — which is what `navigateTo` does, and it also waits for the phone drawer to
+ * finish closing before the next navigation touches it.
+ */
 async function openContainers(page: Page, label = 'Containers'): Promise<void> {
-  const nav = page.getByRole('navigation', { name: 'Sections' })
-  if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open sections' }).click()
-  }
-  await expect(nav).toBeVisible()
-  const toggle = nav.locator('button[aria-expanded]', { hasText: 'Containers' }).first()
-  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
-  await nav.locator('li button', { hasText: label }).first().click()
+  await navigateTo(page, label, 'Containers')
 }
 
 /** Wait for the one-shot presence probe to have been answered. */
@@ -58,7 +55,9 @@ async function issue(page: Page): Promise<void> {
     // The required string is only ever on screen, in the label beside the field — reading it from
     // there is the operator's own route, and a test that hardcoded it would pass a UI that asked
     // for something else.
-    const required = await page.locator('label[for="operation-confirmation"] .font-mono').textContent()
+    const required = await page
+      .locator('label[for="operation-confirmation"] .font-mono')
+      .textContent()
     await field.fill((required ?? '').trim())
   }
   await page.getByTestId('operation-issue').click()

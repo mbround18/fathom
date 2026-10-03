@@ -57,7 +57,10 @@ test.describe('nav walk: every nav entry opens a working pane', () => {
   for (const group of NAV_GROUPS) {
     test(`${group.label} sections`, async ({ page }) => {
       const errors = trackErrors(page)
-      await open(page)
+      // The Containers group exists only where a container runtime does (048 FR-001), so walking
+      // it needs a scenario whose daemon answers — with `default` the group is absent and every
+      // section in it would be looked for in a nav that never listed it.
+      await open(page, group.label === 'Containers' ? 'containers' : 'default')
       // Velero is listed only once detected (043 FR-032): report it installed so it is walked too.
       await emit(
         page,

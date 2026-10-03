@@ -14,7 +14,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { ALL_CONTAINERS } from '../fixtures/containers'
-import { open, sent, sentTypes } from './helpers'
+import { navigateTo, open, sent, sentTypes } from './helpers'
 
 function idOf(name: string): string {
   const found = ALL_CONTAINERS.find((c) => c.name === name)
@@ -25,16 +25,13 @@ function idOf(name: string): string {
 const WEB = idOf('shop-web')
 const DB = idOf('shop-db')
 
-/** The group and its first section share the label "Containers", so the click is scoped by row. */
-async function openContainers(page: Page): Promise<void> {
-  const nav = page.getByRole('navigation', { name: 'Sections' })
-  if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open sections' }).click()
-  }
-  await expect(nav).toBeVisible()
-  const toggle = nav.locator('button[aria-expanded]', { hasText: 'Containers' }).first()
-  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
-  await nav.locator('li button', { hasText: 'Containers' }).first().click()
+/**
+ * The Containers group holds a section of its own name, so the click is scoped to the group's
+ * own section list — which is what `navigateTo` does, and it also waits for the phone drawer to
+ * finish closing before the next navigation touches it.
+ */
+async function openContainers(page: Page, label = 'Containers'): Promise<void> {
+  await navigateTo(page, label, 'Containers')
 }
 
 /** The scene, with the inventory on screen. */
@@ -96,9 +93,7 @@ test.describe('US6 container usage', () => {
     // Both figures, because a daemon that cannot read one container's cgroup cannot read either of
     // its numbers — and "0.0% / 0 B" would be a claim it never made (FR-038).
     await expect(page.getByTestId(`container-usage-cpu-${DB}`)).toHaveText('CPU unavailable')
-    await expect(page.getByTestId(`container-usage-mem-${DB}`)).toHaveText(
-      'Memory unavailable',
-    )
+    await expect(page.getByTestId(`container-usage-mem-${DB}`)).toHaveText('Memory unavailable')
   })
 
   test('the kept history states its own cap', async ({ page }) => {
@@ -139,8 +134,6 @@ test.describe('US6 container usage', () => {
     await expect(page.getByTestId(`container-usage-row-${DB}`)).toHaveCount(0)
     // A single container is its own figure, not an aggregate of one.
     await expect(page.getByTestId('container-usage-total')).toHaveCount(0)
-    await expect
-      .poll(async () => await sampledIds(page))
-      .toEqual([[WEB, DB], [WEB]])
+    await expect.poll(async () => await sampledIds(page)).toEqual([[WEB, DB], [WEB]])
   })
 })

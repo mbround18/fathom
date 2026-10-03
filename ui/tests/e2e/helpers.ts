@@ -170,7 +170,12 @@ export async function navigateTo(
   )
   const more = nav.getByRole('button', { name: `More ${group}`, exact: true })
   if (advanced && (await more.getAttribute('aria-expanded')) === 'false') await more.click()
-  await nav.getByRole('button', { name: label, exact: true }).click()
+  // The section list the toggle controls, not the whole nav: 048's Containers group holds a
+  // section of its own name, and an unscoped `name: label` match resolves to both the group
+  // header and the section inside it.
+  const panel = await toggle.getAttribute('aria-controls')
+  const sections = panel === null ? nav : nav.locator(`#${panel}`)
+  await sections.getByRole('button', { name: label, exact: true }).click()
   // Let the drawer finish closing so a following call does not race its exit animation.
   if (drawer) await expect(nav).toBeHidden()
 }

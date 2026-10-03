@@ -15,18 +15,15 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { PERMISSION_DENIED } from '../fixtures/containers'
-import { expectNoHorizontalScroll, open, requestIdOf, sentTypes } from './helpers'
+import { expectNoHorizontalScroll, navigateTo, open, requestIdOf, sentTypes } from './helpers'
 
-/** The group and its first section share the label "Containers", so the click is scoped by row. */
+/**
+ * The Containers group holds a section of its own name, so the click is scoped to the group's
+ * own section list — which is what `navigateTo` does, and it also waits for the phone drawer to
+ * finish closing before the next navigation touches it.
+ */
 async function openContainers(page: Page, label = 'Containers'): Promise<void> {
-  const nav = page.getByRole('navigation', { name: 'Sections' })
-  if (!(await nav.isVisible())) {
-    await page.getByRole('button', { name: 'Open sections' }).click()
-  }
-  await expect(nav).toBeVisible()
-  const toggle = nav.locator('button[aria-expanded]', { hasText: 'Containers' }).first()
-  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
-  await nav.locator('li button', { hasText: label }).first().click()
+  await navigateTo(page, label, 'Containers')
 }
 
 /** The navigator's Containers group, which exists only when a runtime does. */
