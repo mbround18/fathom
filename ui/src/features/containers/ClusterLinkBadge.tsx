@@ -21,7 +21,7 @@ export function ClusterLinkBadge({ container, cluster }: { container: string; cl
       data-testid={`container-cluster-${container}`}
       data-cluster={cluster}
       title={`${cluster} — open Local clusters`}
-      className="shrink-0 border border-accent/60 px-1.5 py-0.5 font-mono text-[10px] tracking-wider text-accent uppercase hover:bg-accent/10"
+      className="shrink-0 border border-control-border px-1.5 py-0.5 font-mono text-[10px] tracking-wider text-accent-neon uppercase hover:bg-accent"
       onClick={() => {
         navigate(SECTION.localClusters)
       }}

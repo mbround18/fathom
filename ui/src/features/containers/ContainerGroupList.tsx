@@ -144,7 +144,7 @@ function GroupHeading({
           data-testid={`containers-group-adoption-${groupKey(project)}`}
           className={cn(
             'ml-auto shrink-0 border px-1.5 py-0.5 text-[10px] tracking-wider uppercase',
-            adopted ? 'border-status-ok/60 text-status-ok' : 'border-border text-muted-foreground',
+            adopted ? 'border-status-ok text-status-ok' : 'border-border text-muted-foreground',
           )}
         >
           {adoptionLabel(project)}
