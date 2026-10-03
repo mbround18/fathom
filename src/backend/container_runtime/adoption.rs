@@ -313,6 +313,10 @@ impl super::grouping::AdoptionLookup for AdoptionStore {
     fn state_for(&self, group: &ProjectGroup) -> AdoptionState {
         AdoptionStore::state_for(self, group)
     }
+
+    fn state_for_container(&self, container: &Container) -> AdoptionState {
+        AdoptionStore::state_for_container(self, container)
+    }
 }
 
 #[cfg(test)]
@@ -360,6 +364,7 @@ mod tests {
             project: project.map(str::to_owned),
             service: None,
             cluster: cluster.map(str::to_owned),
+            adoption: AdoptionState::NotAdopted,
         }
     }
 

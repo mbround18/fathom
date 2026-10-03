@@ -145,6 +145,14 @@ pub struct Container {
     pub service: Option<String>,
     /// Cluster this container backs, taken from the cluster label alone.
     pub cluster: Option<String>,
+    /// Whether this one container may be mutated.
+    ///
+    /// Decided per container, not per group. A cluster's node containers carry no compose project,
+    /// so they land in the `Unowned` bucket beside unrelated strays: group adoption can neither
+    /// speak for them (FR-016 makes a managed cluster's nodes actionable without a grant) nor be
+    /// widened to cover them (that would hand the operator mutation rights over every stray on a
+    /// shared daemon).
+    pub adoption: AdoptionState,
 }
 
 // ---------------------------------------------------------------------------

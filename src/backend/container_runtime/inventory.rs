@@ -10,7 +10,7 @@
 //! reaches us.
 
 use crate::protocol::v1::{
-    Container, ContainerHealth, ObjectClass, ObjectReference, PublishedPort, ReferenceKind,
+    AdoptionState, Container, ContainerHealth, ObjectClass, ObjectReference, PublishedPort, ReferenceKind,
     RemovableObject, RuntimeContainerState,
 };
 
@@ -92,6 +92,9 @@ fn parse_container_line(line: &str) -> Option<ContainerRow> {
             project: opt(f[8]),
             service: opt(f[9]),
             cluster: opt(f[10]),
+            // The parse has no adoption store to ask. `group_containers` fills this in, which is
+            // also the only place a container reaches the UI from.
+            adoption: AdoptionState::NotAdopted,
         },
         config_files: opt(f[11]),
     })

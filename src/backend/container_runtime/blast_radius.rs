@@ -288,6 +288,7 @@ mod tests {
             project: project.map(str::to_owned),
             service: None,
             cluster: None,
+            adoption: crate::protocol::v1::AdoptionState::NotAdopted,
         }
     }
 

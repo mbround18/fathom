@@ -40,7 +40,12 @@ import {
   fetchManifestsReply,
   previewKubeconfigReply,
 } from './manifest-export'
-import { containerReplies, manyContainers } from './containers'
+import {
+  CLUSTER_CONTAINERS,
+  CLUSTER_CONTAINERS_NODE_DOWN,
+  containerReplies,
+  manyContainers,
+} from './containers'
 
 /** Mutable backend-side state the fake keeps between commands. */
 export interface FakeBackendState {
@@ -360,7 +365,45 @@ export const SCENARIOS = {
     onSubscribe: [backendStarted],
     replies: {
       ...cluster(),
-      ...containerReplies({ adopted: ['shop'], managedClusters: ['fathom-dev'] }),
+      // `activeContext` is the context the operator is on, so a break of `fathom-dev` from
+      // `kind-a` is a break they are *not* connected to — the half of the warning that must not
+      // be said when it is not true.
+      ...containerReplies({
+        adopted: ['shop'],
+        managedClusters: ['fathom-dev'],
+        activeContext: 'kind-a',
+      }),
+    },
+  },
+  // US4: the cross-link. The operator is on `kind-a`, the context kind gives the cluster the node
+  // container backs — so a stop of that node is both a break and a break of the cluster they are
+  // connected to, which are two separate sentences.
+  'containers-cluster-connected': {
+    description: 'Connected to kind-a, whose node is a container on this daemon.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({
+        containers: CLUSTER_CONTAINERS,
+        managedClusters: ['a'],
+        activeContext: 'kind-a',
+      }),
+    },
+  },
+  // US4 scenario 4: a node stopped outside Fathom. Neither the container row nor the cluster may
+  // read as healthy afterwards.
+  'containers-node-stopped': {
+    description: 'A kind node container exited behind Fathom’s back.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({
+        containers: CLUSTER_CONTAINERS_NODE_DOWN,
+        managedClusters: ['a'],
+        activeContext: 'kind-a',
+      }),
     },
   },
   'containers-absent': {
@@ -376,7 +419,7 @@ export const SCENARIOS = {
     replies: { ...cluster(), ...containerReplies({ presence: 'stopped' }) },
   },
   'containers-unreachable': {
-    description: 'The socket refuses: the runtime\'s own permission text, naming the socket.',
+    description: "The socket refuses: the runtime's own permission text, naming the socket.",
     initialState: { context: 'kind-a', namespaceFilter: [] },
     onSubscribe: [backendStarted],
     replies: { ...cluster(), ...containerReplies({ presence: 'unreachable' }) },
@@ -397,7 +440,10 @@ export const SCENARIOS = {
     description: '`shop` declares a definition file that will not parse; the project still lists.',
     initialState: { context: 'kind-a', namespaceFilter: [] },
     onSubscribe: [backendStarted],
-    replies: { ...cluster(), ...containerReplies({ corruptDefinition: 'shop', adopted: ['shop'] }) },
+    replies: {
+      ...cluster(),
+      ...containerReplies({ corruptDefinition: 'shop', adopted: ['shop'] }),
+    },
   },
   'containers-partial-failure': {
     description: '`shop` is adopted; `shop-db` refuses to stop while `shop-web` obeys.',

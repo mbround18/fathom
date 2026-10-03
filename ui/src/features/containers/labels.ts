@@ -6,7 +6,7 @@
  * the operator as what it means for them, and that an unreadable definition keeps the parser's own
  * words including the position in them.
  */
-import type { AdoptionState, OperationRefusal, Project } from '@/protocol/types'
+import type { AdoptionState, Container, OperationRefusal, Project } from '@/protocol/types'
 
 /**
  * The grant in force right now.
@@ -39,6 +39,37 @@ export type Selection = { kind: 'project'; key: string } | { kind: 'container'; 
 
 export function groupKey(project: Project): string {
   return project.group.kind === 'project' ? project.group.name : 'unowned'
+}
+
+/**
+ * Whether one container may be mutated.
+ *
+ * The container's own adoption, not its group's. A node of a cluster Fathom manages carries no
+ * compose project, so the bucket it sits in stays read-only while the node itself is actionable
+ * (FR-016) — asking the group would make one of those two facts unsayable. A container that does
+ * have a project is answered from the live grant, for the same reason [`effectiveAdoption`]
+ * exists: a project adopted a moment ago is adopted now, and one released a moment ago is not.
+ */
+export function containerIsActionable(container: Container, granted: string[]): boolean {
+  // A cluster's grant. It is not in `granted` because no project was adopted to put it there, and
+  // it cannot be released, so the snapshot is the whole truth for it.
+  if (typeof container.adoption === 'object') return true
+  // Everything else comes from the live grant and never from the snapshot's own `adopted`: an
+  // inventory read while a project was adopted still says so after the project is released, and a
+  // row that keeps its verbs after a release is a row that lies about what it may do (FR-015).
+  return container.project !== null && granted.includes(container.project)
+}
+
+/**
+ * The cluster a container's write access comes from, when that is where it comes from.
+ *
+ * Named rather than implied: "you may stop this" and "because kind made it" are two different
+ * things for an operator to know, and the second is the one that explains the first.
+ */
+export function implicitCluster(container: Container): string | null {
+  return typeof container.adoption === 'object'
+    ? container.adoption.implicit_via_managed_cluster
+    : null
 }
 
 /**

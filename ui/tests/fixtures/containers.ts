@@ -13,6 +13,8 @@
  * own runtime configuration (worker sizing) and nothing else.
  */
 import type {
+  AdoptionState,
+  ClusterBreak,
   ClusterLink,
   Container,
   ContainerInventory,
@@ -107,6 +109,7 @@ export function container(over: Partial<Container> = {}): Container {
     project: null,
     service: null,
     cluster: null,
+    adoption: 'not_adopted',
     ...over,
   }
 }
@@ -536,6 +539,36 @@ const strays = [
 
 export const ALL_CONTAINERS: Container[] = [...shop, ...blog, ...api, ...strays]
 
+/**
+ * The corpus for the cross-link story: a node of the cluster the fake's kubeconfig is actually on,
+ * plus a look-alike.
+ *
+ * The node backs cluster `a`, whose kind context is `kind-a` — the context these scenarios start
+ * on. That is what makes "you are connected to it right now" a true sentence here rather than one
+ * a fixture simply asserted.
+ *
+ * The look-alike is a busybox container *named* like a node and carrying no cluster label at all.
+ * It exists so a test can prove the claim is made from the label and never from the name: guessing
+ * from names would hang a break warning on an unrelated container, and a warning that is sometimes
+ * about nothing is one the operator learns to click past (FR-031).
+ */
+export const CLUSTER_CONTAINERS: Container[] = [
+  ...ALL_CONTAINERS.filter((c) => c.cluster === null),
+  container({
+    name: 'a-control-plane',
+    image: 'kindest/node:v1.31.0',
+    project: null,
+    cluster: 'a',
+    ports: [],
+  }),
+  container({ name: 'kind-control-plane', image: 'busybox:1.36', project: null, ports: [] }),
+]
+
+/** As [`CLUSTER_CONTAINERS`], with the node stopped behind Fathom's back. */
+export const CLUSTER_CONTAINERS_NODE_DOWN: Container[] = CLUSTER_CONTAINERS.map((c) =>
+  c.cluster === null ? c : { ...c, state: 'exited', status: 'Exited (0) 2 minutes ago' },
+)
+
 /** 500 containers in one project, for the virtualization and render-budget assertions. */
 export function manyContainers(count = 500): Container[] {
   return Array.from({ length: count }, (_, i) =>
@@ -550,9 +583,29 @@ export function manyContainers(count = 500): Container[] {
   )
 }
 
-function groupsOf(containers: Container[], opts: ScriptOptions, adopted: string[]): Project[] {
+/**
+ * One container's adoption — mirrors `AdoptionStore::state_for_container`.
+ *
+ * Per container, not per group: a node of a cluster Fathom manages is actionable without a grant
+ * and has no compose project to grant, while the bucket it shares with unrelated strays stays
+ * read-only (FR-016).
+ */
+function containerAdoption(c: Container, adopted: string[], managed: string[]): AdoptionState {
+  if (c.cluster != null && managed.includes(c.cluster)) {
+    return { implicit_via_managed_cluster: c.cluster }
+  }
+  return c.project != null && adopted.includes(c.project) ? 'adopted' : 'not_adopted'
+}
+
+function groupsOf(
+  containers: Container[],
+  opts: ScriptOptions,
+  adopted: string[],
+  managed: string[],
+): Project[] {
   const byProject = new Map<string | null, Container[]>()
-  for (const c of containers) {
+  for (const raw of containers) {
+    const c = { ...raw, adoption: containerAdoption(raw, adopted, managed) }
     byProject.set(c.project, [...(byProject.get(c.project) ?? []), c])
   }
   // Sorted, and the no-project bucket last: a list that reshuffles between refreshes makes two
@@ -645,6 +698,12 @@ export interface ScriptOptions {
   adopted?: string[]
   /** Clusters Fathom provisioned, so their node containers are actionable without a grant. */
   managedClusters?: string[]
+  /**
+   * The kubeconfig context the operator is on, so a break warning can say whether the cluster
+   * about to break is the one they are connected to right now. Matches the scenario's own
+   * `initialState.context`; the fake does not read the store, so it is passed in.
+   */
+  activeContext?: string
   /** This project's definition file is present but unparseable. */
   corruptDefinition?: string
   /** This project's definition file is declared and gone. */
@@ -780,12 +839,58 @@ function radiusFor(request: OperationRequest, scene: Scene): Radius | null {
   return null
 }
 
-function previewFor(request: OperationRequest, scene: Scene): OperationPreview {
+/** The context name kind gives a cluster it created — mirrors `cluster_link::kind_context`. */
+function kindContext(cluster: string): string {
+  return `kind-${cluster}`
+}
+
+/**
+ * Which clusters an operation takes down with it, the way `cluster_link::cluster_breaks` does.
+ *
+ * Only the verbs that stop a node warn: `start` and `unpause` bring one back, and a warning that
+ * is sometimes about nothing is a warning the operator learns to click past. Identity comes from
+ * the container's cluster label and from nothing else, so a look-alike carrying no label warns
+ * about no cluster.
+ */
+function breaksFor(
+  request: OperationRequest,
+  containers: Container[],
+  activeContext?: string,
+): ClusterBreak[] {
+  const halts =
+    request.kind === 'lifecycle'
+      ? ['stop', 'kill', 'pause', 'restart'].includes(request.action)
+      : request.kind === 'project_lifecycle'
+        ? ['down', 'restart'].includes(request.action)
+        : request.kind === 'remove'
+  if (!halts) return []
+
+  const clusters = [
+    ...new Set(
+      targetsFor(request, containers)
+        .map((t) => containers.find((c) => c.id === t.id)?.cluster)
+        .filter((c): c is string => c != null),
+    ),
+  ].sort()
+
+  return clusters.map((cluster) => ({
+    cluster,
+    // Two sentences, not one: "this breaks a cluster" and "you are connected to it" are separate
+    // claims, and collapsing them would make the second unsayable.
+    connected: activeContext === kindContext(cluster),
+  }))
+}
+
+function previewFor(
+  request: OperationRequest,
+  scene: Scene,
+  activeContext?: string,
+): OperationPreview {
   const base = {
     preview_id: `pv-${String(Math.abs(hash(JSON.stringify(request))))}`,
     request,
     destructive: isDestructive(request),
-    breaks_clusters: [],
+    breaks_clusters: breaksFor(request, scene.containers, activeContext),
     as_of: AS_OF,
   }
   // One resolution fills the list, the radius, the exclusions and the confirmation, so none of
@@ -880,7 +985,7 @@ export function containerReplies(opts: ScriptOptions = {}) {
         adoptionUpdated([...daemon.adopted]),
         inventoryUpdated(
           inventory({
-            projects: groupsOf(containers, opts, daemon.adopted),
+            projects: groupsOf(containers, opts, daemon.adopted, managed),
             // The same pool the resolver reads, so the preview can only ever describe objects the
             // operator is actually looking at.
             ...objects,
@@ -915,10 +1020,13 @@ export function containerReplies(opts: ScriptOptions = {}) {
     }) => {
       let preview: OperationPreview
       try {
-        preview = previewFor(cmd.data.request, { ...objects, containers, adopted: daemon.adopted })
+        preview = previewFor(
+          cmd.data.request,
+          { ...objects, containers, adopted: daemon.adopted },
+          opts.activeContext,
+        )
       } catch (e) {
-        // An operation whose scope cannot be enumerated is not offered at all — and it is not an
-        // `OperationRefusal` either, so it arrives as the notification the backend sends (FR-027).
+        // An operation whose scope cannot be enumerated is not offered at all (FR-027).
         if (!(e instanceof NotPreviewable)) throw e
         // Correlated by request id, so the panel the operator is looking at says why rather than a
         // sentence appearing in the status bar belonging to no control in particular.

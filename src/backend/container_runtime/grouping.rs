@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use crate::protocol::v1::{
-    AdoptionState, DefinitionFileState, Project, ProjectGroup, RuntimeContainerState,
+    AdoptionState, Container, DefinitionFileState, Project, ProjectGroup, RuntimeContainerState,
 };
 
 use super::inventory::ContainerRow;
@@ -26,9 +26,15 @@ impl<F: Fn(&str) -> DefinitionFileState> DefinitionProbe for F {
     }
 }
 
-/// Answers "has the operator adopted this project?" for one group.
+/// Answers "has the operator adopted this?" for a group and for one container.
+///
+/// Both, because the two answers are not the same answer: a cluster's node containers have no
+/// compose project to grant, so the group they land in stays read-only while they themselves are
+/// actionable (FR-016). Asking the group for a container's rights would make one of those two
+/// facts unsayable.
 pub trait AdoptionLookup {
     fn state_for(&self, group: &ProjectGroup) -> AdoptionState;
+    fn state_for_container(&self, container: &Container) -> AdoptionState;
 }
 
 /// Groups containers by their compose project, newest-stable-order first by project name.
@@ -72,7 +78,13 @@ pub fn group_containers(
                 running: running as u32,
                 definition_file,
                 definition_state,
-                containers: members.iter().map(|r| r.container.clone()).collect(),
+                containers: members
+                    .iter()
+                    .map(|r| Container {
+                        adoption: adoption.state_for_container(&r.container),
+                        ..r.container.clone()
+                    })
+                    .collect(),
             }
         })
         .collect()
@@ -108,12 +120,34 @@ mod tests {
         fn state_for(&self, _: &ProjectGroup) -> AdoptionState {
             AdoptionState::Adopted
         }
+        fn state_for_container(&self, _: &Container) -> AdoptionState {
+            AdoptionState::Adopted
+        }
     }
 
     struct NoneAdopted;
     impl AdoptionLookup for NoneAdopted {
         fn state_for(&self, _: &ProjectGroup) -> AdoptionState {
             AdoptionState::NotAdopted
+        }
+        fn state_for_container(&self, _: &Container) -> AdoptionState {
+            AdoptionState::NotAdopted
+        }
+    }
+
+    /// Nothing granted, and one cluster that Fathom created — the shape FR-016 is about.
+    struct ManagingCluster(&'static str);
+    impl AdoptionLookup for ManagingCluster {
+        fn state_for(&self, _: &ProjectGroup) -> AdoptionState {
+            AdoptionState::NotAdopted
+        }
+        fn state_for_container(&self, c: &Container) -> AdoptionState {
+            match &c.cluster {
+                Some(cluster) if cluster == self.0 => {
+                    AdoptionState::ImplicitViaManagedCluster(cluster.clone())
+                }
+                _ => AdoptionState::NotAdopted,
+            }
         }
     }
 
@@ -244,6 +278,44 @@ mod tests {
         assert_eq!(adopted[0].adoption, AdoptionState::Adopted);
         assert_eq!(not[0].adoption, AdoptionState::NotAdopted);
         assert!(!not[0].adoption.is_actionable());
+    }
+
+    /// FR-016: a node of a cluster Fathom manages is actionable without a grant — and the bucket
+    /// it shares with unrelated strays is not. Both facts come back from the same grouping pass,
+    /// because the alternative is a scene that can only say one of them.
+    #[test]
+    fn a_managed_clusters_node_is_actionable_while_its_bucket_stays_read_only() {
+        let rows = rows(&[
+            container("a-control-plane", "running", "", "a", ""),
+            container("someone-elses-stray", "running", "", "", ""),
+        ]);
+        let projects = group_containers(&rows, &present, &ManagingCluster("a"));
+        let unowned = projects
+            .iter()
+            .find(|p| p.group == ProjectGroup::Unowned)
+            .expect("a container with no compose project belongs to the unowned bucket");
+        assert_eq!(unowned.adoption, AdoptionState::NotAdopted);
+
+        let node = unowned
+            .containers
+            .iter()
+            .find(|c| c.name == "a-control-plane")
+            .expect("the node is in that bucket");
+        assert_eq!(
+            node.adoption,
+            AdoptionState::ImplicitViaManagedCluster("a".to_owned())
+        );
+        assert!(node.adoption.is_actionable());
+
+        let stray = unowned
+            .containers
+            .iter()
+            .find(|c| c.name == "someone-elses-stray")
+            .expect("so is the stray");
+        assert!(
+            !stray.adoption.is_actionable(),
+            "sharing a bucket with a cluster node must not make a stray mutable"
+        );
     }
 
     /// Ordering is the operator's, not the daemon's: two refreshes of the same daemon must produce

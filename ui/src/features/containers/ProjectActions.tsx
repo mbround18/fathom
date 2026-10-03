@@ -18,7 +18,7 @@ import { useStore } from '@/store'
 
 import { AdoptionControl } from './AdoptionControl'
 import { ContainerActions } from './ContainerActions'
-import { effectiveAdoption, groupKey } from './labels'
+import { containerIsActionable, effectiveAdoption, groupKey } from './labels'
 import { OperationPreview } from './OperationPreview'
 
 export function ProjectActions({
@@ -48,9 +48,13 @@ export function ProjectActions({
       data-testid={`project-actions-${key}`}
       className="flex shrink-0 flex-col gap-2 border-t border-border bg-background/60 p-3"
     >
-      <AdoptionControl project={project} />
+      <AdoptionControl project={project} container={container} />
 
-      {adopted && container !== undefined && <ContainerActions container={container} />}
+      {/* The container's own rights, not the group's: a kind node has no compose project to
+          adopt, and its bucket must stay read-only for every stray beside it (FR-016). */}
+      {container !== undefined && containerIsActionable(container, granted) && (
+        <ContainerActions container={container} />
+      )}
 
       {named !== null && adopted && container === undefined && (
         <div className="flex min-w-0 flex-wrap gap-2">
@@ -59,7 +63,11 @@ export function ProjectActions({
             data-testid={`project-stop-${key}`}
             disabled={busy}
             onClick={() => {
-              preview({ kind: 'lifecycle', action: 'stop', scope: { kind: 'project', project: named } })
+              preview({
+                kind: 'lifecycle',
+                action: 'stop',
+                scope: { kind: 'project', project: named },
+              })
             }}
           >
             Stop all {project.members}
