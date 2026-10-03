@@ -16,9 +16,9 @@
 use std::collections::VecDeque;
 
 use crate::protocol::v1::{
-    ClusterBreak, Container, ContainerSpec, ImageBuildSpec, LifecycleAction, NetworkSpec,
-    ObjectClass, ObjectRef, OperationPreview, OperationRequest, OperationScope, ProjectAction,
-    RemovableObject, RemovalLine, RuntimeContainerState, VolumeSpec,
+    ClusterBreak, Container, ContainerSpec, ExcludedObject, ExclusionReason, ImageBuildSpec,
+    LifecycleAction, NetworkSpec, ObjectClass, ObjectRef, OperationPreview, OperationRequest,
+    OperationScope, ProjectAction, RemovableObject, RemovalLine, RuntimeContainerState, VolumeSpec,
 };
 
 use super::Cli;
@@ -62,6 +62,9 @@ pub enum NotPreviewable {
     UnknownTarget(String),
     /// The project declares no readable definition file, so there is nothing to act on (FR-033).
     NoDefinitionFile(String),
+    /// Every object in the selection was excluded, so there is nothing left to remove. Carries the
+    /// projects that did the excluding, named, because that is what the operator can act on.
+    AllExcluded(Vec<String>),
 }
 
 impl NotPreviewable {
@@ -78,6 +81,11 @@ impl NotPreviewable {
             Self::NoDefinitionFile(project) => format!(
                 "'{project}' has no readable definition file, so project-level operations are \
                  unavailable for it. Fathom has not changed the file."
+            ),
+            Self::AllExcluded(projects) => format!(
+                "Every object in that selection belongs to a project that has not been adopted: \
+                 {}. Adopt one to act on its objects.",
+                projects.join(", ")
             ),
         }
     }
@@ -212,6 +220,14 @@ pub fn build(
         }
         _ => None,
     };
+    // A selection every object of which an unadopted project can reach leaves nothing to do. It
+    // is not offered as a preview that removes nothing: a typed confirmation over a no-op teaches
+    // the operator that the guard is noise, and the reason they want is which project to adopt.
+    if let Some(r) = &radius
+        && r.removals.is_empty()
+    {
+        return Err(NotPreviewable::AllExcluded(blockers(&r.excluded)));
+    }
 
     let (command, targets, scope) = match request {
         OperationRequest::Lifecycle { action, scope } => {
@@ -430,6 +446,22 @@ fn removal_scope(removals: &[RemovalLine]) -> Option<OperationScope> {
         .then(|| OperationScope::Project {
             project: first.to_owned(),
         })
+}
+
+/// The projects that excluded every object in a selection, each named once, in order.
+///
+/// Named rather than counted, because "two objects were left alone" is not something the operator
+/// can act on and "blog has not been adopted" is.
+fn blockers(excluded: &[ExcludedObject]) -> Vec<String> {
+    let mut names: Vec<String> = excluded
+        .iter()
+        .map(|e| match &e.reason {
+            ExclusionReason::UnadoptedProject(project) => project.clone(),
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// The string the operator types to confirm a removal.

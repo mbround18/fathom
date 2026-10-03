@@ -648,6 +648,43 @@ mod tests {
         );
     }
 
+    /// FR-025 again, at the other end: exclusion is total, so a selection in which every object
+    /// is excluded has nothing left in it.
+    ///
+    /// That selection is not previewed as a removal of nothing. A typed confirmation over a no-op
+    /// is how an operator learns the guard is noise, and the sentence they can act on names the
+    /// project to adopt. Before this, the empty set reached `removal_argv` and came back as
+    /// "objects of more than one kind", which is not what happened.
+    #[test]
+    fn a_selection_every_object_of_which_is_excluded_is_not_previewed_as_removing_nothing() {
+        let containers = four_member_project();
+        let images = vec![RemovableObject {
+            class: ObjectClass::Image,
+            id: "sha256:owned".to_owned(),
+            name: "blog/web:1".to_owned(),
+            size_bytes: Some(4096),
+            tagged: Some(true),
+            created_at: None,
+            project: Some("blog".to_owned()),
+            referenced_by: vec![],
+        }];
+        let mut context = ctx(&containers);
+        context.images = &images;
+        let request = OperationRequest::Remove {
+            objects: vec![ObjectRef {
+                class: ObjectClass::Image,
+                id: "sha256:owned".to_owned(),
+                name: "blog/web:1".to_owned(),
+            }],
+        };
+        let err = preview::build("prev-excluded".to_owned(), &request, &context).unwrap_err();
+        assert_eq!(
+            err,
+            preview::NotPreviewable::AllExcluded(vec!["blog".to_owned()]),
+            "the reason must name the project to adopt, not count what was skipped"
+        );
+    }
+
     /// A preview is good for one issue. Confirming the same button twice would run the operation
     /// twice against an inventory that has certainly moved in between.
     #[test]

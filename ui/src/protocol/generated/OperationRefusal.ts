@@ -3,4 +3,4 @@
 /**
  * Why an issue request was refused before anything ran.
  */
-export type OperationRefusal = { "kind": "not_adopted", "detail": string } | { "kind": "preview_stale" } | { "kind": "confirmation_mismatch" } | { "kind": "presence_lost" };
+export type OperationRefusal = { "kind": "not_adopted", "detail": string } | { "kind": "preview_stale" } | { "kind": "confirmation_mismatch" } | { "kind": "presence_lost" } | { "kind": "not_previewable", "detail": string };

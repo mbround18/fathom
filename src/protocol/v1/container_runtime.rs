@@ -581,6 +581,10 @@ pub enum OperationRefusal {
     ConfirmationMismatch,
     /// The runtime stopped answering between preview and issue.
     PresenceLost,
+    /// The operation could not be described in advance, so it was never offered. Carries the
+    /// sentence, because the reason is the whole content: "cannot be previewed" on its own tells
+    /// the operator nothing they can act on.
+    NotPreviewable(String),
 }
 
 // ---------------------------------------------------------------------------

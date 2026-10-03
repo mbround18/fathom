@@ -96,12 +96,18 @@ export function sizeLabel(bytes: number | null): string | null {
 export function refusalLabel(refusal: OperationRefusal): string {
   switch (refusal.kind) {
     case 'not_adopted':
-      return refusal.detail
+      // The variant carries the project name, not a sentence, so the sentence is built here —
+      // mirroring the backend's wording rather than rendering a bare "shop" into the panel.
+      return `'${refusal.detail}' has not been adopted, so Fathom will not change it. Adopt it first.`
     case 'preview_stale':
       return 'What is running changed since the preview was taken, so the command it showed is no longer the one that would run. Take a new preview.'
     case 'confirmation_mismatch':
       return 'The typed confirmation did not match, so nothing ran.'
     case 'presence_lost':
       return 'The container runtime is no longer reachable, so nothing ran.'
+    // Already a whole sentence by the time it reaches here: the reason is the entire content, and
+    // "could not be previewed" on its own is not something an operator can act on.
+    case 'not_previewable':
+      return refusal.detail
   }
 }

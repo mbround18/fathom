@@ -16,7 +16,7 @@ use std::sync::atomic::AtomicU64;
 use crate::backend::container_runtime::adoption::{
     self, AdoptionStore, Ownership, ReleaseRefusal, Requirement,
 };
-use crate::backend::container_runtime::preview::{NotPreviewable, PreviewContext, PreviewStore};
+use crate::backend::container_runtime::preview::{PreviewContext, PreviewStore};
 use crate::backend::container_runtime::{Cli, compose, grouping, inventory, mutate, probe};
 use crate::backend::state::BackendState;
 use crate::backend::{events, kind, persistence};
@@ -445,20 +445,19 @@ fn preview_operation(
                 preview: Box::new(preview),
             },
         ),
-        // There is no `OperationRefusal` variant for "this cannot be described in advance", and
-        // inventing one would be a protocol change to carry a sentence. The operator is told
-        // instead of the request being dropped, which is the part that matters: a control that
-        // does nothing and says nothing is the failure FR-017 names.
-        Err(e) => notify_not_previewable(seq.as_ref(), sender, &e),
+        // A refusal, not a loose notification: it is the answer to *this* request, so it carries
+        // the request id and lands on the control that asked. A sentence in the status bar left the
+        // scene sitting in "previewing" with nothing to dismiss and no way to tell which control
+        // it belonged to.
+        Err(e) => emit(
+            seq.as_ref(),
+            sender,
+            StreamEvent::ContainerOperationRefused {
+                request_id,
+                reason: OperationRefusal::NotPreviewable(e.detail()),
+            },
+        ),
     }
-}
-
-fn notify_not_previewable(
-    seq: &AtomicU64,
-    sender: &Sender<BackendEventEnvelope>,
-    reason: &NotPreviewable,
-) {
-    events::notify_error(seq, sender, reason.detail());
 }
 
 /// The project an operation is scoped to, if any.
@@ -750,6 +749,8 @@ fn refusal_text(reason: &OperationRefusal) -> String {
         OperationRefusal::PresenceLost => {
             "The container runtime stopped answering; nothing was run.".to_owned()
         }
+        // Already a whole sentence by the time it gets here — see `NotPreviewable::detail`.
+        OperationRefusal::NotPreviewable(detail) => detail.clone(),
     }
 }
 
