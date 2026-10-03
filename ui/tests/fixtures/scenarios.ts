@@ -392,6 +392,25 @@ export const SCENARIOS = {
       }),
     },
   },
+  // US6: the two readings a real daemon will not produce on cue — a container it cannot measure
+  // at all, and a window that has already started dropping the oldest samples.
+  'containers-usage': {
+    description:
+      'As containers-adopted, with shop-db unmeasurable, shop-web under load, and the history at its cap.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({
+        adopted: ['shop'],
+        managedClusters: ['fathom-dev'],
+        activeContext: 'kind-a',
+        unmeasurable: ['shop-db'],
+        risingUsage: 'shop-web',
+        usageAtCap: true,
+      }),
+    },
+  },
   'containers-chatty': {
     description: 'As containers-adopted, but the follow has already dropped earlier lines.',
     initialState: { context: 'kind-a', namespaceFilter: [] },

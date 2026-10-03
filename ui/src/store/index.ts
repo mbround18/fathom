@@ -93,6 +93,7 @@ import type {
   GrafanaSettings,
   PrometheusSettings,
   PrometheusStatusKind,
+  UsageSample,
 } from '@/protocol/types'
 
 import { descriptorFor } from '@/resources'
@@ -748,6 +749,26 @@ export interface ContainerRuntimeState {
   clusterLinks: ClusterLink[]
   /** The mutation in flight, if any. See `ContainerOperation` for why there is only ever one. */
   operation?: ContainerOperation
+  /** US6: what the containers currently on screen are using, for as long as they are (FR-045). */
+  usage: ContainerUsageState
+}
+
+/**
+ * 048 US6 FR-037/FR-038: the usage ticks, bounded.
+ *
+ * Only the containers a panel asked about are in here, and only while it is asking: `startUsage`
+ * clears what the last panel collected, because a figure from containers nobody is looking at is
+ * a figure nobody is going to notice has stopped being true.
+ */
+export interface ContainerUsageState {
+  /** The newest tick's sample per container id. A container that did not report has no entry. */
+  latest: Record<string, UsageSample>
+  /** The kept samples per container, oldest first, at most `USAGE_HISTORY` of them. */
+  history: Record<string, UsageSample[]>
+  /** The backend says its history is full and older samples are being dropped (FR-038). */
+  atCap: boolean
+  /** How many ticks have arrived, so a panel can say "nothing yet" rather than "zero". */
+  ticks: number
 }
 
 /**
@@ -1101,6 +1122,14 @@ export interface StoreState extends StoreData {
   startContainerSession: (containerId: string, shell?: string) => number
   /** 048 FR-036: end the session, leaving no process behind. */
   stopContainerSession: (streamId: number) => void
+  /**
+   * 048 US6 FR-037: start sampling usage for exactly these containers, and forget the figures the
+   * last panel collected. An empty list stops sampling: an unscoped `docker stats` would measure
+   * every container on a daemon this computer shares with unrelated work.
+   */
+  startContainerUsage: (containerIds: string[]) => void
+  /** 048 FR-045: stop sampling and drop the figures, so none of them can go stale on screen. */
+  stopContainerUsage: () => void
   requestDaemonTopology: (context: string) => void
   requestDaemonMetrics: (context: string, uid: string, metric: 'cpu' | 'memory') => void
   /** Ask the backend to re-emit its buffered timeline (newest `limit` entries). */
@@ -1600,7 +1629,13 @@ export function initialData(): StoreData {
       demoChat: { status: 'idle', chunks: new RingBuffer<string>(), rev: 0 },
     },
     kind: { prerequisites: undefined, clusters: undefined, operations: {} },
-    containerRuntime: { probed: false, adopted: [], adoptionFellBack: false, clusterLinks: [] },
+    containerRuntime: {
+      probed: false,
+      adopted: [],
+      adoptionFellBack: false,
+      clusterLinks: [],
+      usage: { latest: {}, history: {}, atCap: false, ticks: 0 },
+    },
     podLogsIntent: null,
     setup: INITIAL_SETUP,
   }
@@ -1993,6 +2028,26 @@ export const useStore = create<StoreState>()((set, get) => ({
         ),
       }
     })
+  },
+
+  startContainerUsage: (containerIds) => {
+    useStore.setState((s) => ({
+      containerRuntime: {
+        ...s.containerRuntime,
+        usage: { latest: {}, history: {}, atCap: false, ticks: 0 },
+      },
+    }))
+    get().send({ type: 'StartContainerUsageSampling', data: { container_ids: containerIds } })
+  },
+
+  stopContainerUsage: () => {
+    useStore.setState((s) => ({
+      containerRuntime: {
+        ...s.containerRuntime,
+        usage: { latest: {}, history: {}, atCap: false, ticks: 0 },
+      },
+    }))
+    get().send({ type: 'StopContainerUsageSampling' })
   },
 
   refreshDaemon: (context) => get().send({ type: 'RefreshDaemon', data: { context } }),

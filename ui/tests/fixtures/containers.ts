@@ -756,6 +756,19 @@ export interface ScriptOptions {
    * not silently swallowed (FR-034, US5 scenario 1).
    */
   truncatedLogs?: boolean
+  /**
+   * These containers, by name, cannot be measured: their figures come back `null`, the way the
+   * runtime writes `--` for a container it has no numbers for (US6 scenario 4). Zero would be a
+   * claim about them that the daemon never made.
+   */
+  unmeasurable?: string[]
+  /**
+   * This container, by name, is under load: its second tick is higher than its first, so a test
+   * can assert the increase reached the screen (US6 scenario 2).
+   */
+  risingUsage?: string
+  /** The tick reports its bounded history as full, so the cap is on screen (US6 scenario 5). */
+  usageAtCap?: boolean
 }
 
 /** Mutable state the fake keeps between commands, the way a daemon would. */
@@ -1200,17 +1213,37 @@ export function containerReplies(opts: ScriptOptions = {}) {
     ],
     ResizeContainerSession: () => [],
 
-    StartContainerUsageSampling: (cmd: { data: { container_ids: string[] } }) => [
-      usageSampled(
-        cmd.data.container_ids.map((container_id, i) => ({
-          container_id,
-          at: AS_OF,
-          cpu_percent: 1.5 + i,
-          memory_bytes: 64_000_000 + i * 1_000_000,
-          memory_limit_bytes: 2_000_000_000,
-        })),
-      ),
-    ],
+    // One tick per `Start`, and a second one when something is under load — a real sampler ticks
+    // on its own clock, which a request/response fake cannot, so the two ticks arrive together and
+    // the test asserts the later one is what the panel ends up showing.
+    StartContainerUsageSampling: (cmd: { data: { container_ids: string[] } }) => {
+      const tick = (nth: number) =>
+        usageSampled(
+          cmd.data.container_ids.map((container_id, i) => {
+            const name = containers.find((c) => c.id === container_id)?.name
+            // Unmeasurable means unmeasurable in both figures, which is how a runtime that cannot
+            // read a container's cgroup actually answers.
+            if (name !== undefined && (opts.unmeasurable ?? []).includes(name))
+              return {
+                container_id,
+                at: AS_OF,
+                cpu_percent: null,
+                memory_bytes: null,
+                memory_limit_bytes: null,
+              }
+            const load = name !== undefined && name === opts.risingUsage ? nth * 40 : 0
+            return {
+              container_id,
+              at: AS_OF,
+              cpu_percent: 1.5 + i + load,
+              memory_bytes: 64_000_000 + i * 1_000_000,
+              memory_limit_bytes: 2_000_000_000,
+            }
+          }),
+          opts.usageAtCap ?? false,
+        )
+      return opts.risingUsage === undefined ? [tick(0)] : [tick(0), tick(1)]
+    },
     StopContainerUsageSampling: () => [],
   }
 }

@@ -187,10 +187,10 @@ exactly what disappears, names every project touched, and requires a typed confi
 
 ## Phase 8: User Story 6 — See what is eating the machine (P6)
 
-- [ ] T068 [P] [US6] E2E spec `ui/tests/e2e/us6-container-usage.spec.ts` covering all five acceptance scenarios, including an unavailable figure rendering as unavailable rather than zero, and the bounded history's cap being visible
-- [ ] T069 [P] [US6] Unit tests for parsing the runtime's formatted figures ("24.56MiB / 31.25GiB", "0.00%") into numbers, and for per-project aggregation stating how many members' figures were unavailable rather than summing them as zero
+- [X] T068 [P] [US6] E2E spec `ui/tests/e2e/us6-container-usage.spec.ts` covering all five acceptance scenarios, including an unavailable figure rendering as unavailable rather than zero, and the bounded history's cap being visible
+- [X] T069 [P] [US6] Unit tests for parsing the runtime's formatted figures ("24.56MiB / 31.25GiB", "0.00%") into numbers, and for per-project aggregation stating how many members' figures were unavailable rather than summing them as zero
 - [X] T070 [US6] Implement `src/backend/container_runtime/stats.rs`: discrete `stats --no-stream --format '{{json .}}'` ticks scoped to explicit visible ids, minimum 2 s interval, reusing the bounded-history approach from 036; **no long-lived sampler** (research D4)
-- [ ] T071 [US6] Implement `UsagePanel.tsx` with per-container and per-project figures, and stop sampling on navigation away or scene close (FR-045)
+- [X] T071 [US6] Implement `UsagePanel.tsx` with per-container and per-project figures, and stop sampling on navigation away or scene close (FR-045)
 
 ---
 

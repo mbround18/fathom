@@ -88,10 +88,10 @@ describe('container runtime slice', () => {
     expect(rt().clusterLinks[0]?.cluster).toBe('fathom-dev')
   })
 
-  it('leaves the events their own tasks render alone, rather than storing them half-way', () => {
-    const before = rt()
+  it('counts a tick that measured nothing as a tick, and not as figures of zero', () => {
     ingest(usageSampled([]))
-    expect(rt()).toBe(before)
+    expect(rt().usage.ticks).toBe(1)
+    expect(rt().usage.latest).toEqual({})
   })
 })
 

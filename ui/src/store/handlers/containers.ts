@@ -8,14 +8,15 @@
  *
  * Presence, inventory, adoption and the cluster links are reduced here, and so are the US5
  * streams: a container's log batches and its session's output land on the `streams` record under
- * the id this client chose, beside pod logs and pod exec. Usage samples are still left to the
- * task that renders them (T068-T071), because a slice that stored figures nobody displays would
- * be the first place a stale one could hide.
+ * the id this client chose, beside pod logs and pod exec. US6's usage ticks land too, bounded on
+ * arrival — but only while a panel is asking for them: `startContainerUsage` clears the slice, so
+ * figures from containers nobody is looking at cannot linger where a stale one would hide.
  *
  * The three operation arms (US2) land against the one in-flight `operation` and only when the
  * `request_id` still matches: a reply for a preview the operator has already dismissed must not
  * resurrect it.
  */
+import { USAGE_HISTORY } from '@/features/containers/usage'
 import type { StreamEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
@@ -34,6 +35,7 @@ export function isContainerEvent(event: StreamEvent): boolean {
     case 'ContainerLogBatch':
     case 'ContainerSessionOutput':
     case 'ContainerSessionClosed':
+    case 'ContainerUsageSampled':
       return true
     default:
       return false
@@ -142,6 +144,28 @@ export function handleContainers(d: Draft, event: StreamEvent): void {
         ...prev,
         status: event.data.error == null ? 'ended' : 'error',
         reason: event.data.error ?? undefined,
+      }
+      return
+    }
+    // US6 FR-037/FR-038: one tick. The history is bounded here, on arrival, and `at_cap` is kept
+    // rather than inferred from the length — the backend's own history is what fills up, and only
+    // it knows when it started dropping (FR-038's visible bound).
+    case 'ContainerUsageSampled': {
+      const rt = d.edit('containerRuntime')
+      const latest = { ...rt.usage.latest }
+      const history = { ...rt.usage.history }
+      for (const sample of event.data.samples) {
+        latest[sample.container_id] = sample
+        const kept = [...(history[sample.container_id] ?? []), sample]
+        history[sample.container_id] = kept.slice(-USAGE_HISTORY)
+      }
+      rt.usage = {
+        latest,
+        history,
+        // Once the bound has been hit it stays said: a later tick does not un-drop what was
+        // dropped.
+        atCap: rt.usage.atCap || event.data.at_cap,
+        ticks: rt.usage.ticks + 1,
       }
       return
     }

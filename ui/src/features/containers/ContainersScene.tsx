@@ -26,6 +26,7 @@ import { ContainerGroupList } from './ContainerGroupList'
 import { ContainerStreams } from './ContainerStreams'
 import { groupKey, type Selection } from './labels'
 import { ProjectActions } from './ProjectActions'
+import { UsagePanel } from './UsagePanel'
 
 /** The runtime's name as a person writes it. */
 function runtimeName(runtime: KindRuntimeKind | null): string {
@@ -205,7 +206,16 @@ export function ContainersScene() {
         if (selected === null) return null
         if (selected.kind === 'project') {
           const project = inventory.projects.find((p) => groupKey(p) === selected.key)
-          return project ? <ProjectActions project={project} /> : null
+          if (!project) return null
+          return (
+            <>
+              <ProjectActions project={project} />
+              {/* Usage is the project read as one unit, which is what grouping was for. It is
+                  mounted under the selection, so leaving the selection stops the sampling
+                  (FR-045) without anything here having to say so. */}
+              <UsagePanel key={selected.key} containers={project.containers} />
+            </>
+          )
         }
         // A container's verbs are governed by its project's grant, so the project is found first
         // and the panel carries both — the adoption control a refusal would send the operator
@@ -216,6 +226,8 @@ export function ContainersScene() {
             return (
               <>
                 <ProjectActions project={project} container={container} />
+                {/* One container's own figures, sampled only for it. */}
+                <UsagePanel key={container.id} containers={[container]} />
                 {/* Reading and attaching are the container's own, not the project's: logs are
                     offered for every container (FR-035) and a shell only where the project's
                     grant allows a change (FR-013). */}
