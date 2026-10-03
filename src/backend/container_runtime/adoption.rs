@@ -136,10 +136,6 @@ pub struct AdoptionStore {
 }
 
 impl AdoptionStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Loads the grants, falling back to an empty set without touching the file.
     ///
     /// Principle VI: a file we cannot parse is the operator's data, and a rewrite would destroy a
@@ -440,7 +436,7 @@ mod tests {
     /// The whole premise: nothing is actionable until the operator says so.
     #[test]
     fn an_empty_store_refuses_every_gated_command() {
-        let store = AdoptionStore::new();
+        let store = AdoptionStore::default();
         let owner = Owned {
             project: Some("alpha"),
             cluster: None,
@@ -462,7 +458,7 @@ mod tests {
     /// Reading is not gated. An operator who cannot see a project cannot decide to adopt it.
     #[test]
     fn reads_and_previews_work_with_nothing_adopted() {
-        let store = AdoptionStore::new();
+        let store = AdoptionStore::default();
         for cmd in every_container_command() {
             let req = requirement(&cmd);
             if matches!(
@@ -519,7 +515,7 @@ mod tests {
             shell: None,
         });
         assert_eq!(session, Requirement::Container("cid".into()));
-        let store = AdoptionStore::new();
+        let store = AdoptionStore::default();
         let owner = Owned {
             project: Some("slam-usa"),
             cluster: None,
@@ -553,7 +549,7 @@ mod tests {
     /// A cluster Fathom provisioned is already Fathom's to manage.
     #[test]
     fn a_managed_clusters_containers_are_actionable_without_a_grant() {
-        let mut store = AdoptionStore::new();
+        let mut store = AdoptionStore::default();
         store.set_managed_clusters(["fathom-dev".to_owned()]);
         let owner = Owned {
             project: None,
@@ -573,7 +569,7 @@ mod tests {
     /// A kind cluster somebody else created on this daemon is not Fathom's.
     #[test]
     fn an_unmanaged_clusters_containers_stay_read_only() {
-        let mut store = AdoptionStore::new();
+        let mut store = AdoptionStore::default();
         store.set_managed_clusters(["fathom-dev".to_owned()]);
         let owner = Owned {
             project: None,
@@ -593,7 +589,7 @@ mod tests {
     /// The `Unowned` bucket is not implicitly adopted just because a cluster node landed in it.
     #[test]
     fn the_unowned_bucket_is_never_implicitly_adopted() {
-        let mut store = AdoptionStore::new();
+        let mut store = AdoptionStore::default();
         store.set_managed_clusters(["fathom-dev".to_owned()]);
         assert_eq!(
             store.state_for(&ProjectGroup::Unowned),
@@ -659,7 +655,7 @@ mod tests {
     #[test]
     fn a_grant_persists_and_reloads() {
         with_scoped_root(|_| {
-            let mut store = AdoptionStore::new();
+            let mut store = AdoptionStore::default();
             store.adopt("thunderforge-app").expect("write");
             store.adopt("slam-usa").expect("write");
 
@@ -751,7 +747,7 @@ mod tests {
     #[test]
     fn a_grant_does_not_leak_to_another_project() {
         with_scoped_root(|_| {
-            let mut store = AdoptionStore::new();
+            let mut store = AdoptionStore::default();
             store.adopt("alpha").expect("write");
             let beta = Owned {
                 project: Some("beta"),
@@ -768,7 +764,7 @@ mod tests {
     #[test]
     fn releasing_a_grant_persists_the_revocation() {
         with_scoped_root(|_| {
-            let mut store = AdoptionStore::new();
+            let mut store = AdoptionStore::default();
             store.adopt("alpha").expect("write");
             store.release("alpha").expect("release");
             assert!(AdoptionStore::load().store.adopted().is_empty());
@@ -780,7 +776,7 @@ mod tests {
     #[test]
     fn releasing_an_implicit_grant_is_refused() {
         with_scoped_root(|_| {
-            let mut store = AdoptionStore::new();
+            let mut store = AdoptionStore::default();
             store.set_managed_clusters(["fathom-dev".to_owned()]);
             assert_eq!(
                 store.release("fathom-dev"),
@@ -802,7 +798,7 @@ mod tests {
     #[test]
     fn releasing_something_never_adopted_is_refused_not_silently_accepted() {
         with_scoped_root(|_| {
-            let mut store = AdoptionStore::new();
+            let mut store = AdoptionStore::default();
             assert_eq!(
                 store.release("never-adopted"),
                 Err(ReleaseRefusal::NotAdopted("never-adopted".to_owned()))

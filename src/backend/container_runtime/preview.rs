@@ -428,10 +428,10 @@ fn removal_argv(cli: Cli, removals: &[RemovalLine]) -> Result<Vec<String>, NotPr
     };
     let mut command: Vec<String> = match class {
         // A container is removed by `rm` alone; the others carry their class first.
-        ObjectClass::Container => vec![cli.bin().to_owned(), "rm".to_owned()],
-        ObjectClass::Image => vec![cli.bin().to_owned(), "image".to_owned(), "rm".to_owned()],
-        ObjectClass::Volume => vec![cli.bin().to_owned(), "volume".to_owned(), "rm".to_owned()],
-        ObjectClass::Network => vec![cli.bin().to_owned(), "network".to_owned(), "rm".to_owned()],
+        ObjectClass::Container => cli.argv(&["rm"]),
+        ObjectClass::Image => cli.argv(&["image", "rm"]),
+        ObjectClass::Volume => cli.argv(&["volume", "rm"]),
+        ObjectClass::Network => cli.argv(&["network", "rm"]),
     };
     command.extend(removals.iter().map(|r| r.object.id.clone()));
     Ok(command)
