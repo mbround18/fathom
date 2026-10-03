@@ -207,9 +207,9 @@ exactly what disappears, names every project touched, and requires a typed confi
 
 ## Phase 10: Polish and cross-cutting
 
-- [ ] T078 [P] Verify SC-012: 500 containers, operator input handled under 100 ms, measured against the fake backend's 500-container script
-- [ ] T079 [P] Verify SC-011 and FR-045 with `./scripts/measure-idle-cpu.sh --attach <pid>`: idle figure indistinguishable from the pre-feature baseline and under 2% of one core, **and** zero `docker`/`podman` child processes spawned while the scene is closed
-- [ ] T080 [P] Accessibility pass on the new scene: WCAG 2.2 AA, keyboard reachability of every action and of the typed confirmation, no horizontal scroll at narrow widths
+- [X] T078 [P] Verify SC-012: 500 containers, operator input handled under 100 ms, measured against the fake backend's 500-container script
+- [ ] T079 [P] *(wire half done: `perf-containers-500.spec.ts` asserts no read, sample or follow is sent once the scene closes, and `stats::tests::stopping_the_sampler_leaves_nothing_ticking` + `stream::tests::killing_a_follow_ends_it` cover the only two spawn sites in `container_runtime`. The measured half needs the desktop app running, so it is the operator's to run.)* Verify SC-011 and FR-045 with `./scripts/measure-idle-cpu.sh --attach <pid>`: idle figure indistinguishable from the pre-feature baseline and under 2% of one core, **and** zero `docker`/`podman` child processes spawned while the scene is closed
+- [X] T080 [P] Accessibility pass on the new scene: WCAG 2.2 AA, keyboard reachability of every action and of the typed confirmation, no horizontal scroll at narrow widths
 - [X] T081 [P] Verify SC-013: a corrupt definition file leaves that file byte-identical on disk, and a lost adoption record leaves nothing actionable rather than everything
 - [ ] T082 Run the full gate: `./scripts/ci.sh > /tmp/ci-048.log 2>&1; echo "ci_exit=$?"` — capture the exit code explicitly rather than piping to `tail`, which has already produced one false green here. Bindings-drift step included
 - [ ] T083 Capture the promo screenshots for the new Docker screens (`cd ui && pnpm promo`) — the final step of the batch

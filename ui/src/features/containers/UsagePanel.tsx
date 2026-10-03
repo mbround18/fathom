@@ -55,7 +55,12 @@ export function UsagePanel({ containers }: { containers: Container[] }) {
         </p>
       </div>
 
-      <ul className="flex flex-col">
+      {/* Bounded, and scrolling past the bound. A project of 500 containers is one the operator
+          may well select, and an unbounded list of its rows took the whole pane's height — the
+          group list above it collapsed to nothing, so the figures arrived and the inventory
+          disappeared. The aggregate below is the figure that scales; the per-container rows are
+          here for the project where reading all of them is still possible. */}
+      <ul className="flex max-h-48 min-w-0 flex-col overflow-y-auto">
         {containers.map((container) => {
           const sample = usage.latest[container.id]
           const peak = peakCpu(usage.history[container.id])
