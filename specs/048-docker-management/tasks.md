@@ -167,8 +167,8 @@ exactly what disappears, names every project touched, and requires a typed confi
 ## Phase 6: User Story 4 — Containers and clusters are one world (P4)
 
 - [ ] T057 [P] [US4] E2E spec `ui/tests/e2e/us4-cluster-crosslink.spec.ts` covering all five acceptance scenarios, including the break warning naming the cluster and stating separately that the operator is connected to it, and a look-alike container with no cluster identity having no cluster claimed
-- [ ] T058 [P] [US4] Unit tests in `src/backend/container_runtime/cluster_link.rs` from mock runner output carrying the cluster label — no kind cluster is created for these tests
-- [ ] T059 [US4] Implement `cluster_link.rs`: resolve cluster identity from the label only, never from naming patterns, in both directions
+- [X] T058 [P] [US4] Unit tests in `src/backend/container_runtime/cluster_link.rs` from mock runner output carrying the cluster label — no kind cluster is created for these tests
+- [X] T059 [US4] Implement `cluster_link.rs`: resolve cluster identity from the label only, never from naming patterns, in both directions
 - [ ] T060 [US4] Surface the backing containers in the existing cluster view, linking back to the Docker section
 - [ ] T061 [US4] Implement `ClusterLinkBadge.tsx` and extend the preview with `ClusterBreak`: warn that the cluster will break, name it, and state separately when the operator is currently connected
 - [ ] T062 [US4] Reflect an externally stopped node container in both the container state and the cluster's availability — neither may claim the cluster is healthy

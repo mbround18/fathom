@@ -17,7 +17,9 @@ use crate::backend::container_runtime::adoption::{
     self, AdoptionStore, Ownership, ReleaseRefusal, Requirement,
 };
 use crate::backend::container_runtime::preview::{PreviewContext, PreviewStore};
-use crate::backend::container_runtime::{Cli, compose, grouping, inventory, mutate, probe};
+use crate::backend::container_runtime::{
+    Cli, cluster_link, compose, grouping, inventory, mutate, probe,
+};
 use crate::backend::state::BackendState;
 use crate::backend::{events, kind, persistence};
 use crate::protocol::{
@@ -299,10 +301,8 @@ async fn refresh_inventory(state: &mut BackendState, sender: &Sender<BackendEven
         .into_iter()
         .map(|r| r.cluster)
         .collect();
-    let mut links = grouping::cluster_links(&containers);
-    for link in &mut links {
-        link.managed_by_fathom = managed.contains(&link.cluster);
-    }
+    let mut links = cluster_link::cluster_links(&containers);
+    cluster_link::mark_managed(&mut links, &managed);
 
     let store = state
         .containers

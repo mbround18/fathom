@@ -16,13 +16,14 @@
 use std::collections::VecDeque;
 
 use crate::protocol::v1::{
-    ClusterBreak, Container, ContainerSpec, ExcludedObject, ExclusionReason, ImageBuildSpec,
-    LifecycleAction, NetworkSpec, ObjectClass, ObjectRef, OperationPreview, OperationRequest,
-    OperationScope, ProjectAction, RemovableObject, RemovalLine, RuntimeContainerState, VolumeSpec,
+    Container, ContainerSpec, ExcludedObject, ExclusionReason, ImageBuildSpec, LifecycleAction,
+    NetworkSpec, ObjectClass, ObjectRef, OperationPreview, OperationRequest, OperationScope,
+    ProjectAction, RemovableObject, RemovalLine, RuntimeContainerState, VolumeSpec,
 };
 
 use super::Cli;
 use super::blast_radius::{Scene, resolve_objects, resolve_prune};
+use super::cluster_link;
 
 /// Everything a preview is derived from, as of one reading of the runtime.
 pub struct PreviewContext<'a> {
@@ -307,7 +308,12 @@ pub fn build(
             removals,
             blast_radius,
             excluded,
-            breaks_clusters: cluster_breaks(ctx, request, &targets),
+            breaks_clusters: cluster_link::cluster_breaks(
+                request,
+                &targets,
+                ctx.containers,
+                ctx.active_context,
+            ),
             required_confirmation,
             as_of: ctx.as_of.to_owned(),
         },
@@ -736,57 +742,4 @@ fn object_ref(container: &Container) -> ObjectRef {
         id: container.id.clone(),
         name: container.name.clone(),
     }
-}
-
-/// Which clusters this operation takes down with it.
-///
-/// Only the verbs that actually stop a node count. `start` and `unpause` bring a node back, and
-/// warning that they break the cluster would teach the operator to ignore the warning.
-fn cluster_breaks(
-    ctx: &PreviewContext<'_>,
-    request: &OperationRequest,
-    targets: &[ObjectRef],
-) -> Vec<ClusterBreak> {
-    let halting = match request {
-        OperationRequest::Lifecycle { action, .. } => matches!(
-            action,
-            LifecycleAction::Stop
-                | LifecycleAction::Kill
-                | LifecycleAction::Pause
-                | LifecycleAction::Restart
-        ),
-        OperationRequest::ProjectLifecycle { action, .. } => {
-            matches!(action, ProjectAction::Down | ProjectAction::Restart)
-        }
-        OperationRequest::Remove { .. } => true,
-        _ => false,
-    };
-    if !halting {
-        return vec![];
-    }
-
-    let mut clusters: Vec<String> = targets
-        .iter()
-        .filter_map(|t| {
-            ctx.containers
-                .iter()
-                .find(|c| c.id == t.id)
-                .and_then(|c| c.cluster.clone())
-        })
-        .collect();
-    clusters.sort();
-    clusters.dedup();
-
-    clusters
-        .into_iter()
-        .map(|cluster| ClusterBreak {
-            // Stated separately from the breakage itself: "this breaks a cluster" and "this breaks
-            // the cluster you are connected to" are different sentences, and collapsing them would
-            // make the second one unsayable.
-            connected: ctx
-                .active_context
-                .is_some_and(|c| c == format!("kind-{cluster}")),
-            cluster,
-        })
-        .collect()
 }

@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use crate::protocol::v1::{
-    AdoptionState, ClusterLink, DefinitionFileState, Project, ProjectGroup, RuntimeContainerState,
+    AdoptionState, DefinitionFileState, Project, ProjectGroup, RuntimeContainerState,
 };
 
 use super::inventory::ContainerRow;
@@ -94,31 +94,6 @@ fn declared_definition(members: &[&ContainerRow]) -> Option<String> {
         .first()
         .and_then(|v| v.split(',').next())
         .map(str::to_owned)
-}
-
-/// Which clusters the containers back, for the cluster cross-link in both directions.
-///
-/// `managed_by_fathom` is left `false` here: this module can see that a container carries a kind
-/// cluster label, but not whether Fathom provisioned that cluster. The caller that knows the
-/// managed-cluster list sets it.
-pub fn cluster_links(rows: &[ContainerRow]) -> Vec<ClusterLink> {
-    let mut by_cluster: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for row in rows {
-        if let Some(cluster) = &row.container.cluster {
-            by_cluster
-                .entry(cluster.clone())
-                .or_default()
-                .push(row.container.id.clone());
-        }
-    }
-    by_cluster
-        .into_iter()
-        .map(|(cluster, container_ids)| ClusterLink {
-            cluster,
-            container_ids,
-            managed_by_fathom: false,
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -295,28 +270,5 @@ mod tests {
             names(group_containers(&a, &present, &AllAdopted)),
             names(group_containers(&b, &present, &AllAdopted))
         );
-    }
-
-    #[test]
-    fn cluster_nodes_link_back_to_their_cluster() {
-        let rows = rows(&[
-            container("fathom-dev-control-plane", "running", "", "fathom-dev", ""),
-            container("fathom-dev-worker", "running", "", "fathom-dev", ""),
-            container("other-control-plane", "running", "", "other", ""),
-        ]);
-        let links = cluster_links(&rows);
-        assert_eq!(links.len(), 2);
-        assert_eq!(links[0].cluster, "fathom-dev");
-        assert_eq!(links[0].container_ids.len(), 2);
-        assert!(
-            !links[0].managed_by_fathom,
-            "this module cannot know that; the caller that has the managed list sets it"
-        );
-    }
-
-    #[test]
-    fn a_daemon_with_no_clusters_produces_no_links() {
-        let rows = rows(&[container("web", "running", "alpha", "", "/a/compose.yaml")]);
-        assert!(cluster_links(&rows).is_empty());
     }
 }

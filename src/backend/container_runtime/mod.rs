@@ -8,6 +8,7 @@
 
 pub mod adoption;
 pub mod blast_radius;
+pub mod cluster_link;
 pub mod compose;
 pub mod grouping;
 pub mod inventory;
