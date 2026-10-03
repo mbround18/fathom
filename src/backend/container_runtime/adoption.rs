@@ -105,6 +105,26 @@ pub trait Ownership {
     fn managed_cluster_of(&self, container_id: &str) -> Option<String>;
 }
 
+/// A load result: the grants, and whether anything had to be discarded to get them.
+#[derive(Debug, Clone)]
+pub struct Loaded {
+    pub store: AdoptionStore,
+    /// True when a record existed and could not be honoured. Surfaced as
+    /// `ContainerAdoptionUpdated { fell_back }` so the operator is told, never as "nothing was
+    /// ever adopted".
+    pub fell_back: bool,
+}
+
+/// Why a release did not happen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReleaseRefusal {
+    /// No grant to revoke — including the implicit, cluster-derived kind.
+    NotAdopted(String),
+    /// The grant was dropped in memory and the file could not be written. Carries the reason
+    /// verbatim; the caller must not report success.
+    NotWritten(String),
+}
+
 /// The operator's grants, loaded from disk.
 #[derive(Debug, Clone, Default)]
 pub struct AdoptionStore {
@@ -125,9 +145,16 @@ impl AdoptionStore {
     /// Principle VI: a file we cannot parse is the operator's data, and a rewrite would destroy a
     /// hand-edit we merely failed to understand. An empty set is also the safe failure — it
     /// refuses mutations rather than permitting them.
-    pub fn load() -> Self {
+    ///
+    /// The flag comes back with the store rather than being logged and dropped, because the UI has
+    /// to say it out loud: an operator whose grants silently vanished would read the refusals that
+    /// follow as a bug in Fathom.
+    pub fn load() -> Loaded {
         let Ok(path) = Self::path() else {
-            return Self::default();
+            return Loaded {
+                store: Self::default(),
+                fell_back: true,
+            };
         };
         let Ok(value) = load_json_file(&path) else {
             tracing::warn!(
@@ -135,22 +162,38 @@ impl AdoptionStore {
                 "container adoption file could not be read; treating every project as unadopted \
                  and leaving the file exactly as it is"
             );
-            return Self::default();
+            return Loaded {
+                store: Self::default(),
+                fell_back: true,
+            };
         };
-        let projects = value
-            .get("projects")
-            .and_then(|p| p.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
-        Self {
-            projects,
-            managed_clusters: BTreeSet::new(),
+        // A file that is not there is not a fallback: it is a new install with nothing adopted.
+        let missing =
+            !value.is_object() || value.as_object().is_some_and(serde_json::Map::is_empty);
+        let Some(items) = value.get("projects").and_then(|p| p.as_array()) else {
+            return Loaded {
+                store: Self::default(),
+                // Present but shaped wrong is a fallback; absent is not.
+                fell_back: !missing,
+            };
+        };
+        // A non-string entry is the same class of problem as unparseable JSON: part of the record
+        // was not understood, so the whole record is refused rather than half-honoured.
+        let understood = items.iter().all(|v| v.is_string());
+        Loaded {
+            store: Self {
+                projects: if understood {
+                    items
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(str::to_owned)
+                        .collect()
+                } else {
+                    BTreeSet::new()
+                },
+                managed_clusters: BTreeSet::new(),
+            },
+            fell_back: !understood,
         }
     }
 
@@ -177,10 +220,18 @@ impl AdoptionStore {
         self.persist()
     }
 
-    /// Revokes a grant. Idempotent in the same way.
-    pub fn release(&mut self, project: &str) -> Result<()> {
-        self.projects.remove(project);
+    /// Revokes a grant.
+    ///
+    /// Refuses when the project holds no grant, which is also how implicit adoption is protected:
+    /// a container that backs a Fathom-managed cluster is actionable because of the cluster, not
+    /// because of a grant, so there is nothing here to take away. Succeeding silently would tell
+    /// the operator they had revoked something they had not.
+    pub fn release(&mut self, project: &str) -> Result<(), ReleaseRefusal> {
+        if !self.projects.remove(project) {
+            return Err(ReleaseRefusal::NotAdopted(project.to_owned()));
+        }
         self.persist()
+            .map_err(|e| ReleaseRefusal::NotWritten(e.to_string()))
     }
 
     pub fn adopted(&self) -> Vec<String> {
@@ -562,13 +613,187 @@ mod tests {
     }
 
     #[test]
-    fn adopt_and_release_are_idempotent() {
+    fn adopting_twice_is_not_an_error() {
         let mut store = store_with(&[]);
         store.projects.insert("alpha".into());
         store.projects.insert("alpha".into());
         assert_eq!(store.adopted(), vec!["alpha".to_owned()]);
-        store.projects.remove("alpha");
-        store.projects.remove("alpha");
-        assert!(store.adopted().is_empty());
+    }
+
+    // ---------------------------------------------------------------------
+    // Persistence. Each test scopes the state root to its own temp dir, so these never touch the
+    // real ~/.fathom.
+    // ---------------------------------------------------------------------
+
+    /// Runs `f` with the config root pointed at a fresh temp dir, and hands back that dir's path.
+    ///
+    /// On its own thread: `set_thread_state_root` is thread-local, and the test harness runs tests
+    /// in parallel on a shared pool, so scoping on the current thread would leak into whichever
+    /// test ran next on it.
+    fn with_scoped_root<T: Send + 'static>(
+        f: impl FnOnce(&std::path::Path) -> T + Send + 'static,
+    ) -> T {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path().to_path_buf();
+        std::thread::spawn(move || {
+            crate::backend::persistence::set_thread_state_root(root.clone());
+            f(&root)
+        })
+        .join()
+        .expect("scoped thread")
+    }
+
+    #[test]
+    fn a_grant_persists_and_reloads() {
+        with_scoped_root(|_| {
+            let mut store = AdoptionStore::new();
+            store.adopt("thunderforge-app").expect("write");
+            store.adopt("slam-usa").expect("write");
+
+            let reloaded = AdoptionStore::load();
+            assert!(!reloaded.fell_back);
+            assert_eq!(
+                reloaded.store.adopted(),
+                vec!["slam-usa".to_owned(), "thunderforge-app".to_owned()]
+            );
+            assert!(reloaded.store.is_adopted("slam-usa"));
+        });
+    }
+
+    /// A fresh install has no file. That is not a fallback, and reporting it as one would make
+    /// every first run look like data loss.
+    #[test]
+    fn no_file_at_all_is_an_empty_set_and_not_a_fallback() {
+        with_scoped_root(|_| {
+            let loaded = AdoptionStore::load();
+            assert!(loaded.store.adopted().is_empty());
+            assert!(!loaded.fell_back);
+        });
+    }
+
+    /// Principle VI. The operator's file is left byte-for-byte as it was: a record we failed to
+    /// understand may still be a hand-edit worth keeping, and rewriting it destroys the evidence.
+    #[test]
+    fn a_malformed_record_yields_the_empty_set_and_leaves_the_file_alone() {
+        with_scoped_root(|root| {
+            let path = root.join("container_adoption.json");
+            let original = "{ this is not json at all";
+            std::fs::create_dir_all(root).expect("root");
+            std::fs::write(&path, original).expect("write");
+
+            let loaded = AdoptionStore::load();
+            assert!(
+                loaded.store.adopted().is_empty(),
+                "the safe failure is nothing adopted, never everything"
+            );
+            assert!(
+                loaded.fell_back,
+                "the operator has to be told, or the refusals that follow read as a bug"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&path).expect("still there"),
+                original,
+                "the file was rewritten"
+            );
+        });
+    }
+
+    /// Valid JSON of the wrong shape is the same class of problem, and must not be read as
+    /// "no projects are adopted, all is well".
+    #[test]
+    fn a_record_of_the_wrong_shape_reports_the_fallback() {
+        with_scoped_root(|root| {
+            std::fs::create_dir_all(root).expect("root");
+            std::fs::write(
+                root.join("container_adoption.json"),
+                r#"{"projects": "thunderforge-app"}"#,
+            )
+            .expect("write");
+            let loaded = AdoptionStore::load();
+            assert!(loaded.store.adopted().is_empty());
+            assert!(loaded.fell_back);
+        });
+    }
+
+    #[test]
+    fn one_unreadable_entry_refuses_the_whole_record_rather_than_half_of_it() {
+        with_scoped_root(|root| {
+            std::fs::create_dir_all(root).expect("root");
+            std::fs::write(
+                root.join("container_adoption.json"),
+                r#"{"projects": ["alpha", 7]}"#,
+            )
+            .expect("write");
+            let loaded = AdoptionStore::load();
+            assert!(
+                loaded.store.adopted().is_empty(),
+                "honouring half a record Fathom did not understand is how a grant appears that \
+                 the operator never gave"
+            );
+            assert!(loaded.fell_back);
+        });
+    }
+
+    /// Granting `alpha` must not make anything in `beta` actionable.
+    #[test]
+    fn a_grant_does_not_leak_to_another_project() {
+        with_scoped_root(|_| {
+            let mut store = AdoptionStore::new();
+            store.adopt("alpha").expect("write");
+            let beta = Owned {
+                project: Some("beta"),
+                cluster: None,
+            };
+            assert_eq!(
+                store.check(&Requirement::Container("cid".into()), &beta),
+                Err(OperationRefusal::NotAdopted("beta".into()))
+            );
+            assert!(!store.is_adopted("beta"));
+        });
+    }
+
+    #[test]
+    fn releasing_a_grant_persists_the_revocation() {
+        with_scoped_root(|_| {
+            let mut store = AdoptionStore::new();
+            store.adopt("alpha").expect("write");
+            store.release("alpha").expect("release");
+            assert!(AdoptionStore::load().store.adopted().is_empty());
+        });
+    }
+
+    /// T027: implicit adoption cannot be released, because there is no grant behind it. Saying
+    /// "released" would tell the operator they had revoked access they still have.
+    #[test]
+    fn releasing_an_implicit_grant_is_refused() {
+        with_scoped_root(|_| {
+            let mut store = AdoptionStore::new();
+            store.set_managed_clusters(["fathom-dev".to_owned()]);
+            assert_eq!(
+                store.release("fathom-dev"),
+                Err(ReleaseRefusal::NotAdopted("fathom-dev".to_owned()))
+            );
+            // And the cluster's containers are still actionable, as they should be.
+            let node = Owned {
+                project: None,
+                cluster: Some("fathom-dev"),
+            };
+            assert!(
+                store
+                    .check(&Requirement::Container("cid".into()), &node)
+                    .is_ok()
+            );
+        });
+    }
+
+    #[test]
+    fn releasing_something_never_adopted_is_refused_not_silently_accepted() {
+        with_scoped_root(|_| {
+            let mut store = AdoptionStore::new();
+            assert_eq!(
+                store.release("never-adopted"),
+                Err(ReleaseRefusal::NotAdopted("never-adopted".to_owned()))
+            );
+        });
     }
 }

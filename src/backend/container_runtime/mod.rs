@@ -10,6 +10,7 @@ pub mod adoption;
 pub mod grouping;
 pub mod inventory;
 pub mod probe;
+pub mod stream;
 
 use super::kind::{CmdOutput, RunError, Runner};
 
