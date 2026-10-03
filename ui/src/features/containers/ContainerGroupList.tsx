@@ -17,7 +17,7 @@ import { useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import type { Container, Project } from '@/protocol/types'
 
-import { adoptionLabel, definitionLabel, groupKey, groupLabel } from './labels'
+import { adoptionLabel, definitionLabel, groupKey, groupLabel, type Selection } from './labels'
 
 /** Headings are taller than rows: two lines of text at phone width, one above the counts. */
 const GROUP_HEIGHT = 64
@@ -33,9 +33,9 @@ export function ContainerGroupList({
   onSelect,
 }: {
   projects: Project[]
-  /** `groupKey` of the group whose actions are open, if any. */
-  selected: string | null
-  onSelect: (key: string) => void
+  /** Whatever the actions panel is open for, if anything. */
+  selected: Selection | null
+  onSelect: (selection: Selection) => void
 }) {
   const items = useMemo<Item[]>(
     () =>
@@ -82,11 +82,19 @@ export function ContainerGroupList({
               {item.kind === 'group' ? (
                 <GroupHeading
                   project={item.project}
-                  selected={groupKey(item.project) === selected}
+                  selected={
+                    selected?.kind === 'project' && selected.key === groupKey(item.project)
+                  }
                   onSelect={onSelect}
                 />
               ) : (
-                <ContainerRow container={item.container} />
+                <ContainerRow
+                  container={item.container}
+                  selected={
+                    selected?.kind === 'container' && selected.id === item.container.id
+                  }
+                  onSelect={onSelect}
+                />
               )}
             </div>
           )
@@ -103,7 +111,7 @@ function GroupHeading({
 }: {
   project: Project
   selected: boolean
-  onSelect: (key: string) => void
+  onSelect: (selection: Selection) => void
 }) {
   const definition = definitionLabel(project)
   const adopted = project.adoption !== 'not_adopted'
@@ -115,7 +123,7 @@ function GroupHeading({
       type="button"
       aria-pressed={selected}
       onClick={() => {
-        onSelect(key)
+        onSelect({ kind: 'project', key })
       }}
       data-testid={`containers-group-${key}`}
       data-adoption={adopted ? 'adopted' : 'read-only'}
@@ -158,15 +166,34 @@ function GroupHeading({
   )
 }
 
-function ContainerRow({ container }: { container: Container }) {
+function ContainerRow({
+  container,
+  selected,
+  onSelect,
+}: {
+  container: Container
+  selected: boolean
+  onSelect: (selection: Selection) => void
+}) {
   const ports = container.ports
     .map((p) => `${p.host_port === null ? '' : `${p.host_port}→`}${p.container_port}/${p.protocol}`)
     .join(' ')
   return (
-    <div
+    // A button for the same reason the heading is one: choosing a container is what opens its
+    // verbs, and the only route to a mutation must be reachable from the keyboard.
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={() => {
+        onSelect({ kind: 'container', id: container.id })
+      }}
       data-testid={`container-row-${container.name}`}
       data-state={container.state}
-      className="flex h-full min-w-0 items-center gap-2 border-b border-border/40 px-3 text-xs"
+      data-selected={selected ? 'true' : 'false'}
+      className={cn(
+        'flex h-full w-full min-w-0 items-center gap-2 border-b border-border/40 px-3 text-left text-xs',
+        selected && 'bg-muted',
+      )}
     >
       <span
         aria-hidden="true"
@@ -188,6 +215,6 @@ function ContainerRow({ container }: { container: Container }) {
       </span>
       <span className="hidden shrink-0 font-mono text-muted-foreground md:inline">{ports}</span>
       <span className="shrink-0 truncate text-muted-foreground">{container.status}</span>
-    </div>
+    </button>
   )
 }

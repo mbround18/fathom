@@ -399,6 +399,24 @@ export const SCENARIOS = {
     onSubscribe: [backendStarted],
     replies: { ...cluster(), ...containerReplies({ corruptDefinition: 'shop', adopted: ['shop'] }) },
   },
+  'containers-partial-failure': {
+    description: '`shop` is adopted; `shop-db` refuses to stop while `shop-web` obeys.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({ adopted: ['shop'], failingMember: 'shop-db' }),
+    },
+  },
+  'containers-vanished-member': {
+    description: '`shop-db` is gone by the time the operation is issued: the daemon says so.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({ adopted: ['shop'], vanishedMember: 'shop-db' }),
+    },
+  },
   'containers-stale-preview': {
     description: 'Every issue is refused as stale, whatever was previewed.',
     initialState: { context: 'kind-a', namespaceFilter: [] },

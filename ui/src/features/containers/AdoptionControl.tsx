@@ -11,8 +11,9 @@
  *   implicitly adopted      — which cluster lends it write access, and that releasing is not ours
  *                             to offer, because the grant is the cluster's and not the operator's
  *
- * The no-compose-project bucket is not a project and cannot be adopted; it says that rather than
- * showing a button that would refuse.
+ * The no-compose-project bucket is not a project and cannot be adopted: a grant over it would
+ * cover every unrelated stray on the daemon at once. It says so, rather than showing a button
+ * that would refuse.
  */
 import { LockSimpleOpenIcon, LockSimpleIcon } from '@phosphor-icons/react'
 
@@ -20,16 +21,17 @@ import { Button } from '@/components/ui/button'
 import type { Project } from '@/protocol/types'
 import { useStore } from '@/store'
 
-import { adoptionExplanation, groupKey } from './labels'
+import { adoptionExplanation, effectiveAdoption, groupKey } from './labels'
 
 export function AdoptionControl({ project }: { project: Project }) {
   const adopt = useStore((s) => s.adoptContainerProject)
   const release = useStore((s) => s.releaseContainerProject)
   const fellBack = useStore((s) => s.containerRuntime.adoptionFellBack)
+  const granted = useStore((s) => s.containerRuntime.adopted)
 
   const key = groupKey(project)
   const named = project.group.kind === 'project' ? project.group.name : null
-  const adoption = project.adoption
+  const adoption = effectiveAdoption(project, granted)
   const implicit = typeof adoption === 'object'
 
   return (
@@ -44,8 +46,8 @@ export function AdoptionControl({ project }: { project: Project }) {
           className="text-xs text-muted-foreground"
         >
           {named === null
-            ? 'Containers outside a compose project are not a unit Fathom can adopt. Act on them one at a time, from the container itself.'
-            : adoptionExplanation(project)}
+            ? 'Containers outside a compose project are read-only. This bucket is not a unit Fathom can adopt — a grant over it would cover unrelated strays Fathom knows nothing about. A container backing a cluster Fathom manages is actionable from that cluster.'
+            : adoptionExplanation({ ...project, adoption })}
         </p>
         {/* FR-013: a grant record Fathom could not read is the operator's business, because every
             refusal they are about to see comes from it. */}

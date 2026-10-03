@@ -17,10 +17,13 @@ import type {
   Container,
   ContainerInventory,
   EventBatch,
+  ObjectOutcome,
+  ObjectRef,
   OperationOutcome,
   OperationPreview,
   OperationRefusal,
   OperationRequest,
+  OutcomeStatus,
   Project,
   ProjectGroup,
   PublishedPort,
@@ -37,6 +40,27 @@ export const PERMISSION_DENIED =
   'permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock'
 
 const SOCKET = 'unix:///var/run/docker.sock'
+
+/**
+ * What the daemon says about a container it no longer has, verbatim (FR-004, FR-024).
+ *
+ * Exported so the spec asserts the runtime's own sentence rather than a paraphrase of it: a
+ * rewritten error is the thing the operator cannot search for.
+ */
+export const noSuchContainer = (name: string) =>
+  `Error response from daemon: No such container: ${name}`
+
+/**
+ * `succeeded` only when every object succeeded, mirroring `OperationOutcome::overall_from`.
+ *
+ * Written out here rather than hardcoded, because a fake that reports overall success beside a
+ * failed object would let the UI pass a test the real backend would fail.
+ */
+function overallOf(objects: ObjectOutcome[]): OutcomeStatus {
+  if (objects.some((o) => o.status === 'failed')) return 'failed'
+  if (objects.length > 0 && objects.every((o) => o.status === 'skipped')) return 'skipped'
+  return 'succeeded'
+}
 
 let seq = 9000
 const ev = (data: StreamEvent): EventBatch => batch([stream(seq++, globalRoute(), data)])
@@ -230,7 +254,7 @@ function groupsOf(containers: Container[], opts: ScriptOptions, adopted: string[
       group: projectGroup(name),
       containers: byProject.get(name) ?? [],
       adoption: adopted.includes(name) ? 'adopted' : 'not_adopted',
-      definition_file: `/home/op/${name}/compose.yaml`,
+      definition_file: definitionFileOf(name),
       definition_state:
         opts.corruptDefinition === name
           ? { unreadable: 'mapping values are not allowed in this context at line 7 column 9' }
@@ -316,6 +340,17 @@ export interface ScriptOptions {
   stalePreview?: boolean
   /** The daemon stops answering after this many inventory refreshes (1 = the second one fails). */
   unavailableAfter?: number
+  /**
+   * This container, by name, fails when the operation reaches it. Its siblings succeed — which is
+   * the case FR-022 exists for: one argv, several objects, and not one answer for all of them.
+   */
+  failingMember?: string
+  /**
+   * This container, by name, is gone from the daemon by the time the operation is issued. The
+   * preview named it, so the outcome must say what became of it in the runtime's own words
+   * rather than quietly dropping it from the report.
+   */
+  vanishedMember?: string
 }
 
 /** Mutable state the fake keeps between commands, the way a daemon would. */
@@ -331,14 +366,12 @@ interface Daemon {
  * The UI asserts against this, so it is written as the literal argv a reader could paste into a
  * shell — not a prose rendering of one (FR-018).
  */
-export function argvFor(request: OperationRequest): string[] {
+export function argvFor(request: OperationRequest, containers: Container[]): string[] {
   switch (request.kind) {
     case 'lifecycle':
-      return [
-        'docker',
-        request.action,
-        request.scope.kind === 'container' ? request.scope.id : `--project=${request.scope.project}`,
-      ]
+      // One argv naming every member, exactly as the backend builds it — never one command per
+      // container. That is what lets FR-029's one preview and one confirmation hold.
+      return ['docker', request.action, ...targetsFor(request, containers).map((t) => t.id)]
     case 'remove':
       return ['docker', request.objects[0]?.class ?? 'container', 'rm', ...request.objects.map((o) => o.id)]
     case 'prune_selection':
@@ -352,11 +385,64 @@ export function argvFor(request: OperationRequest): string[] {
     case 'create_volume':
       return ['docker', 'volume', 'create', request.spec.name]
     case 'project_lifecycle':
-      return ['docker', 'compose', '--project-name', request.project, request.action]
+      return [
+        'docker',
+        'compose',
+        '-p',
+        request.project,
+        '-f',
+        definitionFileOf(request.project),
+        request.action,
+        // Detached, because an `up` that held the terminal open would hold a backend task open
+        // with it and there is no terminal for the operator to read.
+        ...(request.action === 'up' ? ['-d'] : []),
+      ]
   }
 }
 
-function previewFor(request: OperationRequest, destructive: boolean): OperationPreview {
+/** Where the fake daemon says a project's file lives. One spelling, used by argv and by groups. */
+function definitionFileOf(project: string): string {
+  return `/home/op/${project}/compose.yaml`
+}
+
+function objectRefOf(c: Container): ObjectRef {
+  return { class: 'container', id: c.id, name: c.name }
+}
+
+/**
+ * Every object the argv names, in argv order.
+ *
+ * Sorted by name rather than by whatever order the daemon listed them in, so a preview read twice
+ * reads the same twice, and so the per-object outcomes line up with what the operator read.
+ */
+export function targetsFor(request: OperationRequest, containers: Container[]): ObjectRef[] {
+  const membersOf = (project: string) =>
+    containers
+      .filter((c) => c.project === project)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(objectRefOf)
+  switch (request.kind) {
+    case 'lifecycle': {
+      // Bound first: narrowing does not survive into the filter's closure.
+      const scope = request.scope
+      return scope.kind === 'container'
+        ? containers.filter((c) => c.id === scope.id).map(objectRefOf)
+        : membersOf(scope.project)
+    }
+    case 'project_lifecycle':
+      return membersOf(request.project)
+    case 'remove':
+      return request.objects
+    default:
+      return []
+  }
+}
+
+function previewFor(
+  request: OperationRequest,
+  destructive: boolean,
+  containers: Container[],
+): OperationPreview {
   const removals =
     request.kind === 'remove'
       ? request.objects.map((object) => ({ object, size_bytes: null, project: null }))
@@ -364,7 +450,7 @@ function previewFor(request: OperationRequest, destructive: boolean): OperationP
   return {
     preview_id: `pv-${String(Math.abs(hash(JSON.stringify(request))))}`,
     request,
-    command: argvFor(request),
+    command: argvFor(request, containers),
     destructive,
     removals,
     total_size_bytes: null,
@@ -417,6 +503,10 @@ export function containerReplies(opts: ScriptOptions = {}) {
       if (opts.unavailableAfter !== undefined && daemon.refreshes > opts.unavailableAfter)
         return [inventoryUnavailable(PERMISSION_DENIED)]
       return [
+        // The backend emits the grants the first time it touches them, which is this same
+        // command (`RuntimeState::adoption`). Leaving them out here would let the UI pass on an
+        // inventory snapshot the real backend never ships alone.
+        adoptionUpdated([...daemon.adopted]),
         inventoryUpdated(
           inventory({
             projects: groupsOf(containers, opts, daemon.adopted),
@@ -448,7 +538,11 @@ export function containerReplies(opts: ScriptOptions = {}) {
     PreviewContainerOperation: (cmd: {
       data: { request_id: string; request: OperationRequest }
     }) => {
-      const preview = previewFor(cmd.data.request, DESTRUCTIVE.includes(cmd.data.request.kind))
+      const preview = previewFor(
+        cmd.data.request,
+        DESTRUCTIVE.includes(cmd.data.request.kind),
+        containers,
+      )
       daemon.previews.set(preview.preview_id, preview)
       // A preview is free on an unadopted project: it is how the operator decides whether to
       // adopt it, and refusing here would make adoption a blind choice.
@@ -465,6 +559,24 @@ export function containerReplies(opts: ScriptOptions = {}) {
       const project = projectOfRequest(preview.request)
       if (project !== null && !daemon.adopted.includes(project))
         return refuse(cmd.data.request_id, { kind: 'not_adopted', detail: project })
+      // Per object, because one argv covering four containers is still four answers. The
+      // outcomes are attributed to the targets the preview named, so an object that vanished is
+      // still accounted for instead of disappearing from the report with it.
+      const objects: ObjectOutcome[] = (
+        preview.removals.length > 0
+          ? preview.removals.map((r) => r.object)
+          : targetsFor(preview.request, containers)
+      ).map((object) => {
+        if (object.name === opts.vanishedMember)
+          return { object, status: 'failed' as const, error: noSuchContainer(object.name) }
+        if (object.name === opts.failingMember)
+          return {
+            object,
+            status: 'failed' as const,
+            error: `Error response from daemon: cannot stop container ${object.name}: permission denied`,
+          }
+        return { object, status: 'succeeded' as const, error: null }
+      })
       return [
         ev({
           type: 'ContainerOperationFinished',
@@ -475,13 +587,13 @@ export function containerReplies(opts: ScriptOptions = {}) {
               // Byte-identical to the preview's argv. The fake re-reads it rather than
               // rebuilding it, for the same reason the backend does.
               command: preview.command,
-              overall: 'succeeded',
-              objects: preview.removals.map((r) => ({
-                object: r.object,
-                status: 'succeeded' as const,
-                error: null,
-              })),
-              discrepancies: [],
+              overall: overallOf(objects),
+              objects,
+              // A member that vanished between preview and issue is a difference the post-check
+              // found, and it is reported rather than swallowed (FR-024).
+              discrepancies: objects
+                .filter((o) => o.object.name === opts.vanishedMember)
+                .map((o) => ({ object: o.object, expected: 'running', observed: 'gone' })),
             },
           },
         }),

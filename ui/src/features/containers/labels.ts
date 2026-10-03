@@ -6,7 +6,22 @@
  * the operator as what it means for them, and that an unreadable definition keeps the parser's own
  * words including the position in them.
  */
-import type { OperationRefusal, Project } from '@/protocol/types'
+import type { AdoptionState, OperationRefusal, Project } from '@/protocol/types'
+
+/**
+ * The grant in force right now.
+ *
+ * `project.adoption` is part of an inventory reading, so it is as old as that reading. The live
+ * grant list is the one the backend emits whenever it changes, and FR-015 says an adoption takes
+ * effect the moment it is recorded — not at the next refresh. So the list wins for the explicit
+ * case, and an implicit grant is kept whole: that one comes from a cluster Fathom manages, is not
+ * in the adopted list, and is not the operator's to hold or release.
+ */
+export function effectiveAdoption(project: Project, adopted: string[]): AdoptionState {
+  if (typeof project.adoption === 'object') return project.adoption
+  if (project.group.kind !== 'project') return 'not_adopted'
+  return adopted.includes(project.group.name) ? 'adopted' : 'not_adopted'
+}
 
 /** The name to show. The no-project bucket is named as such, never left blank (FR-006). */
 export function groupLabel(project: Project): string {
@@ -14,6 +29,14 @@ export function groupLabel(project: Project): string {
 }
 
 /** A stable key and testid fragment for a group. */
+/**
+ * What the actions panel is pointed at.
+ *
+ * A project and a container are different scopes with different argvs, so the selection says
+ * which it is rather than leaving the panel to guess from the shape of a string.
+ */
+export type Selection = { kind: 'project'; key: string } | { kind: 'container'; id: string }
+
 export function groupKey(project: Project): string {
   return project.group.kind === 'project' ? project.group.name : 'unowned'
 }

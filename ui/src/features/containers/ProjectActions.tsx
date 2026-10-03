@@ -13,20 +13,31 @@
  * why, rather than a button that exists to refuse.
  */
 import { Button } from '@/components/ui/button'
-import type { Project } from '@/protocol/types'
+import type { Container, Project } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { AdoptionControl } from './AdoptionControl'
-import { groupKey } from './labels'
+import { ContainerActions } from './ContainerActions'
+import { effectiveAdoption, groupKey } from './labels'
 import { OperationPreview } from './OperationPreview'
 
-export function ProjectActions({ project }: { project: Project }) {
+export function ProjectActions({
+  project,
+  container,
+}: {
+  project: Project
+  /** When one container is selected, its verbs replace the project's — same grant, one object. */
+  container?: Container
+}) {
   const preview = useStore((s) => s.previewContainerOperation)
   const operation = useStore((s) => s.containerRuntime.operation)
+  const granted = useStore((s) => s.containerRuntime.adopted)
 
   const key = groupKey(project)
   const named = project.group.kind === 'project' ? project.group.name : null
-  const adopted = project.adoption !== 'not_adopted'
+  // The live grant, not the inventory's snapshot of it: a project adopted a moment ago is
+  // adopted now (FR-015).
+  const adopted = effectiveAdoption(project, granted) !== 'not_adopted'
   const hasFile = project.definition_state === 'present'
   // A second preview while one is in flight would leave two argvs on screen and one confirmation
   // field between them (FR-029).
@@ -39,7 +50,9 @@ export function ProjectActions({ project }: { project: Project }) {
     >
       <AdoptionControl project={project} />
 
-      {named !== null && adopted && (
+      {adopted && container !== undefined && <ContainerActions container={container} />}
+
+      {named !== null && adopted && container === undefined && (
         <div className="flex min-w-0 flex-wrap gap-2">
           <Button
             size="sm"

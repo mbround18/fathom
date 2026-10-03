@@ -23,7 +23,7 @@ import type { KindRuntimeKind } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { ContainerGroupList } from './ContainerGroupList'
-import { groupKey } from './labels'
+import { groupKey, type Selection } from './labels'
 import { ProjectActions } from './ProjectActions'
 
 /** The runtime's name as a person writes it. */
@@ -72,6 +72,11 @@ function Unavailable({ detail, endpoint }: { detail: string; endpoint: string | 
   )
 }
 
+function sameSelection(a: Selection | null, b: Selection): boolean {
+  if (a === null || a.kind !== b.kind) return false
+  return a.kind === 'project' && b.kind === 'project' ? a.key === b.key : a.kind === 'container' && b.kind === 'container' && a.id === b.id
+}
+
 export function ContainersScene() {
   const presence = useStore((s) => s.containerRuntime.presence)
   const probed = useStore((s) => s.containerRuntime.probed)
@@ -79,7 +84,7 @@ export function ContainersScene() {
   const stale = useStore((s) => s.containerRuntime.stale)
   const refresh = useStore((s) => s.refreshContainerInventory)
   const dismiss = useStore((s) => s.dismissContainerOperation)
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Selection | null>(null)
 
   // No open-read here: navigating to a section already sends its `refreshCmd`, which for this
   // one is `RefreshContainerInventory { classes: ['container'] }`. A second read from the scene
@@ -182,20 +187,31 @@ export function ContainersScene() {
       <ContainerGroupList
         projects={inventory.projects}
         selected={selected}
-        onSelect={(key) => {
-          // Changing project drops whatever preview was open: a preview belongs to the operation
-          // it was taken for, and one left on screen beside another project's verbs is the kind of
+        onSelect={(next) => {
+          // Changing selection drops whatever preview was open: a preview belongs to the operation
+          // it was taken for, and one left on screen beside another object's verbs is the kind of
           // mismatch FR-018 exists to prevent.
-          setSelected((current) => (current === key ? null : key))
+          setSelected((current) => (sameSelection(current, next) ? null : next))
           dismiss()
         }}
       />
 
-      {/* The selected group's verbs live outside the virtualized list: a heading whose height
-          grows when it is chosen would move every row below it. */}
+      {/* The selected object's verbs live outside the virtualized list: a row whose height grows
+          when it is chosen would move every row below it. */}
       {(() => {
-        const project = inventory.projects.find((p) => groupKey(p) === selected)
-        return project ? <ProjectActions project={project} /> : null
+        if (selected === null) return null
+        if (selected.kind === 'project') {
+          const project = inventory.projects.find((p) => groupKey(p) === selected.key)
+          return project ? <ProjectActions project={project} /> : null
+        }
+        // A container's verbs are governed by its project's grant, so the project is found first
+        // and the panel carries both — the adoption control a refusal would send the operator
+        // looking for is in the same place as the buttons that would refuse (FR-017).
+        for (const project of inventory.projects) {
+          const container = project.containers.find((c) => c.id === selected.id)
+          if (container) return <ProjectActions project={project} container={container} />
+        }
+        return null
       })()}
     </div>
   )

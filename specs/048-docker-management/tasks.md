@@ -120,7 +120,7 @@ reports.
 
 ### Tests first
 
-- [ ] T040 [P] [US2] E2E spec `ui/tests/e2e/us2-container-lifecycle.spec.ts` covering all eight acceptance scenarios, including the unadopted project explaining itself and offering adoption, adoption surviving a restart, release returning to read-only, per-container outcomes on a project operation, a partial failure not reporting overall success, and a container removed between preview and confirmation surfacing "no such container" verbatim
+- [X] T040 [P] [US2] E2E spec `ui/tests/e2e/us2-container-lifecycle.spec.ts` covering all eight acceptance scenarios, including the unadopted project explaining itself and offering adoption, adoption surviving a restart, release returning to read-only, per-container outcomes on a project operation, a partial failure not reporting overall success, and a container removed between preview and confirmation surfacing "no such container" verbatim
 - [X] T041 [P] [US2] **The argv invariant test** in `src/backend/container_runtime/mutate.rs`: issuing an operation executes argv byte-identical to what the preview carried. Without this test the preview is decoration — it is the most important test in the feature
 - [X] T042 [P] [US2] Unit tests for per-object outcome reporting: a four-member project where one member fails reports four outcomes and an overall status that is not `Succeeded`
 
