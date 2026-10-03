@@ -17,6 +17,7 @@ pub mod mutate;
 pub mod preview;
 pub mod probe;
 pub mod session;
+pub mod stats;
 pub mod stream;
 
 use super::kind::{CmdOutput, RunError, Runner};

@@ -19,7 +19,7 @@ use crate::backend::container_runtime::adoption::{
 use crate::backend::container_runtime::preview::{PreviewContext, PreviewStore};
 use crate::backend::container_runtime::{
     self as container_runtime, Cli, cluster_link, compose, grouping, inventory, logs, mutate,
-    probe, session,
+    probe, session, stats,
 };
 use crate::backend::log_streams::{CloseGuard, StreamSink};
 use crate::backend::state::BackendState;
@@ -140,8 +140,15 @@ pub(super) async fn handle(
                 session.resize(cols, rows);
             }
         }
-        BackendCmd::StartContainerUsageSampling { .. } | BackendCmd::StopContainerUsageSampling => {
-            // T065-T068: the bounded usage sampler.
+        BackendCmd::StartContainerUsageSampling { container_ids } => {
+            start_usage_sampling(state, sender, container_ids);
+        }
+        // Dropping the sampler is what stops it, and `Sampler::stop` waits for the loop to be
+        // gone rather than only asking it to finish (FR-045).
+        BackendCmd::StopContainerUsageSampling => {
+            if let Some(sampler) = state.containers.usage.take() {
+                sampler.stop();
+            }
         }
         other => return Some(other),
     }
@@ -188,6 +195,12 @@ pub(crate) struct RuntimeState {
     inventory_as_of: Option<String>,
     /// Previews taken this session. Bounded; see `preview::PreviewStore`.
     previews: PreviewStore,
+    /// The one live usage sampler, if any.
+    ///
+    /// One, like the session: the rows being looked at change as the operator scrolls, and a
+    /// sampler per change would leave a pile of loops ticking at the same daemon for views that
+    /// are no longer on screen. A start replaces whatever was running, and replacing it stops it.
+    usage: Option<super::super::container_runtime::stats::Sampler>,
     /// The one live interactive session, if any.
     ///
     /// One, deliberately, exactly as pod exec is one: a second start replaces the first and
@@ -723,6 +736,45 @@ fn release(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>, proj
 /// stream registry rather than a second one of its own, so a context switch or a shutdown that
 /// calls `stop_all` ends container follows too, and so the "exactly one close per stream" rule
 /// stays in the one place that already enforces it.
+/// Starts the usage sampler over exactly the containers the operator can see.
+///
+/// Scoped to those ids and to no others: an unscoped `docker stats` samples every container on the
+/// daemon, and this one is shared with unrelated projects whose figures nobody asked for. A start
+/// with no ids is therefore a stop — the view has nothing visible left to sample.
+fn start_usage_sampling(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    container_ids: Vec<String>,
+) {
+    // Whatever was ticking is for a set of rows that are no longer the visible ones.
+    if let Some(previous) = state.containers.usage.take() {
+        previous.stop();
+    }
+    if container_ids.is_empty() {
+        return;
+    }
+    // No runtime, no figures. Silently, because the scene that would show them already says why
+    // the runtime is unavailable; a second sentence about it here would be the same fact twice.
+    let Some(cli) = state.containers.cli else {
+        return;
+    };
+    let seq = state.cluster.seq.clone();
+    let sender = sender.clone();
+    state.containers.usage = Some(stats::Sampler::start(
+        cli,
+        std::sync::Arc::new(kind::SystemRunner),
+        container_ids,
+        stats::MIN_INTERVAL,
+        Box::new(move |samples, at_cap| {
+            emit(
+                &seq,
+                &sender,
+                StreamEvent::ContainerUsageSampled { samples, at_cap },
+            );
+        }),
+    ));
+}
+
 fn start_log_stream(
     state: &mut BackendState,
     sender: &Sender<BackendEventEnvelope>,
