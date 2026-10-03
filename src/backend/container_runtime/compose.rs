@@ -228,6 +228,35 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// SC-013, in the case it was written for. A file that parses is easy to leave alone; the one
+    /// worth asserting is the file Fathom could *not* read, because that is where a program is
+    /// tempted to "fix" it. The operator's bytes are theirs, and a hand-edit Fathom did not
+    /// understand may be the only copy of what they meant (Principle VI).
+    #[test]
+    fn a_corrupt_definition_file_is_left_byte_identical() {
+        let dir =
+            std::env::temp_dir().join(format!("fathom-compose-corrupt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("compose.yaml");
+        // A tab where YAML requires a space, plus a comment the operator wrote: both have to
+        // survive, since a rewrite that preserved the services would still have eaten the note.
+        let original = "# half-finished, do not delete\nservices:\n\tapp: busybox\n";
+        std::fs::write(&path, original).expect("write fixture");
+
+        let state = inspect(path.to_str().expect("utf-8 temp path"));
+
+        assert!(
+            matches!(state, DefinitionFileState::Unreadable(_)),
+            "a file that does not parse is unreadable: {state:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("still there"),
+            original,
+            "the operator's file was rewritten"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn a_directory_is_unreadable_not_present() {
         let dir = std::env::temp_dir().join(format!("fathom-compose-dir-{}", std::process::id()));

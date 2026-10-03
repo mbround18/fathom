@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import type { ObjectClass, PruneFilter, RemovableObject } from '@/protocol/types'
 import { useStore } from '@/store'
 
+import { CreateObjectForm, createLabel } from './CreateForms'
 import { OperationPreview } from './OperationPreview'
 import { sizeLabel } from './labels'
 
@@ -151,6 +152,7 @@ export function ObjectPane({ objectClass }: { objectClass: Exclude<ObjectClass, 
   const preview = useStore((s) => s.previewContainerOperation)
   const operation = useStore((s) => s.containerRuntime.operation)
   const [selected, setSelected] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const copy = COPY[objectClass]
   if (!inventory) return null
@@ -183,6 +185,17 @@ export function ObjectPane({ objectClass }: { objectClass: Exclude<ObjectClass, 
             <span data-testid={`object-total-${objectClass}`}> · {total} held</span>
           )}
         </p>
+        <Button
+          size="sm"
+          variant={creating ? 'default' : 'ghost'}
+          data-testid={`object-create-${objectClass}`}
+          disabled={busy}
+          onClick={() => {
+            setCreating((c) => !c)
+          }}
+        >
+          {createLabel(objectClass)}
+        </Button>
         {copy.prune.map((p) => (
           <Button
             key={p.filter}
@@ -217,6 +230,17 @@ export function ObjectPane({ objectClass }: { objectClass: Exclude<ObjectClass, 
           />
         ))}
       </ul>
+
+      {/* Creation is form-driven and nothing more: the form ends at a preview, so the operator's
+          last act is still approving an argv (FR-019). */}
+      {creating && operation === undefined && (
+        <CreateObjectForm
+          objectClass={objectClass}
+          onDone={() => {
+            setCreating(false)
+          }}
+        />
+      )}
 
       {operation !== undefined && (
         <div className="shrink-0 border-t border-border p-3" data-selected={selected ?? ''}>

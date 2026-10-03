@@ -196,12 +196,12 @@ exactly what disappears, names every project touched, and requires a typed confi
 
 ## Phase 9: User Story 7 — Create, run and build (P7)
 
-- [ ] T072 [P] [US7] E2E spec `ui/tests/e2e/us7-create-and-build.spec.ts` covering all six acceptance scenarios, including build output streaming with the builder's own failure text, project-down treated as destructive, a missing definition file disabling project operations without the file being rewritten, and the absence of any free-text command field being stated plainly rather than implied impossible
+- [X] T072 [P] [US7] E2E spec `ui/tests/e2e/us7-create-and-build.spec.ts` covering all six acceptance scenarios, including build output streaming with the builder's own failure text, project-down treated as destructive, a missing definition file disabling project operations without the file being rewritten, and the absence of any free-text command field being stated plainly rather than implied impossible
 - [X] T073 [P] [US7] Unit tests for each creation preview's argv, and for the project-down path being classified destructive
 - [X] T074 [US7] Implement form-driven creation previews and issuance for container, network and volume in `preview.rs` + `mutate.rs`, over the documented fields only
-- [ ] T075 [US7] Implement image build using the streaming runner from T003, with live output and the builder's own failure text surfaced verbatim
+- [X] T075 [US7] Implement image build using the streaming runner from T003, with live output and the builder's own failure text surfaced verbatim
 - [X] T076 [US7] Implement project up/down/restart in `compose.rs` + `mutate.rs`, naming the definition file in the preview, treating down as destructive, and never writing the file
-- [ ] T077 [US7] Implement the creation forms in `ui/src/features/containers/`, with the explicit statement that a case no form covers belongs in a terminal (FR-034) — and no free-text command field
+- [X] T077 [US7] Implement the creation forms in `ui/src/features/containers/`, with the explicit statement that a case no form covers belongs in a terminal (FR-034) — and no free-text command field
 
 ---
 
@@ -210,7 +210,7 @@ exactly what disappears, names every project touched, and requires a typed confi
 - [ ] T078 [P] Verify SC-012: 500 containers, operator input handled under 100 ms, measured against the fake backend's 500-container script
 - [ ] T079 [P] Verify SC-011 and FR-045 with `./scripts/measure-idle-cpu.sh --attach <pid>`: idle figure indistinguishable from the pre-feature baseline and under 2% of one core, **and** zero `docker`/`podman` child processes spawned while the scene is closed
 - [ ] T080 [P] Accessibility pass on the new scene: WCAG 2.2 AA, keyboard reachability of every action and of the typed confirmation, no horizontal scroll at narrow widths
-- [ ] T081 [P] Verify SC-013: a corrupt definition file leaves that file byte-identical on disk, and a lost adoption record leaves nothing actionable rather than everything
+- [X] T081 [P] Verify SC-013: a corrupt definition file leaves that file byte-identical on disk, and a lost adoption record leaves nothing actionable rather than everything
 - [ ] T082 Run the full gate: `./scripts/ci.sh > /tmp/ci-048.log 2>&1; echo "ci_exit=$?"` — capture the exit code explicitly rather than piping to `tail`, which has already produced one false green here. Bindings-drift step included
 - [ ] T083 Capture the promo screenshots for the new Docker screens (`cd ui && pnpm promo`) — the final step of the batch
 - [ ] T084 Run `./scripts/hygiene.sh`, confirm it exits 0 with nothing dangling, remove the `fathom048` fixtures by name (never by prune), and flip the 048 row in `docs/MVP.md`

@@ -18,7 +18,7 @@ import { useStore } from '@/store'
 
 import { AdoptionControl } from './AdoptionControl'
 import { ContainerActions } from './ContainerActions'
-import { containerIsActionable, effectiveAdoption, groupKey } from './labels'
+import { definitionLabel, containerIsActionable, effectiveAdoption, groupKey } from './labels'
 import { OperationPreview } from './OperationPreview'
 
 export function ProjectActions({
@@ -87,6 +87,19 @@ export function ProjectActions({
           >
             Restart all
           </Button>
+          {/* FR-033: a project whose file Fathom could not read has no project-level operations,
+              and the reason is on screen rather than two buttons quietly missing. The last
+              sentence is the one that matters most: the operator's file is still theirs. */}
+          {!hasFile && (
+            <p
+              data-testid={`project-no-definition-${key}`}
+              className="min-w-0 flex-1 text-xs text-muted-foreground"
+            >
+              {definitionLabel(project) ?? 'This project declares no definition file'}. compose up,
+              down and restart are unavailable for it; Fathom has not changed the file. Its
+              containers can still be stopped and restarted individually.
+            </p>
+          )}
           {hasFile && (
             <>
               <Button

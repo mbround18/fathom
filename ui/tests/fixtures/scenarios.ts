@@ -537,6 +537,26 @@ export const SCENARIOS = {
     onSubscribe: [backendStarted],
     replies: { ...cluster(), ...containerReplies({ adopted: ['shop'], stalePreview: true }) },
   },
+  // US7: creation and a build. A build that fails is the whole reason its output is streamed, and
+  // a failure you can schedule is one no real builder will produce on cue.
+  'containers-failing-build': {
+    description: 'An image build that fails partway, with the builder’s own three last lines.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({ adopted: ['shop'], failingBuild: true }),
+    },
+  },
+  'containers-missing-definition': {
+    description: '`shop` is adopted and its definition file is gone: no project operations at all.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({ adopted: ['shop'], missingDefinition: 'shop' }),
+    },
+  },
   manual: {
     description: 'Silent backend: only BackendStarted; tests drive everything with emit().',
     initialState: { context: null, namespaceFilter: [] },

@@ -264,6 +264,19 @@ export class NotPreviewable extends Error {
     return new NotPreviewable(`'${id}' is not in the inventory Fathom last read.`)
   }
 
+  /**
+   * The project declares no readable definition file (FR-033).
+   *
+   * Worded exactly as `NotPreviewable::NoDefinitionFile` words it, down to the last sentence: the
+   * operator's file is theirs, and a Fathom that could not read it says so rather than writing a
+   * replacement it could (Principle VI).
+   */
+  static noDefinitionFile(project: string) {
+    return new NotPreviewable(
+      `'${project}' has no readable definition file, so project-level operations are unavailable for it. Fathom has not changed the file.`,
+    )
+  }
+
   /** Every object in the selection was excluded, so there is nothing left to remove. */
   static allExcluded(projects: string[]) {
     return new NotPreviewable(
@@ -769,7 +782,38 @@ export interface ScriptOptions {
   risingUsage?: string
   /** The tick reports its bounded history as full, so the cap is on screen (US6 scenario 5). */
   usageAtCap?: boolean
+  /**
+   * The next image build fails partway through, with the builder's own three lines (US7 FR-021).
+   *
+   * A build that fails is the case the streaming exists for: the lines that say why are in the
+   * middle of the output and nowhere else, so a run that only reported "failed" would have thrown
+   * away the only part the operator needed.
+   */
+  failingBuild?: boolean
 }
+
+/**
+ * What a builder says, in the order it says it.
+ *
+ * Written as the real thing writes it — layer lines, then the solve error — because the pane shows
+ * it verbatim and a test over reworded output would be testing the rewording.
+ */
+export const BUILD_LINES = [
+  '#1 [internal] load build definition from Dockerfile',
+  '#1 DONE 0.0s',
+  '#4 [2/3] RUN npm ci',
+]
+
+/** The sentence a failed build ends on, and the sentence its outcome carries. One spelling. */
+export const BUILD_FAILED_SOLVE =
+  'ERROR: failed to solve: process "/bin/sh -c npm ci" did not complete successfully: exit code: 1'
+
+/** The three lines a failed `docker build` ends on. The middle one is the reason. */
+export const BUILD_FAILURE_LINES = [
+  '#4 ERROR: process "/bin/sh -c npm ci" did not complete successfully: exit code: 1',
+  '------',
+  BUILD_FAILED_SOLVE,
+]
 
 /** Mutable state the fake keeps between commands, the way a daemon would. */
 interface Daemon {
@@ -920,7 +964,14 @@ function previewFor(
   request: OperationRequest,
   scene: Scene,
   activeContext?: string,
+  noDefinition: string[] = [],
 ): OperationPreview {
+  // FR-033: a project whose file Fathom could not read has no project-level operations at all,
+  // and the refusal says the file was left alone. Checked before anything is built, so no argv
+  // naming a file nobody could parse is ever shown.
+  if (request.kind === 'project_lifecycle' && noDefinition.includes(request.project)) {
+    throw NotPreviewable.noDefinitionFile(request.project)
+  }
   const base = {
     preview_id: `pv-${String(Math.abs(hash(JSON.stringify(request))))}`,
     request,
@@ -1059,6 +1110,9 @@ export function containerReplies(opts: ScriptOptions = {}) {
           cmd.data.request,
           { ...objects, containers, adopted: daemon.adopted },
           opts.activeContext,
+          // Unreadable and absent are one case to an operator: either way there is no file to act
+          // on, and either way Fathom has not written one.
+          [opts.corruptDefinition, opts.missingDefinition].filter((p): p is string => p != null),
         )
       } catch (e) {
         // An operation whose scope cannot be enumerated is not offered at all (FR-027).
@@ -1095,6 +1149,49 @@ export function containerReplies(opts: ScriptOptions = {}) {
       const project = projectOfPreview(preview)
       if (project !== null && !daemon.adopted.includes(project))
         return refuse(cmd.data.request_id, { kind: 'not_adopted', detail: project })
+      // FR-021: a build is watched, and the outcome repeats the builder's last words rather than
+      // summarising them. The lines come first, so the pane has them before the verdict arrives.
+      if (preview.request.kind === 'build_image') {
+        const lines =
+          opts.failingBuild === true
+            ? [...BUILD_LINES, ...BUILD_FAILURE_LINES]
+            : [...BUILD_LINES, '#5 exporting layers DONE 0.1s']
+        const failed = opts.failingBuild === true
+        const target: ObjectRef = {
+          class: 'image',
+          id: preview.request.spec.tag,
+          name: preview.request.spec.tag,
+        }
+        return [
+          ...lines.map((line) =>
+            ev({
+              type: 'ContainerBuildOutput',
+              data: { request_id: cmd.data.request_id, line },
+            }),
+          ),
+          ev({
+            type: 'ContainerOperationFinished',
+            data: {
+              request_id: cmd.data.request_id,
+              outcome: {
+                preview_id: preview.preview_id,
+                command: preview.command,
+                overall: failed ? 'failed' : 'succeeded',
+                objects: [
+                  {
+                    object: target,
+                    status: failed ? ('failed' as const) : ('succeeded' as const),
+                    // The same sentence that was streamed, not a paraphrase of it: the operator
+                    // reads the failure twice and both readings are the builder's own.
+                    error: failed ? BUILD_FAILED_SOLVE : null,
+                  },
+                ],
+                discrepancies: [],
+              },
+            },
+          }),
+        ]
+      }
       // Per object, because one argv covering four containers is still four answers. The
       // outcomes are attributed to the targets the preview named, so an object that vanished is
       // still accounted for instead of disappearing from the report with it.

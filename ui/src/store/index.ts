@@ -721,6 +721,15 @@ export interface ContainerOperation {
   preview?: OperationPreview
   outcome?: OperationOutcome
   refusal?: OperationRefusal
+  /**
+   * US7 FR-021: an image build's own output, line by line, as the builder wrote it.
+   *
+   * Only builds produce this, and only while one is running. It is bounded because a build log is
+   * unbounded and this is a pane, not an archive: a build that prints a hundred thousand layer
+   * lines must not grow the store until the window stalls. The bound keeps the *end*, since the
+   * three lines that say why a build failed are its last ones.
+   */
+  buildOutput?: string[]
 }
 
 /**

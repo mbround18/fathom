@@ -21,6 +21,14 @@ import type { StreamEvent } from '@/protocol/types'
 
 import type { Draft } from '../draft'
 
+/**
+ * How many of a build's lines the pane keeps.
+ *
+ * The tail rather than the head: a build log is unbounded and this is a pane, not an archive, and
+ * the three lines that say why a build failed are its last ones.
+ */
+const BUILD_OUTPUT_KEPT = 2000
+
 /** Whether `handleContainers` owns this event. */
 export function isContainerEvent(event: StreamEvent): boolean {
   switch (event.type) {
@@ -32,6 +40,7 @@ export function isContainerEvent(event: StreamEvent): boolean {
     case 'ContainerOperationPreviewed':
     case 'ContainerOperationFinished':
     case 'ContainerOperationRefused':
+    case 'ContainerBuildOutput':
     case 'ContainerLogBatch':
     case 'ContainerSessionOutput':
     case 'ContainerSessionClosed':
@@ -93,6 +102,19 @@ export function handleContainers(d: Draft, event: StreamEvent): void {
       const rt = d.edit('containerRuntime')
       if (rt.operation?.requestId !== event.data.request_id) return
       rt.operation = { ...rt.operation, phase: 'finished', outcome: event.data.outcome }
+      return
+    }
+    // FR-021: a build is watched, not waited for. The lines are appended verbatim and unprefixed
+    // — a summarised build log is one nobody can search — and only for the operation on screen,
+    // so a line from a build the operator has moved on from lands nowhere.
+    case 'ContainerBuildOutput': {
+      const rt = d.edit('containerRuntime')
+      if (rt.operation?.requestId !== event.data.request_id) return
+      const kept = [...(rt.operation.buildOutput ?? []), event.data.line]
+      rt.operation = {
+        ...rt.operation,
+        buildOutput: kept.length > BUILD_OUTPUT_KEPT ? kept.slice(-BUILD_OUTPUT_KEPT) : kept,
+      }
       return
     }
     // A refusal is the operator's answer, not a log line (FR-014): it is kept on the operation so

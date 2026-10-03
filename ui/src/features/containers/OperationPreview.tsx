@@ -231,6 +231,25 @@ function Body() {
         </p>
       )}
 
+      {/* FR-021: a build is watched rather than waited for, so its own output is on screen while
+          it runs and stays there once it has finished — the lines that say why a build failed are
+          the ones the operator came for, and a spinner that resolved into a verdict would have
+          thrown them away. Verbatim and unprefixed: a reworded build error is unsearchable. */}
+      {operation.buildOutput !== undefined && operation.buildOutput.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="text-xs text-muted-foreground">
+            {operation.phase === 'finished' ? 'The builder said:' : 'The builder is saying:'}
+          </p>
+          <pre
+            data-testid="operation-build-output"
+            data-lines={String(operation.buildOutput.length)}
+            className="max-h-48 min-w-0 overflow-auto border border-border bg-muted/40 p-2 font-mono text-[11px] leading-snug break-all whitespace-pre-wrap"
+          >
+            {operation.buildOutput.join('\n')}
+          </pre>
+        </div>
+      )}
+
       {operation.outcome && <Outcome outcome={operation.outcome} />}
 
       <div className="flex shrink-0 gap-2">

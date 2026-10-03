@@ -23,8 +23,10 @@ import type { KindRuntimeKind } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { ContainerGroupList } from './ContainerGroupList'
+import { CreateContainerForm } from './CreateForms'
 import { ContainerStreams } from './ContainerStreams'
 import { groupKey, type Selection } from './labels'
+import { OperationPreview } from './OperationPreview'
 import { ProjectActions } from './ProjectActions'
 import { UsagePanel } from './UsagePanel'
 
@@ -88,7 +90,9 @@ export function ContainersScene() {
   const stale = useStore((s) => s.containerRuntime.stale)
   const refresh = useStore((s) => s.refreshContainerInventory)
   const dismiss = useStore((s) => s.dismissContainerOperation)
+  const operation = useStore((s) => s.containerRuntime.operation)
   const [selected, setSelected] = useState<Selection | null>(null)
+  const [creating, setCreating] = useState(false)
 
   // No open-read here: navigating to a section already sends its `refreshCmd`, which for this
   // one is `RefreshContainerInventory { classes: ['container'] }`. A second read from the scene
@@ -157,6 +161,17 @@ export function ContainersScene() {
         </p>
         <Button
           size="sm"
+          variant={creating ? 'default' : 'ghost'}
+          data-testid="containers-create"
+          disabled={operation !== undefined}
+          onClick={() => {
+            setCreating((c) => !c)
+          }}
+        >
+          Run a container
+        </Button>
+        <Button
+          size="sm"
           variant="ghost"
           data-testid="containers-refresh"
           onClick={() => {
@@ -186,6 +201,25 @@ export function ContainersScene() {
           </time>{' '}
           and is no longer being updated: {stale}
         </p>
+      )}
+
+      {/* Form-driven and nothing more (FR-019): the form collects fields and ends at a preview,
+          and the preview that follows is where the argv is approved. */}
+      {creating && operation === undefined && (
+        <CreateContainerForm
+          onDone={() => {
+            setCreating(false)
+          }}
+        />
+      )}
+
+      {/* A creation belongs to no row, so its preview cannot live beside one: with nothing
+          selected this is the only place it can appear. When a row *is* selected, `ProjectActions`
+          renders it there instead — one preview on screen, never two (FR-029). */}
+      {operation !== undefined && selected === null && (
+        <div className="shrink-0 border-t border-border bg-background/60 p-3">
+          <OperationPreview />
+        </div>
       )}
 
       <ContainerGroupList
