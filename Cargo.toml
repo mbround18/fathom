@@ -127,3 +127,10 @@ rand08 = { package = "rand", version = "0.8" }
 too_many_lines = "warn"
 # Additional code quality checks
 cognitive_complexity = "warn"
+
+# A pseudo-terminal for interactive container sessions (048). `docker exec -t` refuses a stdin that
+# is not a terminal and nothing in std opens one, so the pty in
+# `backend::container_runtime::session` is raw `openpty`/`ioctl`. Already in the lockfile
+# transitively, so naming it directly adds no download.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

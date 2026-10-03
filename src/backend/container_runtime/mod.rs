@@ -12,9 +12,11 @@ pub mod cluster_link;
 pub mod compose;
 pub mod grouping;
 pub mod inventory;
+pub mod logs;
 pub mod mutate;
 pub mod preview;
 pub mod probe;
+pub mod session;
 pub mod stream;
 
 use super::kind::{CmdOutput, RunError, Runner};

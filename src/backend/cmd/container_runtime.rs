@@ -18,8 +18,10 @@ use crate::backend::container_runtime::adoption::{
 };
 use crate::backend::container_runtime::preview::{PreviewContext, PreviewStore};
 use crate::backend::container_runtime::{
-    Cli, cluster_link, compose, grouping, inventory, mutate, probe,
+    self as container_runtime, Cli, cluster_link, compose, grouping, inventory, logs, mutate,
+    probe, session,
 };
+use crate::backend::log_streams::{CloseGuard, StreamSink};
 use crate::backend::state::BackendState;
 use crate::backend::{events, kind, persistence};
 use crate::protocol::{
@@ -113,14 +115,30 @@ pub(super) async fn handle(
             )
             .await;
         }
-        BackendCmd::StartContainerLogStream { .. } | BackendCmd::StopContainerLogStream { .. } => {
-            // T056-T058: the log follow, over `container_runtime::stream`.
+        BackendCmd::StartContainerLogStream {
+            stream_id,
+            container_id,
+            follow,
+            tail_lines,
+        } => start_log_stream(state, sender, stream_id, &container_id, follow, tail_lines),
+        BackendCmd::StopContainerLogStream { stream_id } => state.log_stream.stop(stream_id),
+        BackendCmd::StartContainerSession {
+            stream_id,
+            container_id,
+            shell,
+        } => start_session(state, sender, stream_id, &container_id, shell.as_deref()),
+        BackendCmd::StopContainerSession { stream_id } => stop_session(state, stream_id),
+        BackendCmd::SendContainerSessionInput { stream_id, data } => {
+            send_session_input(state, sender, stream_id, &data);
         }
-        BackendCmd::StartContainerSession { .. }
-        | BackendCmd::StopContainerSession { .. }
-        | BackendCmd::SendContainerSessionInput { .. }
-        | BackendCmd::ResizeContainerSession { .. } => {
-            // T059-T062: the interactive session, over the PTY machinery 002 built.
+        BackendCmd::ResizeContainerSession {
+            stream_id,
+            cols,
+            rows,
+        } => {
+            if let Some(session) = session_matching(state, stream_id) {
+                session.resize(cols, rows);
+            }
         }
         BackendCmd::StartContainerUsageSampling { .. } | BackendCmd::StopContainerUsageSampling => {
             // T065-T068: the bounded usage sampler.
@@ -170,6 +188,12 @@ pub(crate) struct RuntimeState {
     inventory_as_of: Option<String>,
     /// Previews taken this session. Bounded; see `preview::PreviewStore`.
     previews: PreviewStore,
+    /// The one live interactive session, if any.
+    ///
+    /// One, deliberately, exactly as pod exec is one: a second start replaces the first and
+    /// replacing it ends it. Keeping several would mean a shell the operator has navigated away
+    /// from still holding a process, which is what FR-036 forbids.
+    session: Option<super::super::container_runtime::session::Session>,
 }
 
 impl RuntimeState {
@@ -685,6 +709,171 @@ fn release(state: &mut BackendState, sender: &Sender<BackendEventEnvelope>, proj
             sender,
             format!("Could not record release of '{project}': {detail}"),
         ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Logs and the interactive session
+// ---------------------------------------------------------------------------
+
+/// Follows one container's output (FR-035).
+///
+/// Ungated on purpose: reading is readable whether the project was adopted or not, and the gate
+/// says so (`adoption::requirement` classifies this `Free`). It runs on the application's one
+/// stream registry rather than a second one of its own, so a context switch or a shutdown that
+/// calls `stop_all` ends container follows too, and so the "exactly one close per stream" rule
+/// stays in the one place that already enforces it.
+fn start_log_stream(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    stream_id: crate::protocol::StreamId,
+    container_id: &str,
+    follow: bool,
+    tail_lines: Option<u32>,
+) {
+    let guard = CloseGuard::new(StreamSink {
+        stream_id,
+        route: Route::global(section_keys::system()),
+        seq: state.cluster.seq.clone(),
+        sender: sender.clone(),
+    });
+    // A client id below the reserved floor would let a client collide with a backend-owned stream
+    // and silently take over its pane; the pods path refuses the same way.
+    let refused = (stream_id.0 < crate::protocol::CLIENT_STREAM_ID_MIN)
+        .then(|| format!("Log stream id {} is reserved for the backend.", stream_id.0));
+    let bin = state.containers.cli.map(|cli| cli.bin().to_owned());
+    let args = logs::argv(container_id, follow, tail_lines);
+
+    state
+        .log_stream
+        .spawn(guard, false, move |mut guard| async move {
+            if let Some(reason) = refused {
+                guard.failed(reason);
+                return;
+            }
+            // No probe behind us means an unknown runtime, not an empty log. Saying which is the
+            // difference between "nothing was written" and "we never looked".
+            let Some(bin) = bin else {
+                guard.failed(
+                    "Fathom has not found a container runtime on this machine yet.".to_owned(),
+                );
+                return;
+            };
+            logs::follow(
+                guard,
+                std::sync::Arc::new(container_runtime::stream::SystemStreamRunner),
+                bin,
+                args,
+            )
+            .await;
+        });
+}
+
+/// Opens an interactive session inside one container (FR-036).
+///
+/// Gated: the adoption check has already run by the time this is reached, so arriving here means
+/// the operator holds the grant (or the container backs a cluster Fathom manages).
+fn start_session(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    stream_id: crate::protocol::StreamId,
+    container_id: &str,
+    shell: Option<&str>,
+) {
+    let seq = state.cluster.seq.as_ref();
+    // Replacing a session ends the one being replaced, rather than leaving its shell running
+    // behind a pane nobody can see any more.
+    if let Some(previous) = state.containers.session.take() {
+        previous.close();
+    }
+    let Some(cli) = state.containers.cli else {
+        emit(
+            seq,
+            sender,
+            StreamEvent::ContainerSessionClosed {
+                stream_id,
+                error: Some(
+                    "Fathom has not found a container runtime on this machine yet.".to_owned(),
+                ),
+            },
+        );
+        return;
+    };
+    let sink = StreamSink {
+        stream_id,
+        route: Route::global(section_keys::system()),
+        seq: state.cluster.seq.clone(),
+        sender: sender.clone(),
+    };
+    match session::Session::open(
+        stream_id,
+        cli.bin(),
+        &session::argv(container_id, shell),
+        sink,
+    ) {
+        Ok(session) => state.containers.session = Some(session),
+        // The runtime's own words, verbatim (FR-004). A session that cannot start has to say why
+        // in the pane that is waiting for it.
+        Err(e) => emit(
+            seq,
+            sender,
+            StreamEvent::ContainerSessionClosed {
+                stream_id,
+                error: Some(e.to_string()),
+            },
+        ),
+    }
+}
+
+/// The live session, but only if it is the one the command names.
+///
+/// A command for a stream that has already closed must do nothing rather than reach the session
+/// that replaced it: input typed into a closed pane cannot be allowed to land in a live shell.
+fn session_matching(
+    state: &mut BackendState,
+    stream_id: crate::protocol::StreamId,
+) -> Option<&mut session::Session> {
+    state
+        .containers
+        .session
+        .as_mut()
+        .filter(|s| s.stream_id == stream_id)
+}
+
+fn stop_session(state: &mut BackendState, stream_id: crate::protocol::StreamId) {
+    if session_matching(state, stream_id).is_some()
+        && let Some(session) = state.containers.session.take()
+    {
+        // `close` emits nothing itself; the reader thread sees its EOF and sends the one
+        // `ContainerSessionClosed` for this stream.
+        session.close();
+    }
+}
+
+fn send_session_input(
+    state: &mut BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    stream_id: crate::protocol::StreamId,
+    data: &str,
+) {
+    let failed = match session_matching(state, stream_id) {
+        None => return,
+        Some(session) => session.write(data).err(),
+    };
+    if let Some(e) = failed {
+        // The shell is gone and the terminal will not take input. Ending here rather than
+        // swallowing it means the pane is told once, instead of accepting keystrokes into nothing.
+        if let Some(session) = state.containers.session.take() {
+            session.close();
+        }
+        emit(
+            state.cluster.seq.as_ref(),
+            sender,
+            StreamEvent::ContainerSessionClosed {
+                stream_id,
+                error: Some(e.to_string()),
+            },
+        );
     }
 }
 

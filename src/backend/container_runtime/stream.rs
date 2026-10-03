@@ -39,6 +39,23 @@ pub trait RunningProcess: Send {
     /// Asks the process to stop. Idempotent — stopping a process that already exited is not an
     /// error, because a follow whose container died races with the operator closing the pane.
     fn kill(&self);
+    /// A kill that outlives this handle's borrow.
+    ///
+    /// `lines()` hands back a borrowed receiver, so reading it means owning the process — and the
+    /// reader has to live on a blocking thread, because the receiver is synchronous. That leaves
+    /// whoever wants to stop a quiet follow with nothing to stop it by: the process is on the
+    /// other thread, parked in `recv`, and will stay there for as long as the container stays
+    /// silent. This is that something.
+    fn killer(&self) -> Killer;
+}
+
+/// Stops a process from somewhere the process itself is not.
+pub struct Killer(Box<dyn Fn() + Send + Sync>);
+
+impl Killer {
+    pub fn kill(&self) {
+        (self.0)();
+    }
 }
 
 /// Spawns a long-running invocation. Argument arrays only; never a shell string.
@@ -130,9 +147,18 @@ impl RunningProcess for SpawnedProcess {
     }
 
     fn kill(&self) {
-        if let Ok(mut child) = self.handle.lock() {
-            drop(child.kill());
-        }
+        kill_child(&self.handle);
+    }
+
+    fn killer(&self) -> Killer {
+        let handle = Arc::clone(&self.handle);
+        Killer(Box::new(move || kill_child(&handle)))
+    }
+}
+
+fn kill_child(handle: &Arc<Mutex<Child>>) {
+    if let Ok(mut child) = handle.lock() {
+        drop(child.kill());
     }
 }
 
@@ -175,6 +201,13 @@ impl RunningProcess for ScriptedProcess {
     fn kill(&self) {
         self.killed
             .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    fn killer(&self) -> Killer {
+        let killed = Arc::clone(&self.killed);
+        Killer(Box::new(move || {
+            killed.store(true, std::sync::atomic::Ordering::Release);
+        }))
     }
 }
 
