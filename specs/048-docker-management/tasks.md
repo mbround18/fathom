@@ -77,7 +77,7 @@ its own workers; do not pass `--workers`.
 - [X] T028 Implement `src/backend/container_runtime/probe.rs` mapping the existing `kind::detect_prerequisites` result onto `RuntimePresence`, including the `Unreachable` case where the binary exists and the daemon answers with a permission error; reuse the existing `tokio::time::timeout` + `spawn_blocking` wrapper rather than adding a second probe
 - [X] T029 Tests for presence against a mock runner covering all four states, asserting that none of them produces a "no containers" message and that `Unreachable` carries the runtime's own text and names the endpoint
 - [X] T030 Create `src/backend/cmd/container_runtime.rs` with the dispatch skeleton for every new command and wire it into `src/backend/cmd.rs`; each arm routes through the adoption gate where applicable
-- [ ] T031 [P] Add fake-backend handlers for every new command and event to `ui/tests/support/`, scriptable enough to reach the awkward acceptance scenarios: unreachable socket, 500 containers, corrupt definition file, stale preview
+- [X] T031 [P] Add fake-backend handlers for every new command and event to `ui/tests/support/`, scriptable enough to reach the awkward acceptance scenarios: unreachable socket, 500 containers, corrupt definition file, stale preview
 - [ ] T032 [P] Add the UI store slice for runtime state in `ui/src/store/` and the sidebar entry in `ui/src/layout/`, rendered only when presence is not `Absent` (FR-002) — the entry's absence is a presence decision, not a feature flag
 
 **Checkpoint**: protocol is defined once and generated, adoption gates every mutation and fails

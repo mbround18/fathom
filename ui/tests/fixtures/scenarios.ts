@@ -40,6 +40,7 @@ import {
   fetchManifestsReply,
   previewKubeconfigReply,
 } from './manifest-export'
+import { containerReplies, manyContainers } from './containers'
 
 /** Mutable backend-side state the fake keeps between commands. */
 export interface FakeBackendState {
@@ -344,6 +345,66 @@ export const SCENARIOS = {
   'remembered-context': rememberedContext('kind-b'),
   'remembered-context-removed': rememberedContext('gone-prod'),
   'context-unauthorized': brokenActiveContext('Unauthorized'),
+  // 048-docker-management: one scenario per awkward acceptance case, because none of them —
+  // a socket that refuses, five hundred containers, a definition file that will not parse, a
+  // preview that has gone stale — can be scheduled against a real daemon.
+  containers: {
+    description: 'Runtime ready: three projects, two strays and a kind node, nothing adopted.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies() },
+  },
+  'containers-adopted': {
+    description: 'As containers, but `shop` is adopted and fathom-dev is Fathom-managed.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({ adopted: ['shop'], managedClusters: ['fathom-dev'] }),
+    },
+  },
+  'containers-absent': {
+    description: 'No container runtime on PATH: the scene is absent, not an empty error screen.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies({ presence: 'absent' }) },
+  },
+  'containers-stopped': {
+    description: 'Runtime installed and not running — said in those words, not "no containers".',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies({ presence: 'stopped' }) },
+  },
+  'containers-unreachable': {
+    description: 'The socket refuses: the runtime\'s own permission text, naming the socket.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies({ presence: 'unreachable' }) },
+  },
+  'containers-lost': {
+    description: 'Ready once, then the daemon stops answering: the list goes stale, not blank.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies({ unavailableAfter: 1 }) },
+  },
+  'containers-500': {
+    description: 'One project with 500 containers, for the render budget at 10k objects.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies({ containers: manyContainers() }) },
+  },
+  'containers-corrupt-definition': {
+    description: '`shop` declares a definition file that will not parse; the project still lists.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies({ corruptDefinition: 'shop', adopted: ['shop'] }) },
+  },
+  'containers-stale-preview': {
+    description: 'Every issue is refused as stale, whatever was previewed.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: { ...cluster(), ...containerReplies({ adopted: ['shop'], stalePreview: true }) },
+  },
   manual: {
     description: 'Silent backend: only BackendStarted; tests drive everything with emit().',
     initialState: { context: null, namespaceFilter: [] },

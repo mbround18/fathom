@@ -14,4 +14,4 @@ export type ContainerInventory = { projects: Array<Project>, images: Array<Remov
  * When this reading was taken. Everything derived from it — previews above all — is only
  * as true as this timestamp.
  */
-asOf: string, };
+as_of: string, };

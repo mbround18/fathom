@@ -172,7 +172,6 @@ pub enum DefinitionFileState {
 /// `ContainerInventoryUpdated` several times the size of every other `StreamEvent`, and the enum
 /// is sized by its largest variant whichever one is actually in flight.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct ContainerInventory {
     pub projects: Vec<Project>,
     pub images: Vec<RemovableObject>,
