@@ -16,9 +16,9 @@
 use std::collections::VecDeque;
 
 use crate::protocol::v1::{
-    ClusterBreak, Container, ContainerSpec, ImageBuildSpec, LifecycleAction,
-    NetworkSpec, ObjectClass, ObjectRef, OperationPreview, OperationRequest, OperationScope,
-    ProjectAction, RemovableObject, RemovalLine, VolumeSpec,
+    ClusterBreak, Container, ContainerSpec, ImageBuildSpec, LifecycleAction, NetworkSpec,
+    ObjectClass, ObjectRef, OperationPreview, OperationRequest, OperationScope, ProjectAction,
+    RemovableObject, RemovalLine, RuntimeContainerState, VolumeSpec,
 };
 
 use super::Cli;
@@ -87,12 +87,42 @@ impl NotPreviewable {
 #[derive(Debug, Clone)]
 pub struct StoredPreview {
     pub preview: OperationPreview,
+    /// What the runtime should look like afterwards, per object.
+    ///
+    /// Derived here rather than in `mutate`, because the request is what says what success means
+    /// and this is the last place it is read. `mutate::verify` compares a fresh reading against
+    /// this (FR-023): an operation that reported success and left the object exactly as it was is
+    /// a discrepancy the operator must be told about, not a green tick.
+    pub expected: Vec<(ObjectRef, Expected)>,
     /// Every object the argv names, in argv order, so a per-object outcome can be attributed.
     pub targets: Vec<ObjectRef>,
     /// What the adoption gate must be satisfied for. `None` for an operation that creates
     /// something new: there is no existing project whose work it could disturb, and demanding a
     /// grant over a project that does not exist yet would make creation unreachable.
     pub scope: Option<OperationScope>,
+}
+
+/// What one object should look like once the operation has run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expected {
+    /// The object is gone — every removal, and a `compose down`.
+    Absent,
+    /// The container is in this state.
+    ContainerState(RuntimeContainerState),
+}
+
+/// The state a lifecycle verb promises to leave a container in.
+///
+/// `Restart` and `Up` promise `Running`: a verb whose whole point is that the container comes back
+/// is not satisfied by one that went away.
+fn promised(action: LifecycleAction) -> RuntimeContainerState {
+    match action {
+        LifecycleAction::Start | LifecycleAction::Restart | LifecycleAction::Unpause => {
+            RuntimeContainerState::Running
+        }
+        LifecycleAction::Stop | LifecycleAction::Kill => RuntimeContainerState::Exited,
+        LifecycleAction::Pause => RuntimeContainerState::Paused,
+    }
 }
 
 /// The previews taken this session, newest last.
@@ -225,39 +255,15 @@ pub fn build(
         OperationRequest::ProjectLifecycle {
             project,
             action: ProjectAction::Down,
-        } => {
-            let mut lines: Vec<RemovalLine> = targets
-                .iter()
-                .map(|object| RemovalLine {
-                    object: object.clone(),
-                    size_bytes: None,
-                    project: Some(project.clone()),
-                })
-                .collect();
-            lines.extend(
-                ctx.networks
-                    .iter()
-                    .filter(|n| n.project.as_deref() == Some(project.as_str()))
-                    .map(|n| RemovalLine {
-                        object: ObjectRef {
-                            class: n.class,
-                            id: n.id.clone(),
-                            name: n.name.clone(),
-                        },
-                        size_bytes: n.size_bytes,
-                        project: n.project.clone(),
-                    }),
-            );
-            (
-                lines,
-                vec![project.clone()],
-                vec![],
-                // The project's own name, not a constant: a confirmation that is the same word
-                // every time is a reflex, and a reflex confirms the wrong project as readily as
-                // the right one.
-                Some(project.clone()),
-            )
-        }
+        } => (
+            down_removals(ctx, project, &targets),
+            vec![project.clone()],
+            vec![],
+            // The project's own name, not a constant: a confirmation that is the same word every
+            // time is a reflex, and a reflex confirms the wrong project as readily as the right
+            // one.
+            Some(project.clone()),
+        ),
         // One resolution fills all four, so the list, the radius and the exclusions cannot
         // disagree about the same selection.
         _ => match radius {
@@ -268,10 +274,13 @@ pub fn build(
             None => (vec![], vec![], vec![], None),
         },
     };
+
     debug_assert!(
         !destructive || required_confirmation.is_some(),
         "a destructive preview without a typed confirmation would skip the guard entirely"
     );
+    let expected = expectations(request, &targets, &removals);
+
     Ok(StoredPreview {
         preview: OperationPreview {
             preview_id,
@@ -288,7 +297,84 @@ pub fn build(
         },
         targets,
         scope,
+        expected,
     })
+}
+
+/// What a `compose down` takes with it: the project's containers, and the networks compose
+/// created for it.
+///
+/// Enumerated by identity, every one named — a count would be exactly what FR-023 forbids.
+/// Volumes are absent on purpose: `compose down` leaves them unless asked with `-v`, and listing
+/// them would warn about a loss that is not going to happen.
+fn down_removals(
+    ctx: &PreviewContext<'_>,
+    project: &str,
+    targets: &[ObjectRef],
+) -> Vec<RemovalLine> {
+    let mut lines: Vec<RemovalLine> = targets
+        .iter()
+        .map(|object| RemovalLine {
+            object: object.clone(),
+            size_bytes: None,
+            project: Some(project.to_owned()),
+        })
+        .collect();
+    lines.extend(
+        ctx.networks
+            .iter()
+            .filter(|n| n.project.as_deref() == Some(project))
+            .map(|n| RemovalLine {
+                object: ObjectRef {
+                    class: n.class,
+                    id: n.id.clone(),
+                    name: n.name.clone(),
+                },
+                size_bytes: n.size_bytes,
+                project: n.project.clone(),
+            }),
+    );
+    lines
+}
+
+/// Every object the operation touches, paired with what it promised to leave behind.
+///
+/// A removal's promise is its removal line; a lifecycle verb's is a state. `mutate::verify` has
+/// nothing to check an operation against but this, so an object missing here is an object whose
+/// outcome nobody re-reads.
+fn expectations(
+    request: &OperationRequest,
+    targets: &[ObjectRef],
+    removals: &[RemovalLine],
+) -> Vec<(ObjectRef, Expected)> {
+    match request {
+        OperationRequest::Lifecycle { action, .. } => targets
+            .iter()
+            .map(|t| (t.clone(), Expected::ContainerState(promised(*action))))
+            .collect(),
+        OperationRequest::ProjectLifecycle { action, .. } => match action {
+            ProjectAction::Down => removals
+                .iter()
+                .map(|r| (r.object.clone(), Expected::Absent))
+                .collect(),
+            ProjectAction::Up | ProjectAction::Restart => targets
+                .iter()
+                .map(|t| {
+                    (
+                        t.clone(),
+                        Expected::ContainerState(RuntimeContainerState::Running),
+                    )
+                })
+                .collect(),
+        },
+        OperationRequest::Remove { .. } | OperationRequest::PruneSelection { .. } => removals
+            .iter()
+            .map(|r| (r.object.clone(), Expected::Absent))
+            .collect(),
+        // A creation has no object to verify until it exists, and the name it will take is not an
+        // identity the inventory can be checked against yet.
+        _ => vec![],
+    }
 }
 
 /// The scene a destructive request is resolved against: this reading of the runtime, and the

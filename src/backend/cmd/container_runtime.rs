@@ -512,7 +512,7 @@ async fn issue_operation(
     // The inventory may have been re-read since the preview was taken; that alone is harmless.
     // What is not harmless is the target set having changed under it, because then the argv names
     // objects the operator did not see, or no longer names ones they did.
-    if target_set_moved(&stored, &state.containers.containers) {
+    if target_set_moved(&stored, &state.containers) {
         refuse_operation(
             seq.as_ref(),
             sender,
@@ -531,10 +531,33 @@ async fn issue_operation(
     // second time even if the run itself fails half way.
     state.containers.previews.consume(preview_id);
 
+    // The preview is needed again after the run, to say what the fresh reading should show.
+    let stored_for_verify = stored.clone();
     let run =
         tokio::task::spawn_blocking(move || mutate::issue(&kind::SystemRunner, &stored)).await;
     match run {
-        Ok(Ok(outcome)) => {
+        Ok(Ok(mut outcome)) => {
+            // FR-020/FR-023: the runtime is asked again *before* the outcome is emitted, because
+            // what it now shows is part of the outcome. An operation that reported success and
+            // left the object exactly as it was is a discrepancy the operator is told about, and
+            // one that reported failure and did the thing anyway is one too.
+            refresh_inventory(state, sender).await;
+            let objects: Vec<crate::protocol::RemovableObject> = state
+                .containers
+                .images
+                .iter()
+                .chain(state.containers.volumes.iter())
+                .chain(state.containers.networks.iter())
+                .cloned()
+                .collect();
+            mutate::verify(
+                &mut outcome,
+                &stored_for_verify,
+                &mutate::AfterReading {
+                    containers: &state.containers.containers,
+                    objects: &objects,
+                },
+            );
             emit(
                 seq.as_ref(),
                 sender,
@@ -543,9 +566,6 @@ async fn issue_operation(
                     outcome,
                 },
             );
-            // FR-020: the UI reflects nothing until the runtime has been asked again. The outcome
-            // above says what the runtime reported; this says what the daemon now looks like.
-            refresh_inventory(state, sender).await;
         }
         Ok(Err(e)) => events::notify_error(seq.as_ref(), sender, runtime_error_text(&e)),
         Err(e) => events::notify_error(seq.as_ref(), sender, e.to_string()),
@@ -556,19 +576,30 @@ async fn issue_operation(
 ///
 /// By identity, not by count: a project that lost one container and gained another has the same
 /// number of members and a different argv.
+///
+/// Each target is looked for in the pool its own class lives in. Checking an image id against the
+/// container list would make every image removal look stale, which is a refusal the operator
+/// could never get past.
 fn target_set_moved(
     stored: &crate::backend::container_runtime::preview::StoredPreview,
-    containers: &[Container],
+    inventory: &RuntimeState,
 ) -> bool {
     // A creation names no existing object, so there is no set to have moved.
     if stored.targets.is_empty() {
         return false;
     }
-    if stored
-        .targets
-        .iter()
-        .any(|t| !containers.iter().any(|c| c.id == t.id))
-    {
+    let containers = &inventory.containers;
+    if stored.targets.iter().any(|t| {
+        let present = match t.class {
+            crate::protocol::ObjectClass::Container => containers.iter().any(|c| c.id == t.id),
+            crate::protocol::ObjectClass::Image => inventory.images.iter().any(|o| o.id == t.id),
+            crate::protocol::ObjectClass::Volume => inventory.volumes.iter().any(|o| o.id == t.id),
+            crate::protocol::ObjectClass::Network => {
+                inventory.networks.iter().any(|o| o.id == t.id)
+            }
+        };
+        !present
+    }) {
         return true;
     }
     match &stored.scope {

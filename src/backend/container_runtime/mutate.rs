@@ -14,11 +14,12 @@
 //! rephrased into something friendlier that no longer matches what a terminal would have said.
 
 use crate::protocol::v1::{
-    ObjectOutcome, ObjectRef, OperationOutcome, OperationRefusal, OutcomeStatus,
+    Container, Discrepancy, ObjectOutcome, ObjectRef, OperationOutcome, OperationRefusal,
+    OutcomeStatus, RemovableObject, RuntimeContainerState,
 };
 
 use super::super::kind::{CmdOutput, RunError, Runner};
-use super::preview::StoredPreview;
+use super::preview::{Expected, StoredPreview};
 
 /// Runs a stored preview.
 ///
@@ -153,6 +154,81 @@ pub fn confirmation_ok(
                 Err(OperationRefusal::ConfirmationMismatch)
             }
         }
+    }
+}
+
+/// A reading of the runtime taken *after* the operation ran.
+///
+/// Separate from the preview's reading on purpose: FR-023 is satisfied by asking the runtime
+/// again, not by trusting what it said while it was working.
+pub struct AfterReading<'a> {
+    pub containers: &'a [Container],
+    /// Images, volumes and networks together — a discrepancy is about an identity, and which pool
+    /// it came from does not change the question.
+    pub objects: &'a [RemovableObject],
+}
+
+/// Compares what the operation claimed with what the runtime now shows.
+///
+/// Both directions are reported. An object the outcome called succeeded that is still exactly as
+/// it was is the dangerous case — the operator would otherwise read a green tick and move on —
+/// but an object reported as failed that is nonetheless gone is also a discrepancy: the operation
+/// happened, and a UI that says it did not is lying in the other direction.
+///
+/// Objects the command never reached (`Skipped`) are not checked. Nothing was claimed about them.
+pub fn verify(outcome: &mut OperationOutcome, stored: &StoredPreview, after: &AfterReading<'_>) {
+    for (object, want) in &stored.expected {
+        let Some(reported) = outcome
+            .objects
+            .iter()
+            .find(|o| o.object.id == object.id)
+            .map(|o| o.status.clone())
+        else {
+            continue;
+        };
+        if reported == OutcomeStatus::Skipped {
+            continue;
+        }
+        let observed = observe(object, after);
+        let claimed = match (&reported, want) {
+            (OutcomeStatus::Succeeded, Expected::Absent) => "gone".to_owned(),
+            (_, Expected::Absent) => "still present".to_owned(),
+            (OutcomeStatus::Succeeded, Expected::ContainerState(s)) => state_word(s),
+            (_, Expected::ContainerState(s)) => format!("not {}", state_word(s)),
+        };
+        if claimed != observed {
+            outcome.discrepancies.push(Discrepancy {
+                object: object.clone(),
+                expected: claimed,
+                observed,
+            });
+        }
+    }
+}
+
+/// What the runtime now shows for one object, in the same words `verify` compares against.
+fn observe(object: &ObjectRef, after: &AfterReading<'_>) -> String {
+    if let Some(c) = after.containers.iter().find(|c| c.id == object.id) {
+        return state_word(&c.state);
+    }
+    if after.objects.iter().any(|o| o.id == object.id) {
+        return "still present".to_owned();
+    }
+    "gone".to_owned()
+}
+
+fn state_word(state: &RuntimeContainerState) -> String {
+    match state {
+        RuntimeContainerState::Created => "created".to_owned(),
+        RuntimeContainerState::Running => "running".to_owned(),
+        RuntimeContainerState::Paused => "paused".to_owned(),
+        RuntimeContainerState::Restarting => "restarting".to_owned(),
+        RuntimeContainerState::Removing => "removing".to_owned(),
+        RuntimeContainerState::Exited => "exited".to_owned(),
+        RuntimeContainerState::Dead => "dead".to_owned(),
+        // The runtime's own word, not "unknown": FR-021 means its vocabulary reaches the operator
+        // even when Fathom has no name for it.
+        RuntimeContainerState::Unknown(word) => word.clone(),
     }
 }
 
@@ -566,7 +642,9 @@ mod tests {
         };
         assert_eq!(
             preview::build("prev-8".to_owned(), &request, &ctx(&containers)).err(),
-            Some(preview::NotPreviewable::UnknownTarget("sha256:abc".to_owned()))
+            Some(preview::NotPreviewable::UnknownTarget(
+                "sha256:abc".to_owned()
+            ))
         );
     }
 
@@ -617,5 +695,202 @@ mod tests {
         };
         let stored = preview::build("prev-10".to_owned(), &start, &context).unwrap();
         assert!(stored.preview.breaks_clusters.is_empty());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Post-verification (FR-023)
+
+    fn removable(class: ObjectClass, name: &str) -> crate::protocol::v1::RemovableObject {
+        crate::protocol::v1::RemovableObject {
+            class,
+            id: format!("{name}-id"),
+            name: name.to_owned(),
+            size_bytes: Some(1024),
+            tagged: None,
+            created_at: None,
+            project: Some("shop".to_owned()),
+            referenced_by: vec![],
+        }
+    }
+
+    fn outcome_for(object: &ObjectRef, status: OutcomeStatus) -> OperationOutcome {
+        let objects = vec![ObjectOutcome {
+            object: object.clone(),
+            status,
+            error: None,
+        }];
+        OperationOutcome {
+            preview_id: "prev-v".to_owned(),
+            command: vec!["docker".to_owned(), "volume".to_owned(), "rm".to_owned()],
+            overall: OperationOutcome::overall_from(&objects),
+            objects,
+            discrepancies: vec![],
+        }
+    }
+
+    fn stored_expecting(object: &ObjectRef, want: preview::Expected) -> preview::StoredPreview {
+        preview::StoredPreview {
+            preview: crate::protocol::v1::OperationPreview {
+                preview_id: "prev-v".to_owned(),
+                request: OperationRequest::Remove {
+                    objects: vec![object.clone()],
+                },
+                command: vec!["docker".to_owned(), "volume".to_owned(), "rm".to_owned()],
+                destructive: true,
+                total_size_bytes: None,
+                removals: vec![],
+                blast_radius: vec![],
+                excluded: vec![],
+                breaks_clusters: vec![],
+                required_confirmation: Some(object.name.clone()),
+                as_of: "2026-10-02T12:00:00Z".to_owned(),
+            },
+            targets: vec![object.clone()],
+            scope: None,
+            expected: vec![(object.clone(), want)],
+        }
+    }
+
+    /// The dangerous case. Without this the operator reads a green tick over a volume that is
+    /// still there, and the next thing they do is build on a deletion that never happened.
+    #[test]
+    fn a_removal_that_reported_success_and_changed_nothing_is_a_discrepancy() {
+        let volume = removable(ObjectClass::Volume, "shop-data");
+        let object = ObjectRef {
+            class: volume.class,
+            id: volume.id.clone(),
+            name: volume.name.clone(),
+        };
+        let mut outcome = outcome_for(&object, OutcomeStatus::Succeeded);
+        let stored = stored_expecting(&object, preview::Expected::Absent);
+        let objects = [volume];
+
+        verify(
+            &mut outcome,
+            &stored,
+            &AfterReading {
+                containers: &[],
+                objects: &objects,
+            },
+        );
+        assert_eq!(
+            outcome.discrepancies,
+            vec![Discrepancy {
+                object,
+                expected: "gone".to_owned(),
+                observed: "still present".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_removal_the_runtime_actually_performed_reports_nothing() {
+        let object = ObjectRef {
+            class: ObjectClass::Volume,
+            id: "shop-data-id".to_owned(),
+            name: "shop-data".to_owned(),
+        };
+        let mut outcome = outcome_for(&object, OutcomeStatus::Succeeded);
+        let stored = stored_expecting(&object, preview::Expected::Absent);
+
+        verify(
+            &mut outcome,
+            &stored,
+            &AfterReading {
+                containers: &[],
+                objects: &[],
+            },
+        );
+        assert!(
+            outcome.discrepancies.is_empty(),
+            "{:?}",
+            outcome.discrepancies
+        );
+    }
+
+    /// The other direction, and just as much a lie: the runtime said it failed and the object is
+    /// gone. Reporting only the first direction would leave this one silent.
+    #[test]
+    fn an_operation_that_reported_failure_and_happened_anyway_is_a_discrepancy() {
+        let object = ObjectRef {
+            class: ObjectClass::Volume,
+            id: "shop-data-id".to_owned(),
+            name: "shop-data".to_owned(),
+        };
+        let mut outcome = outcome_for(&object, OutcomeStatus::Failed);
+        let stored = stored_expecting(&object, preview::Expected::Absent);
+
+        verify(
+            &mut outcome,
+            &stored,
+            &AfterReading {
+                containers: &[],
+                objects: &[],
+            },
+        );
+        assert_eq!(
+            outcome
+                .discrepancies
+                .first()
+                .map(|d| (d.expected.clone(), d.observed.clone())),
+            Some(("still present".to_owned(), "gone".to_owned()))
+        );
+    }
+
+    /// A stop whose container is still running. The state is the runtime's own word, so the
+    /// operator reads the same thing a terminal would have shown them.
+    #[test]
+    fn a_lifecycle_verb_whose_container_did_not_move_is_a_discrepancy() {
+        let containers = vec![container("aaaa000000001", "proj-a-1", Some("proj"))];
+        let object = ObjectRef {
+            class: ObjectClass::Container,
+            id: "aaaa000000001".to_owned(),
+            name: "proj-a-1".to_owned(),
+        };
+        let mut outcome = outcome_for(&object, OutcomeStatus::Succeeded);
+        let stored = stored_expecting(
+            &object,
+            preview::Expected::ContainerState(RuntimeContainerState::Exited),
+        );
+
+        verify(
+            &mut outcome,
+            &stored,
+            &AfterReading {
+                containers: &containers,
+                objects: &[],
+            },
+        );
+        assert_eq!(
+            outcome
+                .discrepancies
+                .first()
+                .map(|d| (d.expected.clone(), d.observed.clone())),
+            Some(("exited".to_owned(), "running".to_owned()))
+        );
+    }
+
+    /// Nothing was claimed about a target the command never reached, so there is nothing to
+    /// contradict — and inventing a discrepancy here would bury the real ones.
+    #[test]
+    fn a_target_the_command_never_reached_is_not_verified() {
+        let object = ObjectRef {
+            class: ObjectClass::Volume,
+            id: "shop-data-id".to_owned(),
+            name: "shop-data".to_owned(),
+        };
+        let mut outcome = outcome_for(&object, OutcomeStatus::Skipped);
+        let stored = stored_expecting(&object, preview::Expected::Absent);
+        let objects = [removable(ObjectClass::Volume, "shop-data")];
+
+        verify(
+            &mut outcome,
+            &stored,
+            &AfterReading {
+                containers: &[],
+                objects: &objects,
+            },
+        );
+        assert!(outcome.discrepancies.is_empty());
     }
 }
