@@ -10,6 +10,8 @@ import { useEffect, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { ClusterNodes } from '@/features/containers/ClusterNodes'
+import { useBackingContainers } from '@/features/containers/useBackingContainers'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import type { KindClusterProfileId } from '@/protocol/types'
@@ -147,6 +149,8 @@ export function KindClusterPanel() {
   const [confirmingCreate, setConfirmingCreate] = useState(false)
   const [deleting, setDeleting] = useState<string | undefined>(undefined)
 
+  useBackingContainers()
+
   useEffect(() => {
     request({ type: 'RefreshKindPrerequisites' }).catch(() => undefined)
     request({ type: 'RefreshKindClusters' }).catch(() => undefined)
@@ -225,27 +229,33 @@ export function KindClusterPanel() {
           {clusters.map((c) => (
             <li
               key={c.name}
-              className="flex items-center justify-between gap-2"
+              className="flex flex-col gap-1"
               data-testid="kind-row"
               data-cluster={c.name}
             >
-              <span>
-                {c.name} <span className="text-muted-foreground">({c.status})</span>
-                {activeContext === c.context_name && (
-                  <span className="ml-1" data-testid="kind-selected-badge">
-                    · currently selected
-                  </span>
-                )}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                data-testid="kind-delete"
-                disabled={c.status === 'in_progress' || !ready}
-                onClick={() => setDeleting(c.name)}
-              >
-                Delete
-              </Button>
+              <div className="flex items-center justify-between gap-2">
+                <span>
+                  {c.name} <span className="text-muted-foreground">({c.status})</span>
+                  {activeContext === c.context_name && (
+                    <span className="ml-1" data-testid="kind-selected-badge">
+                      · currently selected
+                    </span>
+                  )}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-testid="kind-delete"
+                  disabled={c.status === 'in_progress' || !ready}
+                  onClick={() => setDeleting(c.name)}
+                >
+                  Delete
+                </Button>
+              </div>
+              {/* 048 US4: a kind node is a container on this daemon, and the cluster list is the
+                  only place an operator sees the cluster as a whole. Both sides read the same
+                  link, so neither can claim a cluster is fine while its nodes are stopped. */}
+              <ClusterNodes cluster={c.name} />
             </li>
           ))}
         </ul>
