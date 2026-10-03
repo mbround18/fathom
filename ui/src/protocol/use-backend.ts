@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import type { StoreApi } from 'zustand'
 
 import { useStore, type StoreState } from '@/store'
-import { applySubscriptionInfo } from '@/store/handlers/hosted'
+import { applySubscriptionInfo, isHosted } from '@/store/handlers/hosted'
 import { ingest } from '@/store/ingest'
 
 import { BOOTSTRAP_CMDS } from './commands'
@@ -97,6 +97,13 @@ export async function connectBackend(
   const { conn } = store.getState()
   if (conn.status === 'starting') store.setState({ conn: { ...conn, status: 'ready' } })
   for (const cmd of BOOTSTRAP_CMDS) send(cmd)
+  // 048-docker-management (FR-001/FR-002): ask once per session whether this computer has a
+  // container runtime. Here rather than in a component, because whether the Containers group
+  // exists must not depend on which pane happens to be mounted — at phone width the navigator
+  // is not mounted until the operator opens it, and the answer would never be asked for.
+  // Never polled (Principle V), and not asked in hosted mode: a server pod has no local daemon
+  // and every command in the family is denied there, so asking earns a refusal nobody wanted.
+  if (!isHosted(store.getState().hosted)) send({ type: 'RefreshContainerRuntimePresence' })
 }
 
 let connection: Promise<void> | undefined

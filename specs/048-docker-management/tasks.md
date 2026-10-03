@@ -31,7 +31,7 @@ its own workers; do not pass `--workers`.
 - [ ] T001 Create the backend module tree `src/backend/container_runtime/` with `mod.rs` and empty modules `probe.rs`, `inventory.rs`, `grouping.rs`, `adoption.rs`, `preview.rs`, `blast_radius.rs`, `mutate.rs`, `stats.rs`, `logs.rs`, `session.rs`, `compose.rs`, `cluster_link.rs`; register the tree in `src/backend/mod.rs`
 - [X] T002 Make the runner abstraction reusable: widen the visibility of `Runner`, `SystemRunner` and `RunError` in `src/backend/kind.rs` so `container_runtime` can use them, leaving `detect_prerequisites_with` behaviour unchanged (its existing tests must still pass untouched)
 - [X] T003 Add a streaming child-process capability alongside `Runner` in `src/backend/kind.rs` (or a sibling trait in `src/backend/container_runtime/mod.rs`) for long-running invocations — log follow and image build — with a mock implementation for tests; one-shot `Runner::run` stays as it is
-- [ ] T004 [P] Create `ui/src/features/containers/` and `ui/tests/e2e/` placeholders for this feature, and confirm `ui/tests/support/` is where the fake backend handlers will go
+- [X] T004 [P] Create `ui/src/features/containers/` and `ui/tests/e2e/` placeholders for this feature, and confirm `ui/tests/support/` is where the fake backend handlers will go
 
 ---
 
@@ -95,7 +95,7 @@ what the runtime reports.
 
 ### Tests first
 
-- [ ] T033 [P] [US1] E2E spec `ui/tests/e2e/us1-container-inventory.spec.ts` covering all six acceptance scenarios: section absent when `Absent`; "installed and stopped" naming the runtime; three project groups with member and running counts; the no-project bucket named as such; the runtime going away mid-scene marking the list stale rather than blanking it; permission failure naming the socket with its remediation. Poll request ids with `requestIdOf(page, '<Type>')` after the click — never `nextRequestId()` before it
+- [X] T033 [P] [US1] E2E spec `ui/tests/e2e/us1-container-inventory.spec.ts` covering all six acceptance scenarios: section absent when `Absent`; "installed and stopped" naming the runtime; three project groups with member and running counts; the no-project bucket named as such; the runtime going away mid-scene marking the list stale rather than blanking it; permission failure naming the socket with its remediation. Poll request ids with `requestIdOf(page, '<Type>')` after the click — never `nextRequestId()` before it
 - [X] T034 [P] [US1] Unit tests in `src/backend/container_runtime/inventory.rs` against a mock runner with canned output, including a label set whose `com.docker.compose.depends_on` value contains both commas and equals signs — the parser must not misattribute the container's project (research D2)
 
 ### Implementation
@@ -103,8 +103,8 @@ what the runtime reports.
 - [X] T035 [US1] Implement `src/backend/container_runtime/inventory.rs`: container listing via `--format '{{json .}}'`, with the project and cluster labels read through targeted `{{.Label "<key>"}}` projections and a batched `inspect --format '{{.Id}} {{json .Config.Labels}}'` only when the full label set is needed. Never split the flat `Labels` string
 - [X] T036 [US1] Implement `src/backend/container_runtime/grouping.rs`: group by declared project, put label-less containers in `ProjectGroup::Unowned`, and compute `members` and `running` per group
 - [X] T037 [US1] Implement project definition discovery in `src/backend/container_runtime/compose.rs`: resolve `definition_file` from the project's config-files label and set `definition_state`. Read only — never write, move or delete the operator's file
-- [ ] T038 [US1] Implement `ContainersScene.tsx` and `ContainerGroupList.tsx` in `ui/src/features/containers/`: virtualized rows, group headings carrying name + member count + running count, the adoption badge per group, mobile-first density with no horizontal scroll, WCAG 2.2 AA
-- [ ] T039 [US1] Render the four presence states distinctly, including stale-marking on `ContainerInventoryUnavailable` using `as_of`, and the permission case naming the socket with its remediation
+- [X] T038 [US1] Implement `ContainersScene.tsx` and `ContainerGroupList.tsx` in `ui/src/features/containers/`: virtualized rows, group headings carrying name + member count + running count, the adoption badge per group, mobile-first density with no horizontal scroll, WCAG 2.2 AA
+- [X] T039 [US1] Render the four presence states distinctly, including stale-marking on `ContainerInventoryUnavailable` using `as_of`, and the permission case naming the socket with its remediation
 
 **Checkpoint**: US1 is independently usable — the operator can see what is running and whose it is.
 

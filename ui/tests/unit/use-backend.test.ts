@@ -20,6 +20,9 @@ describe('connectBackend', () => {
       'RefreshContexts',
       'LoadOidcConfig',
       'Initialize',
+      // 048-docker-management: the one container-runtime probe of the session, sent here rather
+      // than from a component so it does not depend on which pane is mounted.
+      'RefreshContainerRuntimePresence',
     ])
     await vi.runAllTimersAsync()
     const { session } = useStore.getState()

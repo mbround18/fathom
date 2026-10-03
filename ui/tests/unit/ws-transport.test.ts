@@ -178,8 +178,8 @@ describe('connectBackend over WsTransport', () => {
     const done = connectBackend(ctx.transport)
     ctx.socket.reply({ op: 'subscribed', info: INFO })
     await done
-    // Acknowledge the bootstrap sends.
-    for (let id = 1; id <= 4; id++) ctx.socket.reply({ op: 'sent', request_id: id })
+    // Acknowledge the bootstrap sends, the fifth being 048's container-runtime probe.
+    for (let id = 1; id <= 5; id++) ctx.socket.reply({ op: 'sent', request_id: id })
     await Promise.resolve()
     return ctx
   }
