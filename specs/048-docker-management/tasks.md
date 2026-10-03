@@ -96,13 +96,13 @@ what the runtime reports.
 ### Tests first
 
 - [ ] T033 [P] [US1] E2E spec `ui/tests/e2e/us1-container-inventory.spec.ts` covering all six acceptance scenarios: section absent when `Absent`; "installed and stopped" naming the runtime; three project groups with member and running counts; the no-project bucket named as such; the runtime going away mid-scene marking the list stale rather than blanking it; permission failure naming the socket with its remediation. Poll request ids with `requestIdOf(page, '<Type>')` after the click — never `nextRequestId()` before it
-- [ ] T034 [P] [US1] Unit tests in `src/backend/container_runtime/inventory.rs` against a mock runner with canned output, including a label set whose `com.docker.compose.depends_on` value contains both commas and equals signs — the parser must not misattribute the container's project (research D2)
+- [X] T034 [P] [US1] Unit tests in `src/backend/container_runtime/inventory.rs` against a mock runner with canned output, including a label set whose `com.docker.compose.depends_on` value contains both commas and equals signs — the parser must not misattribute the container's project (research D2)
 
 ### Implementation
 
-- [ ] T035 [US1] Implement `src/backend/container_runtime/inventory.rs`: container listing via `--format '{{json .}}'`, with the project and cluster labels read through targeted `{{.Label "<key>"}}` projections and a batched `inspect --format '{{.Id}} {{json .Config.Labels}}'` only when the full label set is needed. Never split the flat `Labels` string
-- [ ] T036 [US1] Implement `src/backend/container_runtime/grouping.rs`: group by declared project, put label-less containers in `ProjectGroup::Unowned`, and compute `members` and `running` per group
-- [ ] T037 [US1] Implement project definition discovery in `src/backend/container_runtime/compose.rs`: resolve `definition_file` from the project's config-files label and set `definition_state`. Read only — never write, move or delete the operator's file
+- [X] T035 [US1] Implement `src/backend/container_runtime/inventory.rs`: container listing via `--format '{{json .}}'`, with the project and cluster labels read through targeted `{{.Label "<key>"}}` projections and a batched `inspect --format '{{.Id}} {{json .Config.Labels}}'` only when the full label set is needed. Never split the flat `Labels` string
+- [X] T036 [US1] Implement `src/backend/container_runtime/grouping.rs`: group by declared project, put label-less containers in `ProjectGroup::Unowned`, and compute `members` and `running` per group
+- [X] T037 [US1] Implement project definition discovery in `src/backend/container_runtime/compose.rs`: resolve `definition_file` from the project's config-files label and set `definition_state`. Read only — never write, move or delete the operator's file
 - [ ] T038 [US1] Implement `ContainersScene.tsx` and `ContainerGroupList.tsx` in `ui/src/features/containers/`: virtualized rows, group headings carrying name + member count + running count, the adoption badge per group, mobile-first density with no horizontal scroll, WCAG 2.2 AA
 - [ ] T039 [US1] Render the four presence states distinctly, including stale-marking on `ContainerInventoryUnavailable` using `as_of`, and the permission case naming the socket with its remediation
 

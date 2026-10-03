@@ -7,6 +7,7 @@
 //! happy side effect is that nearly every test in this module runs with no daemon at all.
 
 pub mod adoption;
+pub mod compose;
 pub mod grouping;
 pub mod inventory;
 pub mod probe;

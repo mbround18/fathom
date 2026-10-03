@@ -16,12 +16,12 @@ use std::sync::atomic::AtomicU64;
 use crate::backend::container_runtime::adoption::{
     self, AdoptionStore, Ownership, ReleaseRefusal, Requirement,
 };
-use crate::backend::container_runtime::{Cli, grouping, inventory, probe};
+use crate::backend::container_runtime::{Cli, compose, grouping, inventory, probe};
 use crate::backend::state::BackendState;
 use crate::backend::{events, kind, persistence};
 use crate::protocol::{
     BackendCmd, BackendEvent, BackendEventEnvelope, Container, ContainerInventory, Correlation,
-    DefinitionFileState, OperationRefusal, Route, RuntimePresenceState, StreamEvent, section_keys,
+    OperationRefusal, Route, RuntimePresenceState, StreamEvent, section_keys,
 };
 
 /// Handles container-runtime commands; returns the command back if it belongs to another family.
@@ -52,8 +52,12 @@ pub(super) async fn handle(
             refresh_inventory(state, sender).await;
         }
         BackendCmd::LoadProjectDefinition { project: _ } => {
-            // T037 reads and parses the project's definition file through `compose.rs`. Until
-            // then the inventory's `definition_state` is the only answer, and it is already sent.
+            // A definition's state is part of the inventory, not a reply of its own: `compose.rs`
+            // is consulted for every project each time the inventory is read, so re-reading is
+            // what loading one amounts to. Doing it this way means the answer arrives with an
+            // honest `as_of` for the whole picture rather than one corrected field dated now and
+            // the rest dated whenever it was last read.
+            refresh_inventory(state, sender).await;
         }
         BackendCmd::AdoptContainerProject { project } => adopt(state, sender, project),
         BackendCmd::ReleaseContainerProject { project } => release(state, sender, project),
@@ -245,7 +249,7 @@ async fn refresh_inventory(state: &mut BackendState, sender: &Sender<BackendEven
         .containers
         .adoption(state.cluster.seq.as_ref(), sender);
     store.set_managed_clusters(managed);
-    let projects = grouping::group_containers(&containers, &definition_state, store);
+    let projects = grouping::group_containers(&containers, &compose::Disk, store);
 
     state.containers.containers = containers.iter().map(|r| r.container.clone()).collect();
 
@@ -290,18 +294,6 @@ fn runtime_error_text(e: &kind::RunError) -> String {
     match e {
         kind::RunError::NotFound => "The container runtime binary is no longer on PATH.".to_owned(),
         kind::RunError::Other(detail) => detail.clone(),
-    }
-}
-
-/// Whether a declared definition file is still on disk.
-///
-/// Existence only: reading and parsing the file is T037's job in `compose.rs`, and
-/// `DefinitionFileState::Unreadable` must carry the parser's own words rather than a guess.
-fn definition_state(path: &str) -> DefinitionFileState {
-    if std::path::Path::new(path).is_file() {
-        DefinitionFileState::Present
-    } else {
-        DefinitionFileState::Missing
     }
 }
 
