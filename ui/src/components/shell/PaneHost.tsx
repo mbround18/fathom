@@ -16,6 +16,7 @@ import { GatekeeperPanel } from '@/components/panels/GatekeeperPanel'
 import { VeleroPanel } from '@/components/panels/VeleroPanel'
 import { HubblePanel } from '@/components/panels/HubblePanel'
 import { ContainersScene } from '@/features/containers/ContainersScene'
+import { ObjectPane } from '@/features/containers/ObjectPanes'
 import { DaemonTimelinePanel } from '@/features/daemon/DaemonTimelinePanel'
 import { TrivyPanel } from '@/components/panels/TrivyPanel'
 import { KedaPanel } from '@/components/panels/KedaPanel'
@@ -475,9 +476,12 @@ function ListBody({ pane }: { pane: PaneState }) {
   // 043 US3/US4: settings split out of Cluster settings, and the daemon's Cluster history.
   if (section === SECTION.appSettings) return <AppSettingsPanel />
   if (section === SECTION.localClusters) return <LocalClustersPanel />
-  // 048-docker-management US1. The other four container sub-sections land with their own
-  // tasks; until then they fall through to "Section unavailable", which is true.
+  // 048-docker-management US1/US3. Compose projects lands with its own task; until then it
+  // falls through to "Section unavailable", which is true.
   if (section === SECTION.containers) return <ContainersScene />
+  if (section === SECTION.containerImages) return <ObjectPane objectClass="image" />
+  if (section === SECTION.containerVolumes) return <ObjectPane objectClass="volume" />
+  if (section === SECTION.containerNetworks) return <ObjectPane objectClass="network" />
   if (section === SECTION.clusterHistory) return <DaemonTimelinePanel />
   // 011-rbac-oidc-administration US4/US5: read-only lookup / frontend-only generator panels,
   // neither backed by a `ResourceDescriptor` (no list-refresh, no detail split).
