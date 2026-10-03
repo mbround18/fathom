@@ -85,11 +85,14 @@ test.describe('Containers scene accessibility', () => {
       const bad: string[] = []
       for (const el of scene.querySelectorAll('button, input, select, a[href]')) {
         if (el.closest('[aria-hidden="true"]')) continue
-        const name =
-          el.getAttribute('aria-label') ??
-          el.getAttribute('title') ??
-          (el.textContent ?? '').trim() ??
-          ''
+        const name = [
+          el.getAttribute('aria-label'),
+          el.getAttribute('title'),
+          el.textContent,
+        ].reduce<string>(
+          (found, candidate) => (found === '' ? (candidate ?? '').trim() : found),
+          '',
+        )
         const labelled = el.id !== '' && document.querySelector(`label[for="${el.id}"]`) !== null
         if (name === '' && !labelled) bad.push(el.outerHTML.slice(0, 80))
       }
