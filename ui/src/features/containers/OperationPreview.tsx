@@ -56,7 +56,9 @@ function Removals({ preview }: { preview: Preview }) {
               {line.project !== null && (
                 <span className="shrink-0 text-muted-foreground">{line.project}</span>
               )}
-              {size !== null && <span className="ml-auto shrink-0 text-muted-foreground">{size}</span>}
+              {size !== null && (
+                <span className="ml-auto shrink-0 text-muted-foreground">{size}</span>
+              )}
             </li>
           )
         })}
@@ -182,7 +184,10 @@ function Body() {
           {/* FR-031: a container that backs a cluster the operator is connected to is said out
               loud, before the fact rather than after. */}
           {preview.breaks_clusters.length > 0 && (
-            <div data-testid="operation-breaks-clusters" className="flex gap-2 text-xs text-status-warn">
+            <div
+              data-testid="operation-breaks-clusters"
+              className="flex gap-2 text-xs text-status-warn"
+            >
               <WarningOctagonIcon aria-hidden="true" className="mt-0.5 shrink-0" />
               <ul className="min-w-0 space-y-0.5">
                 {preview.breaks_clusters.map((b) => (
@@ -217,7 +222,11 @@ function Body() {
       )}
 
       {operation.phase === 'refused' && operation.refusal && (
-        <p data-testid="operation-refusal" data-kind={operation.refusal.kind} className="text-xs text-status-err">
+        <p
+          data-testid="operation-refusal"
+          data-kind={operation.refusal.kind}
+          className="text-xs text-status-err"
+        >
           {refusalLabel(operation.refusal)}
         </p>
       )}

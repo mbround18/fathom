@@ -106,7 +106,10 @@ function Row({
       )}
       <span
         data-testid={`object-references-${object.id}`}
-        className={cn('min-w-0 truncate text-xs', inUse ? 'text-foreground' : 'text-muted-foreground')}
+        className={cn(
+          'min-w-0 truncate text-xs',
+          inUse ? 'text-foreground' : 'text-muted-foreground',
+        )}
       >
         {referenceWords(object)}
       </span>

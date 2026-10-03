@@ -74,7 +74,9 @@ function Unavailable({ detail, endpoint }: { detail: string; endpoint: string | 
 
 function sameSelection(a: Selection | null, b: Selection): boolean {
   if (a === null || a.kind !== b.kind) return false
-  return a.kind === 'project' && b.kind === 'project' ? a.key === b.key : a.kind === 'container' && b.kind === 'container' && a.id === b.id
+  return a.kind === 'project' && b.kind === 'project'
+    ? a.key === b.key
+    : a.kind === 'container' && b.kind === 'container' && a.id === b.id
 }
 
 export function ContainersScene() {
