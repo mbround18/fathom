@@ -569,8 +569,39 @@ async fn issue_operation(
 
     // The preview is needed again after the run, to say what the fresh reading should show.
     let stored_for_verify = stored.clone();
-    let run =
-        tokio::task::spawn_blocking(move || mutate::issue(&kind::SystemRunner, &stored)).await;
+    // A build is the one operation the operator watches rather than waits for: it runs for
+    // minutes, and when it fails the reason is in the middle of its output and not at the end. So
+    // its lines are emitted as the builder writes them (FR-021), and the outcome still arrives
+    // afterwards by the same path as every other operation's. Everything else answers once, and
+    // streaming it would be a stream with one line in it.
+    let streamed = matches!(
+        stored_for_verify.preview.request,
+        OperationRequest::BuildImage { .. }
+    );
+    let run = if streamed {
+        let line_seq = seq.clone();
+        let line_sender = sender.clone();
+        let line_request = request_id.clone();
+        tokio::task::spawn_blocking(move || {
+            mutate::issue_streaming(
+                &container_runtime::stream::SystemStreamRunner,
+                &stored,
+                |line| {
+                    emit(
+                        line_seq.as_ref(),
+                        &line_sender,
+                        StreamEvent::ContainerBuildOutput {
+                            request_id: line_request.clone(),
+                            line: line.to_owned(),
+                        },
+                    );
+                },
+            )
+        })
+        .await
+    } else {
+        tokio::task::spawn_blocking(move || mutate::issue(&kind::SystemRunner, &stored)).await
+    };
     match run {
         Ok(Ok(mut outcome)) => {
             // FR-020/FR-023: the runtime is asked again *before* the outcome is emitted, because

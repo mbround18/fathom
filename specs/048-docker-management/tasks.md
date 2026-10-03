@@ -28,7 +28,7 @@ its own workers; do not pass `--workers`.
 
 ## Phase 1: Setup
 
-- [ ] T001 Create the backend module tree `src/backend/container_runtime/` with `mod.rs` and empty modules `probe.rs`, `inventory.rs`, `grouping.rs`, `adoption.rs`, `preview.rs`, `blast_radius.rs`, `mutate.rs`, `stats.rs`, `logs.rs`, `session.rs`, `compose.rs`, `cluster_link.rs`; register the tree in `src/backend/mod.rs`
+- [X] T001 Create the backend module tree `src/backend/container_runtime/` with `mod.rs` and empty modules `probe.rs`, `inventory.rs`, `grouping.rs`, `adoption.rs`, `preview.rs`, `blast_radius.rs`, `mutate.rs`, `stats.rs`, `logs.rs`, `session.rs`, `compose.rs`, `cluster_link.rs`; register the tree in `src/backend/mod.rs`
 - [X] T002 Make the runner abstraction reusable: widen the visibility of `Runner`, `SystemRunner` and `RunError` in `src/backend/kind.rs` so `container_runtime` can use them, leaving `detect_prerequisites_with` behaviour unchanged (its existing tests must still pass untouched)
 - [X] T003 Add a streaming child-process capability alongside `Runner` in `src/backend/kind.rs` (or a sibling trait in `src/backend/container_runtime/mod.rs`) for long-running invocations — log follow and image build — with a mock implementation for tests; one-shot `Runner::run` stays as it is
 - [X] T004 [P] Create `ui/src/features/containers/` and `ui/tests/e2e/` placeholders for this feature, and confirm `ui/tests/support/` is where the fake backend handlers will go
@@ -179,8 +179,8 @@ exactly what disappears, names every project touched, and requires a typed confi
 
 - [X] T063 [P] [US5] E2E spec `ui/tests/e2e/us5-logs-and-session.spec.ts` covering all five acceptance scenarios, including a stopped container showing retained output with no stream left open, a container with no usable shell surfacing the runtime's own failure, and navigating away leaving nothing streaming
 - [X] T064 [P] [US5] Unit tests for the stopped-container log path and for session teardown leaving no child process
-- [ ] T065 [US5] Implement `src/backend/container_runtime/logs.rs` as an adapter onto the existing `src/backend/log_streams.rs`, reusing its bounding, batching and explicit truncation marking; allowed regardless of adoption (FR-035)
-- [ ] T066 [US5] Implement `src/backend/container_runtime/session.rs` as an adapter onto the existing `src/backend/node_shell.rs` PTY machinery; gated on adoption (FR-013), closing the view ends the session with no process left behind
+- [X] T065 [US5] Implement `src/backend/container_runtime/logs.rs` as an adapter onto the existing `src/backend/log_streams.rs`, reusing its bounding, batching and explicit truncation marking; allowed regardless of adoption (FR-035)
+- [X] T066 [US5] Implement `src/backend/container_runtime/session.rs` as an adapter onto the existing `src/backend/node_shell.rs` PTY machinery; gated on adoption (FR-013), closing the view ends the session with no process left behind
 - [X] T067 [US5] Wire both into the scene, reusing the existing log and terminal components rather than new ones
 
 ---
@@ -197,10 +197,10 @@ exactly what disappears, names every project touched, and requires a typed confi
 ## Phase 9: User Story 7 — Create, run and build (P7)
 
 - [ ] T072 [P] [US7] E2E spec `ui/tests/e2e/us7-create-and-build.spec.ts` covering all six acceptance scenarios, including build output streaming with the builder's own failure text, project-down treated as destructive, a missing definition file disabling project operations without the file being rewritten, and the absence of any free-text command field being stated plainly rather than implied impossible
-- [ ] T073 [P] [US7] Unit tests for each creation preview's argv, and for the project-down path being classified destructive
-- [ ] T074 [US7] Implement form-driven creation previews and issuance for container, network and volume in `preview.rs` + `mutate.rs`, over the documented fields only
+- [X] T073 [P] [US7] Unit tests for each creation preview's argv, and for the project-down path being classified destructive
+- [X] T074 [US7] Implement form-driven creation previews and issuance for container, network and volume in `preview.rs` + `mutate.rs`, over the documented fields only
 - [ ] T075 [US7] Implement image build using the streaming runner from T003, with live output and the builder's own failure text surfaced verbatim
-- [ ] T076 [US7] Implement project up/down/restart in `compose.rs` + `mutate.rs`, naming the definition file in the preview, treating down as destructive, and never writing the file
+- [X] T076 [US7] Implement project up/down/restart in `compose.rs` + `mutate.rs`, naming the definition file in the preview, treating down as destructive, and never writing the file
 - [ ] T077 [US7] Implement the creation forms in `ui/src/features/containers/`, with the explicit statement that a case no form covers belongs in a terminal (FR-034) — and no free-text command field
 
 ---

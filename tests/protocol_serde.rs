@@ -4171,6 +4171,10 @@ fn all_stream_events() -> Vec<StreamEvent> {
             }],
             at_cap: true,
         },
+        StreamEvent::ContainerBuildOutput {
+            request_id: "s".to_owned(),
+            line: "s".to_owned(),
+        },
         StreamEvent::ContainerClusterLinksUpdated {
             links: vec![ClusterLink {
                 cluster: "s".to_owned(),
@@ -4208,6 +4212,7 @@ fn all_stream_events_is_exhaustive(v: &StreamEvent) {
         StreamEvent::ContainerSessionOutput { .. } => {}
         StreamEvent::ContainerSessionClosed { .. } => {}
         StreamEvent::ContainerUsageSampled { .. } => {}
+        StreamEvent::ContainerBuildOutput { .. } => {}
         StreamEvent::ContainerClusterLinksUpdated { .. } => {}
     }
 }

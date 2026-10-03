@@ -743,3 +743,339 @@ fn object_ref(container: &Container) -> ObjectRef {
         name: container.name.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::v1::{AdoptionState, PublishedPort};
+
+    const NO_OBJECTS: &[RemovableObject] = &[];
+
+    fn container(id: &str, name: &str, project: Option<&str>) -> Container {
+        Container {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            image: "busybox".to_owned(),
+            state: RuntimeContainerState::Running,
+            health: None,
+            status: "Up 1 minute".to_owned(),
+            created_at: "2026-10-03T00:00:00Z".to_owned(),
+            command: "sh".to_owned(),
+            ports: vec![],
+            project: project.map(str::to_owned),
+            service: None,
+            cluster: None,
+            adoption: AdoptionState::NotAdopted,
+        }
+    }
+
+    fn ctx<'a>(
+        containers: &'a [Container],
+        definition_file: Option<&'a str>,
+    ) -> PreviewContext<'a> {
+        PreviewContext {
+            cli: Cli::docker(),
+            containers,
+            images: NO_OBJECTS,
+            volumes: NO_OBJECTS,
+            networks: NO_OBJECTS,
+            definition_file,
+            active_context: None,
+            adopted: &[],
+            as_of: "2026-10-03T12:00:00Z",
+        }
+    }
+
+    fn preview_of(request: &OperationRequest, ctx: &PreviewContext<'_>) -> OperationPreview {
+        build("prev-1".to_owned(), request, ctx)
+            .expect("this request is previewable")
+            .preview
+    }
+
+    /// The whole of US7's promise in one assertion: every field the form collected is its own argv
+    /// element. A value with a space, a quote or a semicolon in it is one argument and stays one,
+    /// because nothing on this path concatenates and nothing on it reaches a shell.
+    #[test]
+    fn a_run_spells_out_every_field_the_form_collected_as_its_own_argument() {
+        let request = OperationRequest::CreateContainer {
+            spec: ContainerSpec {
+                image: "busybox:latest".to_owned(),
+                name: Some("my app".to_owned()),
+                ports: vec![PublishedPort {
+                    container_port: 80,
+                    host_port: Some(8080),
+                    host_ip: Some("127.0.0.1".to_owned()),
+                    protocol: "tcp".to_owned(),
+                }],
+                env: vec![("GREETING".to_owned(), "hello; rm -rf /".to_owned())],
+                volumes: vec![("/srv/data".to_owned(), "/data".to_owned())],
+                networks: vec!["shop_default".to_owned()],
+                command: vec!["sh".to_owned(), "-c".to_owned(), "sleep 3600".to_owned()],
+                restart_policy: Some("unless-stopped".to_owned()),
+                detach: true,
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let preview = preview_of(&request, &ctx(&containers, None));
+
+        assert_eq!(
+            preview.command,
+            vec![
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                "my app",
+                "-p",
+                "127.0.0.1:8080:80/tcp",
+                "-e",
+                "GREETING=hello; rm -rf /",
+                "-v",
+                "/srv/data:/data",
+                "--network",
+                "shop_default",
+                "--restart",
+                "unless-stopped",
+                "busybox:latest",
+                "sh",
+                "-c",
+                "sleep 3600",
+            ]
+        );
+        // Creating something is not destroying something, so it carries no typed confirmation: a
+        // guard asked for where nothing is lost is the reflex that waves through the one that
+        // matters.
+        assert!(!preview.destructive);
+        assert_eq!(preview.required_confirmation, None);
+        assert!(preview.removals.is_empty());
+    }
+
+    /// `create` rather than `run`, and a port the operator did not publish stays unpublished: a
+    /// host port Fathom chose would bind something nobody asked to bind.
+    #[test]
+    fn an_undetached_create_is_a_create_and_an_unpublished_port_is_only_exposed() {
+        let request = OperationRequest::CreateContainer {
+            spec: ContainerSpec {
+                image: "busybox".to_owned(),
+                name: None,
+                ports: vec![PublishedPort {
+                    container_port: 5432,
+                    host_port: None,
+                    host_ip: None,
+                    protocol: "tcp".to_owned(),
+                }],
+                env: vec![],
+                volumes: vec![],
+                networks: vec![],
+                command: vec![],
+                restart_policy: None,
+                detach: false,
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let preview = preview_of(&request, &ctx(&containers, None));
+
+        assert_eq!(
+            preview.command,
+            vec!["docker", "create", "--expose", "5432", "busybox"]
+        );
+    }
+
+    /// The context path is last and positional, so a context that begins with a dash is still the
+    /// context and not a flag the builder half-reads.
+    #[test]
+    fn a_build_names_its_tag_first_and_its_context_last() {
+        let request = OperationRequest::BuildImage {
+            spec: ImageBuildSpec {
+                context_path: "/srv/app".to_owned(),
+                dockerfile: Some("/srv/app/docker/Dockerfile".to_owned()),
+                tag: "shop-web:dev".to_owned(),
+                build_args: vec![("VERSION".to_owned(), "1.2.3".to_owned())],
+                target: Some("runtime".to_owned()),
+                no_cache: true,
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let preview = preview_of(&request, &ctx(&containers, None));
+
+        assert_eq!(
+            preview.command,
+            vec![
+                "docker",
+                "build",
+                "-t",
+                "shop-web:dev",
+                "-f",
+                "/srv/app/docker/Dockerfile",
+                "--target",
+                "runtime",
+                "--no-cache",
+                "--build-arg",
+                "VERSION=1.2.3",
+                "/srv/app",
+            ]
+        );
+        assert!(!preview.destructive);
+    }
+
+    #[test]
+    fn a_network_creation_spells_out_its_addressing_and_its_labels() {
+        let request = OperationRequest::CreateNetwork {
+            spec: NetworkSpec {
+                name: "shop_back".to_owned(),
+                driver: Some("bridge".to_owned()),
+                subnet: Some("172.30.0.0/16".to_owned()),
+                gateway: Some("172.30.0.1".to_owned()),
+                internal: true,
+                labels: vec![("owner".to_owned(), "shop".to_owned())],
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let preview = preview_of(&request, &ctx(&containers, None));
+
+        assert_eq!(
+            preview.command,
+            vec![
+                "docker",
+                "network",
+                "create",
+                "--driver",
+                "bridge",
+                "--subnet",
+                "172.30.0.0/16",
+                "--gateway",
+                "172.30.0.1",
+                "--internal",
+                "--label",
+                "owner=shop",
+                "shop_back",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_volume_creation_is_its_driver_its_labels_and_its_name() {
+        let request = OperationRequest::CreateVolume {
+            spec: VolumeSpec {
+                name: "shop_db_data".to_owned(),
+                driver: Some("local".to_owned()),
+                labels: vec![("owner".to_owned(), "shop".to_owned())],
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let preview = preview_of(&request, &ctx(&containers, None));
+
+        assert_eq!(
+            preview.command,
+            vec![
+                "docker",
+                "volume",
+                "create",
+                "--driver",
+                "local",
+                "--label",
+                "owner=shop",
+                "shop_db_data",
+            ]
+        );
+    }
+
+    /// A creation has no scope. The gate is re-checked at issue time against whatever the preview
+    /// named, and demanding a grant over a project that does not exist yet would make the first
+    /// container of a new project impossible to create.
+    #[test]
+    fn a_creation_is_scoped_to_no_existing_project() {
+        let request = OperationRequest::CreateVolume {
+            spec: VolumeSpec {
+                name: "fresh".to_owned(),
+                driver: None,
+                labels: vec![],
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let stored = build("prev-1".to_owned(), &request, &ctx(&containers, None))
+            .expect("a creation is previewable");
+        assert_eq!(stored.scope, None);
+        assert!(stored.expected.is_empty());
+    }
+
+    /// `up` is detached and acts on the project's own file, named explicitly: the daemon's idea of
+    /// the project's file has nothing to do with Fathom's working directory.
+    #[test]
+    fn a_project_up_is_detached_and_names_the_file_the_project_declared() {
+        let containers = vec![
+            container("bbbb000000002", "shop-web", Some("shop")),
+            container("aaaa000000001", "shop-db", Some("shop")),
+        ];
+        let request = OperationRequest::ProjectLifecycle {
+            project: "shop".to_owned(),
+            action: ProjectAction::Up,
+        };
+        let preview = preview_of(&request, &ctx(&containers, Some("/srv/shop/compose.yaml")));
+
+        assert_eq!(
+            preview.command,
+            vec![
+                "docker",
+                "compose",
+                "-p",
+                "shop",
+                "-f",
+                "/srv/shop/compose.yaml",
+                "up",
+                "-d",
+            ]
+        );
+        assert!(!preview.destructive);
+        assert_eq!(preview.required_confirmation, None);
+    }
+
+    /// A `down` is a removal wearing a lifecycle verb's clothes, and is classified as one: it
+    /// takes the project's containers with it, so it earns the full guard and the confirmation is
+    /// the project's own name rather than a word that reads the same every time.
+    #[test]
+    fn a_project_down_is_destructive_and_asks_for_the_projects_own_name() {
+        let containers = vec![
+            container("bbbb000000002", "shop-web", Some("shop")),
+            container("aaaa000000001", "shop-db", Some("shop")),
+        ];
+        let request = OperationRequest::ProjectLifecycle {
+            project: "shop".to_owned(),
+            action: ProjectAction::Down,
+        };
+        let preview = preview_of(&request, &ctx(&containers, Some("/srv/shop/compose.yaml")));
+
+        assert!(preview.destructive);
+        assert_eq!(preview.required_confirmation.as_deref(), Some("shop"));
+        assert_eq!(preview.blast_radius, vec!["shop".to_owned()]);
+        // Every container named, in the order the preview reads them, never counted (FR-023).
+        let removed: Vec<&str> = preview
+            .removals
+            .iter()
+            .map(|r| r.object.name.as_str())
+            .collect();
+        assert_eq!(removed, vec!["shop-db", "shop-web"]);
+        assert!(
+            preview
+                .command
+                .iter()
+                .all(|arg| arg != "-v" && arg != "--volumes"),
+            "a down must not take the project's volumes with it unless asked"
+        );
+    }
+
+    /// FR-033: no readable file, no project operation — and the reason says plainly that Fathom
+    /// has not touched the file (Principle VI).
+    #[test]
+    fn a_project_with_no_definition_file_is_refused_with_a_reason_and_no_rewrite() {
+        let containers = vec![container("aaaa000000001", "shop-web", Some("shop"))];
+        let request = OperationRequest::ProjectLifecycle {
+            project: "shop".to_owned(),
+            action: ProjectAction::Restart,
+        };
+        let err = build("prev-1".to_owned(), &request, &ctx(&containers, None))
+            .expect_err("no file, no preview");
+        assert_eq!(err, NotPreviewable::NoDefinitionFile("shop".to_owned()));
+        assert!(err.detail().contains("has not changed the file"));
+    }
+}

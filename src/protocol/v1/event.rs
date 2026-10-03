@@ -1034,6 +1034,13 @@ pub enum StreamEvent {
         samples: Vec<UsageSample>,
         at_cap: bool,
     },
+    /// 048 US7: one line of an image build's own output, as the builder wrote it.
+    ///
+    /// Keyed by the issue request rather than a stream id, because a build is not a stream the
+    /// client opened — it is the operation, and the operator is watching the thing they confirmed.
+    /// One event per line, verbatim and unprefixed: a build's failure is usually three lines in
+    /// the middle of its output, and a summarised build log is one nobody can search.
+    ContainerBuildOutput { request_id: String, line: String },
     /// 048: which containers back which clusters, in both directions.
     ContainerClusterLinksUpdated { links: Vec<ClusterLink> },
 }

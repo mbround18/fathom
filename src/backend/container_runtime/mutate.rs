@@ -20,6 +20,7 @@ use crate::protocol::v1::{
 
 use super::super::kind::{CmdOutput, RunError, Runner};
 use super::preview::{Expected, StoredPreview};
+use super::stream::{StreamLine, StreamRunner};
 
 /// Runs a stored preview.
 ///
@@ -46,6 +47,68 @@ pub fn issue(runner: &dyn Runner, stored: &StoredPreview) -> Result<OperationOut
         objects,
         // Filled by `verify`, which re-reads the inventory. An operation that has not been
         // verified yet reports no discrepancies rather than reporting that there were none.
+        discrepancies: vec![],
+    })
+}
+
+/// Runs a stored preview whose output the operator watches as it arrives.
+///
+/// An image build is the one operation whose output *is* the information: it runs for minutes,
+/// and when it fails the reason is three lines in the middle of it rather than a sentence at the
+/// end. So the lines are handed to `on_line` as the builder writes them, in arrival order and
+/// verbatim, and the outcome is derived afterwards from the same streams — which means the failure
+/// text the operator reads in the outcome is the text they already watched go past (FR-021).
+///
+/// stdout and stderr are interleaved here, deliberately, unlike everywhere else in this module: a
+/// builder writes its progress to stderr and its result to stdout, and a build log with the two
+/// separated reads as two unrelated halves of one story.
+pub fn issue_streaming(
+    runner: &dyn StreamRunner,
+    stored: &StoredPreview,
+    mut on_line: impl FnMut(&str),
+) -> Result<OperationOutcome, RunError> {
+    let command = &stored.preview.command;
+    let Some((bin, args)) = command.split_first() else {
+        return Err(RunError::Other(
+            "the stored preview carried no command".to_owned(),
+        ));
+    };
+    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+    let process = runner.spawn(bin, &borrowed)?;
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut success = false;
+    for line in process.lines() {
+        match line {
+            StreamLine::Stdout(text) => {
+                on_line(&text);
+                stdout.push_str(&text);
+                stdout.push('\n');
+            }
+            StreamLine::Stderr(text) => {
+                on_line(&text);
+                stderr.push_str(&text);
+                stderr.push('\n');
+            }
+            StreamLine::Exited { success: ok } => {
+                success = ok;
+                break;
+            }
+        }
+    }
+
+    let output = CmdOutput {
+        success,
+        stdout,
+        stderr,
+    };
+    let objects = attribute(&stored.targets, &output);
+    Ok(OperationOutcome {
+        preview_id: stored.preview.preview_id.clone(),
+        command: command.clone(),
+        overall: OperationOutcome::overall_from(&objects),
+        objects,
         discrepancies: vec![],
     })
 }
@@ -930,5 +993,121 @@ mod tests {
             },
         );
         assert!(outcome.discrepancies.is_empty());
+    }
+
+    /// A scripted builder: replays its lines once, for one spawn.
+    struct ScriptedBuilder {
+        script: Mutex<Option<Vec<super::super::stream::StreamLine>>>,
+        seen: Mutex<Vec<Vec<String>>>,
+    }
+
+    impl super::super::stream::StreamRunner for ScriptedBuilder {
+        fn spawn(
+            &self,
+            bin: &str,
+            args: &[&str],
+        ) -> Result<Box<dyn super::super::stream::RunningProcess>, RunError> {
+            let mut argv = vec![bin.to_owned()];
+            argv.extend(args.iter().map(|a| (*a).to_owned()));
+            self.seen.lock().unwrap().push(argv);
+            let script = self.script.lock().unwrap().take().unwrap_or_default();
+            Ok(Box::new(super::super::stream::ScriptedProcess::new(script)))
+        }
+    }
+
+    /// A build is watched, and what it said while failing is what the operator is told afterwards
+    /// — the builder's own lines, in the builder's own order, not a sentence about them.
+    #[test]
+    fn a_failing_build_streams_the_builders_words_and_then_repeats_them_verbatim() {
+        use super::super::stream::StreamLine;
+
+        // One literal, used both as what the builder wrote and as what the operator is told, so
+        // the test cannot pass on two texts that merely resemble each other.
+        const FAILED_SOLVE: &str = "ERROR: failed to solve: process \"/bin/sh -c npm ci\" did not complete successfully: exit code: 1";
+
+        let request = crate::protocol::v1::OperationRequest::BuildImage {
+            spec: crate::protocol::v1::ImageBuildSpec {
+                context_path: "/srv/app".to_owned(),
+                dockerfile: None,
+                tag: "shop-web:dev".to_owned(),
+                build_args: vec![],
+                target: None,
+                no_cache: false,
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let stored = preview::build("prev-9".to_owned(), &request, &ctx(&containers))
+            .expect("a build is previewable");
+
+        let builder = ScriptedBuilder {
+            script: Mutex::new(Some(vec![
+                StreamLine::Stderr("#1 [internal] load build definition".to_owned()),
+                StreamLine::Stdout("#4 naming to docker.io/library/shop-web:dev".to_owned()),
+                StreamLine::Stderr(FAILED_SOLVE.to_owned()),
+                StreamLine::Exited { success: false },
+            ])),
+            seen: Mutex::new(vec![]),
+        };
+
+        let mut streamed: Vec<String> = vec![];
+        let outcome = issue_streaming(&builder, &stored, |line| streamed.push(line.to_owned()))
+            .expect("the builder ran");
+
+        // Interleaved in arrival order: a build log with its progress and its result separated
+        // reads as two unrelated halves of one story.
+        assert_eq!(
+            streamed,
+            vec![
+                "#1 [internal] load build definition".to_owned(),
+                "#4 naming to docker.io/library/shop-web:dev".to_owned(),
+                FAILED_SOLVE.to_owned(),
+            ]
+        );
+        // The argv the preview showed, spawned as the preview showed it.
+        assert_eq!(
+            builder.seen.lock().unwrap().first().cloned().unwrap(),
+            stored.preview.command
+        );
+        assert_eq!(outcome.overall, OutcomeStatus::Failed);
+        let error = outcome.objects[0]
+            .error
+            .as_deref()
+            .expect("a failed build says why");
+        assert!(
+            error.contains("did not complete successfully: exit code: 1"),
+            "the failure text must be the builder's own: {error}"
+        );
+    }
+
+    /// A build that worked is a build that worked: one outcome, no error, no invented object.
+    #[test]
+    fn a_build_that_succeeds_reports_success_from_the_exit_status() {
+        use super::super::stream::StreamLine;
+
+        let request = crate::protocol::v1::OperationRequest::BuildImage {
+            spec: crate::protocol::v1::ImageBuildSpec {
+                context_path: ".".to_owned(),
+                dockerfile: None,
+                tag: "t:1".to_owned(),
+                build_args: vec![],
+                target: None,
+                no_cache: false,
+            },
+        };
+        let containers: Vec<Container> = vec![];
+        let stored = preview::build("prev-10".to_owned(), &request, &ctx(&containers))
+            .expect("a build is previewable");
+        let builder = ScriptedBuilder {
+            script: Mutex::new(Some(vec![
+                StreamLine::Stdout("done".to_owned()),
+                StreamLine::Exited { success: true },
+            ])),
+            seen: Mutex::new(vec![]),
+        };
+
+        let outcome = issue_streaming(&builder, &stored, |_| {}).expect("the builder ran");
+        assert_eq!(outcome.overall, OutcomeStatus::Succeeded);
+        assert_eq!(outcome.objects.len(), 1);
+        assert_eq!(outcome.objects[0].error, None);
     }
 }
