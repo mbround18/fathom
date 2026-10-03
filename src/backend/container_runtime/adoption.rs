@@ -307,6 +307,14 @@ impl AdoptionStore {
     }
 }
 
+/// Lets the grouping pass ask the store directly, so no caller has to build a wrapper whose only
+/// job is to forward one method — and forget, on the way, which store it was forwarding to.
+impl super::grouping::AdoptionLookup for AdoptionStore {
+    fn state_for(&self, group: &ProjectGroup) -> AdoptionState {
+        AdoptionStore::state_for(self, group)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

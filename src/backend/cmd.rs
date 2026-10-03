@@ -12,6 +12,7 @@ mod agent;
 mod ai;
 mod cloud_auth;
 mod cluster;
+pub(super) mod container_runtime;
 pub(super) use cluster::{PostConnect, post_connect};
 mod fleet;
 mod idp;
@@ -95,6 +96,11 @@ pub async fn dispatch_cmd(
     };
     // 030-kind-cluster-provisioning: local kind cluster lifecycle.
     let Some(cmd) = kind_cluster::handle(cmd, state, sender).await else {
+        return Ok(false);
+    };
+    // 048-docker-management: the local container runtime. Read-only until the operator adopts a
+    // project; every arm passes the adoption gate before it acts.
+    let Some(cmd) = container_runtime::handle(cmd, state, sender).await else {
         return Ok(false);
     };
     let Some(cmd) = cluster::handle(cmd, state, sender).await? else {

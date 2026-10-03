@@ -279,6 +279,9 @@ pub(super) struct BackendState {
     pub(super) fleet: FleetState,
     pub(super) federation: FederationState,
     pub(super) daemon: super::daemon_ctl::DaemonRuntime,
+    /// 048-docker-management: the local container runtime's presence, grants and last inventory.
+    /// Empty until the first container command: an unopened scene costs no probe (Principle V).
+    pub(super) containers: super::cmd::container_runtime::RuntimeState,
     /// 030-kind-cluster-provisioning: in-flight kind create/delete operations.
     pub(super) kind_actions: crate::backend::kind::KindActionRegistry,
     pub(super) metrics: MetricsState,
@@ -379,6 +382,7 @@ impl BackendState {
             fleet: FleetState::default(),
             federation: FederationState::default(),
             daemon: super::daemon_ctl::DaemonRuntime::default(),
+            containers: super::cmd::container_runtime::RuntimeState::default(),
             kind_actions: crate::backend::kind::KindActionRegistry::default(),
             metrics: MetricsState {
                 availability: MetricsAvailability::Unknown,
