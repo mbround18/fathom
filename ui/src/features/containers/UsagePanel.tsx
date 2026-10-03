@@ -20,6 +20,17 @@ import { useStore } from '@/store'
 import { sizeLabel } from './labels'
 import { aggregate, peakCpu, percentLabel, unavailableNote, USAGE_HISTORY } from './usage'
 
+/**
+ * How many member rows are listed at once.
+ *
+ * The bound on the panel's height already keeps a long list from taking the pane, but the rows it
+ * scrolls past are still mounted, and a project of 500 made one click cost more than the 100 ms
+ * SC-012 allows an operator's input. The aggregate is the figure that scales to any size; the rows
+ * are for reading individual members, and a list nobody can scroll through in one sitting does not
+ * become more readable past the first screenful. What is cut is said, not silently dropped.
+ */
+const ROW_CAP = 50
+
 export function UsagePanel({ containers }: { containers: Container[] }) {
   const start = useStore((s) => s.startContainerUsage)
   const stop = useStore((s) => s.stopContainerUsage)
@@ -39,6 +50,9 @@ export function UsagePanel({ containers }: { containers: Container[] }) {
 
   const project = aggregate(ids, usage.latest)
   const missing = unavailableNote(project)
+  // The project's own order, not the heaviest first: a list that reorders itself on every tick is
+  // one an operator cannot read a row out of.
+  const listed = containers.length > ROW_CAP ? containers.slice(0, ROW_CAP) : containers
 
   return (
     <section
@@ -61,7 +75,7 @@ export function UsagePanel({ containers }: { containers: Container[] }) {
           disappeared. The aggregate below is the figure that scales; the per-container rows are
           here for the project where reading all of them is still possible. */}
       <ul className="flex max-h-48 min-w-0 flex-col overflow-y-auto">
-        {containers.map((container) => {
+        {listed.map((container) => {
           const sample = usage.latest[container.id]
           const peak = peakCpu(usage.history[container.id])
           return (
@@ -86,6 +100,18 @@ export function UsagePanel({ containers }: { containers: Container[] }) {
           )
         })}
       </ul>
+
+      {listed.length < containers.length && (
+        /* The cut is the panel's, not the runtime's: every member is still being measured and
+           still counted in the total below. */
+        <p
+          data-testid="container-usage-row-cap"
+          className="text-[11px] text-muted-foreground tabular-nums"
+        >
+          The first {listed.length} of {containers.length} members are listed. The total below is of
+          every member that reported.
+        </p>
+      )}
 
       {containers.length > 1 && (
         /* The project as one unit, which is the reading grouping exists for — and it is stated as
