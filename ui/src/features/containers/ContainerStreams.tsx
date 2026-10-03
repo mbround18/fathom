@@ -16,7 +16,11 @@ import { TerminalIcon, TextAlignLeftIcon, XIcon } from '@phosphor-icons/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { LogScroller } from '@/components/panels/LogScroller'
-import { type TerminalTransport, TerminalSurface } from '@/components/panels/TerminalView'
+import {
+  type TerminalPhase,
+  type TerminalTransport,
+  TerminalSurface,
+} from '@/components/panels/TerminalView'
 import { Button } from '@/components/ui/button'
 import type { Container } from '@/protocol/types'
 import { useStore } from '@/store'
@@ -125,9 +129,21 @@ function ContainerLogsPane({ container }: { container: Container }) {
 
   return (
     <div className="flex h-64 min-h-0 flex-col">
+      {container.state !== 'running' && (
+        /* Retained output with no note would read as live output. The runtime's own status line is
+           what says how long ago it stopped, so it is shown rather than reworded (FR-004). */
+        <p
+          role="status"
+          data-testid={`container-logs-not-running-${container.id}`}
+          className="shrink-0 border-b border-status-warn/40 bg-status-warn/10 px-2 py-1 text-xs text-status-warn"
+        >
+          This container is not running. These are the lines it kept: {container.status}
+        </p>
+      )}
       <LogScroller
         lines={lines}
         truncated={stream?.lines.truncated ?? 0}
+        dropped={stream?.truncated ?? false}
         rev={stream?.rev ?? 0}
         status={stream?.status ?? 'starting'}
         error={stream?.error}
@@ -148,6 +164,9 @@ function ContainerShellPane({ container }: { container: Container }) {
   // The client mints the session's id, so this pane knows its own stream by number and needs none
   // of the pod terminal's "newest entry since" guesswork.
   const streamIdRef = useRef(0)
+  const [status, setStatus] = useState<{ phase: TerminalPhase; reason?: string }>({
+    phase: 'attaching',
+  })
 
   const transport: TerminalTransport = {
     key: container.id,
@@ -179,7 +198,33 @@ function ContainerShellPane({ container }: { container: Container }) {
 
   return (
     <div className="flex h-64 min-h-0 flex-col">
-      <TerminalSurface transport={transport} testId={`container-shell-${container.id}`} />
+      <TerminalSurface
+        transport={transport}
+        testId={`container-shell-${container.id}`}
+        onPhase={(p, reason) => {
+          setStatus({ phase: p, reason })
+        }}
+      />
+      {(status.phase === 'ended' || status.phase === 'error') && (
+        /* An image with no shell in it answers with the runtime's own sentence, and a terminal
+           that showed nothing would leave the operator with an empty box to interpret. The words
+           are shown as they were said, down to the trailing "unknown" docker ends on — a reworded
+           failure is one nobody can search for (FR-004). */
+        <p
+          role="status"
+          data-pane-state={status.phase === 'error' ? 'session-error' : 'session-ended'}
+          data-testid={`container-shell-ended-${container.id}`}
+          className={`shrink-0 border-t px-2 py-1 font-mono text-xs ${
+            status.phase === 'error'
+              ? 'border-status-err/40 bg-status-err/10 text-status-err'
+              : 'border-border bg-muted/40 text-muted-foreground'
+          }`}
+        >
+          {status.phase === 'error'
+            ? (status.reason ?? 'The session could not be started.')
+            : 'This session has ended.'}
+        </p>
+      )}
     </div>
   )
 }

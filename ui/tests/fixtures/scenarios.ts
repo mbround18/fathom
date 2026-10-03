@@ -375,6 +375,37 @@ export const SCENARIOS = {
       }),
     },
   },
+  // US5: the two awkward halves of logs and a shell. Neither can be scheduled against a real
+  // daemon — an image without a shell and a follow that has already dropped lines are both states
+  // you have to be handed.
+  'containers-no-shell': {
+    description: 'As containers-adopted, but shop-web has no /bin/sh for a session to run.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({
+        adopted: ['shop'],
+        managedClusters: ['fathom-dev'],
+        activeContext: 'kind-a',
+        noShellIn: 'shop-web',
+      }),
+    },
+  },
+  'containers-chatty': {
+    description: 'As containers-adopted, but the follow has already dropped earlier lines.',
+    initialState: { context: 'kind-a', namespaceFilter: [] },
+    onSubscribe: [backendStarted],
+    replies: {
+      ...cluster(),
+      ...containerReplies({
+        adopted: ['shop'],
+        managedClusters: ['fathom-dev'],
+        activeContext: 'kind-a',
+        truncatedLogs: true,
+      }),
+    },
+  },
   // US4: the cross-link. The operator is on `kind-a`, the context kind gives the cluster the node
   // container backs — so a stop of that node is both a break and a break of the cluster they are
   // connected to, which are two separate sentences.

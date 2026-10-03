@@ -26,6 +26,14 @@ export interface LogScrollerProps {
   lines: string[]
   /** How many earlier lines the buffer dropped; stated, never hidden. */
   truncated: number
+  /**
+   * The producer dropped earlier lines without saying how many.
+   *
+   * A container's follow bounds itself at the source, so what arrives is "there was a gap" and not
+   * "there were 412 lines". An uncounted gap is still a gap the operator must be told about
+   * (FR-034), so it gets its own sentence rather than being rounded to zero.
+   */
+  dropped?: boolean
   /** Bumped by the store on every append. Auto-follow keys on it. */
   rev: number
   status: LogStreamStatus
@@ -45,6 +53,7 @@ export interface LogScrollerProps {
 export function LogScroller({
   lines,
   truncated,
+  dropped = false,
   rev,
   status,
   error,
@@ -105,10 +114,19 @@ export function LogScroller({
               </p>
             ) : (
               <>
-                {truncated > 0 && (
+                {truncated > 0 ? (
                   <p className="mb-1 text-xs text-muted-foreground">
                     … {truncated} earlier line{truncated === 1 ? '' : 's'} truncated
                   </p>
+                ) : (
+                  dropped && (
+                    <p
+                      data-pane-state="logs-truncated"
+                      className="mb-1 text-xs text-muted-foreground"
+                    >
+                      … earlier lines were truncated; the runtime did not say how many
+                    </p>
+                  )
                 )}
                 <pre className="min-w-0 break-words whitespace-pre-wrap text-foreground/90">
                   {lines.join('\n')}

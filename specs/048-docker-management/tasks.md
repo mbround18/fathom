@@ -177,11 +177,11 @@ exactly what disappears, names every project touched, and requires a typed confi
 
 ## Phase 7: User Story 5 — Logs and a shell (P5)
 
-- [ ] T063 [P] [US5] E2E spec `ui/tests/e2e/us5-logs-and-session.spec.ts` covering all five acceptance scenarios, including a stopped container showing retained output with no stream left open, a container with no usable shell surfacing the runtime's own failure, and navigating away leaving nothing streaming
-- [ ] T064 [P] [US5] Unit tests for the stopped-container log path and for session teardown leaving no child process
+- [X] T063 [P] [US5] E2E spec `ui/tests/e2e/us5-logs-and-session.spec.ts` covering all five acceptance scenarios, including a stopped container showing retained output with no stream left open, a container with no usable shell surfacing the runtime's own failure, and navigating away leaving nothing streaming
+- [X] T064 [P] [US5] Unit tests for the stopped-container log path and for session teardown leaving no child process
 - [ ] T065 [US5] Implement `src/backend/container_runtime/logs.rs` as an adapter onto the existing `src/backend/log_streams.rs`, reusing its bounding, batching and explicit truncation marking; allowed regardless of adoption (FR-035)
 - [ ] T066 [US5] Implement `src/backend/container_runtime/session.rs` as an adapter onto the existing `src/backend/node_shell.rs` PTY machinery; gated on adoption (FR-013), closing the view ends the session with no process left behind
-- [ ] T067 [US5] Wire both into the scene, reusing the existing log and terminal components rather than new ones
+- [X] T067 [US5] Wire both into the scene, reusing the existing log and terminal components rather than new ones
 
 ---
 

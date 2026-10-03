@@ -678,6 +678,16 @@ export const logBatch = (stream_id: number, lines: string[], truncated = false) 
 export const sessionClosed = (stream_id: number, error: string | null) =>
   ev({ type: 'ContainerSessionClosed', data: { stream_id, error } })
 
+/**
+ * A container follow's end, as the shared stream registry emits it.
+ *
+ * Not a container-specific event: a follow runs on the same `log_streams` registry as a pod's, so
+ * its close is the generic one. A fake that invented a container-shaped close would let the UI
+ * pass while mishandling what the backend actually sends.
+ */
+export const logStreamClosed = (stream_id: number, reason = 'ended', error?: string) =>
+  ev({ type: 'StreamClosed', data: { stream_id, reason, error } })
+
 // ---------------------------------------------------------------------------
 // The scripted backend
 // ---------------------------------------------------------------------------
@@ -734,6 +744,18 @@ export interface ScriptOptions {
    * there is nothing to verify against.
    */
   lyingAbout?: string
+  /**
+   * This container, by name, has no usable shell: a session attempt fails with the runtime's own
+   * sentence rather than opening an empty terminal (US5 scenario 4).
+   */
+  noShellIn?: string
+  /**
+   * The follow drops earlier lines before the first batch the pane sees.
+   *
+   * A bound only matters if it is admitted: this is what lets a test assert the gap is stated and
+   * not silently swallowed (FR-034, US5 scenario 1).
+   */
+  truncatedLogs?: boolean
 }
 
 /** Mutable state the fake keeps between commands, the way a daemon would. */
@@ -1117,12 +1139,23 @@ export function containerReplies(opts: ScriptOptions = {}) {
       ]
     },
 
-    StartContainerLogStream: (cmd: { data: { stream_id: number; container_id: string } }) => [
-      logBatch(cmd.data.stream_id, [
-        `2026-10-02T12:00:00Z starting ${cmd.data.container_id.slice(0, 12)}`,
-        '2026-10-02T12:00:01Z listening on :80',
-      ]),
-    ],
+    StartContainerLogStream: (cmd: { data: { stream_id: number; container_id: string } }) => {
+      const owner = containers.find((c) => c.id === cmd.data.container_id)
+      const lines = logBatch(
+        cmd.data.stream_id,
+        [
+          `2026-10-02T12:00:00Z starting ${cmd.data.container_id.slice(0, 12)}`,
+          '2026-10-02T12:00:01Z listening on :80',
+        ],
+        opts.truncatedLogs ?? false,
+      )
+      // A container that is not running has output to show and nothing to follow, so its stream
+      // ends the moment the retained lines are out — which is what leaves no stream open behind a
+      // pane that is still showing them (US5 scenario 2).
+      if (owner !== undefined && owner.state !== 'running')
+        return [lines, logStreamClosed(cmd.data.stream_id)]
+      return [lines]
+    },
     StopContainerLogStream: () => [],
 
     StartContainerSession: (cmd: { data: { stream_id: number; container_id: string } }) => {
@@ -1138,6 +1171,15 @@ export function containerReplies(opts: ScriptOptions = {}) {
           sessionClosed(
             cmd.data.stream_id,
             `'${owner?.project ?? cmd.data.container_id}' has not been adopted, so Fathom will not change it.`,
+          ),
+        ]
+      // Verbatim, and verbatim means the runtime's own wording down to the "unknown" it ends on
+      // (FR-004). An image without a shell is the ordinary case of this, not an exotic one.
+      if (opts.noShellIn !== undefined && owner.name === opts.noShellIn)
+        return [
+          sessionClosed(
+            cmd.data.stream_id,
+            'OCI runtime exec failed: exec failed: unable to start container process: exec: "/bin/sh": stat /bin/sh: no such file or directory: unknown',
           ),
         ]
       return [
