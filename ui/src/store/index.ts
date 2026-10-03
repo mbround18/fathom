@@ -36,6 +36,10 @@ import type {
   ClusterLink,
   ObjectClass,
   ContainerInventory,
+  OperationOutcome,
+  OperationPreview,
+  OperationRefusal,
+  OperationRequest,
   RuntimePresence,
   CrdCatalogEntry,
   DiskUsage,
@@ -653,6 +657,26 @@ export interface KindState {
 }
 
 /**
+ * 048-docker-management: the one mutation the operator is in the middle of.
+ *
+ * One at a time, deliberately. FR-029 promises one preview and one confirmation per operation, and
+ * a map of concurrent previews would let a second confirmation land against the first preview's
+ * argv. `phase` is what the UI reads; it never advances on its own — `issued` is set by the click,
+ * and `finished` only by the backend's own outcome, so nothing here is optimistic (FR-021).
+ */
+export interface ContainerOperation {
+  /** Our `request_id`, so a reply for a preview the operator has moved on from can be ignored. */
+  requestId: string
+  /** What was asked for, kept so a refusal can say which operation it refused. */
+  request: OperationRequest
+  phase: 'previewing' | 'previewed' | 'issued' | 'finished' | 'refused'
+  /** The backend's preview, including the literal argv. `undefined` while `previewing`. */
+  preview?: OperationPreview
+  outcome?: OperationOutcome
+  refusal?: OperationRefusal
+}
+
+/**
  * 048-docker-management: what this computer's container runtime is doing.
  *
  * Every field is `undefined` until something asked, because a scene nobody has opened must not
@@ -676,6 +700,8 @@ export interface ContainerRuntimeState {
   adoptionFellBack: boolean
   /** Containers backing each local cluster, both directions of the cross-link. */
   clusterLinks: ClusterLink[]
+  /** The mutation in flight, if any. See `ContainerOperation` for why there is only ever one. */
+  operation?: ContainerOperation
 }
 
 /**
@@ -992,6 +1018,25 @@ export interface StoreState extends StoreData {
   probeContainerRuntime: () => void
   /** 048: re-read the inventory for the given object classes (the visible scene's classes only). */
   refreshContainerInventory: (classes: ObjectClass[]) => void
+  /**
+   * 048 FR-012: grant this session write access to one compose project. Everything not adopted
+   * stays read-only, so this is the only thing that turns a refusal into an offer.
+   */
+  adoptContainerProject: (project: string) => void
+  /** 048: hand the project back to read-only. */
+  releaseContainerProject: (project: string) => void
+  /**
+   * 048 FR-018, first half: ask what the operation *would* run. Nothing is executed, and the
+   * returned argv is what `issueContainerOperation` will run — it is not rebuilt from this request.
+   */
+  previewContainerOperation: (request: OperationRequest) => void
+  /**
+   * 048 FR-018, second half: run the previewed operation. Carries only the typed confirmation;
+   * the command itself comes from the backend's stored preview, never from this side.
+   */
+  issueContainerOperation: (typedConfirmation: string | null) => void
+  /** 048: drop the current preview or outcome. The operator's dismissal, not a timer's. */
+  dismissContainerOperation: () => void
   requestDaemonTopology: (context: string) => void
   requestDaemonMetrics: (context: string, uid: string, metric: 'cpu' | 'memory') => void
   /** Ask the backend to re-emit its buffered timeline (newest `limit` entries). */
@@ -1743,6 +1788,57 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   refreshContainerInventory: (classes) => {
     get().send({ type: 'RefreshContainerInventory', data: { classes } })
+  },
+
+  adoptContainerProject: (project) => {
+    get().send({ type: 'AdoptContainerProject', data: { project } })
+  },
+
+  releaseContainerProject: (project) => {
+    get().send({ type: 'ReleaseContainerProject', data: { project } })
+  },
+
+  // The request id is minted here rather than in the component so a scene that unmounts
+  // mid-preview still has somewhere for the reply to land.
+  previewContainerOperation: (request) => {
+    const requestId = `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    useStore.setState((s) => ({
+      containerRuntime: {
+        ...s.containerRuntime,
+        operation: { requestId, request, phase: 'previewing' },
+      },
+    }))
+    get().send({ type: 'PreviewContainerOperation', data: { request_id: requestId, request } })
+  },
+
+  issueContainerOperation: (typedConfirmation) => {
+    const op = get().containerRuntime.operation
+    // No preview, nothing to issue: the backend would refuse it anyway, and refusing here keeps
+    // the operator from seeing a refusal they could not have caused.
+    if (!op?.preview) return
+    useStore.setState((s) => ({
+      containerRuntime: {
+        ...s.containerRuntime,
+        operation: s.containerRuntime.operation && {
+          ...s.containerRuntime.operation,
+          phase: 'issued',
+        },
+      },
+    }))
+    get().send({
+      type: 'IssueContainerOperation',
+      data: {
+        request_id: op.requestId,
+        preview_id: op.preview.preview_id,
+        typed_confirmation: typedConfirmation,
+      },
+    })
+  },
+
+  dismissContainerOperation: () => {
+    useStore.setState((s) => ({
+      containerRuntime: { ...s.containerRuntime, operation: undefined },
+    }))
   },
 
   refreshDaemon: (context) => get().send({ type: 'RefreshDaemon', data: { context } }),

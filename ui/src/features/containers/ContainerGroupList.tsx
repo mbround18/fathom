@@ -27,7 +27,16 @@ type Item =
   | { kind: 'group'; project: Project }
   | { kind: 'container'; container: Container; project: Project }
 
-export function ContainerGroupList({ projects }: { projects: Project[] }) {
+export function ContainerGroupList({
+  projects,
+  selected,
+  onSelect,
+}: {
+  projects: Project[]
+  /** `groupKey` of the group whose actions are open, if any. */
+  selected: string | null
+  onSelect: (key: string) => void
+}) {
   const items = useMemo<Item[]>(
     () =>
       projects.flatMap((project) => [
@@ -71,7 +80,11 @@ export function ContainerGroupList({ projects }: { projects: Project[] }) {
               style={{ top: v.start, height: v.size }}
             >
               {item.kind === 'group' ? (
-                <GroupHeading project={item.project} />
+                <GroupHeading
+                  project={item.project}
+                  selected={groupKey(item.project) === selected}
+                  onSelect={onSelect}
+                />
               ) : (
                 <ContainerRow container={item.container} />
               )}
@@ -83,19 +96,39 @@ export function ContainerGroupList({ projects }: { projects: Project[] }) {
   )
 }
 
-function GroupHeading({ project }: { project: Project }) {
+function GroupHeading({
+  project,
+  selected,
+  onSelect,
+}: {
+  project: Project
+  selected: boolean
+  onSelect: (key: string) => void
+}) {
   const definition = definitionLabel(project)
   const adopted = project.adoption !== 'not_adopted'
+  const key = groupKey(project)
   return (
-    <div
-      data-testid={`containers-group-${groupKey(project)}`}
+    // A button, because selecting a project is what opens its verbs: a heading that only looks
+    // clickable is not reachable by keyboard, and this is the only route to a mutation.
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={() => {
+        onSelect(key)
+      }}
+      data-testid={`containers-group-${key}`}
       data-adoption={adopted ? 'adopted' : 'read-only'}
-      className="flex h-full min-w-0 flex-col justify-center gap-0.5 border-b border-border bg-muted/40 px-3"
+      data-selected={selected ? 'true' : 'false'}
+      className={cn(
+        'flex h-full w-full min-w-0 flex-col justify-center gap-0.5 border-b border-border px-3 text-left',
+        selected ? 'bg-muted' : 'bg-muted/40',
+      )}
     >
       <div className="flex min-w-0 items-baseline gap-2">
-        <h3 className="truncate font-display text-xs font-semibold tracking-wider uppercase">
+        <span className="truncate font-display text-xs font-semibold tracking-wider uppercase">
           {groupLabel(project)}
-        </h3>
+        </span>
         <span
           data-testid={`containers-group-counts-${groupKey(project)}`}
           className="shrink-0 text-xs text-muted-foreground"
@@ -121,7 +154,7 @@ function GroupHeading({ project }: { project: Project }) {
           {definition}
         </p>
       )}
-    </div>
+    </button>
   )
 }
 

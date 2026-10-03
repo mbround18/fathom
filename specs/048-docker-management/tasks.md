@@ -121,16 +121,16 @@ reports.
 ### Tests first
 
 - [ ] T040 [P] [US2] E2E spec `ui/tests/e2e/us2-container-lifecycle.spec.ts` covering all eight acceptance scenarios, including the unadopted project explaining itself and offering adoption, adoption surviving a restart, release returning to read-only, per-container outcomes on a project operation, a partial failure not reporting overall success, and a container removed between preview and confirmation surfacing "no such container" verbatim
-- [ ] T041 [P] [US2] **The argv invariant test** in `src/backend/container_runtime/mutate.rs`: issuing an operation executes argv byte-identical to what the preview carried. Without this test the preview is decoration — it is the most important test in the feature
-- [ ] T042 [P] [US2] Unit tests for per-object outcome reporting: a four-member project where one member fails reports four outcomes and an overall status that is not `Succeeded`
+- [X] T041 [P] [US2] **The argv invariant test** in `src/backend/container_runtime/mutate.rs`: issuing an operation executes argv byte-identical to what the preview carried. Without this test the preview is decoration — it is the most important test in the feature
+- [X] T042 [P] [US2] Unit tests for per-object outcome reporting: a four-member project where one member fails reports four outcomes and an overall status that is not `Succeeded`
 
 ### Implementation
 
-- [ ] T043 [US2] Implement lifecycle previews in `src/backend/container_runtime/preview.rs`: build `OperationPreview` with the literal argv, enumerate every target, and register the preview under a `preview_id` so issuing can re-derive it
-- [ ] T044 [US2] Implement `src/backend/container_runtime/mutate.rs`: issue the previewed argv, refuse with `PreviewStale` when the inventory moved in a way that changes the target set, collect per-object outcomes, and surface the runtime's stderr verbatim
-- [ ] T045 [US2] Implement `AdoptionControl.tsx` in `ui/src/features/containers/`: adopt, release, and the explicit "not adopted" explanation with adoption offered — a control is never silently absent (FR-017)
-- [ ] T046 [US2] Implement `OperationPreview.tsx` in `ui/src/features/containers/`: show the literal command, the enumerated targets, and require confirmation; no optimistic state change anywhere in the path
-- [ ] T047 [US2] Wire project-scoped lifecycle: one preview naming every member, one confirmation, per-member outcomes reported separately
+- [X] T043 [US2] Implement lifecycle previews in `src/backend/container_runtime/preview.rs`: build `OperationPreview` with the literal argv, enumerate every target, and register the preview under a `preview_id` so issuing can re-derive it
+- [X] T044 [US2] Implement `src/backend/container_runtime/mutate.rs`: issue the previewed argv, refuse with `PreviewStale` when the inventory moved in a way that changes the target set, collect per-object outcomes, and surface the runtime's stderr verbatim
+- [X] T045 [US2] Implement `AdoptionControl.tsx` in `ui/src/features/containers/`: adopt, release, and the explicit "not adopted" explanation with adoption offered — a control is never silently absent (FR-017)
+- [X] T046 [US2] Implement `OperationPreview.tsx` in `ui/src/features/containers/`: show the literal command, the enumerated targets, and require confirmation; no optimistic state change anywhere in the path
+- [X] T047 [US2] Wire project-scoped lifecycle: one preview naming every member, one confirmation, per-member outcomes reported separately
 
 **Checkpoint**: the daily-workflow win is in place — a stuck service restarts without a terminal.
 

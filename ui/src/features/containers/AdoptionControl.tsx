@@ -1,0 +1,84 @@
+/**
+ * 048-docker-management US2: the adopt / release control.
+ *
+ * The rule this component exists to keep (FR-017) is that the control is never silently absent.
+ * A project the operator has not adopted is read-only, and the honest way to say so is to say it
+ * next to the offer that changes it — not to hide the buttons and let the operator conclude that
+ * Fathom cannot do it at all. So there are exactly three renderings, and all three say something:
+ *
+ *   adopted                 — what it means, and the way back
+ *   not adopted             — that it is read-only, and the way in
+ *   implicitly adopted      — which cluster lends it write access, and that releasing is not ours
+ *                             to offer, because the grant is the cluster's and not the operator's
+ *
+ * The no-compose-project bucket is not a project and cannot be adopted; it says that rather than
+ * showing a button that would refuse.
+ */
+import { LockSimpleOpenIcon, LockSimpleIcon } from '@phosphor-icons/react'
+
+import { Button } from '@/components/ui/button'
+import type { Project } from '@/protocol/types'
+import { useStore } from '@/store'
+
+import { adoptionExplanation, groupKey } from './labels'
+
+export function AdoptionControl({ project }: { project: Project }) {
+  const adopt = useStore((s) => s.adoptContainerProject)
+  const release = useStore((s) => s.releaseContainerProject)
+  const fellBack = useStore((s) => s.containerRuntime.adoptionFellBack)
+
+  const key = groupKey(project)
+  const named = project.group.kind === 'project' ? project.group.name : null
+  const adoption = project.adoption
+  const implicit = typeof adoption === 'object'
+
+  return (
+    <div
+      data-testid={`adoption-control-${key}`}
+      data-adoption={implicit ? 'implicit' : adoption}
+      className="flex min-w-0 flex-col gap-2 border border-border bg-card/40 p-3 sm:flex-row sm:items-center"
+    >
+      <div className="min-w-0 flex-1">
+        <p
+          data-testid={`adoption-explanation-${key}`}
+          className="text-xs text-muted-foreground"
+        >
+          {named === null
+            ? 'Containers outside a compose project are not a unit Fathom can adopt. Act on them one at a time, from the container itself.'
+            : adoptionExplanation(project)}
+        </p>
+        {/* FR-013: a grant record Fathom could not read is the operator's business, because every
+            refusal they are about to see comes from it. */}
+        {fellBack && (
+          <p data-testid={`adoption-fell-back-${key}`} className="mt-1 text-xs text-status-warn">
+            The saved adoptions could not be read, so this session started with none. Anything you
+            adopt now lasts until Fathom closes.
+          </p>
+        )}
+      </div>
+      {named !== null && !implicit && (
+        <Button
+          size="sm"
+          variant={adoption === 'adopted' ? 'ghost' : 'default'}
+          data-testid={`adoption-toggle-${key}`}
+          onClick={() => {
+            if (adoption === 'adopted') release(named)
+            else adopt(named)
+          }}
+        >
+          {adoption === 'adopted' ? (
+            <>
+              <LockSimpleIcon aria-hidden="true" />
+              Release {named}
+            </>
+          ) : (
+            <>
+              <LockSimpleOpenIcon aria-hidden="true" />
+              Adopt {named}
+            </>
+          )}
+        </Button>
+      )}
+    </div>
+  )
+}

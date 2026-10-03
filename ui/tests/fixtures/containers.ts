@@ -17,6 +17,7 @@ import type {
   Container,
   ContainerInventory,
   EventBatch,
+  OperationOutcome,
   OperationPreview,
   OperationRefusal,
   OperationRequest,
@@ -272,6 +273,9 @@ export const adoptionUpdated = (adopted: string[], fell_back = false) =>
 
 export const operationPreviewed = (request_id: string, preview: OperationPreview) =>
   ev({ type: 'ContainerOperationPreviewed', data: { request_id, preview } })
+
+export const operationFinished = (request_id: string, outcome: OperationOutcome) =>
+  ev({ type: 'ContainerOperationFinished', data: { request_id, outcome } })
 
 export const operationRefused = (request_id: string, reason: OperationRefusal) =>
   ev({ type: 'ContainerOperationRefused', data: { request_id, reason } })

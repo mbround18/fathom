@@ -15,6 +15,7 @@
  * than an empty one.
  */
 import { ArrowsClockwiseIcon, LockSimpleIcon, PlugsIcon, WarningIcon } from '@phosphor-icons/react'
+import { useState } from 'react'
 
 import { Loading, StateFrame } from '@/components/shell/PaneStates'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,8 @@ import type { KindRuntimeKind } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { ContainerGroupList } from './ContainerGroupList'
+import { groupKey } from './labels'
+import { ProjectActions } from './ProjectActions'
 
 /** The runtime's name as a person writes it. */
 function runtimeName(runtime: KindRuntimeKind | null): string {
@@ -75,6 +78,8 @@ export function ContainersScene() {
   const inventory = useStore((s) => s.containerRuntime.inventory)
   const stale = useStore((s) => s.containerRuntime.stale)
   const refresh = useStore((s) => s.refreshContainerInventory)
+  const dismiss = useStore((s) => s.dismissContainerOperation)
+  const [selected, setSelected] = useState<string | null>(null)
 
   // No open-read here: navigating to a section already sends its `refreshCmd`, which for this
   // one is `RefreshContainerInventory { classes: ['container'] }`. A second read from the scene
@@ -174,7 +179,24 @@ export function ContainersScene() {
         </p>
       )}
 
-      <ContainerGroupList projects={inventory.projects} />
+      <ContainerGroupList
+        projects={inventory.projects}
+        selected={selected}
+        onSelect={(key) => {
+          // Changing project drops whatever preview was open: a preview belongs to the operation
+          // it was taken for, and one left on screen beside another project's verbs is the kind of
+          // mismatch FR-018 exists to prevent.
+          setSelected((current) => (current === key ? null : key))
+          dismiss()
+        }}
+      />
+
+      {/* The selected group's verbs live outside the virtualized list: a heading whose height
+          grows when it is chosen would move every row below it. */}
+      {(() => {
+        const project = inventory.projects.find((p) => groupKey(p) === selected)
+        return project ? <ProjectActions project={project} /> : null
+      })()}
     </div>
   )
 }

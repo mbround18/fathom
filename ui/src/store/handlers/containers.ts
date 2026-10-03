@@ -7,10 +7,13 @@
  * (`src/backend/cmd/container_runtime.rs`) deserves one place to land on this side too.
  *
  * Only the facts Phase 2 and US1 need are reduced here: presence, inventory, adoption and the
- * cluster links. Previews, outcomes, usage samples, log batches and session output arrive on the
- * same channel and are deliberately left to the tasks that render them (T040-T045, T056-T068),
- * because a slice that stored a preview nobody displays would be the first place a stale one
- * could hide.
+ * cluster links. Usage samples, log batches and session output arrive on the same channel and are
+ * deliberately left to the tasks that render them (T056-T068), because a slice that stored facts
+ * nobody displays would be the first place a stale one could hide.
+ *
+ * The three operation arms (US2) land against the one in-flight `operation` and only when the
+ * `request_id` still matches: a reply for a preview the operator has already dismissed must not
+ * resurrect it.
  */
 import type { StreamEvent } from '@/protocol/types'
 
@@ -24,6 +27,9 @@ export function isContainerEvent(event: StreamEvent): boolean {
     case 'ContainerInventoryUnavailable':
     case 'ContainerAdoptionUpdated':
     case 'ContainerClusterLinksUpdated':
+    case 'ContainerOperationPreviewed':
+    case 'ContainerOperationFinished':
+    case 'ContainerOperationRefused':
       return true
     default:
       return false
@@ -65,6 +71,30 @@ export function handleContainers(d: Draft, event: StreamEvent): void {
     }
     case 'ContainerClusterLinksUpdated': {
       d.edit('containerRuntime').clusterLinks = event.data.links
+      return
+    }
+    // FR-018: the argv arrives here and is displayed verbatim. It is never re-derived on this
+    // side, so what the operator reads is what `IssueContainerOperation` will run.
+    case 'ContainerOperationPreviewed': {
+      const rt = d.edit('containerRuntime')
+      if (rt.operation?.requestId !== event.data.request_id) return
+      rt.operation = { ...rt.operation, phase: 'previewed', preview: event.data.preview }
+      return
+    }
+    // FR-021: the state change happens here and nowhere earlier. The per-object outcomes are
+    // stored whole — an aggregate verdict would hide which member of a project failed (FR-022).
+    case 'ContainerOperationFinished': {
+      const rt = d.edit('containerRuntime')
+      if (rt.operation?.requestId !== event.data.request_id) return
+      rt.operation = { ...rt.operation, phase: 'finished', outcome: event.data.outcome }
+      return
+    }
+    // A refusal is the operator's answer, not a log line (FR-014): it is kept on the operation so
+    // the control that asked can say what was refused and why.
+    case 'ContainerOperationRefused': {
+      const rt = d.edit('containerRuntime')
+      if (rt.operation?.requestId !== event.data.request_id) return
+      rt.operation = { ...rt.operation, phase: 'refused', refusal: event.data.reason }
       return
     }
     default:
