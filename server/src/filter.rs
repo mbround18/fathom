@@ -172,6 +172,23 @@ mod tests {
             "OidcTestSignIn",
             "OidcSaveDraft",
             "WriteApiServerAuth",
+            // 048-docker-management (FR-043): a server has no local container runtime, and
+            // exposing the host's daemon would grant signed-in users privileges they lack.
+            "RefreshContainerRuntimePresence",
+            "RefreshContainerInventory",
+            "InspectContainerImage",
+            "AdoptContainerProject",
+            "ReleaseContainerProject",
+            "PreviewContainerOperation",
+            "IssueContainerOperation",
+            "StartContainerLogStream",
+            "StopContainerLogStream",
+            "StartContainerSession",
+            "StopContainerSession",
+            "SendContainerSessionInput",
+            "ResizeContainerSession",
+            "StartContainerUsageSampling",
+            "StopContainerUsageSampling",
         ];
         let mut t = BTreeMap::new();
         for n in declared_variants() {
