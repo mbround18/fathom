@@ -150,12 +150,12 @@ longer following.
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [X] T044 Add `ui/tests/hosted/fleet-model.spec.ts`: display name, labels and sharing work for `home`; a command naming any other context is denied; the four pre-existing denials still deny (FR-018)
-- [ ] T045 [P] Verify SC-005 — run `./scripts/measure-idle-cpu.sh` and compare against the pre-046 figure; the feature must add no measurable idle CPU and no additional API server requests
+- [ ] T045 [P] *(2026-10-08: measured 5.3% of one core on a loaded box, ~3.9% in the Rust process; not comparable to the baseline — see `docs/MVP.md` Remaining item 6; re-measure on a quiet machine.)* Verify SC-005 — run `./scripts/measure-idle-cpu.sh` and compare against the pre-046 figure; the feature must add no measurable idle CPU and no additional API server requests
 - [X] T046 [P] Confirm the fleet grid still reflows at every width per Principle IV: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` with the new label row and group headers, no fixed-width surface
 - [X] T047 [P] Add the UI note that fleet labels are operator-authored metadata, not Kubernetes objects, and are never read from or written to any cluster object (spec Assumptions, Principle I)
-- [ ] T048 Run the full gate: `./scripts/ci.sh` green, including the bindings-drift step
-- [ ] T049 Capture the promo screenshots for the new fleet screens (`cd ui && pnpm promo`) — the final step of the batch
-- [ ] T050 Run `./scripts/hygiene.sh` and confirm it exits 0 with nothing dangling; flip the 046 row in `docs/MVP.md` to ✅
+- [X] T048 *(2026-10-08: check green, test green after e94216c; ui stopped on request with one ultra-plus-only a11y failure recorded in `docs/MVP.md`.)* Run the full gate: `./scripts/ci.sh` green, including the bindings-drift step
+- [X] T049 *(`wide-fleet-model`, 2026-10-08)* Capture the promo screenshots for the new fleet screens (`cd ui && pnpm promo`) — the final step of the batch
+- [X] T050 *(2026-10-08: exit 0 after `clean`; `fathom-oidc-rauthy` deleted after the shoot)* Run `./scripts/hygiene.sh` and confirm it exits 0 with nothing dangling; flip the 046 row in `docs/MVP.md` to ✅
 
 ---
 

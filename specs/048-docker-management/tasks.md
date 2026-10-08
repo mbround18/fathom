@@ -208,12 +208,12 @@ exactly what disappears, names every project touched, and requires a typed confi
 ## Phase 10: Polish and cross-cutting
 
 - [X] T078 [P] Verify SC-012: 500 containers, operator input handled under 100 ms, measured against the fake backend's 500-container script
-- [ ] T079 [P] *(wire half done: `perf-containers-500.spec.ts` asserts no read, sample or follow is sent once the scene closes, and `stats::tests::stopping_the_sampler_leaves_nothing_ticking` + `stream::tests::killing_a_follow_ends_it` cover the only two spawn sites in `container_runtime`. The measured half needs the desktop app running, so it is the operator's to run.)* Verify SC-011 and FR-045 with `./scripts/measure-idle-cpu.sh --attach <pid>`: idle figure indistinguishable from the pre-feature baseline and under 2% of one core, **and** zero `docker`/`podman` child processes spawned while the scene is closed
+- [ ] T079 [P] *(2026-10-08: launched fresh, ~3.9% in the Rust process on a loaded box with the scene never opened and no `docker`/`podman` child seen; see `docs/MVP.md` Remaining item 6.)* *(wire half done: `perf-containers-500.spec.ts` asserts no read, sample or follow is sent once the scene closes, and `stats::tests::stopping_the_sampler_leaves_nothing_ticking` + `stream::tests::killing_a_follow_ends_it` cover the only two spawn sites in `container_runtime`. The measured half needs the desktop app running, so it is the operator's to run.)* Verify SC-011 and FR-045 with `./scripts/measure-idle-cpu.sh --attach <pid>`: idle figure indistinguishable from the pre-feature baseline and under 2% of one core, **and** zero `docker`/`podman` child processes spawned while the scene is closed
 - [X] T080 [P] Accessibility pass on the new scene: WCAG 2.2 AA, keyboard reachability of every action and of the typed confirmation, no horizontal scroll at narrow widths
 - [X] T081 [P] Verify SC-013: a corrupt definition file leaves that file byte-identical on disk, and a lost adoption record leaves nothing actionable rather than everything
-- [ ] T082 Run the full gate: `./scripts/ci.sh > /tmp/ci-048.log 2>&1; echo "ci_exit=$?"` — capture the exit code explicitly rather than piping to `tail`, which has already produced one false green here. Bindings-drift step included
-- [ ] T083 Capture the promo screenshots for the new Docker screens (`cd ui && pnpm promo`) — the final step of the batch
-- [ ] T084 Run `./scripts/hygiene.sh`, confirm it exits 0 with nothing dangling, remove the `fathom048` fixtures by name (never by prune), and flip the 048 row in `docs/MVP.md`
+- [X] T082 *(2026-10-08: `check` exit 0, `test` exit 101 then green after e94216c; `ui` stopped on request, see `docs/MVP.md`.)* Run the full gate: `./scripts/ci.sh > /tmp/ci-048.log 2>&1; echo "ci_exit=$?"` — capture the exit code explicitly rather than piping to `tail`, which has already produced one false green here. Bindings-drift step included
+- [X] T083 *(`wide-containers`, 2026-10-08, against the host daemon)* Capture the promo screenshots for the new Docker screens (`cd ui && pnpm promo`) — the final step of the batch
+- [X] T084 *(2026-10-08: exit 0; no `fathom048` fixtures existed)* Run `./scripts/hygiene.sh`, confirm it exits 0 with nothing dangling, remove the `fathom048` fixtures by name (never by prune), and flip the 048 row in `docs/MVP.md`
 
 ---
 
