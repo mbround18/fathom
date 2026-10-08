@@ -36,6 +36,7 @@ const ACTION_LABELS: Record<AuditActionKind, string> = {
   kindClusterCreate: 'Kind Cluster Create',
   kindClusterDelete: 'Kind Cluster Delete',
   apiServerAuthChange: 'API Server Authentication Change',
+  fluxControl: 'Flux Control',
 }
 
 const SELECT_CLASS =

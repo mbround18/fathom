@@ -102,11 +102,13 @@ export function addEphemeralContainerAction<R extends Named>(): ActionDescriptor
   }
 }
 
-/** The actions that can run on `count` rows at once. */
+/** The actions that can run on these rows at once (a single row also honours `applies`). */
 export function actionsFor<R>(
   actions: ActionDescriptor<R>[],
-  count: number,
+  rows: readonly R[],
 ): ActionDescriptor<R>[] {
-  if (count === 0) return []
-  return count === 1 ? actions : actions.filter((a) => a.bulk)
+  const [first] = rows
+  if (first === undefined) return []
+  if (rows.length > 1) return actions.filter((a) => a.bulk)
+  return actions.filter((a) => a.applies?.(first) ?? true)
 }

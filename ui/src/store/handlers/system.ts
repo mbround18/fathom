@@ -26,7 +26,9 @@ import {
   CONTEXT_LISTS,
   type CrdInstancesState,
   emptyCrdState,
+  FLUX_RESOURCE_SECTION,
   listKey,
+  type ListRow,
   markLoading,
   type Notice,
   serviceForwardKey,
@@ -365,9 +367,21 @@ export function handleSystem(d: Draft, env: BackendEventEnvelope, event: SystemE
     case 'VeleroOverviewUpdated':
       d.put('velero', { overview: event.data })
       return
-    case 'FluxOverviewUpdated':
+    case 'FluxOverviewUpdated': {
       d.put('flux', { overview: event.data })
+      // 049: the inspector's action menu acts on "the row this object is in its list"; Flux has
+      // no list pane, so the overview doubles as that list (one row per resource, every kind).
+      const o = event.data
+      const rows = [...o.sources, ...o.kustomizations, ...o.helmreleases] as unknown as ListRow[]
+      // The scan is a global-route event, so it is keyed under the context it describes.
+      const ctx = env.route.context ?? d.read('session').activeContext ?? null
+      d.edit('lists')[listKey(ctx, FLUX_RESOURCE_SECTION, 'Namespaced', null)] = {
+        rows,
+        status: 'ready',
+        updatedAt: Date.now(),
+      }
       return
+    }
     case 'ClusterVersionUpdated':
       d.put('clusterVersion', event.data)
       return

@@ -17,6 +17,7 @@ function res(
     suspended: false,
     interval: '1m',
     last_transition: '2024-01-01T00:00:00Z',
+    managed: [],
     ...p,
   }
 }
@@ -53,7 +54,8 @@ test.describe('US4 Flux dashboard', () => {
     for (const label of ['Sources', 'Kustomizations', 'HelmReleases']) {
       await expect(pane.getByText(label, { exact: true })).toBeVisible()
     }
-    // Only the not-ready resources are listed, each with its status glyph (tone dot).
+    // 049 (US3): every resource is listed with its status glyph (tone dot), the ones needing
+    // attention first within each kind group.
     const failed = pane.locator('[data-tone="err"]')
     await expect(failed).toHaveCount(1)
     await expect(failed).toContainText('HelmRepository flux-system/bitnami')
@@ -61,7 +63,10 @@ test.describe('US4 Flux dashboard', () => {
       'Kustomization flux-system/infra',
     )
     await expect(pane.locator('[data-tone="muted"]')).toContainText('HelmRelease flux-system/redis')
-    await expect(pane).not.toContainText('GitRepository flux-system/fleet')
+    const rows = pane.getByTestId('flux-row')
+    await expect(rows).toHaveCount(6)
+    await expect(rows.nth(0)).toContainText('HelmRepository flux-system/bitnami')
+    await expect(rows.nth(1)).toContainText('GitRepository flux-system/fleet')
     await expectNoHorizontalScroll(page)
   })
 

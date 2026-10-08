@@ -94,7 +94,16 @@ export interface ActionStep<R> {
  * (constitution I): `confirm` → `ConfirmDialog`, `scale` → `ScaleDialog`.
  */
 export interface ActionDescriptor<R> {
-  id: 'delete' | 'scale' | 'restart' | 'debug' | 'suspend' | 'resume' | 'trigger'
+  id:
+    | 'delete'
+    | 'scale'
+    | 'restart'
+    | 'debug'
+    | 'suspend'
+    | 'resume'
+    | 'trigger'
+    | 'reconcile'
+    | 'reconcile-source'
   /** Menu and button label, e.g. `Delete`. */
   label: string
   /** Past tense for the result toast, e.g. `Deleted`. */
@@ -107,6 +116,17 @@ export interface ActionDescriptor<R> {
   bulk?: boolean
   /** Scale: the current replica count shown as `current → new`. */
   current?(row: R): number
+  /**
+   * 049: what the confirm dialog says under the named objects — what the verb does to them and
+   * what else it reaches (a Kustomization's inventory, a source's dependents). Wins over the
+   * dialog host's generic per-id wording when present.
+   */
+  detail?(rows: R[]): ReactNode
+  /**
+   * 049: whether the verb makes sense for this one row (Suspend on a suspended Flux resource does
+   * not; "Reconcile with source" has nothing to fetch for a source). Unset means always.
+   */
+  applies?(row: R): boolean
   /**
    * 018-rbac-aware-mutation-ui: the `SelfSubjectAccessReview` question this action depends on for
    * a single row. When present and the answer is a definite "no", the menu item is disabled with

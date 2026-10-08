@@ -13,6 +13,7 @@
  */
 import {
   ArrowClockwiseIcon,
+  ArrowsClockwiseIcon,
   ArrowsOutLineVerticalIcon,
   BugIcon,
   LightningIcon,
@@ -20,6 +21,7 @@ import {
   PlayIcon,
   DotsThreeVerticalIcon,
   FileCodeIcon,
+  GitBranchIcon,
   TrashIcon,
   XIcon,
   type Icon,
@@ -60,6 +62,8 @@ const ICON: Record<ActionDescriptor<unknown>['id'], Icon> = {
   suspend: PauseIcon,
   resume: PlayIcon,
   trigger: LightningIcon,
+  reconcile: ArrowsClockwiseIcon,
+  'reconcile-source': GitBranchIcon,
 }
 
 type AnyAction = ActionDescriptor<ListRow>
@@ -73,7 +77,7 @@ function ActionItems({
   rows: readonly ListRow[]
   onPick: (a: AnyAction) => void
 }) {
-  const actions = actionsFor(descriptor.actions, rows.length)
+  const actions = actionsFor(descriptor.actions, rows)
   if (actions.length === 0) {
     if (isExportable(descriptor)) return null
     return <DropdownMenuLabel>No actions for {rows.length} objects</DropdownMenuLabel>
@@ -116,7 +120,7 @@ function ExportItem({
   if (!isExportable(descriptor) || rows.length === 0) return null
   return (
     <>
-      {actionsFor(descriptor.actions, rows.length).length > 0 && <DropdownMenuSeparator />}
+      {actionsFor(descriptor.actions, rows).length > 0 && <DropdownMenuSeparator />}
       <DropdownMenuItem
         data-testid="action-export-yaml"
         onSelect={onPick}
@@ -169,8 +173,7 @@ export function PaneActionMenu({
   const trigger = useRef<HTMLButtonElement>(null)
   const picked = useRef(false)
   const available =
-    actionsFor(descriptor.actions, rows.length).length > 0 ||
-    (isExportable(descriptor) && rows.length > 0)
+    actionsFor(descriptor.actions, rows).length > 0 || (isExportable(descriptor) && rows.length > 0)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -323,7 +326,7 @@ export function SelectionBar({
   const checked = useCheckedRows(pane.id, descriptor, rows)
   const setSelection = useStore((s) => s.setSelection)
   if (checked.length === 0) return null
-  const actions = actionsFor(descriptor.actions, checked.length)
+  const actions = actionsFor(descriptor.actions, checked)
   const focusGrid = () =>
     document.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] [role="grid"]`)
 
@@ -424,11 +427,13 @@ export function InspectorActions({ target, source }: { target: ObjectRef; source
   const list = useStore((s) => s.lists[listKey(ctx, target.section, listScope, null)])
   const rowKey = target.namespace ? `${target.namespace}/${target.name}` : target.name
   const rows = useMemo(() => {
-    const row = descriptor
-      ? (list?.rows ?? NO_ROWS).find((r) => descriptor.rowKey(r) === rowKey)
-      : undefined
+    if (!descriptor) return []
+    // 049: a section that lists several kinds under one key (Flux: a HelmRelease and the
+    // HelmRepository it pulls from may share namespace/name) is told apart by the target's kind.
+    const same = (list?.rows ?? NO_ROWS).filter((r) => descriptor.rowKey(r) === rowKey)
+    const row = same.length > 1 ? same.find((r) => descriptor.ref(r).kind === target.kind) : same[0]
     return row ? [row] : []
-  }, [descriptor, list, rowKey])
+  }, [descriptor, list, rowKey, target.kind])
   if (!descriptor || (descriptor.actions.length === 0 && !isExportable(descriptor))) return null
   return (
     <PaneActionMenu

@@ -9,6 +9,7 @@ import { useEffect } from 'react'
 
 import type { FluxReadyState, FluxResourceSummary } from '@/protocol/types'
 import { useStore } from '@/store'
+import { FLUX_RESOURCE_SECTION } from '@/store/keys'
 
 import { IntegrationSummary, type SummaryRow, type SummaryTile } from './IntegrationSummary'
 import { MetricsUnavailable } from '../shell/PaneStates'
@@ -29,6 +30,7 @@ function countReady(items: FluxResourceSummary[]): string {
 export function FluxPanel() {
   const overview = useStore((s) => s.flux.overview)
   const refreshFlux = useStore((s) => s.refreshFlux)
+  const openInspector = useStore((s) => s.openInspector)
 
   useEffect(() => {
     refreshFlux()
@@ -52,14 +54,29 @@ export function FluxPanel() {
     { label: 'HelmReleases', value: countReady(overview.helmreleases), tone: 'ok' },
   ]
 
-  const all = [...overview.sources, ...overview.kustomizations, ...overview.helmreleases]
-  const notReady = all.filter((r) => r.ready !== 'Ready')
-  const rows: SummaryRow[] = notReady.map((r) => ({
-    key: `${r.kind}/${r.namespace}/${r.name}`,
-    primary: `${r.kind} ${r.namespace}/${r.name}`,
-    secondary: r.message || r.ready,
-    tone: READY_TONE[r.ready],
-  }))
+  // 049 (US3): every resource is reachable from the pane, sources → Kustomizations → HelmReleases
+  // with the ones needing attention first in each group; a click opens it in the inspector,
+  // where Suspend / Resume / Reconcile live.
+  const groups = [overview.sources, overview.kustomizations, overview.helmreleases]
+  const rows: SummaryRow[] = groups
+    .flatMap((g) => [
+      ...g.filter((r) => r.ready !== 'Ready'),
+      ...g.filter((r) => r.ready === 'Ready'),
+    ])
+    .map((r) => ({
+      key: `${r.kind}/${r.namespace}/${r.name}`,
+      primary: `${r.kind} ${r.namespace}/${r.name}`,
+      secondary: r.suspended ? `Suspended · ${r.message || r.ready}` : r.message || r.ready,
+      tone: READY_TONE[r.ready],
+      testId: 'flux-row',
+      onSelect: () =>
+        openInspector({
+          section: FLUX_RESOURCE_SECTION,
+          kind: r.kind,
+          namespace: r.namespace,
+          name: r.name,
+        }),
+    }))
 
   return (
     <IntegrationSummary
@@ -67,7 +84,7 @@ export function FluxPanel() {
       title="Flux"
       tiles={tiles}
       rows={rows}
-      emptyLabel="Everything reconciled — no outstanding sources, kustomizations, or releases."
+      emptyLabel="No Flux sources, kustomizations or releases found."
     />
   )
 }

@@ -84,6 +84,8 @@ const ACTION_VERB: Record<
   debug: { verb: 'patch', subresource: 'ephemeralcontainers' },
   suspend: { verb: 'patch' },
   resume: { verb: 'patch' },
+  reconcile: { verb: 'patch' },
+  'reconcile-source': { verb: 'patch' },
   // Triggering a CronJob creates a Job.
   trigger: { verb: 'create', resource: 'jobs', apiGroup: 'batch' },
 }
@@ -99,6 +101,18 @@ export function actionTarget(
 ): CapabilityTarget {
   const namespaces = new Set(rows.map((r) => descriptor.ref(r).namespace ?? null))
   const [only] = [...namespaces]
+  // 018/049: an action that names its own resource (a Flux kind's CRD, say) asks that question
+  // for one row rather than the section's default.
+  const [first] = rows
+  const own = first !== undefined && rows.length === 1 ? action.accessCheck?.(first) : undefined
+  if (own) {
+    return {
+      verb: own.verb,
+      resource: own.resource,
+      ...(own.group !== undefined ? { apiGroup: own.group } : {}),
+      namespace: own.namespace ?? null,
+    }
+  }
   return {
     ...capabilityForSection(descriptor.section),
     ...ACTION_VERB[action.id],

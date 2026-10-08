@@ -115,13 +115,14 @@ describe('descriptor actions (T094)', () => {
   })
 
   it('actionsFor: none for 0 rows, all for 1, bulk-capable only for several', () => {
-    expect(actionsFor(deployments.actions, 0)).toEqual([])
-    expect(actionsFor(deployments.actions, 1).map((a) => a.id)).toEqual([
+    const two = genDeployments().slice(0, 2)
+    expect(actionsFor(deployments.actions, [])).toEqual([])
+    expect(actionsFor(deployments.actions, two.slice(0, 1)).map((x) => x.id)).toEqual([
       'scale',
       'restart',
       'delete',
     ])
-    expect(actionsFor(deployments.actions, 2).map((a) => a.id)).toEqual(['restart', 'delete'])
+    expect(actionsFor(deployments.actions, two).map((x) => x.id)).toEqual(['restart', 'delete'])
   })
 
   it('summarize names one object by namespace/name', () => {

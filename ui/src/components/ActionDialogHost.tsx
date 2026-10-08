@@ -8,6 +8,7 @@ import type { ActionDescriptor, ActionInput } from '@/resources'
 import { runAction, summarize } from '@/store/actions'
 import { selectDetail, useStore, type ActionPrompt, type ListRow } from '@/store'
 import type { PodDetails } from '@/protocol/types'
+import type { ReactNode } from 'react'
 
 import { ConfirmDialog } from './ConfirmDialog'
 import { DebugContainerDialog } from './DebugContainerDialog'
@@ -28,7 +29,9 @@ function detailFor(
   descriptor: AnyDescriptor,
   action: ActionDescriptor<ListRow>,
   rows: ListRow[],
-): string | undefined {
+): ReactNode {
+  const own = action.detail?.(rows)
+  if (own !== undefined) return own
   if (action.id === 'restart') {
     return 'Starts a rolling restart: the controller replaces the pods one by one.'
   }
