@@ -1270,6 +1270,7 @@ fn sample_flux_resource_summary() -> FluxResourceSummary {
         suspended: true,
         interval: "s".to_owned(),
         last_transition: "s".to_owned(),
+        managed: vec!["Deployment s/s".to_owned()],
     }
 }
 
@@ -2133,6 +2134,18 @@ fn all_cmds() -> Vec<BackendCmd> {
             namespace: "s".to_owned(),
             name: "s".to_owned(),
         },
+        BackendCmd::SuspendFluxResource {
+            kind: "Kustomization".to_owned(),
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+            suspend: true,
+        },
+        BackendCmd::ReconcileFluxResource {
+            kind: "HelmRelease".to_owned(),
+            namespace: "s".to_owned(),
+            name: "s".to_owned(),
+            with_source: true,
+        },
         BackendCmd::PreviewHelmRollback {
             namespace: "s".to_owned(),
             release: "s".to_owned(),
@@ -2789,6 +2802,8 @@ fn all_cmds_is_exhaustive(v: &BackendCmd) {
         BackendCmd::RefreshHelmReleases => {}
         BackendCmd::SelectHelmRelease { .. } => {}
         BackendCmd::SelectFluxResource { .. } => {}
+        BackendCmd::SuspendFluxResource { .. } => {}
+        BackendCmd::ReconcileFluxResource { .. } => {}
         BackendCmd::PreviewHelmRollback { .. } => {}
         BackendCmd::ApplyHelmRollback { .. } => {}
         BackendCmd::PreviewHelmUpgrade { .. } => {}

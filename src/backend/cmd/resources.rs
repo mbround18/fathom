@@ -189,6 +189,42 @@ async fn handle_applications_cmd(
         BackendCmd::SelectCertificateChain { namespace, name } => {
             handle_select_certificate_chain(state, sender, namespace, name).await?;
         }
+        // 049: one patch, a notice naming the object, then the re-read and overview refresh that
+        // let the inspector and pane converge without waiting for the 20s poll.
+        BackendCmd::SuspendFluxResource {
+            kind,
+            namespace,
+            name,
+            suspend,
+        } => {
+            let client = state.cluster.client_or_err()?;
+            flux::suspend_flux_resource(&client, &kind, &namespace, &name, suspend).await?;
+            let verb = if suspend { "Suspended" } else { "Resumed" };
+            crate::backend::events::notify_info(
+                state.cluster.seq.as_ref(),
+                sender,
+                format!("{verb} {kind} {namespace}/{name}"),
+            );
+            after_flux_mutation(state, sender, kind, namespace, name).await?;
+        }
+        BackendCmd::ReconcileFluxResource {
+            kind,
+            namespace,
+            name,
+            with_source,
+        } => {
+            let client = state.cluster.client_or_err()?;
+            let now = k8s_openapi::chrono::Utc::now().to_rfc3339();
+            let requested =
+                flux::reconcile_flux_resource(&client, &kind, &namespace, &name, with_source, &now)
+                    .await?;
+            crate::backend::events::notify_info(
+                state.cluster.seq.as_ref(),
+                sender,
+                format!("Reconcile requested for {}", requested.join(", then ")),
+            );
+            after_flux_mutation(state, sender, kind, namespace, name).await?;
+        }
         other => return Ok(Some(other)),
     }
     Ok(None)
@@ -271,9 +307,23 @@ async fn handle_apply_helm_upgrade(
     Ok(())
 }
 
-/// `SelectFluxResource`: re-runs the existing Flux discovery/summarize functions (no new poll
-/// loop, no new Kubernetes watch — research.md R3) and filters for the requested object,
-/// emitting `FluxResourceNotFound` rather than silently doing nothing when it's gone (FR-013).
+/// 049: after a Flux verb lands, re-read the object (the inspector) and rescan the overview (the
+/// pane), so both show the new state before the poll would.
+async fn after_flux_mutation(
+    state: &BackendState,
+    sender: &Sender<BackendEventEnvelope>,
+    kind: String,
+    namespace: String,
+    name: String,
+) -> anyhow::Result<()> {
+    handle_select_flux_resource(state, sender, kind, namespace, name).await?;
+    super::integrations::refresh_flux(state, sender).await;
+    Ok(())
+}
+
+/// `SelectFluxResource`: one GET through the existing served-CRD discovery (no new poll loop,
+/// no new Kubernetes watch — research.md R3), for any of the six Flux kinds, emitting
+/// `FluxResourceNotFound` rather than silently doing nothing when it's gone (FR-013).
 async fn handle_select_flux_resource(
     state: &BackendState,
     sender: &Sender<BackendEventEnvelope>,
@@ -282,18 +332,11 @@ async fn handle_select_flux_resource(
     name: String,
 ) -> anyhow::Result<()> {
     let client = state.cluster.client_or_err()?;
-    let (kustomizations, helmreleases) =
-        flux::list_kustomizations_and_helmreleases(&client).await?;
-    let candidates = if kind == "Kustomization" {
-        &kustomizations
-    } else {
-        &helmreleases
-    };
-    let found = find_flux_candidate(candidates, &namespace, &name);
+    let found = flux::get_resource(&client, &kind, &namespace, &name).await?;
 
     let event = match found {
         Some(obj) => crate::protocol::ResourceReadEvent::FluxResourceDetailsUpdated(
-            flux::summarize(obj, &kind, false),
+            flux::summarize(&obj, &kind, flux::is_source_kind(&kind)),
         ),
         None => crate::protocol::ResourceReadEvent::FluxResourceNotFound {
             kind: kind.clone(),
@@ -482,17 +525,6 @@ fn emit_helm_mutation_failed(
             },
         )),
     );
-}
-
-fn find_flux_candidate<'a>(
-    candidates: &'a [kube::core::DynamicObject],
-    namespace: &str,
-    name: &str,
-) -> Option<&'a kube::core::DynamicObject> {
-    candidates.iter().find(|o| {
-        o.metadata.namespace.as_deref() == Some(namespace)
-            && o.metadata.name.as_deref() == Some(name)
-    })
 }
 
 /// Generic, read-only Custom Resource Definition browsing (US3): discovers every installed
@@ -897,41 +929,4 @@ async fn handle_access_cmd(
         other => return Ok(Some(other)),
     }
     Ok(None)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use kube::core::{ApiResource, DynamicObject};
-
-    fn dynamic_object(namespace: &str, name: &str) -> DynamicObject {
-        let api_resource = ApiResource {
-            group: "helm.toolkit.fluxcd.io".to_owned(),
-            version: "v2".to_owned(),
-            kind: "HelmRelease".to_owned(),
-            api_version: "helm.toolkit.fluxcd.io/v2".to_owned(),
-            plural: "helmreleases".to_owned(),
-        };
-        DynamicObject::new(name, &api_resource).within(namespace)
-    }
-
-    #[test]
-    fn find_flux_candidate_locates_matching_namespace_and_name() {
-        let candidates = vec![dynamic_object("flux-system", "redis")];
-        let found = find_flux_candidate(&candidates, "flux-system", "redis");
-        assert!(found.is_some());
-    }
-
-    #[test]
-    fn find_flux_candidate_none_for_deleted_origin() {
-        let candidates = vec![dynamic_object("flux-system", "redis")];
-        let found = find_flux_candidate(&candidates, "flux-system", "gone");
-        assert!(found.is_none());
-    }
-
-    #[test]
-    fn find_flux_candidate_none_for_empty_list() {
-        let candidates: Vec<DynamicObject> = Vec::new();
-        assert!(find_flux_candidate(&candidates, "flux-system", "redis").is_none());
-    }
 }

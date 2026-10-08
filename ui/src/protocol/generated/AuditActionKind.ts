@@ -7,4 +7,4 @@
  * deliberately excludes pure session/UI mechanics that carry no meaningful target (e.g.
  * backend shutdown, the demo-chat subprocess lifecycle).
  */
-export type AuditActionKind = "yamlApply" | "helmUpgrade" | "helmRollback" | "helmUninstall" | "nodeCordon" | "nodeUncordon" | "nodeDrain" | "nodeTaint" | "delete" | "bulkDelete" | "scale" | "restart" | "cronJobControl" | "portForwardChange" | "settingsChange" | "teamStoreChange" | "agentAction" | "mcpToggle" | "ephemeralContainer" | "kindClusterCreate" | "kindClusterDelete" | "apiServerAuthChange";
+export type AuditActionKind = "yamlApply" | "helmUpgrade" | "helmRollback" | "helmUninstall" | "nodeCordon" | "nodeUncordon" | "nodeDrain" | "nodeTaint" | "delete" | "bulkDelete" | "scale" | "restart" | "cronJobControl" | "fluxControl" | "portForwardChange" | "settingsChange" | "teamStoreChange" | "agentAction" | "mcpToggle" | "ephemeralContainer" | "kindClusterCreate" | "kindClusterDelete" | "apiServerAuthChange";

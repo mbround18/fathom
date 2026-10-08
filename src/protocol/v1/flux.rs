@@ -45,6 +45,11 @@ pub struct FluxResourceSummary {
     pub interval: String,
     /// ISO8601 timestamp of the `Ready` condition's last transition.
     pub last_transition: String,
+    /// 049: what this resource owns, as `Kind namespace/name` lines. A Kustomization lists
+    /// `status.inventory`; a HelmRelease names the Helm release it installs; sources list nothing
+    /// (their dependents are the Kustomizations and HelmReleases whose `source_ref` names them).
+    #[serde(default)]
+    pub managed: Vec<String>,
 }
 
 /// Aggregated Flux state for the dashboard: whether the toolkit is installed

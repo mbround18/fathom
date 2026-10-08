@@ -69,6 +69,8 @@ pub enum AuditActionKind {
     Scale,
     Restart,
     CronJobControl,
+    /// Flux resource suspended, resumed or reconciled on request (049).
+    FluxControl,
     PortForwardChange,
     SettingsChange,
     TeamStoreChange,
@@ -101,6 +103,7 @@ impl AuditActionKind {
             Self::Scale => "Scale",
             Self::Restart => "Restart",
             Self::CronJobControl => "CronJob Control",
+            Self::FluxControl => "Flux Control",
             Self::PortForwardChange => "Port Forward Change",
             Self::SettingsChange => "Settings Change",
             Self::TeamStoreChange => "Team Store Change",

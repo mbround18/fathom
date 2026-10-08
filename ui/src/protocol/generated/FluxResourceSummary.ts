@@ -26,4 +26,10 @@ source_ref: string | null, suspended: boolean, interval: string,
 /**
  * ISO8601 timestamp of the `Ready` condition's last transition.
  */
-last_transition: string, };
+last_transition: string, 
+/**
+ * 049: what this resource owns, as `Kind namespace/name` lines. A Kustomization lists
+ * `status.inventory`; a HelmRelease names the Helm release it installs; sources list nothing
+ * (their dependents are the Kustomizations and HelmReleases whose `source_ref` names them).
+ */
+managed: Array<string>, };

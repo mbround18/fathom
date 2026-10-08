@@ -324,7 +324,7 @@ fn emit_empty_metrics_scan(
     );
 }
 
-async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
+pub(super) async fn refresh_flux(state: &BackendState, sender: &Sender<BackendEventEnvelope>) {
     let context = state.cluster.current_context.clone();
     let Some(client) = &state.cluster.client else {
         events::notify_error(

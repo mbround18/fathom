@@ -454,6 +454,10 @@ impl BackendCmdV1 {
             | C::PreviewHelmUpgrade { namespace, .. }
             | C::ApplyHelmUpgrade { namespace, .. }
             | C::UninstallHelmRelease { namespace, .. } => MutationTarget::namespaced(namespace),
+
+            // 049: Flux verbs patch one namespaced custom resource.
+            C::SuspendFluxResource { namespace, .. }
+            | C::ReconcileFluxResource { namespace, .. } => MutationTarget::namespaced(namespace),
         }
     }
 
@@ -788,7 +792,9 @@ impl BackendCmdV1 {
             | C::PreviewHelmUpgrade { .. }
             | C::ApplyHelmUpgrade { .. }
             | C::UninstallHelmRelease { .. } => section_keys::helm_releases(),
-            C::SelectFluxResource { .. } => section_keys::flux_resource(),
+            C::SelectFluxResource { .. }
+            | C::SuspendFluxResource { .. }
+            | C::ReconcileFluxResource { .. } => section_keys::flux_resource(),
             C::SelectCertificateChain { .. } => section_keys::certificate_chain(),
             C::RefreshAuditLog => section_keys::audit_log(),
             C::RefreshKeda | C::SelectScaledObject { .. } | C::SelectScaledJob { .. } => {
@@ -1412,6 +1418,25 @@ impl BackendCmdV1 {
                 target_name: Some(name.clone()),
             }),
 
+            // 049: Flux verbs.
+            C::SuspendFluxResource {
+                kind,
+                namespace,
+                name,
+                ..
+            }
+            | C::ReconcileFluxResource {
+                kind,
+                namespace,
+                name,
+                ..
+            } => summary(
+                AuditActionKind::FluxControl,
+                Some(kind),
+                Some(namespace),
+                Some(name),
+            ),
+
             // Helm releases.
             C::PreviewHelmRollback { .. } | C::PreviewHelmUpgrade { .. } => None,
             C::ApplyHelmRollback { namespace, release, .. } => summary(
@@ -1815,6 +1840,10 @@ impl BackendCmdV1 {
             | C::RefreshHelmReleases
             | C::SelectHelmRelease { .. }
             | C::SelectFluxResource { .. }
+            // 049: a Flux verb is one namespaced patch the signed-in user's RBAC governs, like a
+            // CronJob suspend or a Helm rollback.
+            | C::SuspendFluxResource { .. }
+            | C::ReconcileFluxResource { .. }
             | C::SelectCertificateChain { .. }
             | C::PreviewHelmRollback { .. }
             | C::ApplyHelmRollback { .. }

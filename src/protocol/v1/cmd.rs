@@ -1070,6 +1070,24 @@ pub enum BackendCmdV1 {
         name: String,
     },
 
+    /// 049: suspend (`true`) or resume (`false`) one Flux resource -- a merge patch of
+    /// `spec.suspend` on whichever served version of its CRD the cluster has.
+    SuspendFluxResource {
+        kind: String,
+        namespace: String,
+        name: String,
+        suspend: bool,
+    },
+    /// 049: ask Flux to reconcile one resource now (`reconcile.fluxcd.io/requestedAt`).
+    /// `with_source` first requests the resource's source (a Kustomization's `spec.sourceRef`,
+    /// a HelmRelease's chart); it is ignored on a source itself.
+    ReconcileFluxResource {
+        kind: String,
+        namespace: String,
+        name: String,
+        with_source: bool,
+    },
+
     /// Resolve one Certificate's lifecycle chain (Certificate -> CertificateRequest -> Order ->
     /// Challenge), read-only, on-demand — same shape as `SelectFluxResource`
     /// (023-cert-manager-certificates-pane).
