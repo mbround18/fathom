@@ -26,8 +26,13 @@ export { liveContext } from '../live/env'
 export const OUT_DIR = fileURLToPath(new URL('../../promo-out/', import.meta.url))
 export const SHOTS_DIR = `${OUT_DIR}shots/`
 
+/**
+ * Cluster writes, dropped before they reach the bridge. `DeleteFleetGroup` is exempt: a fleet
+ * group lives in `~/.fathom/fleet.json`, not in any cluster, and the fleet scene deletes the
+ * group it created so the operator's file is left as it was found.
+ */
 const WRITE_CMD =
-  /^(Delete|BulkDelete|Scale|Restart|Rollback|Cordon|Uncordon|Drain|Evict|Apply|Create|Patch|Update|Edit|Suspend|Resume|Trigger|Uninstall|StartPodExec|SendPodExecInput|StartNodeShell)/
+  /^(?!DeleteFleetGroup$)(Delete|BulkDelete|Scale|Restart|Rollback|Cordon|Uncordon|Drain|Evict|Apply|Create|Patch|Update|Edit|Suspend|Resume|Trigger|Uninstall|StartPodExec|SendPodExecInput|StartNodeShell)/
 
 /** Opens a tool pane by injecting a client-only `UiConfigLoaded` frame; sends no command. */
 export interface ToolPaneInjector {

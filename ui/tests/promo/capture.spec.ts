@@ -4,6 +4,10 @@
  *
  * Dialogs (scale, bulk delete) are opened and photographed, then dismissed: nothing is confirmed.
  */
+import { existsSync, rmSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 import type { Locator, Page } from '@playwright/test'
 
 import { check } from '../e2e/helpers'
@@ -567,6 +571,96 @@ test.describe('wide: 034/037/038 screens', () => {
     await expect(page.getByTestId('confirm-dialog')).toBeVisible()
     await shoot(page, 'wide-node-shell-confirm', pairs)
     await page.keyboard.press('Escape')
+  })
+})
+
+test.describe('wide: 046/048 fleet model and containers', () => {
+  test.use({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 })
+
+  /**
+   * Fleet metadata lives in `~/.fathom/fleet.json` and nowhere in a cluster, so naming, labelling
+   * and grouping here is as read-only towards the cluster as flipping the federation switches
+   * above. The scene still leaves the operator's file exactly as it found it: every value it set
+   * is cleared again, and a file the scene itself created is removed.
+   */
+  test('fleet model: named, labelled, grouped', async ({ app, page }) => {
+    const pairs = redactions()
+    const fleetFile = join(homedir(), '.fathom', 'fleet.json')
+    const hadFleetFile = existsSync(fleetFile)
+    await ready(page, app)
+    await page.getByTestId('fleet-open').click()
+    const card = page.locator(`[data-testid="fleet-card"][data-context-name="${app.context}"]`)
+    await expect(card).toBeVisible()
+
+    // Name the dev cluster and label it; the group below is a selector over that label.
+    await card.getByTestId('fleet-member-edit').click()
+    const editor = card.getByTestId('fleet-member-editor')
+    await editor.getByTestId('fleet-display-name-input').fill('dev')
+    await editor.getByTestId('fleet-display-name-save').click()
+    await editor.getByTestId('fleet-label-key-input').fill('env')
+    await editor.getByTestId('fleet-label-value-input').fill('dev')
+    await editor.getByTestId('fleet-label-add').click()
+    await editor.getByTestId('fleet-labels-save').click()
+    await expect(card.getByTestId('fleet-display-name')).toHaveText('dev')
+    await expect(
+      card.getByTestId('fleet-member-labels').locator('[data-label-key="env"]'),
+    ).toBeVisible()
+
+    const groupEditor = page.getByTestId('fleet-group-editor')
+    await groupEditor.getByTestId('fleet-group-name-input').fill('local')
+    await groupEditor.getByTestId('fleet-group-selector-input').fill('env=dev')
+    await groupEditor.getByTestId('fleet-group-save').click()
+    const group = page.locator('[data-testid="fleet-group"][data-group="local"]')
+    await expect(group).toBeVisible()
+    // The rollup states its own coverage before anything is photographed (FR-010).
+    await expect(group.getByTestId('fleet-group-coverage')).toContainText(/read/, {
+      timeout: 60_000,
+    })
+    await shoot(page, 'wide-fleet-model', pairs)
+
+    // Restore: no group, no label, no display name — the file as the operator had it.
+    await group.getByTestId('fleet-group-delete').click()
+    await expect(group).toHaveCount(0)
+    if (!(await editor.isVisible())) await card.getByTestId('fleet-member-edit').click()
+    await editor.getByRole('button', { name: 'Remove label env' }).click()
+    await editor.getByTestId('fleet-labels-save').click()
+    await editor.getByTestId('fleet-display-name-input').fill('')
+    await editor.getByTestId('fleet-display-name-save').click()
+    await expect(card.getByTestId('fleet-display-name')).toHaveCount(0)
+    await expect(
+      card.getByTestId('fleet-member-labels').getByTestId('fleet-member-label'),
+    ).toHaveCount(0)
+    if (!hadFleetFile) rmSync(fleetFile, { force: true })
+  })
+
+  /**
+   * The container inventory reads the machine's own Docker daemon: whatever Compose projects and
+   * containers are running on the host that shoots the brochure. Selecting a project starts
+   * usage sampling for its members (a read), and nothing is stopped, started or removed.
+   */
+  test('containers: what is actually running', async ({ app, page }) => {
+    const pairs = redactions()
+    await ready(page, app)
+    await navigateTo(page, 'Containers', 'Containers')
+    const list = page.getByTestId('container-group-list')
+    await expect(list).toBeVisible({ timeout: 30_000 })
+    const groups = page.locator('[data-testid^="containers-group-"]')
+    await expect(groups.first()).toBeVisible()
+    // The first Compose project with a running container, so the usage panel has readings.
+    const running = page
+      .locator('[data-testid^="container-row-"]')
+      .filter({ has: page.locator('[data-testid^="container-state-"]', { hasText: /running/i }) })
+    await running.first().scrollIntoViewIfNeeded()
+    const project = running
+      .first()
+      .locator('xpath=ancestor::*[starts-with(@data-testid, "containers-group-")][1]')
+    if ((await project.count()) > 0) {
+      await project.first().click()
+      await expect(page.getByTestId('container-usage')).toBeVisible({ timeout: 30_000 })
+    } else {
+      await groups.first().click()
+    }
+    await shoot(page, 'wide-containers', pairs)
   })
 })
 

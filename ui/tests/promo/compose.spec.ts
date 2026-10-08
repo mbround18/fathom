@@ -279,6 +279,12 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
       'Keep several kubeconfig contexts connected simultaneously: per-cluster live status plus a combined header — nodes, running and unhealthy pods, warnings — across the fleet.',
     scale: 2,
   },
+  'wide-fleet-model': {
+    title: 'A fleet, not a context list',
+    caption:
+      'Name each cluster, label it, and define groups as label selectors. Every rollup states how many members it actually read, and names the ones it could not.',
+    scale: 2,
+  },
   'wide-setup-screen': {
     title: 'Setup when no context is chosen',
     caption:
@@ -331,6 +337,12 @@ const SHOT_META: Record<string, { title: string; caption: string; scale: number 
     title: 'Privileged access, spelled out',
     caption:
       'The confirmation lists the node, the throwaway pod and exactly what it can do — privileged, host namespaces, node filesystem at /host — and that it is deleted when you leave.',
+    scale: 2,
+  },
+  'wide-containers': {
+    title: 'The containers on this machine, too',
+    caption:
+      'Docker and Compose projects on the workstation, in the same app: state, usage per container, logs and a shell — and a stopped or missing runtime says so instead of showing an empty list.',
     scale: 2,
   },
   'wide-ai-assist': {
