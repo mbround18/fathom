@@ -647,9 +647,9 @@ test.describe('wide: 046/048 fleet model and containers', () => {
     const groups = page.locator('[data-testid^="containers-group-"]')
     await expect(groups.first()).toBeVisible()
     // The first Compose project with a running container, so the usage panel has readings.
-    const running = page
-      .locator('[data-testid^="container-row-"]')
-      .filter({ has: page.locator('[data-testid^="container-state-"]', { hasText: /running/i }) })
+    // The row says its state in `data-state`; the dot beside the name carries no text.
+    const running = page.locator('[data-testid^="container-row-"][data-state="running"]')
+    await expect(running.first()).toBeVisible({ timeout: 30_000 })
     await running.first().scrollIntoViewIfNeeded()
     const project = running
       .first()
