@@ -570,4 +570,77 @@ mod live_cluster_tests {
         assert!(!overview.kustomizations.is_empty());
         assert!(!overview.helmreleases.is_empty());
     }
+
+    /// 049 (T040): suspend, resume and reconcile-with-source the podinfo HelmRelease that the dev
+    /// cluster carries (`fathom-dev/podinfo`, pulling from HelmRepository `podinfo`). Leaves the
+    /// release as it found it. Not run in CI. The context is named explicitly so the test never
+    /// lands on whatever the kubeconfig's current context happens to be:
+    /// `FLUX_LIVE_CONTEXT=kind-fathom-dev cargo test -p fathom flux_verbs_against_live_podinfo -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn flux_verbs_against_live_podinfo() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let context =
+            std::env::var("FLUX_LIVE_CONTEXT").expect("FLUX_LIVE_CONTEXT names the cluster");
+        let cfg = kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
+            context: Some(context),
+            ..Default::default()
+        })
+        .await
+        .expect("kubeconfig context");
+        let client = Client::try_from(cfg).expect("kube client");
+        let ns = std::env::var("FLUX_LIVE_NS").unwrap_or_else(|_| "fathom-dev".into());
+        let suspended =
+            |obj: &DynamicObject| obj.data["spec"]["suspend"].as_bool().unwrap_or(false);
+        let fetch = || async {
+            get_resource(&client, "HelmRelease", &ns, "podinfo")
+                .await
+                .expect("get")
+                .expect("podinfo HelmRelease exists")
+        };
+        let before = fetch().await;
+        assert!(!suspended(&before), "test expects podinfo to start resumed");
+
+        suspend_flux_resource(&client, "HelmRelease", &ns, "podinfo", true)
+            .await
+            .expect("suspend");
+        let now = fetch().await;
+        assert!(suspended(&now), "spec.suspend not set after suspend");
+        let summary = summarize(&now, "HelmRelease", false);
+        println!(
+            "suspended: ready={:?} managed={:?}",
+            summary.ready, summary.managed
+        );
+        assert!(summary.suspended);
+        assert_eq!(summary.managed, vec![format!("Helm release {ns}/podinfo")]);
+
+        suspend_flux_resource(&client, "HelmRelease", &ns, "podinfo", false)
+            .await
+            .expect("resume");
+        assert!(
+            !suspended(&fetch().await),
+            "spec.suspend still set after resume"
+        );
+
+        let stamp = k8s_openapi::chrono::Utc::now().to_rfc3339();
+        let requested =
+            reconcile_flux_resource(&client, "HelmRelease", &ns, "podinfo", true, &stamp)
+                .await
+                .expect("reconcile with source");
+        println!("requested: {requested:?}");
+        assert_eq!(requested.len(), 2, "source first, then the release");
+        assert!(
+            requested[0].starts_with("HelmChart ") || requested[0].starts_with("HelmRepository ")
+        );
+        assert_eq!(requested[1], format!("HelmRelease {ns}/podinfo"));
+        let after = fetch().await;
+        assert_eq!(
+            after
+                .metadata
+                .annotations
+                .as_ref()
+                .and_then(|a| a.get(RECONCILE_ANNOTATION)),
+            Some(&stamp)
+        );
+    }
 }

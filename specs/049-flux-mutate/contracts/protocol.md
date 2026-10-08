@@ -14,32 +14,23 @@ ReconcileFluxResource { kind: String, namespace: String, name: String, with_sour
 
 Classification (`mutation.rs`): both are `MutationTarget::Namespaced`, section key `flux_resource()`, audit summary `AuditActionKind::FluxControl` with the resource's kind, namespace and name, hosted policy `Allowed`.
 
-## Events (`SystemEvent`)
+## Events
 
-```rust
-FluxMutationApplied(FluxMutationResult),
-FluxMutationFailed(FluxMutationResult),
-```
+No new event variants. Both commands are ordinary mutations: the backend answers with
+`CommandFinished` (the UI's action runner turns it into the success or error toast) and a
+`notify_info` line naming what happened ("Suspended HelmRelease fathom-dev/podinfo",
+"Reconcile requested for HelmChart fathom-dev/fathom-dev-podinfo, then HelmRelease fathom-dev/podinfo").
+After a successful patch the backend re-reads the resource (`FluxResourceDetailsUpdated`) and
+rescans the overview (`FluxOverviewUpdated`), so the inspector and pane update without a poll tick.
 
-```rust
-pub enum FluxVerb { Suspend, Resume, Reconcile, ReconcileWithSource }
-
-pub struct FluxMutationResult {
-    pub kind: String,
-    pub namespace: String,
-    pub name: String,
-    pub verb: FluxVerb,
-    /// Empty on success; the API server's message on failure.
-    pub message: String,
-}
-```
-
-After `FluxMutationApplied` the backend also emits `FluxResourceDetailsUpdated` for the resource (re-read) and `FluxOverviewUpdated`.
+The `FluxVerb` / `FluxMutationResult` / `FluxMutationApplied|Failed` shapes in the first draft of
+this contract were dropped during implementation: they duplicated what `CommandFinished` already
+carries for every other verb (CronJob suspend, node cordon).
 
 ## Summary extension
 
-`FluxResourceSummary` gains `managed: Vec<String>`: for a Kustomization, `status.inventory.entries[].id` rendered as `Kind namespace/name`; for a HelmRelease, the Helm release it owns as `HelmRelease-release namespace/name`; empty for sources (their dependents are computed in the UI from the overview's `source_ref`).
+`FluxResourceSummary` gains `managed: Vec<String>`: for a Kustomization, `status.inventory.entries[].id` rendered as `Kind namespace/name`; for a HelmRelease, the Helm release it owns as `Helm release <storageNamespace|targetNamespace|namespace>/<releaseName|name>`; empty for sources (their dependents are computed in the UI from the overview's `source_ref`).
 
 ## Audit
 
-`AuditActionKind::FluxControl` (new variant), summary `"<verb> <Kind> <namespace>/<name>"`.
+`AuditActionKind::FluxControl` (new variant, label "Flux Control"); the audit summary carries the resource's kind, namespace and name.

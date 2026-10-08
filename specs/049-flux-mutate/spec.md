@@ -91,7 +91,7 @@ An operator opens the Flux pane and sees every source, Kustomization and HelmRel
 - **FR-007**: The UI MUST require explicit confirmation naming the object before sending either command, and MUST send nothing when the dialog is cancelled.
 - **FR-008**: The confirm dialog for suspending a Kustomization or HelmRelease MUST list what the resource manages; for a source it MUST list the Kustomizations and HelmReleases that reference it. The summary therefore carries the managed-object list from Flux's inventory.
 - **FR-009**: The Flux pane MUST list every resource with a click-through to the inspector, grouped by kind, not-Ready first.
-- **FR-010**: The inspector MUST offer Suspend or Resume (whichever applies) and Reconcile, with a with-source checkbox for Kustomizations and HelmReleases only.
+- **FR-010**: The inspector MUST offer Suspend or Resume (whichever applies) and Reconcile; Kustomizations and HelmReleases MUST additionally offer "Reconcile with source" (a second menu entry rather than a checkbox, so each confirm dialog states exactly what will be stamped), and sources MUST NOT.
 - **FR-011**: Every user story MUST have an end-to-end test against the scripted fake backend; US1 and US2 MUST additionally be exercised live against the podinfo HelmRelease on the dev cluster before the feature is reported done.
 
 ### Key Entities

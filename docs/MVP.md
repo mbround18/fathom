@@ -22,6 +22,7 @@ Status legend: ✅ Done · 🚧 Partial · ⬜ Not started
 | Node actions (cordon/uncordon/drain/taint) | ✅ | 003-yaml-node-crd-parity |
 | Custom Resources — generic CRD discovery/browsing | ✅ | 003-yaml-node-crd-parity |
 | GitOps (Flux) integration panel | ✅ | promo-brochure-v2 work |
+| Flux verbs (suspend / resume / reconcile [with source] on sources, Kustomizations and HelmReleases from the inspector; confirm names the object and what the verb reaches; pane lists every resource with click-through; audited, hosted-allowed) | ✅ | 049-flux-mutate |
 | KEDA autoscaler pane (ScaledObjects/ScaledJobs, triggers, scale reasoning) | ✅ | 029-keda-autoscaler-pane |
 | Hubble/Cilium traffic panel | ✅ | promo-brochure-v2 work |
 | **Applications view** | ✅ | 004-applications-interlinking |
