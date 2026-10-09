@@ -113,6 +113,36 @@ fn save_preserves_unrelated_keys() {
     );
 }
 
+/// The one-time hosted-provider Ask AI disclosure: absent on a fresh install (the key is not
+/// even written while false, so older configs stay byte-identical), and once accepted it
+/// survives to the next load so the operator is never asked twice.
+#[test]
+fn ai_disclosure_defaults_off_and_round_trips_true() {
+    let home = TempHome::new();
+    assert!(
+        !load_ui_config()
+            .ui
+            .unwrap_or_default()
+            .ai_disclosure_accepted
+    );
+
+    save_ui_config(&custom_ui(), &groups(&["Workloads"])).unwrap();
+    assert!(
+        home.read_config()["ui"]
+            .get("aiDisclosureAccepted")
+            .is_none()
+    );
+
+    let mut ui = custom_ui();
+    ui.ai_disclosure_accepted = true;
+    save_ui_config(&ui, &groups(&["Workloads"])).unwrap();
+    assert_eq!(
+        home.read_config()["ui"]["aiDisclosureAccepted"],
+        json!(true)
+    );
+    assert!(load_ui_config().ui.unwrap().ai_disclosure_accepted);
+}
+
 /// 015-mcp-agent-exposure (T039/US3 acceptance scenario 1 & 2): the stdio MCP server's
 /// persisted preference is *off* on a fresh install — no `config.json` at all — and a
 /// `save(true)` survives to the next `load()`, which is what makes "toggle it on, restart

@@ -28,6 +28,11 @@ pub struct UiConfig {
     pub layouts: BTreeMap<WidthClass, LayoutProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_selection: Option<LastSelection>,
+    /// The operator has acknowledged, once, that an Ask AI request to a hosted provider
+    /// sends pod logs, events, resource status and the question off the machine.
+    /// Never set for local Ollama; absent means "not yet shown".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ai_disclosure_accepted: bool,
 }
 
 impl Default for UiConfig {
@@ -38,6 +43,7 @@ impl Default for UiConfig {
             density: DensityPrefs::default(),
             layouts: BTreeMap::new(),
             last_selection: None,
+            ai_disclosure_accepted: false,
         }
     }
 }

@@ -9,4 +9,10 @@ export type UiConfig = {
 /**
  * Always `1`. Any other value is treated as invalid on load.
  */
-schema: 1, theme: ThemePrefs, density: DensityPrefs, layouts: { [key in WidthClass]?: LayoutProfile }, lastSelection?: LastSelection | null, };
+schema: 1, theme: ThemePrefs, density: DensityPrefs, layouts: { [key in WidthClass]?: LayoutProfile }, lastSelection?: LastSelection | null, 
+/**
+ * The operator has acknowledged, once, that an Ask AI request to a hosted provider
+ * sends pod logs, events, resource status and the question off the machine.
+ * Never set for local Ollama; absent means "not yet shown".
+ */
+aiDisclosureAccepted?: boolean, };
