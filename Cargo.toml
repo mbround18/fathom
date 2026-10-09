@@ -2,6 +2,13 @@
 members = [".", "daemon", "pipeline", "ui/src-tauri", "tools/devbridge", "server"]
 resolver = "3"
 
+# Release bundles: thin LTO and one codegen unit for size/speed, symbols stripped. `panic` stays
+# at the default unwind because the backend relies on `catch_unwind`.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
 [package]
 name = "fathom"
 version = "0.1.0"
