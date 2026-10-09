@@ -1222,12 +1222,44 @@ fn write_chart_file(root: &std::path::Path, file: &Value) -> anyhow::Result<()> 
         .ok_or_else(|| anyhow::anyhow!("chart file entry missing a name"))?;
     let data_b64 = file.get("data").and_then(Value::as_str).unwrap_or_default();
     let bytes = BASE64.decode(data_b64.as_bytes()).unwrap_or_default();
-    let path = root.join(name);
+    let path = chart_entry_path(root, name)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, bytes)?;
     Ok(())
+}
+
+/// Resolves a chart entry name (`templates/deployment.yaml`) under `root`, refusing anything
+/// that could land outside it. The names come from the release Secret, which anyone with write
+/// access to that Secret controls, so only plain relative components are accepted: no root or
+/// drive prefix, no `..`, no empty name.
+fn chart_entry_path(root: &std::path::Path, name: &str) -> anyhow::Result<std::path::PathBuf> {
+    use std::path::Component;
+
+    let rel = std::path::Path::new(name);
+    let mut saw_component = false;
+    for component in rel.components() {
+        match component {
+            Component::Normal(_) => saw_component = true,
+            Component::CurDir => {}
+            Component::RootDir | Component::Prefix(_) | Component::ParentDir => {
+                anyhow::bail!(
+                    "chart file entry {name:?} is not a plain relative path inside the chart; refusing to write it"
+                );
+            }
+        }
+    }
+    if !saw_component {
+        anyhow::bail!("chart file entry {name:?} has no file name; refusing to write it");
+    }
+    let path = root.join(rel);
+    if !path.starts_with(root) {
+        anyhow::bail!(
+            "chart file entry {name:?} resolves outside the chart directory; refusing to write it"
+        );
+    }
+    Ok(path)
 }
 
 /// Runs `helm upgrade <release> <chart_dir> -n <namespace> [--dry-run] -f -`, piping
@@ -2130,6 +2162,39 @@ mod tests {
     #[test]
     fn extract_revision_none_when_absent() {
         assert_eq!(extract_revision("NAME: redis\n"), None);
+    }
+
+    // --- Chart materialization: entry names must stay inside the temp dir -------------
+
+    fn chart_file(name: &str) -> Value {
+        serde_json::json!({"name": name, "data": BASE64.encode(b"kind: Deployment\n")})
+    }
+
+    #[test]
+    fn write_chart_file_accepts_a_normal_nested_name() {
+        let dir = tempfile::tempdir().unwrap();
+        write_chart_file(dir.path(), &chart_file("templates/deployment.yaml")).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("templates/deployment.yaml")).unwrap(),
+            b"kind: Deployment\n"
+        );
+    }
+
+    #[test]
+    fn write_chart_file_rejects_parent_dir_traversal() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("a").join("b");
+        std::fs::create_dir_all(&root).unwrap();
+        let err = write_chart_file(&root, &chart_file("../../x")).unwrap_err();
+        assert!(err.to_string().contains("../../x"), "{err}");
+        assert!(!outer.path().join("x").exists());
+    }
+
+    #[test]
+    fn write_chart_file_rejects_absolute_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = write_chart_file(dir.path(), &chart_file("/etc/x")).unwrap_err();
+        assert!(err.to_string().contains("/etc/x"), "{err}");
     }
     // --- US1: Rollback (T010-T012) ---------------------------------------------------
 
