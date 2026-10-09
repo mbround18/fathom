@@ -16,7 +16,7 @@ import {
 } from '@/features/manifest-export/state'
 import { pushStep, resetTo, slotsFor, truncateAt } from '@/layout/cascade'
 import { dockTabs, resolveProfile } from '@/layout/defaults'
-import type { WidthClass } from '@/layout/width-class'
+import { hasDock, type WidthClass } from '@/layout/width-class'
 import { namespaceFilterCmd, refreshCmd, SECTION, selectCmd } from '@/protocol/commands'
 import type { AiSlice } from '@/features/ai-assist/types'
 import type {
@@ -1430,6 +1430,18 @@ export function assignPanes(
 
 // ------------------------------------------------------------------ cascade (044)
 
+/**
+ * Whether the row of fixed slots (section list + inspector) is on screen, so an open may retarget
+ * the slotted inspector. Laptop and above always show it; tablet shows it unless the stack root is
+ * a tool pane (an active tool tab takes the whole content area); phone never does.
+ */
+function rowVisible(layout: LayoutState, panes: Record<PaneId, PaneState>): boolean {
+  if (layout.widthClass === 'phone') return false
+  if (hasDock(layout.widthClass)) return true
+  const root = layout.stack[0]
+  return root === undefined || panes[root]?.kind !== 'tool'
+}
+
 /** Wide and above: the classes whose slot row is a window onto the cascade. */
 function isCascadeClass(cls: WidthClass): boolean {
   return cls === 'wide' || cls === 'ultra'
@@ -2419,25 +2431,18 @@ export const useStore = create<StoreState>()((set, get) => ({
 
       const slotted = s.layout.slotPanes.find((id) => panes[id]?.kind === 'inspector')
       const slottedPane = slotted ? panes[slotted] : undefined
-      // The fixed-slot inspector is only a valid target when it's actually on screen at the same
-      // time as whatever triggered this: laptop+ always shows the row alongside the dock, but
-      // tablet swaps the whole content area between the row and a tool tab (007-topology-graph-
-      // view: a topology node click while the Topology tab is active must NOT silently retarget
-      // the off-screen Resources-tab inspector slot) — so on tablet the fast path only applies
-      // when the click genuinely came from a pane that's part of that visible row.
-      const rowAlwaysVisible = s.layout.profile.dock !== undefined
-      const fromVisibleSlot = from !== undefined && s.layout.slotPanes.includes(from)
-      // A drill-down link (push) is clicked inside an inspector; when that inspector is the
-      // slotted one (no inspector on the stack), retargeting it is what the user sees.
-      const drillFromSlotted =
-        push === true &&
-        slottedPane?.target !== undefined &&
-        !s.layout.stack.some((id) => panes[id]?.kind === 'inspector')
-      if (
-        slottedPane &&
-        s.layout.widthClass !== 'phone' &&
-        (rowAlwaysVisible || fromVisibleSlot || drillFromSlotted)
-      ) {
+      // The fixed-slot inspector is only a valid target when it is actually on screen at the same
+      // time as whatever triggered this. Policy, by width class:
+      // - laptop and above: the row (list + inspector slots) is always shown alongside the dock,
+      //   so an open from anywhere retargets the slotted inspector.
+      // - tablet: the content area is either the row or one full-width tool tab (TabletTabs).
+      //   While the row is visible, an open from any pane in it (a section list, or an
+      //   integration pane such as Flux or Trivy hosted in the list slot, with or without `from`)
+      //   retargets the slotted inspector. While a tool tab is active (007-topology-graph-view: a
+      //   topology node click) the slot is off screen, so the open pushes onto `layout.stack`,
+      //   which TabletTabs renders with Back.
+      // - phone: never; drill in below.
+      if (slottedPane && rowVisible(s.layout, panes)) {
         panes[slottedPane.id] = {
           ...slottedPane,
           target: ref,

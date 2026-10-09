@@ -42,7 +42,9 @@ const TABLET_TABS = [
  * A tool tab (Logs/Events/Forwards/Topology) has no dedicated inspector slot of its own, so
  * `openInspector` (007-topology-graph-view: node click) falls back to pushing the inspector onto
  * `layout.stack`, same as phone — the top of the stack is what must render, and a "Back" control
- * is needed to leave it (mirrors `PhoneStack.tsx`).
+ * is needed to leave it (mirrors `PhoneStack.tsx`). While the Resources row is active the stack is
+ * never rendered here, so the store (`rowVisible`) retargets the slotted inspector instead, for an
+ * open from any pane in the row (a section list or an integration pane hosted in the list slot).
  */
 export function TabletTabs() {
   const active = useActiveTab(TABLET_TABS)
