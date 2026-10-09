@@ -28,13 +28,18 @@ Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri]
 
 ### Pre-built bundles
 
-Download the latest release for your platform from the [Releases page](https://github.com/mbround18/fathom/releases). Assets are named `fathom-<version>-<os>-<arch>.<ext>`:
+Download the latest release from the [Releases page](https://github.com/mbround18/fathom/releases).
+The MVP ships **Linux x86_64 only**, as the Tauri bundler names them:
 
-| Platform | Bundles |
+| Bundle | Asset |
 |---|---|
-| Linux x86_64 / aarch64 | `.deb`, `.rpm`, `.AppImage` |
-| macOS Apple Silicon / Intel | `.dmg` |
-| Windows x86_64 | `.msi`, `.exe` (NSIS) |
+| Debian / Ubuntu | `Fathom_<version>_amd64.deb` |
+| Fedora / RHEL | `Fathom-<version>-1.x86_64.rpm` |
+| Any distro | `Fathom_<version>_amd64.AppImage` |
+
+Packages are **unsigned**. macOS (`.dmg`) and Windows (`.msi`, NSIS) bundles, code signing and
+notarization are planned for after the MVP; aarch64 Linux packages wait until someone has tested
+them.
 
 ### Build from source
 
@@ -42,12 +47,10 @@ Prerequisites:
 
 | Tool | Version | Notes |
 |---|---|---|
-| Rust | 1.85+ (edition 2024) | |
+| Rust | 1.98.1 | pinned in `rust-toolchain.toml`; rustup picks it up |
 | Node | LTS (22+) | |
 | pnpm | 9+ | `corepack enable` |
 | Linux system libs | webkit2gtk-4.1 | see below |
-| macOS | Xcode CLT | |
-| Windows | WebView2 runtime + MSVC build tools | WebView2 ships with Windows 11 |
 
 ```bash
 # Ubuntu/Debian
@@ -59,14 +62,13 @@ cd fathom
 pnpm -C ui install
 
 make build-linux            # deb + rpm + AppImage + the binary, all into ./dist
-make build-windows          # NSIS installer (cross-compiles via cargo-xwin; see `make windows-deps`)
-make build-macos            # .app + .dmg, macOS host only
-make                        # the full target list
+make                        # the full target list (build-windows and build-macos exist but are post-MVP, untested)
 ```
 
 Each target stages into `./dist` beside a regenerated `SHA256SUMS`; the underlying
 `pnpm -C ui tauri build` leaves its output under the cargo target dir instead. Bundles
 built this way are **unsigned** — signing and notarization are post-MVP.
+Third-party licences are listed in `THIRD_PARTY_LICENSES.md`.
 
 
 ### Hosted server mode (in-cluster, browser)
@@ -166,24 +168,25 @@ Integrations → Grafana
 
 #### MCP (Model Context Protocol)
 
-Fathom ships an MCP server for AI-agent integration (e.g. Claude, Cursor):
+Fathom ships a stdio MCP server (`src/backend/mcp/`) for same-machine AI agents such as Claude
+Code or Claude Desktop. It is **off by default** and has no network listener; enable it from the
+app or run it headless:
 
 ```
-Integrations → MCP
-  → Start Server
+Integrations → MCP → enable          # in the app
+cargo run -p fathom-desktop -- --only-mcp   # headless, stdio only
 ```
 
-This exposes cluster state as MCP tools — query namespaces, pods, deployments, and trigger restarts from your AI coding assistant.
+Read tools: get and list objects, events, a pod log tail, and a pod health summary. Mutating tools
+(scale, replace, delete) ask the agent to confirm with you first and pass the same RBAC check as
+the UI. The MCP server is experimental in 0.1.0.
 
 ---
 
 ## Configuration
 
-Fathom stores configuration per kubeconfig context at:
-- Linux/macOS: `~/.config/fathom/<context>.json`
-- Windows: `%APPDATA%\fathom\<context>.json`
-
-Settings include: Prometheus endpoint, Grafana URL, MCP auto-start, port-forward history.
+Fathom keeps its configuration under `~/.fathom/` (per-context settings, fleet metadata, the
+local mutation audit log). Secrets such as Grafana API keys live in the OS keyring, not on disk.
 
 ---
 
@@ -228,16 +231,13 @@ Performance checks: `scripts/measure-idle-cpu.sh` (SC-005) and `scripts/measure-
 
 ### Architecture
 
-Fathom pairs a Rust backend with a Tauri v2 webview UI (`ui/`):
-
-- **UI**: React webview hosted by the Tauri shell (`ui/src-tauri`) — never blocks the backend
-- **Backend thread**: tokio runtime — all Kubernetes API calls and async work
-
-Communication uses crossbeam channels:
-- `BackendCmd` (UI → backend): commands like `RefreshPods`, `ScaleDeployment`
-- `BackendEventEnvelope` (backend → UI): events like `PodsUpdated`, `PodDetailsUpdated`
-
-Protocol types live in `src/protocol/`. View components implement `ViewComponent` trait in `src/app/views/`.
+The `fathom` library crate in `src/` is the backend: every Kubernetes call, integration and the
+MCP server run there on a tokio runtime, behind a typed command/event protocol (`src/protocol/`,
+exported to TypeScript as `ui/src/protocol/generated/`). `ui/src-tauri` is the Tauri v2 desktop
+shell that hosts the React + TypeScript UI in `ui/` and bridges it to the backend. `server/`
+(`fathom-server`) serves the same UI and backend as an in-cluster web app with OIDC sign-in, and
+`daemon/` (`fathom-daemon`) is the optional in-cluster aggregator for topology, metrics and event
+snapshots. Everything the UI shows comes through the protocol, so the shells are thin.
 
 ---
 
@@ -249,4 +249,4 @@ PRs welcome. Please run `cargo fmt` and `cargo clippy` before submitting.
 
 ## License
 
-MIT
+Apache-2.0 — see [LICENSE](LICENSE).
