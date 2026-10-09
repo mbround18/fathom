@@ -2,6 +2,8 @@
 name = "fathom-desktop"
 version = "0.1.0"
 description = "Fathom Kubernetes dashboard: Tauri v2 desktop shell"
+# The deb `Maintainer:` field: tauri-bundler takes it from here (then `bundle.publisher`).
+authors = ["MBRound18 <michael.bruno1337@gmail.com>"]
 edition = "2024"
 publish = false
 

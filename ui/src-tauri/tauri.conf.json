@@ -46,6 +46,7 @@
     ],
     "linux": {
       "deb": {
+        "section": "utils",
         "depends": ["ca-certificates"]
       },
       "rpm": {
