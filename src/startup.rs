@@ -9,6 +9,33 @@ pub fn install_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
+/// Log every panic through `tracing` (location and payload) before the previous hook runs.
+///
+/// A panic inside a backend command handler is caught and reported to the UI
+/// (`backend::run_cmd`), but the only record of *where* it happened is this log line: the
+/// default hook writes to stderr, which a desktop shell started from a launcher has nowhere to
+/// show. Installed once per process; later calls are no-ops.
+pub fn install_panic_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let payload = info.payload();
+            let message = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "non-string panic payload".to_owned());
+            let location = info
+                .location()
+                .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+                .unwrap_or_else(|| "unknown location".to_owned());
+            tracing::error!(%location, "panic: {message}");
+            previous(info);
+        }));
+    });
+}
+
 /// Initialize `tracing` output on **stderr**.
 ///
 /// Prefers `FATHOM_LOG` but falls back to the conventional `RUST_LOG`.
@@ -20,6 +47,7 @@ pub fn install_crypto_provider() {
 /// indifferent to which stream its logs land on, so one unconditional choice avoids a
 /// "logs corrupt the protocol" footgun that depends on argument parsing order.
 pub fn init_tracing() {
+    install_panic_hook();
     let filter = std::env::var("FATHOM_LOG")
         .ok()
         .or_else(|| std::env::var("RUST_LOG").ok())

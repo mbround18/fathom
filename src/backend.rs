@@ -3,6 +3,8 @@ use crate::protocol::{
     ScopeKind, SystemEvent, section_keys,
 };
 use crossbeam_channel::{Receiver, Sender};
+use futures::FutureExt;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -73,6 +75,8 @@ mod prom_discovery;
 mod related;
 mod replicasets;
 mod replicationcontrollers;
+#[cfg(test)]
+mod run_cmd_tests;
 pub mod secret_store;
 mod served_crd;
 mod services;
@@ -144,6 +148,7 @@ pub fn init_with<C>(
 ) where
     C: Into<CmdRequest>,
 {
+    crate::startup::install_panic_hook();
     // 031: a hosted backend's state root is scoped to its own threads (this one and its
     // runtime's), never process-wide: several users' backends share the process. A caller
     // that supplies its own runtime scopes it with `persistence::scope_runtime_to_state_root`.
@@ -293,12 +298,89 @@ fn is_order_sensitive(cmd: &BackendCmd) -> bool {
     )
 }
 
+/// Run one command, containing any panic in its handler.
+///
+/// A handler that panics must not take its task with it: on the ordered lane that task is
+/// the only one, and every later terminal/log command would vanish into a closed channel.
+/// The panic is caught here and reported like any other failure (`CommandFinished { ok: false }`
+/// plus an error notification), and the task goes on to the next command. The state lock is
+/// released by unwinding (`tokio::sync::Mutex` does not poison), so the state stays usable.
+async fn run_cmd(
+    request: CmdRequest,
+    state: &tokio::sync::Mutex<BackendState>,
+    sender: &Sender<BackendEventEnvelope>,
+) {
+    let id = request.id;
+    let route = finished_route(&request.cmd);
+    let kind = std::mem::discriminant(&request.cmd);
+    let Err(payload) = AssertUnwindSafe(run_cmd_unguarded(request, state, sender))
+        .catch_unwind()
+        .await
+    else {
+        return;
+    };
+    let message = panic_message(payload.as_ref());
+    tracing::error!(request = ?id, command = ?kind, "command handler panicked: {message}");
+    let state = state.lock().await;
+    events::in_cmd_scope(id, None, async {
+        let error = format!("internal error: {message}");
+        events::notify_error(state.cluster.seq.as_ref(), sender, error.clone());
+        events::emit(
+            state.cluster.seq.as_ref(),
+            sender,
+            route,
+            Correlation::None, // → the command's Request correlation
+            BackendEvent::CommandFinished {
+                ok: false,
+                error: Some(error),
+            },
+        );
+    })
+    .await;
+}
+
+/// The text of a panic payload: what `panic!` was given, or a placeholder for a typed payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_owned()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "non-string panic payload".to_owned()
+    }
+}
+
+/// Fault injection for `run_cmd` tests, keyed by request id so parallel tests never see each
+/// other's hooks and the protocol enum needs no test-only variant.
+#[cfg(test)]
+pub(super) mod test_hooks {
+    use crate::protocol::RequestId;
+    use std::sync::Mutex;
+
+    static PANIC_ON: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+    /// Make the command with request id `id` panic inside the state lock.
+    pub(super) fn panic_on(id: u64) {
+        PANIC_ON.lock().unwrap().push(id);
+    }
+
+    pub(super) fn maybe_panic(id: Option<RequestId>) {
+        let Some(RequestId(id)) = id else { return };
+        let mut ids = PANIC_ON.lock().unwrap();
+        if let Some(pos) = ids.iter().position(|x| *x == id) {
+            ids.swap_remove(pos);
+            drop(ids);
+            panic!("injected panic for request {id}");
+        }
+    }
+}
+
 /// Dispatch one command under the state lock, then emit its `CommandFinished`.
 ///
 /// Runs inside [`events::in_cmd_scope`], so every envelope emitted while handling the
 /// command defaults to its request correlation, and every error notification (from the
 /// handler itself, or from a returned `Err`, reported here) marks it failed.
-async fn run_cmd(
+async fn run_cmd_unguarded(
     request: CmdRequest,
     state: &tokio::sync::Mutex<BackendState>,
     sender: &Sender<BackendEventEnvelope>,
@@ -316,6 +398,8 @@ async fn run_cmd(
         let audit_summary = cmd.audit_summary();
         let request_id = events::current_request_id_string();
         let mut state = state.lock().await;
+        #[cfg(test)]
+        test_hooks::maybe_panic(id);
         match cmd::dispatch_cmd(cmd, &mut state, sender).await {
             Ok(true) => tracing::debug!("Command signaled shutdown"),
             Ok(false) => {}

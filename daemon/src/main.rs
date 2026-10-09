@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+    fathom::startup::install_panic_hook();
     let cfg = DaemonConfig::from_env()?;
     let client = kube::Client::try_default().await.context("kube client")?;
 
