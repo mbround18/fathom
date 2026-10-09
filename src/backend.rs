@@ -298,6 +298,57 @@ fn is_order_sensitive(cmd: &BackendCmd) -> bool {
     )
 }
 
+/// How long an ordinary command may hold the state lock: `FATHOM_COMMAND_TIMEOUT_SECS`, or 30s.
+///
+/// Every command runs under the one state mutex, so a single stalled kube request (default
+/// read timeout: 295s) used to block every later click, including `Shutdown`. Read once; an
+/// unparsable or zero value falls back to the default.
+fn default_command_timeout() -> Duration {
+    static LIMIT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        std::env::var("FATHOM_COMMAND_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .map(Duration::from_secs)
+            .unwrap_or(DEFAULT_COMMAND_TIMEOUT)
+    })
+}
+
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The bound for commands that legitimately run long under the lock: a `helm upgrade` or
+/// `kind delete` subprocess, an image build, or an AI turn (which has its own 120s HTTP bound).
+const LONG_COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// The time budget for one command's dispatch, or `None` for a command that must never be cut
+/// off. Most handlers answer in milliseconds or spawn their long work (kind create, drain,
+/// node shell wait, OIDC flows, streams) and return at once, so they get the default. The
+/// exceptions are listed here, by name, so a new long-running inline handler is a visible
+/// decision rather than a surprise 30s failure.
+fn command_timeout(cmd: &BackendCmd) -> Option<Duration> {
+    match cmd {
+        // Shutdown is the command that must get through; its own steps are bounded
+        // (`node_shell::APP_EXIT_BOUND`) and cutting it short would skip cleanup.
+        BackendCmd::Shutdown => None,
+        // helm subprocesses run inline (helm's own default wait is 5m).
+        BackendCmd::ApplyHelmUpgrade { .. }
+        | BackendCmd::ApplyHelmRollback { .. }
+        | BackendCmd::PreviewHelmUpgrade { .. }
+        | BackendCmd::PreviewHelmRollback { .. }
+        | BackendCmd::UninstallHelmRelease { .. }
+        // `kind delete cluster` runs inline so the active-context fallback can mutate state.
+        | BackendCmd::DeleteKindCluster { .. }
+        // Image builds/pulls/removals run on a blocking thread but are awaited inline.
+        | BackendCmd::IssueContainerOperation { .. }
+        // One LLM turn, grounded against the cluster.
+        | BackendCmd::AgentAsk { .. }
+        // One delete per selected pod, sequentially.
+        | BackendCmd::BulkDelete { .. } => Some(LONG_COMMAND_TIMEOUT),
+        _ => Some(default_command_timeout()),
+    }
+}
+
 /// Run one command, containing any panic in its handler.
 ///
 /// A handler that panics must not take its task with it: on the ordered lane that task is
@@ -356,8 +407,22 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 pub(super) mod test_hooks {
     use crate::protocol::RequestId;
     use std::sync::Mutex;
+    use std::time::Duration;
 
     static PANIC_ON: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+    static TIMEOUTS: Mutex<Vec<(u64, Duration)>> = Mutex::new(Vec::new());
+
+    /// Replace the command timeout for request id `id`.
+    pub(super) fn timeout_for(id: u64, limit: Duration) {
+        TIMEOUTS.lock().unwrap().push((id, limit));
+    }
+
+    pub(super) fn timeout_override(id: Option<RequestId>) -> Option<Duration> {
+        let RequestId(id) = id?;
+        let mut entries = TIMEOUTS.lock().unwrap();
+        let pos = entries.iter().position(|(x, _)| *x == id)?;
+        Some(entries.swap_remove(pos).1)
+    }
 
     /// Make the command with request id `id` panic inside the state lock.
     pub(super) fn panic_on(id: u64) {
@@ -400,7 +465,21 @@ async fn run_cmd_unguarded(
         let mut state = state.lock().await;
         #[cfg(test)]
         test_hooks::maybe_panic(id);
-        match cmd::dispatch_cmd(cmd, &mut state, sender).await {
+        let limit = command_timeout(&cmd);
+        #[cfg(test)]
+        let limit = test_hooks::timeout_override(id).or(limit);
+        let dispatch = cmd::dispatch_cmd(cmd, &mut state, sender);
+        // Dropping the timed-out dispatch future releases every borrow it held, so the lock
+        // (released below with `state`) is free for the next command instead of waiting out a
+        // kube read timeout (295s by default) or a hung subprocess.
+        let result = match limit {
+            Some(limit) => match tokio::time::timeout(limit, dispatch).await {
+                Ok(result) => result,
+                Err(_) => Err(anyhow::anyhow!("timed out after {}s", limit.as_secs())),
+            },
+            None => dispatch.await,
+        };
+        match result {
             Ok(true) => tracing::debug!("Command signaled shutdown"),
             Ok(false) => {}
             // `{:#}` keeps the whole anyhow chain (e.g. the Kubernetes API message).
@@ -783,5 +862,46 @@ mod tests {
             stream_id: crate::protocol::StreamId(1 << 32)
         }));
         assert!(!is_order_sensitive(&BackendCmd::StopMetricsPolling));
+    }
+
+    #[test]
+    fn command_timeouts_are_default_except_for_named_long_runners() {
+        assert_eq!(command_timeout(&BackendCmd::Shutdown), None);
+        for long in [
+            BackendCmd::DeleteKindCluster {
+                request_id: "r".into(),
+                name: "c".into(),
+            },
+            BackendCmd::UninstallHelmRelease {
+                namespace: "ns".into(),
+                release: "r".into(),
+                base_revision: 1,
+            },
+            BackendCmd::BulkDelete { items: Vec::new() },
+        ] {
+            assert_eq!(
+                command_timeout(&long),
+                Some(LONG_COMMAND_TIMEOUT),
+                "{long:?}"
+            );
+        }
+        for ordinary in [
+            BackendCmd::Initialize,
+            BackendCmd::RefreshPods,
+            BackendCmd::SimulateSlowCall,
+            BackendCmd::StopPodExec,
+            BackendCmd::SetContext {
+                context: "c".into(),
+            },
+        ] {
+            assert_eq!(
+                command_timeout(&ordinary),
+                Some(default_command_timeout()),
+                "{ordinary:?}"
+            );
+        }
+        if std::env::var_os("FATHOM_COMMAND_TIMEOUT_SECS").is_none() {
+            assert_eq!(default_command_timeout(), DEFAULT_COMMAND_TIMEOUT);
+        }
     }
 }

@@ -299,6 +299,11 @@ pub(super) async fn connect_client_for_current_context(
         ..Default::default()
     };
     let mut config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
+    // An unreachable API server fails the connect in 10s instead of the OS's TCP timeout.
+    // `read_timeout` is left at kube's default on purpose: this client is shared with the
+    // watch tasks, whose long-poll reads must not be cut short; a stalled request is bounded
+    // by the per-command timeout in `backend::run_cmd` instead.
+    config.connect_timeout = Some(std::time::Duration::from_secs(10));
     // 033 US2: a context opted into OIDC authenticates with the signed-in ID token only.
     if let Some(issuer_id) = oidc_issuer_for_context(&ctx) {
         return build_oidc_client(config, state.oidc.token_source(&issuer_id));

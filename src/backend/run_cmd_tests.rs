@@ -120,3 +120,35 @@ fn a_panicking_handler_finishes_failed_and_the_lane_keeps_running() {
             .expect("lane task did not panic");
     });
 }
+#[test]
+fn a_stalled_handler_times_out_and_the_next_command_runs() {
+    let h = harness();
+    // SimulateSlowCall sleeps 2s; cut it off well before that.
+    test_hooks::timeout_for(9101, Duration::from_millis(100));
+
+    let started = std::time::Instant::now();
+    let lane = h.run_in_order(vec![request(9101), request(9102)]);
+
+    let (ok, error, id) = h.next_finished(Duration::from_secs(10));
+    assert!(!ok, "a timed-out command must report as failed");
+    assert_eq!(id, Some(RequestId(9101)));
+    let error = error.expect("an error message");
+    assert!(
+        error.contains("timed out after"),
+        "unexpected error: {error}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the timeout must fire before the handler would have finished"
+    );
+
+    let (ok, error, id) = h.next_finished(Duration::from_secs(10));
+    assert!(ok, "the next command must run after a timeout: {error:?}");
+    assert_eq!(id, Some(RequestId(9102)));
+    h.rt.block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), lane)
+            .await
+            .expect("lane task finishes")
+            .expect("lane task did not panic");
+    });
+}
