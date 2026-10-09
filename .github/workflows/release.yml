@@ -12,10 +12,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # One tauri-action build per shipped target. MVP: Linux x86_64 and aarch64 only, validated by
-  # hand on Ubuntu 26.04 before publishing (specs/001-tauri-shadcn-frontend, T126).
-  # tauri-action creates the release (first job wins, the rest attach) and uploads each bundle
-  # renamed by `assetNamePattern` to fathom-<version>-<os>-<arch>.<ext> (FR-024).
+  # One tauri-action build per shipped target. MVP: Linux x86_64 only, validated by hand on
+  # Ubuntu 26.04 before publishing (specs/001-tauri-shadcn-frontend, T126).
+  # Every build attaches its bundles to one *draft* release under the bundler's own names
+  # (Fathom_<version>_amd64.deb, Fathom-<version>-1.x86_64.rpm, Fathom_<version>_amd64.AppImage);
+  # the `publish` job flips the draft once every matrix entry has uploaded, so the matrix never
+  # races to create or publish the release.
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -23,13 +25,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # deb, rpm, AppImage. The arm64 runner is native: AppImage cannot be cross-compiled.
+          # deb, rpm, AppImage.
           - name: linux-x86_64
             os: ubuntu-22.04
             args: ''
-          - name: linux-aarch64
-            os: ubuntu-22.04-arm
-            args: ''
+          # aarch64 Linux is dropped until someone has run its packages: no arm64 box has
+          # validated them (docs/MVP.md, "aarch64 packages are untested"). The arm64 runner is
+          # native because AppImage cannot be cross-compiled; restore:
+          #   - {name: linux-aarch64, os: ubuntu-22.04-arm, args: ''}
           # MVP ships Linux only, unsigned (user decision, 2026-09-26). macOS (dmg) and Windows
           # (msi, nsis) return after the MVP along with signing and notarization; restore:
           #   - {name: macos-aarch64, os: macos-latest, args: '--target aarch64-apple-darwin', rust_targets: aarch64-apple-darwin}
@@ -47,9 +50,12 @@ jobs:
             libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
             libssl-dev pkg-config build-essential curl wget file
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      # Keep in step with rust-toolchain.toml: the release is built with the same pinned compiler
+      # as CI and local development, not whatever `stable` is on the day of the tag.
+      - name: Install Rust 1.98.1
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.rust_targets }}
 
       - name: Cache Cargo
@@ -74,7 +80,7 @@ jobs:
       - name: Install UI dependencies
         run: pnpm -C ui install --frozen-lockfile
 
-      - name: Build and publish bundles
+      - name: Build and attach bundles to the draft release
         id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -83,10 +89,9 @@ jobs:
           projectPath: ui
           tagName: ${{ github.ref_name }}
           releaseName: Fathom ${{ github.ref_name }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           generateReleaseNotes: true
-          assetNamePattern: fathom-[version]-[platform]-[arch][ext]
           args: ${{ matrix.args }}
 
       # The bundled libwayland-client makes WebKitGTK abort with EGL_BAD_PARAMETER (blank window)
@@ -105,3 +110,15 @@ jobs:
           [ -n "$asset" ] || { echo "no AppImage asset for $(uname -m) on the release" >&2; exit 1; }
           cp "$img" "$RUNNER_TEMP/$asset"
           gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$asset" --clobber
+
+  # Publish the draft only after every build has attached its bundles. A failed build leaves the
+  # draft in place for a human to inspect or delete.
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Mark the release as published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
