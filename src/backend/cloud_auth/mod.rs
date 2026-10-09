@@ -80,9 +80,15 @@ fn blocked_error(context: &str, provider: CloudProvider, command: &str) -> Plugi
         provider,
         command: command.to_owned(),
         message: redact::truncate(
-            &format!(
-                "`{command}` is not a known cloud auth plugin and this context's exec policy is allowKnownOnly, so it was not run"
-            ),
+            &if detect::command_names_a_path(command) {
+                format!(
+                    "`{command}` names a path instead of a bare program name; this context's exec policy is allowKnownOnly, which only runs known plugins resolved from PATH, so it was not run"
+                )
+            } else {
+                format!(
+                    "`{command}` is not a known cloud auth plugin and this context's exec policy is allowKnownOnly, so it was not run"
+                )
+            },
             PLUGIN_ERROR_MAX_MESSAGE_BYTES,
         ),
         hint: Some(
@@ -114,9 +120,10 @@ pub async fn prepare_config_with(
         return Ok(());
     };
     let provider = detect::classify_exec(&exec_cfg);
-    if !detect::policy_allows(provider, env.policy) {
+    if !detect::policy_allows(&spec.command, provider, env.policy) {
         return Err(blocked_error(context, provider, &spec.command));
     }
+    let spec = spec.restricted_to(env.policy);
 
     let credential = env
         .cache
@@ -277,6 +284,32 @@ current-context: ctx
             .unwrap_err();
         assert_eq!(err.kind, PluginErrorKind::PluginBlocked);
         assert!(err.message.contains("weird-plugin"));
+        // allowAll proceeds to resolution (and here reports it missing rather than blocked).
+        let err = prepare_config_with("ctx", &mut cfg, &env(ExecPolicy::AllowAll, &cache))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, PluginErrorKind::PluginMissing);
+    }
+
+    #[tokio::test]
+    async fn path_bearing_known_command_is_blocked_by_default_and_allowed_with_allow_all() {
+        let mut cfg = config_with_exec("/tmp/evil/aws", &["eks", "get-token"]);
+        let cache = CredentialCache::default();
+        let err = prepare_config_with("ctx", &mut cfg, &env(ExecPolicy::AllowKnownOnly, &cache))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, PluginErrorKind::PluginBlocked);
+        assert_eq!(err.provider, CloudProvider::Eks);
+        assert!(err.message.contains("/tmp/evil/aws"), "{}", err.message);
+        assert!(err.message.contains("PATH"), "{}", err.message);
+        assert!(err.message.contains("allowKnownOnly"), "{}", err.message);
+        assert!(
+            err.hint
+                .as_deref()
+                .unwrap()
+                .contains("allow any exec command")
+        );
+        assert!(cache.is_empty());
         // allowAll proceeds to resolution (and here reports it missing rather than blocked).
         let err = prepare_config_with("ctx", &mut cfg, &env(ExecPolicy::AllowAll, &cache))
             .await

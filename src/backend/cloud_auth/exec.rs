@@ -16,7 +16,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use super::detect::{self, Resolution};
 use super::redact;
 use crate::protocol::{
-    CloudProvider, PLUGIN_ERROR_MAX_MESSAGE_BYTES, PluginError, PluginErrorKind,
+    CloudProvider, ExecPolicy, PLUGIN_ERROR_MAX_MESSAGE_BYTES, PluginError, PluginErrorKind,
 };
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -37,7 +37,32 @@ pub struct ExecSpec {
     pub cluster_info: Option<serde_json::Value>,
 }
 
+/// Kubeconfig `exec.env` names that `allowKnownOnly` still passes to the plugin: they select a
+/// profile, region or config file for the known plugins and cannot change what code the child
+/// loads. Everything else (`LD_PRELOAD`, `PATH`, `AWS_CONTAINER_CREDENTIALS_FULL_URI`, ...) is
+/// dropped under that policy, because a shared kubeconfig controls these values.
+pub const KNOWN_ONLY_ENV_ALLOWLIST: &[&str] = &[
+    "AWS_PROFILE",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_CONFIG_FILE",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    "CLOUDSDK_CORE_PROJECT",
+    "CLOUDSDK_CONFIG",
+    "AZURE_CONFIG_DIR",
+];
+
 impl ExecSpec {
+    /// The spec as `policy` lets it run: `allowAll` passes the kubeconfig `env` through verbatim,
+    /// `allowKnownOnly` keeps only [`KNOWN_ONLY_ENV_ALLOWLIST`].
+    pub fn restricted_to(mut self, policy: ExecPolicy) -> Self {
+        if policy == ExecPolicy::AllowKnownOnly {
+            self.env
+                .retain(|(k, _)| KNOWN_ONLY_ENV_ALLOWLIST.contains(&k.as_str()));
+        }
+        self
+    }
+
     pub fn from_kube(exec: &ExecConfig) -> Option<Self> {
         let command = exec.command.clone().filter(|c| !c.trim().is_empty())?;
         let env = exec
@@ -523,6 +548,25 @@ mod tests {
             parse_credential(br#"{"status":{}}"#, now),
             Err(RunFailure::BadOutput(_))
         ));
+    }
+
+    #[test]
+    fn known_only_policy_keeps_only_allowlisted_env() {
+        let mut s = spec("aws");
+        s.env = vec![
+            ("LD_PRELOAD".into(), "/tmp/evil.so".into()),
+            ("AWS_PROFILE".into(), "prod".into()),
+            ("AWS_REGION".into(), "us-east-1".into()),
+        ];
+        let restricted = s.clone().restricted_to(ExecPolicy::AllowKnownOnly);
+        assert_eq!(
+            restricted.env,
+            vec![
+                ("AWS_PROFILE".to_owned(), "prod".to_owned()),
+                ("AWS_REGION".to_owned(), "us-east-1".to_owned()),
+            ]
+        );
+        assert_eq!(s.clone().restricted_to(ExecPolicy::AllowAll).env, s.env);
     }
 
     #[test]

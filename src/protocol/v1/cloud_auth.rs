@@ -40,7 +40,9 @@ impl CloudProvider {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum ExecPolicy {
-    /// Only `aws eks get-token`, `aws-iam-authenticator`, `gke-gcloud-auth-plugin`, `kubelogin`.
+    /// Only `aws eks get-token`, `aws-iam-authenticator`, `gke-gcloud-auth-plugin`, `kubelogin`,
+    /// named as a bare command and resolved from `PATH` (a path-bearing `command` is blocked),
+    /// with the kubeconfig's `exec.env` reduced to a profile/region/config-file allowlist.
     #[default]
     AllowKnownOnly,
     /// Any exec command in the kubeconfig may run (explicit per-context opt-in).

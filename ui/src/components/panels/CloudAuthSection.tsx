@@ -64,7 +64,7 @@ export function CloudAuthSection() {
         <p className="text-xs text-muted-foreground">
           {allowAll
             ? 'Any exec command is allowed for this context.'
-            : 'This command is not a known cloud auth plugin and is blocked.'}
+            : 'This command is blocked: only known cloud auth plugins named as a bare command (resolved from PATH) run under the default policy.'}
         </p>
       ) : null}
       <Gated verb="get" resource="namespaces">

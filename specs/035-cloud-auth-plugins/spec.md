@@ -85,10 +85,16 @@ Plugin execution is bounded and cannot leak credentials or be abused via a hosti
 **Acceptance Scenarios**:
 1. **Given** a plugin that hangs, **Then** it is killed at a timeout (default 20s) and reported
    as `pluginTimeout`.
-2. **Given** a kubeconfig exec entry with a command not in the provider allowlist, **Then**
-   Fathom follows the operator's `execPolicy` (default `allowKnownOnly`; `allowAll` opt-in per
-   context) and otherwise reports `pluginBlocked` naming the command. Rationale: opening an
-   untrusted shared kubeconfig must not run arbitrary binaries (relevant to 014 shared profiles).
+2. **Given** a kubeconfig exec entry with a command not in the provider allowlist, or a known
+   plugin named by path (`/tmp/x/aws`) rather than as a bare command, **Then** Fathom follows the
+   operator's `execPolicy` (default `allowKnownOnly`; `allowAll` opt-in per context) and
+   otherwise reports `pluginBlocked` naming the command and the rule it broke. Under
+   `allowKnownOnly` the kubeconfig's `exec.env` is also reduced to a profile/region/config-file
+   allowlist (`AWS_PROFILE`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_CONFIG_FILE`,
+   `AWS_SHARED_CREDENTIALS_FILE`, `CLOUDSDK_CORE_PROJECT`, `CLOUDSDK_CONFIG`, `AZURE_CONFIG_DIR`),
+   so a shared kubeconfig cannot inject `LD_PRELOAD`-style variables into a trusted plugin.
+   Rationale: opening an untrusted shared kubeconfig must not run arbitrary binaries (relevant
+   to 014 shared profiles).
 3. **Given** any plugin output, **Then** tokens never appear in logs, protocol events, UI, MCP
    output, or exported diagnostics (Principle VI); only expiry and provider are surfaced.
 4. **Given** interactive plugins (`interactiveMode: Always`), **Then** Fathom does not attach a
@@ -113,7 +119,9 @@ Plugin execution is bounded and cannot leak credentials or be abused via a hosti
 - **FR-005**: The backend MUST cache `ExecCredential` in memory keyed per plugin invocation identity, honoring expiry with skew, a default TTL, single-flight, and 401 invalidation.
 - **FR-006**: Fleet and probe MUST obtain credentials through the shared cache so a fresh `kube::Client` per poll does not re-spawn the plugin.
 - **FR-007**: Plugin execution MUST enforce a timeout and MUST NOT allocate a TTY.
-- **FR-008**: Unknown exec commands MUST be gated by `execPolicy` (default known-only).
+- **FR-008**: Unknown exec commands MUST be gated by `execPolicy` (default known-only). Under
+  known-only, known plugins MUST be resolved from `PATH` only (a path-bearing `command` is
+  blocked) and kubeconfig `exec.env` MUST be limited to the benign allowlist above.
 - **FR-009**: Tokens MUST NOT be logged, emitted in events, stored on disk, or surfaced to UI/MCP.
 - **FR-010**: Fathom MUST NOT install plugins, run login commands, or read provider credential stores directly.
 - **FR-011**: Existing static-credential contexts MUST behave identically (no regression).

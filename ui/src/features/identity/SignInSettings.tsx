@@ -63,8 +63,9 @@ export function ExecPluginStatus({ context }: { context: string }) {
       )}
       {!info.exec_policy_allowed && (
         <p className="text-muted-foreground">
-          This command is not a known cloud auth plugin, so Fathom blocks it. Cluster settings can
-          allow it for this context.
+          Fathom blocks this command: under the default policy only known cloud auth plugins named
+          as a bare command (resolved from PATH) may run. Cluster settings can allow it for this
+          context.
         </p>
       )}
     </div>

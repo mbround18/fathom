@@ -208,11 +208,24 @@ pub fn exec_for_context(kubeconfig: &Kubeconfig, context: &str) -> Option<ExecCo
     info.exec.clone()
 }
 
-/// Whether `provider` may run under `policy`.
-pub fn policy_allows(provider: CloudProvider, policy: ExecPolicy) -> bool {
-    match provider {
-        CloudProvider::GenericExec => policy == ExecPolicy::AllowAll,
-        _ => true,
+/// Whether `command` names a filesystem path (`/opt/x/aws`, `./aws`, `C:\x\aws.exe`) rather
+/// than a bare program name to look up on `PATH`. Either separator counts on every OS: a
+/// kubeconfig is portable text, and a backslash that is a path on Windows must not slip through
+/// as a "name" elsewhere.
+pub fn command_names_a_path(command: &str) -> bool {
+    command.contains(['/', '\\'])
+}
+
+/// Whether `command` (classified as `provider`) may run under `policy`. `allowKnownOnly` trusts
+/// the plugin's *name*, so it only runs the known plugins and only when resolved from `PATH`: a
+/// path-bearing command such as `/tmp/x/aws` would otherwise run whatever a shared kubeconfig
+/// points at while classifying as the trusted plugin.
+pub fn policy_allows(command: &str, provider: CloudProvider, policy: ExecPolicy) -> bool {
+    match policy {
+        ExecPolicy::AllowAll => true,
+        ExecPolicy::AllowKnownOnly => {
+            provider != CloudProvider::GenericExec && !command_names_a_path(command)
+        }
     }
 }
 
@@ -242,6 +255,7 @@ pub fn detect_context(
         Resolution::Found(p) => (true, Some(p.display().to_string())),
         _ => (false, None),
     };
+    let exec_policy_allowed = policy_allows(&command, provider, policy);
     CloudAuthInfo {
         context: context.to_owned(),
         provider,
@@ -249,7 +263,7 @@ pub fn detect_context(
         command: Some(command),
         installed: Some(installed),
         resolved_path: resolved,
-        exec_policy_allowed: policy_allows(provider, policy),
+        exec_policy_allowed,
         exec_policy: policy,
     }
 }
@@ -411,6 +425,33 @@ users:
         assert_eq!(info.installed, Some(true));
         assert_eq!(info.resolved_path.as_deref(), Some(bin.to_str().unwrap()));
         assert!(info.install_hint.is_none());
+    }
+
+    #[test]
+    fn known_only_policy_refuses_path_bearing_commands() {
+        // A known basename does not make a path trustworthy: `/tmp/evil/aws` is still `aws`.
+        assert!(!policy_allows(
+            "/tmp/evil/aws",
+            CloudProvider::Eks,
+            ExecPolicy::AllowKnownOnly
+        ));
+        assert!(!policy_allows(
+            "evil\\kubelogin",
+            CloudProvider::Aks,
+            ExecPolicy::AllowKnownOnly
+        ));
+        assert!(policy_allows(
+            "aws",
+            CloudProvider::Eks,
+            ExecPolicy::AllowKnownOnly
+        ));
+        assert!(policy_allows(
+            "/tmp/evil/aws",
+            CloudProvider::Eks,
+            ExecPolicy::AllowAll
+        ));
+        assert!(command_names_a_path("./aws"));
+        assert!(!command_names_a_path("aws"));
     }
 
     #[test]
