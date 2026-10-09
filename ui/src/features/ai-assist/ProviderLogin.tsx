@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { openExternalLink } from '@/lib/open-external'
 import type { LoginFlow, Provider, ProviderStatus } from '@/protocol/types'
 import { useStore } from '@/store'
 
@@ -32,6 +33,7 @@ function DeviceCode({ flow }: { flow: LoginFlow }) {
           href={flow.verification_uri}
           target="_blank"
           rel="noreferrer"
+          onClick={openExternalLink}
           data-testid="ai-verification-uri"
           className="underline"
         >

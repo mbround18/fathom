@@ -14,6 +14,7 @@ import { ClusterNodes } from '@/features/containers/ClusterNodes'
 import { useBackingContainers } from '@/features/containers/useBackingContainers'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
+import { openExternalLink } from '@/lib/open-external'
 import type { KindClusterProfileId } from '@/protocol/types'
 import { useStore, type KindOperation } from '@/store'
 
@@ -42,7 +43,13 @@ function PrerequisitesBanner() {
     body = (
       <span data-testid="kind-missing">
         kind is not installed.{' '}
-        <a className="underline" href={INSTALL_URL} target="_blank" rel="noreferrer">
+        <a
+          className="underline"
+          href={INSTALL_URL}
+          target="_blank"
+          rel="noreferrer"
+          onClick={openExternalLink}
+        >
           Install kind
         </a>{' '}
         and refresh.

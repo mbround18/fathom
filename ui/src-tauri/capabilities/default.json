@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core defaults plus the two Fathom bridge commands.",
+  "description": "Main window: core defaults, the two Fathom bridge commands, and opening http(s) links in the system browser.",
   "windows": ["main"],
-  "permissions": ["core:default", "allow-send-cmd", "allow-subscribe-events"]
+  "permissions": [
+    "core:default",
+    "allow-send-cmd",
+    "allow-subscribe-events",
+    "opener:default",
+    "opener:allow-open-url"
+  ]
 }

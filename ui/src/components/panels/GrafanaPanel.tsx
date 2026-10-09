@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useObservabilitySettings } from '@/features/metrics/useObservabilitySettings'
+import { openExternal, openExternalLink } from '@/lib/open-external'
 import { SECTION } from '@/protocol/commands'
 import type { DetectedMetricsComponent, PortForward } from '@/protocol/types'
 import { listKey, serviceForwardKey, useStore } from '@/store'
@@ -184,7 +185,7 @@ function GrafanaConnect({
         if (savedUrl !== url)
           send({ type: 'ConfigureGrafana', data: { base_url: url, api_key: '' } })
         toast.success(`Grafana forwarded to ${url}`)
-        window.open(url, '_blank', 'noopener,noreferrer')
+        await openExternal(url)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -216,6 +217,7 @@ function GrafanaConnect({
             href={localUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={openExternalLink}
           >
             {localUrl}
           </a>

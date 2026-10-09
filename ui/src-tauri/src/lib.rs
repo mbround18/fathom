@@ -65,6 +65,9 @@ pub fn run_with_args(args: Args) {
     let backend_thread = Mutex::new(Some(backend_thread));
 
     let app = tauri::Builder::default()
+        // External links (docs, device-flow sign-in, Grafana): the webview has no tab to open
+        // them in, so ui/src/lib/open-external.ts hands http(s) URLs to the system browser.
+        .plugin(tauri_plugin_opener::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             bridge::send_cmd,
