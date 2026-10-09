@@ -1077,6 +1077,8 @@ export interface StoreState extends StoreData {
   pickInSetup: (name: string) => void
   /** 043: remember `name` in `UiConfig.lastSelection` (never the kubeconfig) and save it. */
   rememberContext: (name: string) => void
+  /** Record that the hosted-provider Ask AI disclosure was accepted; persisted via `SaveUiConfig`. */
+  acceptAiDisclosure: () => void
   /** 043: open the remembered context when the kubeconfig selects none (once per start). */
   startupContext: () => void
   setSetup: (patch: Partial<SetupFlow>) => void
@@ -2140,6 +2142,13 @@ export const useStore = create<StoreState>()((set, get) => ({
   rememberContext: (name) => {
     const s = get()
     const ui: UiConfig = { ...s.ui, lastSelection: { context: name, section: SECTION.overview } }
+    set({ ui })
+    s.send({ type: 'SaveUiConfig', data: { ui, expanded_groups: s.prefs.expandedGroups } })
+  },
+
+  acceptAiDisclosure: () => {
+    const s = get()
+    const ui: UiConfig = { ...s.ui, aiDisclosureAccepted: true }
     set({ ui })
     s.send({ type: 'SaveUiConfig', data: { ui, expanded_groups: s.prefs.expandedGroups } })
   },

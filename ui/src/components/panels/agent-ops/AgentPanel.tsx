@@ -18,6 +18,11 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import {
+  DISCLOSURE_TEXT,
+  DISCLOSURE_TITLE,
+  needsHostedDisclosure,
+} from '@/features/ai-assist/disclosure'
 import type {
   AgentMessage,
   AgentObjectRef,
@@ -44,6 +49,18 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
       (s.agentAuth.mode?.type === 'Unconfigured' || s.agentAuth.mode?.type === 'Disabled') &&
       !(s.ai.loaded && s.ai.active !== null),
   )
+  // Hosted providers receive this resource's logs and events with the question: the operator
+  // is told so once, before the first request, and the acceptance is persisted in `UiConfig`.
+  // Local Ollama never prompts (`features/ai-assist/disclosure.ts`).
+  const needsDisclosure = useStore((s) =>
+    needsHostedDisclosure({
+      active: s.ai.active,
+      legacyMode: s.agentAuth.mode,
+      accepted: s.ui.aiDisclosureAccepted,
+    }),
+  )
+  const acceptAiDisclosure = useStore((s) => s.acceptAiDisclosure)
+  const [confirmingSend, setConfirmingSend] = useState(false)
 
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
@@ -75,6 +92,15 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
   const submit = () => {
     const trimmed = question.trim()
     if (!trimmed || asking || blocked) return
+    if (needsDisclosure) {
+      // Nothing is sent until the operator confirms; the question stays in the box on cancel.
+      setConfirmingSend(true)
+      return
+    }
+    send(trimmed)
+  }
+
+  const send = (trimmed: string) => {
     setAsking(true)
     setError(undefined)
     setQuestion('')
@@ -133,6 +159,22 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
             })
           }}
           onCancel={() => setConfirmingClear(false)}
+        />
+      )}
+      {confirmingSend && (
+        <ConfirmDialog
+          open
+          title={DISCLOSURE_TITLE}
+          items={[{ namespace: object.namespace, name: object.name }]}
+          requireTypedCount={false}
+          detail={<p data-testid="agent-ops-disclosure">{DISCLOSURE_TEXT}</p>}
+          confirmLabel="Send"
+          onConfirm={() => {
+            setConfirmingSend(false)
+            acceptAiDisclosure()
+            send(question.trim())
+          }}
+          onCancel={() => setConfirmingSend(false)}
         />
       )}
       {blocked && !showAuthSetup && (

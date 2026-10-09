@@ -17,6 +17,7 @@ import { batch, globalRoute, read, system } from '../fixtures/builders'
 import {
   clearSent,
   clusterMutations,
+  confirmDialog,
   emit,
   finish,
   inspector,
@@ -96,6 +97,9 @@ test.describe('US2 agent ops: auth gate and modes', () => {
     await expect(insp.getByTestId('agent-ops-setup-required')).toHaveCount(0)
     await insp.getByTestId('agent-ops-question-input').fill('Why is this pod restarting?')
     await insp.getByTestId('agent-ops-submit').click()
+    // Anthropic is a hosted provider: the first question is gated by the one-time disclosure
+    // (`ai-assist-disclosure.spec.ts` covers it in full).
+    await confirmDialog(page).getByTestId('confirm-submit').click()
     await expect.poll(() => sentTypes(page)).toContain('AgentAsk')
   })
 

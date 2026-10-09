@@ -266,4 +266,55 @@ describe('AgentPanel', () => {
       expect(screen.getByTestId('agent-ops-question-input')).toBeEnabled()
     })
   })
+
+  describe('hosted-provider disclosure', () => {
+    let fireAndForget: BackendCmd[]
+    beforeEach(() => {
+      fireAndForget = []
+      useStore.setState((s) => ({
+        ai: { ...s.ai, loaded: true, active: 'github' },
+        send: (cmd) => {
+          fireAndForget.push(cmd)
+        },
+      }))
+    })
+
+    it('cancelling sends nothing and keeps the question', async () => {
+      const user = userEvent.setup()
+      render(<AgentPanel object={TARGET} />)
+      await user.type(screen.getByTestId('agent-ops-question-input'), 'Why?{Enter}')
+      expect(screen.getByTestId('agent-ops-disclosure')).toBeInTheDocument()
+      await user.click(screen.getByTestId('confirm-cancel'))
+      expect(sent.map((c) => c.type)).not.toContain('AgentAsk')
+      expect(fireAndForget).toEqual([])
+      expect(screen.getByTestId('agent-ops-question-input')).toHaveValue('Why?')
+      expect(useStore.getState().ui.aiDisclosureAccepted).toBeUndefined()
+    })
+
+    it('accepting persists the choice, sends the question, and never asks again', async () => {
+      const user = userEvent.setup()
+      render(<AgentPanel object={TARGET} />)
+      await user.type(screen.getByTestId('agent-ops-question-input'), 'Why?{Enter}')
+      await user.click(screen.getByTestId('confirm-submit'))
+      expect(sent).toContainEqual({ type: 'AgentAsk', data: { object: TARGET, question: 'Why?' } })
+      expect(fireAndForget.map((c) => c.type)).toEqual(['SaveUiConfig'])
+      expect(useStore.getState().ui.aiDisclosureAccepted).toBe(true)
+      commandFinished(nextId - 1, { ok: true, error: null })
+      await vi.waitFor(() => expect(screen.queryByTestId('agent-ops-loading')).toBeNull())
+
+      await user.type(screen.getByTestId('agent-ops-question-input'), 'Again?{Enter}')
+      expect(screen.queryByTestId('agent-ops-disclosure')).toBeNull()
+      expect(sent.filter((c) => c.type === 'AgentAsk')).toHaveLength(2)
+    })
+
+    it('local Ollama never prompts', async () => {
+      useStore.setState((s) => ({ ai: { ...s.ai, active: 'ollama', ollamaModel: 'llama3.2' } }))
+      const user = userEvent.setup()
+      render(<AgentPanel object={TARGET} />)
+      await user.type(screen.getByTestId('agent-ops-question-input'), 'Why?{Enter}')
+      expect(screen.queryByTestId('agent-ops-disclosure')).toBeNull()
+      expect(sent.map((c) => c.type)).toContain('AgentAsk')
+      expect(fireAndForget).toEqual([])
+    })
+  })
 })
