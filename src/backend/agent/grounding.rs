@@ -14,6 +14,7 @@
 //! truncated log tail is reported via `GroundingSource::Logs { truncated: true }`
 //! (FR-018).
 
+use super::redact;
 use crate::backend::state::BackendState;
 use crate::protocol::v1::{AgentObjectRef, GroundingSource};
 use k8s_openapi::api::core::v1::{Event, Pod};
@@ -112,6 +113,8 @@ pub(crate) async fn collect_pod_grounding_with_client(
                 let line_count = logs.lines().count();
                 let truncated = line_count as i64 >= MAX_LOG_LINES;
                 if !logs.trim().is_empty() {
+                    // Scrubbed before it can reach a hosted provider (see `redact.rs`).
+                    let logs = redact::redact_text(&logs);
                     sections.push(format!("Recent logs ({}):\n{}", first_container.name, logs));
                     sources.push(GroundingSource::Logs { truncated });
                 }
@@ -142,7 +145,7 @@ pub(crate) async fn collect_pod_grounding_with_client(
                         "- [{}] {}: {}",
                         e.type_.clone().unwrap_or_default(),
                         e.reason.clone().unwrap_or_default(),
-                        e.message.clone().unwrap_or_default()
+                        redact::redact_line(e.message.as_deref().unwrap_or_default())
                     )
                 })
                 .collect();

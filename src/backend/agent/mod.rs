@@ -22,6 +22,7 @@ pub(crate) mod grounding;
 pub(crate) mod ollama;
 pub(crate) mod openai_compat;
 pub(crate) mod persistence;
+pub(crate) mod redact;
 pub(crate) mod state_machine;
 
 use crate::protocol::v1::AgentTurnAuthor;
