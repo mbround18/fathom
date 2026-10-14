@@ -29,17 +29,25 @@ Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri]
 ### Pre-built bundles
 
 Download the latest release from the [Releases page](https://github.com/mbround18/fathom/releases).
-The MVP ships **Linux x86_64 only**, as the Tauri bundler names them:
+Assets, as the Tauri bundler names them (Linux x86_64 is the validated MVP target):
 
 | Bundle | Asset |
 |---|---|
 | Debian / Ubuntu | `Fathom_<version>_amd64.deb` |
 | Fedora / RHEL | `Fathom-<version>-1.x86_64.rpm` |
 | Any distro | `Fathom_<version>_amd64.AppImage` |
+| Windows (experimental, untested) | `Fathom_<version>_x64-setup.exe` |
 
-Packages are **unsigned**. macOS (`.dmg`) and Windows (`.msi`, NSIS) bundles, code signing and
-notarization are planned for after the MVP; aarch64 Linux packages wait until someone has tested
-them.
+Packages are **not code-signed**, but every asset built by GitHub Actions carries a Sigstore
+provenance attestation. Check it before you install (see
+[Verifying a download](docs/guides/verifying-downloads.md)):
+
+```sh
+gh attestation verify Fathom_<version>_x64-setup.exe --repo mbround18/fathom
+```
+
+macOS (`.dmg`) bundles, Authenticode signing and notarization are planned for after the MVP;
+aarch64 Linux packages wait until someone has tested them.
 
 ### Build from source
 
