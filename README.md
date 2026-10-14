@@ -63,6 +63,7 @@ pnpm -C ui install
 
 make build-linux            # deb + rpm + AppImage + the binary, all into ./dist
 make                        # the full target list (build-windows and build-macos exist but are post-MVP, untested)
+make build-windows-paws     # Windows NSIS installer, cross-built in a container via paws (scripts/build-windows.sh)
 ```
 
 Each target stages into `./dist` beside a regenerated `SHA256SUMS`; the underlying

@@ -6,6 +6,7 @@
 #
 #   make build-linux      deb + rpm + AppImage + the bare binary   (verified)
 #   make build-windows    NSIS installer (+ MSI when run on Windows)
+#   make build-windows-paws  the same NSIS installer, cross-built in a container via paws
 #   make build-macos      .app + .dmg                              (macOS host only)
 #
 # `make` on its own prints the target list. The Tauri config bundles `targets:
@@ -69,6 +70,9 @@ else
 	cd $(UI) && pnpm tauri build --bundles nsis,msi
 	@$(MAKE) --no-print-directory stage RELEASE=target/release
 endif
+
+build-windows-paws: ## NSIS installer cross-built in a container via paws (no host toolchain)
+	scripts/build-windows.sh
 
 build-macos: ## .app + .dmg (macOS host only — there is no cross path)
 	@[ "$(HOST_OS)" = Darwin ] || { \
