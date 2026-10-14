@@ -6,12 +6,25 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       # Prereleases (v0.1.0-rc.1): the `-` is what flips `prerelease:` below.
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  # Re-run the release for a tag that already exists (Actions was off when it was pushed, or a
+  # build needs redoing). Assets with the same name on the release are replaced.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and release (for example v0.1.0-rc.1)
+        required: true
+        type: string
 
 permissions:
   contents: write
+  # Artifact attestations (Sigstore provenance signed by GitHub's OIDC identity). Verify with:
+  #   gh attestation verify Fathom_<version>_x64-setup.exe --repo mbround18/fathom
+  id-token: write
+  attestations: write
 
 env:
   CARGO_TERM_COLOR: always
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   # One tauri-action build per shipped target. MVP: Linux x86_64 only, validated by hand on
@@ -35,14 +48,20 @@ jobs:
           # validated them (docs/MVP.md, "aarch64 packages are untested"). The arm64 runner is
           # native because AppImage cannot be cross-compiled; restore:
           #   - {name: linux-aarch64, os: ubuntu-22.04-arm, args: ''}
-          # MVP ships Linux only, unsigned (user decision, 2026-09-26). macOS (dmg) and Windows
-          # (msi, nsis) return after the MVP along with signing and notarization; restore:
+          # NSIS installer. Not Authenticode-signed (no certificate); its provenance is attested
+          # by GitHub instead (see permissions above). Untested on Windows as of 2026-10-14.
+          - name: windows-x86_64
+            os: windows-latest
+            args: '--bundles nsis'
+          # MVP ships Linux only, unsigned (user decision, 2026-09-26). macOS (dmg) returns after
+          # the MVP along with signing and notarization; restore:
           #   - {name: macos-aarch64, os: macos-latest, args: '--target aarch64-apple-darwin', rust_targets: aarch64-apple-darwin}
           #   - {name: macos-x86_64, os: macos-latest, args: '--target x86_64-apple-darwin', rust_targets: x86_64-apple-darwin}
-          #   - {name: windows-x86_64, os: windows-latest, args: ''}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
@@ -89,10 +108,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ui
-          tagName: ${{ github.ref_name }}
-          releaseName: Fathom ${{ github.ref_name }}
+          tagName: ${{ env.TAG }}
+          releaseName: Fathom ${{ env.TAG }}
           releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(env.TAG, '-') }}
           generateReleaseNotes: true
           args: ${{ matrix.args }}
 
@@ -107,11 +126,28 @@ jobs:
         run: |
           img=$(jq -r '.[] | select(endswith(".AppImage"))' <<<"$ARTIFACTS")
           scripts/appimage-host-libs.sh "$img"
-          asset=$(gh release view "$GITHUB_REF_NAME" --json assets \
+          asset=$(gh release view "$TAG" --json assets \
             -q ".assets[].name | select(endswith(\"$(uname -m).AppImage\") or endswith(\"$(dpkg --print-architecture).AppImage\"))")
           [ -n "$asset" ] || { echo "no AppImage asset for $(uname -m) on the release" >&2; exit 1; }
           cp "$img" "$RUNNER_TEMP/$asset"
-          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$asset" --clobber
+          gh release upload "$TAG" "$RUNNER_TEMP/$asset" --clobber
+
+      # Sign what was just uploaded. Runs after the repack so the AppImage digest matches the
+      # asset on the release. The attestation is stored by GitHub, not as a release asset.
+      - name: Attest build provenance (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+
+      - name: Attest build provenance (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: target/release/bundle/nsis/*.exe
 
   # Publish the draft only after every build has attached its bundles. A failed build leaves the
   # draft in place for a human to inspect or delete.
@@ -120,7 +156,19 @@ jobs:
     needs: build
     runs-on: ubuntu-22.04
     steps:
+      # SHA256SUMS covers every asset on the release, in the same format `make stage` writes
+      # locally (sha256sum -c works against it).
+      - name: Regenerate SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir assets && cd assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*' --skip-existing
+          rm -f SHA256SUMS
+          sha256sum * > ../SHA256SUMS
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" ../SHA256SUMS --clobber
+
       - name: Mark the release as published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
