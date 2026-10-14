@@ -4,7 +4,8 @@
 #
 # A gate that can break overnight is not a gate. Bumping this is a deliberate, reviewable change
 # that carries whatever lint fixes the new toolchain wants, and local dev gets the same compiler
-# CI uses.
+# CI uses. (1.99.0: those 13 errors came from async-trait 0.1.89's generated `#[must_use]`;
+# 0.1.92 dropped it. `Atomic::fetch_update` was renamed `try_update`.)
 [toolchain]
-channel = "1.98.1"
+channel = "1.99.0"
 components = ["clippy", "rustfmt"]

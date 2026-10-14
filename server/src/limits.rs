@@ -80,7 +80,7 @@ impl Counter {
 
     fn acquire(self: &Arc<Self>) -> Result<Permit, LimitReached> {
         self.current
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |c| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |c| {
                 (c < self.max).then_some(c + 1)
             })
             .map_err(|_| LimitReached {

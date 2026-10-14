@@ -47,7 +47,7 @@ Prerequisites:
 
 | Tool | Version | Notes |
 |---|---|---|
-| Rust | 1.98.1 | pinned in `rust-toolchain.toml`; rustup picks it up |
+| Rust | 1.99.0 | pinned in `rust-toolchain.toml`; rustup picks it up |
 | Node | LTS (22+) | |
 | pnpm | 9+ | `corepack enable` |
 | Linux system libs | webkit2gtk-4.1 | see below |

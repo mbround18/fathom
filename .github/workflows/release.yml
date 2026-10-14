@@ -54,10 +54,10 @@ jobs:
 
       # Keep in step with rust-toolchain.toml: the release is built with the same pinned compiler
       # as CI and local development, not whatever `stable` is on the day of the tag.
-      - name: Install Rust 1.98.1
+      - name: Install Rust 1.99.0
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.98.1
+          toolchain: 1.99.0
           targets: ${{ matrix.rust_targets }}
 
       - name: Cache Cargo
