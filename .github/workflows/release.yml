@@ -112,7 +112,8 @@ jobs:
           releaseName: Fathom ${{ env.TAG }}
           releaseDraft: true
           prerelease: ${{ contains(env.TAG, '-') }}
-          generateReleaseNotes: true
+          # Notes are rendered by scripts/release-notes.sh in the publish job.
+          generateReleaseNotes: false
           args: ${{ matrix.args }}
 
       # The bundled libwayland-client makes WebKitGTK abort with EGL_BAD_PARAMETER (blank window)
@@ -156,6 +157,10 @@ jobs:
     needs: build
     runs-on: ubuntu-22.04
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
       # SHA256SUMS covers every asset on the release, in the same format `make stage` writes
       # locally (sha256sum -c works against it).
       - name: Regenerate SHA256SUMS
@@ -167,6 +172,13 @@ jobs:
           rm -f SHA256SUMS
           sha256sum * > ../SHA256SUMS
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" ../SHA256SUMS --clobber
+
+      # .github/RELEASE_TEMPLATE.md + the CHANGELOG section + the asset table + GitHub's
+      # auto-generated "what's changed". Re-render by hand: scripts/release-notes.sh <tag> --apply
+      - name: Write release notes from the template
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/release-notes.sh "$TAG" --apply
 
       - name: Mark the release as published
         env:

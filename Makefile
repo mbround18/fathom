@@ -74,6 +74,10 @@ endif
 build-windows-paws: ## NSIS installer cross-built in a container via paws (no host toolchain)
 	scripts/build-windows.sh
 
+release-notes: ## Render release notes for TAG from .github/RELEASE_TEMPLATE.md (APPLY=1 writes them to the release)
+	@[ -n "$(TAG)" ] || { echo "usage: make release-notes TAG=v0.1.0 [APPLY=1]"; exit 1; }
+	scripts/release-notes.sh $(TAG) $(if $(APPLY),--apply,)
+
 build-macos: ## .app + .dmg (macOS host only — there is no cross path)
 	@[ "$(HOST_OS)" = Darwin ] || { \
 		echo "build-macos needs a macOS host (this is $(HOST_OS))."; \
