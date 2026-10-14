@@ -550,8 +550,9 @@ async fn poll_hubble_traffic(
 ) {
     // 031: a denial is logged once and the poll backs off, instead of a toast every 20s.
     let mut latch = ns_scope::ForbiddenLatch::default();
+    let mut sampler = hubble::HubbleSampler::default();
     loop {
-        match hubble::fetch_traffic_summary(&client, &cfg).await {
+        match sampler.sample(&client, &cfg).await {
             Ok(summary) => {
                 latch.on_ok();
                 events::emit(
