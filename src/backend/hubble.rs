@@ -1,9 +1,9 @@
 //! Hubble/Cilium eBPF traffic-observability integration.
 //!
-//! Discovers a running `hubble-relay` Service, opens a fresh port-forward to
-//! its gRPC port (4245) for each poll, and samples a bounded number of recent
-//! flows via `Observer.GetFlows` (`follow: false`, so the RPC completes on
-//! its own - no long-lived stream to manage). Mirrors the discovery shape of
+//! Discovers a running `hubble-relay` Service, keeps one port-forward open to
+//! its gRPC port (4245) across polls (see [`HubbleSampler`]), and samples a
+//! bounded number of recent flows via `Observer.GetFlows` (`follow: false`,
+//! so each RPC completes on its own). Mirrors the discovery shape of
 //! `flux.rs`, but there is no CRD/dynamic-object listing here: Hubble Relay
 //! is a plain Service + gRPC API, not a CRD-backed resource.
 
@@ -143,45 +143,50 @@ fn aggregate(flows: &[FlowRecord], generated_at: String) -> HubbleTrafficSummary
     }
 }
 
-/// Open a fresh port-forward to the `hubble-relay` pod for this call only
-/// (no persistent local listener/state - a background poll shouldn't hold a
-/// mutable borrow of the shared `PortForwardManager` across task boundaries),
-/// sample up to [`SAMPLE_SIZE`] recent flows via `Observer.GetFlows`, and
-/// aggregate them into a [`HubbleTrafficSummary`].
-pub(super) async fn fetch_traffic_summary(
+/// One port-forward to the `hubble-relay` pod and the gRPC channel over it.
+///
+/// The background poll keeps one of these for as long as the relay answers,
+/// so a session opens a single port-forward instead of one per poll: every
+/// open is a `pods/portforward` call that the API server audits. HTTP/2
+/// multiplexes each `GetFlows` RPC over the same stream.
+struct RelayConnection {
+    forwarder: kube::api::Portforwarder,
+    observer: ObserverClient<tonic::transport::Channel>,
+}
+
+impl Drop for RelayConnection {
+    // Dropping the forwarder's JoinHandle would leave its task (and the
+    // websocket to the API server) running, so abort it explicitly.
+    fn drop(&mut self) {
+        self.forwarder.abort();
+    }
+}
+
+/// Open a port-forward to the `hubble-relay` pod and a gRPC channel over it.
+/// `Ok(None)` when the relay Service exists but no pod backs it yet.
+async fn connect_relay(
     client: &Client,
     cfg: &HubbleConfig,
-) -> anyhow::Result<HubbleTrafficSummary> {
-    let generated_at = chrono::Utc::now().to_rfc3339();
-
+) -> anyhow::Result<Option<RelayConnection>> {
     let pod_api: Api<Pod> = Api::namespaced(client.clone(), &cfg.relay_namespace);
     let pods = pod_api
         .list(&ListParams::default().labels(RELAY_LABEL_SELECTOR))
         .await?;
     let Some(pod_name) = pods.items.into_iter().find_map(|p| p.metadata.name) else {
-        // Relay Service exists but no ready pod backs it yet.
-        return Ok(HubbleTrafficSummary {
-            installed: true,
-            generated_at,
-            ..Default::default()
-        });
+        return Ok(None);
     };
 
-    let api: Api<Pod> = Api::namespaced(client.clone(), &cfg.relay_namespace);
-    let mut forwarder = api.portforward(&pod_name, &[RELAY_GRPC_PORT]).await?;
+    let mut forwarder = pod_api.portforward(&pod_name, &[RELAY_GRPC_PORT]).await?;
     let Some(stream) = forwarder.take_stream(RELAY_GRPC_PORT) else {
-        return Ok(HubbleTrafficSummary {
-            installed: true,
-            generated_at,
-            ..Default::default()
-        });
+        forwarder.abort();
+        return Ok(None);
     };
 
-    // Hand tonic the already-open portforward stream directly instead of a local TCP
-    // socket - each poll opens and tears down its own forward, so nothing needs to
-    // survive across the background task's iterations.
+    // Hand tonic the already-open portforward stream directly instead of a local
+    // TCP socket. The connector yields it once: if the channel ever needs to
+    // reconnect, the RPC fails and the caller opens a new `RelayConnection`.
     let mut stream_opt = Some(hyper_util::rt::TokioIo::new(stream));
-    let channel = tonic::transport::Endpoint::try_from("http://[::]:0")?
+    let channel = match tonic::transport::Endpoint::try_from("http://[::]:0")?
         .connect_with_connector(tower::service_fn(move |_| {
             let stream = stream_opt.take();
             async move {
@@ -190,15 +195,31 @@ pub(super) async fn fetch_traffic_summary(
                 })
             }
         }))
-        .await?;
+        .await
+    {
+        Ok(channel) => channel,
+        Err(e) => {
+            forwarder.abort();
+            return Err(e.into());
+        }
+    };
 
-    let mut client = ObserverClient::new(channel);
+    Ok(Some(RelayConnection {
+        forwarder,
+        observer: ObserverClient::new(channel),
+    }))
+}
+
+/// Sample up to [`SAMPLE_SIZE`] recent flows via `Observer.GetFlows` over an
+/// open relay connection and aggregate them into a [`HubbleTrafficSummary`].
+async fn sample_traffic(conn: &mut RelayConnection) -> anyhow::Result<HubbleTrafficSummary> {
+    let generated_at = chrono::Utc::now().to_rfc3339();
     let request = GetFlowsRequest {
         number: SAMPLE_SIZE,
         follow: false,
         ..Default::default()
     };
-    let mut response = client.get_flows(request).await?.into_inner();
+    let mut response = conn.observer.get_flows(request).await?.into_inner();
 
     let mut flows = Vec::new();
     while let Some(item) = futures_util::StreamExt::next(&mut response).await {
@@ -223,10 +244,58 @@ pub(super) async fn fetch_traffic_summary(
         }
     }
 
-    forwarder.abort();
-    let _ = forwarder.join().await;
-
     Ok(aggregate(&flows, generated_at))
+}
+
+/// Summary for a relay Service with no pod behind it yet.
+fn no_relay_pod() -> HubbleTrafficSummary {
+    HubbleTrafficSummary {
+        installed: true,
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        ..Default::default()
+    }
+}
+
+/// One-shot sample for an explicit refresh: open a connection, sample, close.
+/// The background poll uses [`HubbleSampler`] instead, which keeps one open.
+pub(super) async fn fetch_traffic_summary(
+    client: &Client,
+    cfg: &HubbleConfig,
+) -> anyhow::Result<HubbleTrafficSummary> {
+    match connect_relay(client, cfg).await? {
+        Some(mut conn) => sample_traffic(&mut conn).await,
+        None => Ok(no_relay_pod()),
+    }
+}
+
+/// Keeps one relay connection across polls and reopens it only when it fails.
+#[derive(Default)]
+pub(super) struct HubbleSampler {
+    conn: Option<RelayConnection>,
+}
+
+impl HubbleSampler {
+    pub(super) async fn sample(
+        &mut self,
+        client: &Client,
+        cfg: &HubbleConfig,
+    ) -> anyhow::Result<HubbleTrafficSummary> {
+        if let Some(conn) = self.conn.as_mut() {
+            match sample_traffic(conn).await {
+                Ok(summary) => return Ok(summary),
+                // A reused connection going stale (relay pod restarted, API server
+                // dropped the stream) is expected: reconnect once before reporting.
+                Err(e) => tracing::debug!("hubble relay connection lost, reconnecting: {e:#}"),
+            }
+        }
+        self.conn = None;
+        let Some(mut conn) = connect_relay(client, cfg).await? else {
+            return Ok(no_relay_pod());
+        };
+        let summary = sample_traffic(&mut conn).await?;
+        self.conn = Some(conn);
+        Ok(summary)
+    }
 }
 
 #[cfg(test)]
