@@ -17,10 +17,10 @@ use fathom_server::config::HostedConfig;
 use rsa::RsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
+use rsa::sha2::Sha256;
 use rsa::signature::{SignatureEncoding, Signer};
 use rsa::traits::PublicKeyParts;
 use serde_json::{Value, json};
-use sha2::Sha256;
 
 const KEY_PEM: &str = include_str!("test_rsa.pem");
 pub const CLIENT_ID: &str = "fathom";

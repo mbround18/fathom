@@ -32,7 +32,7 @@ base64 = "0.23"
 subtle = "2.6"
 url = "2.5"
 thiserror = "2"
-sha2 = "0.10"
+sha2 = "0.11"
 tower = { version = "0.5", features = ["util"] }
 http = "1"
 async-trait = "0.1"
@@ -43,5 +43,6 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
-rsa = "0.9"
+# rsa 0.9 is on digest 0.10: tests sign with its sha2 re-export, not the crate's sha2 0.11.
+rsa = { version = "0.9", features = ["sha2"] }
 tokio = { version = "1.54.1", features = ["full", "test-util"] }
