@@ -68,9 +68,16 @@ CONTAINER_RUNTIME_DEPS="if $N cargo tree -p container-runtime --prefix none \
 | grep -E '^(kube|tauri|fathom)([- ]|\$)'; then \
 echo 'error: crates/container-runtime depends on kube, tauri or fathom (above).' >&2; exit 1; fi"
 
+# Spec 050 (T020): web-auth and audit-log are shared with Depths and must not pull in kube or
+# any fathom crate.
+SHARED_AUTH_DEPS_CHECK="$N cargo tree -p web-auth -p audit-log --prefix none --format '{p}' \
+> /tmp/shared-auth-deps && if grep -E '^(kube|fathom)([- ]|\$)' /tmp/shared-auth-deps; then \
+echo 'error: web-auth/audit-log depend on kube or fathom (above).' >&2; exit 1; fi"
+
 job_check() {
   rust_run \
     --step "$CONTAINER_RUNTIME_DEPS" \
+    --step "$SHARED_AUTH_DEPS_CHECK" \
     --step "$N cargo check --all-targets" \
     --step "$N cargo check --no-default-features --lib" \
     --step "$N cargo clippy --workspace --all-targets -- -D warnings" \
