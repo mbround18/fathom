@@ -51,3 +51,6 @@ ui/playwright-report
 
 # Local Claude Code config and skills (not part of the repo)
 .claude/
+
+# pnpm workspace root
+node_modules/

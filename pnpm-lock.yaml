@@ -164,7 +164,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  ui:
     dependencies:
       '@fontsource/chakra-petch':
         specifier: ^5.3.0

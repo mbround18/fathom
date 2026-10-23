@@ -1,12 +1,14 @@
 # Hosted image (spec 031). Build from repo root: docker build -f deploy/Dockerfile -t fathom-server .
 FROM node:22-alpine AS ui
 RUN corepack enable
-WORKDIR /src/ui
-COPY ui/package.json ui/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY ui/ ./
+WORKDIR /src
+# One lockfile for the pnpm workspace: fetch from it alone, then install only the Fathom UI.
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+RUN pnpm fetch
+COPY ui/ ./ui/
+RUN pnpm install --offline --frozen-lockfile --filter fathom-ui
 ENV VITE_TRANSPORT=hosted
-RUN pnpm exec vite build
+RUN cd ui && pnpm exec vite build
 
 FROM rust:1-alpine AS server
 # g++/cmake: the root build.rs builds libprotobuf via protobuf-src (no system protoc needed)

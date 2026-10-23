@@ -36,6 +36,7 @@ fn source(client: &Query) -> dagger_sdk::Directory {
                 "dist",
                 "graphify-out",
                 ".git",
+                "node_modules",
                 "ui/node_modules",
                 "ui/dist",
                 "ui/test-results",
@@ -126,10 +127,10 @@ fn toolchain(client: &Query, target: &Target) -> Container {
     }
 }
 
-/// Reads the pnpm version pinned by `packageManager` in `ui/package.json`
+/// Reads the pnpm version pinned by `packageManager` in the workspace root `package.json`
 /// (e.g. `"pnpm@12.4.2"`), so the pipeline and CI use the same pnpm.
 fn pnpm_version() -> eyre::Result<String> {
-    let manifest = std::fs::read_to_string("ui/package.json")?;
+    let manifest = std::fs::read_to_string("package.json")?;
     let spec = manifest
         .lines()
         .find_map(|line| {
@@ -142,7 +143,7 @@ fn pnpm_version() -> eyre::Result<String> {
                     .to_string()
             })
         })
-        .ok_or_else(|| eyre::eyre!("ui/package.json has no packageManager field"))?;
+        .ok_or_else(|| eyre::eyre!("package.json has no packageManager field"))?;
     let version = spec
         .strip_prefix("pnpm@")
         .ok_or_else(|| eyre::eyre!("packageManager is `{spec}`, expected pnpm@<version>"))?;
@@ -209,7 +210,10 @@ pub async fn test(client: &Query) -> eyre::Result<()> {
 
     let steps: Vec<(&str, Vec<String>)> = vec![
         ("fmt", vec!["cargo".into(), "fmt".into(), "--check".into()]),
-        ("ui-install", pnpm_ui(&["install", "--frozen-lockfile"])),
+        (
+            "ui-install",
+            vec!["pnpm".into(), "install".into(), "--frozen-lockfile".into()],
+        ),
         ("ui-lint", pnpm_ui(&["lint"])),
         ("ui-typecheck", pnpm_ui(&["typecheck"])),
         ("ui-test", pnpm_ui(&["test"])),

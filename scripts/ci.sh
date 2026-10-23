@@ -37,7 +37,7 @@ export CARGO_BUILD_JOBS PLAYWRIGHT_WORKERS VITEST_WORKERS CI_RUN_ID DAGGER_NO_NA
 # build, and libdbus for tao (the os-keyring feature talks to Secret Service over pure-Rust zbus).
 RUST_APT=libgtk-3-dev,libssl-dev,pkg-config,libxkbcommon-dev,libwebkit2gtk-4.1-dev,libxdo-dev
 RUST_APT+=,libayatana-appindicator3-dev,librsvg2-dev,libdbus-1-dev,cmake
-# Keep in step with @playwright/test in ui/pnpm-lock.yaml: the image ships matching browsers
+# Keep in step with @playwright/test in pnpm-lock.yaml: the image ships matching browsers
 # and their system deps, so there is no `playwright install --with-deps` step.
 PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble
 
@@ -91,7 +91,8 @@ job_ui() {
     echo "ci: wait for other Playwright/cargo runs to finish, or lower PLAYWRIGHT_WORKERS." >&2
     return 1
   fi
-  # pnpm comes from ui/package.json's packageManager via corepack.
+  # pnpm comes from packageManager via corepack. Installing from ui/ installs the whole workspace
+  # against the root pnpm-lock.yaml.
   nice -n "$CI_NICE" paws run \
     --image "$PLAYWRIGHT_IMAGE" \
     --workdir ui \

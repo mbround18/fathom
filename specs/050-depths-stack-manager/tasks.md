@@ -49,12 +49,12 @@ The final phase covers shipping (plan phase E).
   - Add a "Depths server (Linux container)" tier: Docker host, sign-in required, socket access documented as root-equivalent, socket proxy supported.
   - Add CodeMirror 6, `notify` and the optional OpenTelemetry exporter to Stack.
   - Update the dependent templates the report lists.
-- [ ] T002 Create the root pnpm workspace:
+- [X] T002 Create the root pnpm workspace:
   - `pnpm-workspace.yaml` with members `ui`, `packages/*` and `apps/depths/web`.
   - Root `package.json`: private, with `packageManager` copied from `ui/package.json`.
   - Move `ui/pnpm-lock.yaml` to `/pnpm-lock.yaml` and regenerate it with `pnpm install`.
   - Keep `ui/package.json`'s build script working when deps are hoisted. It calls `node node_modules/typescript7/bin/tsc -b`; switch it to `pnpm exec tsc7` or the bin name if hoisting moves it.
-- [ ] T003 Update every hard-coded `ui/` install and lockfile path to the root workspace so each runs `pnpm install --frozen-lockfile` at the root and `pnpm --filter fathom-ui …` for builds:
+- [X] T003 Update every hard-coded `ui/` install and lockfile path to the root workspace so each runs `pnpm install --frozen-lockfile` at the root and `pnpm --filter fathom-ui …` for builds:
   - `pipeline/src/pipeline.rs:129-228`
   - `scripts/ci.sh` (lines ~40, 48, 94-107)
   - `scripts/build-windows.sh` (`--workdir`, and corepack resolving from the root `packageManager`)

@@ -90,16 +90,16 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          package_json_file: ui/package.json
+          package_json_file: package.json
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install UI dependencies
-        run: pnpm -C ui install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build and attach bundles to the draft release
         id: tauri

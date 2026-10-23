@@ -1,0 +1,5 @@
+# Orchestration companion suite: one pnpm workspace, one lockfile.
+packages:
+  - ui
+  - packages/*
+  - apps/depths/web
