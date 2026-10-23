@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // that jsdom does not provide. These tests are about the *section's* states, not xterm's
 // rendering (the e2e specs exercise the real terminal in a browser), so the terminal's own
 // dependencies are stubbed and the component under test is otherwise untouched.
-vi.mock('xterm', () => ({
+vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     open() {}
     clear() {}
@@ -34,7 +34,7 @@ vi.mock('xterm', () => ({
     }
   },
 }))
-vi.mock('xterm/css/xterm.css', () => ({}))
+vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
     fit() {}

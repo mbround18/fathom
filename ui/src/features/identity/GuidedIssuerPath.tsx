@@ -678,7 +678,7 @@ function DiscoveryStep({ draft, probe, runProbe }: StepProps) {
       {mismatch && (
         <div
           role="alert"
-          className="border-status-err border p-2"
+          className="border border-status-err p-2"
           data-testid="guided-issuer-mismatch"
         >
           <p className="text-status-err">
@@ -1625,7 +1625,7 @@ function ApiServerWriteStep({ draft }: StepProps) {
       {write.state === 'failed' && (
         <p
           role="alert"
-          className="text-status-err font-mono break-words"
+          className="font-mono break-words text-status-err"
           data-testid="guided-write-error"
         >
           {write.error}

@@ -8,9 +8,7 @@ import { needsHostedDisclosure } from '@/features/ai-assist/disclosure'
 
 describe('needsHostedDisclosure', () => {
   it.each(['github', 'claude', 'openai'] as const)('prompts for hosted provider %s', (active) => {
-    expect(needsHostedDisclosure({ active, legacyMode: undefined, accepted: undefined })).toBe(
-      true,
-    )
+    expect(needsHostedDisclosure({ active, legacyMode: undefined, accepted: undefined })).toBe(true)
     expect(needsHostedDisclosure({ active, legacyMode: undefined, accepted: false })).toBe(true)
   })
 
@@ -39,9 +37,9 @@ describe('needsHostedDisclosure', () => {
         accepted: undefined,
       }),
     ).toBe(true)
-    expect(needsHostedDisclosure({ active: null, legacyMode: undefined, accepted: undefined })).toBe(
-      false,
-    )
+    expect(
+      needsHostedDisclosure({ active: null, legacyMode: undefined, accepted: undefined }),
+    ).toBe(false)
   })
 
   it('stops prompting once accepted', () => {

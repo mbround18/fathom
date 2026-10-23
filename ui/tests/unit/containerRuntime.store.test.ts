@@ -104,8 +104,9 @@ describe('container runtime slice', () => {
  * this side never sends a command.
  */
 describe('the two-phase mutation path (US2)', () => {
-  const STOP_SHOP: Parameters<ReturnType<typeof useStore.getState>['previewContainerOperation']>[0] =
-    { kind: 'lifecycle', action: 'stop', scope: { kind: 'project', project: 'shop' } }
+  const STOP_SHOP: Parameters<
+    ReturnType<typeof useStore.getState>['previewContainerOperation']
+  >[0] = { kind: 'lifecycle', action: 'stop', scope: { kind: 'project', project: 'shop' } }
 
   const capture = () => {
     const sent: BackendCmd[] = []

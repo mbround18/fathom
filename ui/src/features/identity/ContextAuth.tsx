@@ -68,7 +68,7 @@ export function ContextAuth({ only }: { only?: string } = {}) {
         bindings.some((b) => b.context_name === current && b.mode === 'oidc') && (
           <div
             role="alert"
-            className="border-status-err/50 border p-2 text-xs"
+            className="border border-status-err/50 p-2 text-xs"
             data-testid="oidc-context-rejected"
           >
             <p className="font-mono">{rejected}</p>

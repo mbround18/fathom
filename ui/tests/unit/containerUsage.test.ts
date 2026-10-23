@@ -29,8 +29,7 @@ const sample = (
   memory_limit_bytes: 2_000_000_000,
 })
 
-const byId = (samples: UsageSample[]) =>
-  Object.fromEntries(samples.map((s) => [s.container_id, s]))
+const byId = (samples: UsageSample[]) => Object.fromEntries(samples.map((s) => [s.container_id, s]))
 
 describe('a figure the runtime did not give', () => {
   it('is said, not rounded to zero', () => {

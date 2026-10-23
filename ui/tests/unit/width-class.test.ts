@@ -108,7 +108,9 @@ describe('useWidthClass', () => {
         removeEventListener: (_: string, cb: EventListenerOrEventListenerObject) => {
           listeners.delete(cb as () => void)
         },
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- MediaQueryList still requires it
         addListener: () => undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- MediaQueryList still requires it
         removeListener: () => undefined,
         dispatchEvent: () => false,
       }
