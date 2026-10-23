@@ -169,7 +169,7 @@ worktrees and merge each green.
   - Admin-only actions (create, delete, `down` with volumes or images, foreign and standalone views, audit, users) are refused to every `user`.
 
   Then implement `Role { Pending, User, Admin }`, `Access { role, stacks }` and `permits(access, stack, action)`, with no I/O.
-- [ ] T030 [P] Write the failing tests first in `crates/depths-core/src/plan.rs`. Cover the argv table in research.md R2 for every `Operation` kind:
+- [X] T030 [P] Write the failing tests first in `crates/depths-core/src/plan.rs`. Cover the argv table in research.md R2 for every `Operation` kind:
   - `[env-files]` present only when `global.env` exists: `--env-file ../global.env --env-file ./.env`, the second only when `.env` exists.
   - `down` with `remove_volumes`/`remove_images` adds `--volumes`/`--rmi all`, and the result is `destructive`.
   - `update` = pull + up.

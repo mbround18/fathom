@@ -6,6 +6,7 @@
 
 pub mod discovery;
 pub mod name;
+pub mod plan;
 pub mod role;
 pub mod status;
 
