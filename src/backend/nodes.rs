@@ -23,7 +23,7 @@ pub fn extract_node_details(node: &Node) -> anyhow::Result<NodeDetails> {
     let creation_timestamp = meta
         .creation_timestamp
         .as_ref()
-        .map(|t| t.0.to_rfc3339())
+        .map(|t| super::workload_common::kube_rfc3339(&t))
         .unwrap_or_default();
 
     let labels = meta.labels.clone().unwrap_or_default();
@@ -176,7 +176,7 @@ fn node_conditions(status_info: &NodeStatus) -> Vec<NodeCondition> {
                     last_transition_time: c
                         .last_transition_time
                         .as_ref()
-                        .map(|t| t.0.to_rfc3339())
+                        .map(|t| super::workload_common::kube_rfc3339(&t))
                         .unwrap_or_default(),
                 })
                 .collect()

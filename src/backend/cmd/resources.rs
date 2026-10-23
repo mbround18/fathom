@@ -214,7 +214,7 @@ async fn handle_applications_cmd(
             with_source,
         } => {
             let client = state.cluster.client_or_err()?;
-            let now = k8s_openapi::chrono::Utc::now().to_rfc3339();
+            let now = chrono::Utc::now().to_rfc3339();
             let requested =
                 flux::reconcile_flux_resource(&client, &kind, &namespace, &name, with_source, &now)
                     .await?;

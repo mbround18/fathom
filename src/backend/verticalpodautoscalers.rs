@@ -173,7 +173,7 @@ fn vpa_to_details(vpa: DynamicObject) -> VerticalPodAutoscalerDetails {
         name: vpa.name_any(),
         creation_timestamp: vpa
             .creation_timestamp()
-            .map(|ts| ts.0.to_rfc3339())
+            .map(|ts| super::workload_common::kube_rfc3339(&ts))
             .unwrap_or_default(),
         labels: vpa.labels().clone(),
         annotations: vpa.annotations().clone(),
@@ -194,7 +194,7 @@ pub(super) async fn delete_verticalpodautoscaler(
     let client = state.cluster.client_or_err()?;
     let api: Api<DynamicObject> = Api::namespaced_with(client, namespace, &api_resource());
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

@@ -502,7 +502,7 @@ pub(super) fn pod_is_unhealthy(pod: &Pod, now: chrono::DateTime<chrono::Utc>) ->
             .as_ref()
             .is_some_and(|cs| cs.iter().any(|c| !c.ready)),
         "Pending" => pod.metadata.creation_timestamp.as_ref().is_some_and(|t| {
-            (now - t.0)
+            (now - super::workload_common::kube_time(t))
                 .to_std()
                 .is_ok_and(|age| age > PENDING_UNHEALTHY_AFTER)
         }),
@@ -549,12 +549,11 @@ mod tests {
     }
 
     fn api_err(code: u16) -> kube::Error {
-        kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".to_owned(),
-            message: "nope".to_owned(),
-            reason: "x".to_owned(),
-            code,
-        })
+        kube::Error::Api(
+            kube::core::Status::failure("nope", "x")
+                .with_code(code)
+                .boxed(),
+        )
     }
 
     #[test]
@@ -700,11 +699,13 @@ mod tests {
     #[test]
     fn pending_pod_unhealthy_only_after_five_minutes() {
         use k8s_openapi::api::core::v1::PodStatus;
-        use k8s_openapi::apimachinery::pkg::apis::meta::v1::{ObjectMeta, Time};
+        use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
         let now = chrono::Utc::now();
         let pending = |age_secs: i64| Pod {
             metadata: ObjectMeta {
-                creation_timestamp: Some(Time(now - chrono::Duration::seconds(age_secs))),
+                creation_timestamp: Some(crate::backend::workload_common::to_kube_time(
+                    now - chrono::Duration::seconds(age_secs),
+                )),
                 ..Default::default()
             },
             status: Some(PodStatus {

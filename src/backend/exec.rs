@@ -372,21 +372,22 @@ mod tests {
     }
 
     fn forbidden_error() -> kube::Error {
-        kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".to_owned(),
-            message: "pods/exec is forbidden".to_owned(),
-            reason: "Forbidden".to_owned(),
-            code: 403,
-        })
+        kube::Error::Api(
+            kube::core::Status::failure("pods/exec is forbidden", "Forbidden")
+                .with_code(403)
+                .boxed(),
+        )
     }
 
     fn not_found_error() -> kube::Error {
-        kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".to_owned(),
-            message: "exec: \"/bin/bash\": stat /bin/bash: no such file or directory".to_owned(),
-            reason: "BadRequest".to_owned(),
-            code: 400,
-        })
+        kube::Error::Api(
+            kube::core::Status::failure(
+                "exec: \"/bin/bash\": stat /bin/bash: no such file or directory",
+                "BadRequest",
+            )
+            .with_code(400)
+            .boxed(),
+        )
     }
 
     #[test]

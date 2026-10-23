@@ -945,7 +945,7 @@ pub(super) async fn refresh_namespaces(
             let creation_timestamp = ns
                 .metadata
                 .creation_timestamp
-                .map(|t| t.0.to_rfc3339())
+                .map(|t| super::workload_common::kube_rfc3339(&t))
                 .unwrap_or_default();
             Some(NamespaceSummary {
                 pod_count: pod_counts.get(&name).copied().unwrap_or(0),

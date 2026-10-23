@@ -76,7 +76,7 @@ pub(super) async fn delete_replicationcontroller(
     let client = state.cluster.client_or_err()?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
@@ -106,7 +106,7 @@ pub(super) async fn scale_replicationcontroller(
     let client = state.cluster.client_or_err()?;
     let api: Api<ReplicationController> = Api::namespaced(client, namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
@@ -151,7 +151,7 @@ pub(super) async fn restart_replicationcontroller(
 
     let deleted = workload_common::delete_pods_for_selector(state, namespace, &selector).await?;
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

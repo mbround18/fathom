@@ -49,7 +49,7 @@ fn leases_to_summaries(leases: Vec<Lease>, filter: &[String]) -> Vec<LeaseSummar
             .spec
             .as_ref()
             .and_then(|s| s.renew_time.as_ref())
-            .map(|t| t.0.to_rfc3339());
+            .map(|t| super::workload_common::kube_rfc3339(&t));
 
         out.push(LeaseSummary {
             namespace,
@@ -93,7 +93,7 @@ fn lease_to_details(lease: Lease) -> LeaseDetails {
     let name = lease.name_any();
     let creation_timestamp = lease
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = lease.labels().clone();
@@ -104,10 +104,10 @@ fn lease_to_details(lease: Lease) -> LeaseDetails {
     let lease_duration_seconds = spec.and_then(|s| s.lease_duration_seconds);
     let acquire_time = spec
         .and_then(|s| s.acquire_time.as_ref())
-        .map(|t| t.0.to_rfc3339());
+        .map(|t| super::workload_common::kube_rfc3339(&t));
     let renew_time = spec
         .and_then(|s| s.renew_time.as_ref())
-        .map(|t| t.0.to_rfc3339());
+        .map(|t| super::workload_common::kube_rfc3339(&t));
 
     let raw_json = serde_json::to_string_pretty(&lease).unwrap_or_default();
 
@@ -134,7 +134,7 @@ pub(super) async fn delete_lease(
     let client = state.cluster.client_or_err()?;
     let api: Api<Lease> = Api::namespaced(client, namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

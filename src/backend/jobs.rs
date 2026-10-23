@@ -2,8 +2,9 @@ use crate::protocol::{
     BackendEvent, BackendEventEnvelope, Correlation, JobCondition, JobDetails, JobSummary,
     ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
+use chrono::Utc;
 use crossbeam_channel::Sender;
-use k8s_openapi::{api::batch::v1::Job, chrono::Utc};
+use k8s_openapi::api::batch::v1::Job;
 use kube::ResourceExt;
 use kube::api::{Api, DeleteParams};
 use serde_json::json;
@@ -60,12 +61,13 @@ fn jobs_to_summaries(jobs: Vec<Job>, filter: &[String]) -> Vec<JobSummary> {
 
         let duration = match (start_time, completion_time) {
             (Some(start), Some(end)) => {
-                let dur = end.0.signed_duration_since(start.0);
+                let dur = super::workload_common::kube_time(end)
+                    .signed_duration_since(super::workload_common::kube_time(start));
                 format_duration(dur.num_seconds())
             }
             (Some(start), None) => {
                 let now = Utc::now();
-                let dur = now.signed_duration_since(start.0);
+                let dur = now.signed_duration_since(super::workload_common::kube_time(start));
                 format_duration(dur.num_seconds())
             }
             _ => "-".to_string(),
@@ -77,7 +79,7 @@ fn jobs_to_summaries(jobs: Vec<Job>, filter: &[String]) -> Vec<JobSummary> {
             .as_ref()
             .map(|ts| {
                 let now = Utc::now();
-                let dur = now.signed_duration_since(ts.0);
+                let dur = now.signed_duration_since(super::workload_common::kube_time(ts));
                 format_duration(dur.num_seconds())
             })
             .unwrap_or_else(|| "-".to_string());
@@ -130,10 +132,10 @@ pub(super) async fn fetch_job_details(
 
     let start_time = status
         .and_then(|s| s.start_time.as_ref())
-        .map(|ts| ts.0.to_rfc3339());
+        .map(|ts| super::workload_common::kube_rfc3339(&ts));
     let completion_time = status
         .and_then(|s| s.completion_time.as_ref())
-        .map(|ts| ts.0.to_rfc3339());
+        .map(|ts| super::workload_common::kube_rfc3339(&ts));
 
     let duration = job_duration(status);
 
@@ -223,12 +225,13 @@ fn job_duration(status: Option<&k8s_openapi::api::batch::v1::JobStatus>) -> Stri
         status.and_then(|s| s.completion_time.as_ref()),
     ) {
         (Some(start), Some(end)) => {
-            let dur = end.0.signed_duration_since(start.0);
+            let dur = super::workload_common::kube_time(end)
+                .signed_duration_since(super::workload_common::kube_time(start));
             format_duration(dur.num_seconds())
         }
         (Some(start), None) => {
             let now = Utc::now();
-            let dur = now.signed_duration_since(start.0);
+            let dur = now.signed_duration_since(super::workload_common::kube_time(start));
             format_duration(dur.num_seconds())
         }
         _ => "-".to_string(),
@@ -256,7 +259,10 @@ fn job_conditions(status: Option<&k8s_openapi::api::batch::v1::JobStatus>) -> Ve
                     status: c.status.clone(),
                     reason: c.reason.clone(),
                     message: c.message.clone(),
-                    last_transition: c.last_transition_time.as_ref().map(|ts| ts.0.to_rfc3339()),
+                    last_transition: c
+                        .last_transition_time
+                        .as_ref()
+                        .map(|ts| super::workload_common::kube_rfc3339(&ts)),
                 })
                 .collect()
         })

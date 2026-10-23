@@ -130,8 +130,8 @@ impl AiRuntime {
                 return;
             }
         };
-        let expires_at = (k8s_openapi::chrono::Utc::now()
-            + k8s_openapi::chrono::Duration::seconds(device.expires_in_s as i64))
+        let expires_at = (chrono::Utc::now()
+            + chrono::Duration::seconds(device.expires_in_s as i64))
         .to_rfc3339();
         let base = LoginFlow {
             provider,

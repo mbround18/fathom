@@ -622,7 +622,7 @@ mod live_cluster_tests {
             "spec.suspend still set after resume"
         );
 
-        let stamp = k8s_openapi::chrono::Utc::now().to_rfc3339();
+        let stamp = chrono::Utc::now().to_rfc3339();
         let requested =
             reconcile_flux_resource(&client, "HelmRelease", &ns, "podinfo", true, &stamp)
                 .await

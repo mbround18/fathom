@@ -217,12 +217,7 @@ mod tests {
     use super::*;
 
     fn api_error(code: u16) -> kube::Error {
-        kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
-            message: String::new(),
-            reason: String::new(),
-            code,
-        })
+        kube::Error::Api(kube::core::Status::failure("", "").with_code(code).boxed())
     }
 
     #[test]

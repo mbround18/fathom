@@ -2,8 +2,9 @@ use crate::protocol::{
     BackendEvent, BackendEventEnvelope, Correlation, ResourceListEvent, ResourceReadEvent, Route,
     StatefulSetDetails, StatefulSetSummary, section_keys,
 };
+use chrono::Utc;
 use crossbeam_channel::Sender;
-use k8s_openapi::{api::apps::v1::StatefulSet, chrono::Utc};
+use k8s_openapi::api::apps::v1::StatefulSet;
 use kube::ResourceExt;
 use kube::api::{Api, DeleteParams, Patch, PatchParams};
 use serde_json::json;

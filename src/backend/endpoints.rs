@@ -98,7 +98,7 @@ fn endpoint_to_details(ep: Endpoints) -> EndpointDetails {
     let name = ep.name_any();
     let creation_timestamp = ep
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = ep.labels().clone();

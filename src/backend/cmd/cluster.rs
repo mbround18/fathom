@@ -679,12 +679,12 @@ fn kubernetes_event_summary(
         first_timestamp: event
             .first_timestamp
             .as_ref()
-            .map(|t| t.0.to_rfc3339())
+            .map(|t| crate::backend::workload_common::kube_rfc3339(&t))
             .unwrap_or_default(),
         last_timestamp: event
             .last_timestamp
             .as_ref()
-            .map(|t| t.0.to_rfc3339())
+            .map(|t| crate::backend::workload_common::kube_rfc3339(&t))
             .unwrap_or_default(),
         source: event
             .source

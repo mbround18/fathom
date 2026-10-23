@@ -2,8 +2,9 @@ use crate::protocol::{
     BackendEvent, BackendEventEnvelope, Correlation, DeploymentDetails, DeploymentSummary,
     ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
+use chrono::Utc;
 use crossbeam_channel::Sender;
-use k8s_openapi::{api::apps::v1::Deployment, chrono::Utc};
+use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     ResourceExt,
     api::{Api, DeleteParams, Patch, PatchParams},

@@ -113,7 +113,7 @@ fn persistentvolume_to_details(volume: PersistentVolume) -> PersistentVolumeDeta
     let name = volume.name_any();
     let creation_timestamp = volume
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = volume.labels().clone();
@@ -184,7 +184,7 @@ pub(super) async fn delete_persistentvolume(
     let client = state.cluster.client_or_err()?;
     let api: Api<PersistentVolume> = Api::all(client);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

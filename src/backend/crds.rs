@@ -515,12 +515,11 @@ mod tests {
     }
 
     fn api_error(code: u16, message: &str) -> KubeError {
-        KubeError::Api(kube::core::ErrorResponse {
-            status: "Failure".to_owned(),
-            message: message.to_owned(),
-            reason: String::new(),
-            code,
-        })
+        KubeError::Api(
+            kube::core::Status::failure(message, "")
+                .with_code(code)
+                .boxed(),
+        )
     }
 
     /// T050: scope classification is a pure mapping from the CRD spec's `scope` string.

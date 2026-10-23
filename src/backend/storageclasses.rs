@@ -94,7 +94,7 @@ fn storageclass_to_details(class: StorageClass) -> StorageClassDetails {
     let name = class.name_any();
     let creation_timestamp = class
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = class.labels().clone();
@@ -132,7 +132,7 @@ pub(super) async fn delete_storageclass(
     let client = state.cluster.client_or_err()?;
     let api: Api<StorageClass> = Api::all(client);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

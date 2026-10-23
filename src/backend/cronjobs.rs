@@ -2,8 +2,9 @@ use crate::protocol::{
     BackendEvent, BackendEventEnvelope, Correlation, CronJobDetails, CronJobSummary,
     ResourceListEvent, ResourceReadEvent, Route, section_keys,
 };
+use chrono::Utc;
 use crossbeam_channel::Sender;
-use k8s_openapi::{api::batch::v1::CronJob, chrono::Utc};
+use k8s_openapi::api::batch::v1::CronJob;
 use kube::ResourceExt;
 use kube::api::{Api, DeleteParams, Patch, PatchParams};
 use serde_json::json;
@@ -61,7 +62,7 @@ fn cronjobs_to_summaries(cronjobs: Vec<CronJob>, filter: &[String]) -> Vec<CronJ
             .and_then(|s| s.last_schedule_time.as_ref())
             .map(|ts| {
                 let now = Utc::now();
-                let dur = now.signed_duration_since(ts.0);
+                let dur = now.signed_duration_since(super::workload_common::kube_time(ts));
                 format_duration(dur.num_seconds())
             });
 
@@ -71,7 +72,7 @@ fn cronjobs_to_summaries(cronjobs: Vec<CronJob>, filter: &[String]) -> Vec<CronJ
             .as_ref()
             .map(|ts| {
                 let now = Utc::now();
-                let dur = now.signed_duration_since(ts.0);
+                let dur = now.signed_duration_since(super::workload_common::kube_time(ts));
                 format_duration(dur.num_seconds())
             })
             .unwrap_or_else(|| "-".to_string());
@@ -127,7 +128,7 @@ pub(super) async fn fetch_cronjob_details(
 
     let last_schedule_time = status
         .and_then(|s| s.last_schedule_time.as_ref())
-        .map(|ts| ts.0.to_rfc3339());
+        .map(|ts| super::workload_common::kube_rfc3339(&ts));
 
     let concurrency_policy = spec
         .and_then(|s| s.concurrency_policy.as_ref())

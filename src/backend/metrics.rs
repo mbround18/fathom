@@ -495,7 +495,7 @@ fn record_metrics_samples(
     metrics: &PodMetricsSummary,
 ) {
     const MAX_SAMPLES: usize = 100;
-    let timestamp = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let timestamp = chrono::Utc::now().to_rfc3339();
 
     // Update history for each container
     for container_metrics in &metrics.containers {

@@ -612,14 +612,17 @@ mod tests {
         after.contexts.push(NamedContext {
             name: "kind-dev".into(),
             context: None,
+            other: Default::default(),
         });
         after.clusters.push(NamedCluster {
             name: "kind-dev".into(),
             cluster: None,
+            other: Default::default(),
         });
         after.auth_infos.push(NamedAuthInfo {
             name: "kind-dev".into(),
             auth_info: None,
+            other: Default::default(),
         });
         assert!(after.contexts.len() >= 3 && before.contexts.len() >= 2);
         for (b, a) in before.contexts.iter().zip(after.contexts.iter()) {

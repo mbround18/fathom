@@ -118,7 +118,10 @@ pub(super) fn classify_std(err: &(dyn StdError + 'static)) -> (ConnectionProblem
         if code.is_none() {
             if let Some(kube::Error::Api(resp)) = e.downcast_ref::<kube::Error>() {
                 code = Some(resp.code);
-            } else if let Some(resp) = e.downcast_ref::<kube::core::ErrorResponse>() {
+            } else if let Some(resp) = e.downcast_ref::<kube::core::Status>() {
+                code = Some(resp.code);
+            } else if let Some(resp) = e.downcast_ref::<Box<kube::core::Status>>() {
+                // kube 4's `Error::Api` sources its boxed `Status`, which is this type, not `Status`.
                 code = Some(resp.code);
             }
         }
@@ -404,26 +407,30 @@ current-context: ctx-b
 
     #[test]
     fn classifies_a_kube_api_error_through_an_anyhow_chain() {
-        let api = kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
-            message: "Unauthorized".into(),
-            reason: "Unauthorized".into(),
-            code: 401,
-        });
+        let api = kube::Error::Api(
+            kube::core::Status::failure("Unauthorized", "Unauthorized")
+                .with_code(401)
+                .boxed(),
+        );
         let err = anyhow::Error::new(api).context("GET /version");
         let p = classify_connection_error(&err, Some("https://x:6443".into()));
         assert_eq!(p.kind, ConnectionProblemKind::Unauthorized);
         assert_eq!(p.server.as_deref(), Some("https://x:6443"));
         assert!(p.detail.contains("GET /version"));
 
-        let forbidden = kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
-            message: "nope".into(),
-            reason: "Forbidden".into(),
-            code: 403,
-        });
+        let forbidden = kube::Error::Api(
+            kube::core::Status::failure("nope", "Forbidden")
+                .with_code(403)
+                .boxed(),
+        );
         let (kind, _) = classify_std(&forbidden);
         assert_eq!(kind, ConnectionProblemKind::Forbidden);
+
+        // The status alone, as the next link of a chain sees it, boxed (kube 4's `source`) or not.
+        let source = forbidden.source().expect("Error::Api sources its Status");
+        assert_eq!(classify_std(source).0, ConnectionProblemKind::Forbidden);
+        let bare = kube::core::Status::failure("nope", "Forbidden").with_code(403);
+        assert_eq!(classify_std(&bare).0, ConnectionProblemKind::Forbidden);
     }
 
     #[test]

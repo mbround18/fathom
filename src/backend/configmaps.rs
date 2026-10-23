@@ -88,7 +88,7 @@ fn configmap_to_details(cm: ConfigMap) -> ConfigMapDetails {
     let name = cm.name_any();
     let creation_timestamp = cm
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = cm.labels().clone();
@@ -128,7 +128,7 @@ pub(super) async fn delete_configmap(
     let client = state.cluster.client_or_err()?;
     let api: Api<ConfigMap> = Api::namespaced(client, namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

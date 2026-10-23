@@ -113,7 +113,7 @@ fn persistentvolumeclaim_to_details(claim: PersistentVolumeClaim) -> PersistentV
     let name = claim.name_any();
     let creation_timestamp = claim
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = claim.labels().clone();
@@ -170,7 +170,7 @@ pub(super) async fn delete_persistentvolumeclaim(
     let client = state.cluster.client_or_err()?;
     let api: Api<PersistentVolumeClaim> = Api::namespaced(client, namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

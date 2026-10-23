@@ -66,7 +66,7 @@ pub(crate) async fn probe_with_hint(
     hint: InstalledHint,
 ) -> OllamaState {
     let base = endpoint.trim_end_matches('/');
-    let checked_at = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let checked_at = chrono::Utc::now().to_rfc3339();
     let mut state = OllamaState {
         endpoint: endpoint.to_owned(),
         reachable: false,

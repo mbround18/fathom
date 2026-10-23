@@ -78,7 +78,7 @@ fn ingress_class_to_details(class: IngressClass) -> IngressClassDetails {
     let name = class.name_any();
     let creation_timestamp = class
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = class.labels().clone();

@@ -169,7 +169,7 @@ fn describe_container_state(state: &Option<k8s_openapi::api::core::v1::Container
             running
                 .started_at
                 .clone()
-                .map(|t| t.0.to_rfc3339())
+                .map(|t| crate::backend::workload_common::kube_rfc3339(&t))
                 .unwrap_or_default()
         )
     } else if let Some(terminated) = &state.terminated {

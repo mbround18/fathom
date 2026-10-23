@@ -144,7 +144,7 @@ pub(crate) struct AiRuntime {
 }
 
 pub(crate) fn now_rfc3339() -> String {
-    k8s_openapi::chrono::Utc::now().to_rfc3339()
+    chrono::Utc::now().to_rfc3339()
 }
 
 impl AiRuntime {

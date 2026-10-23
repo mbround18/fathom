@@ -187,7 +187,7 @@ fn secret_to_details(secret: Secret) -> SecretDetails {
     let name = secret.name_any();
     let creation_timestamp = secret
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = secret.labels().clone();
@@ -228,7 +228,7 @@ pub(super) async fn delete_secret(
     let client = state.cluster.client_or_err()?;
     let api: Api<Secret> = Api::namespaced(client, namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,
@@ -336,12 +336,11 @@ mod tests {
     }
 
     fn api_error(code: u16, message: &str) -> kube::Error {
-        kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".to_owned(),
-            message: message.to_owned(),
-            reason: "x".to_owned(),
-            code,
-        })
+        kube::Error::Api(
+            kube::core::Status::failure(message, "x")
+                .with_code(code)
+                .boxed(),
+        )
     }
 
     #[test]

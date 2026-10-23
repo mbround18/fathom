@@ -85,7 +85,7 @@ fn role_to_details(role: Role) -> RoleDetails {
     let name = role.name_any();
     let creation_timestamp = role
         .creation_timestamp()
-        .map(|ts| ts.0.to_rfc3339())
+        .map(|ts| super::workload_common::kube_rfc3339(&ts))
         .unwrap_or_default();
 
     let labels = role.labels().clone();
@@ -128,7 +128,7 @@ pub(super) async fn delete_role(
     let client = state.cluster.client_or_err()?;
     let api: Api<Role> = Api::namespaced(client, namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ = interactions::annotate_action(
         &api,
         name,

@@ -412,24 +412,14 @@ pub fn classify_status(status: u16, body: &str, upstream: bool) -> PromQueryErro
     }
 }
 
-/// kube-client reconstructs a non-JSON error body as `ErrorResponse { message: "{text:?}",
-/// reason: "Failed to parse error data" }`; recover the text.
-fn unquote_debug(s: &str) -> String {
-    serde_json::from_str::<String>(s).unwrap_or_else(|_| {
-        s.strip_prefix('"')
-            .and_then(|t| t.strip_suffix('"'))
-            .unwrap_or(s)
-            .replace("\\n", "\n")
-            .replace("\\\"", "\"")
-    })
-}
-
 /// Classify an error from a service-proxy request.
 pub fn classify_kube_error(err: &kube::Error) -> PromQueryError {
     match err {
         kube::Error::Api(resp) => {
+            // kube-client wraps a non-JSON error body (the upstream's own reply) as
+            // `Status::failure(text, "Failed to parse error data")`, the text verbatim.
             if resp.reason == "Failed to parse error data" {
-                classify_status(resp.code, &unquote_debug(&resp.message), true)
+                classify_status(resp.code, &resp.message, true)
             } else {
                 classify_status(resp.code, &resp.message, false)
             }
@@ -798,22 +788,28 @@ mod tests {
     }
 
     #[test]
-    fn kube_reconstructed_error_is_unquoted() {
-        let err = kube::Error::Api(kube::core::ErrorResponse {
-            status: "404 Not Found".into(),
-            message: format!("{:?}", "404 page not found\n"),
-            reason: "Failed to parse error data".into(),
-            code: 404,
-        });
+    fn kube_unparsed_error_body_is_upstream_text() {
+        let err = kube::Error::Api(
+            kube::core::Status::failure("404 page not found\n", "Failed to parse error data")
+                .with_code(404)
+                .boxed(),
+        );
         let e = classify_kube_error(&err);
         assert_eq!(e.kind, FailureKind::QueryFailed);
         assert_eq!(e.to_string(), "404 page not found");
-        let status = kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
-            message: "services \"prometheus\" not found".into(),
-            reason: "NotFound".into(),
-            code: 404,
-        });
+        // The body is taken verbatim: quotes and backslashes in it survive.
+        let body = r#"parse error: unexpected "\n" in query"#;
+        let err = kube::Error::Api(
+            kube::core::Status::failure(body, "Failed to parse error data")
+                .with_code(400)
+                .boxed(),
+        );
+        assert_eq!(classify_kube_error(&err).raw, body);
+        let status = kube::Error::Api(
+            kube::core::Status::failure("services \"prometheus\" not found", "NotFound")
+                .with_code(404)
+                .boxed(),
+        );
         assert_eq!(classify_kube_error(&status).kind, FailureKind::Unreachable);
     }
 }

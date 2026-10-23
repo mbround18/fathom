@@ -190,7 +190,12 @@ pub(super) fn pod_rec(pod: &Pod, now: chrono::DateTime<chrono::Utc>) -> PodRec {
     };
     let unhealthy = fleet::pod_is_unhealthy(pod, now);
     let pending_since = (phase == PodPhase::Pending && !unhealthy)
-        .then(|| pod.metadata.creation_timestamp.as_ref().map(|t| t.0))
+        .then(|| {
+            pod.metadata
+                .creation_timestamp
+                .as_ref()
+                .map(super::workload_common::kube_time)
+        })
         .flatten();
     PodRec {
         phase,
@@ -216,9 +221,14 @@ fn warning_time(e: &CoreEvent) -> Option<chrono::DateTime<chrono::Utc>> {
     }
     e.last_timestamp
         .as_ref()
-        .map(|t| t.0)
-        .or_else(|| e.event_time.as_ref().map(|t| t.0))
-        .or_else(|| e.metadata.creation_timestamp.as_ref().map(|t| t.0))
+        .map(super::workload_common::kube_time)
+        .or_else(|| e.event_time.as_ref().map(super::workload_common::kube_time))
+        .or_else(|| {
+            e.metadata
+                .creation_timestamp
+                .as_ref()
+                .map(super::workload_common::kube_time)
+        })
         .or(Some(chrono::DateTime::<chrono::Utc>::MIN_UTC))
 }
 
@@ -889,7 +899,7 @@ fn restore_from(
 mod tests {
     use super::*;
     use crossbeam_channel::unbounded;
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::{ObjectMeta, Time};
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
     fn test_sender() -> (
         Sender<BackendEventEnvelope>,
@@ -904,7 +914,7 @@ mod tests {
             metadata: ObjectMeta {
                 name: Some(name.into()),
                 namespace: Some("d".into()),
-                creation_timestamp: Some(Time(
+                creation_timestamp: Some(crate::backend::workload_common::to_kube_time(
                     chrono::Utc::now() - chrono::Duration::minutes(age_min),
                 )),
                 ..Default::default()
@@ -1041,7 +1051,9 @@ mod tests {
                 ..Default::default()
             },
             type_: Some(ty.into()),
-            last_timestamp: Some(Time(now - chrono::Duration::minutes(mins))),
+            last_timestamp: Some(crate::backend::workload_common::to_kube_time(
+                now - chrono::Duration::minutes(mins),
+            )),
             ..Default::default()
         };
         c.on_event(WatchEvent::Init);

@@ -239,12 +239,11 @@ mod tests {
     use super::*;
 
     fn api_err(code: u16) -> kube::Error {
-        kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
-            message: "denied".into(),
-            reason: if code == 403 { "Forbidden" } else { "Other" }.into(),
-            code,
-        })
+        kube::Error::Api(
+            kube::core::Status::failure("denied", if code == 403 { "Forbidden" } else { "Other" })
+                .with_code(code)
+                .boxed(),
+        )
     }
 
     #[test]

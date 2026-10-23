@@ -567,7 +567,7 @@ pub(super) async fn start_with_api(
         sender: sender.clone(),
         context: state.cluster.current_context.clone(),
     };
-    let created_at = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let created_at = chrono::Utc::now().to_rfc3339();
 
     let mut ident = Ident {
         session_id,
@@ -713,7 +713,7 @@ pub(super) fn orphan_from_pod(pod: &Pod) -> OrphanedNodeShellPod {
             pod.metadata
                 .creation_timestamp
                 .as_ref()
-                .map(|t| t.0.to_rfc3339())
+                .map(|t| super::workload_common::kube_rfc3339(&t))
         }),
     }
 }
@@ -1057,12 +1057,11 @@ mod tests {
     struct ApiErr(u16, &'static str);
     impl ApiErr {
         fn into_kube(self) -> kube::Error {
-            kube::Error::Api(kube::core::ErrorResponse {
-                status: "Failure".to_owned(),
-                message: self.1.to_owned(),
-                reason: "X".to_owned(),
-                code: self.0,
-            })
+            kube::Error::Api(
+                kube::core::Status::failure(self.1, "X")
+                    .with_code(self.0)
+                    .boxed(),
+            )
         }
     }
 

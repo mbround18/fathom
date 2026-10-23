@@ -201,7 +201,7 @@ fn handle_record_executed(
         return;
     };
 
-    let executed_at = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let executed_at = chrono::Utc::now().to_rfc3339();
     match state_machine::build_executed_action(
         agent::next_local_id("exec"),
         &suggestion,
@@ -238,7 +238,7 @@ async fn handle_ask(
         text: question.clone(),
         grounding: Vec::new(),
         suggested_actions: Vec::new(),
-        created_at: k8s_openapi::chrono::Utc::now().to_rfc3339(),
+        created_at: chrono::Utc::now().to_rfc3339(),
     };
     state
         .agent_conversations
@@ -306,7 +306,7 @@ async fn handle_ask(
         text: reply_text,
         grounding: grounding_sources,
         suggested_actions,
-        created_at: k8s_openapi::chrono::Utc::now().to_rfc3339(),
+        created_at: chrono::Utc::now().to_rfc3339(),
     };
 
     let conversation = {

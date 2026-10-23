@@ -86,7 +86,7 @@ pub(super) async fn delete_pod_with_client(
 ) -> anyhow::Result<()> {
     let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
 
-    let ts = k8s_openapi::chrono::Utc::now().to_rfc3339();
+    let ts = chrono::Utc::now().to_rfc3339();
     let _ =
         interactions::annotate_action(&api, name, context, "delete", &ts, serde_json::json!({}))
             .await;
@@ -146,9 +146,7 @@ pub(super) async fn add_ephemeral_container(
     let name = ephemeral_container_name
         .map(str::to_owned)
         .unwrap_or_else(|| {
-            let suffix = k8s_openapi::chrono::Utc::now()
-                .timestamp_nanos_opt()
-                .unwrap_or(0) as u64;
+            let suffix = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64;
             format!("debugger-{:x}", suffix & 0x00ff_ffff)
         });
 
@@ -265,7 +263,7 @@ pub(super) async fn fetch_pod_details(
         .metadata
         .creation_timestamp
         .as_ref()
-        .map(|t| t.0.to_rfc3339())
+        .map(|t| super::workload_common::kube_rfc3339(&t))
         .unwrap_or_default();
 
     let containers = pod
@@ -669,15 +667,24 @@ fn convert_state(state: &K8sContainerState) -> ContainerState {
             phase: "terminated".to_owned(),
             reason: t.reason.clone(),
             exit_code: Some(t.exit_code),
-            started_at: t.started_at.as_ref().map(|ts| ts.0.to_rfc3339()),
-            finished_at: t.finished_at.as_ref().map(|ts| ts.0.to_rfc3339()),
+            started_at: t
+                .started_at
+                .as_ref()
+                .map(|ts| super::workload_common::kube_rfc3339(&ts)),
+            finished_at: t
+                .finished_at
+                .as_ref()
+                .map(|ts| super::workload_common::kube_rfc3339(&ts)),
         }
     } else if let Some(r) = &state.running {
         ContainerState {
             phase: "running".to_owned(),
             reason: None,
             exit_code: None,
-            started_at: r.started_at.as_ref().map(|ts| ts.0.to_rfc3339()),
+            started_at: r
+                .started_at
+                .as_ref()
+                .map(|ts| super::workload_common::kube_rfc3339(&ts)),
             finished_at: None,
         }
     } else {
@@ -770,7 +777,6 @@ mod lifecycle_tests {
         ContainerStateRunning, ContainerStateTerminated, ContainerStateWaiting, ExecAction,
         HTTPGetAction, Lifecycle, PodSpec, PodStatus,
     };
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
     use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 
     fn container(name: &str) -> Container {
@@ -803,8 +809,12 @@ mod lifecycle_tests {
             terminated: Some(ContainerStateTerminated {
                 exit_code,
                 reason: Some(reason.to_owned()),
-                started_at: Some(Time(k8s_openapi::chrono::Utc::now())),
-                finished_at: Some(Time(k8s_openapi::chrono::Utc::now())),
+                started_at: Some(crate::backend::workload_common::to_kube_time(
+                    chrono::Utc::now(),
+                )),
+                finished_at: Some(crate::backend::workload_common::to_kube_time(
+                    chrono::Utc::now(),
+                )),
                 ..Default::default()
             }),
             ..Default::default()
@@ -814,7 +824,9 @@ mod lifecycle_tests {
     fn running() -> K8sContainerState {
         K8sContainerState {
             running: Some(ContainerStateRunning {
-                started_at: Some(Time(k8s_openapi::chrono::Utc::now())),
+                started_at: Some(crate::backend::workload_common::to_kube_time(
+                    chrono::Utc::now(),
+                )),
             }),
             ..Default::default()
         }

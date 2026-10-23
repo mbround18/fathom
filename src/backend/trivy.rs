@@ -175,7 +175,7 @@ pub(super) fn dedup_latest(reports: Vec<DynamicObject>) -> Vec<DynamicObject> {
             .metadata
             .creation_timestamp
             .as_ref()
-            .map(|t| t.0.to_rfc3339())
+            .map(|t| super::workload_common::kube_rfc3339(&t))
             .unwrap_or_default();
         match latest.get(&key) {
             Some(existing) => {
@@ -183,7 +183,7 @@ pub(super) fn dedup_latest(reports: Vec<DynamicObject>) -> Vec<DynamicObject> {
                     .metadata
                     .creation_timestamp
                     .as_ref()
-                    .map(|t| t.0.to_rfc3339())
+                    .map(|t| super::workload_common::kube_rfc3339(&t))
                     .unwrap_or_default();
                 if ts > existing_ts {
                     latest.insert(key, obj);
@@ -451,7 +451,7 @@ pub(super) async fn inspect_pod_vulnerabilities(
             .metadata
             .creation_timestamp
             .as_ref()
-            .map(|t| t.0.to_rfc3339())
+            .map(|t| super::workload_common::kube_rfc3339(&t))
             .unwrap_or_default();
         if ts > generated_at {
             generated_at = ts;
