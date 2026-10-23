@@ -155,7 +155,7 @@ worktrees and merge each green.
 
 - [X] T026 [P] Write the failing tests first in `crates/depths-core/src/name.rs`: `valid_name` accepts `web`, `a_b-1`, `0x`, and rejects `Web`, `-a`, `_a`, `a.b`, `a b`, `""`, `..`. The rule to quote: "matches `^[a-z0-9][a-z0-9_-]*$`". Then implement it.
 - [X] T027 [P] Write the failing tests first in `crates/depths-core/src/discovery.rs`: compose file precedence is `compose.yaml`, `compose.yml`, `docker-compose.yml`, `docker-compose.yaml` ("the first present in Compose's order"), and `shadowed_files` lists the others. Then implement it over a `DirListing` input (no I/O).
-- [ ] T028 [P] Write the failing tests first in `crates/depths-core/src/status.rs` with canned 048 `Container`s:
+- [X] T028 [P] Write the failing tests first in `crates/depths-core/src/status.rs` with canned 048 `Container`s:
   - Each status: `not_deployed`, `running`, `partial`, `stopped`, `invalid`.
   - The rule "exited with code 0 whose restart policy is `no` counts as completed and never makes a stack partial".
   - `restarting` counts as not running.
