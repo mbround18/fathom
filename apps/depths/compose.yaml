@@ -1,0 +1,79 @@
+# Depths, with a Docker socket proxy in front of the daemon.
+#
+#   cp .env.example .env    # fill in the provider, OWNER_USER_ID and DEPTHS_PUBLIC_URL
+#   docker compose up -d
+#
+# Access to the Docker API is root on this host. The socket proxy narrows which endpoints Depths
+# can reach; it does not remove that: CONTAINERS=1 with POST=1 can still start a privileged
+# container. Only give Depths to people you would give root, and put it behind https.
+#
+# Depths is published on loopback only. Reach it through a reverse proxy that terminates TLS for
+# DEPTHS_PUBLIC_URL, and name that proxy in DEPTHS_TRUSTED_PROXIES so the audit log records the
+# real client address.
+
+services:
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:3.4.7
+    restart: ${RESTART_POLICY:-no}
+    read_only: true
+    tmpfs:
+      - /run
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # compose down needs DELETE, which only POST=1 allows.
+      POST: 1
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      INFO: 1
+      EVENTS: 1
+      PING: 1
+      VERSION: 1
+      ALLOW_LOGS: 1
+      # Container shells. Turn on together with DEPTHS_FEATURE_SHELL.
+      EXEC: ${DEPTHS_SOCKET_EXEC:-0}
+      # Stacks that build images also need BUILD=1, SESSION=1 and GRPC=1.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-api
+
+  depths:
+    image: ${DEPTHS_IMAGE:-depths:dev}
+    restart: ${RESTART_POLICY:-no}
+    depends_on:
+      - socket-proxy
+    user: "10001:10001"
+    env_file: .env
+    environment:
+      DOCKER_HOST: tcp://socket-proxy:2375
+      DEPTHS_STACKS_DIR: ${STACKS_DIR:-/opt/stacks}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 1g
+    ports:
+      - "127.0.0.1:${DEPTHS_PORT:-8080}:8080"
+    volumes:
+      - depths-data:/var/lib/depths
+      # The same path on both sides, so the paths compose records in container labels match the
+      # stacks Depths reads, and Dockge pointed at the same directory sees the same projects.
+      - ${STACKS_DIR:-/opt/stacks}:${STACKS_DIR:-/opt/stacks}
+    networks:
+      - docker-api
+      - web
+
+networks:
+  # Only Depths and the proxy; no route out.
+  docker-api:
+    internal: true
+  web: {}
+
+volumes:
+  depths-data:

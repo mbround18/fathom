@@ -527,7 +527,7 @@ manage a stack through the proxy. Check that Depths runs as non-root with no soc
   - A `cli` stage copying `docker` and the compose plugin from `docker:29-cli`.
   - A runtime stage on `debian:trixie-slim` with `tini` and user `depths` (10001), assets at `/usr/share/depths/web` passed as `STATIC_DIR` (not embedded), and `HEALTHCHECK` on `/healthz`.
   - Add `.dockerignore` entries.
-- [ ] T077 [US6] Write `apps/depths/compose.yaml`, and `apps/depths/.env.example` (with `OWNER_USER_ID`) per contracts/config.md:
+- [X] T077 [US6] Write `apps/depths/compose.yaml`, and `apps/depths/.env.example` (with `OWNER_USER_ID`) per contracts/config.md:
   - A linuxserver socket-proxy with the R8 env.
   - Socket mounted read-only on the proxy only.
   - The stacks dir at the same path on both sides.
