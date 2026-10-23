@@ -123,7 +123,8 @@ depths-dev: ## Depths server on 127.0.0.1:8080 (--insecure-dev) plus vite dev on
 	wait
 
 depths-image: gc ## Build the Depths container image (depths:dev)
-	docker build -f apps/depths/Dockerfile -t depths:dev .
+	docker build -f apps/depths/Dockerfile -t depths:dev \
+	  --build-arg RUST_VERSION=$$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml) .
 
 depths-test: ## Depths and shared-crate tests: cargo (Rust side) and vitest (web)
 	cargo test $(DEPTHS_PKGS)

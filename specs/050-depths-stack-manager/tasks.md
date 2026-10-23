@@ -436,7 +436,7 @@ and every attempt shows up in the audit log.
 **Independent test**: on a clean host, follow the guide with the example compose. Sign in and
 manage a stack through the proxy. Check that Depths runs as non-root with no socket mounted.
 
-- [ ] T076 [US6] Write `apps/depths/Dockerfile`, multi-stage per research R11:
+- [X] T076 [US6] Write `apps/depths/Dockerfile`, multi-stage per research R11:
   - A cargo-chef planner/cook/build stage on `rust:1.99.0-trixie`, with the version read from `rust-toolchain.toml` via a build arg.
   - A `web` stage on Node 24 + corepack, running `pnpm --filter @companion/depths-web build`.
   - A `cli` stage copying `docker` and the compose plugin from `docker:29-cli`.

@@ -9,3 +9,6 @@ ui/test-results
 ui/playwright-report
 specs
 docs
+apps/depths/web/dist
+apps/depths/web/test-results
+apps/depths/web/playwright-report

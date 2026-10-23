@@ -1527,6 +1527,11 @@ version = "0.1.0"
 [[package]]
 name = "depths-server"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "tokio",
+ "tower-http 0.7.1",
+]
 
 [[package]]
 name = "depths-stacks-fs"
