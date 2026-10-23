@@ -127,7 +127,7 @@ worktrees and merge each green.
   - `CompactAfter(10_000)` keeps the server's current behaviour.
 
   Then move the writer and reader from `server/src/audit.rs`, generic over `E: Serialize + DeserializeOwned`.
-- [ ] T019 [B2] Make `server/src/audit.rs` a wrapper implementing `fathom::backend::audit_log::AuditSink` over `AuditLog<AuditLogEntry>` with `CompactAfter(10_000)`, keeping the same path (`<state_dir>/audit/audit-log.jsonl`) and format.
+- [X] T019 [B2] Make `server/src/audit.rs` a wrapper implementing `fathom::backend::audit_log::AuditSink` over `AuditLog<AuditLogEntry>` with `CompactAfter(10_000)`, keeping the same path (`<state_dir>/audit/audit-log.jsonl`) and format.
 - [ ] T020 [B2] Gate: check that `cargo test -p web-auth -p audit-log -p fathom-server` and the hosted E2E projects pass. Check that `cargo tree -p web-auth -p audit-log` has no `kube` or `fathom`, and add that check to `scripts/ci.sh`.
 
 ### B3. `@companion/theme`, `@companion/ui`, `@companion/terminal`

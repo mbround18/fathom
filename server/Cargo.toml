@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 fathom = { path = "..", default-features = false }
+audit-log = { path = "../crates/audit-log" }
 web-auth = { path = "../crates/web-auth" }
 anyhow = "1.0.104"
 axum = { version = "0.8", features = ["macros"] }
