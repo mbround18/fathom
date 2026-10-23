@@ -43,7 +43,7 @@ The final phase covers shipping (plan phase E).
 
 ## Phase 1: Setup (plan phase A)
 
-- [ ] T001 Amend the constitution to 1.2.0 via `/speckit-constitution` in `.specify/memory/constitution.md` (MINOR, with a Sync Impact Report). The amendment must:
+- [X] T001 Amend the constitution to 1.2.0 via `/speckit-constitution` in `.specify/memory/constitution.md` (MINOR, with a Sync Impact Report). The amendment must:
   - Apply the principles to every app in the suite.
   - Generalise Principle II to "each app owns one versioned, Rust-defined contract; shared domains define wire types once in a shared crate that each app's contract re-exports".
   - Add a "Depths server (Linux container)" tier: Docker host, sign-in required, socket access documented as root-equivalent, socket proxy supported.
