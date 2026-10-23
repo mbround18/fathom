@@ -3,10 +3,10 @@
 //! Contract: `specs/031-hosted-server-mode/contracts/hosted-http-api.md`.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Query, Request, State};
+use axum::extract::{FromRef, Query, Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -19,44 +19,20 @@ use tower_http::services::ServeDir;
 
 use crate::config::{AccessModel, HostedConfig, KubeTokenKind};
 use crate::csrf;
-use crate::oidc::{LoginState, OidcClient, OidcError};
+use crate::oidc::{OidcClient, OidcError};
 use crate::session::{EndReason, Session, SessionError, SessionStore};
 use crate::ws::{self, TenantHost};
+use web_auth::cookie::CookieConfig;
+pub use web_auth::cookie::cookie_value;
+use web_auth::extract::{AuthState, CsrfLayer, SessionUser};
 
 pub const SESSION_COOKIE: &str = "__Host-fathom_session";
 pub const LOGIN_COOKIE: &str = "__Host-fathom_login";
-const LOGIN_TTL: Duration = Duration::from_secs(600);
-const LOGIN_CAP: usize = 2000;
+const LOGIN_TTL: Duration = web_auth::login::DEFAULT_LOGIN_TTL;
+const SESSION: CookieConfig = CookieConfig::new(SESSION_COOKIE);
 
 /// Pending logins (state/nonce/PKCE verifier + return path), keyed by the login cookie value.
-#[derive(Default)]
-pub struct LoginStore {
-    inner: Mutex<HashMap<String, (LoginState, String, Instant)>>,
-}
-
-impl LoginStore {
-    pub fn put(&self, login: LoginState, return_to: String) -> String {
-        let id = crate::session::random_token();
-        let now = Instant::now();
-        let mut m = self.inner.lock().unwrap();
-        m.retain(|_, (_, _, t)| now.duration_since(*t) < LOGIN_TTL);
-        let oldest = m
-            .iter()
-            .min_by_key(|(_, (_, _, t))| *t)
-            .map(|(k, _)| k.clone());
-        if let (true, Some(oldest)) = (m.len() >= LOGIN_CAP, oldest) {
-            m.remove(&oldest);
-        }
-        m.insert(id.clone(), (login, return_to, now));
-        id
-    }
-
-    /// Single use: the entry is removed whether or not the callback succeeds.
-    pub fn take(&self, id: &str) -> Option<(LoginState, String)> {
-        let (l, r, t) = self.inner.lock().unwrap().remove(id)?;
-        (Instant::now().duration_since(t) < LOGIN_TTL).then_some((l, r))
-    }
-}
+pub use web_auth::login::LoginStore;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -99,27 +75,23 @@ impl AppState {
 
 // ---- helpers -------------------------------------------------------------------------------
 
-pub fn cookie_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|s| s.split(';'))
-        .filter_map(|kv| kv.trim().split_once('='))
-        .find(|(k, _)| *k == name)
-        .map(|(_, v)| v)
+impl FromRef<AppState> for AuthState {
+    fn from_ref(app: &AppState) -> Self {
+        AuthState {
+            sessions: app.sessions.clone(),
+            cookie: SESSION,
+            login_url: Some("/auth/login".into()),
+        }
+    }
 }
 
-fn set_cookie(name: &str, value: &str, max_age: u64) -> HeaderValue {
-    HeaderValue::from_str(&format!(
-        "{name}={value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age={max_age}"
-    ))
-    .expect("cookie value is ascii")
+fn set_cookie(name: &'static str, value: &str, max_age: u64) -> HeaderValue {
+    CookieConfig::new(name).set(value, max_age)
 }
 
 /// Live session for the request's cookie (refreshes the idle timer).
 pub fn session_from_headers(app: &AppState, headers: &HeaderMap) -> Option<Session> {
-    app.sessions.touch(cookie_value(headers, SESSION_COOKIE)?)
+    AuthState::from_ref(app).session(headers)
 }
 
 pub fn json_error(status: StatusCode, error: &str, login_url: Option<&str>) -> Response {
@@ -284,24 +256,8 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-async fn logout(State(app): State<AppState>, headers: HeaderMap) -> Response {
-    let Some(session) = session_from_headers(&app, &headers) else {
-        return json_error(
-            StatusCode::UNAUTHORIZED,
-            "unauthenticated",
-            Some("/auth/login"),
-        );
-    };
-    let ok = csrf::check_mutation(
-        &app.origin,
-        headers.get("origin").and_then(|v| v.to_str().ok()),
-        headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()),
-        &session.csrf,
-        headers.get("x-csrf-token").and_then(|v| v.to_str().ok()),
-    );
-    if !ok {
-        return json_error(StatusCode::FORBIDDEN, "csrf", None);
-    }
+/// Behind [`CsrfLayer`]: a session and a valid CSRF token and `Origin` are already checked.
+async fn logout(State(app): State<AppState>, SessionUser(session): SessionUser) -> Response {
     app.sessions.end(&session.id, EndReason::SignedOut);
     // In pass-through with ID-token bearers the ID token *is* the user's cluster credential
     // and stays valid at the API server until it expires: never put it in a URL the browser
@@ -312,18 +268,11 @@ async fn logout(State(app): State<AppState>, headers: HeaderMap) -> Response {
     let end = app.oidc.end_session_url(hint).map(|u| u.to_string());
     let mut resp = Json(json!({ "endSessionUrl": end })).into_response();
     resp.headers_mut()
-        .append(header::SET_COOKIE, set_cookie(SESSION_COOKIE, "", 0));
+        .append(header::SET_COOKIE, SESSION.clear());
     resp
 }
 
-async fn api_session(State(app): State<AppState>, headers: HeaderMap) -> Response {
-    let Some(s) = session_from_headers(&app, &headers) else {
-        return json_error(
-            StatusCode::UNAUTHORIZED,
-            "unauthenticated",
-            Some("/auth/login"),
-        );
-    };
+async fn api_session(State(app): State<AppState>, SessionUser(s): SessionUser) -> Response {
     let remaining = s
         .absolute_deadline
         .saturating_duration_since(Instant::now());
@@ -443,13 +392,14 @@ async fn security_headers(State(app): State<AppState>, req: Request, next: Next)
 }
 
 pub fn router(app: AppState) -> Router {
+    let csrf = CsrfLayer::new(AuthState::from_ref(&app), app.origin.clone());
     let files = ServeDir::new(&app.cfg.ui_dir)
         .append_index_html_on_directories(false)
         .fallback(get(spa).with_state(app.clone()));
     Router::new()
         .route("/auth/login", get(login))
         .route("/auth/callback", get(callback))
-        .route("/auth/logout", post(logout))
+        .route("/auth/logout", post(logout).layer(csrf))
         .route("/api/session", get(api_session))
         .route("/api/{*rest}", any(api_not_found))
         .route("/healthz", get(healthz))
@@ -466,6 +416,7 @@ pub fn router(app: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oidc::LoginState;
 
     #[test]
     fn rfc3339_known_values() {

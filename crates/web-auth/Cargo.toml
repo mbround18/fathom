@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 async-trait = "0.1"
+axum = { version = "0.8", default-features = false, features = ["json"] }
 base64 = "0.23"
 http = "1"
 openidconnect = { version = "4", default-features = false }
@@ -20,10 +21,12 @@ sha2 = "0.11"
 subtle = "2.6"
 thiserror = "2"
 tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
+tower = "0.5"
 url = "2.5"
 
 [dev-dependencies]
 axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
 # rsa 0.9 is on digest 0.10: tests sign with its sha2 re-export, not the crate's sha2 0.11.
 rsa = { version = "0.9", features = ["sha2"] }
 tokio = { version = "1.54.1", features = ["full", "test-util"] }

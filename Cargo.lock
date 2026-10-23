@@ -8289,6 +8289,7 @@ dependencies = [
  "subtle",
  "thiserror 2.0.21",
  "tokio",
+ "tower",
  "url",
 ]
 
