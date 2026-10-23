@@ -66,7 +66,7 @@ The final phase covers shipping (plan phase E).
   - `k8s/cluster.sh:115`
 
   Then verify with `scripts/ci.sh` and `make build-linux` (or the pipeline's UI step).
-- [ ] T004 Add workspace members and empty crates, each with a `lib.rs` doc comment, `edition = "2024"` and `license` matching the root:
+- [X] T004 Add workspace members and empty crates, each with a `lib.rs` doc comment, `edition = "2024"` and `license` matching the root:
   - `crates/container-runtime`
   - `crates/web-auth`
   - `crates/audit-log`
@@ -76,7 +76,7 @@ The final phase covers shipping (plan phase E).
   - `apps/depths/server` (bin `depths`)
 
   Add them to `[workspace] members` in `Cargo.toml`, and check that `cargo check --workspace` passes.
-- [ ] T005 [P] Create empty packages:
+- [X] T005 [P] Create empty packages:
   - `packages/theme` (`@companion/theme`), `packages/ui` (`@companion/ui`) and `packages/terminal` (`@companion/terminal`), each with `package.json` (private, `type: module`, `exports`), `tsconfig.json` extending a new root `tsconfig.base.json`, and `src/index.ts`.
   - `apps/depths/web` (`@companion/depths-web`) from Vite's React-TS template trimmed to the repo's ESLint and Vitest setup, with the `@/` alias.
 - [ ] T006 [P] Extend `scripts/hygiene.sh` to report leftover `depths-test-*` compose projects and temp stacks dirs. Extend `Makefile`:

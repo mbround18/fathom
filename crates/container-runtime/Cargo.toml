@@ -1,0 +1,9 @@
+[package]
+name = "container-runtime"
+version = "0.1.0"
+description = "Docker and Compose runtime shared by the suite: CLI runner, argv previews, streams and wire types"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]

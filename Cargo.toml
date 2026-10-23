@@ -1,5 +1,14 @@
 [workspace]
-members = [".", "daemon", "pipeline", "ui/src-tauri", "tools/devbridge", "server"]
+members = [
+    ".",
+    "daemon",
+    "pipeline",
+    "ui/src-tauri",
+    "tools/devbridge",
+    "server",
+    "crates/*",
+    "apps/depths/server",
+]
 resolver = "3"
 
 # Release bundles: thin LTO and one codegen unit for size/speed, symbols stripped. `panic` stays

@@ -1,0 +1,15 @@
+{
+  "name": "@companion/ui",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Shared React components: primitives, container tables, argv preview",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "node node_modules/typescript7/bin/tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript7": "npm:typescript@^7.0.2"
+  }
+}

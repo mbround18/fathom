@@ -1,0 +1,15 @@
+{
+  "name": "@companion/theme",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Neon-noir design tokens and fonts shared by the suite's frontends",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "node node_modules/typescript7/bin/tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript7": "npm:typescript@^7.0.2"
+  }
+}

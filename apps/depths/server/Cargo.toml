@@ -1,0 +1,13 @@
+[package]
+name = "depths-server"
+version = "0.1.0"
+description = "Depths: self-hosted Docker Compose stack manager (Axum + Tower)"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "depths"
+path = "src/main.rs"
+
+[dependencies]

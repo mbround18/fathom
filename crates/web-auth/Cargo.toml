@@ -1,0 +1,9 @@
+[package]
+name = "web-auth"
+version = "0.1.0"
+description = "Browser sign-in for the suite's servers: OIDC and GitHub, sessions, CSRF"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]

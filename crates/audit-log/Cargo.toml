@@ -1,0 +1,9 @@
+[package]
+name = "audit-log"
+version = "0.1.0"
+description = "Append-only JSON-lines audit log with size rotation"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
