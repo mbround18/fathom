@@ -12,7 +12,7 @@ import { useStore } from '@/store'
 
 import { CertificateChainView } from './CertificateChainView'
 import { IntegrationSummary, type SummaryRow, type SummaryTile } from './IntegrationSummary'
-import { MetricsUnavailable } from '../shell/PaneStates'
+import { MetricsUnavailable } from '@companion/terminal'
 
 const READY_TONE: Record<CertReadyState, SummaryRow['tone']> = {
   Ready: 'ok',

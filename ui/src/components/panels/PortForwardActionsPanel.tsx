@@ -15,7 +15,7 @@ import { Gated } from '@/lib/capabilities'
 import type { ContainerPort, RelatedResourceRef, ServicePort } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
 
-import { Empty } from '../shell/PaneStates'
+import { Empty } from '@companion/terminal'
 import type { ForwardTarget } from './PortForwardStartDialog'
 import { PortForwardStartDialog } from './PortForwardStartDialog'
 

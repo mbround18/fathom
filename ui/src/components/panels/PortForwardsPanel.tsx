@@ -17,7 +17,7 @@ import { SECTION } from '@/protocol/commands'
 import type { PortForward } from '@/protocol/types'
 import { listKey, useStore } from '@/store'
 
-import { Empty } from '../shell/PaneStates'
+import { Empty } from '@companion/terminal'
 import type { ForwardTarget } from './PortForwardStartDialog'
 import { PortForwardStartDialog } from './PortForwardStartDialog'
 

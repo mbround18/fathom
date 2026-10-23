@@ -12,6 +12,7 @@
     // workspace packages through node_modules.
     "paths": {
       "@/*": ["./src/*"],
+      "@companion/terminal": ["../packages/terminal/src"],
       "@companion/ui": ["../packages/ui/src"],
       "@companion/theme": ["../packages/theme/src"]
     }

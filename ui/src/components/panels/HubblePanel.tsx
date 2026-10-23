@@ -10,7 +10,7 @@ import { useEffect } from 'react'
 import { useStore } from '@/store'
 
 import { IntegrationSummary, type SummaryRow, type SummaryTile } from './IntegrationSummary'
-import { MetricsUnavailable } from '../shell/PaneStates'
+import { MetricsUnavailable } from '@companion/terminal'
 
 export function HubblePanel() {
   const summary = useStore((s) => s.hubble.summary)

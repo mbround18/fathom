@@ -20,7 +20,7 @@ import type { ObjectRef } from '@/resources'
 import { detailKey, useStore } from '@/store'
 import { cn } from '@companion/theme'
 
-import { YamlDiffView } from './YamlDiffView'
+import { YamlDiffView } from '@companion/terminal'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 

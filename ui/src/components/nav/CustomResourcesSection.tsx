@@ -16,7 +16,7 @@ import { jsonToYaml } from '@/resources/yaml'
 import { detailKey, listKey, useStore, type CrdInstancesState, type DetailState } from '@/store'
 import { cn } from '@companion/theme'
 
-import { Empty, ErrorState, Loading } from '../shell/PaneStates'
+import { Empty, ErrorState, Loading } from '@companion/terminal'
 
 function catalogKey(e: Pick<CrdCatalogEntry, 'group' | 'kind'>): string {
   return `${e.group}/${e.kind}`

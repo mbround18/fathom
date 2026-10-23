@@ -11,7 +11,7 @@ import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 import type { DaemonTimelineEntry, DerivedSeverity, TruncationMarker } from '@/protocol/types'
 
-import { Empty } from '../../components/shell/PaneStates'
+import { Empty } from '@companion/terminal'
 import {
   CLUSTER_HISTORY_SUBTITLE,
   DAEMON_SWITCH_LABEL,

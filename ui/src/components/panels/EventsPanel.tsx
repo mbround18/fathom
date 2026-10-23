@@ -2,7 +2,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { StatusBadge } from '@/components/StatusBadge'
-import { Disconnected, Empty, Loading } from '@/components/shell/PaneStates'
+import { Disconnected, Empty, Loading } from '@companion/terminal'
 import { Input } from '@companion/ui'
 import { cn } from '@companion/theme'
 import { SECTION } from '@/protocol/commands'

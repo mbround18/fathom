@@ -14,7 +14,7 @@ import type { GatekeeperConstraintSummary } from '@/protocol/types'
 import { useStore } from '@/store'
 
 import { IntegrationSummary, type SummaryRow, type SummaryTile } from './IntegrationSummary'
-import { ErrorState, MetricsUnavailable } from '../shell/PaneStates'
+import { ErrorState, MetricsUnavailable } from '@companion/terminal'
 
 const constraintKey = (c: GatekeeperConstraintSummary) => `${c.kind}/${c.name}`
 

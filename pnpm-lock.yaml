@@ -364,6 +364,9 @@ importers:
 
   ui:
     dependencies:
+      '@companion/terminal':
+        specifier: workspace:*
+        version: link:../packages/terminal
       '@companion/theme':
         specifier: workspace:*
         version: link:../packages/theme
@@ -412,9 +415,6 @@ importers:
       d3-force:
         specifier: ^3.0.0
         version: 3.0.0
-      diff:
-        specifier: ^9.0.0
-        version: 9.0.0
       radix-ui:
         specifier: ^1.8.1
         version: 1.8.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)

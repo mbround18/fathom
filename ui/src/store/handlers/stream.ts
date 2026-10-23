@@ -8,7 +8,7 @@ import { handleContainers, isContainerEvent } from './containers'
 import { markApplied } from '../editSession'
 import { type ExecStreamState, type LogStreamState, useStore } from '../index'
 import { isClientStreamId } from '../log-streams'
-import { RingBuffer } from '../ring-buffer'
+import { RingBuffer } from '@companion/terminal'
 
 /** Decode a base64-encoded backend byte chunk into a UTF-8/binary-safe string for xterm.js. */
 function decodeExecChunk(base64: string): string {

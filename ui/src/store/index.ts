@@ -123,7 +123,7 @@ import {
 } from './helmMutation'
 import { detailKey, listKey, type DetailKey, type ListKey } from './keys'
 import { DEFAULT_AUDIT_FILTER, type AuditLogFilter } from './auditLogFilter'
-import { RingBuffer } from './ring-buffer'
+import { RingBuffer } from '@companion/terminal'
 import { newLogStreamId } from './log-streams'
 import { waitForCommandResult } from './actions'
 import type { HostedState } from './handlers/hosted'

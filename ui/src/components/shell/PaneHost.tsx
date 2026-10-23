@@ -75,7 +75,7 @@ import {
   NoLongerExists,
   NotPermitted,
   StateFrame,
-} from './PaneStates'
+} from '@companion/terminal'
 
 interface PaneHostProps {
   paneId: PaneId

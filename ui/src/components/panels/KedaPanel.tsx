@@ -11,7 +11,7 @@ import type { KedaResourceSummary } from '@/protocol/types'
 import { KedaInspector } from '@/resources/keda'
 import { useStore } from '@/store'
 
-import { MetricsUnavailable } from '../shell/PaneStates'
+import { MetricsUnavailable } from '@companion/terminal'
 
 function Row({ row, selected }: { row: KedaResourceSummary; selected: boolean }) {
   const select = useStore((s) => s.selectKedaResource)

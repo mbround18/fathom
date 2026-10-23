@@ -50,7 +50,7 @@ globalThis.ResizeObserver = class {
 import { AvailableAgentsSection } from '@/components/panels/agent-ops/AvailableAgentsSection'
 import type { BackendCmd } from '@/protocol/types'
 import { initialData, useStore } from '@/store'
-import { RingBuffer } from '@/store/ring-buffer'
+import { RingBuffer } from '@companion/terminal'
 import { commandFinished, resetActions, setActionTimeout } from '@/store/actions'
 
 let sent: BackendCmd[]

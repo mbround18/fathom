@@ -43,7 +43,7 @@ import { PodLogsTab } from './panels/PodLogsTab'
 import { PodTerminalTab } from './panels/PodTerminalTab'
 import { YamlEditTab } from './panels/YamlEditTab'
 import { InspectorYamlExportBar } from '@/features/manifest-export/InspectorYamlExportBar'
-import { Empty, Loading, NoLongerExists } from './shell/PaneStates'
+import { Empty, Loading, NoLongerExists } from '@companion/terminal'
 import { TopologyTab } from './inspector/TopologyTab'
 import { RESOLVER_KINDS } from '@/topology/resource-topology'
 

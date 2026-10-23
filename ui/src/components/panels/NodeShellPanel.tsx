@@ -15,7 +15,7 @@ import { Button, Input } from '@companion/ui'
 import type { NodeDetails, OrphanedNodeShellPod } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
 
-import { Loading } from '../shell/PaneStates'
+import { Loading } from '@companion/terminal'
 import { isWindowsNode, phaseView, summarizeAccess, WINDOWS_REASON } from './nodeShellView'
 import { TerminalView, type TerminalPhase } from './TerminalView'
 

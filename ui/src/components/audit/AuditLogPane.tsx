@@ -10,7 +10,7 @@ import type { AuditActionKind, AuditLogEntry } from '@/protocol/types'
 import { useStore } from '@/store'
 import { applyAuditFilter, hasActors, isDefaultFilter } from '@/store/auditLogFilter'
 
-import { Empty } from '../shell/PaneStates'
+import { Empty } from '@companion/terminal'
 
 const ACTION_LABELS: Record<AuditActionKind, string> = {
   yamlApply: 'Apply YAML',

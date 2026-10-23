@@ -18,7 +18,7 @@ import { Gated } from '@/lib/capabilities'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 
-import { Disconnected, Empty } from '../shell/PaneStates'
+import { Disconnected, Empty } from '@companion/terminal'
 
 export function TeamProfilesPanel() {
   const request = useStore((s) => s.request)

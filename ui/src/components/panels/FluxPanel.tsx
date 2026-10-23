@@ -12,7 +12,7 @@ import { useStore } from '@/store'
 import { FLUX_RESOURCE_SECTION } from '@/store/keys'
 
 import { IntegrationSummary, type SummaryRow, type SummaryTile } from './IntegrationSummary'
-import { MetricsUnavailable } from '../shell/PaneStates'
+import { MetricsUnavailable } from '@companion/terminal'
 
 const READY_TONE: Record<FluxReadyState, SummaryRow['tone']> = {
   Ready: 'ok',

@@ -15,11 +15,17 @@ import { diffLines } from 'diff'
 import { useMemo } from 'react'
 
 import { cn } from '@companion/theme'
-import type { ResourceEditSession } from '@/store'
+
+/** The part of an edit session the diff reads: the live object, the edited buffer, and staleness. */
+export interface YamlEditSession {
+  liveYaml: string
+  editedYaml: string
+  liveYamlChangedSinceReview: boolean
+}
 
 export interface YamlDiffViewProps {
   /** Live-vs-edited-buffer diff (US1 YAML-apply). */
-  session?: ResourceEditSession
+  session?: YamlEditSession
   /** Generalized two-manifest diff (006 T017): rollback/upgrade preview. */
   currentManifest?: string
   /** Generalized two-manifest diff (006 T017): rollback/upgrade preview. */

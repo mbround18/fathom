@@ -19,7 +19,7 @@ import { formatAge } from '@/resources/format'
 import { useStore } from '@/store'
 
 import { IntegrationSummary, type SummaryRow, type SummaryTile } from './IntegrationSummary'
-import { Empty, MetricsUnavailable } from '../shell/PaneStates'
+import { Empty, MetricsUnavailable } from '@companion/terminal'
 
 export const VELERO_PHASE_TONE: Record<VeleroPhase, SummaryRow['tone']> = {
   Completed: 'ok',

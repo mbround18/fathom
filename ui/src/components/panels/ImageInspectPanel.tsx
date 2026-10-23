@@ -15,7 +15,7 @@ import { detailKey, useStore } from '@/store'
 import { imageInspectKey } from '@/store/handlers/imageInspect'
 
 import { Picker } from '../Picker'
-import { Empty, ErrorState, Loading } from '../shell/PaneStates'
+import { Empty, ErrorState, Loading } from '@companion/terminal'
 
 const ERROR_TITLE: Record<ImageInspectError['kind'], string> = {
   RegistryUnreachable: 'Registry unreachable',

@@ -49,7 +49,7 @@ import { mostRelevantRow } from '@/resources/relevance'
 import { compileQuery } from '@/resources/search'
 import { useStore, type ListRow, type PaneState } from '@/store'
 
-import { Empty } from './shell/PaneStates'
+import { Empty } from '@companion/terminal'
 
 const features = tableFeatures({
   rowSortingFeature,

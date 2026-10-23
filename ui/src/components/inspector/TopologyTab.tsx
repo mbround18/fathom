@@ -18,7 +18,7 @@ import type { ObjectRef } from '@/resources'
 import { detailKey, useStore } from '@/store'
 import { splitRelated, type Neighbour } from '@/topology/resource-topology'
 
-import { Empty, Loading } from '../shell/PaneStates'
+import { Empty, Loading } from '@companion/terminal'
 
 interface RelatedPayload {
   kind: string

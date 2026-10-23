@@ -18,7 +18,7 @@ import { detailKey, execAccessKey, useStore } from '@/store'
 
 import { ConfirmDialog } from '../ConfirmDialog'
 import { Picker } from '../Picker'
-import { Loading } from '../shell/PaneStates'
+import { Loading } from '@companion/terminal'
 import { TerminalView, type TerminalPhase } from './TerminalView'
 
 /** 024-pod-exec-terminal: pre-session gate; `open` means confirmed, session may start. */

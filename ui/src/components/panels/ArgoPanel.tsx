@@ -10,7 +10,7 @@ import { ARGO_GROUP, detectArgo, parseArgoRows } from '@/features/argo/argo'
 import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
-import { Empty, Loading } from '../shell/PaneStates'
+import { Empty, Loading } from '@companion/terminal'
 
 const TONE: Record<string, string> = {
   Synced: 'text-emerald-500',

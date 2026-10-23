@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { YamlDiffView } from '@/components/panels/YamlDiffView'
+import { YamlDiffView } from '@companion/terminal'
 import { Button, Input } from '@companion/ui'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'

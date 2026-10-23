@@ -11,7 +11,7 @@ import { listKey, useStore } from '@/store'
 
 import { Picker } from '../Picker'
 import { FirstRunState } from '../shell/FirstRunState'
-import { Empty, Loading } from '../shell/PaneStates'
+import { Empty, Loading } from '@companion/terminal'
 import { PodLogsTab } from './PodLogsTab'
 
 const PODS = 'workloads/pods'

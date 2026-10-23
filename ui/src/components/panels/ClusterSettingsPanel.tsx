@@ -25,7 +25,7 @@ import { waitForCommandResult } from '@/store/actions'
 import { useFirstRun } from '@/lib/use-first-run'
 
 import { FirstRunState } from '../shell/FirstRunState'
-import { Disconnected, Empty, Loading } from '../shell/PaneStates'
+import { Disconnected, Empty, Loading } from '@companion/terminal'
 
 import { DaemonSwitch } from '@/features/daemon/DaemonSwitch'
 import { SECTION } from '@/protocol/commands'
