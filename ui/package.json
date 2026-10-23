@@ -27,6 +27,7 @@
     "test:driver": "node --experimental-strip-types --test tests/driver/*.test.ts"
   },
   "dependencies": {
+    "@companion/theme": "workspace:*",
     "@fontsource/chakra-petch": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/yuji-boku": "^5.3.1",

@@ -50,7 +50,7 @@ import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
 import { SignInSettings } from '@/features/identity/SignInSettings'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useFirstRun } from '@/lib/use-first-run'
 import {
   deniedKey,

@@ -1,7 +1,7 @@
 /** Vertical Certificate -> CertificateRequest -> Order -> Challenge chain, stuck stage highlighted. */
 import type { CertificateChain } from '@/protocol/types'
 import { useStore } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 export function CertificateChainView({ chain }: { chain: CertificateChain }) {
   const openInspector = useStore((s) => s.openInspector)

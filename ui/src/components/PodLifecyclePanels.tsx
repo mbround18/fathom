@@ -22,7 +22,7 @@ import type { ContainerLifecycle, ContainerState, KubernetesEvent } from '@/prot
 import { formatAge } from '@/resources/format'
 import { hookState, probeState } from '@/resources/podLifecycle'
 import { listKey, type ListRow, useStore } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 const NO_ROWS: readonly ListRow[] = []
 

@@ -1,0 +1,3 @@
+/* @companion/theme: the Tailwind entry pieces. Import after `tailwindcss` in the app's CSS entry. */
+@import './tokens.css';
+@import './effects.css';

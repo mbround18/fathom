@@ -13,7 +13,7 @@ import { ArrowClockwiseIcon, ArrowLineDownIcon, WarningIcon } from '@phosphor-ic
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 import { ErrorState, Loading } from '../shell/PaneStates'
 

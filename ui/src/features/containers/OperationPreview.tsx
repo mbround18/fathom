@@ -22,7 +22,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import type { ObjectRef, OperationOutcome, OperationPreview as Preview } from '@/protocol/types'
 import { useStore } from '@/store'
 

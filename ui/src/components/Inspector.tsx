@@ -27,7 +27,7 @@ import {
   type PaneId,
   type PaneState,
 } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 import { DetailSections } from './DetailSections'
 import { ScrollFade } from '@/components/ui/scroll-fade'

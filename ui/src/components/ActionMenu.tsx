@@ -41,7 +41,7 @@ import {
 import { isExportable } from '@/features/manifest-export/kinds'
 import { openManifestExport } from '@/features/manifest-export/dialog-stores'
 import { Gated } from '@/lib/capabilities'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import {
   descriptorFor,
   type ActionDescriptor,

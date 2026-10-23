@@ -7,7 +7,7 @@
 import { RocketLaunchIcon } from '@phosphor-icons/react'
 import { useEffect, type ReactNode } from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 import { MetricsUnavailable } from '../shell/PaneStates'

@@ -7,7 +7,7 @@
  */
 import { useStore } from '@/store'
 import type { ContextConnectionStatus } from '@/protocol/types'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 /** `data-context-status` values (contracts/context-status.md). A context absent from
  * `session.contextStatuses` renders `not_connected` by convention (data-model.md). */

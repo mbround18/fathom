@@ -20,7 +20,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 /** True once the operator has chosen an assistant backend (anything but "disabled"). */

@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 import { DaemonSwitch } from './DaemonSwitch'

@@ -132,7 +132,7 @@ worktrees and merge each green.
 
 ### B3. `@companion/theme`, `@companion/ui`, `@companion/terminal`
 
-- [ ] T021 [P] [B3] Move `ui/src/theme/{tokens.css,effects.css,apply.ts,color.ts,fonts.ts,BrandMark.tsx,CircuitTrace.tsx}` and the `cn` re-export from `ui/src/lib/utils.ts` into `packages/theme/src/`:
+- [X] T021 [P] [B3] Move `ui/src/theme/{tokens.css,effects.css,apply.ts,color.ts,fonts.ts,BrandMark.tsx,CircuitTrace.tsx}` and the `cn` re-export from `ui/src/lib/utils.ts` into `packages/theme/src/`:
   - `applyTheme` takes a package-declared structural `ThemePrefs {mode, accent, effects, glitch}`.
   - `BrandMark` takes `name`/`glyph` props.
   - Fathom imports from `@companion/theme`, and `ui/src/index.css` imports the package CSS.

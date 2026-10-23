@@ -14,7 +14,7 @@
 import { diffLines } from 'diff'
 import { useMemo } from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import type { ResourceEditSession } from '@/store'
 
 export interface YamlDiffViewProps {

@@ -11,7 +11,7 @@
 import { useState } from 'react'
 
 import type { FleetContextSummary, FleetHealthState } from '@/protocol/types'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 import { FleetMemberEditor } from './FleetMemberEditor'

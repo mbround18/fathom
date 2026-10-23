@@ -2,22 +2,19 @@
 /**
  * SC-008: WCAG 2.x contrast for every text/background pair in every theme variant.
  *
- * Parses src/theme/tokens.css directly (no browser), cascades the variant's rule blocks, resolves
+ * Parses tokens.css directly (no browser), cascades the variant's rule blocks, resolves
  * `var()` references, and checks the ratios from contracts/theme.md § Verification. A second suite
  * pins each token's hue to the contract's design intent: tuning may move lightness only.
  */
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { contrastRatio, hexToRgba, parseColor, rgbaToOklch, type Rgba } from '@/theme/color'
+import { contrastRatio, hexToRgba, parseColor, rgbaToOklch, type Rgba } from '../src/color'
 
-const css = readFileSync(
-  fileURLToPath(new URL('../../src/theme/tokens.css', import.meta.url)),
-  'utf8',
-)
+const css = readFileSync(fileURLToPath(new URL('../src/tokens.css', import.meta.url)), 'utf8')
 
 /** selector → declarations, in source order, for plain rule blocks (at-rules skipped). */
 function parseBlocks(source: string): Map<string, Map<string, string>> {
@@ -203,7 +200,19 @@ describe.each(Object.keys(INTENT) as Variant[])('hue lock: %s', (variant) => {
  *   2. a control boundary is never thinned, because it is the only thing identifying the control;
  *   3. anything else that lands under 3:1 is recorded as a decorative seam, with a reason.
  */
-const SRC_DIR = fileURLToPath(new URL('../../src', import.meta.url))
+/**
+ * Every frontend source tree in the workspace that renders with these tokens: the shared packages
+ * and each app. A tree that does not exist yet (an app not scaffolded) is skipped.
+ */
+const SRC_DIRS = [
+  '../../theme/src',
+  '../../ui/src',
+  '../../terminal/src',
+  '../../../ui/src',
+  '../../../apps/depths/web/src',
+]
+  .map((rel) => fileURLToPath(new URL(rel, import.meta.url)))
+  .filter((dir) => existsSync(dir))
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = []
@@ -260,9 +269,9 @@ const DECORATIVE_SEAM_TOKENS: Record<string, string> = {
 
 describe.each(Object.keys(VARIANTS) as Variant[])('contrast: %s border utilities', (variant) => {
   const tokens = tokensFor(variant)
-  const files = sourceFiles(SRC_DIR)
+  const files = SRC_DIRS.flatMap(sourceFiles)
 
-  /** token name → alpha modifiers it is used with, anywhere in src. */
+  /** token name → alpha modifiers it is used with, anywhere in the workspace's frontend sources. */
   const used = new Map<string, Set<number>>()
   for (const file of files) {
     for (const m of readFileSync(file, 'utf8').matchAll(BORDER_UTILITY)) {

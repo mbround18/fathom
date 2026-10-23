@@ -15,8 +15,8 @@ import type { ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
-import { CircuitTrace } from '@/theme/CircuitTrace'
+import { cn } from '@companion/theme'
+import { CircuitTrace } from '@companion/theme'
 
 export interface StateFrameProps {
   icon?: Icon

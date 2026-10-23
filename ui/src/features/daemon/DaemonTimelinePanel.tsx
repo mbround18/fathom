@@ -7,7 +7,7 @@ import { WarningIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 import type { DaemonTimelineEntry, DerivedSeverity, TruncationMarker } from '@/protocol/types'
 

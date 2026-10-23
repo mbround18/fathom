@@ -20,7 +20,8 @@ import type { WidthClass } from '@/layout/width-class'
 import { UserMenu } from '@/components/hosted/UserMenu'
 import { signOutHosted } from '@/protocol/sign-out'
 import { useStore } from '@/store'
-import { BrandMark } from '@/theme/BrandMark'
+import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
+import { BrandMark } from '@companion/theme'
 
 import { AskAiButton, useLoadAssistantMode } from './AskAi'
 import { OverflowMenu } from './OverflowMenu'
@@ -52,7 +53,7 @@ export function TopBar({ widthClass }: { widthClass: WidthClass }) {
           <ListIcon />
         </Button>
       )}
-      <BrandMark compact={phone} className="shrink-0" />
+      <BrandMark name={BRAND_NAME} glyph={BRAND_GLYPH} compact={phone} className="shrink-0" />
       {!isHosted && <DaemonChip compact={narrow} />}
       {phone ? (
         <ScopeChip />

@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 /**
  * Horizontally scrolling strip (tab bars) that fades its clipped edges so a cut-off tab reads as

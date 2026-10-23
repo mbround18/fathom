@@ -7,7 +7,7 @@
 import { useEffect } from 'react'
 
 import { ARGO_GROUP, detectArgo, parseArgoRows } from '@/features/argo/argo'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 import { Empty, Loading } from '../shell/PaneStates'

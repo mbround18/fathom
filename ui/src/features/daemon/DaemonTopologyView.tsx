@@ -5,7 +5,7 @@
  */
 import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import type { TopologyHealth, TopologyNode } from '@/protocol/types'
 import { useStore } from '@/store'
 import { metricKey } from '@/store/handlers/daemon'

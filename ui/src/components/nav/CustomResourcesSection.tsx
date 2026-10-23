@@ -14,7 +14,7 @@ import type { CrdCatalogEntry, CrdInstanceDetails, KubernetesEvent } from '@/pro
 import { formatAge } from '@/resources/format'
 import { jsonToYaml } from '@/resources/yaml'
 import { detailKey, listKey, useStore, type CrdInstancesState, type DetailState } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 import { Empty, ErrorState, Loading } from '../shell/PaneStates'
 

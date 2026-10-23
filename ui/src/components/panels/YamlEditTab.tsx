@@ -19,7 +19,7 @@ import { capabilityForSection, Gated } from '@/lib/capabilities'
 import { Textarea } from '@/components/ui/textarea'
 import type { ObjectRef } from '@/resources'
 import { detailKey, useStore } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 import { YamlDiffView } from './YamlDiffView'
 import { exportFilename } from '@/features/manifest-export/clean'

@@ -89,7 +89,7 @@ Two things a neighbouring tool could not truthfully copy without building them:
 
 - Name: **Fathom**. Tagline in use: *"A fast, operator-first Kubernetes dashboard — built for
   people who live in the terminal but want a real UI."*
-- A committed visual world already exists in code under `ui/src/theme/` (`tokens.css`,
+- A committed visual world already exists in code under `packages/theme/src/` (`tokens.css`,
   `effects.css`, `BrandMark.tsx`, `CircuitTrace.tsx`). It is not yet written down — `document`
   would record it. Future work treats it as the incumbent authority, not as a blank slate.
 - Voice, as the shipped copy establishes it: plain, specific, and willing to say what is not known.
