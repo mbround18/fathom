@@ -25,7 +25,7 @@ use kube::ResourceExt;
 use kube::api::{Api, DynamicObject, ListParams, LogParams};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 
@@ -124,7 +124,7 @@ pub(super) fn plural_for_kind(kind: &str) -> String {
 /// A refusal rendered for the attached MCP client: an error result carrying the guard's own
 /// single-line explanation, never a partial read.
 pub(super) fn denied(denial: &McpToolDenial) -> CallToolResult {
-    CallToolResult::error(vec![Content::text(denial.message())])
+    CallToolResult::error(vec![ContentBlock::text(denial.message())])
 }
 
 /// Render the grounding block `collect_pod_grounding_with_client` produced.
@@ -137,13 +137,13 @@ fn render_pod_grounding(
     sources: &[GroundingSource],
 ) -> CallToolResult {
     if text.trim().is_empty() {
-        return CallToolResult::success(vec![Content::text(format!(
+        return CallToolResult::success(vec![ContentBlock::text(format!(
             "No grounding data available for pod {}/{}.",
             object.namespace, object.name
         ))]);
     }
     let labels: Vec<String> = sources.iter().map(source_label).collect();
-    CallToolResult::success(vec![Content::text(format!(
+    CallToolResult::success(vec![ContentBlock::text(format!(
         "Pod {}/{}\n\n{}\n\nGrounded in: {}",
         object.namespace,
         object.name,
@@ -234,13 +234,17 @@ impl FathomMcpServer {
         .await
         {
             Ok(api) => api,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e.to_string())])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    e.to_string(),
+                )]));
+            }
         };
         match api.get(&params.name).await {
-            Ok(object) => Ok(CallToolResult::success(vec![Content::text(
+            Ok(object) => Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&object).unwrap_or_else(|e| e.to_string()),
             )])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Could not read {} {}: {e}",
                 params.kind, params.name
             ))])),
@@ -277,7 +281,11 @@ impl FathomMcpServer {
         .await
         {
             Ok(api) => api,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e.to_string())])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    e.to_string(),
+                )]));
+            }
         };
         match api.list(&ListParams::default()).await {
             Ok(list) => {
@@ -298,9 +306,9 @@ impl FathomMcpServer {
                         total - MAX_LIST_ITEMS
                     ));
                 }
-                Ok(CallToolResult::success(vec![Content::text(body)]))
+                Ok(CallToolResult::success(vec![ContentBlock::text(body)]))
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Could not list {}: {e}",
                 params.kind
             ))])),
@@ -339,8 +347,8 @@ impl FathomMcpServer {
             ..Default::default()
         };
         match api.logs(&params.name, &log_params).await {
-            Ok(logs) => Ok(CallToolResult::success(vec![Content::text(logs)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Ok(logs) => Ok(CallToolResult::success(vec![ContentBlock::text(logs)])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Could not read logs for {}/{}: {e}",
                 params.namespace, params.name
             ))])),
@@ -382,11 +390,11 @@ impl FathomMcpServer {
                         )
                     })
                     .collect();
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     lines.join("\n"),
                 )]))
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Could not list events: {e}"
             ))])),
         }
@@ -440,20 +448,16 @@ pub(super) async fn dynamic_api(
     })
 }
 
-#[tool_handler]
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for FathomMcpServer {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let context = self
             .cluster
             .context()
             .unwrap_or_else(|| "no cluster connected".to_owned());
-        ServerInfo {
-            server_info: Implementation {
-                name: "fathom".to_owned(),
-                version: env!("CARGO_PKG_VERSION").to_owned(),
-                ..Implementation::from_build_env()
-            },
-            instructions: Some(format!(
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("fathom", env!("CARGO_PKG_VERSION")))
+            .with_instructions(format!(
                 "Live access to the Kubernetes cluster Fathom is connected to (context: \
                  {context}). Every call is scoped by the RBAC of Fathom's own cluster identity; \
                  refused calls read nothing and write nothing. The read tools \
@@ -462,10 +466,7 @@ impl ServerHandler for FathomMcpServer {
                  delete_resource) change the cluster: confirm with the operator first, and each \
                  requires the target's current expected_resource_version, which Fathom \
                  re-validates against the live object before writing."
-            )),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
+            ))
     }
 }
 
@@ -811,5 +812,25 @@ mod tests {
             .map(|t| t.text.clone())
             .unwrap_or_default();
         assert!(text.contains("No grounding data available"), "{text}");
+    }
+
+    /// The handler must serve the merged router, not just the read half: rmcp 3's
+    /// `#[tool_handler]` defaults to `Self::tool_router()`, which would silently drop every
+    /// mutation tool.
+    #[test]
+    fn handler_serves_read_and_mutation_tools() {
+        let server = FathomMcpServer::new(McpClusterHandle::default());
+        for name in [
+            "get_resource",
+            "list_resources",
+            "get_pod_logs",
+            "get_events",
+            "describe_pod",
+            "scale_workload",
+            "apply_resource_yaml",
+            "delete_resource",
+        ] {
+            assert!(server.get_tool(name).is_some(), "{name} is not served");
+        }
     }
 }

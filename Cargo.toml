@@ -72,7 +72,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 
 # MCP Server for VSCode & Claude integration (stdio transport)
-rmcp = { version = "0.12.0", features = ["server", "transport-io"] }
+rmcp = { version = "3.7.0", features = ["server", "transport-io"] }
 # `CancellationToken` for the stdio MCP server's graceful shutdown
 # (`rmcp::service::serve_server_with_ct`, 015-mcp-agent-exposure).
 tokio-util = { version = "0.7.20", features = ["rt"] }

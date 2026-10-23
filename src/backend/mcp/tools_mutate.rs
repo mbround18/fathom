@@ -30,7 +30,7 @@ use kube::ResourceExt;
 use kube::api::{Api, DynamicObject};
 use kube::core::{ApiResource, GroupVersionKind};
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::{ErrorData as McpError, tool, tool_router};
 use serde::{Deserialize, Serialize};
 
@@ -100,7 +100,9 @@ fn unsupported_kind(tool: &str, kind: &str, supported: &str) -> McpToolDenial {
 /// An error result for a failure that is not a guard refusal (the write itself failed, the
 /// event bus is missing, …). Distinct from [`denied`] so refusals stay recognisable.
 fn failed(tool: &str, message: String) -> CallToolResult {
-    CallToolResult::error(vec![Content::text(format!("{tool} failed: {message}"))])
+    CallToolResult::error(vec![ContentBlock::text(format!(
+        "{tool} failed: {message}"
+    ))])
 }
 
 /// Re-read the live target and check it against what the agent presented (T036 step 2).
@@ -278,7 +280,7 @@ impl FathomMcpServer {
         };
 
         Ok(match outcome {
-            Ok(()) => CallToolResult::success(vec![Content::text(format!(
+            Ok(()) => CallToolResult::success(vec![ContentBlock::text(format!(
                 "Scaled {} {}/{} to {} replicas.",
                 params.kind, params.namespace, params.name, params.replicas
             ))]),
@@ -387,7 +389,7 @@ impl FathomMcpServer {
                     &sender,
                     resource_version.clone(),
                 );
-                Ok(CallToolResult::success(vec![Content::text(format!(
+                Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                     "Applied {} {}. New resourceVersion: {resource_version}.",
                     identity.kind, identity.name
                 ))]))
@@ -493,7 +495,7 @@ impl FathomMcpServer {
         };
 
         Ok(match outcome {
-            Ok(()) => CallToolResult::success(vec![Content::text(format!(
+            Ok(()) => CallToolResult::success(vec![ContentBlock::text(format!(
                 "Deleted {} {}/{}.",
                 params.kind, params.namespace, params.name
             ))]),
