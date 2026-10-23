@@ -181,7 +181,7 @@ worktrees and merge each green.
   - `StackStore` (list, read, write_atomic(base_hash), create, delete_dir).
   - `ContainerRuntime` (containers_by_project, run_steps streaming to a sink, validate(draft)).
   - Domain types: `Stack`, `ForeignProject` and `StackDraft`, per data-model.md.
-- [ ] T032 Write the failing tests first in `crates/depths-stacks-fs/tests/`, on temp dirs. Then implement `FsStackStore` in `crates/depths-stacks-fs/src/lib.rs`. The tests:
+- [X] T032 Write the failing tests first in `crates/depths-stacks-fs/tests/`, on temp dirs. Then implement `FsStackStore` in `crates/depths-stacks-fs/src/lib.rs`. The tests:
   - Reading `../x`, an absolute name, or a file through a symlink that escapes the stack dir is refused (FR-005).
   - A symlinked stack directory is listed read-only with a reason.
   - `write_atomic` writes the exact bytes given (CRLF, BOM, trailing whitespace and comments preserved), preserves mode and owner, uses temp + rename in the same directory, and returns `Conflict{current}` when `base_hash` differs.

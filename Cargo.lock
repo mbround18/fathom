@@ -1569,6 +1569,11 @@ dependencies = [
 [[package]]
 name = "depths-stacks-fs"
 version = "0.1.0"
+dependencies = [
+ "depths-core",
+ "rustix",
+ "tempfile",
+]
 
 [[package]]
 name = "der"
