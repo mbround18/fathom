@@ -33,6 +33,8 @@ export CARGO_BUILD_JOBS
 # gc runs before every build: target/ and the BuildKit cache grow without bound
 # otherwise. It never fails a build.
 GC_DAYS        ?= 14
+# A day of feature/profile churn once left 130G in target/ with nothing older than GC_DAYS.
+GC_CARGO_MAX   ?= 60GB
 GC_DOCKER_KEEP ?= 40GB
 
 WIN_TRIPLE := x86_64-pc-windows-msvc
@@ -51,6 +53,7 @@ help: ## Print this target list
 	@echo "  DIST=<dir>              stage somewhere other than ./dist"
 	@echo "  CARGO_BUILD_JOBS=<n>    cargo parallelism (default $(CARGO_BUILD_JOBS))"
 	@echo "  GC_DAYS=<n>             gc: sweep cargo output unused for n days (default $(GC_DAYS))"
+	@echo "  GC_CARGO_MAX=<size>     gc: then cap target/, oldest first (default $(GC_CARGO_MAX))"
 	@echo "  GC_DOCKER_KEEP=<size>   gc: cap the Docker build cache (default $(GC_DOCKER_KEEP))"
 
 .DEFAULT_GOAL := help
@@ -98,9 +101,10 @@ windows-deps: ## Install the Windows cross toolchain (rustup target + cargo-xwin
 	rustup target add $(WIN_TRIPLE)
 	cargo install --locked cargo-xwin
 
-gc: ## Sweep cargo output unused for GC_DAYS days; cap the Docker build cache at GC_DOCKER_KEEP
+gc: ## Sweep cargo output unused for GC_DAYS days, cap target/ at GC_CARGO_MAX; cap the Docker build cache at GC_DOCKER_KEEP
 	@if command -v cargo-sweep >/dev/null 2>&1; then \
 	  cargo sweep --time $(GC_DAYS) || echo "gc: cargo sweep failed; continuing"; \
+	  cargo sweep --maxsize $(GC_CARGO_MAX) || echo "gc: cargo sweep --maxsize failed; continuing"; \
 	else \
 	  echo "gc: cargo-sweep not installed, skipping (cargo install cargo-sweep --locked)"; \
 	fi
