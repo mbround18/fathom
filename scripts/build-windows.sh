@@ -24,9 +24,14 @@ export CARGO_BUILD_JOBS DAGGER_NO_NAG=1
 APT=curl,ca-certificates,nsis,lld,llvm,clang,cmake,ninja-build,pkg-config,libssl-dev
 APT+=,libgtk-3-dev,libwebkit2gtk-4.1-dev,libxdo-dev,libayatana-appindicator3-dev,librsvg2-dev,libdbus-1-dev
 
+# Trixie, not the bookworm image `--toolchain rust` picks: Tauri 2.12's installer.nsi includes
+# Win\RestartManager.nsh, which bookworm's NSIS 3.08 lacks (trixie ships 3.11). Same compiler as
+# rust-toolchain.toml.
+RUST_VERSION=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+
 # --workdir ui so corepack resolves pnpm from ui/package.json's packageManager (from the repo
 # root it picks the latest pnpm and the version check fails).
-exec "$PAWS" run --toolchain rust --workdir ui \
+exec "$PAWS" run --image "rust:${RUST_VERSION}-trixie" --workdir ui \
   --apt "$APT" \
   --setup "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y --no-install-recommends nodejs && corepack enable" \
   --setup "cargo install --locked cargo-xwin" \
