@@ -266,7 +266,7 @@ mod tests {
             email: None,
         };
         let t0 = tokens("id0", 300);
-        let s = store.create(ident, t0.clone()).unwrap();
+        let s = store.create(ident, t0.clone()).unwrap().session;
         let cell = TokenCell::new(&t0.id_token, None).unwrap();
         let backend = Arc::new(Backend::default());
         let fake = Arc::new(Fake {

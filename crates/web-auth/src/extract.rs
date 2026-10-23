@@ -32,7 +32,7 @@ pub struct AuthState {
 impl AuthState {
     /// The live session for the request's cookie (refreshes the idle timer).
     pub fn session(&self, headers: &HeaderMap) -> Option<Session> {
-        self.sessions.touch(self.cookie.get(headers)?)
+        self.sessions.touch_cookie(self.cookie.get(headers)?)
     }
 
     /// `401 {"error":"unauthenticated","loginUrl":...}`.
@@ -176,7 +176,7 @@ mod tests {
         }
     }
 
-    fn sign_in(a: &AuthState) -> Session {
+    fn sign_in(a: &AuthState) -> crate::session::NewSession {
         a.sessions
             .create(
                 Identity {
@@ -237,13 +237,13 @@ mod tests {
     async fn extractor_finds_the_session_by_cookie_name() {
         let a = auth();
         let s = sign_in(&a);
-        let wrong = format!("__Host-other={}", s.id);
+        let wrong = format!("__Host-other={}", s.cookie);
         let r = app(a.clone())
             .oneshot(req("GET", "/me", &[("cookie", &wrong)]))
             .await
             .unwrap();
         assert_eq!(r.status(), 401);
-        let c = format!("__Host-t_session={}", s.id);
+        let c = format!("__Host-t_session={}", s.cookie);
         let r = app(a)
             .oneshot(req("GET", "/me", &[("cookie", &c)]))
             .await
@@ -256,7 +256,7 @@ mod tests {
     async fn csrf_layer_guards_mutations() {
         let a = auth();
         let s = sign_in(&a);
-        let c = format!("__Host-t_session={}", s.id);
+        let c = format!("__Host-t_session={}", s.cookie);
         let call = |h: Vec<(&'static str, String)>| {
             let a = a.clone();
             async move {

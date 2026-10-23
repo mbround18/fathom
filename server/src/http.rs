@@ -231,7 +231,7 @@ async fn callback(
         header::SET_COOKIE,
         set_cookie(
             SESSION_COOKIE,
-            &session.id,
+            &session.cookie,
             app.cfg.session_absolute.as_secs(),
         ),
     );

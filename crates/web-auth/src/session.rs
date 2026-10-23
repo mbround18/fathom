@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rand::Rng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -97,9 +98,12 @@ impl Default for SessionConfig {
     }
 }
 
-/// `Debug` redacts `id` (the session cookie value) and `csrf`; tokens redact themselves.
+/// `Debug` redacts `id` and `csrf`; tokens redact themselves.
 #[derive(Clone)]
 pub struct Session {
+    /// The server-side handle: [`session_handle`] of the cookie value, never the cookie itself
+    /// (T094: a dump of server state yields no usable cookie). [`SessionStore::touch`],
+    /// [`SessionStore::end`] and [`Ended::id`] use it.
     pub id: String,
     pub csrf: String,
     pub identity: Identity,
@@ -141,10 +145,46 @@ pub enum SessionError {
     GlobalLimit(usize),
 }
 
+/// 256 bits from the OS RNG, URL-safe base64. Used for session cookies, CSRF tokens, login
+/// cookies, OAuth `state` and PKCE verifiers.
 pub fn random_token() -> String {
     let mut b = [0u8; 32];
-    rand::rng().fill_bytes(&mut b);
+    SysRng
+        .try_fill_bytes(&mut b)
+        .expect("the OS random number generator is unavailable");
     URL_SAFE_NO_PAD.encode(b)
+}
+
+/// The server-side handle for a cookie value: lowercase hex `sha256(cookie)`.
+pub fn session_handle(cookie: &str) -> String {
+    Sha256::digest(cookie.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A just-created session and the cookie value to send, once, in `Set-Cookie`. The store keeps
+/// only its hash. Derefs to the [`Session`]; `Debug` redacts the cookie.
+#[derive(Clone)]
+pub struct NewSession {
+    pub session: Session,
+    pub cookie: String,
+}
+
+impl std::ops::Deref for NewSession {
+    type Target = Session;
+    fn deref(&self) -> &Session {
+        &self.session
+    }
+}
+
+impl std::fmt::Debug for NewSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NewSession")
+            .field("session", &self.session)
+            .field("cookie", &"[redacted]")
+            .finish()
+    }
 }
 
 #[derive(Clone)]
@@ -186,9 +226,10 @@ impl SessionStore {
             .count()
     }
 
-    /// Create a session. Over the per-user cap the oldest of that user's sessions is evicted;
-    /// over the global cap creation fails.
-    pub fn create(&self, identity: Identity, tokens: Tokens) -> Result<Session, SessionError> {
+    /// Create a session with a fresh id (never reused: no fixation). Over the per-user cap the
+    /// oldest of that user's sessions is evicted; over the global cap creation fails.
+    pub fn create(&self, identity: Identity, tokens: Tokens) -> Result<NewSession, SessionError> {
+        let cookie = random_token();
         let now = Instant::now();
         let user_key = identity.user_key();
         let mut evicted = Vec::new();
@@ -213,7 +254,7 @@ impl SessionStore {
                 return Err(SessionError::GlobalLimit(self.cfg.max_sessions));
             }
             let s = Session {
-                id: random_token(),
+                id: session_handle(&cookie),
                 csrf: random_token(),
                 identity,
                 user_key,
@@ -229,7 +270,7 @@ impl SessionStore {
         for e in evicted {
             let _ = self.ended.send(e);
         }
-        Ok(session)
+        Ok(NewSession { session, cookie })
     }
 
     fn expiry(&self, s: &Session, now: Instant) -> Option<EndReason> {
@@ -240,7 +281,13 @@ impl SessionStore {
         }
     }
 
-    /// Look up a live session and refresh its idle timer. Expired sessions are ended.
+    /// [`Self::touch`] for the value of the session cookie a request carried.
+    pub fn touch_cookie(&self, cookie: &str) -> Option<Session> {
+        self.touch(&session_handle(cookie))
+    }
+
+    /// Look up a live session by its handle ([`Session::id`]) and refresh its idle timer.
+    /// Expired sessions are ended. Use [`Self::touch_cookie`] for a request's cookie.
     pub fn touch(&self, id: &str) -> Option<Session> {
         let now = Instant::now();
         let mut ended = None;
@@ -376,6 +423,33 @@ mod tests {
         assert_ne!(x.id, x.csrf);
     }
 
+    /// T094: the server keeps only `sha256(cookie)`; the stored handle is not a usable cookie.
+    #[test]
+    fn store_keeps_only_the_cookie_hash() {
+        let s = SessionStore::new(cfg());
+        let x = s.create(ident("u"), toks()).unwrap();
+        assert_eq!(URL_SAFE_NO_PAD.decode(&x.cookie).unwrap().len(), 32);
+        assert_ne!(x.id, x.cookie);
+        assert_eq!(x.id, session_handle(&x.cookie));
+        assert_eq!(x.id.len(), 64);
+        assert!(s.touch_cookie(&x.cookie).is_some());
+        // Presenting the stored hash as a cookie finds nothing.
+        assert!(s.touch_cookie(&x.id).is_none());
+        // The live session never holds the raw cookie value.
+        let live = s.touch(&x.id).unwrap();
+        assert!(!format!("{live:?}").contains(&x.cookie));
+        assert!(!format!("{x:?}").contains(&x.cookie));
+    }
+
+    #[test]
+    fn each_sign_in_gets_a_fresh_cookie() {
+        let s = SessionStore::new(cfg());
+        let a = s.create(ident("u"), toks()).unwrap();
+        let b = s.create(ident("u"), toks()).unwrap();
+        assert_ne!(a.cookie, b.cookie);
+        assert_ne!(a.id, b.id);
+    }
+
     #[test]
     fn provider_defaults_to_oidc_and_serializes_lowercase() {
         assert_eq!(Provider::default(), Provider::Oidc);
@@ -444,7 +518,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(75)).await;
         assert!(s.is_empty());
         let e = rx.try_recv().unwrap();
-        assert_eq!((e.id, e.reason), (x.id, EndReason::Expired));
+        assert_eq!((e.id, e.reason), (x.id.clone(), EndReason::Expired));
         h.abort();
     }
 
@@ -471,7 +545,7 @@ mod tests {
         assert!(s.touch(&a.id).is_none());
         assert!(s.touch(&b.id).is_some());
         let e = rx.try_recv().unwrap();
-        assert_eq!((e.id, e.reason), (a.id, EndReason::LimitEvicted));
+        assert_eq!((e.id, e.reason), (a.id.clone(), EndReason::LimitEvicted));
     }
 
     #[test]
