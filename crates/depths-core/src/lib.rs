@@ -6,6 +6,7 @@
 
 pub mod discovery;
 pub mod name;
+pub mod role;
 pub mod status;
 
 pub use name::{InvalidName, ServiceName, StackName, valid_name, valid_service_name};

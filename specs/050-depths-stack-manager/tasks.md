@@ -163,7 +163,7 @@ worktrees and merge each green.
   - `running_services`/`total_services`.
 
   Then implement it.
-- [ ] T029 [P] Write the failing tests first in `crates/depths-core/src/role.rs`:
+- [X] T029 [P] Write the failing tests first in `crates/depths-core/src/role.rs`:
   - `pending` permits nothing; a `user` permits nothing on a stack outside their list.
   - The permission table in data-model.md, row by row, for `user` on an assigned stack, `user` on an unassigned stack, and `admin`.
   - Admin-only actions (create, delete, `down` with volumes or images, foreign and standalone views, audit, users) are refused to every `user`.
