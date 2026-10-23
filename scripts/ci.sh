@@ -14,6 +14,7 @@
 #   CI_NICE             nice level for paws and every step          (default 10)
 #   CI_MIN_FREE_GB      GB of available memory the ui job needs     (default 8)
 #   VITEST_WORKERS      forks in vitest's pool                      (default 6)
+#   CI_LOCK_WAIT        0 = exit 75 if another run holds the machine-wide lock   (default 1: wait)
 #   CI_RUN_ID           part of every step's cache key         (default: new per invocation)
 #                       Dagger caches a step whose inputs are unchanged and replays its old
 #                       output, so without this a second run on the same tree re-runs nothing.
@@ -122,6 +123,21 @@ run_job() {
 
 command -v paws >/dev/null || { echo "ci: paws is not on PATH (cargo install --git https://github.com/mbround18/paws paws-cli)" >&2; exit 1; }
 paws run --help >/dev/null 2>&1 || { echo "ci: this paws has no \`paws run\`; install a newer one" >&2; exit 1; }
+
+# One run per machine, across every checkout and worktree: parallel runs once drove load past 200
+# on 32 cores and restarted the Dagger engine mid-run. A second run waits for the first; with
+# CI_LOCK_WAIT=0 it exits 75 instead. GitHub runners are single-tenant and skip the lock.
+if [ -z "${GITHUB_ACTIONS:-}" ] && command -v flock >/dev/null; then
+  lock="${XDG_RUNTIME_DIR:-/tmp}/fathom-ci.lock"
+  exec 9>>"$lock"
+  if ! flock -n 9; then
+    echo "ci: another run holds $lock: $(cat "$lock.owner" 2>/dev/null || echo unknown)" >&2
+    [ "${CI_LOCK_WAIT:-1}" = 0 ] && exit 75
+    echo "ci: waiting for it to finish (CI_LOCK_WAIT=0 to exit instead)" >&2
+    flock 9
+  fi
+  echo "pid $$ in $PWD since $(date '+%H:%M:%S'): $0 ${1:-all}" > "$lock.owner"
+fi
 
 case "${1:-all}" in
   check | test | ui) run_job "$1" ;;
