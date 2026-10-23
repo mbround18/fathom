@@ -26,6 +26,9 @@ async fn main() -> std::io::Result<()> {
         .fallback_service(spa);
 
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    eprintln!("depths (placeholder) listening on {listen}, static {}", static_dir.display());
+    eprintln!(
+        "depths (placeholder) listening on {listen}, static {}",
+        static_dir.display()
+    );
     axum::serve(listener, app).await
 }
