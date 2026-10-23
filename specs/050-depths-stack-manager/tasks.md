@@ -251,7 +251,7 @@ worktrees and merge each green.
   - Feature flags `DEPTHS_FEATURE_SHELL`/`DEPTHS_FEATURE_EDIT` exposed in `/api/v1/me`.
   - Wiring only: `main.rs` stays thin.
 - [ ] T043 Write the fake backend for the web app, `apps/depths/web/tests/support/fake-backend.ts`. It is scriptable: canned stacks, previews, operation output, log and shell streams, users and pending people, and denials. It speaks the generated protocol over a mocked WebSocket, and is used by every Playwright story. Add `apps/depths/web/playwright.config.ts` with one project per story, importing the worker sizing from `ui/tests/support/workers.ts`.
-- [ ] T044 Write the web shell in `apps/depths/web/src/`:
+- [X] T044 Write the web shell in `apps/depths/web/src/`:
   - `protocol/transport.ts` (WebSocket, reconnect with backoff, the `Hello` handshake).
   - `app/` (router, theme via `@companion/theme`, a zustand store per feature).
   - Routes lazy-loaded with `React.lazy`.
