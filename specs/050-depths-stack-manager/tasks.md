@@ -261,6 +261,91 @@ worktrees and merge each green.
 
 ---
 
+## Phase 3b: Public-internet hardening (added 2026-10-23; blocks the first auth-enabled deploy)
+
+Depths is exposed at `https://depth.boop.ninja` through Cloudflare and a tailnet egress, and it holds
+the Docker socket (host root). Treat every request as hostile until it carries a valid session, and
+every signed-in person as limited to exactly their permission row. Each task below lands with tests.
+
+- [ ] T090 Rate and concurrency limits in `apps/depths/server/src/limits.rs`, keyed by the client IP
+  from T091:
+  - Per-IP token buckets: `/auth/login` and `/auth/callback/*` 10/min (burst 5), other `/auth/*` and
+    `/api/*` 120/min, WebSocket upgrades 20/min. Excess returns 429 with `Retry-After`, no body
+    detail. Static files are unlimited.
+  - WebSocket: at most 8 sockets per session (4429, T038) and 32 per IP; at most 20 commands/s per
+    socket (burst 50), excess closes with 4429; at most 32 open streams per socket.
+  - Buckets live in memory, are bounded (LRU, 10,000 keys) and are swept, so they cannot be
+    exhausted.
+  - Tests for each limit, and for the sweep keeping memory bounded under 100,000 distinct IPs.
+- [ ] T091 Client IP in `apps/depths/server/src/client_ip.rs`: `--trusted-proxies` /
+  `DEPTHS_TRUSTED_PROXIES` (comma-separated CIDRs, default empty). Use `X-Forwarded-For` (the
+  right-most address not in the list) or `CF-Connecting-IP` only when the TCP peer is inside a
+  trusted CIDR; otherwise use the peer address and ignore those headers. This IP feeds limits and
+  the audit `source_ip`. Tests: a spoofed header from an untrusted peer is ignored, a chain through
+  two trusted hops resolves to the client, and a malformed header falls back to the peer.
+- [ ] T092 Size and time limits in `app.rs`:
+  - HTTP request bodies: 16 KiB (the only POSTs are refresh and logout).
+  - WebSocket messages: at most `2 × DEPTHS_MAX_FILE_BYTES + 64 KiB`; frames that are not text are
+    refused.
+  - Request timeout 30 s on HTTP (not on the WS after upgrade). Header read timeout 10 s, against
+    slowloris. 16 KiB header limit.
+  - WS ping every 30 s; close after 2 missed pongs. A socket that sends no valid `Hello` within 10 s
+    is closed with 4401.
+  - Tests for the oversized body, the oversized frame, the binary frame and the Hello timeout.
+- [ ] T093 Headers on every response, including errors and static files:
+  - CSP `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
+    font-src 'self'; connect-src 'self' wss://<public host>; base-uri 'none'; form-action 'self';
+    frame-ancestors 'none'`. If CodeMirror or xterm needs inline styles, allow `style-src
+    'unsafe-inline'` only, and say why in a comment. Never `unsafe-eval`.
+  - `Strict-Transport-Security: max-age=63072000; includeSubDomains` when the public URL is https.
+  - `Permissions-Policy` denying camera, microphone, geolocation, usb and payment.
+  - `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`.
+  - `Cache-Control: no-store` on `/auth/*` and `/api/*`; `immutable` only on hashed `/assets/*`.
+  - No CORS layer and no `Access-Control-*` headers. No `Server` header.
+  - A test asserts the full set on a 200, a 401, a 404 and a static file.
+- [ ] T094 Sign-in and session hardening, in `web-auth` where generic and `apps/depths/server/src/http.rs`
+  otherwise:
+  - The login `state` is single-use, expires in 10 min and is bound to a short-lived
+    `__Host-depths_login` cookie set at `/auth/login`. A callback whose state is unknown, expired,
+    replayed or from another browser is refused (login CSRF) and audited `denied`.
+  - Sign-in always issues a **new** session id (no fixation), 256 bits from the OS RNG. The
+    server stores only `sha256(id)`, so a dump of server state yields no usable cookie.
+  - CSRF tokens are compared in constant time (`subtle`).
+  - After sign-in, redirect only to `/`; no `next`/`return_to` parameter (no open redirect).
+  - A `pending` session may only `Hello` and `GET /api/v1/me`; every other command returns `Denied`.
+  - Logout deletes the server session and expires the cookie.
+  - Tests for each: replayed state, a state without the login cookie, cookie value ≠ stored
+    hash, timing-safe compare (unit test on the function used), and pending refused.
+- [ ] T095 Input confinement and error hygiene:
+  - Every stack, service and container name from the client is validated (`valid_name`, or the 048
+    container-id rules) before it reaches a path or an argv. Every argv is a `Vec<String>` handed
+    to the runner; nothing in `apps/depths/server` or `crates/depths-*` runs a shell. Add a test
+    that greps those sources for `"sh"`, `"-c"` and `bash` in command construction and fails.
+  - Unauthenticated and unknown requests get uniform bodies (`401`, `403`, `404`, `429`) with no
+    internal detail. `/api/*` and `/auth/*` misses return JSON 404, never the SPA.
+  - Static serving: no directory listings, no dotfiles, and traversal (`/..%2f`, `%2e%2e`, `//`,
+    backslashes) is refused. Add tests.
+  - Docker stderr reaches only signed-in people permitted on that stack (FR-013), never logs at
+    `info` with env values.
+- [ ] T096 Supply chain: add `deny.toml` (advisories deny, unknown registries and git sources
+  deny, licences allow-list matching THIRD_PARTY_LICENSES) and a `make audit` target running
+  `cargo deny check` and `pnpm audit --prod --audit-level high`. Add both as steps in
+  `scripts/ci.sh`'s check job (install `cargo-deny` in the paws setup step, cached).
+- [ ] T097 Container lockdown, in `apps/depths/compose.yaml` and documented for the steam compose:
+  - `depths`: non-root user, `read_only: true`, `tmpfs: /tmp`, `cap_drop: [ALL]`,
+    `security_opt: [no-new-privileges:true]`, `pids_limit`, a memory limit, and no published
+    host port (reached only through the tailscale sidecar or a reverse proxy).
+  - `socket-proxy`: only the endpoints Depths uses (containers, images, networks, volumes, events,
+    info, version, ping, POST; `EXEC` only when `DEPTHS_FEATURE_SHELL` is on). AUTH, SECRETS,
+    SWARM, NODES, PLUGINS, SYSTEM, BUILD, COMMIT, CONFIGS, DISTRIBUTION and SESSION stay off.
+  - `DEPTHS_FEATURE_SHELL` defaults off in the example and the steam deploy.
+- [ ] T099 (gate before deploy) An adversarial security review of `apps/depths/server`,
+  `crates/web-auth` and `crates/depths-*` by a reviewer who did not write the code, against
+  T090–T097, the T075 sweep and the OWASP ASVS L2 session, access-control and input sections.
+  Fix every confirmed finding, or record why not in this file.
+
+---
+
 ## Phase 4: User Story 1, sign in and see every stack (P1) 🎯 MVP
 
 **Goal**: a signed-in person sees every stack they may see (their assigned stacks, or all for an admin), with status, service counts and
