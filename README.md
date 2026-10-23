@@ -24,6 +24,18 @@ Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri]
 
 ---
 
+## Screenshots
+
+![Pods in a namespace, one open in the inspector](docs/guides/images/wide-inspector.png)
+
+| Applications | Logs | Phone |
+|---|---|---|
+| ![Applications](docs/guides/images/wide-applications-drilldown.png) | ![Logs](docs/guides/images/wide-logs.png) | ![Phone](docs/guides/images/phone-list.png) |
+
+New to Fathom? Start with the [user guides](docs/guides/README.md).
+
+---
+
 ## Installation
 
 ### Pre-built bundles
