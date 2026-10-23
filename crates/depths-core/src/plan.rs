@@ -491,7 +491,10 @@ mod tests {
         let p = planned(false, false, Operation::Update);
         assert_eq!(
             argvs(&p),
-            vec!["docker compose pull", "docker compose up -d --remove-orphans"]
+            vec![
+                "docker compose pull",
+                "docker compose up -d --remove-orphans"
+            ]
         );
         assert!(!p.destructive);
     }
@@ -607,7 +610,10 @@ mod tests {
         let validate = p.commands().next().unwrap();
         assert_eq!(validate.cwd, Path::new(ROOT));
         assert_eq!(validate.stdin, StepStdin::Draft);
-        assert_eq!(p.commands().nth(1).unwrap().cwd, Path::new("/opt/stacks/web"));
+        assert_eq!(
+            p.commands().nth(1).unwrap().cwd,
+            Path::new("/opt/stacks/web")
+        );
 
         let p = planned(
             false,
@@ -669,8 +675,7 @@ mod tests {
         assert_eq!(op, Operation::ServiceStop { service: svc("db") });
         assert_eq!(op.kind(), OperationKind::ServiceStop);
         assert!(
-            serde_json::from_str::<Operation>(r#"{"kind":"service_stop","service":"-v"}"#)
-                .is_err()
+            serde_json::from_str::<Operation>(r#"{"kind":"service_stop","service":"-v"}"#).is_err()
         );
     }
 }

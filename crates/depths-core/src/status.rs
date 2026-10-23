@@ -111,7 +111,9 @@ fn restart_policy(service: &str, body: &serde_yaml::Mapping) -> Result<RestartPo
                 )),
             }
         }
-        Some(_) => Err(format!("service `{service}` has a restart policy that is not a string")),
+        Some(_) => Err(format!(
+            "service `{service}` has a restart policy that is not a string"
+        )),
         None => {
             let condition = body
                 .get("deploy")
@@ -410,7 +412,11 @@ mod tests {
         let s = derive(&services, &[up("web"), up("old")]);
         assert_eq!((s.running_services, s.total_services), (2, 2));
         let s = derive(&services, &[up("web"), exited("old", 0)]);
-        assert_eq!(s.status, StackStatus::Running, "an exited-0 orphan completed");
+        assert_eq!(
+            s.status,
+            StackStatus::Running,
+            "an exited-0 orphan completed"
+        );
     }
 
     #[test]

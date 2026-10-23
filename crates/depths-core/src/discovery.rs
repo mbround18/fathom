@@ -124,7 +124,10 @@ mod tests {
         assert_eq!(d.compose_file, ComposeFile::ComposeYml);
         assert_eq!(
             d.shadowed_files,
-            vec![ComposeFile::DockerComposeYml, ComposeFile::DockerComposeYaml]
+            vec![
+                ComposeFile::DockerComposeYml,
+                ComposeFile::DockerComposeYaml
+            ]
         );
 
         // Dockge would pick docker-compose.yaml here; Compose picks docker-compose.yml.
@@ -146,7 +149,10 @@ mod tests {
     #[test]
     fn a_directory_without_a_compose_file_is_not_a_stack() {
         assert_eq!(found(&[]), None);
-        assert_eq!(found(&[".env", "README.md", "Compose.yaml", "compose.yaml.bak"]), None);
+        assert_eq!(
+            found(&[".env", "README.md", "Compose.yaml", "compose.yaml.bak"]),
+            None
+        );
     }
 
     #[test]

@@ -68,5 +68,9 @@ fn no_depths_source_builds_a_shell_command() {
             }
         }
     }
-    assert!(hits.is_empty(), "shell invocations found:\n{}", hits.join("\n"));
+    assert!(
+        hits.is_empty(),
+        "shell invocations found:\n{}",
+        hits.join("\n")
+    );
 }

@@ -177,7 +177,7 @@ worktrees and merge each green.
   - `save` with `deploy` = validate + write + up.
 
   Then implement it.
-- [ ] T031 Define ports in `crates/depths-core/src/ports.rs`:
+- [X] T031 Define ports in `crates/depths-core/src/ports.rs`:
   - `StackStore` (list, read, write_atomic(base_hash), create, delete_dir).
   - `ContainerRuntime` (containers_by_project, run_steps streaming to a sink, validate(draft)).
   - Domain types: `Stack`, `ForeignProject` and `StackDraft`, per data-model.md.

@@ -5,9 +5,12 @@
 //! adapter implement them. No dependency on `kube`, `tauri` or any Fathom crate.
 
 pub mod discovery;
+pub mod hash;
 pub mod name;
 pub mod plan;
+pub mod ports;
 pub mod role;
 pub mod status;
 
+pub use hash::ContentHash;
 pub use name::{InvalidName, ServiceName, StackName, valid_name, valid_service_name};

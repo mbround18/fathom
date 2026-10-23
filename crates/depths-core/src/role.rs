@@ -93,9 +93,7 @@ pub fn permits(access: &Access, stack: Option<&StackName>, action: Action) -> bo
     match access.role {
         Role::Pending => false,
         Role::Admin => true,
-        Role::User => {
-            action.open_to_users() && stack.is_some_and(|s| access.stacks.contains(s))
-        }
+        Role::User => action.open_to_users() && stack.is_some_and(|s| access.stacks.contains(s)),
     }
 }
 
@@ -218,7 +216,10 @@ mod tests {
 
     #[test]
     fn roles_serialise_as_the_registry_writes_them() {
-        assert_eq!(serde_json::to_string(&Role::Pending).unwrap(), r#""pending""#);
+        assert_eq!(
+            serde_json::to_string(&Role::Pending).unwrap(),
+            r#""pending""#
+        );
         let a: Access = serde_json::from_str(r#"{"role":"user","stacks":["web"]}"#).unwrap();
         assert_eq!(a, user(&["web"]));
         assert!(serde_json::from_str::<Access>(r#"{"role":"user","stacks":["../x"]}"#).is_err());
