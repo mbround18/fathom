@@ -15,6 +15,7 @@ use secrecy::{ExposeSecret, SecretString};
 
 use crate::protocol::v1::{BlockedReason, Provider};
 
+#[cfg_attr(not(feature = "os-keyring"), allow(dead_code))]
 pub(crate) const SERVICE: &str = "fathom";
 
 pub(crate) fn account_name(provider: Provider) -> String {
@@ -24,6 +25,7 @@ pub(crate) fn account_name(provider: Provider) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StoreError {
     /// The store exists but is locked / access was denied (e.g. keychain prompt dismissed).
+    #[cfg_attr(not(feature = "os-keyring"), allow(dead_code))]
     Locked(String),
     /// No usable store (e.g. headless Linux without Secret Service).
     Unavailable(String),
@@ -85,19 +87,21 @@ pub(crate) trait SecretBackend: Send + Sync {
 
 // ---------------------------------------------------------------------------- OS keyring
 
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(feature = "os-keyring")]
 pub(crate) struct KeyringBackend;
 
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(feature = "os-keyring")]
 fn map_keyring_err(err: keyring::Error) -> StoreError {
     match err {
         keyring::Error::NoStorageAccess(e) => StoreError::Locked(e.to_string()),
         keyring::Error::PlatformFailure(e) => StoreError::Unavailable(e.to_string()),
+        // keyring 4 reports a store that failed to initialise (no Secret Service) this way.
+        keyring::Error::NoDefaultStore => StoreError::Unavailable(err.to_string()),
         other => StoreError::Other(other.to_string()),
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(feature = "os-keyring")]
 impl SecretBackend for KeyringBackend {
     fn get(&self, account: &str) -> Result<Option<SecretString>, StoreError> {
         let entry = keyring::Entry::new(SERVICE, account).map_err(map_keyring_err)?;
@@ -122,15 +126,15 @@ impl SecretBackend for KeyringBackend {
     }
 }
 
-/// Platforms without a supported OS store: always unavailable (never a silent fallback).
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+/// Built without `os-keyring`: always unavailable (never a silent fallback).
+#[cfg(not(feature = "os-keyring"))]
 pub(crate) struct KeyringBackend;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(not(feature = "os-keyring"))]
 impl SecretBackend for KeyringBackend {
     fn get(&self, _: &str) -> Result<Option<SecretString>, StoreError> {
         Err(StoreError::Unavailable(
-            "no OS credential store on this platform".into(),
+            "built without the OS credential store".into(),
         ))
     }
     fn set(&self, _: &str, _: &str) -> Result<(), StoreError> {

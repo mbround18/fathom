@@ -117,12 +117,28 @@ impl SecretBackend for MemoryBackend {
 /// The real OS keyring (`keyring` crate).
 pub struct OsKeyringBackend;
 
+#[cfg(feature = "os-keyring")]
 impl OsKeyringBackend {
     fn entry(service: &str, user: &str) -> Result<keyring::Entry, BackendError> {
         keyring::Entry::new(service, user).map_err(|e| BackendError(e.to_string()))
     }
 }
 
+/// Built without `os-keyring`: every call fails, so the store falls back to memory.
+#[cfg(not(feature = "os-keyring"))]
+impl SecretBackend for OsKeyringBackend {
+    fn get(&self, _: &str, _: &str) -> Result<Option<String>, BackendError> {
+        Err(BackendError("built without the OS credential store".into()))
+    }
+    fn set(&self, _: &str, _: &str, _: &str) -> Result<(), BackendError> {
+        self.get("", "").map(|_| ())
+    }
+    fn delete(&self, _: &str, _: &str) -> Result<(), BackendError> {
+        self.get("", "").map(|_| ())
+    }
+}
+
+#[cfg(feature = "os-keyring")]
 impl SecretBackend for OsKeyringBackend {
     fn get(&self, service: &str, user: &str) -> Result<Option<String>, BackendError> {
         match Self::entry(service, user)?.get_password() {

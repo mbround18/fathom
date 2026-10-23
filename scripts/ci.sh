@@ -34,7 +34,7 @@ cd "$(dirname "$0")/.."
 export CARGO_BUILD_JOBS PLAYWRIGHT_WORKERS VITEST_WORKERS CI_RUN_ID DAGGER_NO_NAG=1
 
 # System libraries for the Tauri crate (webkit2gtk-4.1 et al.), cmake for protobuf-src's protoc
-# build, and libdbus for the os-keyring feature.
+# build, and libdbus for tao (the os-keyring feature talks to Secret Service over pure-Rust zbus).
 RUST_APT=libgtk-3-dev,libssl-dev,pkg-config,libxkbcommon-dev,libwebkit2gtk-4.1-dev,libxdo-dev
 RUST_APT+=,libayatana-appindicator3-dev,librsvg2-dev,libdbus-1-dev,cmake
 # Keep in step with @playwright/test in ui/pnpm-lock.yaml: the image ships matching browsers

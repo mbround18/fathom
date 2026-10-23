@@ -17,8 +17,9 @@ license = "Apache-2.0"
 
 [features]
 default = ["os-keyring"]
-# Linux Secret Service backend (pulls libdbus). The headless in-cluster daemon builds without it (036).
-os-keyring = ["keyring/sync-secret-service", "keyring/crypto-rust"]
+# OS credential store (Secret Service over zbus / Keychain / Credential Manager). The headless
+# in-cluster daemon builds without it (036).
+os-keyring = ["dep:keyring"]
 
 # 035-cloud-auth-plugins: fake ExecCredential plugin used only by integration tests.
 [[bin]]
@@ -102,12 +103,7 @@ http = "1"
 # 038-sdk-login-ollama: OS credential store (Secret Service / Keychain / Credential Manager)
 # and secret-hygiene wrappers. No plaintext fallback (FR-006).
 secrecy = "0.10"
-[target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3" }
-[target.'cfg(target_os = "macos")'.dependencies]
-keyring = { version = "3", features = ["apple-native"] }
-[target.'cfg(target_os = "windows")'.dependencies]
-keyring = { version = "3", features = ["windows-native"] }
+keyring = { version = "4.2.0", optional = true }
 
 [build-dependencies]
 embed-resource = "3.0.12"
