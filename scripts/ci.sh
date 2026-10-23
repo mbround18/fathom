@@ -62,8 +62,15 @@ rust_run() {
     "$@"
 }
 
+# 050: the shared container runtime must stay app-agnostic. Fails if its dependency tree reaches
+# kube, tauri or any fathom crate (contracts/shared-crates.md).
+CONTAINER_RUNTIME_DEPS="if $N cargo tree -p container-runtime --prefix none \
+| grep -E '^(kube|tauri|fathom)([- ]|\$)'; then \
+echo 'error: crates/container-runtime depends on kube, tauri or fathom (above).' >&2; exit 1; fi"
+
 job_check() {
   rust_run \
+    --step "$CONTAINER_RUNTIME_DEPS" \
     --step "$N cargo check --all-targets" \
     --step "$N cargo check --no-default-features --lib" \
     --step "$N cargo clippy --workspace --all-targets -- -D warnings" \

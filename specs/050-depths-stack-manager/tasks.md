@@ -106,7 +106,7 @@ worktrees and merge each green.
   - Fathom keeps `requirement(&BackendCmdV1)` and opens the store at `fathom_config_dir().join("container_adoption.json")`. The path is unchanged, per Principle VI.
   - Replace `set_thread_state_root` in the adoption tests with temp-dir paths.
 - [X] T012 [B1] Move `ScriptedProcess` and the mock runners behind a `test-util` feature in `crates/container-runtime/src/test_util.rs`, and enable it from `fathom`'s `[dev-dependencies]`. Fathom keeps a `StreamSink` impl over `BackendEventEnvelope` (in `src/backend/log_streams.rs`) and its dispatch in `src/backend/cmd/container_runtime.rs`, untouched except for imports.
-- [ ] T013 [B1] Gate: check that `cargo test -p container-runtime` and `cargo test -p fathom` pass, that bindings drift is zero, and that `scripts/ci.sh` is green. Check that `cargo tree -p container-runtime` has no `kube`, `tauri` or `fathom`, and add that check to `scripts/ci.sh`.
+- [X] T013 [B1] Gate: check that `cargo test -p container-runtime` and `cargo test -p fathom` pass, that bindings drift is zero, and that `scripts/ci.sh` is green. Check that `cargo tree -p container-runtime` has no `kube`, `tauri` or `fathom`, and add that check to `scripts/ci.sh`.
 
 ### B2. `crates/web-auth` and `crates/audit-log`
 
