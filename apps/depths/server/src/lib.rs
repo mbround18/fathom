@@ -1,0 +1,11 @@
+//! `depths-server`: the Depths server (spec 050) as a library, so the binary stays a thin
+//! execution layer and the routes are testable in-process.
+
+pub mod client_ip;
+pub mod config;
+pub mod headers;
+pub mod http;
+pub mod limits;
+pub mod serve;
+pub mod users;
+pub mod ws;

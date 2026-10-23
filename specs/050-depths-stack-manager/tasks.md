@@ -193,7 +193,7 @@ worktrees and merge each green.
   - A stack dir or file Depths cannot read is listed with `read_error` and offers no edit; one it cannot write is listed with `read_only_reason`.
 - [X] T033 Define the protocol in `crates/depths-protocol/src/{cmd,event,types}.rs` exactly as in contracts/protocol.md, with ts-rs `export_to = "../../apps/depths/web/src/protocol/generated/"`. Re-export the container wire types from `container_runtime::wire`. Add `protocol_version`.
 - [X] T034 [P] Add round-trip serde tests for every command and event variant in `crates/depths-protocol/tests/roundtrip.rs`. Add `tests/export_bindings.rs`, and add a drift check (`git diff --exit-code apps/depths/web/src/protocol/generated`) to `scripts/ci.sh`.
-- [ ] T035 Write `apps/depths/server/src/config.rs`: clap flags and env per contracts/config.md. Startup must refuse with a message naming the setting in each of these cases:
+- [X] T035 Write `apps/depths/server/src/config.rs`: clap flags and env per contracts/config.md. Startup must refuse with a message naming the setting in each of these cases:
   - No provider is configured.
   - The public URL is not https without `--insecure-dev`.
   - `--insecure-dev` is set on a non-loopback listen.
@@ -205,7 +205,7 @@ worktrees and merge each green.
   Accept the R14 aliases (`DOCKGE_STACKS_DIR`, `ORIGIN_URL`, `OAUTH_PROVIDER` + `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET`, `OWNER_USER_ID`) below the `DEPTHS_*` names: flag > `DEPTHS_*` > alias > default. `ORIGIN_URL` with no scheme means `https://`. Default listen `0.0.0.0:8080`. Log which name each setting came from, never a secret's value.
 
   Secrets are accepted via `*_FILE` and never logged. Add unit tests for each refusal, for alias precedence, and for a scheme-less `ORIGIN_URL`.
-- [ ] T036 Write `apps/depths/server/src/users.rs`, the users registry per data-model.md and research R6:
+- [ ] T036 Write `apps/depths/server/src/users.rs`, the users registry per data-model.md and research R6 (load, atomic 0600 write, owners, pinning, sign-in recording and the no-admin refusal done; `authorise`, `put`/`remove` and their audit still open):
   - Load `<data-dir>/users.json`; a missing file is an empty list, one that fails to parse refuses start with its path.
   - Write by temp file, fsync, rename, mode 0600, behind one async mutex. Depths is the only writer.
   - Merge in owners from config: always `admin`, never removable or demotable (`Denied`). Pin a `github:<login>` owner to its numeric id at first sign-in and record `pinned_from`.
@@ -215,14 +215,14 @@ worktrees and merge each green.
   - Refuse start, naming `OWNER_USER_ID`, when no owner is set and the list holds no admin.
 
   Write the tests first: owner pinning (and a renamed login not matching), the start-up refusal, pending recording, an atomic write surviving a crash between write and rename (the old file is intact), a corrupt file refusing start, the lockout guard on the owner, and an assignment to a missing stack kept.
-- [ ] T037 Write `apps/depths/server/src/app.rs` and `http.rs`: Axum router per contracts/protocol.md's HTTP table.
+- [ ] T037 Write `apps/depths/server/src/app.rs` and `http.rs`: Axum router per contracts/protocol.md's HTTP table (sign-in slice done in `http.rs`: login, callback, refresh, logout, me, healthz, readyz, static SPA, JSON 404s; the full 401 route sweep waits on the stack routes).
   - Use the `web-auth` session extractor and CSRF layer, with cookie `__Host-depths_session`.
   - Wire the OIDC, GitHub and Discord providers into `/auth/login`, `/auth/callback/{provider}`, `/auth/refresh` and `/auth/logout`, plus `/api/v1/me`.
   - Add `/healthz` and `/readyz`.
   - Serve static files from `--static-dir` with an SPA fallback.
   - Set security headers (CSP, nosniff, Referrer-Policy, X-Frame-Options).
   - Add integration tests: every non-exempt route without a session returns 401 (FR-028), and a mutating POST without `X-CSRF-Token` returns 403 (FR-034).
-- [ ] T038 Write `apps/depths/server/src/ws.rs`: the WebSocket upgrade.
+- [ ] T038 Write `apps/depths/server/src/ws.rs`: the WebSocket upgrade (stub done: Origin, Hello, 4401/4403, close on session end; dispatch, 4429 and `SessionExpiring` open).
   - Check `Origin` against the public URL and require the session.
   - Handle `Hello{protocol_version, csrf_token}`, with close codes 4401, 4403 and 4429 (8 sockets per session).
   - Dispatch `CmdEnvelope`, authorising every command server-side against the users registry at the time of the command (FR-032, FR-033).
@@ -277,7 +277,7 @@ every signed-in person as limited to exactly their permission row. Each task bel
   - Buckets live in memory, are bounded (LRU, 10,000 keys) and are swept, so they cannot be
     exhausted.
   - Tests for each limit, and for the sweep keeping memory bounded under 100,000 distinct IPs.
-- [ ] T091 Client IP in `apps/depths/server/src/client_ip.rs`: `--trusted-proxies` /
+- [X] T091 Client IP in `apps/depths/server/src/client_ip.rs`: `--trusted-proxies` /
   `DEPTHS_TRUSTED_PROXIES` (comma-separated CIDRs, default empty). Use `X-Forwarded-For` (the
   right-most address not in the list) or `CF-Connecting-IP` only when the TCP peer is inside a
   trusted CIDR; otherwise use the peer address and ignore those headers. This IP feeds limits and
