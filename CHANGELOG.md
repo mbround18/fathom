@@ -52,6 +52,17 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
 - Teams and organisations: shared non-secret connection profiles and org-level settings sync.
 - Observability settings persisted under `~/.fathom/`, secrets in the OS keyring.
 
+### Changed
+
+- Dependencies brought up to date for rc.2: kube 4 and k8s-openapi 0.28 (Kubernetes API 1.34),
+  rmcp 3.7 for the MCP server, keyring 4 (Secret Service now spoken over pure-Rust zbus), Tauri
+  2.12, Rust 1.99.0, and the UI on React/Vite/Vitest/Playwright latest with xterm moved to
+  `@xterm/xterm` 6. The UI is type-checked by TypeScript 7.
+
+### Fixed
+
+- Hubble flows keep one relay port-forward open across polls instead of opening one per poll.
+
 ### Packaging
 
 - Linux bundles: `.deb`, `.rpm` and `.AppImage` for x86_64, built by Tauri 2. The AppImage is
@@ -65,6 +76,8 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
   so renaming it to `fathom-k8s` without renaming the product is not possible from
   `tauri.conf.json`. Until the bundler gains that knob or the package is post-processed, install
   with that caveat in mind.
+- Windows x64 NSIS installer, cross-built from Linux (`make build-windows-paws`). Experimental:
+  it has not been run on Windows yet.
 - Release builds use thin LTO, one codegen unit and stripped symbols; panics still unwind
   because the backend relies on `catch_unwind`.
 - `THIRD_PARTY_LICENSES.md` lists every bundled crate and production npm package with its
