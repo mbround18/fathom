@@ -19,6 +19,8 @@ The final phase covers shipping (plan phase E).
 
 - **[P]**: can run in parallel: different files, and no dependency on an incomplete task.
 - **[Story]**: US1–US7, used in the user-story phases only.
+- **[B1]/[B2]/[B3]**: extraction sub-track in Phase 2 (not a story); each sub-track is one parallel agent.
+- T087 was added after analysis; it belongs to US1 and runs before T048.
 
 ## Rules for every task in this file
 
@@ -134,7 +136,7 @@ worktrees and merge each green.
   - `applyTheme` takes a package-declared structural `ThemePrefs {mode, accent, effects, glitch}`.
   - `BrandMark` takes `name`/`glyph` props.
   - Fathom imports from `@companion/theme`, and `ui/src/index.css` imports the package CSS.
-  - Move `ui/tests/unit/contrast.test.ts` to `packages/theme/tests/`, with a copy of its import kept in Fathom's unit run.
+  - Move `ui/tests/unit/contrast.test.ts` to `packages/theme/tests/`, and add `packages/theme/tests` to the Vitest `include` that Fathom's unit run uses.
 - [ ] T022 [P] [B3] Move the 22 primitives in `ui/src/components/ui/` to `packages/ui/src/` with relative imports. `sonner.tsx` takes `theme` as a prop, and Fathom passes its store's mode. Add `@source "../../packages/ui/src"` (path relative to `ui/src/index.css`) so Tailwind 4 scans the package. Fathom imports `@companion/ui`, and `components.json` points shadcn at the package.
 - [ ] T023 [B3] Write the failing tests first in `packages/terminal/tests/`: Vitest tests for `RingBuffer` (cap 10,000, dropped-count marker) and for `LogView` (renders only the visible window of 10,000 lines, keeps the scroll anchor when following, shows "N older lines dropped").
 - [ ] T024 [B3] Implement `packages/terminal/src/`, then rewrite Fathom's `ui/src/components/panels/TerminalView.tsx` and `LogScroller.tsx` as thin store adapters onto these. Fathom's terminal and logs E2E must pass unchanged. The package contents:
@@ -185,9 +187,11 @@ worktrees and merge each green.
   - A symlinked stack directory is listed read-only with a reason.
   - `write_atomic` writes the exact bytes given (CRLF, BOM, trailing whitespace and comments preserved), preserves mode and owner, uses temp + rename in the same directory, and returns `Conflict{current}` when `base_hash` differs.
   - Empty `env` with no existing `.env` creates no file.
+  - A compose or `.env` file larger than `DEPTHS_MAX_FILE_BYTES` (default 1 MiB) is not loaded for editing and returns `TooLarge{bytes, limit}`; the editor (T061) says why.
   - `content_hash` changes when either file changes.
   - `modified_at` is the max mtime.
   - Nothing is written when not asked (FR-003).
+  - A stack dir or file Depths cannot read is listed with `read_error` and offers no edit; one it cannot write is listed with `read_only_reason`.
 - [ ] T033 Define the protocol in `crates/depths-protocol/src/{cmd,event,types}.rs` exactly as in contracts/protocol.md, with ts-rs `export_to = "../../apps/depths/web/src/protocol/generated/"`. Re-export the container wire types from `container_runtime::wire`. Add `protocol_version`.
 - [ ] T034 [P] Add round-trip serde tests for every command and event variant in `crates/depths-protocol/tests/roundtrip.rs`. Add `tests/export_bindings.rs`, and add a drift check (`git diff --exit-code apps/depths/web/src/protocol/generated`) to `scripts/ci.sh`.
 - [ ] T035 Write `apps/depths/server/src/config.rs`: clap flags and env per contracts/config.md. Startup must refuse with a message naming the setting in each of these cases:
@@ -223,7 +227,9 @@ worktrees and merge each green.
   - Run steps through `container_runtime`'s `StreamRunner`, streaming `OpOutput` and finishing with docker's stderr verbatim (FR-013).
   - `Cancel` sends SIGINT.
   - Write the audit entry before replying.
-  - Add tests with a mock runner for: binding (reuse, expiry, other session, hash changed), busy, concurrent ops on different stacks, verbatim stderr, and an audit entry for denied, failed and succeeded.
+  - A stack name that fails `valid_name` or path confinement is refused with `Invalid` and writes a `denied` audit entry (spec Edge Cases).
+  - Exactly one audit entry per confirmed or denied operation (SC-003).
+  - Add tests with a mock runner for: name and confinement refusals audited, binding (reuse, expiry, other session, hash changed), busy, concurrent ops on different stacks, verbatim stderr, and an audit entry for denied, failed and succeeded.
 - [ ] T040 Write `apps/depths/server/src/audit.rs`: the Depths `AuditEntry` per data-model.md, over `audit-log` with `RotateAtBytes`.
   - Add a test that no `.env` value or file content ever reaches an entry, with a fixture `.env` holding `DB_PASSWORD=hunter2`. Assert that `hunter2` is absent from the log file bytes (FR-021, FR-035).
 - [ ] T041 Write `apps/depths/server/src/watch.rs`.
@@ -257,20 +263,22 @@ Sign in and see each listed correctly. Then sign out and get redirected to sign-
 - [ ] T045 [P] [US1] Write E2E tests in `apps/depths/web/tests/e2e/us1-stacks/list.spec.ts`:
   - Sign-in redirect.
   - The list shows every status in data-model.md, and a one-shot completed service does not make the stack partial.
-  - Invalid stacks show the reason and have no actions.
+  - Invalid stacks show the reason and have no actions; a stack with `read_error` shows the permission error and offers no edit.
+  - A project started by hand with `-p` from a stack's directory is listed as "running elsewhere" under that stack, not claimed.
   - The shadowed-file warning names both files (FR-004).
   - Foreign and standalone are shown read-only.
   - Filtering by name and status.
   - At 360 px wide there is no horizontal scroll.
 - [ ] T046 [P] [US1] Write a performance test in `apps/depths/web/tests/e2e/us1-stacks/scale.spec.ts`: the fake backend serves 200 stacks / 2,000 containers. Assert the first render is under 2 s and filter input is handled in under 100 ms (SC-004).
-- [ ] T047 [US1] Implement `ListStacks`/`GetStack` in `apps/depths/server/src/ws.rs` via `FsStackStore` + `containers_by_project` + `depths-core::status`, filtered to stacks the person has a role on. Add a test that foreign projects are those with no stack dir, or a `working_dir` outside the root.
+- [ ] T047 [US1] Implement `ListStacks`/`GetStack` in `apps/depths/server/src/ws.rs` via `FsStackStore` + `containers_by_project` + `depths-core::status`, filtered to stacks the person has a role on. Add a test that foreign projects are those with no stack dir, or a `working_dir` outside the root, and that a project whose `working_dir` is a stack's directory but whose name differs is foreign with `elsewhere_of = <stack>`.
+- [ ] T087 [US1] Handle an unreachable runtime (FR-010) in `apps/depths/server/src/watch.rs` and `apps/depths/web/src/features/stacks/StackList.tsx`. When `docker ps` fails, send `RuntimeUnavailable{reason}` with docker's stderr verbatim, keep the last `Stacks` snapshot with `stale: true` and `as_of`, and show a banner. Clear it on the next successful inventory. Add a mock-runner test and an E2E case in `tests/e2e/us1-stacks/list.spec.ts`. Lifecycle previews are refused while the runtime is unavailable.
 - [ ] T048 [US1] Add path-identity detection in `apps/depths/server/src/watch.rs`: warn and send a banner event when a recognised stack's `com.docker.compose.project.working_dir` is under a different root (research R1). Add a test.
 - [ ] T049 [US1] Build the stack list UI in `apps/depths/web/src/features/stacks/{StackList,StackRow,StatusBadge,ForeignList}.tsx`:
   - A virtualised list using `@companion/ui` primitives.
   - Status uses both colour and text (WCAG AA).
   - Live updates from `StacksChanged`.
 - [ ] T050 [US1] Build the stack detail view in `apps/depths/web/src/features/stacks/StackDetail.tsx`:
-  - Services and their containers, with health.
+  - Services and their containers, with state, image, ports, uptime and health (FR-007).
   - The compose file read-only with highlighting (lazy CodeMirror, shared with US3).
   - `.env` with secret-looking keys masked.
 - [ ] T051 [US1] Add the quickstart §3 "open the list" check, run against a real daemon with busybox fixtures, as `apps/depths/server/tests/real_daemon.rs`, behind `#[ignore]` and the env flag `DEPTHS_REAL_DAEMON=1`.
@@ -357,6 +365,7 @@ layout restored and every tab live.
   - Logs: follow, pause, search, time filter, and the "older lines dropped" marker (FR-026).
   - A stats tab samples only while visible.
   - A dropped stream shows "reconnected".
+  - When the session expires mid-stream, the tab says so; after signing in again the log tabs reopen and the shell tab offers a new session.
 - [ ] T065 [P] [US4] Write a soak test in `apps/depths/web/tests/e2e/us4-tabs/soak.spec.ts`: the fake backend streams 6 tabs at 50 lines/s for a simulated hour, with time compressed. Assert JS heap stays bounded (ring cap) and input latency stays under 100 ms (SC-005).
 - [ ] T066 [US4] Implement `OpenLogs` (compose logs per service or `docker logs` per container, `--since` on reopen), `OpenShell`/`ShellInput`/`ShellResize` (048 `session.rs` PTY, gated by role and `DEPTHS_FEATURE_SHELL`, audited as `shell_open`), `WatchStats`/`UnwatchStats` (2 s `stats --no-stream`, only while watched) and `CloseStream` in `apps/depths/server/src/ws.rs`. Add mock-runner tests for each, including that stats stop on unwatch and on socket close.
 - [ ] T067 [US4] Build the tab system in `apps/depths/web/src/features/tabs/{TabHost,TabStrip,LogsTab,ShellTab,StatsTab}.tsx`:
@@ -394,7 +403,7 @@ everything and can change nothing. B can act only on X, and every attempt shows 
   - Re-read on `refresh`.
 
   Add tests against a fake GitHub (axum stub) in `crates/web-auth/tests/github.rs`, including that revoked team membership drops the group on refresh.
-- [ ] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Re-read groups through the session's provider. When the provider fails, end the session (fail closed). Add tests.
+- [ ] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Re-read groups through the session's provider. When the provider **rejects** the person (revoked grant, 401/403, user no longer in the org), end the session (fail closed). When the provider is **unreachable** (connect error, timeout, 5xx), keep the session with its last known groups until it expires, retry with backoff, and log a warning (spec Edge Cases). Add a test for each case.
 - [ ] T073 [US5] Implement `GetAudit`, `GetRoles` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader.
 - [ ] T074 [US5] Build the admin views in `apps/depths/web/src/features/audit/{AuditLog,AuditFilters,RolesView}.tsx`: a virtualised table that collapses to cards at narrow widths, with export.
 - [ ] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, unauthenticated and as each role, and asserts that the outcome matches the permission table in data-model.md (SC-006).
@@ -464,7 +473,7 @@ and which for a Docker host, and links each app's install.
 
 - [ ] T083 [P] Add `THIRD_PARTY_LICENSES.md` / `scripts/third-party-licenses.sh` coverage for the new crates and packages (CodeMirror, `notify`, OTel, `react-resizable-panels`), and add `license` fields in every new `Cargo.toml` and `package.json`.
 - [ ] T084 [P] Add an accessibility pass over Depths: axe checks in each Playwright story project (`apps/depths/web/tests/support/axe.ts`), keyboard-only flows for preview and confirm, and contrast via `@companion/theme` color tests.
-- [ ] T085 Run `quickstart.md` §1–§5 end to end and record the results in `specs/050-depths-stack-manager/quickstart.md` under a "Validated" note. Then run `scripts/hygiene.sh` and `docker builder prune --filter until=24h`.
+- [ ] T085 Run `quickstart.md` §1–§5 end to end and record the results, including the wall-clock time from clean host to first sign-in (SC-001, target under 10 minutes), in `specs/050-depths-stack-manager/quickstart.md` under a "Validated" note. Then run `scripts/hygiene.sh` and `docker builder prune --filter until=24h`.
 - [ ] T086 (last) Make the brochure and README screenshots of Depths: the stack list, preview, editor diff, tabs split, phone layout and audit. Take them from the dev server with fixture stacks only. Screen each one for hostnames, emails, tokens and real stack names before committing to `docs/guides/depths/img/` and the README.
 
 ---

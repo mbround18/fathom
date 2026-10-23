@@ -17,7 +17,7 @@ version handling mirror Fathom's `BackendCmdEnvelope` / `BackendEventEnvelope`.
 
 | Command | Role | Result event(s) |
 |---|---|---|
-| `ListStacks` | viewer (filtered to stacks with a role) | `Stacks{root, stacks, foreign, standalone, warnings}` then live `StacksChanged` |
+| `ListStacks` | viewer (filtered to stacks with a role) | `Stacks{root, stacks, foreign, standalone, warnings, stale, as_of}` then live `StacksChanged`; `RuntimeUnavailable{reason}` when docker fails (FR-010) |
 | `GetStack{name}` | viewer | `StackDetail{stack, compose_text, env_text_masked \| env_text, content_hash}` |
 | `RevealEnv{name}` | operator | `EnvRevealed{name, env_text}` (audited; masking is by key: names containing `PASS`, `SECRET`, `TOKEN`, `KEY`, `PRIVATE`, `CREDENTIAL`, case-insensitive) |
 | `PreviewOp{stack, kind, options}` | per data-model table | `Preview{…}` or `Denied` / `Busy` / `Invalid` |

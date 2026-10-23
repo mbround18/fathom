@@ -28,6 +28,9 @@ One immediate sub-directory of the stacks root.
 | running_services / total_services | counts | Long-running services up / services defined (FR-006). |
 | modified_at | time | Latest mtime of the compose file and `.env` (FR-006). |
 | managed | bool | Always true for a Stack; foreign projects are a separate type. |
+| read_error | string or none | The I/O error when the dir or compose file cannot be read; the stack is listed, never edited. |
+| read_only_reason | string or none | Set when Depths cannot write the files, or the stack dir is a symlink. |
+| too_large | bool | A compose or `.env` file exceeds `DEPTHS_MAX_FILE_BYTES` (default 1 MiB); shown, not loaded into the editor. |
 
 **Invariants**
 
@@ -45,6 +48,7 @@ no containers                                  → not_deployed
 all long-running services running              → running
 some running, some not                         → partial
 none running                                   → stopped
+                                                 (not_deployed is how the UI shows a stopped stack with no containers; FR-006's four statuses plus that label)
 compose file unparseable or name invalid       → invalid
 ```
 
@@ -56,7 +60,7 @@ as not running.
 
 A compose project seen in containers or `docker compose ls --all` with no matching stack
 directory (or whose `working_dir` label is outside the root). Fields: `name`, `working_dir`,
-`containers`. Read-only for every role (FR-006). Plain containers with no project label are listed
+`containers`, `elsewhere_of`. Read-only for every role (FR-008). When `working_dir` is a stack's directory but the project name differs (started by hand with `-p`), it carries `elsewhere_of: <stack>` and the stack shows "running elsewhere". Plain containers with no project label are listed
 as `standalone` under the same read-only rule.
 
 ## StackDraft (editing)
