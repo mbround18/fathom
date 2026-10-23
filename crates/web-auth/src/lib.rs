@@ -3,4 +3,5 @@
 //! No dependency on `fathom` or `kube`: Fathom's hosted server and Depths both build on it.
 pub mod csrf;
 pub mod oidc;
+pub mod provider;
 pub mod session;

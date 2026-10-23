@@ -186,6 +186,20 @@ impl OidcProvider {
         openidconnect::EndpointMaybeSet,
         openidconnect::EndpointMaybeSet,
     > {
+        self.client_for(self.redirect.clone())
+    }
+
+    fn client_for(
+        &self,
+        redirect: RedirectUrl,
+    ) -> CoreClient<
+        openidconnect::EndpointSet,
+        openidconnect::EndpointNotSet,
+        openidconnect::EndpointNotSet,
+        openidconnect::EndpointNotSet,
+        openidconnect::EndpointMaybeSet,
+        openidconnect::EndpointMaybeSet,
+    > {
         CoreClient::from_provider_metadata(
             self.meta.clone(),
             ClientId::new(self.client_id.clone()),
@@ -193,7 +207,7 @@ impl OidcProvider {
                 .as_ref()
                 .map(|s| ClientSecret::new(s.expose_secret().to_string())),
         )
-        .set_redirect_uri(self.redirect.clone())
+        .set_redirect_uri(redirect)
     }
 
     fn http_fn(
@@ -215,8 +229,13 @@ impl OidcProvider {
 
     /// Start a login: authorization URL plus the secrets to remember until the callback.
     pub fn authorize(&self) -> AuthRequest {
+        self.authorize_with(self.redirect.clone())
+    }
+
+    /// [`Self::authorize`] with a callback other than the configured one.
+    pub(crate) fn authorize_with(&self, redirect: RedirectUrl) -> AuthRequest {
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-        let client = self.client();
+        let client = self.client_for(redirect);
         let mut req = client
             .authorize_url(
                 AuthenticationFlow::<CoreResponseType>::AuthorizationCode,
@@ -248,10 +267,22 @@ impl OidcProvider {
         returned_state: &str,
         login: &LoginState,
     ) -> Result<(Identity, Tokens), OidcError> {
+        self.complete_with(self.redirect.clone(), code, returned_state, login)
+            .await
+    }
+
+    /// [`Self::complete`] for a login started by [`Self::authorize_with`] with `redirect`.
+    pub(crate) async fn complete_with(
+        &self,
+        redirect: RedirectUrl,
+        code: &str,
+        returned_state: &str,
+        login: &LoginState,
+    ) -> Result<(Identity, Tokens), OidcError> {
         if !crate::csrf::csrf_token_valid(&login.state, Some(returned_state)) {
             return Err(OidcError::StateMismatch);
         }
-        let client = self.client();
+        let client = self.client_for(redirect);
         let http = self.http_fn();
         let resp = client
             .exchange_code(AuthorizationCode::new(code.to_string()))
@@ -274,7 +305,11 @@ impl OidcProvider {
         nonce: &Nonce,
     ) -> Result<Identity, OidcError> {
         client.verify(id_token, nonce)?;
-        let jwt = id_token.to_string();
+        self.identity_from_verified(&id_token.to_string())
+    }
+
+    /// Map the claims of an ID token that has already been verified.
+    pub(crate) fn identity_from_verified(&self, jwt: &str) -> Result<Identity, OidcError> {
         let payload = jwt
             .split('.')
             .nth(1)

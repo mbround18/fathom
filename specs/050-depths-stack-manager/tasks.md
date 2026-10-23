@@ -115,7 +115,7 @@ worktrees and merge each green.
   - Narrow the constructor from `HostedConfig` to `OidcConfig{issuer, client_id, client_secret, redirect_url, scopes}` + `ClaimsConfig{groups_claim, username_claim, groups_required}`.
   - The server builds both from `HostedConfig` and `AccessModel` in `server/src/main.rs` or wherever `OidcClient::discover` is called today.
   - Keep `map_identity` and its tests in the crate.
-- [ ] T016 [B2] Write the failing test first: add an `IdentityProvider` conformance test in `crates/web-auth/tests/provider.rs`, run against an in-process fake OIDC issuer (axum + `rsa` dev-dependency, as the server tests already use). Then define the `IdentityProvider` trait in `crates/web-auth/src/provider.rs` and implement it for `OidcProvider`.
+- [X] T016 [B2] Write the failing test first: add an `IdentityProvider` conformance test in `crates/web-auth/tests/provider.rs`, run against an in-process fake OIDC issuer (axum + `rsa` dev-dependency, as the server tests already use). Then define the `IdentityProvider` trait in `crates/web-auth/src/provider.rs` and implement it for `OidcProvider`.
 - [ ] T017 [B2] Lift `LoginStore` (`server/src/http.rs:31`), the cookie helpers and `session_from_headers` (`http.rs:121`) into `crates/web-auth/src/{login,cookie,extract}.rs`:
   - The cookie name comes from `CookieConfig` (Fathom: `__Host-fathom_session`).
   - Add an axum `SessionUser` extractor and a CSRF `tower::Layer` over `check_mutation`.
