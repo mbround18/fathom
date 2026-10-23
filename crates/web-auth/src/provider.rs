@@ -1,5 +1,8 @@
-//! The seam every sign-in provider implements (spec 050): OIDC here, GitHub and Discord later.
-//! `tests/provider.rs` holds the conformance test each implementation must pass.
+//! The seam every sign-in provider implements (spec 050): OIDC ([`OidcProvider`]), GitHub
+//! ([`crate::github`]) and Discord ([`crate::discord`]). `tests/common/mod.rs` holds the
+//! conformance test each implementation must pass.
+
+use std::time::Duration;
 
 use async_trait::async_trait;
 use openidconnect::RedirectUrl;
@@ -20,11 +23,47 @@ pub enum ProviderError {
     /// The provider answered no (revoked grant, bad code): the session, if any, must end.
     #[error("rejected by the provider: {0}")]
     Rejected(String),
-    /// The provider could not be reached or asked to try later.
+    /// The provider could not be reached (connect error, timeout, 5xx) or asked to try later.
     #[error("provider temporarily unavailable: {0}")]
     Transient(String),
+    /// The provider rate-limited us (429): unreachable for `retry_after`.
+    #[error("provider rate-limited the request; retry after {0:?}")]
+    RateLimited(Duration),
+    /// Anything else: a malformed, oversized or unexpected answer, or a misconfiguration.
     #[error("{0}")]
     Failed(String),
+}
+
+impl ProviderError {
+    /// The provider could not answer now. A revalidation that fails this way keeps the session
+    /// and retries; every other failure ends it (fail closed).
+    pub fn is_unreachable(&self) -> bool {
+        matches!(self, Self::Transient(_) | Self::RateLimited(_))
+    }
+
+    /// How long the provider asked us to wait, when it said.
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::RateLimited(d) => Some(*d),
+            _ => None,
+        }
+    }
+}
+
+/// The outcome of [`IdentityProvider::revalidate`], for the server's refresh loop (T072).
+#[derive(Debug)]
+pub enum Revalidation {
+    /// Still good: store `tokens` (and the identity, if re-read) on the session.
+    Valid(Refreshed),
+    /// The provider said no (revoked grant, 401/403, the account is now someone else, or an
+    /// answer that cannot be trusted): end the session now.
+    Rejected(ProviderError),
+    /// The provider could not be reached: keep the session until it expires, retry after
+    /// `retry_after` (the provider's, when it gave one), and warn.
+    Unreachable {
+        error: ProviderError,
+        retry_after: Option<Duration>,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, ProviderError>;
@@ -78,8 +117,28 @@ pub trait IdentityProvider: Send + Sync {
     async fn authorize(&self, redirect: &Url) -> Result<AuthRedirect>;
     /// Finish it: check `state`, exchange `code`, and say who signed in.
     async fn complete(&self, pending: PendingLogin, code: &str, state: &str) -> Result<Completed>;
-    /// Revalidate the session's provider token. [`ProviderError::Rejected`] ends the session.
+    /// Revalidate the session's provider token, refreshing it first if it has expired.
+    /// [`ProviderError::is_unreachable`] errors keep the session; any other error ends it.
     async fn refresh(&self, s: &Session) -> Result<Refreshed>;
+    /// [`Self::refresh`], classified for the refresh loop. An identity whose subject differs
+    /// from the session's is rejected.
+    async fn revalidate(&self, s: &Session) -> Revalidation {
+        match self.refresh(s).await {
+            Ok(r) => match &r.identity {
+                Some(i) if i.sub != s.identity.sub || i.provider != s.identity.provider => {
+                    Revalidation::Rejected(ProviderError::Rejected(
+                        "the provider now names a different account".into(),
+                    ))
+                }
+                _ => Revalidation::Valid(r),
+            },
+            Err(e) if e.is_unreachable() => Revalidation::Unreachable {
+                retry_after: e.retry_after(),
+                error: e,
+            },
+            Err(e) => Revalidation::Rejected(e),
+        }
+    }
     /// Where to send the browser to sign out at the provider too, if it supports that.
     fn end_session_url(&self, s: &Session) -> Option<Url>;
 }

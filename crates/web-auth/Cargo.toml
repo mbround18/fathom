@@ -1,10 +1,16 @@
 [package]
 name = "web-auth"
 version = "0.1.0"
-description = "Browser sign-in for the suite's servers: OIDC and GitHub, sessions, CSRF"
+description = "Browser sign-in for the suite's servers: OIDC, GitHub and Discord, sessions, CSRF"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
+
+[features]
+# Lets `GithubProvider::with_endpoints` / `DiscordProvider::with_endpoints` point at in-process
+# fakes over plain HTTP. Only this crate's own tests enable it (the dev-dependency below); no
+# application may.
+insecure-test-endpoints = []
 
 [dependencies]
 async-trait = "0.1"
@@ -25,6 +31,7 @@ tower = "0.5"
 url = "2.5"
 
 [dev-dependencies]
+web-auth = { path = ".", features = ["insecure-test-endpoints"] }
 axum = "0.8"
 tower = { version = "0.5", features = ["util"] }
 # rsa 0.9 is on digest 0.10: tests sign with its sha2 re-export, not the crate's sha2 0.11.

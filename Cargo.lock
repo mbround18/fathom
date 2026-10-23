@@ -8318,6 +8318,7 @@ dependencies = [
  "tokio",
  "tower",
  "url",
+ "web-auth",
 ]
 
 [[package]]

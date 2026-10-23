@@ -239,7 +239,7 @@ impl OidcProvider {
         let mut req = client
             .authorize_url(
                 AuthenticationFlow::<CoreResponseType>::AuthorizationCode,
-                CsrfToken::new_random,
+                || CsrfToken::new_random_len(32),
                 Nonce::new_random,
             )
             .set_pkce_challenge(challenge);

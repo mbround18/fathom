@@ -1,5 +1,7 @@
-//! `IdentityProvider` conformance (spec 050, T016): every provider must pass [`conformance`].
-//! Run here against an in-process fake OIDC issuer (discovery, RS256 JWKS, token endpoint).
+//! `IdentityProvider` conformance for OIDC (spec 050, T016), against an in-process fake issuer
+//! (discovery, RS256 JWKS, token endpoint). The conformance test itself is in `common`.
+
+mod common;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -12,17 +14,17 @@ use axum::routing::{get, post};
 use axum::{Form, Json, Router};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+use common::{Caps, Driver, conformance};
 use rsa::RsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::sha2::Sha256;
 use rsa::signature::{SignatureEncoding, Signer};
 use rsa::traits::PublicKeyParts;
-use secrecy::ExposeSecret;
 use serde_json::{Value, json};
 use url::Url;
 use web_auth::oidc::{ClaimsConfig, OidcConfig, OidcProvider, build_http_client};
-use web_auth::provider::{AuthRedirect, IdentityProvider, ProviderError};
+use web_auth::provider::{AuthRedirect, IdentityProvider};
 use web_auth::session::{SessionConfig, SessionStore};
 
 const KEY_PEM: &str = include_str!("fixtures/test_rsa.pem");
@@ -167,15 +169,6 @@ impl FakeIssuer {
     }
 }
 
-/// How a test drives the provider's IdP: accept `code` for the login `auth` started, change the
-/// person's groups, or make the next refresh fail.
-trait Driver {
-    fn grant(&self, code: &str, auth: &AuthRedirect);
-    fn set_groups(&self, groups: &[&str]);
-    fn reject_refresh(&self);
-    fn redirects(&self) -> Vec<String>;
-}
-
 impl Driver for FakeIssuer {
     fn grant(&self, code: &str, auth: &AuthRedirect) {
         let nonce = auth
@@ -194,77 +187,6 @@ impl Driver for FakeIssuer {
     fn redirects(&self) -> Vec<String> {
         self.with(|i| i.redirects.clone())
     }
-}
-
-/// The behaviour every `IdentityProvider` must have.
-async fn conformance(p: &dyn IdentityProvider, idp: &dyn Driver, reads_groups: bool) {
-    let redirect = Url::parse("https://app.example.test/auth/callback").unwrap();
-
-    // authorize: a URL carrying state and a PKCE S256 challenge, and the callback asked for.
-    let auth = p.authorize(&redirect).await.unwrap();
-    let q: HashMap<String, String> = auth.url.query_pairs().into_owned().collect();
-    assert_eq!(q.get("state"), Some(&auth.pending.state));
-    assert_eq!(
-        q.get("code_challenge_method").map(String::as_str),
-        Some("S256")
-    );
-    assert_eq!(q.get("redirect_uri"), Some(&redirect.to_string()));
-    assert_eq!(auth.pending.redirect, redirect);
-    assert!(!format!("{:?}", auth.pending).contains(&auth.pending.state));
-
-    // A forged state is refused before any exchange.
-    idp.grant("c1", &auth);
-    let err = p
-        .complete(auth.pending.clone(), "c1", "forged")
-        .await
-        .unwrap_err();
-    assert!(matches!(err, ProviderError::StateMismatch), "{err:?}");
-    assert!(
-        idp.redirects().is_empty(),
-        "no exchange on a state mismatch"
-    );
-
-    // Happy path: the identity names this provider, and the exchange used the same callback.
-    let state = auth.pending.state.clone();
-    let done = p
-        .complete(auth.pending.clone(), "c1", &state)
-        .await
-        .unwrap();
-    assert_eq!(done.identity.provider.as_str(), p.id());
-    assert!(!done.identity.sub.is_empty());
-    assert_eq!(done.identity.username, "alice");
-    assert_eq!(idp.redirects(), [redirect.to_string()]);
-    if reads_groups {
-        assert_eq!(done.identity.groups, ["dev"]);
-    }
-
-    // A code is single use.
-    let err = p
-        .complete(auth.pending.clone(), "c1", &state)
-        .await
-        .unwrap_err();
-    assert!(!matches!(err, ProviderError::StateMismatch), "{err:?}");
-
-    // refresh revalidates the token; OIDC re-reads the groups.
-    let store = SessionStore::new(SessionConfig::default());
-    let session = store.create(done.identity, done.tokens).unwrap();
-    idp.set_groups(&["dev", "ops"]);
-    let r = p.refresh(&session).await.unwrap();
-    assert_ne!(
-        r.tokens.access_token.expose_secret(),
-        session.tokens.access_token.expose_secret()
-    );
-    if reads_groups {
-        assert_eq!(r.identity.expect("identity re-read").groups, ["dev", "ops"]);
-    }
-
-    // A revoked grant ends the session.
-    idp.reject_refresh();
-    let err = p.refresh(&session).await.unwrap_err();
-    assert!(matches!(err, ProviderError::Rejected(_)), "{err:?}");
-
-    // end_session_url never panics; OIDC with an end_session_endpoint returns one.
-    let _ = p.end_session_url(&session);
 }
 
 async fn oidc_provider(idp: &FakeIssuer) -> OidcProvider {
@@ -293,7 +215,12 @@ async fn oidc_provider_conforms() {
     let idp = FakeIssuer::start().await;
     let p = oidc_provider(&idp).await;
     assert_eq!(p.id(), "oidc");
-    conformance(&p, &idp, true).await;
+    let redirect = Url::parse("https://app.example.test/auth/callback").unwrap();
+    let caps = Caps {
+        reads_groups: true,
+        rotates_tokens: true,
+    };
+    conformance(&p, &idp, caps, &redirect).await;
 }
 
 #[tokio::test]
