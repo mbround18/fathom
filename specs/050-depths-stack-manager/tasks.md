@@ -138,7 +138,7 @@ worktrees and merge each green.
   - Fathom imports from `@companion/theme`, and `ui/src/index.css` imports the package CSS.
   - Move `ui/tests/unit/contrast.test.ts` to `packages/theme/tests/`, and add `packages/theme/tests` to the Vitest `include` that Fathom's unit run uses.
 - [X] T022 [P] [B3] Move the 22 primitives in `ui/src/components/ui/` to `packages/ui/src/` with relative imports. `sonner.tsx` takes `theme` as a prop, and Fathom passes its store's mode. Add `@source "../../packages/ui/src"` (path relative to `ui/src/index.css`) so Tailwind 4 scans the package. Fathom imports `@companion/ui`, and `components.json` points shadcn at the package.
-- [ ] T023 [B3] Write the failing tests first in `packages/terminal/tests/`: Vitest tests for `RingBuffer` (cap 10,000, dropped-count marker) and for `LogView` (renders only the visible window of 10,000 lines, keeps the scroll anchor when following, shows "N older lines dropped").
+- [X] T023 [B3] Write the failing tests first in `packages/terminal/tests/`: Vitest tests for `RingBuffer` (cap 10,000, dropped-count marker) and for `LogView` (renders only the visible window of 10,000 lines, keeps the scroll anchor when following, shows "N older lines dropped").
 - [ ] T024 [B3] Implement `packages/terminal/src/`, then rewrite Fathom's `ui/src/components/panels/TerminalView.tsx` and `LogScroller.tsx` as thin store adapters onto these. Fathom's terminal and logs E2E must pass unchanged. The package contents:
   - `RingBuffer` (moved from `ui/src/store/ring-buffer.ts`).
   - `LogView`, virtualised with `@tanstack/react-virtual`.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_RING_CAPACITY, RingBuffer } from '@/store/ring-buffer'
+import { DEFAULT_RING_CAPACITY, RingBuffer } from '../src/ring-buffer'
 
 describe('RingBuffer', () => {
   it('defaults to a 10,000-item capacity', () => {
