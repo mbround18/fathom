@@ -120,7 +120,7 @@ worktrees and merge each green.
   - The cookie name comes from `CookieConfig` (Fathom: `__Host-fathom_session`).
   - Add an axum `SessionUser` extractor and a CSRF `tower::Layer` over `check_mutation`.
   - The server uses them, and its HTTP tests still pass unchanged.
-- [ ] T018 [P] [B2] Write the failing tests first in `crates/audit-log/src/lib.rs`:
+- [X] T018 [P] [B2] Write the failing tests first in `crates/audit-log/src/lib.rs`:
   - Append is a single write, and the file is opened `O_APPEND`.
   - The directory is 0700 and the file 0600.
   - `Retention::RotateAtBytes` renames to `audit-log.<n>.jsonl` and never rewrites an entry.
