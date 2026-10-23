@@ -200,7 +200,11 @@ worktrees and merge each green.
   - `--insecure-dev` is set on a non-loopback listen.
   - The stacks dir is missing.
 
-  Secrets are accepted via `*_FILE` and never logged. Add unit tests for each refusal.
+  - `OAUTH_CLIENT_*` is set without `OAUTH_PROVIDER`.
+
+  Accept the R14 aliases (`DOCKGE_STACKS_DIR`, `ORIGIN_URL`, `OAUTH_PROVIDER` + `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET`) below the `DEPTHS_*` names: flag > `DEPTHS_*` > alias > default. `ORIGIN_URL` with no scheme means `https://`. Default listen `0.0.0.0:8080`. Log which name each setting came from, never a secret's value.
+
+  Secrets are accepted via `*_FILE` and never logged. Add unit tests for each refusal, for alias precedence, and for a scheme-less `ORIGIN_URL`.
 - [ ] T036 Write `apps/depths/server/src/roles.rs`:
   - Load `roles.toml`, with unknown keys and values rejected.
   - Watch it with `notify`. On a parse error keep the previous mapping and record `last_error`.
@@ -208,7 +212,7 @@ worktrees and merge each green.
   - Add tests for each case.
 - [ ] T037 Write `apps/depths/server/src/app.rs` and `http.rs`: Axum router per contracts/protocol.md's HTTP table.
   - Use the `web-auth` session extractor and CSRF layer, with cookie `__Host-depths_session`.
-  - Wire OIDC and GitHub providers into `/auth/login`, `/auth/callback/{provider}`, `/auth/refresh` and `/auth/logout`, plus `/api/v1/me`.
+  - Wire the OIDC, GitHub and Discord providers into `/auth/login`, `/auth/callback/{provider}`, `/auth/refresh` and `/auth/logout`, plus `/api/v1/me`.
   - Add `/healthz` and `/readyz`.
   - Serve static files from `--static-dir` with an SPA fallback.
   - Set security headers (CSP, nosniff, Referrer-Policy, X-Frame-Options).
@@ -403,6 +407,13 @@ everything and can change nothing. B can act only on X, and every attempt shows 
   - Re-read on `refresh`.
 
   Add tests against a fake GitHub (axum stub) in `crates/web-auth/tests/github.rs`, including that revoked team membership drops the group on refresh.
+- [ ] T088 [US5] Implement the Discord provider in `crates/web-auth/src/discord.rs` per research R13:
+  - `state` always, PKCE S256 sent; nothing relies on PKCE alone.
+  - Scopes `identify email guilds guilds.members.read`; redirect URI exactly `<public_url>/auth/callback/discord`.
+  - `GET /users/@me` → subject, username, verified email. `GET /users/@me/guilds` → `discord:<guild_id>`. `GET /users/@me/guilds/{id}/member` → `discord:<guild_id>/<role_id>`, called only for guild ids named by a grant in `roles.toml`. Always add `discord:user/<user_id>`.
+  - Refresh with the refresh token; 401 = rejected, 429 = unreachable (honour `retry_after`).
+
+  Add tests against a fake Discord (axum stub) in `crates/web-auth/tests/discord.rs`: the member endpoint is never called for an unnamed guild, a role removed at Discord drops the group on refresh, and a 429 keeps the last known groups. Then confirm the PKCE exchange once against a real Discord application and record the result in research R13.
 - [ ] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Re-read groups through the session's provider. When the provider **rejects** the person (revoked grant, 401/403, user no longer in the org), end the session (fail closed). When the provider is **unreachable** (connect error, timeout, 5xx), keep the session with its last known groups until it expires, retry with backoff, and log a warning (spec Edge Cases). Add a test for each case.
 - [ ] T073 [US5] Implement `GetAudit`, `GetRoles` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader.
 - [ ] T074 [US5] Build the admin views in `apps/depths/web/src/features/audit/{AuditLog,AuditFilters,RolesView}.tsx`: a virtualised table that collapses to cards at narrow widths, with export.
@@ -435,6 +446,11 @@ manage a stack through the proxy. Check that Depths runs as non-root with no soc
   - Check that `/readyz` is 200 through the proxy, and that a missing provider config refuses to start.
   - Open an exec through the proxy and keep it idle past the proxy's 10-minute cut. The cut is configurable in the test via the proxy's timeout env, so it is short here. Check that the tab reconnects.
   - Then `down`, prune build cache (`--filter until=24h`), and run `scripts/hygiene.sh`.
+- [ ] T089 [US6] Deploy beside Dockge on the steam host (first real deployment):
+  - `../ansible/composes/steam/compose.yaml`: `depths-socket-proxy`, `depths` on 8080 (stacks dir at the same path, `user: "1001:1001"` so files stay steam's, explicit env mapped from the host `.env`, no `env_file` passthrough of unrelated secrets), and a `depths-tailscale` sidecar (`TS_AUTHKEY`, Headscale login server, `TS_SERVE_CONFIG` forwarding tailnet TCP 8080 to `depths:8080`).
+  - `../fluxified/overlays/system/tailscale/`: `egress-depths.yaml`, `service-depths.yaml` (port 8080 only), `route-depths.yaml` for `depth.boop.ninja`, the `ts-state-egress-depths` RBAC name, a `secrets/tailscale-egress-depths.sops.env` generator, and the listener pair on `shared-gateway`.
+  - Register `https://depth.boop.ninja/auth/callback/discord` in the Discord application.
+  - Pushing fluxified deploys prod, and the compose change is applied on the host: both wait for the owner's go-ahead.
 - [ ] T079 [US6] Write the Dockge round-trip check as a script, `apps/depths/tests/dockge-roundtrip.sh`. Take checksums of a copied stacks dir, run Depths lifecycle actions only, take checksums again, and confirm they are identical (SC-002). Running Dockge itself is manual, documented in quickstart §4.
 
 ---
@@ -494,7 +510,8 @@ T001 ─┬─ T002 ─ T003 ─────────────┐
 - B1, B2 and B3 are independent of each other, but each needs T002–T004.
 - In Phase 3, T026–T030 are parallel (separate files in `depths-core`). T031 needs them. T032 needs T031. T033 needs B1. T035–T042 need B2 and T031–T034. T043 and T044 need B3 and T033.
 - US1 and US2 are P1 and come first. US3, US4 and US5 depend only on US2's preview dialog and engine (T054, T055) and can run in parallel after it.
-- T071 (GitHub provider) can start any time after B2.
+- T071 (GitHub provider) and T088 (Discord provider) can start any time after B2.
+- T076, T077 and T089 are pulled forward to run right after US1, with T088, so the read-only MVP can be tried on the steam host. The rest of US6 keeps its place.
 
 ## Parallel examples
 
@@ -506,6 +523,8 @@ T001 ─┬─ T002 ─ T003 ─────────────┐
 ## Implementation strategy
 
 1. **MVP = Setup + Foundational + Phase 3 + US1**: a signed-in, read-only stack browser. This proves the extraction, auth and the protocol end to end with nothing that can change the host.
+   Then T088, T076, T077 and T089: Discord sign-in, the image and the steam deployment, so the MVP
+   runs beside Dockge at `https://depth.boop.ninja`.
 2. **Add US2**: Depths is now a usable Dockge replacement for day-to-day lifecycle.
 3. **Add US3, US4 and US5** in parallel: editing, tabs, roles and audit.
 4. **Add US6 and US7**: ship the image and the suite README.

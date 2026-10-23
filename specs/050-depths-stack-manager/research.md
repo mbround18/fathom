@@ -311,3 +311,49 @@ The example `apps/depths/compose.yaml` sets `restart: ${RESTART_POLICY:-no}` on 
   - `DEPTHS_FEATURE_SHELL` (default on): turns interactive shells off entirely, for
     least-privilege installs.
   - `DEPTHS_FEATURE_EDIT` (default on): makes every stack read-only in the UI and API.
+
+## R13. Discord sign-in
+
+**Decision**: a Discord OAuth2 adapter in `web-auth`, beside `github`, behind the same
+`IdentityProvider` port. Discord is not used as OIDC.
+
+- Authorize at `https://discord.com/oauth2/authorize`, exchange and refresh at
+  `https://discord.com/api/oauth2/token`, revoke at `https://discord.com/api/oauth2/token/revoke`.
+  Always `state`; PKCE S256 is sent too. Third-party clients use it against Discord, but Discord's
+  docs don't list the parameters, so the adapter's test against a real application (T088) confirms
+  it, and the adapter must not depend on PKCE for its security (`state` and the confidential client
+  secret carry that).
+- The redirect URI is matched exactly, so it is `<public_url>/auth/callback/discord` and nothing
+  else; the guide says to register that string.
+- Scopes `identify email guilds guilds.members.read`. Identity from `GET /users/@me` (subject = user
+  id, username, verified email when present).
+- Groups:
+  - `discord:<guild_id>` for every guild in `GET /users/@me/guilds`;
+  - `discord:<guild_id>/<role_id>` from `GET /users/@me/guilds/{guild_id}/member`, called **only** for
+    guild ids that some grant in `roles.toml` names, because that endpoint is tightly rate limited;
+  - `discord:user/<user_id>`, so a one-person homelab can grant a single account without a guild.
+  Guild and role ids are numeric snowflakes, so `user` cannot collide with a guild id.
+- Re-read at sign-in and on every session refresh (FR-033), using the refresh token when the
+  access token has expired. A 401 from Discord ends the session (T072's fail-closed rule); a 429
+  is "unreachable" (keep last known groups, back off for `retry_after`).
+- Alternatives: Discord's OIDC support (rejected: groups would still need the REST calls above, so
+  it adds a second code path for no gain); a bot token reading guild members (rejected: a second
+  credential with far more reach than sign-in needs).
+
+## R14. Settings a Dockge host already has
+
+**Decision**: accept Dockge-style and generic names as aliases, below Depths' own names.
+
+| Alias | Means | Precedence |
+|---|---|---|
+| `DOCKGE_STACKS_DIR` | `DEPTHS_STACKS_DIR` | flag > `DEPTHS_*` > alias > default |
+| `ORIGIN_URL` | `DEPTHS_PUBLIC_URL` | same |
+| `OAUTH_PROVIDER` = `oidc` \| `github` \| `discord` | which provider `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET` (or `_FILE`) belong to | the provider's own `DEPTHS_<P>_CLIENT_*` win |
+
+- `ORIGIN_URL` without a scheme (`depth.boop.ninja`) is read as `https://`.
+- `OAUTH_CLIENT_*` without `OAUTH_PROVIDER` is a start-up error naming `OAUTH_PROVIDER`, never a
+  guess. With `OAUTH_PROVIDER=oidc`, `DEPTHS_OIDC_ISSUER` is still required.
+- Start-up logs which name each setting came from (never the value of a secret), so an alias that
+  silently wins is visible.
+- Default listen moves from `0.0.0.0:5001` to `0.0.0.0:8080`. Running beside Dockge (the first real
+  deployment) needs a different port anyway, and a swap is one port mapping.

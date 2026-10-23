@@ -54,9 +54,9 @@ the tab shows "reconnected".
 |---|---|---|
 | `GET /healthz` | none | Liveness: `ok`. |
 | `GET /readyz` | none | Docker reachable and stacks root readable; 503 otherwise with a reason. |
-| `GET /auth/login?provider=oidc\|github` | none | Redirect to the provider (state, nonce, PKCE). |
+| `GET /auth/login?provider=oidc\|github\|discord` | none | Redirect to the provider (state, nonce, PKCE). |
 | `GET /auth/callback/{provider}` | none | Completes sign-in, sets cookie, redirects to `/`. |
-| `POST /auth/refresh` | session + CSRF header | Re-reads groups (GitHub teams / OIDC refresh). |
+| `POST /auth/refresh` | session + CSRF header | Re-reads groups (GitHub teams, Discord guilds/roles, OIDC refresh). |
 | `POST /auth/logout` | session + CSRF header | Ends session; RP-initiated logout URL for OIDC. |
 | `GET /api/v1/me` | session | `{identity, csrf_token, roles_summary, features}`. |
 | `GET /api/v1/audit/export?…` | session (admin) | Filtered JSONL download. |

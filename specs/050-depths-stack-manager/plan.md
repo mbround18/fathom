@@ -127,8 +127,8 @@ amendment (→ 1.2.0) as the first task (T001)**, as spec 031 did for the hosted
 - Generalises Principle II to "each app owns one versioned, Rust-defined contract; shared domains
   (the container runtime) define their wire types once in a shared crate and each app's contract
   re-exports them".
-- Adds a "Depths server (Linux container)" platform tier: Docker host, not a cluster; OIDC or
-  GitHub sign-in required; holds Docker socket access, and must document a socket proxy.
+- Adds a "Depths server (Linux container)" platform tier: Docker host, not a cluster; OIDC,
+  GitHub or Discord sign-in required; holds Docker socket access, and must document a socket proxy.
 - Lists the stack additions (CodeMirror, `notify`, OTel exporter) under Stack.
 
 With that amendment in place:
@@ -177,7 +177,7 @@ crates/
 │   └── src/{lib,runner,stream,probe,inventory,grouping,compose,preview,blast_radius,
 │            mutate,stats,logs,session,sink,adoption,wire}.rs
 ├── web-auth/                      # EXTRACTED from server/src/{session,csrf,oidc}.rs + http.rs parts
-│   └── src/{lib,session,csrf,login,cookie,extract,provider,oidc,github}.rs
+│   └── src/{lib,session,csrf,login,cookie,extract,provider,oidc,github,discord}.rs
 ├── audit-log/                     # EXTRACTED from server/src/audit.rs, generic over the entry
 │   └── src/lib.rs
 ├── depths-core/                   # NEW: domain (no I/O)

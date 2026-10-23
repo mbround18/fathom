@@ -257,7 +257,7 @@ which job, and links to each one's install steps and guides, and that every link
 **Sign-in and access**
 
 - **FR-028**: Every page and endpoint except sign-in, sign-in callback and health MUST require a signed-in session. There MUST be no anonymous mode and no shared password.
-- **FR-029**: Depths MUST support sign-in through any standards-based OpenID Connect provider, and through OAuth 2.0 providers that are not OIDC (GitHub as the named case) by reading identity and team membership from the provider.
+- **FR-029**: Depths MUST support sign-in through any standards-based OpenID Connect provider, and through OAuth 2.0 providers that are not OIDC (GitHub and Discord as the named cases) by reading identity and team, guild or role membership from the provider.
 - **FR-030**: Administrators MUST be able to map provider groups (or teams) to the roles viewer, operator and administrator, each scoped to all stacks or to named stacks.
 - **FR-031**: A signed-in person with no mapped role MUST get no access and a page saying so.
 - **FR-032**: Every request MUST be authorised server-side against the person's current roles. Hiding a control in the UI MUST NOT be the only protection.
@@ -274,6 +274,7 @@ which job, and links to each one's install steps and guides, and that every link
 
 - **FR-038**: Depths MUST ship as a single container image whose settings (stacks directory, runtime address, identity provider, role mapping, location of the web assets) come from configuration at start-up.
 - **FR-039**: Depths MUST start only when sign-in is fully configured, and exit with a message naming any missing setting.
+- **FR-047**: Depths MUST accept the settings a Dockge host's environment file already carries (the stacks directory under Dockge's name, and a single generic OAuth provider, client id, client secret and public origin), so it can be added beside Dockge on the same environment file without renaming anything. Depths' own setting names win when both are set.
 - **FR-040**: Depths MUST work when its runtime access goes through a socket proxy, and the example deployment MUST show that setup.
 - **FR-041**: The example deployment MUST NOT restart automatically unless the operator opts in.
 - **FR-042**: Depths MUST run as a non-root user wherever runtime access allows it, and the guide MUST state that runtime access is equivalent to root on the host.
@@ -312,7 +313,8 @@ which job, and links to each one's install steps and guides, and that every link
 ## Assumptions
 
 - Users are self-hosters and small teams running one Docker host each. Managing several hosts from one Depths (Dockge's "agents") is out of scope for v1.
-- An identity provider is available (self-hosted OIDC such as Authelia, Authentik, Keycloak or Pocket ID, a cloud OIDC provider, or GitHub). Running without one is out of scope by design.
+- An identity provider is available (self-hosted OIDC such as Authelia, Authentik, Keycloak or Pocket ID, a cloud OIDC provider, GitHub, or Discord). Running without one is out of scope by design.
+- The first real deployment is beside Dockge on the owner's game-server host, on its own port (8080), reached from the internet only through the owner's cluster gateway over the tailnet, never by publishing the home address.
 - Editing compose files as free text is intended. Unlike Fathom's form-only container creation (spec 048), the file is the operator's own and the diff preview states its full effect.
 - Stacks Depths did not create are fully manageable once they are in the stacks directory: putting a stack in that directory is the operator's declaration that Depths may manage it. Projects outside the directory are read-only (FR-008), the same protection 048's adoption gives.
 - The audit log and the role mapping are Depths' own state and live outside the stacks directory, so they never disturb Dockge compatibility.

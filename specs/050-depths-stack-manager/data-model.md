@@ -114,8 +114,9 @@ At most one operation per stack is `running`; a second request gets `Busy{operat
 
 ## Identity and Session
 
-From `web-auth`. `Identity{provider: oidc|github, issuer, subject, username, email, groups}`.
-GitHub groups are `github:<org>` and `github:<org>/<team>` (R5). Session: id (cookie
+From `web-auth`. `Identity{provider: oidc|github|discord, issuer, subject, username, email, groups}`.
+GitHub groups are `github:<org>` and `github:<org>/<team>` (R5). Discord groups are
+`discord:<guild_id>`, `discord:<guild_id>/<role_id>` and `discord:user/<user_id>` (R13). Session: id (cookie
 `__Host-depths_session`, HttpOnly, Secure, SameSite=Lax), csrf token, identity, expires_at
 (idle 8 h, absolute 24 h, configurable), next_refresh_at (15 min).
 

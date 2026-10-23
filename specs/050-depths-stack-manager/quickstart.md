@@ -38,7 +38,7 @@ services:
   init: { image: busybox, command: "true" }
   app:  { image: busybox, command: sleep 3600 }
 EOF
-cargo run -p depths -- --insecure-dev --listen 127.0.0.1:5001 --public-url http://127.0.0.1:5001 \
+cargo run -p depths -- --insecure-dev --listen 127.0.0.1:8080 --public-url http://127.0.0.1:8080 \
   --stacks-dir "$S" --static-dir apps/depths/web/dist --roles-file apps/depths/dev/roles.toml
 ```
 
@@ -72,7 +72,7 @@ cd apps/depths && STACKS_DIR="$S" docker compose up -d   # RESTART_POLICY unset 
 | `docker compose ps` | Both services up; `depths` runs as uid 10001, no socket mounted in it. |
 | Open a shell tab through the proxy, idle 11 min | Tab shows "reconnected"; typing works. |
 | Remove the provider env and restart | Depths refuses to start: no provider configured. |
-| `curl -s localhost:5001/api/v1/me` without cookie | 401. |
+| `curl -s localhost:8080/api/v1/me` without cookie | 401. |
 
 `docker compose down` in `apps/depths`, then `docker builder prune --filter until=24h`, then
 `scripts/hygiene.sh`.
