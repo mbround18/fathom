@@ -132,28 +132,35 @@ in B's shell and confirm its output. Confirm A's logs follow new lines and can b
 
 ### User Story 5 - Control who can do what, and see what was done (Priority: P2)
 
-An administrator maps groups from the identity provider to Depths roles. A viewer can see stacks, files
-(with secrets masked), logs and stats. An operator can also run lifecycle operations and open shells.
-An administrator can also edit, create and delete stacks and read the full audit log. Roles can be
-granted for all stacks or for a named set of stacks. A signed-in person with no matching group gets no
-access and is told so. Anything Depths does to the host is recorded with who, what, when, which stack
-and the outcome, and the record cannot be edited or deleted from the UI.
+The owner, named in Depths' settings by their provider account id, is always an administrator.
+Anyone else who signs in is recorded as pending and told they don't currently have access, until an
+administrator lists them as a user or an administrator, or pre-adds them by account id. A user is
+assigned specific stacks and sees only those: on them they can view files (with secrets masked, and
+reveal them), logs and stats, run lifecycle operations, open shells and edit. An administrator sees
+everything, can also create and delete stacks, remove volumes or images, see projects and containers
+outside the stacks directory, manage the users list and read the full audit log. Anything Depths does
+to the host or the users list is recorded with who, what, when, which stack and the outcome, and the
+record cannot be edited or deleted from the UI.
 
 **Why this priority**: Depths holds the keys to the host. Single shared passwords are the weakness
 that prompted this feature, so per-person, per-stack access is core, but the first two stories already
-require sign-in and work with one administrator.
+require sign-in and work with the owner alone.
 
-**Independent Test**: Configure group A as viewer on all stacks and group B as operator on stack
-"media" only. Sign in as a member of A and confirm no action is offered anywhere. Sign in as B and
-confirm actions on "media" only. Confirm every action B took is in the audit log under their identity.
+**Independent Test**: Start with only an owner configured. Sign in as person A and confirm the
+no-access page; as the owner, confirm A is listed as pending. Make A a user on stack "media" only.
+Without A signing in again, confirm A's next action works on "media" and that no other stack, foreign
+project or loose container is visible to A. Remove "media" from A and confirm A's open session ends.
+Confirm every change to A and every action A took is in the audit log.
 
 **Acceptance Scenarios**:
 
-1. **Given** a signed-in person in no mapped group, **When** they open Depths, **Then** they see a page saying they have no access and who to ask, and nothing about the host.
-2. **Given** a viewer, **When** they call a mutating endpoint directly, **Then** it is refused, the refusal is audited, and nothing on the host changes.
-3. **Given** a person's groups change at the identity provider, **When** their session next refreshes, **Then** their permissions follow without restarting Depths.
+1. **Given** a signed-in person who is not listed as a user or administrator, **When** they open Depths, **Then** they see a page saying they don't currently have access and who to ask, nothing about the host, and administrators see them in the pending list.
+2. **Given** a user assigned stack "media", **When** they send a command for another stack directly, **Then** it is refused, the refusal is audited, and nothing on the host changes.
+3. **Given** an administrator changes a user's role or stacks, **When** that user sends their next command, **Then** it is authorised against the new entry without restarting Depths or signing in again; removing the user or their last stack ends their sessions.
 4. **Given** the audit log, **When** an administrator filters by person, stack or time, **Then** matching entries are shown, newest first, and can be exported.
-5. **Given** a request that arrives from another site carrying the operator's session, **When** it tries to mutate, **Then** it is refused.
+5. **Given** a request that arrives from another site carrying a user's session, **When** it tries to mutate, **Then** it is refused.
+6. **Given** the owner, **When** any administrator tries to demote or remove them, **Then** it is refused and audited.
+7. **Given** no owner configured and no administrator in the users list, **When** Depths starts, **Then** it refuses with a message naming the owner setting.
 
 ---
 
@@ -224,7 +231,7 @@ which job, and links to each one's install steps and guides, and that every link
 
 - **FR-006**: Depths MUST list every stack with its status (running, partly running, stopped, invalid), running and total service counts, and last modification time.
 - **FR-007**: Depths MUST show each stack's compose file, environment file and containers (state, image, ports, uptime, health).
-- **FR-008**: Containers and compose projects on the host that do not belong to a stack in the stacks directory MUST be shown in a separate, clearly named group, read-only.
+- **FR-008**: Containers and compose projects on the host that do not belong to a stack in the stacks directory MUST be shown to administrators in a separate, clearly named group, read-only.
 - **FR-009**: Status MUST come from the runtime. Depths MUST NOT show a state change before the runtime reports it.
 - **FR-010**: When the runtime is unreachable, Depths MUST say so with the reason verbatim and keep the last known state marked stale.
 
@@ -238,7 +245,7 @@ which job, and links to each one's install steps and guides, and that every link
 
 **Editing**
 
-- **FR-016**: Administrators MUST be able to edit a stack's compose file and environment file, create a stack, and delete a stack.
+- **FR-016**: Users MUST be able to edit the compose file and environment file of a stack assigned to them. Administrators MUST be able to edit any stack, create a stack, and delete a stack.
 - **FR-017**: The editor MUST highlight YAML, and report YAML and compose validation errors at their line before saving.
 - **FR-018**: Saving MUST show a diff against the file on disk and write only after confirmation. Content the operator did not change MUST be preserved byte for byte.
 - **FR-019**: Saving MUST be refused when the file changed on disk since it was loaded, showing the other change.
@@ -248,7 +255,7 @@ which job, and links to each one's install steps and guides, and that every link
 
 **Containers and tabs**
 
-- **FR-023**: Operators and viewers MUST be able to open live logs and live CPU, memory, network and I/O stats for any container they may see. Operators MUST additionally be able to open an interactive shell.
+- **FR-023**: Users and administrators MUST be able to open live logs, live CPU, memory, network and I/O stats, and an interactive shell for any container they may see.
 - **FR-024**: Logs, shells and stats MUST open as tabs, several at once, arrangeable side by side at wide widths and one at a time at narrow widths.
 - **FR-025**: Open tabs, their order and layout MUST survive navigation and page reload for that person.
 - **FR-026**: Log tabs MUST follow live, support pause, text search and time filtering, and keep a bounded history with a visible marker where older lines were dropped.
@@ -257,11 +264,11 @@ which job, and links to each one's install steps and guides, and that every link
 **Sign-in and access**
 
 - **FR-028**: Every page and endpoint except sign-in, sign-in callback and health MUST require a signed-in session. There MUST be no anonymous mode and no shared password.
-- **FR-029**: Depths MUST support sign-in through any standards-based OpenID Connect provider, and through OAuth 2.0 providers that are not OIDC (GitHub and Discord as the named cases) by reading identity and team, guild or role membership from the provider.
-- **FR-030**: Administrators MUST be able to map provider groups (or teams) to the roles viewer, operator and administrator, each scoped to all stacks or to named stacks.
-- **FR-031**: A signed-in person with no mapped role MUST get no access and a page saying so.
-- **FR-032**: Every request MUST be authorised server-side against the person's current roles. Hiding a control in the UI MUST NOT be the only protection.
-- **FR-033**: Role changes at the provider MUST take effect at the next session refresh without restarting Depths.
+- **FR-029**: Depths MUST support sign-in through any standards-based OpenID Connect provider, and through OAuth 2.0 providers that are not OIDC (GitHub and Discord as the named cases) by reading the person's identity (an immutable account id, name and email) from the provider. Depths MUST NOT need team, guild, role or organisation scopes.
+- **FR-030**: Administrators MUST be able to give a person the role user or administrator, assign a user a list of stacks, change or remove them, and pre-add a person by provider account id before they first sign in. A user MUST see and act on only their assigned stacks; creating and deleting stacks, removing volumes or images, viewing projects and containers outside the stacks directory, the audit log and the users list MUST be administrator-only.
+- **FR-031**: A signed-in person who is not listed as a user or administrator MUST be recorded as pending, get no access, and see a page saying they don't currently have access. A user with no stacks gets the same page.
+- **FR-032**: Every request MUST be authorised server-side against the person's current entry in the users list. Hiding a control in the UI MUST NOT be the only protection.
+- **FR-033**: A change to a person's role or stacks MUST take effect at that person's next command, without restarting Depths or signing in again. Removing a person, or their last stack, MUST end their sessions. A provider token the provider rejects at refresh MUST end the session.
 - **FR-034**: Mutating requests MUST be protected against cross-site request forgery.
 
 **Audit**
@@ -272,8 +279,9 @@ which job, and links to each one's install steps and guides, and that every link
 
 **Deployment and security**
 
-- **FR-038**: Depths MUST ship as a single container image whose settings (stacks directory, runtime address, identity provider, role mapping, location of the web assets) come from configuration at start-up.
+- **FR-038**: Depths MUST ship as a single container image whose settings (stacks directory, runtime address, identity provider, owner, location of the web assets) come from configuration at start-up.
 - **FR-039**: Depths MUST start only when sign-in is fully configured, and exit with a message naming any missing setting.
+- **FR-048**: Depths MUST take one or more owners from its settings as provider account ids (a single generic owner setting is accepted as an alias). Owners MUST always be administrators and MUST NOT be demotable or removable from the UI. Depths MUST refuse to start, naming the owner setting, when no owner is set and the users list holds no administrator. The users list MUST be Depths' own state, written only by Depths, atomically, readable only by Depths' user, and every change to it MUST be audited.
 - **FR-047**: Depths MUST accept the settings a Dockge host's environment file already carries (the stacks directory under Dockge's name, and a single generic OAuth provider, client id, client secret and public origin), so it can be added beside Dockge on the same environment file without renaming anything. Depths' own setting names win when both are set.
 - **FR-040**: Depths MUST work when its runtime access goes through a socket proxy, and the example deployment MUST show that setup.
 - **FR-041**: The example deployment MUST NOT restart automatically unless the operator opts in.
@@ -292,8 +300,8 @@ which job, and links to each one's install steps and guides, and that every link
 - **Stack**: A sub-directory with a compose file and optional environment file. Its name is its directory name and its compose project name. Has a derived status from its containers.
 - **Loose container / foreign project**: Runtime objects not owned by any stack in the directory. Shown, never acted on.
 - **Operation**: A requested lifecycle action or file change against one stack: who, what, the exact command or diff, status, output, outcome.
-- **Person**: A signed-in identity from the provider, with groups or teams.
-- **Role grant**: A mapping from a provider group to a role (viewer, operator, administrator) over all stacks or named stacks.
+- **Person**: A signed-in identity from the provider, keyed by provider and immutable account id.
+- **User entry**: A person's place in the users list: pending, user (with assigned stacks) or administrator, plus whether they are an owner, and when they were first and last seen.
 - **Audit entry**: An append-only record of one operation attempt.
 - **Tab**: An open log, shell or stats view of one container, with its position in the person's layout.
 
@@ -317,6 +325,10 @@ which job, and links to each one's install steps and guides, and that every link
 - The first real deployment is beside Dockge on the owner's game-server host, on its own port (8080), reached from the internet only through the owner's cluster gateway over the tailnet, never by publishing the home address.
 - Editing compose files as free text is intended. Unlike Fathom's form-only container creation (spec 048), the file is the operator's own and the diff preview states its full effect.
 - Stacks Depths did not create are fully manageable once they are in the stacks directory: putting a stack in that directory is the operator's declaration that Depths may manage it. Projects outside the directory are read-only (FR-008), the same protection 048's adoption gives.
-- The audit log and the role mapping are Depths' own state and live outside the stacks directory, so they never disturb Dockge compatibility.
+- The audit log and the users list are Depths' own state and live outside the stacks directory, so they never disturb Dockge compatibility.
 - Building images from a stack's build context is covered by "up" when the compose file asks for it. A separate build UI is out of scope for v1.
+- Access is a users list kept by Depths, not groups read from the provider. A self-hosted Depths has a handful of people, the owner signs in with Discord or GitHub (whose guilds and teams would need extra scopes and rate-limited calls), and a list the owner edits in the UI is simpler to reason about. Granting by provider group is a later option (research R6).
+- An owner given as a GitHub login is pinned to that account's numeric id at its first sign-in, because logins can be renamed and re-registered.
+- An assignment to a stack that no longer exists is kept and shown as missing, so a stack deleted and recreated under the same name is still assigned. Creating a stack is administrator-only, so a user cannot claim a name.
+- Admins can pre-add a person by provider account id. Invite links are out of scope for v1.
 - Desktop and mobile browsers in their current versions are supported. Depths is a web app only; it has no desktop package.

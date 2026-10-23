@@ -110,7 +110,7 @@ worktrees and merge each green.
 
 ### B2. `crates/web-auth` and `crates/audit-log`
 
-- [ ] T014 [P] [B2] Move `server/src/session.rs` and `server/src/csrf.rs` to `crates/web-auth/src/{session,csrf}.rs` with their tests. `server/src/{session,csrf}.rs` become `pub use web_auth::…`. Extend `Identity` with `provider` (`oidc | github`, defaulting to `oidc` so server behaviour is unchanged).
+- [ ] T014 [P] [B2] Move `server/src/session.rs` and `server/src/csrf.rs` to `crates/web-auth/src/{session,csrf}.rs` with their tests. `server/src/{session,csrf}.rs` become `pub use web_auth::…`. Extend `Identity` with `provider` (`oidc | github | discord`, defaulting to `oidc` so server behaviour is unchanged).
 - [ ] T015 [B2] Move `server/src/oidc.rs` to `crates/web-auth/src/oidc.rs`:
   - Narrow the constructor from `HostedConfig` to `OidcConfig{issuer, client_id, client_secret, redirect_url, scopes}` + `ClaimsConfig{groups_claim, username_claim, groups_required}`.
   - The server builds both from `HostedConfig` and `AccessModel` in `server/src/main.rs` or wherever `OidcClient::discover` is called today.
@@ -164,12 +164,11 @@ worktrees and merge each green.
 
   Then implement it.
 - [ ] T029 [P] Write the failing tests first in `crates/depths-core/src/role.rs`:
-  - The highest matching grant wins.
-  - `*` and glob matching.
-  - No grant means no role.
-  - The permission table in data-model.md, row by row, including "create requires a `*` grant".
+  - `pending` permits nothing; a `user` permits nothing on a stack outside their list.
+  - The permission table in data-model.md, row by row, for `user` on an assigned stack, `user` on an unassigned stack, and `admin`.
+  - Admin-only actions (create, delete, `down` with volumes or images, foreign and standalone views, audit, users) are refused to every `user`.
 
-  Then implement `RoleGrant`, `Role` and `permits(identity, stack, action)`.
+  Then implement `Role { Pending, User, Admin }`, `Access { role, stacks }` and `permits(access, stack, action)`, with no I/O.
 - [ ] T030 [P] Write the failing tests first in `crates/depths-core/src/plan.rs`. Cover the argv table in research.md R2 for every `Operation` kind:
   - `[env-files]` present only when `global.env` exists: `--env-file ../global.env --env-file ./.env`, the second only when `.env` exists.
   - `down` with `remove_volumes`/`remove_images` adds `--volumes`/`--rmi all`, and the result is `destructive`.
@@ -201,15 +200,21 @@ worktrees and merge each green.
   - The stacks dir is missing.
 
   - `OAUTH_CLIENT_*` is set without `OAUTH_PROVIDER`.
+  - A bare `OWNER_USER_ID` value is set without `OAUTH_PROVIDER`, or an owner id names an unknown provider.
 
-  Accept the R14 aliases (`DOCKGE_STACKS_DIR`, `ORIGIN_URL`, `OAUTH_PROVIDER` + `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET`) below the `DEPTHS_*` names: flag > `DEPTHS_*` > alias > default. `ORIGIN_URL` with no scheme means `https://`. Default listen `0.0.0.0:8080`. Log which name each setting came from, never a secret's value.
+  Accept the R14 aliases (`DOCKGE_STACKS_DIR`, `ORIGIN_URL`, `OAUTH_PROVIDER` + `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET`, `OWNER_USER_ID`) below the `DEPTHS_*` names: flag > `DEPTHS_*` > alias > default. `ORIGIN_URL` with no scheme means `https://`. Default listen `0.0.0.0:8080`. Log which name each setting came from, never a secret's value.
 
   Secrets are accepted via `*_FILE` and never logged. Add unit tests for each refusal, for alias precedence, and for a scheme-less `ORIGIN_URL`.
-- [ ] T036 Write `apps/depths/server/src/roles.rs`:
-  - Load `roles.toml`, with unknown keys and values rejected.
-  - Watch it with `notify`. On a parse error keep the previous mapping and record `last_error`.
-  - When the file is missing or invalid at first start, nobody has any role (fail closed).
-  - Add tests for each case.
+- [ ] T036 Write `apps/depths/server/src/users.rs`, the users registry per data-model.md and research R6:
+  - Load `<data-dir>/users.json`; a missing file is an empty list, one that fails to parse refuses start with its path.
+  - Write by temp file, fsync, rename, mode 0600, behind one async mutex. Depths is the only writer.
+  - Merge in owners from config: always `admin`, never removable or demotable (`Denied`). Pin a `github:<login>` owner to its numeric id at first sign-in and record `pinned_from`.
+  - Record every sign-in: new people as `pending` with identity and first seen; update last seen, username and email.
+  - `authorise(identity, cmd, stack?)` per the data-model permission table, read fresh on each call.
+  - `put`/`remove` that audit `user_added`, `user_changed`, `user_removed`, and return the sessions to end when a person, or their last stack, is removed.
+  - Refuse start, naming `OWNER_USER_ID`, when no owner is set and the list holds no admin.
+
+  Write the tests first: owner pinning (and a renamed login not matching), the start-up refusal, pending recording, an atomic write surviving a crash between write and rename (the old file is intact), a corrupt file refusing start, the lockout guard on the owner, and an assignment to a missing stack kept.
 - [ ] T037 Write `apps/depths/server/src/app.rs` and `http.rs`: Axum router per contracts/protocol.md's HTTP table.
   - Use the `web-auth` session extractor and CSRF layer, with cookie `__Host-depths_session`.
   - Wire the OIDC, GitHub and Discord providers into `/auth/login`, `/auth/callback/{provider}`, `/auth/refresh` and `/auth/logout`, plus `/api/v1/me`.
@@ -220,10 +225,10 @@ worktrees and merge each green.
 - [ ] T038 Write `apps/depths/server/src/ws.rs`: the WebSocket upgrade.
   - Check `Origin` against the public URL and require the session.
   - Handle `Hello{protocol_version, csrf_token}`, with close codes 4401, 4403 and 4429 (8 sockets per session).
-  - Dispatch `CmdEnvelope`, authorising every command server-side against current roles (FR-032).
+  - Dispatch `CmdEnvelope`, authorising every command server-side against the users registry at the time of the command (FR-032, FR-033).
   - Implement `StreamSink` for the socket.
   - Send `SessionExpiring`.
-  - Add tests for each close code, and for a viewer's forged `Confirm` returning `Denied` and being audited.
+  - Add tests for each close code, for a user's forged `Confirm` on an unassigned stack returning `Denied` and being audited, and for removing a user closing their sockets with 4403.
 - [ ] T039 Write `apps/depths/server/src/ops.rs`: the operation engine.
   - Build a preview through `depths-core::plan`, and store it with a single-use id bound to `{session_id, stack_hash, expires_at = now + 5 min}`.
   - `Confirm` checks the binding, or returns `PreviewVoid{reason}`.
@@ -245,12 +250,12 @@ worktrees and merge each green.
   - An OTLP exporter only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
   - Feature flags `DEPTHS_FEATURE_SHELL`/`DEPTHS_FEATURE_EDIT` exposed in `/api/v1/me`.
   - Wiring only: `main.rs` stays thin.
-- [ ] T043 Write the fake backend for the web app, `apps/depths/web/tests/support/fake-backend.ts`. It is scriptable: canned stacks, previews, operation output, log and shell streams, roles, and denials. It speaks the generated protocol over a mocked WebSocket, and is used by every Playwright story. Add `apps/depths/web/playwright.config.ts` with one project per story, importing the worker sizing from `ui/tests/support/workers.ts`.
+- [ ] T043 Write the fake backend for the web app, `apps/depths/web/tests/support/fake-backend.ts`. It is scriptable: canned stacks, previews, operation output, log and shell streams, users and pending people, and denials. It speaks the generated protocol over a mocked WebSocket, and is used by every Playwright story. Add `apps/depths/web/playwright.config.ts` with one project per story, importing the worker sizing from `ui/tests/support/workers.ts`.
 - [ ] T044 Write the web shell in `apps/depths/web/src/`:
   - `protocol/transport.ts` (WebSocket, reconnect with backoff, the `Hello` handshake).
   - `app/` (router, theme via `@companion/theme`, a zustand store per feature).
   - Routes lazy-loaded with `React.lazy`.
-  - A sign-in page with the configured providers, and a no-access page (FR-031). When the provider is GitHub, the no-access page carries a note about org OAuth app restrictions.
+  - A sign-in page with the configured providers, and a "you don't currently have access" page for `pending` people and users with no stacks (FR-031), showing nothing about the host.
 
 **Checkpoint**: Depths server boots, signs in and authorises; the web shell loads.
 
@@ -258,8 +263,8 @@ worktrees and merge each green.
 
 ## Phase 4: User Story 1, sign in and see every stack (P1) 🎯 MVP
 
-**Goal**: a signed-in person sees every stack they have a role on, with status, service counts and
-last change, plus foreign projects and standalone containers, read-only.
+**Goal**: a signed-in person sees every stack they may see (their assigned stacks, or all for an admin), with status, service counts and
+last change, plus, for admins, foreign projects and standalone containers, read-only.
 
 **Independent test**: three stacks (running, partial, stopped), one invalid, one foreign project.
 Sign in and see each listed correctly. Then sign out and get redirected to sign-in.
@@ -274,7 +279,7 @@ Sign in and see each listed correctly. Then sign out and get redirected to sign-
   - Filtering by name and status.
   - At 360 px wide there is no horizontal scroll.
 - [ ] T046 [P] [US1] Write a performance test in `apps/depths/web/tests/e2e/us1-stacks/scale.spec.ts`: the fake backend serves 200 stacks / 2,000 containers. Assert the first render is under 2 s and filter input is handled in under 100 ms (SC-004).
-- [ ] T047 [US1] Implement `ListStacks`/`GetStack` in `apps/depths/server/src/ws.rs` via `FsStackStore` + `containers_by_project` + `depths-core::status`, filtered to stacks the person has a role on. Add a test that foreign projects are those with no stack dir, or a `working_dir` outside the root, and that a project whose `working_dir` is a stack's directory but whose name differs is foreign with `elsewhere_of = <stack>`.
+- [ ] T047 [US1] Implement `ListStacks`/`GetStack` in `apps/depths/server/src/ws.rs` via `FsStackStore` + `containers_by_project` + `depths-core::status`, filtered to the person's assigned stacks (all for an admin; `foreign` and `standalone` empty for a user). Add a test that a user never receives an unassigned stack, and that foreign projects are those with no stack dir, or a `working_dir` outside the root, and that a project whose `working_dir` is a stack's directory but whose name differs is foreign with `elsewhere_of = <stack>`.
 - [ ] T087 [US1] Handle an unreachable runtime (FR-010) in `apps/depths/server/src/watch.rs` and `apps/depths/web/src/features/stacks/StackList.tsx`. When `docker ps` fails, send `RuntimeUnavailable{reason}` with docker's stderr verbatim, keep the last `Stacks` snapshot with `stale: true` and `as_of`, and show a banner. Clear it on the next successful inventory. Add a mock-runner test and an E2E case in `tests/e2e/us1-stacks/list.spec.ts`. Lifecycle previews are refused while the runtime is unavailable.
 - [ ] T048 [US1] Add path-identity detection in `apps/depths/server/src/watch.rs`: warn and send a banner event when a recognised stack's `com.docker.compose.project.working_dir` is under a different root (research R1). Add a test.
 - [ ] T049 [US1] Build the stack list UI in `apps/depths/web/src/features/stacks/{StackList,StackRow,StatusBadge,ForeignList}.tsx`:
@@ -324,8 +329,8 @@ confirming, the output streams and the status turns running, and the audit log h
 
 ## Phase 6: User Story 3, edit, create and delete stacks (P2)
 
-**Goal**: admins edit compose and `.env` with highlighting, validation, a diff, conflict detection
-and byte preservation. They also create and delete stacks.
+**Goal**: users (on their assigned stacks) and admins edit compose and `.env` with highlighting, validation, a diff, conflict detection
+and byte preservation. Admins also create and delete stacks.
 
 **Independent test**: add a service to a compose file, and check the diff shows exactly that, save
 and deploy works in one preview, and every other byte is unchanged.
@@ -337,7 +342,7 @@ and deploy works in one preview, and every other byte is unchanged.
   - The diff shows only the change (FR-018).
   - On conflict, the other change is shown and nothing is written (FR-019).
   - Save and deploy shows the diff and `up` in one preview (FR-020).
-  - `.env` secret-looking values are masked until revealed, and reveal is operator+ (FR-021).
+  - `.env` secret-looking values are masked until revealed, and reveal works for a user on an assigned stack (FR-021).
 - [ ] T059 [P] [US3] Write E2E tests in `apps/depths/web/tests/e2e/us3-edit/create-delete.spec.ts`:
   - Create refuses an invalid or taken name with the reason (FR-022).
   - Delete defaults to keeping the directory, and removing it is an explicit option named in the preview.
@@ -383,18 +388,21 @@ layout restored and every tab live.
 
 ## Phase 8: User Story 5, control who can do what, and see what was done (P2)
 
-**Goal**: roles from IdP groups per stack; every mutation attempt audited; admins filter and export the log.
+**Goal**: a users list with an owner, user/admin roles and per-user stacks; every mutation attempt and users-list change audited; admins filter and export the log.
 
-**Independent test**: group A is viewer on all stacks, group B is operator on stack X. A sees
-everything and can change nothing. B can act only on X, and every attempt shows up in the audit log.
+**Independent test**: with only an owner set, person A signs in and gets the no-access page and
+shows as pending. The owner makes A a user on stack X. A's next command works on X, and A sees no
+other stack, foreign project or loose container. Removing X from A ends A's session. Every change
+and every attempt shows up in the audit log.
 
-- [ ] T069 [P] [US5] Write E2E tests in `apps/depths/web/tests/e2e/us5-access/roles.spec.ts`:
-  - The viewer sees no actions.
-  - An operator on X sees actions on X only.
-  - A forged command from the viewer is denied and audited.
-  - A role change in the fake IdP takes effect after `/auth/refresh` without a restart (FR-033).
-  - A person with no role gets the no-access page (FR-031).
-  - Admins see the roles mapping read-only, with `last_error` when the file is broken.
+- [ ] T069 [P] [US5] Write E2E tests in `apps/depths/web/tests/e2e/us5-access/users.spec.ts`:
+  - A pending person gets the no-access page (FR-031) and appears in the admin's pending list.
+  - A user on X sees X only: no other stack, no foreign or standalone group, no audit or users view.
+  - A user on X can reveal `.env`, run lifecycle actions, open a shell and save on X; `down` with volumes, create and delete are not offered.
+  - A forged command from the user for another stack is denied and audited.
+  - An admin's change to a user's stacks applies at the user's next command without signing in again; removing their last stack ends the session (FR-033).
+  - The owner cannot be demoted or removed; an admin can pre-add an id that has never signed in.
+  - A stack assigned but missing on disk shows as missing in the users view.
 - [ ] T070 [P] [US5] Write E2E tests in `apps/depths/web/tests/e2e/us5-access/audit.spec.ts`:
   - Every mutation kind, plus denied and failed attempts, appears with actor, time, stack, argv or diff summary, and outcome (FR-035).
   - Filter by stack, actor, action and time.
@@ -402,22 +410,22 @@ everything and can change nothing. B can act only on X, and every attempt shows 
   - There are no edit or delete controls, and no API exists for them (FR-036).
 - [ ] T071 [US5] Implement the GitHub provider in `crates/web-auth/src/github.rs` per research R5:
   - PKCE S256 and state.
-  - Scopes `read:user user:email read:org`.
-  - `GET /user`, `/user/emails`, `/user/orgs` and `/user/teams` mapped to `github:<org>` and `github:<org>/<team-slug>`.
-  - Re-read on `refresh`.
+  - Scopes `read:user user:email`; subject = the numeric id.
+  - `GET /user` and `/user/emails`; no org or team calls.
+  - `refresh` calls `GET /user`; a 401 is rejected.
 
-  Add tests against a fake GitHub (axum stub) in `crates/web-auth/tests/github.rs`, including that revoked team membership drops the group on refresh.
+  Add tests against a fake GitHub (axum stub) in `crates/web-auth/tests/github.rs`, including that a revoked token is rejected on refresh and that a renamed login keeps the same subject.
 - [ ] T088 [US5] Implement the Discord provider in `crates/web-auth/src/discord.rs` per research R13:
   - `state` always, PKCE S256 sent; nothing relies on PKCE alone.
-  - Scopes `identify email guilds guilds.members.read`; redirect URI exactly `<public_url>/auth/callback/discord`.
-  - `GET /users/@me` → subject, username, verified email. `GET /users/@me/guilds` → `discord:<guild_id>`. `GET /users/@me/guilds/{id}/member` → `discord:<guild_id>/<role_id>`, called only for guild ids named by a grant in `roles.toml`. Always add `discord:user/<user_id>`.
+  - Scopes `identify email`; redirect URI exactly `<public_url>/auth/callback/discord`.
+  - `GET /users/@me` → subject (the snowflake), username, verified email. No guild calls.
   - Refresh with the refresh token; 401 = rejected, 429 = unreachable (honour `retry_after`).
 
-  Add tests against a fake Discord (axum stub) in `crates/web-auth/tests/discord.rs`: the member endpoint is never called for an unnamed guild, a role removed at Discord drops the group on refresh, and a 429 keeps the last known groups. Then confirm the PKCE exchange once against a real Discord application and record the result in research R13.
-- [ ] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Re-read groups through the session's provider. When the provider **rejects** the person (revoked grant, 401/403, user no longer in the org), end the session (fail closed). When the provider is **unreachable** (connect error, timeout, 5xx), keep the session with its last known groups until it expires, retry with backoff, and log a warning (spec Edge Cases). Add a test for each case.
-- [ ] T073 [US5] Implement `GetAudit`, `GetRoles` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader.
-- [ ] T074 [US5] Build the admin views in `apps/depths/web/src/features/audit/{AuditLog,AuditFilters,RolesView}.tsx`: a virtualised table that collapses to cards at narrow widths, with export.
-- [ ] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, unauthenticated and as each role, and asserts that the outcome matches the permission table in data-model.md (SC-006).
+  Add tests against a fake Discord (axum stub) in `crates/web-auth/tests/discord.rs`: no guild endpoint is ever called, a 401 on refresh is rejected, and a 429 keeps the session. Then confirm the PKCE exchange once against a real Discord application and record the result in research R13.
+- [ ] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Revalidate the token through the session's provider. When the provider **rejects** it (revoked grant, 401/403), end the session (fail closed). When the provider is **unreachable** (connect error, timeout, 5xx), keep the session until it expires, retry with backoff, and log a warning (spec Edge Cases). Add a test for each case.
+- [ ] T073 [US5] Implement `GetAudit`, `GetUsers`, `PutUser`, `RemoveUser` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader. Broadcast `UsersChanged` to admin sockets; on a removal, end the returned sessions and close their sockets.
+- [ ] T074 [US5] Build the admin views in `apps/depths/web/src/features/{audit/{AuditLog,AuditFilters},users/UsersView}.tsx`: the audit log as a virtualised table that collapses to cards at narrow widths, with export. UsersView lists users and the pending list, sets role and stacks (missing stacks marked), adds an id by hand, and shows owners locked.
+- [ ] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, as unauthenticated, pending, a user on an assigned stack, a user on an unassigned stack, and admin, and asserts that the outcome matches the permission table in data-model.md (SC-006).
 
 ---
 
@@ -434,7 +442,7 @@ manage a stack through the proxy. Check that Depths runs as non-root with no soc
   - A `cli` stage copying `docker` and the compose plugin from `docker:29-cli`.
   - A runtime stage on `debian:trixie-slim` with `tini` and user `depths` (10001), assets at `/usr/share/depths/web` passed as `STATIC_DIR` (not embedded), and `HEALTHCHECK` on `/healthz`.
   - Add `.dockerignore` entries.
-- [ ] T077 [US6] Write `apps/depths/compose.yaml`, `apps/depths/.env.example` and `apps/depths/roles.example.toml` per contracts/config.md:
+- [ ] T077 [US6] Write `apps/depths/compose.yaml`, and `apps/depths/.env.example` (with `OWNER_USER_ID`) per contracts/config.md:
   - A linuxserver socket-proxy with the R8 env.
   - Socket mounted read-only on the proxy only.
   - The stacks dir at the same path on both sides.
@@ -447,7 +455,7 @@ manage a stack through the proxy. Check that Depths runs as non-root with no soc
   - Open an exec through the proxy and keep it idle past the proxy's 10-minute cut. The cut is configurable in the test via the proxy's timeout env, so it is short here. Check that the tab reconnects.
   - Then `down`, prune build cache (`--filter until=24h`), and run `scripts/hygiene.sh`.
 - [ ] T089 [US6] Deploy beside Dockge on the steam host (first real deployment):
-  - `../ansible/composes/steam/compose.yaml`: `depths-socket-proxy`, `depths` on 8080 (stacks dir at the same path, `user: "1001:1001"` so files stay steam's, explicit env mapped from the host `.env`, no `env_file` passthrough of unrelated secrets), and a `depths-tailscale` sidecar (`TS_AUTHKEY`, Headscale login server, `TS_SERVE_CONFIG` forwarding tailnet TCP 8080 to `depths:8080`).
+  - `../ansible/composes/steam/compose.yaml`: `depths-socket-proxy`, `depths` on 8080 (stacks dir at the same path, `user: "1001:1001"` so files stay steam's, explicit env mapped from the host `.env` including `OWNER_USER_ID=140642000969007104` with `OAUTH_PROVIDER=discord`, no `env_file` passthrough of unrelated secrets), and a `depths-tailscale` sidecar (`TS_AUTHKEY`, Headscale login server, `TS_SERVE_CONFIG` forwarding tailnet TCP 8080 to `depths:8080`).
   - `../fluxified/overlays/system/tailscale/`: `egress-depths.yaml`, `service-depths.yaml` (port 8080 only), `route-depths.yaml` for `depth.boop.ninja`, the `ts-state-egress-depths` RBAC name, a `secrets/tailscale-egress-depths.sops.env` generator, and the listener pair on `shared-gateway`.
   - Register `https://depth.boop.ninja/auth/callback/discord` in the Discord application.
   - Pushing fluxified deploys prod, and the compose change is applied on the host: both wait for the owner's go-ahead.
@@ -472,7 +480,7 @@ and which for a Docker host, and links each app's install.
   - `README.md`.
   - `install.md` (example compose, same-path mount, socket proxy, the root-equivalence warning, `RESTART_POLICY`).
   - `sign-in.md` (OIDC; GitHub OAuth App, with org restriction approval).
-  - `roles.md` (`roles.toml`, fail-closed).
+  - `users.md` (`OWNER_USER_ID`, finding your Discord or GitHub id, pending people, assigning stacks).
   - `migrating-from-dockge.md` (point Depths at the same dir, file precedence difference, `global.env`, what Depths writes and does not, switching back).
   - `tabs-and-shells.md`.
 
@@ -526,6 +534,6 @@ T001 ─┬─ T002 ─ T003 ─────────────┐
    Then T088, T076, T077 and T089: Discord sign-in, the image and the steam deployment, so the MVP
    runs beside Dockge at `https://depth.boop.ninja`.
 2. **Add US2**: Depths is now a usable Dockge replacement for day-to-day lifecycle.
-3. **Add US3, US4 and US5** in parallel: editing, tabs, roles and audit.
+3. **Add US3, US4 and US5** in parallel: editing, tabs, users and audit.
 4. **Add US6 and US7**: ship the image and the suite README.
 5. **Finish with T085 and T086**: validation, then screenshots last.

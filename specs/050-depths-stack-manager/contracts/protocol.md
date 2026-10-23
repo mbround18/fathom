@@ -17,20 +17,27 @@ version handling mirror Fathom's `BackendCmdEnvelope` / `BackendEventEnvelope`.
 
 | Command | Role | Result event(s) |
 |---|---|---|
-| `ListStacks` | viewer (filtered to stacks with a role) | `Stacks{root, stacks, foreign, standalone, warnings, stale, as_of}` then live `StacksChanged`; `RuntimeUnavailable{reason}` when docker fails (FR-010) |
-| `GetStack{name}` | viewer | `StackDetail{stack, compose_text, env_text_masked \| env_text, content_hash}` |
-| `RevealEnv{name}` | operator | `EnvRevealed{name, env_text}` (audited; masking is by key: names containing `PASS`, `SECRET`, `TOKEN`, `KEY`, `PRIVATE`, `CREDENTIAL`, case-insensitive) |
+| `ListStacks` | user (filtered to assigned stacks; `foreign` and `standalone` empty) or admin | `Stacks{root, stacks, foreign, standalone, warnings, stale, as_of}` then live `StacksChanged`; `RuntimeUnavailable{reason}` when docker fails (FR-010) |
+| `GetStack{name}` | user (assigned stack) | `StackDetail{stack, compose_text, env_text_masked \| env_text, content_hash}` |
+| `RevealEnv{name}` | user (assigned stack) | `EnvRevealed{name, env_text}` (audited; masking is by key: names containing `PASS`, `SECRET`, `TOKEN`, `KEY`, `PRIVATE`, `CREDENTIAL`, case-insensitive) |
 | `PreviewOp{stack, kind, options}` | per data-model table | `Preview{…}` or `Denied` / `Busy` / `Invalid` |
-| `PreviewSave{draft, deploy}` | admin | `Preview{file_diff, steps: [validate, up?]}`, or `ValidationFailed{errors[{line?, message}]}`, or `Conflict{current_text, current_hash}` |
+| `PreviewSave{draft, deploy}` | user (assigned stack) for a save; admin for create | `Preview{file_diff, steps: [validate, up?]}`, or `ValidationFailed{errors[{line?, message}]}`, or `Conflict{current_text, current_hash}` |
 | `Confirm{preview_id}` | as previewed | `OpStarted{operation_id}`, `OpOutput{operation_id, chunk}`*, `OpFinished{operation_id, outcome}` |
 | `Cancel{operation_id}` | actor or admin | `OpFinished{outcome: cancelled}` (SIGINT to the compose process) |
-| `OpenLogs{target, tail, since?}` | viewer | `StreamOpened{stream_id}`, `LogChunk{stream_id, lines}`*, `StreamClosed{stream_id, reason}` |
-| `OpenShell{container, shell?, cols, rows}` | operator, flag on | `StreamOpened`, `ShellOutput{stream_id, bytes_b64}`*, `StreamClosed` |
+| `OpenLogs{target, tail, since?}` | user (assigned stack; a `{container}` target outside a stack is admin) | `StreamOpened{stream_id}`, `LogChunk{stream_id, lines}`*, `StreamClosed{stream_id, reason}` |
+| `OpenShell{container, shell?, cols, rows}` | user (assigned stack), flag on | `StreamOpened`, `ShellOutput{stream_id, bytes_b64}`*, `StreamClosed` |
 | `ShellInput{stream_id, bytes_b64}` / `ShellResize{stream_id, cols, rows}` | owner of stream | none |
-| `WatchStats{targets}` / `UnwatchStats` | viewer | `StatsSample{samples}` every 2 s while watched |
+| `WatchStats{targets}` / `UnwatchStats` | user (assigned stack) | `StatsSample{samples}` every 2 s while watched |
 | `CloseStream{stream_id}` | owner | `StreamClosed` |
 | `GetAudit{filter{stack?, actor?, action?, from?, to?}, cursor?}` | admin | `AuditPage{entries, next_cursor?}` |
-| `GetRoles` | admin | `Roles{grants, source_path, last_error?}` |
+| `GetUsers` | admin | `Users{users, pending}`, then live `UsersChanged{users, pending}` |
+| `PutUser{id, role, stacks}` | admin | `Users{…}` (audited `user_added` or `user_changed`); `Denied` for the owner, or for a role other than `user`/`admin` |
+| `RemoveUser{id}` | admin | `Users{…}` (audited `user_removed`); `Denied` for the owner |
+
+"user (assigned stack)" means role `user` with the stack in their `stacks`, or `admin`. `PreviewOp`
+follows the data-model table. `id` in `PutUser`/`RemoveUser` is provider-qualified
+(`discord:<snowflake>`, `github:<numeric id>`, `oidc:<sub>`); `PutUser` on an unknown id is an
+invite.
 
 `target` = `{stack, service}` (compose logs) or `{container}` (docker logs). Streams that drop
 (proxy idle cut, R8) send `StreamClosed{reason: disconnected}`; the client reopens with backoff and
@@ -38,8 +45,9 @@ the tab shows "reconnected".
 
 ## Rules the server enforces (not the client)
 
-1. Every command is authorised against the session's identity and the roles mapping at the time of
-   the command (FR-032).
+1. Every command is authorised against the session's identity and the users registry as it is at
+   the time of the command (FR-032, FR-033). Removing a person, or their last stack, ends their
+   sessions and closes their sockets with **4403**.
 2. `Confirm` succeeds only if the preview id exists, is unused, belongs to this session, has not
    expired, and the stack's current `content_hash` equals the one bound into it. Otherwise
    `PreviewVoid{reason}`.
@@ -56,9 +64,9 @@ the tab shows "reconnected".
 | `GET /readyz` | none | Docker reachable and stacks root readable; 503 otherwise with a reason. |
 | `GET /auth/login?provider=oidc\|github\|discord` | none | Redirect to the provider (state, nonce, PKCE). |
 | `GET /auth/callback/{provider}` | none | Completes sign-in, sets cookie, redirects to `/`. |
-| `POST /auth/refresh` | session + CSRF header | Re-reads groups (GitHub teams, Discord guilds/roles, OIDC refresh). |
+| `POST /auth/refresh` | session + CSRF header | Revalidates the provider token (OIDC refresh, Discord refresh token, GitHub `GET /user`); a rejected token ends the session. |
 | `POST /auth/logout` | session + CSRF header | Ends session; RP-initiated logout URL for OIDC. |
-| `GET /api/v1/me` | session | `{identity, csrf_token, roles_summary, features}`. |
+| `GET /api/v1/me` | session | `{identity, csrf_token, role: user\|admin\|pending, owner, stacks, features}`; `pending` drives the no-access page. |
 | `GET /api/v1/audit/export?…` | session (admin) | Filtered JSONL download. |
 | `GET /*` | none | Static files from `--static-dir`, SPA fallback to `index.html`. |
 

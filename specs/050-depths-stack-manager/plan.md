@@ -28,7 +28,7 @@ Two decisions shape the implementation:
    followed by confirmation, a server-side role check, and an audit entry naming the signed-in
    person. No path skips the preview. The difference from 048 is the gate. In 048 a project is
    read-only until it is adopted. In Depths, placing a directory in the stacks dir already makes it
-   manageable, and per-stack roles from the IdP's groups decide who may act on it.
+   manageable, and the users list (owner from the environment, users assigned stacks by an admin) decides who may act on it.
 
 See [research.md](./research.md) for the Dockge behaviour, the crate seams and the rejected
 alternatives.
@@ -46,7 +46,6 @@ alternatives.
 - New, Rust:
   - `notify`, for watching the stacks dir (R9).
   - `tracing-opentelemetry` and `opentelemetry-otlp`, an optional exporter (R12).
-  - `toml`, for the roles file, if it is not already in the lock.
 - New, web:
   - `@uiw/react-codemirror`, or CodeMirror 6 directly: `@codemirror/lang-yaml`, `@codemirror/lint`
     and `@codemirror/merge`. Loaded lazily (R10).
@@ -57,9 +56,10 @@ alternatives.
 - Stacks are the files in the stacks dir.
 - Depths' own state lives in `DEPTHS_DATA_DIR` (default `/var/lib/depths`):
   - The audit log, `audit/audit-log.jsonl` plus rotated files.
+  - The users list, `users.json` (R6).
   - Nothing else.
 - Sessions are in memory.
-- The roles file is read-only to Depths.
+- `users.json` in the data dir is written only by Depths (temp file + rename, mode 0600).
 
 **Testing**:
 - `cargo test`: unit tests against a mock `Runner` with canned docker output, as in 048.
@@ -135,12 +135,12 @@ With that amendment in place:
 
 | Principle | Verdict | How the design satisfies it |
 |---|---|---|
-| **I. Operator-first, explicit mutation** | **Pass, load-bearing** | <ul><li>Every lifecycle action, save and delete goes command → server-built preview (exact argv, cwd, env-file flags, what it reaches) → confirm with the preview id → run → audit.</li><li>The preview id is single-use and bound to the session and to the stack's content hash, so a preview made before someone else's edit cannot be confirmed (FR-019).</li><li>Free-text YAML is allowed for admins (FR-016), unlike 048. It is still previewable: the preview of a save is the diff of the file, plus `compose config` validation (spec Assumptions).</li><li>Nothing is optimistic: state changes only when docker reports it.</li><li>Docker's stderr is shown verbatim.</li></ul> |
+| **I. Operator-first, explicit mutation** | **Pass, load-bearing** | <ul><li>Every lifecycle action, save and delete goes command → server-built preview (exact argv, cwd, env-file flags, what it reaches) → confirm with the preview id → run → audit.</li><li>The preview id is single-use and bound to the session and to the stack's content hash, so a preview made before someone else's edit cannot be confirmed (FR-019).</li><li>Free-text YAML is allowed for users on their assigned stacks and for admins (FR-016), unlike 048. It is still previewable: the preview of a save is the diff of the file, plus `compose config` validation (spec Assumptions).</li><li>Nothing is optimistic: state changes only when docker reports it.</li><li>Docker's stderr is shown verbatim.</li></ul> |
 | **II. One contract, backend owns the runtime** | **Pass (after T001)** | <ul><li>`crates/depths-protocol` is Depths' one contract, with ts-rs bindings generated into `apps/depths/web/src/protocol/generated/`, and a drift check is added to `scripts/ci.sh`.</li><li>The container wire types are defined once in `crates/container-runtime` and re-exported by both contracts.</li><li>The web app never touches Docker or the files.</li></ul> |
 | **III. Tested at the boundaries** | **Pass** | <ul><li>Playwright E2E per story against a fake backend.</li><li>A round-trip test per protocol variant.</li><li>A failing-first unit test per rule: path confinement, symlink escape, conflict, role resolution, the one-shot status rule, one op per stack, preview binding.</li><li>Fathom's whole suite stays green on every extraction commit (FR-044, SC-007), and the bindings drift check proves the generated TS is byte-identical.</li></ul> |
 | **IV. Density scales with width** | **Pass** | <ul><li>The stack list is virtualised.</li><li>Tabs collapse into a single pane with a tab strip on phones.</li><li>No horizontal scroll, and the log view wraps by default.</li><li>The theme and primitives are shared, so contrast tests (`color.ts`) cover Depths too.</li><li>WCAG 2.2 AA.</li></ul> |
 | **V. Fast and quiet** | **Pass, one risk tracked** | <ul><li>With no session connected, nothing runs (R9).</li><li>Events and fs-watch are debounced into one inventory.</li><li>Stats run only while a stats tab is visible.</li><li>Log and shell buffers are bounded rings with a visible cap.</li><li>**Risk**: re-inventory spawns `docker ps`. This is mitigated by debouncing, and by one batched call per refresh rather than one per stack.</li></ul> |
-| **VI. User data is sacred** | **Pass** | <ul><li>Writes are the operator's bytes, made atomically (temp file + rename in the same dir, mode and owner preserved).</li><li>A conflict check runs against the hash shown when editing began.</li><li>Delete keeps the directory unless the person chooses otherwise.</li><li>An unreadable roles file keeps the last good mapping, or, at first start, grants nothing, which is fail-closed.</li><li>The audit log is append-only.</li><li>Fathom's state files are untouched by the extraction: `container_adoption.json` keeps its path.</li></ul> |
+| **VI. User data is sacred** | **Pass** | <ul><li>Writes are the operator's bytes, made atomically (temp file + rename in the same dir, mode and owner preserved).</li><li>A conflict check runs against the hash shown when editing began.</li><li>Delete keeps the directory unless the person chooses otherwise.</li><li>`users.json` is written atomically; a corrupt one refuses start instead of becoming an empty list, and without an owner or an admin Depths does not start, which is fail-closed.</li><li>The audit log is append-only.</li><li>Fathom's state files are untouched by the extraction: `container_adoption.json` keeps its path.</li></ul> |
 
 **Hosted denials** (Fathom): unchanged. Fathom's hosted server still denies the container scene.
 Depths is the supported way to manage Docker on a server.
@@ -157,7 +157,7 @@ specs/050-depths-stack-manager/
 ├── quickstart.md        # Phase 1: how to validate, light fixtures
 ├── contracts/
 │   ├── protocol.md      # Depths WS commands/events + HTTP endpoints
-│   ├── config.md        # CLI flags, env vars, roles.toml, example compose
+│   ├── config.md        # CLI flags, env vars, owner and users.json, example compose
 │   └── shared-crates.md # Public surface of the extracted crates and packages
 ├── checklists/
 │   └── requirements.md
@@ -210,7 +210,7 @@ src/protocol/v1/container_runtime.rs  # becomes `pub use container_runtime::wire
 server/src/                        # session/csrf/oidc/audit become re-exports + thin adapters
 ui/                                # imports @companion/*; behaviour unchanged
 
-docs/guides/depths/                # NEW: install, sign-in (OIDC, GitHub), roles, socket proxy,
+docs/guides/depths/                # NEW: install, sign-in (OIDC, GitHub, Discord), users, socket proxy,
                                    #   migrating from Dockge
 README.md                          # REBRAND: the orchestration companion suite
 CONTRIBUTING.md                    # EDIT: workspace layout, crates/packages, Depths dev loop
@@ -233,7 +233,7 @@ CONTRIBUTING.md                    # EDIT: workspace layout, crates/packages, De
 | A. Foundation | <ul><li>T001 constitution amendment.</li><li>Root pnpm workspace + lockfile move + ~15 path updates.</li><li>Empty crate/package skeletons in the workspaces.</li></ul> | `scripts/ci.sh` green; Fathom E2E green |
 | B. Extraction (parallel) | <ul><li>B1 `container-runtime`.</li><li>B2 `web-auth` + `audit-log`.</li><li>B3 `@companion/theme`, `ui`, `terminal`.</li></ul> | Each sub-track lands green on its own; bindings drift zero |
 | C. Depths backend | <ul><li>core.</li><li>fs adapter.</li><li>protocol.</li><li>server: auth, WS, ops, watch, audit.</li></ul> | Unit + round-trip tests |
-| D. Depths web | <ul><li>Per story: US1 list → US2 lifecycle → US3 edit → US4 tabs → US5 roles/audit.</li></ul> | Playwright per story |
+| D. Depths web | <ul><li>Per story: US1 list → US2 lifecycle → US3 edit → US4 tabs → US5 users/audit.</li></ul> | Playwright per story |
 | E. Ship | <ul><li>Dockerfile, example compose, quickstart real-daemon run.</li><li>Guides, README rebrand, CONTRIBUTING.</li><li>Brochure screens last.</li></ul> | Quickstart passes; hygiene clean |
 
 B1, B2 and B3 touch disjoint files and can run as parallel agents. C needs B1 and B2, and D needs
@@ -246,7 +246,7 @@ The re-check was done after writing data-model.md and contracts/. It found no ne
 - The preview binding (session, stack hash, single use) is in the protocol contract.
 - The idle rule is in the server contract: watchers start on the first session and stop on the
   last.
-- The fail-closed roles rule is in config.md.
+- The owner and users rules are in config.md.
 
 The only gate is still T001.
 

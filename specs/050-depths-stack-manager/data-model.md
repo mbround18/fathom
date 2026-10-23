@@ -60,7 +60,7 @@ as not running.
 
 A compose project seen in containers or `docker compose ls --all` with no matching stack
 directory (or whose `working_dir` label is outside the root). Fields: `name`, `working_dir`,
-`containers`, `elsewhere_of`. Read-only for every role (FR-008). When `working_dir` is a stack's directory but the project name differs (started by hand with `-p`), it carries `elsewhere_of: <stack>` and the stack shows "running elsewhere". Plain containers with no project label are listed
+`containers`, `elsewhere_of`. Read-only for every role and listed to admins only (FR-008). When `working_dir` is a stack's directory but the project name differs (started by hand with `-p`), it carries `elsewhere_of: <stack>` and the stack shows "running elsewhere". Plain containers with no project label are listed
 as `standalone` under the same read-only rule.
 
 ## StackDraft (editing)
@@ -106,7 +106,7 @@ carrying the current text (FR-019).
 requested ─preview built─▶ previewed ─confirm(preview_id)─▶ running ─▶ succeeded
                 │                │                              └────▶ failed (stderr verbatim)
                 │                └─expired / hash changed / session ended─▶ void
-                └─role denied─▶ denied (audited)
+                └─not permitted─▶ denied (audited)
 ```
 
 At most one operation per stack is `running`; a second request gets `Busy{operation_id, actor}`
@@ -114,31 +114,44 @@ At most one operation per stack is `running`; a second request gets `Busy{operat
 
 ## Identity and Session
 
-From `web-auth`. `Identity{provider: oidc|github|discord, issuer, subject, username, email, groups}`.
-GitHub groups are `github:<org>` and `github:<org>/<team>` (R5). Discord groups are
-`discord:<guild_id>`, `discord:<guild_id>/<role_id>` and `discord:user/<user_id>` (R13). Session: id (cookie
+From `web-auth`. `Identity{provider: oidc|github|discord, issuer, subject, username, email, groups}`; Depths ignores
+`groups` (Fathom's hosted server uses them).
+`subject` is immutable: the Discord user id (R13), the GitHub numeric id, never the login (R5), the
+OIDC `sub` (scoped by `issuer`). Session: id (cookie
 `__Host-depths_session`, HttpOnly, Secure, SameSite=Lax), csrf token, identity, expires_at
 (idle 8 h, absolute 24 h, configurable), next_refresh_at (15 min).
 
-## RoleGrant and effective role
+## User (registry entry) and permissions
 
-```
-RoleGrant { group: string, role: viewer|operator|admin, stacks: "*" | [pattern] }
-```
+Kept in `<data-dir>/users.json` (R6), written only by Depths with an atomic write-rename, mode 0600.
 
-`role(identity, stack) = max{ g.role | g.group ∈ identity.groups ∧ g.stacks matches stack }`,
-none if no grant matches. Permissions:
+| Field | Type | Rule |
+|---|---|---|
+| id | string | `<provider>:<subject>` (`discord:<snowflake>`, `github:<numeric id>`, `oidc:<sub>`). The key; never a display name. |
+| provider / issuer / subject | from Identity | An `oidc:` entry records its issuer; a `sub` from another issuer never matches it. |
+| username, email | strings or none | Refreshed at each sign-in; display only. |
+| role | `pending \| user \| admin` | `pending` = signed in, no access. |
+| stacks | list of stack names | Used for `user`; ignored for `admin`. A name with no directory is kept and shown as missing. |
+| owner | bool | From `DEPTHS_OWNER_USER_ID`, never stored as editable; owners are always `admin`. |
+| pinned_from | string or none | The `github:<login>` an owner entry was pinned from (FR-048). |
+| first_seen / last_seen | time or none | None for an invited id that has not signed in yet. |
 
-| Action | viewer | operator | admin |
-|---|---|---|---|
-| See stack, files (values of secret-looking keys masked, FR-021), status, logs, stats | ✓ | ✓ | ✓ |
-| Reveal masked `.env` values | | ✓ | ✓ |
-| Lifecycle (up/stop/restart/down/pull/update, per service) | | ✓ | ✓ |
-| Shell (when `DEPTHS_FEATURE_SHELL`) | | ✓ | ✓ |
-| Edit/save, create, delete stack; `down` with volumes or images (FR-016) | | | ✓ (`*` grant required for create) |
-| Read audit log, see roles mapping | | | ✓ |
+The registry is read on every command, so a change applies at that person's next command
+(FR-033). Removing a person, or their last stack, ends their sessions.
 
-A person with no role on any stack signs in and sees the no-access page (FR-031).
+| Action | user (on an assigned stack) | admin |
+|---|---|---|
+| See the stack, files (values of secret-looking keys masked, FR-021), status, logs, stats | ✓ | ✓ |
+| Reveal masked `.env` values | ✓ | ✓ |
+| Lifecycle (up/stop/restart/down/pull/update, per service) | ✓ | ✓ |
+| Shell (when `DEPTHS_FEATURE_SHELL`) | ✓ | ✓ |
+| Edit and save (when `DEPTHS_FEATURE_EDIT`) | ✓ | ✓ |
+| `down` with volumes or images (FR-016), create or delete a stack | | ✓ |
+| See foreign projects and standalone containers (FR-008) | | ✓ |
+| Read the audit log; manage users (`GetUsers`, `PutUser`, `RemoveUser`) | | ✓ |
+
+A `user` sees nothing about stacks outside their list. A `pending` person, or a `user` with no
+stacks, signs in and sees the no-access page (FR-031).
 
 ## AuditEntry
 
@@ -148,7 +161,7 @@ Appended by `audit-log` as one JSON line.
 |---|---|
 | at | RFC 3339 UTC |
 | actor | `{provider, subject, username}` |
-| action | Operation kind, or `sign_in`, `sign_out`, `denied`, `shell_open`, `reveal_env` |
+| action | Operation kind, or `sign_in`, `sign_out`, `denied`, `shell_open`, `reveal_env`, `user_added`, `user_changed`, `user_removed` (with the target id, role and stacks before/after) |
 | stack | name or none |
 | preview_id / operation_id | uuid or none |
 | argv | the steps run |

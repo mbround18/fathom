@@ -162,33 +162,41 @@ recorded in Assumptions).
 
 - Authorize at `https://github.com/login/oauth/authorize` with `state` and PKCE S256; exchange at
   `https://github.com/login/oauth/access_token` (the code expires in 10 minutes).
-- Scopes are `read:user`, `user:email` and `read:org`. Teams come from `GET /user/teams`, and each
-  maps to the group string `github:<org>/<team-slug>`. Orgs come from `GET /user/orgs` and map to
-  `github:<org>`.
-- Team membership is re-read at sign-in and at every session refresh (default every 15 min), and
-  never cached beyond the session. Classic OAuth tokens do not expire, so the refresh is the only
-  point at which revoked membership takes effect (FR-033).
-- The guide warns that new orgs restrict OAuth Apps by default. Until an owner approves the app,
-  that org's teams are invisible, and the person signs in with no access. The no-access page says
-  this when the provider is GitHub.
+- Scopes are `read:user` and `user:email`. Identity from `GET /user` (subject = the numeric `id`,
+  never the login) and `GET /user/emails` (primary verified email). No org or team calls, so org
+  OAuth App restrictions do not apply.
+- Logins can be renamed and then claimed by someone else, so an owner given as `github:<login>` is
+  pinned to the numeric id at that login's first sign-in and matched by id from then on (FR-048).
+- Classic OAuth tokens do not expire. The session refresh (default every 15 min) calls `GET /user`;
+  a 401 means the person revoked the app, and ends the session.
 - A GitHub App adapter (fine-grained, not subject to OAuth restrictions) is a later option and is
   out of scope for v1.
 
 ## R6. Authorisation model
 
-**Decision**: roles come from a declarative file, reloaded on change.
+**Decision**: a users list kept by Depths, bootstrapped by an owner from the environment.
 
-- `roles.toml` at `DEPTHS_ROLES_FILE` (default `/etc/depths/roles.toml`) holds grants of the form
-  `group → role → stacks`. Role is `viewer`, `operator` or `admin`. `stacks` is `"*"` or a list of
-  names or simple globs.
-- A person's effective role on a stack is the highest grant matching any of their groups.
-- The file is watched and re-read; a file that fails to parse keeps the previous mapping and shows
-  an admin banner with the error (the constitution's "invalid config falls back without deleting the
-  user's file").
-- The UI shows the mapping read-only. Editing it in the UI is out of scope for v1: it would need its
-  own bootstrap admin and its own audit trail, and a file keeps it reviewable.
+- Two roles: `user` (assigned stacks only) and `admin` (everything). Everyone else is `pending`.
+- Owners come from `DEPTHS_OWNER_USER_ID` (alias `OWNER_USER_ID`, R14): comma-separated
+  provider-qualified ids, a bare value meaning `OAUTH_PROVIDER`'s. Owners are always admin, and the
+  protocol refuses to demote or remove them, so the owner cannot lock themselves out from the UI.
+- The registry is `<data-dir>/users.json`, keyed by `<provider>:<subject>`, written only by Depths
+  (temp file, fsync, rename, mode 0600). A file that fails to parse refuses start rather than
+  becoming an empty list; Depths is its only writer, so a parse error means damage, not an edit.
+- Every sign-in records the person (pending if new), so admins grant access to someone who has
+  already tried, without copying ids. Admins can also pre-add an id.
+- The registry is read on every command, not cached in the session, so a change applies at the
+  person's next command. Removing a person, or their last stack, ends their sessions and closes
+  their sockets (FR-033).
+- Every change is audited (`user_added`, `user_changed`, `user_removed`).
 - Placing a stack in the stacks dir is the declaration that Depths may manage it, so 048's adoption
-  gate is not used. Foreign projects are read-only for every role.
+  gate is not used. Foreign projects are read-only for every role and shown to admins only.
+- Alternatives: `roles.toml` mapping provider groups (GitHub teams, Discord guild roles, OIDC
+  groups) to roles (rejected for v1: it needs `read:org` or `guilds.members.read`, rate-limited
+  per-guild calls, and a file edited on the host; the people on a self-hosted Depths are few enough
+  to list). Group grants that add people to the list automatically are a recorded later option, and
+  fit beside the registry rather than replacing it. Editing a file by hand (rejected: the UI is the
+  point, and a second writer breaks the atomic-write guarantee).
 
 ## R7. Protocol between the Depths web app and server
 
@@ -325,20 +333,14 @@ The example `apps/depths/compose.yaml` sets `restart: ${RESTART_POLICY:-no}` on 
   secret carry that).
 - The redirect URI is matched exactly, so it is `<public_url>/auth/callback/discord` and nothing
   else; the guide says to register that string.
-- Scopes `identify email guilds guilds.members.read`. Identity from `GET /users/@me` (subject = user
-  id, username, verified email when present).
-- Groups:
-  - `discord:<guild_id>` for every guild in `GET /users/@me/guilds`;
-  - `discord:<guild_id>/<role_id>` from `GET /users/@me/guilds/{guild_id}/member`, called **only** for
-    guild ids that some grant in `roles.toml` names, because that endpoint is tightly rate limited;
-  - `discord:user/<user_id>`, so a one-person homelab can grant a single account without a guild.
-  Guild and role ids are numeric snowflakes, so `user` cannot collide with a guild id.
-- Re-read at sign-in and on every session refresh (FR-033), using the refresh token when the
-  access token has expired. A 401 from Discord ends the session (T072's fail-closed rule); a 429
-  is "unreachable" (keep last known groups, back off for `retry_after`).
-- Alternatives: Discord's OIDC support (rejected: groups would still need the REST calls above, so
-  it adds a second code path for no gain); a bot token reading guild members (rejected: a second
-  credential with far more reach than sign-in needs).
+- Scopes `identify email`. Identity from `GET /users/@me` (subject = the user id snowflake,
+  username, verified email when present). This is the id `OWNER_USER_ID` names.
+- No guild calls: access comes from the users list (R6), not guild membership.
+- On every session refresh, the refresh token is used when the access token has expired. A 401
+  from Discord ends the session (T072's fail-closed rule); a 429 is "unreachable" (keep the
+  session, back off for `retry_after`).
+- Alternatives: Discord's OIDC support (rejected: a second code path for the same identity);
+  guild and role grants via `guilds.members.read` (deferred with group grants, R6).
 
 ## R14. Settings a Dockge host already has
 
@@ -348,7 +350,8 @@ The example `apps/depths/compose.yaml` sets `restart: ${RESTART_POLICY:-no}` on 
 |---|---|---|
 | `DOCKGE_STACKS_DIR` | `DEPTHS_STACKS_DIR` | flag > `DEPTHS_*` > alias > default |
 | `ORIGIN_URL` | `DEPTHS_PUBLIC_URL` | same |
-| `OAUTH_PROVIDER` = `oidc` \| `github` \| `discord` | which provider `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET` (or `_FILE`) belong to | the provider's own `DEPTHS_<P>_CLIENT_*` win |
+| `OAUTH_PROVIDER` = `oidc` \| `github` \| `discord` | which provider `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET` (or `_FILE`) belong to, and the id space of a bare `OWNER_USER_ID` | the provider's own `DEPTHS_<P>_CLIENT_*` win |
+| `OWNER_USER_ID` | `DEPTHS_OWNER_USER_ID` (R6) | flag > `DEPTHS_*` > alias |
 
 - `ORIGIN_URL` without a scheme (`depth.boop.ninja`) is read as `https://`.
 - `OAUTH_CLIENT_*` without `OAUTH_PROVIDER` is a start-up error naming `OAUTH_PROVIDER`, never a

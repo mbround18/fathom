@@ -1,19 +1,18 @@
 # Contract: Depths configuration
 
-Every flag has an environment variable; flags win. Read once at start (the roles file is also
-watched). Invalid configuration fails start with a message naming the setting, except the roles
-file (below).
+Every flag has an environment variable; flags win. Read once at start. Invalid configuration fails
+start with a message naming the setting.
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--listen` | `DEPTHS_LISTEN` | `0.0.0.0:8080` | Bind address. Not Dockge's 5001, so both can run side by side during a trial (R14). |
 | `--public-url` | `DEPTHS_PUBLIC_URL` (alias `ORIGIN_URL`) | required | External URL; used for redirect URIs, cookie and Origin checks. Must be `https://` unless `--insecure-dev`. |
 | `--stacks-dir` | `DEPTHS_STACKS_DIR` (alias `DOCKGE_STACKS_DIR`) | `/opt/stacks` | Stacks root (R1). |
-| `--data-dir` | `DEPTHS_DATA_DIR` | `/var/lib/depths` | Audit log. Created 0700. |
+| `--data-dir` | `DEPTHS_DATA_DIR` | `/var/lib/depths` | Audit log and `users.json`. Created 0700. |
 | `--static-dir` | `STATIC_DIR` | `/usr/share/depths/web` | Built web assets, served as files. |
-| `--roles-file` | `DEPTHS_ROLES_FILE` | `/etc/depths/roles.toml` | Role mapping. |
+| `--owner-user-id` | `DEPTHS_OWNER_USER_ID` (alias `OWNER_USER_ID`) | none | Comma-separated owners, always admin (below). |
 | `--docker-bin` | `DEPTHS_DOCKER_BIN` | `docker` | CLI to invoke. `DOCKER_HOST` is passed through (socket proxy). |
-| — | `DEPTHS_OIDC_ISSUER`, `DEPTHS_OIDC_CLIENT_ID`, `DEPTHS_OIDC_CLIENT_SECRET` (or `_FILE`), `DEPTHS_OIDC_SCOPES` (default `openid profile email groups`), `DEPTHS_OIDC_GROUPS_CLAIM` (default `groups`) | — | OIDC provider. |
+| — | `DEPTHS_OIDC_ISSUER`, `DEPTHS_OIDC_CLIENT_ID`, `DEPTHS_OIDC_CLIENT_SECRET` (or `_FILE`), `DEPTHS_OIDC_SCOPES` (default `openid profile email`) | — | OIDC provider. |
 | — | `DEPTHS_GITHUB_CLIENT_ID`, `DEPTHS_GITHUB_CLIENT_SECRET` (or `_FILE`) | — | GitHub OAuth App. |
 | — | `DEPTHS_DISCORD_CLIENT_ID`, `DEPTHS_DISCORD_CLIENT_SECRET` (or `_FILE`) | — | Discord OAuth2 application (R13). Redirect URI `<public_url>/auth/callback/discord`. |
 | — | `OAUTH_PROVIDER` (`oidc`\|`github`\|`discord`), `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET` (or `_FILE`) | — | Generic aliases for one provider's client credentials (R14). `OAUTH_CLIENT_*` without `OAUTH_PROVIDER` refuses to start. |
@@ -30,33 +29,30 @@ anonymous mode). Secrets are accepted via `*_FILE` and never logged.
 Aliases (R14) rank below Depths' own names: flag > `DEPTHS_*` > alias > default. `ORIGIN_URL` with no
 scheme is read as `https://`. Start-up logs which name each setting came from.
 
-## roles.toml
+## Owner and users (`users.json`)
 
-```toml
-# Highest matching grant wins. Groups are the IdP's group claim values,
-# or github:<org> / github:<org>/<team-slug> for GitHub sign-in,
-# or discord:<guild_id> / discord:<guild_id>/<role_id> / discord:user/<user_id> for Discord.
-[[grant]]
-group = "homelab-admins"
-role = "admin"
-stacks = "*"
-
-[[grant]]
-group = "github:acme/media"
-role = "operator"
-stacks = ["jellyfin", "arr-*"]
-
-[[grant]]
-group = "family"
-role = "viewer"
-stacks = ["jellyfin"]
+```sh
+# .env on the host: one Discord owner (bare value = OAUTH_PROVIDER's id space)
+OAUTH_PROVIDER=discord
+OWNER_USER_ID=140642000969007104
+# or several, provider-qualified
+OWNER_USER_ID=discord:140642000969007104,github:mbround18
 ```
 
-- `role` ∈ `viewer | operator | admin`; `stacks` is `"*"` or a list of names or `*`-globs.
-- Unknown keys or values are errors.
-- On change the file is re-read. If it fails to parse, the previous mapping stays in force, the
-  error is logged and shown to admins (`GetRoles.last_error`). If it is missing or invalid at first
-  start, no one has any role (fail closed) and the log says why.
+- Ids are `discord:<snowflake>`, `github:<login>` or `github:<numeric id>`, `oidc:<sub>` (matched
+  against the configured issuer). A bare value belongs to `OAUTH_PROVIDER`; a bare value with no
+  `OAUTH_PROVIDER` refuses to start.
+- A `github:<login>` owner is pinned to the account's numeric id at first sign-in and matched by id
+  from then on (a renamed or re-registered login does not inherit it).
+- Owners are always `admin`, on every stack. The UI and protocol cannot demote or remove them.
+- Everyone else lives in `<data-dir>/users.json`, written only by Depths (write to a temp file,
+  fsync, rename; mode 0600). It is not meant to be hand-edited; a file that fails to parse refuses
+  start with its path and the error, never an empty registry.
+- Anyone who signs in is recorded as `pending` (identity, first and last seen) with no access.
+  An admin gives them `user` (with a list of stack names) or `admin`, or pre-adds an id that has
+  never signed in.
+- Start-up refuses, naming `OWNER_USER_ID`, when no owner is configured and `users.json` holds no
+  admin.
 
 ## Example compose (`apps/depths/compose.yaml`)
 
@@ -66,8 +62,8 @@ Shape only; the file is the deliverable.
   mounted read-only, `read_only: true`, `tmpfs: /run`, internal network only,
   `restart: ${RESTART_POLICY:-no}`.
 - `depths`: the image; `DOCKER_HOST=tcp://socket-proxy:2375`; `${STACKS_DIR:-/opt/stacks}` mounted
-  at the **same path** inside; `depths-data` volume at `/var/lib/depths`; `./roles.toml`
-  read-only at `/etc/depths/roles.toml`; `user: "10001:10001"`; port `8080`;
-  `restart: ${RESTART_POLICY:-no}`; `env_file: .env` for the provider secrets.
+  at the **same path** inside; `depths-data` volume at `/var/lib/depths` (audit log, `users.json`);
+  `user: "10001:10001"`; port `8080`;
+  `restart: ${RESTART_POLICY:-no}`; `env_file: .env` for the provider secrets and `OWNER_USER_ID`.
 - The file's header comment says plainly that the socket proxy narrows but does not remove
   root-equivalent access.

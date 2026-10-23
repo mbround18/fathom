@@ -34,7 +34,7 @@ post-pass, `requirement(&BackendCmdV1)`, the `StreamSink` impl over `BackendEven
 No dependency on `fathom` or `kube`.
 
 ```rust
-pub mod session { pub struct SessionStore; pub struct Session; pub struct Identity { provider, issuer, subject, username, email, groups } }
+pub mod session { pub struct SessionStore; pub struct Session; pub struct Identity { provider, issuer, subject, username, email, groups } }  // groups: OIDC only, for Fathom; Depths ignores them
 pub mod csrf { pub fn check_mutation(..); pub fn new_token() -> String; .. }       // moved as is
 pub mod login { pub struct LoginStore; }                                           // from server/src/http.rs
 pub mod cookie { pub struct CookieConfig { pub name: &'static str, pub secure: bool, .. } }
@@ -44,12 +44,13 @@ pub mod provider {
         fn id(&self) -> &'static str;
         async fn authorize(&self, redirect: &Url) -> Result<AuthRedirect>;
         async fn complete(&self, pending: PendingLogin, code: &str, state: &str) -> Result<Completed>;
-        async fn refresh(&self, s: &Session) -> Result<Refreshed>;   // re-reads groups
+        async fn refresh(&self, s: &Session) -> Result<Refreshed>;   // revalidates the provider token; re-reads OIDC groups
         fn end_session_url(&self, s: &Session) -> Option<Url>;
     }
 }
 pub mod oidc { pub struct OidcConfig; pub struct ClaimsConfig; pub struct OidcProvider; }  // moved, narrowed
 pub mod github { pub struct GithubConfig; pub struct GithubProvider; }               // new (R5)
+pub mod discord { pub struct DiscordConfig; pub struct DiscordProvider; }            // new (R13)
 ```
 
 `fathom-server` keeps `refresh.rs` (kube token), `oidc_seed.rs`, and builds `OidcConfig` /

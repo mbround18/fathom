@@ -39,10 +39,10 @@ services:
   app:  { image: busybox, command: sleep 3600 }
 EOF
 cargo run -p depths -- --insecure-dev --listen 127.0.0.1:8080 --public-url http://127.0.0.1:8080 \
-  --stacks-dir "$S" --static-dir apps/depths/web/dist --roles-file apps/depths/dev/roles.toml
+  --stacks-dir "$S" --static-dir apps/depths/web/dist --owner-user-id oidc:dev-admin
 ```
 
-Check, as the dev admin:
+Check, signed in as the dev owner (`dev-admin` in the dev OIDC provider):
 
 | Step | Expected |
 |---|---|
@@ -51,7 +51,8 @@ Check, as the dev admin:
 | Edit `depths-test-web` in a terminal while its editor is open, then save in Depths | `Conflict` with the new text (FR-019). |
 | Save with a broken indent | Line-anchored error; file unchanged (`sha256sum` before/after). |
 | Open logs + shell + stats for both `app` containers in tabs, reload | Layout restored; shells reconnect as new sessions. |
-| Sign in as the dev viewer | No lifecycle buttons; a forged `Confirm` over the socket returns `Denied`, audited. |
+| Sign in as `dev-user` | No-access page; the owner sees `oidc:dev-user` as pending. |
+| As the owner, make `dev-user` a user on `depths-test-web` only; act as `dev-user` | Only `depths-test-web` listed, no foreign or standalone group; a forged `Confirm` for `depths-test-jobs` over the socket returns `Denied`, audited. |
 | Down both, then `docker compose ls --all` | No `depths-test-*` projects remain. |
 
 Then `rm -rf "$S"`.
