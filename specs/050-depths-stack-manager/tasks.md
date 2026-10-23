@@ -316,6 +316,14 @@ every signed-in person as limited to exactly their permission row. Each task bel
   - Logout deletes the server session and expires the cookie.
   - Tests for each: replayed state, a state without the login cookie, cookie value ≠ stored
     hash, timing-safe compare (unit test on the function used), and pending refused.
+  - *Status: partly done.* `web-auth` side landed: `LoginStore` single-use state with a 10-min
+    TTL bound to a configurable login cookie (`with_cookie`, `begin`, `finish` →
+    `LoginRefused::{NoCookie, Unknown, Expired, StateMismatch}`), state compared in constant
+    time; `SessionStore::create` returns a fresh 256-bit OS-RNG cookie and keeps only
+    `sha256(cookie)`; `csrf_token_valid` uses `subtle`. **Remaining (Depths server):** use
+    `LoginStore::with_cookie(CookieConfig::new("__Host-depths_login"))`, audit refusals as
+    `denied`, redirect only to `/`, restrict `pending` sessions to `Hello` and `GET /api/v1/me`,
+    logout, and the server-level tests.
 - [ ] T095 Input confinement and error hygiene:
   - Every stack, service and container name from the client is validated (`valid_name`, or the 048
     container-id rules) before it reaches a path or an argv. Every argv is a `Vec<String>` handed
@@ -493,21 +501,30 @@ and every attempt shows up in the audit log.
   - Filter by stack, actor, action and time.
   - Export downloads JSONL.
   - There are no edit or delete controls, and no API exists for them (FR-036).
-- [ ] T071 [US5] Implement the GitHub provider in `crates/web-auth/src/github.rs` per research R5:
+- [X] T071 [US5] Implement the GitHub provider in `crates/web-auth/src/github.rs` per research R5:
   - PKCE S256 and state.
   - Scopes `read:user user:email`; subject = the numeric id.
   - `GET /user` and `/user/emails`; no org or team calls.
   - `refresh` calls `GET /user`; a 401 is rejected.
 
   Add tests against a fake GitHub (axum stub) in `crates/web-auth/tests/github.rs`, including that a revoked token is rejected on refresh and that a renamed login keeps the same subject.
-- [ ] T088 [US5] Implement the Discord provider in `crates/web-auth/src/discord.rs` per research R13:
+- [X] T088 [US5] Implement the Discord provider in `crates/web-auth/src/discord.rs` per research R13:
   - `state` always, PKCE S256 sent; nothing relies on PKCE alone.
   - Scopes `identify email`; redirect URI exactly `<public_url>/auth/callback/discord`.
   - `GET /users/@me` → subject (the snowflake), username, verified email. No guild calls.
   - Refresh with the refresh token; 401 = rejected, 429 = unreachable (honour `retry_after`).
 
   Add tests against a fake Discord (axum stub) in `crates/web-auth/tests/discord.rs`: no guild endpoint is ever called, a 401 on refresh is rejected, and a 429 keeps the session. Then confirm the PKCE exchange once against a real Discord application and record the result in research R13.
+  - *Status:* provider and fake-Discord suite done (`web-auth`). **Still owed:** the one-off
+    PKCE exchange against the real Discord application, recorded in R13 (needs the
+    production client id/secret and a browser).
 - [ ] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Revalidate the token through the session's provider. When the provider **rejects** it (revoked grant, 401/403), end the session (fail closed). When the provider is **unreachable** (connect error, timeout, 5xx), keep the session until it expires, retry with backoff, and log a warning (spec Edge Cases). Add a test for each case.
+  - *Status: partly done.* `web-auth` side landed: `IdentityProvider::revalidate(&Session) ->
+    Revalidation::{Valid(Refreshed), Rejected(ProviderError), Unreachable { error, retry_after }}`,
+    with 429 carrying the provider's delay and a changed subject rejected; tested per provider.
+    **Remaining (Depths server):** the 15-min loop and `/auth/refresh` calling `revalidate`,
+    ending the session on `Rejected`, backoff (honouring `retry_after`) and a warning on
+    `Unreachable`, and the server-level tests.
 - [ ] T073 [US5] Implement `GetAudit`, `GetUsers`, `PutUser`, `RemoveUser` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader. Broadcast `UsersChanged` to admin sockets; on a removal, end the returned sessions and close their sockets.
 - [ ] T074 [US5] Build the admin views in `apps/depths/web/src/features/{audit/{AuditLog,AuditFilters},users/UsersView}.tsx`: the audit log as a virtualised table that collapses to cards at narrow widths, with export. UsersView lists users and the pending list, sets role and stacks (missing stacks marked), adds an id by hand, and shows owners locked.
 - [ ] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, as unauthenticated, pending, a user on an assigned stack, a user on an unassigned stack, and admin, and asserts that the outcome matches the permission table in data-model.md (SC-006).
