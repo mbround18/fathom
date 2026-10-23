@@ -5,6 +5,7 @@
 //! operation in a form the operator could reproduce themselves, and an argv is reproducible where
 //! a socket call is not. No dependency on any app crate, `kube` or `tauri` (checked in CI).
 
+pub mod adoption;
 pub mod blast_radius;
 pub mod cli;
 pub mod compose;

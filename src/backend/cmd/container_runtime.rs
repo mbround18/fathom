@@ -217,7 +217,7 @@ impl RuntimeState {
         sender: &Sender<BackendEventEnvelope>,
     ) -> &mut AdoptionStore {
         if self.store.is_none() {
-            let loaded = AdoptionStore::load();
+            let loaded = adoption::load();
             // Emitted on load, not only on change: `fell_back` is the operator's only signal that
             // the refusals they are about to see come from a record Fathom could not read.
             emit(

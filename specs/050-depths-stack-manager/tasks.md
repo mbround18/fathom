@@ -101,7 +101,7 @@ worktrees and merge each green.
   - The kind-label parse in `inventory.rs:28` becomes a Fathom post-pass in `src/backend/container_runtime/mod.rs`.
   - `PreviewContext` gains `app_name: &str` and `cluster: Option<&dyn ClusterImpact>`, replacing the "Fathom" strings at `preview.rs:73-90` and the `breaks_clusters` computation.
   - `cluster_link.rs` stays in Fathom and implements `ClusterImpact`.
-- [ ] T011 [B1] Split `adoption.rs`:
+- [X] T011 [B1] Split `adoption.rs`:
   - The crate keeps `AdoptionStore::open(path)` and `requirement_for_scope`.
   - Fathom keeps `requirement(&BackendCmdV1)` and opens the store at `fathom_config_dir().join("container_adoption.json")`. The path is unchanged, per Principle VI.
   - Replace `set_thread_state_root` in the adoption tests with temp-dir paths.
