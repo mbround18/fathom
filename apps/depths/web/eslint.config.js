@@ -12,6 +12,7 @@ export default tseslint.config(
       'coverage',
       'playwright-report',
       'test-results',
+      'dist-e2e',
       'src/protocol/generated',
     ],
   },

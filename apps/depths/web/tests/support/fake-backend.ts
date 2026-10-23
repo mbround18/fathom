@@ -1,0 +1,811 @@
+/**
+ * The fake Depths backend every Playwright story runs against (T043).
+ *
+ * It is installed on a page with Playwright's network interception, so the app under test is the
+ * real production bundle and holds no fake mode of its own:
+ *
+ * - `GET /api/v1/me` answers the scripted `Me`, or a 401 naming the configured providers.
+ * - `POST /auth/logout` and `/auth/refresh` are recorded and answered; `/auth/login` is a stub page.
+ * - `/api/v1/ws` is a mocked WebSocket that speaks the generated protocol: it checks `Hello`, closes
+ *   with the contract's codes, and answers each `CmdEnvelope` with `EventEnvelope`s.
+ *
+ * Every command is authorised against the scripted session as it is *at the time of the command*,
+ * as the real server does (FR-032, FR-033), so a story can change grants mid-test.
+ *
+ * Usage, in a spec:
+ *
+ * ```ts
+ * import { expect, fixtures as f, test } from '../../support/fake-backend'
+ *
+ * test('lists stacks', async ({ page, backend }) => {
+ *   backend.stacks = f.stackList([f.stack('web'), f.stack('db', { status: 'stopped' })])
+ *   backend.on('Confirm', () => [{ type: 'Denied', data: { reason: 'not_permitted' } }])
+ *   await page.goto('/')
+ *   await backend.waitForCmd('ListStacks')
+ *   backend.push({ type: 'StacksChanged', data: backend.stacks })
+ * })
+ * ```
+ *
+ * Nothing here sleeps or reads the wall clock for behaviour: output arrives when a command does or
+ * when the test pushes it, so stories stay deterministic.
+ */
+import { test as base, expect, type Page, type Request, type WebSocketRoute } from '@playwright/test'
+
+import type {
+  AuditEntry,
+  Cmd,
+  CmdEnvelope,
+  Container,
+  DenyReason,
+  Event,
+  EventEnvelope,
+  Hello,
+  Me,
+  OperationKind,
+  OpOutcome,
+  Preview,
+  PreviewVoidReason,
+  Provider,
+  Role,
+  Stack,
+  StackDetail,
+  StackList,
+  StackOp,
+  Step,
+  StreamCloseReason,
+  UsageSample,
+  User,
+  UserList,
+} from '../../src/protocol/generated'
+import { CloseCode, PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
+
+export { expect }
+
+export type CmdType = Cmd['type']
+export type CmdOf<T extends CmdType> = Extract<Cmd, { type: T }>
+
+/** What a scripted handler returns: events to send in reply, or nothing to fall through. */
+export type Reply = Event[] | undefined
+
+/** Context a handler gets beside the command. */
+export interface HandlerContext {
+  backend: FakeBackend
+  socket: FakeSocket
+  id: number
+}
+
+export type Handler<T extends CmdType> = (cmd: CmdOf<T>, ctx: HandlerContext) => Reply
+
+/** One HTTP request the app made to the fake, as recorded. */
+export interface HttpCall {
+  method: string
+  path: string
+  csrf: string | null
+}
+
+/** A scripted operation run: what `Confirm` streams, and how it ends. */
+export interface OpScript {
+  output: string[]
+  outcome: OpOutcome
+  /** Stop after the output; `finishOp()` ends it. Lets a story see the running state, or `Busy`. */
+  hold: boolean
+}
+
+/** One open mocked socket. */
+export class FakeSocket {
+  readonly hellos: unknown[] = []
+  readonly received: CmdEnvelope[] = []
+  ready = false
+  closed: number | null = null
+
+  private readonly route: WebSocketRoute
+
+  constructor(route: WebSocketRoute) {
+    this.route = route
+  }
+
+  send(event: Event, replyTo?: number): void {
+    if (this.closed !== null) return
+    const env: EventEnvelope = replyTo === undefined ? { event } : { reply_to: replyTo, event }
+    this.route.send(JSON.stringify(env))
+  }
+
+  close(code: number, reason = ''): void {
+    if (this.closed !== null) return
+    this.closed = code
+    void this.route.close({ code, reason })
+  }
+}
+
+interface HeldOp {
+  operationId: string
+  stack: string
+  socket: FakeSocket
+  replyTo: number
+}
+
+interface OpenStream {
+  socket: FakeSocket
+  kind: 'logs' | 'shell'
+}
+
+const NOW = '2026-10-23T12:00:00Z'
+
+/** Canned data builders. Each takes overrides for the fields a story cares about. */
+export const fixtures = {
+  me(over: Partial<Me> = {}): Me {
+    return {
+      identity: { provider: 'github', subject: '1001', username: 'ada', email: null },
+      csrf_token: 'csrf-fake-1',
+      role: 'admin',
+      owner: false,
+      stacks: [],
+      features: { shell: true, edit: true },
+      ...over,
+    }
+  },
+
+  container(over: Partial<Container> = {}): Container {
+    const name = over.name ?? 'web-app-1'
+    return {
+      id: `${name.replace(/[^a-z0-9]/g, '').padEnd(12, '0')}${'0'.repeat(52)}`,
+      name,
+      image: 'nginx:1.29',
+      state: 'running',
+      health: null,
+      status: 'Up 3 hours',
+      created_at: NOW,
+      command: '"/docker-entrypoint.sh nginx -g \'daemon off;\'"',
+      ports: [],
+      project: null,
+      service: null,
+      cluster: null,
+      adoption: 'adopted',
+      ...over,
+    }
+  },
+
+  /** A stack whose single service `app` has one container matching `status`. */
+  stack(name: string, over: Partial<Stack> = {}): Stack {
+    const status = over.status ?? 'running'
+    const running = status === 'running' || status === 'partial'
+    const containers = status === 'not_deployed' || status === 'invalid' ? [] : [
+      fixtures.container({
+        name: `${name}-app-1`,
+        project: name,
+        service: 'app',
+        state: running ? 'running' : 'exited',
+        status: running ? 'Up 3 hours' : 'Exited (0) 1 hour ago',
+      }),
+    ]
+    return {
+      name,
+      valid_name: status !== 'invalid',
+      compose_file: 'compose.yaml',
+      shadowed_files: [],
+      has_env: false,
+      content_hash: `hash-${name}-1`,
+      status,
+      unhealthy: false,
+      services: [{ name: 'app', image: 'nginx:1.29', containers }],
+      running_services: running ? 1 : 0,
+      total_services: 1,
+      modified_at: NOW,
+      read_error: null,
+      read_only_reason: null,
+      too_large: false,
+      ...over,
+    }
+  },
+
+  stackList(stacks: Stack[], over: Partial<StackList> = {}): StackList {
+    return {
+      root: '/srv/stacks',
+      stacks,
+      foreign: [],
+      standalone: [],
+      warnings: [],
+      stale: false,
+      as_of: NOW,
+      ...over,
+    }
+  },
+
+  detail(stack: Stack, over: Partial<StackDetail> = {}): StackDetail {
+    return {
+      stack,
+      compose_text: `services:\n  app:\n    image: nginx:1.29\n`,
+      env: stack.has_env ? { kind: 'masked', text: 'PORT=8080\nDB_PASSWORD=********\n' } : null,
+      content_hash: stack.content_hash,
+      ...over,
+    }
+  },
+
+  user(id: string, over: Partial<User> = {}): User {
+    const [provider = 'github', subject = id] = id.split(':') as [Provider?, string?]
+    return {
+      id,
+      provider,
+      issuer: null,
+      subject,
+      username: subject,
+      email: null,
+      role: 'user',
+      stacks: [],
+      owner: false,
+      pinned_from: null,
+      first_seen: NOW,
+      last_seen: NOW,
+      ...over,
+    }
+  },
+
+  sample(container_id: string, over: Partial<UsageSample> = {}): UsageSample {
+    return {
+      container_id,
+      at: NOW,
+      cpu_percent: 1.5,
+      memory_bytes: 64 * 1024 * 1024,
+      memory_limit_bytes: 512 * 1024 * 1024,
+      ...over,
+    }
+  },
+}
+
+/** The argv `PreviewOp` shows for each kind, as research R2 lays it out (shape, not exact flags). */
+function stepsFor(stack: string, op: StackOp): Step[] {
+  const compose = ['docker', 'compose', '-p', stack, '-f', 'compose.yaml']
+  const cwd = `/srv/stacks/${stack}`
+  const step = (...args: string[]): Step => ({ argv: [...compose, ...args], cwd, stdin: 'none' })
+  switch (op.kind) {
+    case 'up':
+      return [step('up', '-d', '--remove-orphans')]
+    case 'stop':
+      return [step('stop')]
+    case 'restart':
+      return [step('restart')]
+    case 'down':
+      return [
+        step(
+          'down',
+          ...(op.options.remove_volumes ? ['--volumes'] : []),
+          ...(op.options.remove_images ? ['--rmi', 'all'] : []),
+        ),
+      ]
+    case 'pull':
+      return [step('pull')]
+    case 'update':
+      return [step('pull'), step('up', '-d', '--remove-orphans')]
+    case 'delete':
+      return [step('down')]
+    case 'service_up':
+      return [step('up', '-d', op.options.service)]
+    case 'service_stop':
+      return [step('stop', op.options.service)]
+    case 'service_restart':
+      return [step('restart', op.options.service)]
+  }
+}
+
+/** Roles `PreviewOp` kinds need beyond an assigned stack (data-model "Operation"). */
+function adminOnly(op: StackOp): boolean {
+  return op.kind === 'delete' || (op.kind === 'down' && op.options.remove_volumes)
+}
+
+function isDestructive(op: StackOp): boolean {
+  return op.kind === 'delete' || (op.kind === 'down' && (op.options.remove_volumes || op.options.remove_images))
+}
+
+/** Plain unified diff of two texts: every old line removed, every new line added. Enough for a fake. */
+function naiveDiff(path: string, before: string, after: string): string {
+  const a = before.split('\n').filter((l, i, all) => l !== '' || i < all.length - 1)
+  const b = after.split('\n').filter((l, i, all) => l !== '' || i < all.length - 1)
+  const body = [...a.filter((l) => !b.includes(l)).map((l) => `-${l}`), ...b.filter((l) => !a.includes(l)).map((l) => `+${l}`)]
+  return [`--- a/${path}`, `+++ b/${path}`, `@@ -1,${String(a.length)} +1,${String(b.length)} @@`, ...body].join('\n') + '\n'
+}
+
+/**
+ * The scriptable backend. Public fields are the scripted state: assign them before `page.goto`,
+ * or mid-test (then `push` a `StacksChanged`/`UsersChanged` if the UI should hear about it).
+ */
+export class FakeBackend {
+  /** `null` = no session: `/me` is a 401 and the socket closes 4401. */
+  me: Me | null = fixtures.me()
+  /** What the 401 body names as configured providers. */
+  providers: Provider[] = ['github', 'discord']
+  /** Every stack on disk, unfiltered; `ListStacks` filters it for a `user`. */
+  stacks: StackList = fixtures.stackList([])
+  /** `GetStack` replies; a stack with none gets `fixtures.detail(stack)`. */
+  details: Record<string, StackDetail> = {}
+  /** Plain `.env` text `RevealEnv` returns, by stack. */
+  env: Record<string, string> = {}
+  /** What `Confirm` streams. */
+  op: OpScript = { output: ['Container app-1  Started\n'], outcome: { kind: 'succeeded' }, hold: false }
+  /** Log history by target: a stack name, `stack/service`, or a container ref. */
+  logs: Record<string, string[]> = {}
+  /** What a new shell prints first (raw text; sent as base64). */
+  shellBanner = '/ # '
+  /** `StatsSample` sent once per `WatchStats`; empty = one canned sample per targeted container. */
+  samples: UsageSample[] = []
+  users: UserList = { users: [], pending: [] }
+  audit: AuditEntry[] = []
+  /** Server-side compose errors `PreviewSave` returns for a stack, if any. */
+  validationErrors: Record<string, { line: number | null; message: string }[]> = {}
+  /** Close code for every new socket's `Hello`, e.g. `CloseCode.TooMany`. `null` = accept. */
+  helloClose: number | null = null
+
+  readonly sockets: FakeSocket[] = []
+  readonly http: HttpCall[] = []
+
+  private readonly handlers = new Map<CmdType, Handler<CmdType>>()
+  private readonly waiters: { type: CmdType; resolve: (c: Cmd) => void }[] = []
+  /** Commands `waitForCmd` has already handed out. */
+  private readonly awaited = new WeakSet<Cmd>()
+  private readonly previews = new Map<string, { preview: Preview; used: boolean; expired: boolean }>()
+  private readonly held: HeldOp[] = []
+  private readonly streams = new Map<number, OpenStream>()
+  private seq = 0
+
+  /** Installs the fake on `page`. Call before `page.goto`. */
+  static async install(page: Page, setup?: (b: FakeBackend) => void): Promise<FakeBackend> {
+    const b = new FakeBackend()
+    setup?.(b)
+    await b.attach(page)
+    return b
+  }
+
+  async attach(page: Page): Promise<void> {
+    // Later routes take precedence: the catch-all first, so nothing reaches a real server.
+    await page.route('**/api/**', (r) => r.fulfill({ status: 404, json: { error: 'not_found' } }))
+    await page.route('**/auth/**', (r) => this.auth(r.request()).then((res) => r.fulfill(res)))
+    await page.route('**/api/v1/me', (r) => r.fulfill(this.meResponse(r.request())))
+    await page.routeWebSocket(/\/api\/v1\/ws$/, (ws) => {
+      this.accept(ws)
+    })
+  }
+
+  // --- Scripting ----------------------------------------------------------------------------
+
+  /** Replaces the default handling of one command. Return `undefined` to fall through to it. */
+  on<T extends CmdType>(type: T, handler: Handler<T>): this {
+    this.handlers.set(type, handler as unknown as Handler<CmdType>)
+    return this
+  }
+
+  /** Every `type` command gets `Denied{reason}`. */
+  deny(type: CmdType, reason: DenyReason = 'not_permitted'): this {
+    return this.on(type, () => [{ type: 'Denied', data: { reason } }])
+  }
+
+  /** Sends a live event (no `reply_to`) on every open socket. */
+  push(event: Event): void {
+    for (const s of this.open()) s.send(event)
+  }
+
+  /** Closes every open socket with `code` (e.g. `CloseCode.Unauthenticated` for an expired session). */
+  closeSockets(code: number = CloseCode.Unauthenticated): void {
+    for (const s of this.open()) s.close(code)
+  }
+
+  /** Every command received, across sockets, in order. */
+  get received(): Cmd[] {
+    return this.sockets.flatMap((s) => s.received.map((e) => e.cmd))
+  }
+
+  /** Every `Hello` frame received, across sockets. */
+  get hellos(): unknown[] {
+    return this.sockets.flatMap((s) => s.hellos)
+  }
+
+  /** Resolves with the next `type` command (or one already received and not yet awaited). */
+  waitForCmd<T extends CmdType>(type: T): Promise<CmdOf<T>> {
+    const seen = this.received.find((c): c is CmdOf<T> => c.type === type && !this.awaited.has(c))
+    if (seen) {
+      this.awaited.add(seen)
+      return Promise.resolve(seen)
+    }
+    return new Promise((resolve) => {
+      this.waiters.push({ type, resolve: resolve as (c: Cmd) => void })
+    })
+  }
+
+  /** Ends a held operation (`op.hold`), sending its `OpFinished`. */
+  finishOp(outcome: OpOutcome = this.op.outcome, operationId?: string): void {
+    const i = operationId === undefined ? 0 : this.held.findIndex((h) => h.operationId === operationId)
+    const [h] = i < 0 ? [] : this.held.splice(i, 1)
+    if (!h) throw new Error('fake-backend: no held operation to finish')
+    h.socket.send({ type: 'OpFinished', data: { operation_id: h.operationId, outcome } }, h.replyTo)
+  }
+
+  /** Marks every outstanding preview expired, as five minutes passing would. */
+  expirePreviews(): void {
+    for (const p of this.previews.values()) p.expired = true
+  }
+
+  /** Sends more log lines on every open log stream (or one, by id). */
+  pushLogs(lines: string[], streamId?: number): void {
+    for (const [id, s] of this.streams) {
+      if (s.kind === 'logs' && (streamId === undefined || streamId === id)) {
+        s.socket.send({ type: 'LogChunk', data: { stream_id: id, lines } })
+      }
+    }
+  }
+
+  /** Ends open streams (all, or one) with `reason`. `disconnected` is the proxy idle cut (R8). */
+  closeStreams(reason: StreamCloseReason = { kind: 'disconnected' }, streamId?: number): void {
+    for (const [id, s] of [...this.streams]) {
+      if (streamId !== undefined && streamId !== id) continue
+      this.streams.delete(id)
+      s.socket.send({ type: 'StreamClosed', data: { stream_id: id, reason } })
+    }
+  }
+
+  /** Ids of the streams currently open. */
+  openStreams(): number[] {
+    return [...this.streams.keys()]
+  }
+
+  // --- HTTP ---------------------------------------------------------------------------------
+
+  private record(req: Request): void {
+    const url = new URL(req.url())
+    this.http.push({ method: req.method(), path: url.pathname, csrf: req.headers()['x-csrf-token'] ?? null })
+  }
+
+  private meResponse(req: Request) {
+    this.record(req)
+    if (this.me === null) {
+      return { status: 401, json: { error: 'unauthenticated', providers: this.providers } }
+    }
+    return { status: 200, json: this.me }
+  }
+
+  private auth(req: Request) {
+    this.record(req)
+    const path = new URL(req.url()).pathname
+    const csrfOk = this.me !== null && req.headers()['x-csrf-token'] === this.me.csrf_token
+    if (path === '/auth/logout' && req.method() === 'POST') {
+      if (csrfOk) this.me = null
+      return Promise.resolve(csrfOk ? { status: 200, json: {} } : { status: 403, json: { error: 'csrf' } })
+    }
+    if (path === '/auth/refresh' && req.method() === 'POST') {
+      return Promise.resolve(csrfOk ? { status: 204, body: '' } : { status: 401, json: { error: 'unauthenticated' } })
+    }
+    // `/auth/login` and callbacks: a stub page, so a click on a provider link lands somewhere.
+    return Promise.resolve({ status: 200, contentType: 'text/plain', body: `fake ${path}` })
+  }
+
+  // --- WebSocket ----------------------------------------------------------------------------
+
+  private open(): FakeSocket[] {
+    return this.sockets.filter((s) => s.closed === null)
+  }
+
+  private accept(route: WebSocketRoute): void {
+    const socket = new FakeSocket(route)
+    this.sockets.push(socket)
+    route.onClose(() => {
+      socket.closed ??= 1000
+    })
+    route.onMessage((raw) => {
+      let frame: unknown
+      try {
+        frame = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8'))
+      } catch {
+        socket.close(1007, 'malformed frame')
+        return
+      }
+      if (!socket.ready) this.hello(socket, frame)
+      else this.command(socket, frame)
+    })
+  }
+
+  private hello(socket: FakeSocket, frame: unknown): void {
+    socket.hellos.push(frame)
+    const h = frame as Partial<Hello> | null
+    if (this.me === null) {
+      socket.close(CloseCode.Unauthenticated, 'unauthenticated')
+    } else if (h?.protocol_version !== PROTOCOL_VERSION || h.csrf_token !== this.me.csrf_token) {
+      socket.close(CloseCode.Forbidden, 'bad hello')
+    } else if (this.helloClose !== null) {
+      socket.close(this.helloClose)
+    } else {
+      socket.ready = true
+    }
+  }
+
+  private command(socket: FakeSocket, frame: unknown): void {
+    const env = frame as Partial<CmdEnvelope> | null
+    if (typeof env?.id !== 'number' || typeof env.cmd?.type !== 'string') {
+      socket.send({ type: 'Invalid', data: { reason: 'expected a CmdEnvelope' } })
+      return
+    }
+    const { id, cmd } = env as CmdEnvelope
+    socket.received.push(env as CmdEnvelope)
+    const w = this.waiters.findIndex((x) => x.type === cmd.type)
+    if (w >= 0) {
+      const [waiter] = this.waiters.splice(w, 1)
+      this.awaited.add(cmd)
+      waiter?.resolve(cmd)
+    }
+
+    // The session as it is now: signed out or demoted since the socket opened ends it (FR-033).
+    if (this.me === null) {
+      socket.close(CloseCode.Unauthenticated)
+      return
+    }
+    if (this.me.role === 'pending' || (this.me.role === 'user' && this.me.stacks.length === 0)) {
+      socket.close(CloseCode.Forbidden)
+      return
+    }
+
+    const ctx: HandlerContext = { backend: this, socket, id }
+    const scripted = this.handlers.get(cmd.type)?.(cmd, ctx)
+    const events = scripted ?? this.respond(cmd, socket, id)
+    for (const e of events) socket.send(e, id)
+  }
+
+  /** The default reply to each command. */
+  private respond(cmd: Cmd, socket: FakeSocket, id: number): Event[] {
+    const me = this.me ?? fixtures.me()
+    const admin = me.role === 'admin'
+    const may = (stack: string): boolean => admin || me.stacks.includes(stack)
+    const denied = (reason: DenyReason = 'not_permitted'): Event[] => [{ type: 'Denied', data: { reason } }]
+    const find = (name: string): Stack | undefined => this.stacks.stacks.find((s) => s.name === name)
+
+    switch (cmd.type) {
+      case 'ListStacks':
+        return [{ type: 'Stacks', data: this.visibleStacks(me) }]
+
+      case 'GetStack': {
+        const s = find(cmd.data.name)
+        if (!s || !may(s.name)) return denied()
+        return [{ type: 'StackDetail', data: this.details[s.name] ?? fixtures.detail(s) }]
+      }
+
+      case 'RevealEnv': {
+        if (!may(cmd.data.name)) return denied()
+        return [{ type: 'EnvRevealed', data: { name: cmd.data.name, env_text: this.env[cmd.data.name] ?? '' } }]
+      }
+
+      case 'PreviewOp': {
+        const { stack, op } = cmd.data
+        const s = find(stack)
+        if (!s || !may(stack) || (adminOnly(op) && !admin)) return denied()
+        if (!s.valid_name) return [{ type: 'Invalid', data: { reason: 'not a valid compose project name' } }]
+        const busy = this.busy(stack)
+        if (busy) return busy
+        return [{ type: 'Preview', data: this.makePreview(s, op.kind, stepsFor(stack, op), null, isDestructive(op)) }]
+      }
+
+      case 'PreviewSave': {
+        const { draft, deploy } = cmd.data
+        const s = find(draft.stack)
+        const creating = draft.base_hash === undefined
+        if (creating ? !admin : !s || !may(draft.stack)) return denied()
+        if (!me.features.edit) return denied('feature_disabled')
+        if (creating && s) return [{ type: 'Invalid', data: { reason: `a stack named ${draft.stack} already exists` } }]
+        const errors = this.validationErrors[draft.stack]
+        if (errors?.length) return [{ type: 'ValidationFailed', data: { errors } }]
+        const current = s ? (this.details[s.name] ?? fixtures.detail(s)) : null
+        if (current && draft.base_hash !== current.content_hash) {
+          return [
+            {
+              type: 'Conflict',
+              data: { current_text: current.compose_text ?? '', current_env: current.env, current_hash: current.content_hash },
+            },
+          ]
+        }
+        const target = s ?? fixtures.stack(draft.stack, { status: 'not_deployed' })
+        const cwd = `/srv/stacks/${draft.stack}`
+        const steps: Step[] = [
+          { argv: ['docker', 'compose', '-f', '-', 'config', '--quiet'], cwd, stdin: 'draft' },
+          ...(deploy ? stepsFor(draft.stack, { kind: 'up' }) : []),
+        ]
+        const diff = naiveDiff('compose.yaml', current?.compose_text ?? '', draft.compose)
+        return [{ type: 'Preview', data: this.makePreview(target, creating ? 'create' : 'save', steps, diff, false) }]
+      }
+
+      case 'Confirm':
+        return this.confirm(cmd.data.preview_id, socket, id)
+
+      case 'Cancel': {
+        const i = this.held.findIndex((h) => h.operationId === cmd.data.operation_id)
+        if (i < 0) return [{ type: 'Invalid', data: { reason: 'no such operation' } }]
+        this.held.splice(i, 1)
+        return [{ type: 'OpFinished', data: { operation_id: cmd.data.operation_id, outcome: { kind: 'cancelled' } } }]
+      }
+
+      case 'OpenLogs': {
+        const t = cmd.data.target
+        const key = t.kind === 'container' ? t.container : t.service ? `${t.stack}/${t.service}` : t.stack
+        if (t.kind === 'stack' ? !may(t.stack) : !admin && !this.containerIn(t.container, me)) return denied()
+        const streamId = this.openStream(socket, 'logs')
+        const lines = (this.logs[key] ?? []).slice(-cmd.data.tail)
+        return [
+          { type: 'StreamOpened', data: { stream_id: streamId } },
+          ...(lines.length ? [{ type: 'LogChunk' as const, data: { stream_id: streamId, lines } }] : []),
+        ]
+      }
+
+      case 'OpenShell': {
+        if (!me.features.shell) return denied('feature_disabled')
+        if (!admin && !this.containerIn(cmd.data.container, me)) return denied()
+        const streamId = this.openStream(socket, 'shell')
+        return [
+          { type: 'StreamOpened', data: { stream_id: streamId } },
+          { type: 'ShellOutput', data: { stream_id: streamId, bytes_b64: Buffer.from(this.shellBanner).toString('base64') } },
+        ]
+      }
+
+      case 'ShellInput': {
+        // A shell that echoes its input.
+        const s = this.streams.get(cmd.data.stream_id)
+        if (s?.socket !== socket || s.kind !== 'shell') return []
+        return [{ type: 'ShellOutput', data: { stream_id: cmd.data.stream_id, bytes_b64: cmd.data.bytes_b64 } }]
+      }
+
+      case 'ShellResize':
+      case 'UnwatchStats':
+        return []
+
+      case 'CloseStream': {
+        const s = this.streams.get(cmd.data.stream_id)
+        if (s?.socket !== socket) return []
+        this.streams.delete(cmd.data.stream_id)
+        return [{ type: 'StreamClosed', data: { stream_id: cmd.data.stream_id, reason: { kind: 'closed' } } }]
+      }
+
+      case 'WatchStats': {
+        const ids = cmd.data.targets.flatMap((t) =>
+          t.kind === 'container' ? [t.container] : may(t.stack) ? this.containersOf(t.stack).map((c) => c.id) : [],
+        )
+        const samples = this.samples.length ? this.samples : ids.map((cid) => fixtures.sample(cid))
+        return [{ type: 'StatsSample', data: { samples } }]
+      }
+
+      case 'GetAudit': {
+        if (!admin) return denied()
+        const f = cmd.data.filter
+        const entries = this.audit.filter(
+          (e) =>
+            (f.stack === undefined || e.stack === f.stack) &&
+            (f.actor === undefined || `${e.actor.provider}:${e.actor.subject}` === f.actor) &&
+            (f.action === undefined || e.action === f.action) &&
+            (f.from === undefined || e.at >= f.from) &&
+            (f.to === undefined || e.at <= f.to),
+        )
+        return [{ type: 'AuditPage', data: { entries, next_cursor: null } }]
+      }
+
+      case 'GetUsers':
+        return admin ? [{ type: 'Users', data: this.users }] : denied()
+
+      case 'PutUser': {
+        if (!admin) return denied()
+        if (cmd.data.role === 'pending') return denied('role_not_assignable')
+        const all = [...this.users.users, ...this.users.pending]
+        const existing = all.find((u) => u.id === cmd.data.id)
+        if (existing?.owner) return denied('owner')
+        const next: User = {
+          ...(existing ?? fixtures.user(cmd.data.id, { first_seen: null, last_seen: null, username: null })),
+          role: cmd.data.role,
+          stacks: cmd.data.stacks,
+        }
+        this.setUsers({
+          users: [...this.users.users.filter((u) => u.id !== next.id), next],
+          pending: this.users.pending.filter((u) => u.id !== next.id),
+        }, socket)
+        return [{ type: 'Users', data: this.users }]
+      }
+
+      case 'RemoveUser': {
+        if (!admin) return denied()
+        const u = [...this.users.users, ...this.users.pending].find((x) => x.id === cmd.data.id)
+        if (u?.owner) return denied('owner')
+        this.setUsers({
+          users: this.users.users.filter((x) => x.id !== cmd.data.id),
+          pending: this.users.pending.filter((x) => x.id !== cmd.data.id),
+        }, socket)
+        return [{ type: 'Users', data: this.users }]
+      }
+    }
+  }
+
+  /** What a session may see: a `user` gets their stacks only, and no foreign or standalone group. */
+  visibleStacks(me: Me): StackList {
+    if (me.role === 'admin') return this.stacks
+    return { ...this.stacks, stacks: this.stacks.stacks.filter((s) => me.stacks.includes(s.name)), foreign: [], standalone: [] }
+  }
+
+  private setUsers(list: UserList, origin: FakeSocket): void {
+    this.users = list
+    for (const s of this.open()) if (s !== origin) s.send({ type: 'UsersChanged', data: list })
+  }
+
+  private containersOf(stack: string): Container[] {
+    return this.stacks.stacks.find((s) => s.name === stack)?.services.flatMap((v) => v.containers) ?? []
+  }
+
+  private containerIn(ref: string, me: Me): boolean {
+    return me.stacks.some((st) => this.containersOf(st).some((c) => c.id === ref || c.name === ref))
+  }
+
+  private busy(stack: string): Event[] | null {
+    const h = this.held.find((x) => x.stack === stack)
+    if (!h) return null
+    const who = this.me?.identity ?? fixtures.me().identity
+    return [
+      {
+        type: 'Busy',
+        data: { stack, operation_id: h.operationId, actor: { provider: who.provider, subject: who.subject, username: who.username } },
+      },
+    ]
+  }
+
+  private makePreview(s: Stack, kind: OperationKind, steps: Step[], diff: string | null, destructive: boolean): Preview {
+    const preview: Preview = {
+      preview_id: `pv-${String(++this.seq)}`,
+      stack: s.name,
+      kind,
+      steps,
+      file_diff: diff,
+      reaches: {
+        containers: s.services.flatMap((v) => v.containers.map((c) => c.name)),
+        networks: [`${s.name}_default`],
+        volumes: [],
+      },
+      destructive,
+      stack_hash: s.content_hash,
+      expires_at: '2026-10-23T12:05:00Z',
+    }
+    this.previews.set(preview.preview_id, { preview, used: false, expired: false })
+    return preview
+  }
+
+  private confirm(previewId: string, socket: FakeSocket, replyTo: number): Event[] {
+    const p = this.previews.get(previewId)
+    const voidWith = (reason: PreviewVoidReason): Event[] => [{ type: 'PreviewVoid', data: { reason } }]
+    if (!p) return voidWith('unknown')
+    if (p.used) return voidWith('used')
+    if (p.expired) return voidWith('expired')
+    const current = this.stacks.stacks.find((s) => s.name === p.preview.stack)
+    if (current && current.content_hash !== p.preview.stack_hash) return voidWith('stack_changed')
+    const busy = this.busy(p.preview.stack)
+    if (busy) return busy
+    p.used = true
+
+    const operationId = `op-${String(++this.seq)}`
+    const events: Event[] = [
+      { type: 'OpStarted', data: { operation_id: operationId } },
+      ...this.op.output.map((chunk): Event => ({ type: 'OpOutput', data: { operation_id: operationId, chunk } })),
+    ]
+    if (this.op.hold) this.held.push({ operationId, stack: p.preview.stack, socket, replyTo })
+    else events.push({ type: 'OpFinished', data: { operation_id: operationId, outcome: this.op.outcome } })
+    return events
+  }
+
+  private openStream(socket: FakeSocket, kind: OpenStream['kind']): number {
+    const id = ++this.seq
+    this.streams.set(id, { socket, kind })
+    return id
+  }
+}
+
+/** Grants helpers for stories that switch who is signed in. */
+export const sessions = {
+  admin: (over: Partial<Me> = {}): Me => fixtures.me({ role: 'admin', ...over }),
+  user: (stacks: string[], over: Partial<Me> = {}): Me => fixtures.me({ role: 'user' as Role, stacks, ...over }),
+  pending: (over: Partial<Me> = {}): Me => fixtures.me({ role: 'pending', stacks: [], ...over }),
+}
+
+/**
+ * `test` with a `backend` fixture already installed on `page` (an admin session, no stacks).
+ * Script it before `page.goto`.
+ */
+export const test = base.extend<{ backend: FakeBackend }>({
+  // `provide` rather than Playwright's usual `use`, which the React hooks lint rule reads as a hook.
+  backend: async ({ page }, provide) => {
+    await provide(await FakeBackend.install(page))
+  },
+})
