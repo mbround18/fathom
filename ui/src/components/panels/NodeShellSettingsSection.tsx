@@ -6,8 +6,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { useStore } from '@/store'
 
 export function NodeShellSettingsSection() {

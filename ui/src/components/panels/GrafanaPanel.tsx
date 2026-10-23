@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { useObservabilitySettings } from '@/features/metrics/useObservabilitySettings'
 import { openExternal, openExternalLink } from '@/lib/open-external'
 import { SECTION } from '@/protocol/commands'

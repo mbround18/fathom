@@ -6,20 +6,18 @@
 import { useFocusReturn } from '@/lib/use-focus-return'
 import { WrenchIcon } from '@phosphor-icons/react'
 
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet'
+} from '@companion/ui'
 import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 

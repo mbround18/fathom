@@ -7,7 +7,7 @@
 import { PlusIcon } from '@phosphor-icons/react'
 import { type ReactNode, useId, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { useStore } from '@/store'
 
 import { ContextAuth } from './ContextAuth'

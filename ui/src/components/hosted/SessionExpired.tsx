@@ -1,5 +1,5 @@
 import type { SessionEndReason } from '@/protocol/generated/SessionEndReason'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { HostedPanel } from './HostedPanel'
 
 const COPY: Record<SessionEndReason, { title: string; body: string }> = {

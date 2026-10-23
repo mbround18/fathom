@@ -2,7 +2,7 @@
  * switch changes only what Fathom watches; it never mutates a cluster, so it is not `<Gated>`
  * (which checks the active context's identity, not the target's). Per-metric RBAC is reported
  * by the backend as `restricted` and rendered as "no access" by the row. */
-import { Switch } from '@/components/ui/switch'
+import { Switch } from '@companion/ui'
 
 export function FederationToggle({
   context,

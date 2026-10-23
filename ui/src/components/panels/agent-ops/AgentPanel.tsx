@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import {
   DISCLOSURE_TEXT,
   DISCLOSURE_TITLE,

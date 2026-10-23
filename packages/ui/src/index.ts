@@ -1,2 +1,24 @@
-// @companion/ui: Shared React components: primitives, container tables, argv preview (spec 050).
-export {}
+// @companion/ui: the shadcn primitives shared by the suite's frontends (spec 050).
+// Apps add this package to Tailwind's `@source` so the classes below are generated.
+export * from './alert-dialog'
+export * from './badge'
+export * from './button'
+export * from './checkbox'
+export * from './command'
+export * from './dialog'
+export * from './dropdown-menu'
+export * from './input'
+export * from './input-group'
+export * from './resizable'
+export * from './scroll-area'
+export * from './scroll-fade'
+export * from './select'
+export * from './separator'
+export * from './sheet'
+export * from './skeleton'
+export * from './sonner'
+export * from './switch'
+export * from './table'
+export * from './tabs'
+export * from './textarea'
+export * from './tooltip'

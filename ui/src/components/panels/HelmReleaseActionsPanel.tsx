@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import type { GitOpsOriginRef } from '@/protocol/types'

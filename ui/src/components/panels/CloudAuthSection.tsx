@@ -4,7 +4,7 @@
  * per-context exec policy. Detection never runs the plugin; the policy toggle is RBAC-gated like
  * every mutating control.
  */
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
 import { useStore } from '@/store'
 

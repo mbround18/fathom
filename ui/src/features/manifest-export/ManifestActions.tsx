@@ -6,8 +6,7 @@
 import { CopyIcon, DownloadSimpleIcon } from '@phosphor-icons/react'
 import { useId } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
+import { Button, Switch } from '@companion/ui'
 import { cn } from '@companion/theme'
 
 import { copyText, downloadText } from './io'

@@ -5,8 +5,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Button, Sheet, SheetContent, SheetHeader, SheetTitle } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
 import { useStore } from '@/store'
 

@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react'
 
 import { InspectorMetrics, METRICS_KINDS } from '@/components/InspectorMetrics'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Skeleton } from '@companion/ui'
 import { cn } from '@companion/theme'
 import type { RelatedResourceRef } from '@/protocol/types'
 import type { AnyDescriptor, DetailBlock } from '@/resources'

@@ -6,6 +6,7 @@
 
 /* Tailwind only auto-scans this app; the shared packages' class names live outside it. */
 @source '../../packages/theme/src';
+@source '../../packages/ui/src';
 
 @custom-variant dark (&:where(.dark, .dark *));
 

@@ -7,8 +7,7 @@
  * — `subjectsValid()` is the pure predicate `RoleBindingForm` uses to gate its Review button, and
  * each offending row shows an inline `data-testid="rbac-subject-error"`.
  */
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import type { SubjectSummary } from '@/protocol/types'
 
 const SUBJECT_KINDS = ['User', 'Group', 'ServiceAccount'] as const

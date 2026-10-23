@@ -11,7 +11,7 @@ import { ArrowDownIcon, ArrowUpIcon } from '@phosphor-icons/react'
 import { useEffect, useMemo } from 'react'
 
 import { StatusBadge } from '@/components/StatusBadge'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { RelatedResourceRef } from '@/protocol/types'
 import { relatedObjectRef } from '@/resources/related'
 import type { ObjectRef } from '@/resources'

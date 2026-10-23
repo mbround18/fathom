@@ -5,16 +5,16 @@
  */
 import { DotsThreeVerticalIcon, SparkleIcon, SquaresFourIcon } from '@phosphor-icons/react'
 
-import { Button } from '@/components/ui/button'
-import { SettingsMenuItems } from '@/components/settings/SettingsMenu'
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@companion/ui'
+import { SettingsMenuItems } from '@/components/settings/SettingsMenu'
 import { useStore } from '@/store'
 
 import { useAssistantConfigured } from './AskAi'

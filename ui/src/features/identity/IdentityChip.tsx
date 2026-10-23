@@ -2,15 +2,15 @@
 import { UserCircleIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
+} from '@companion/ui'
 import { useStore } from '@/store'
 
 import { ContextAuth } from './ContextAuth'

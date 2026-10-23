@@ -5,11 +5,32 @@
   "license": "Apache-2.0",
   "description": "Shared React components: primitives, container tables, argv preview",
   "type": "module",
+  "sideEffects": false,
   "exports": { ".": "./src/index.ts" },
   "scripts": {
     "typecheck": "node node_modules/typescript7/bin/tsc -p tsconfig.json"
   },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "cmdk": "^1.1.1",
+    "cn": "^0.5.0",
+    "react-resizable-panels": "^4.14.8"
+  },
+  "peerDependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sonner": "^2.0.8"
+  },
   "devDependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sonner": "^2.0.8",
     "typescript7": "npm:typescript@^7.0.2"
   }
 }

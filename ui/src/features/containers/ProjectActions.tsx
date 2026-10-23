@@ -12,7 +12,7 @@
  * need a file are not offered when there is none — and the file line in the heading already says
  * why, rather than a button that exists to refuse.
  */
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { Container, Project } from '@/protocol/types'
 import { useStore } from '@/store'
 

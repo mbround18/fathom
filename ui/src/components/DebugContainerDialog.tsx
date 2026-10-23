@@ -17,9 +17,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+  Button,
+  Input,
+} from '@companion/ui'
 
 import { debugInputValid, EPHEMERAL_WARNING, itemName, type ConfirmItem } from './action-utils'
 

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { StatusBadge } from '@/components/StatusBadge'
 import { Disconnected, Empty, Loading } from '@/components/shell/PaneStates'
-import { Input } from '@/components/ui/input'
+import { Input } from '@companion/ui'
 import { cn } from '@companion/theme'
 import { SECTION } from '@/protocol/commands'
 import type { KubernetesEvent } from '@/protocol/types'

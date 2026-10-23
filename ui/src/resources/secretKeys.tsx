@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { revealSecretValue, type RevealResult } from '@/store/secretReveal'
 
 const MASK = '••••••••'

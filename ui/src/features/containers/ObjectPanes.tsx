@@ -18,7 +18,7 @@
  */
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { cn } from '@companion/theme'
 import type { ObjectClass, PruneFilter, RemovableObject } from '@/protocol/types'
 import { useStore } from '@/store'

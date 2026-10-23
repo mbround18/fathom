@@ -1,6 +1,6 @@
 import { ArrowLeftIcon } from '@phosphor-icons/react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { useStore } from '@/store'
 
 import { PaneHost } from './PaneHost'

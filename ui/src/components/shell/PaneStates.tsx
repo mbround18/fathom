@@ -13,8 +13,7 @@ import {
 } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Button, Skeleton } from '@companion/ui'
 import { cn } from '@companion/theme'
 import { CircuitTrace } from '@companion/theme'
 

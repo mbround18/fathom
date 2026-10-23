@@ -13,7 +13,7 @@
  */
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { useStore } from '@/store'
 
 import { definitionLabel, effectiveAdoption, groupKey } from './labels'

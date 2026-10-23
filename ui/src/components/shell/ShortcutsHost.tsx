@@ -4,13 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@companion/ui'
 import { GO_TO, isTypingTarget, SHORTCUTS } from '@/lib/shortcuts'
 import { useStore } from '@/store'
 

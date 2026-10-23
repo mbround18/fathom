@@ -1,16 +1,17 @@
 import { CheckCircleIcon, InfoIcon, SpinnerIcon, WarningIcon, XCircleIcon } from '@phosphor-icons/react'
 import type { CSSProperties } from 'react'
-import { Toaster as Sonner, type ToasterProps } from 'sonner'
+import { Toaster as Sonner, type ToasterProps as SonnerProps } from 'sonner'
 
-import { useStore } from '@/store'
+type ToasterProps = Omit<SonnerProps, 'theme'> & {
+  /** The app's current theme mode; the app owns `.dark`, so there is no next-themes here. */
+  theme: 'dark' | 'light'
+}
 
-/** Toasts follow the app theme from the store (no next-themes; the shell owns `.dark`). */
-function Toaster(props: ToasterProps) {
-  const mode = useStore((s) => s.ui.theme.mode)
-
+/** Toasts follow the app theme, which the app passes in from its own store. */
+function Toaster({ theme, ...props }: ToasterProps) {
   return (
     <Sonner
-      theme={mode}
+      theme={theme}
       className="toaster group"
       icons={{
         success: <CheckCircleIcon className="size-4 text-status-ok" />,
@@ -38,4 +39,4 @@ function Toaster(props: ToasterProps) {
   )
 }
 
-export { Toaster }
+export { Toaster, type ToasterProps }

@@ -10,7 +10,7 @@
 import { PlugsIcon, ShieldWarningIcon, WarningIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { useCapability } from '@/lib/capabilities'
 import type { PodDetails } from '@/protocol/types'
 import type { ObjectRef } from '@/resources'

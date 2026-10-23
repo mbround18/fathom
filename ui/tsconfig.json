@@ -8,6 +8,12 @@
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "paths": { "@/*": ["./src/*"] }
+    // Read by the shadcn CLI only (components.json aliases); the referenced projects resolve the
+    // workspace packages through node_modules.
+    "paths": {
+      "@/*": ["./src/*"],
+      "@companion/ui": ["../packages/ui/src"],
+      "@companion/theme": ["../packages/theme/src"]
+    }
   }
 }

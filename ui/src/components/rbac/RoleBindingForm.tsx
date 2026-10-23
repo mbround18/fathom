@@ -18,9 +18,8 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button, Input } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
-import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { YamlDiffView } from '@/components/panels/YamlDiffView'
 import { exportFilename } from '@/features/manifest-export/clean'

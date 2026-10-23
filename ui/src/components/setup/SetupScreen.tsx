@@ -28,7 +28,7 @@ import {
 } from 'react'
 
 import { useReload } from '@/components/shell/use-reload'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import {
   connectionProblemCopy,
   kubeconfigIssueCopy,

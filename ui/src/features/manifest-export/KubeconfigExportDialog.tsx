@@ -16,17 +16,17 @@ import { WarningIcon } from '@phosphor-icons/react'
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
+  Button,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+  Input,
+} from '@companion/ui'
 import { useStore } from '@/store'
 
 import { credentialLabel, useKubeconfigExport } from './dialog-stores'

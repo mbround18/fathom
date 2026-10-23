@@ -3,14 +3,14 @@ import { ListIcon, MagnifyingGlassIcon, SquaresFourIcon } from '@phosphor-icons/
 import { FederationView } from '@/components/fleet/FederationView'
 import { useFocusReturn } from '@/lib/use-focus-return'
 import { FleetDashboardView } from '@/components/fleet/FleetDashboardView'
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@companion/ui'
 import { DaemonChip } from '@/features/daemon/DaemonChip'
 import { IdentityChip } from '@/features/identity/IdentityChip'
 import { ContextPicker } from '@/components/ContextPicker'

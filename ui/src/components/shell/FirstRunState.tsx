@@ -17,7 +17,7 @@ import {
   PlugsIcon,
   PlusIcon,
 } from '@phosphor-icons/react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import {
   connectionProblemCopy,
   kubeconfigIssueCopy,

@@ -17,9 +17,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+  Button,
+  Input,
+} from '@companion/ui'
 import { cn } from '@companion/theme'
 
 import { itemName, TYPED_CONFIRM_THRESHOLD, type ConfirmItem } from './action-utils'

@@ -6,8 +6,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useRef, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { useStore } from '@/store'
 
 import { Disconnected } from '../../components/shell/PaneStates'

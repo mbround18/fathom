@@ -14,8 +14,7 @@
  */
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { useStore } from '@/store'
 
 /** The `FleetModelRejected.field` values that belong to this editor. */

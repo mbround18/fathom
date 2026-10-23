@@ -1,6 +1,6 @@
 import { DotsThreeIcon, type Icon } from '@phosphor-icons/react'
 
-import { ScrollFade } from '@/components/ui/scroll-fade'
+import { ScrollFade } from '@companion/ui'
 import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 

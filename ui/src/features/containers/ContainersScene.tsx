@@ -18,7 +18,7 @@ import { ArrowsClockwiseIcon, LockSimpleIcon, PlugsIcon, WarningIcon } from '@ph
 import { useState } from 'react'
 
 import { Loading, StateFrame } from '@/components/shell/PaneStates'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { KindRuntimeKind } from '@/protocol/types'
 import { useStore } from '@/store'
 

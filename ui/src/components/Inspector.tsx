@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ScrollFade, Tabs, TabsContent, TabsList, TabsTrigger } from '@companion/ui'
 import { SECTION } from '@/protocol/commands'
 import type {
   HelmReleaseDetails,
@@ -30,7 +30,6 @@ import {
 import { cn } from '@companion/theme'
 
 import { DetailSections } from './DetailSections'
-import { ScrollFade } from '@/components/ui/scroll-fade'
 import { AgentPanel } from './panels/agent-ops/AgentPanel'
 import { AGENT_OPS_KINDS } from './panels/agent-ops/kinds'
 import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'

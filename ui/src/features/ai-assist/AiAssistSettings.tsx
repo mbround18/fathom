@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
+import { Button, Switch } from '@companion/ui'
 import { useStore } from '@/store'
 
 import { OllamaPicker } from './OllamaPicker'

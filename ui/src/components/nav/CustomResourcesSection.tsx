@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@companion/ui'
 import { SECTION } from '@/protocol/commands'
 import type { CrdCatalogEntry, CrdInstanceDetails, KubernetesEvent } from '@/protocol/types'
 import { formatAge } from '@/resources/format'

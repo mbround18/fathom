@@ -38,7 +38,7 @@ import { RoleBindingEditLauncher } from '@/components/rbac/RoleBindingEditLaunch
 import { RoleCreateLauncher } from '@/components/rbac/RoleCreateLauncher'
 import { RoleEditLauncher } from '@/components/rbac/RoleEditLauncher'
 import { ResourceTable } from '@/components/ResourceTable'
-import { Input } from '@/components/ui/input'
+import { Input } from '@companion/ui'
 import { SECTION } from '@/protocol/commands'
 import type {
   ClusterRoleBindingDetails,

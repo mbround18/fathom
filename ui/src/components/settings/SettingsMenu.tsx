@@ -5,13 +5,13 @@
  */
 import { GearSixIcon } from '@phosphor-icons/react'
 
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@companion/ui'
 import { useStore } from '@/store'
 
 import { settingsItems } from './settings-items'

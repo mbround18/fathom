@@ -28,8 +28,8 @@ import {
 } from '@phosphor-icons/react'
 import { useMemo, useRef } from 'react'
 
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -37,7 +37,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@companion/ui'
 import { isExportable } from '@/features/manifest-export/kinds'
 import { openManifestExport } from '@/features/manifest-export/dialog-stores'
 import { Gated } from '@/lib/capabilities'

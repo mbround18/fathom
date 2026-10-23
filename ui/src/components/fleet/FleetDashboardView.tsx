@@ -26,7 +26,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import { Input } from '@/components/ui/input'
+import { Input } from '@companion/ui'
 import { cn } from '@companion/theme'
 import type { FleetContextSummary, FleetGapReason, FleetMember } from '@/protocol/types'
 import {

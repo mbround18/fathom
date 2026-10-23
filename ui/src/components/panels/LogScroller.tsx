@@ -12,7 +12,7 @@
 import { ArrowClockwiseIcon, ArrowLineDownIcon, WarningIcon } from '@phosphor-icons/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { cn } from '@companion/theme'
 
 import { ErrorState, Loading } from '../shell/PaneStates'

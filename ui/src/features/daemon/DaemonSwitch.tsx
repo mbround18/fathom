@@ -5,7 +5,7 @@
  */
 import { useId } from 'react'
 
-import { Switch } from '@/components/ui/switch'
+import { Switch } from '@companion/ui'
 import { useStore } from '@/store'
 
 import {

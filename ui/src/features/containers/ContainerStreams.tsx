@@ -21,7 +21,7 @@ import {
   type TerminalTransport,
   TerminalSurface,
 } from '@/components/panels/TerminalView'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { Container } from '@/protocol/types'
 import { useStore } from '@/store'
 

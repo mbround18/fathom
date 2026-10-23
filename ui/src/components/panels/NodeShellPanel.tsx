@@ -11,8 +11,7 @@ import { ShieldWarningIcon, StopIcon, TerminalWindowIcon, TrashIcon } from '@pho
 import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import type { NodeDetails, OrphanedNodeShellPod } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
 

@@ -6,7 +6,7 @@
  * API group and resource suggestions come from discovery (`RefreshApiResources`); free text is
  * always accepted so a CRD or a wildcard can be named even when discovery did not list it.
  */
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { ApiResourceCatalog } from '@/protocol/types'
 
 import { TokenInput } from './TokenInput'
