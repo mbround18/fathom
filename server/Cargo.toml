@@ -15,18 +15,18 @@ path = "src/main.rs"
 
 [dependencies]
 fathom = { path = "..", default-features = false }
-anyhow = "1.0.100"
+anyhow = "1.0.104"
 axum = { version = "0.8", features = ["macros"] }
 openidconnect = { version = "4", default-features = false }
 tower-http = { version = "0.6", features = ["fs", "set-header", "trace"] }
 secrecy = "0.10"
 rand = "0.9"
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tokio-tungstenite = "0.27"
-reqwest = { version = "0.13.1", features = ["json", "default-tls"] }
+reqwest = { version = "0.13.5", features = ["json", "default-tls"] }
 kube = "2.0.1"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 tracing = "0.1.44"
 base64 = "0.22"
 subtle = "2.6"
@@ -36,12 +36,12 @@ sha2 = "0.10"
 tower = { version = "0.5", features = ["util"] }
 http = "1"
 async-trait = "0.1"
-crossbeam-channel = "0.5.15"
-futures = "0.3.31"
+crossbeam-channel = "0.5.17"
+futures = "0.3.34"
 hyper = "1"
 hyper-util = { version = "0.1", features = ["tokio"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 rsa = "0.9"
-tokio = { version = "1.49.0", features = ["full", "test-util"] }
+tokio = { version = "1.54.1", features = ["full", "test-util"] }

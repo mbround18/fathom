@@ -31,27 +31,27 @@ path = "tests/support/fake_plugin.rs"
 ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
 
 # Async Runtime & Communication
-tokio = { version = "1.49.0", features = ["full"] }
-async-trait = "0.1.89"
-crossbeam-channel = "0.5.15"
-ctrlc = "3.5.1"
+tokio = { version = "1.54.1", features = ["full"] }
+async-trait = "0.1.92"
+crossbeam-channel = "0.5.17"
+ctrlc = "3.5.2"
 
 # Kubernetes
 # Enable ws to support port-forward over WebSockets
 kube = { version = "2.0.1", features = ["runtime", "derive", "ws"] }
 k8s-openapi = { version = "0.26.1", features = ["v1_34"] }
-schemars = "1.2.0"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 serde_yaml = "0.9"
 
 # MVP helpers (logs/streaming + ergonomics)
-futures-util = "0.3.31"
-futures = "0.3.31"
-anyhow = "1.0.100"
+futures-util = "0.3.34"
+futures = "0.3.34"
+anyhow = "1.0.104"
 
 # Integration features (Prometheus, Grafana, port forwarding, encryption)
-reqwest = { version = "0.13.1", features = ["json", "form", "default-tls"] }
+reqwest = { version = "0.13.5", features = ["json", "form", "default-tls"] }
 rustls = { version = "0.23", features = ["ring"] }
 ring = "0.17.14"
 base64 = "0.22.1"
@@ -69,16 +69,16 @@ urlencoding = "2.1"
 
 # Observability
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 
 # MCP Server for VSCode & Claude integration (stdio transport)
 rmcp = { version = "0.12.0", features = ["server", "transport-io"] }
 # `CancellationToken` for the stdio MCP server's graceful shutdown
 # (`rmcp::service::serve_server_with_ct`, 015-mcp-agent-exposure).
-tokio-util = { version = "0.7.19", features = ["rt"] }
+tokio-util = { version = "0.7.20", features = ["rt"] }
 # tonic/Hubble gRPC channel connector (`backend::hubble`), not MCP-related.
 tower = "0.5"
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 
 # Native file dialogs for saving logs
 
@@ -94,9 +94,9 @@ tonic = "0.14.6"
 tonic-prost = "0.14.6"
 prost = "0.14.4"
 prost-types = "0.14.4"
-hyper-util = "0.1.19"
+hyper-util = "0.1.21"
 openidconnect = "4.0.1"
-arc-swap = "1.9.2"
+arc-swap = "1.9.3"
 http = "1"
 
 # 038-sdk-login-ollama: OS credential store (Secret Service / Keychain / Credential Manager)
@@ -110,14 +110,14 @@ keyring = { version = "3", features = ["apple-native"] }
 keyring = { version = "3", features = ["windows-native"] }
 
 [build-dependencies]
-embed-resource = "3.0.6"
-image = "0.25.9"
+embed-resource = "3.0.12"
+image = "0.25.10"
 tonic-prost-build = "0.14.6"
 protobuf-src = "2.1.1"
 
 [dev-dependencies]
 # Paused-time tokio tests (027 fleet poller fan-out)
-tokio = { version = "1.49.0", features = ["full", "test-util"] }
+tokio = { version = "1.54.1", features = ["full", "test-util"] }
 
 # Mock HTTP registry server for image-inspection auth-fallback/parsing unit tests
 # (010-container-image-inspection, research.md R6) — no live registry required.

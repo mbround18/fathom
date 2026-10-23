@@ -21,17 +21,14 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 fathom = { path = "../..", default-features = false, features = ["os-keyring"] }
 tauri = { version = "2", features = [] }
-# tauri-runtime 2.11 added a required trait method that tauri-runtime-wry 2.10.1
-# does not implement; keep it on 2.10.x until a matching tauri-runtime-wry ships.
-tauri-runtime = "~2.10.1"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-crossbeam-channel = "0.5.15"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+crossbeam-channel = "0.5.17"
 tracing = "0.1.44"
-ctrlc = "3.5.1"
-clap = { version = "4.5", features = ["derive", "env"] }
-tauri-plugin-opener = "2.5.5"
+ctrlc = "3.5.2"
+clap = { version = "4.6", features = ["derive", "env"] }
+tauri-plugin-opener = "2.7.2"
 
 [target.'cfg(unix)'.dependencies]
 # setsid() for the login-shell environment import (login_env.rs).
-libc = "0.2.180"
+libc = "0.2.191"

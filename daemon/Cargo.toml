@@ -16,18 +16,18 @@ path = "src/main.rs"
 # Shared protocol/backend lib WITHOUT the legacy egui UI (036 research R3).
 fathom = { path = "..", default-features = false }
 axum = "0.8"
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = "0.1"
 kube = { version = "2.0.1", features = ["runtime"] }
 k8s-openapi = { version = "0.26.1", features = ["v1_34"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-anyhow = "1.0.100"
-async-trait = "0.1.89"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+anyhow = "1.0.104"
+async-trait = "0.1.92"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
-futures = "0.3.31"
+futures = "0.3.34"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 # Front-proxy mTLS (client cert verified against the requestheader CA)
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
@@ -40,7 +40,7 @@ tower = { version = "0.5", features = ["util"] }
 tower-test = "0.4"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
-tokio = { version = "1.49.0", features = ["full", "test-util"] }
+tokio = { version = "1.54.1", features = ["full", "test-util"] }
 
 [lints.clippy]
 too_many_lines = "warn"

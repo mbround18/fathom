@@ -39,7 +39,7 @@ RUST_APT=libgtk-3-dev,libssl-dev,pkg-config,libxkbcommon-dev,libwebkit2gtk-4.1-d
 RUST_APT+=,libayatana-appindicator3-dev,librsvg2-dev,libdbus-1-dev,cmake
 # Keep in step with @playwright/test in ui/pnpm-lock.yaml: the image ships matching browsers
 # and their system deps, so there is no `playwright install --with-deps` step.
-PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble
+PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble
 
 # Every step runs niced inside the container too: paws's own niceness does not reach the engine.
 N="nice -n ${CI_NICE}"
