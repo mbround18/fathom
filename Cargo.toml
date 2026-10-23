@@ -36,6 +36,8 @@ name = "fake-exec-plugin"
 path = "tests/support/fake_plugin.rs"
 
 [dependencies]
+# 050: the Docker/Compose runtime, shared with Depths.
+container-runtime = { path = "crates/container-runtime" }
 
 # Rust -> TypeScript protocol bindings (ui/src/protocol/generated/)
 ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }

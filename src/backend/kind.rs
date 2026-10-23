@@ -30,41 +30,7 @@ const BARE_CONFIG: &str =
 // Command runner seam (mockable in tests)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CmdOutput {
-    pub success: bool,
-    pub stdout: String,
-    pub stderr: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RunError {
-    /// Binary not found on `PATH`.
-    NotFound,
-    Other(String),
-}
-
-/// Runs a short-lived probe command. Implementations must use argument arrays only.
-pub trait Runner: Send + Sync {
-    fn run(&self, bin: &str, args: &[&str]) -> Result<CmdOutput, RunError>;
-}
-
-/// Real runner: `std::process::Command` with an argument array, no shell.
-pub struct SystemRunner;
-
-impl Runner for SystemRunner {
-    fn run(&self, bin: &str, args: &[&str]) -> Result<CmdOutput, RunError> {
-        match std::process::Command::new(bin).args(args).output() {
-            Ok(out) => Ok(CmdOutput {
-                success: out.status.success(),
-                stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-            }),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(RunError::NotFound),
-            Err(e) => Err(RunError::Other(e.to_string())),
-        }
-    }
-}
+pub use container_runtime::runner::*;
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -127,7 +93,7 @@ pub fn config_for_profile(
 pub fn detect_prerequisites_with(runner: &dyn Runner) -> KindPrerequisites {
     let (kind_installed, kind_version) = match runner.run("kind", &["version"]) {
         Ok(out) if out.success => (true, Some(out.stdout.trim().to_owned())),
-        Ok(_) | Err(RunError::Other(_)) => (true, None),
+        Ok(_) | Err(RunError::Other(_) | RunError::Unsupported) => (true, None),
         Err(RunError::NotFound) => (false, None),
     };
 
@@ -145,7 +111,7 @@ pub fn detect_prerequisites_with(runner: &dyn Runner) -> KindPrerequisites {
                 runtime_kind = Some(kind);
                 runtime_running = out.success;
             }
-            Err(RunError::Other(_)) => {
+            Err(RunError::Other(_) | RunError::Unsupported) => {
                 runtime_installed = true;
                 runtime_kind = Some(kind);
             }
@@ -202,6 +168,7 @@ pub fn list_cluster_names_with(runner: &dyn Runner) -> Result<Vec<String>, Strin
         Ok(out) => Err(out.stderr.trim().to_owned()),
         Err(RunError::NotFound) => Err("kind is not installed.".into()),
         Err(RunError::Other(e)) => Err(e),
+        Err(e @ RunError::Unsupported) => Err(e.to_string()),
     }
 }
 

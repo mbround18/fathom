@@ -409,6 +409,7 @@ fn runtime_error_text(e: &kind::RunError) -> String {
     match e {
         kind::RunError::NotFound => "The container runtime binary is no longer on PATH.".to_owned(),
         kind::RunError::Other(detail) => detail.clone(),
+        kind::RunError::Unsupported => e.to_string(),
     }
 }
 

@@ -89,6 +89,7 @@ pub async fn follow(
                     "The container runtime binary is no longer on PATH.".to_owned()
                 }
                 super::super::kind::RunError::Other(detail) => detail,
+                other @ super::super::kind::RunError::Unsupported => other.to_string(),
             });
             return;
         }

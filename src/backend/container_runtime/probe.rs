@@ -29,11 +29,11 @@ pub fn detect_presence_with(runner: &dyn Runner) -> RuntimePresence {
         {
             // Not installed: this binary contributes nothing.
             Err(RunError::NotFound) => continue,
-            Err(RunError::Other(e)) => RuntimePresence {
+            Err(e) => RuntimePresence {
                 state: RuntimePresenceState::Unreachable,
                 runtime: Some(kind),
                 endpoint: Some(default_endpoint(bin)),
-                detail: Some(e),
+                detail: Some(e.to_string()),
             },
             Ok(out) if out.success => RuntimePresence {
                 state: RuntimePresenceState::Ready,
