@@ -30,10 +30,15 @@ BIN     := fathom-desktop
 CARGO_BUILD_JOBS ?= 4
 export CARGO_BUILD_JOBS
 
+# gc runs before every build: target/ and the BuildKit cache grow without bound
+# otherwise. It never fails a build.
+GC_DAYS        ?= 14
+GC_DOCKER_KEEP ?= 40GB
+
 WIN_TRIPLE := x86_64-pc-windows-msvc
 HOST_OS    := $(shell uname -s)
 
-.PHONY: help build-linux build-windows build-macos windows-deps dist-clean version
+.PHONY: help build-linux build-windows build-macos windows-deps dist-clean version gc
 
 help: ## Print this target list
 	@echo "Fathom $(VERSION) — artifacts go to ./$(DIST)"
@@ -44,18 +49,20 @@ help: ## Print this target list
 	@echo
 	@echo "  DIST=<dir>              stage somewhere other than ./dist"
 	@echo "  CARGO_BUILD_JOBS=<n>    cargo parallelism (default $(CARGO_BUILD_JOBS))"
+	@echo "  GC_DAYS=<n>             gc: sweep cargo output unused for n days (default $(GC_DAYS))"
+	@echo "  GC_DOCKER_KEEP=<size>   gc: cap the Docker build cache (default $(GC_DOCKER_KEEP))"
 
 .DEFAULT_GOAL := help
 
 version: ## Print the version the bundles will carry
 	@echo "$(VERSION)"
 
-build-linux: ## deb + rpm + AppImage + the bare binary, into ./dist
+build-linux: gc ## deb + rpm + AppImage + the bare binary, into ./dist
 	@[ "$(HOST_OS)" = Linux ] || { echo "build-linux needs a Linux host (this is $(HOST_OS))." >&2; exit 1; }
 	cd $(UI) && pnpm tauri build --bundles deb,rpm,appimage
 	@$(MAKE) --no-print-directory stage RELEASE=target/release
 
-build-windows: ## NSIS installer; cross-compiles from Linux via cargo-xwin
+build-windows: gc ## NSIS installer; cross-compiles from Linux via cargo-xwin
 ifeq ($(HOST_OS),Linux)
 	@command -v cargo-xwin >/dev/null 2>&1 || { \
 		echo "cargo-xwin is not installed — it is what lets a Linux host link MSVC objects."; \
@@ -71,14 +78,14 @@ else
 	@$(MAKE) --no-print-directory stage RELEASE=target/release
 endif
 
-build-windows-paws: ## NSIS installer cross-built in a container via paws (no host toolchain)
+build-windows-paws: gc ## NSIS installer cross-built in a container via paws (no host toolchain)
 	scripts/build-windows.sh
 
 release-notes: ## Render release notes for TAG from .github/RELEASE_TEMPLATE.md (APPLY=1 writes them to the release)
 	@[ -n "$(TAG)" ] || { echo "usage: make release-notes TAG=v0.1.0 [APPLY=1]"; exit 1; }
 	scripts/release-notes.sh $(TAG) $(if $(APPLY),--apply,)
 
-build-macos: ## .app + .dmg (macOS host only — there is no cross path)
+build-macos: gc ## .app + .dmg (macOS host only — there is no cross path)
 	@[ "$(HOST_OS)" = Darwin ] || { \
 		echo "build-macos needs a macOS host (this is $(HOST_OS))."; \
 		echo "Apple's toolchain and codesign have no Linux cross path; use a macOS runner."; \
@@ -89,6 +96,18 @@ build-macos: ## .app + .dmg (macOS host only — there is no cross path)
 windows-deps: ## Install the Windows cross toolchain (rustup target + cargo-xwin)
 	rustup target add $(WIN_TRIPLE)
 	cargo install --locked cargo-xwin
+
+gc: ## Sweep cargo output unused for GC_DAYS days; cap the Docker build cache at GC_DOCKER_KEEP
+	@if command -v cargo-sweep >/dev/null 2>&1; then \
+	  cargo sweep --time $(GC_DAYS) || echo "gc: cargo sweep failed; continuing"; \
+	else \
+	  echo "gc: cargo-sweep not installed, skipping (cargo install cargo-sweep --locked)"; \
+	fi
+	@if docker info >/dev/null 2>&1; then \
+	  docker builder prune -f --max-used-space $(GC_DOCKER_KEEP) | tail -1 || echo "gc: docker builder prune failed; continuing"; \
+	else \
+	  echo "gc: Docker daemon not running, skipping build-cache prune"; \
+	fi
 
 dist-clean: ## Empty ./dist
 	rm -rf $(DIST)
