@@ -40,8 +40,7 @@ fn with_clusters(rows: Vec<ContainerRow>) -> Vec<ContainerRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::container_runtime::runner::CmdOutput;
-    use std::sync::Mutex;
+    use ::container_runtime::test_util::RecordingRunner;
 
     const SEP: char = '\u{1f}';
 
@@ -73,24 +72,10 @@ mod tests {
     /// The live listing asks the runtime for the kind label by name.
     #[test]
     fn the_listing_projects_the_kind_label() {
-        struct Capture(Mutex<Vec<String>>);
-        impl Runner for Capture {
-            fn run(&self, _bin: &str, args: &[&str]) -> Result<CmdOutput, RunError> {
-                self.0
-                    .lock()
-                    .unwrap()
-                    .extend(args.iter().map(|a| (*a).to_owned()));
-                Ok(CmdOutput {
-                    success: true,
-                    stdout: row("fathom-dev"),
-                    stderr: String::new(),
-                })
-            }
-        }
-        let runner = Capture(Mutex::new(Vec::new()));
+        let runner = RecordingRunner::ok(&row("fathom-dev"));
         let rows = list_containers_with(Cli::docker(), &runner).unwrap();
         assert_eq!(rows[0].container.cluster.as_deref(), Some("fathom-dev"));
-        let args = runner.0.lock().unwrap().join(" ");
+        let args = runner.argv().join(" ");
         assert!(
             args.contains("{{.Label \"io.x-k8s.kind.cluster\"}}"),
             "{args}"

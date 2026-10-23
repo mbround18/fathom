@@ -112,43 +112,7 @@ fn looks_like_daemon_down(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runner::CmdOutput;
-    use std::collections::HashMap;
-
-    struct Mock(HashMap<String, Result<CmdOutput, RunError>>);
-
-    impl Mock {
-        fn new(entries: Vec<(&str, Result<CmdOutput, RunError>)>) -> Self {
-            Self(
-                entries
-                    .into_iter()
-                    .map(|(k, v)| (k.to_owned(), v))
-                    .collect(),
-            )
-        }
-    }
-
-    impl Runner for Mock {
-        fn run(&self, bin: &str, _args: &[&str]) -> Result<CmdOutput, RunError> {
-            self.0.get(bin).cloned().unwrap_or(Err(RunError::NotFound))
-        }
-    }
-
-    fn ok(stdout: &str) -> Result<CmdOutput, RunError> {
-        Ok(CmdOutput {
-            success: true,
-            stdout: stdout.to_owned(),
-            stderr: String::new(),
-        })
-    }
-
-    fn failed(stderr: &str) -> Result<CmdOutput, RunError> {
-        Ok(CmdOutput {
-            success: false,
-            stdout: String::new(),
-            stderr: stderr.to_owned(),
-        })
-    }
+    use crate::test_util::{MockRunner as Mock, failed, ok};
 
     #[test]
     fn nothing_installed_is_absent() {

@@ -300,48 +300,11 @@ mod tests {
     use super::*;
     use crate::cli::Cli;
     use crate::preview::{self, PreviewContext};
+    use crate::test_util::{RecordingRunner as Recorder, ScriptedStreamRunner};
     use crate::wire::{
         Container, LifecycleAction, ObjectClass, OperationRequest, OperationScope,
         RuntimeContainerState,
     };
-    use std::sync::Mutex;
-
-    /// Records what it was asked to run and answers with a canned result.
-    struct Recorder {
-        reply: CmdOutput,
-        seen: Mutex<Vec<Vec<String>>>,
-    }
-
-    impl Recorder {
-        fn new(success: bool, stdout: &str, stderr: &str) -> Self {
-            Self {
-                reply: CmdOutput {
-                    success,
-                    stdout: stdout.to_owned(),
-                    stderr: stderr.to_owned(),
-                },
-                seen: Mutex::new(vec![]),
-            }
-        }
-
-        fn argv(&self) -> Vec<String> {
-            self.seen
-                .lock()
-                .unwrap()
-                .first()
-                .cloned()
-                .unwrap_or_default()
-        }
-    }
-
-    impl Runner for Recorder {
-        fn run(&self, bin: &str, args: &[&str]) -> Result<CmdOutput, RunError> {
-            let mut argv = vec![bin.to_owned()];
-            argv.extend(args.iter().map(|a| (*a).to_owned()));
-            self.seen.lock().unwrap().push(argv);
-            Ok(self.reply.clone())
-        }
-    }
 
     fn container(id: &str, name: &str, project: Option<&str>) -> Container {
         Container {
@@ -1010,26 +973,6 @@ mod tests {
         assert!(outcome.discrepancies.is_empty());
     }
 
-    /// A scripted builder: replays its lines once, for one spawn.
-    struct ScriptedBuilder {
-        script: Mutex<Option<Vec<crate::stream::StreamLine>>>,
-        seen: Mutex<Vec<Vec<String>>>,
-    }
-
-    impl crate::stream::StreamRunner for ScriptedBuilder {
-        fn spawn(
-            &self,
-            bin: &str,
-            args: &[&str],
-        ) -> Result<Box<dyn crate::stream::RunningProcess>, RunError> {
-            let mut argv = vec![bin.to_owned()];
-            argv.extend(args.iter().map(|a| (*a).to_owned()));
-            self.seen.lock().unwrap().push(argv);
-            let script = self.script.lock().unwrap().take().unwrap_or_default();
-            Ok(Box::new(crate::test_util::ScriptedProcess::new(script)))
-        }
-    }
-
     /// A build is watched, and what it said while failing is what the operator is told afterwards
     /// — the builder's own lines, in the builder's own order, not a sentence about them.
     #[test]
@@ -1054,15 +997,12 @@ mod tests {
         let stored = preview::build("prev-9".to_owned(), &request, &ctx(&containers))
             .expect("a build is previewable");
 
-        let builder = ScriptedBuilder {
-            script: Mutex::new(Some(vec![
-                StreamLine::Stderr("#1 [internal] load build definition".to_owned()),
-                StreamLine::Stdout("#4 naming to docker.io/library/shop-web:dev".to_owned()),
-                StreamLine::Stderr(FAILED_SOLVE.to_owned()),
-                StreamLine::Exited { success: false },
-            ])),
-            seen: Mutex::new(vec![]),
-        };
+        let builder = ScriptedStreamRunner::new(vec![
+            StreamLine::Stderr("#1 [internal] load build definition".to_owned()),
+            StreamLine::Stdout("#4 naming to docker.io/library/shop-web:dev".to_owned()),
+            StreamLine::Stderr(FAILED_SOLVE.to_owned()),
+            StreamLine::Exited { success: false },
+        ]);
 
         let mut streamed: Vec<String> = vec![];
         let outcome = issue_streaming(&builder, &stored, |line| streamed.push(line.to_owned()))
@@ -1079,10 +1019,7 @@ mod tests {
             ]
         );
         // The argv the preview showed, spawned as the preview showed it.
-        assert_eq!(
-            builder.seen.lock().unwrap().first().cloned().unwrap(),
-            stored.preview.command
-        );
+        assert_eq!(builder.calls()[0].clone(), stored.preview.command);
         assert_eq!(outcome.overall, OutcomeStatus::Failed);
         let error = outcome.objects[0]
             .error
@@ -1112,13 +1049,10 @@ mod tests {
         let containers: Vec<Container> = vec![];
         let stored = preview::build("prev-10".to_owned(), &request, &ctx(&containers))
             .expect("a build is previewable");
-        let builder = ScriptedBuilder {
-            script: Mutex::new(Some(vec![
-                StreamLine::Stdout("done".to_owned()),
-                StreamLine::Exited { success: true },
-            ])),
-            seen: Mutex::new(vec![]),
-        };
+        let builder = ScriptedStreamRunner::new(vec![
+            StreamLine::Stdout("done".to_owned()),
+            StreamLine::Exited { success: true },
+        ]);
 
         let outcome = issue_streaming(&builder, &stored, |_| {}).expect("the builder ran");
         assert_eq!(outcome.overall, OutcomeStatus::Succeeded);

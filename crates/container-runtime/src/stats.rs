@@ -222,36 +222,7 @@ impl Drop for Sampler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runner::CmdOutput;
-    use std::sync::Mutex;
-
-    struct Scripted {
-        answer: Result<CmdOutput, RunError>,
-        seen: Mutex<Vec<Vec<String>>>,
-    }
-
-    impl Scripted {
-        fn ok(stdout: &str) -> Self {
-            Self {
-                answer: Ok(CmdOutput {
-                    success: true,
-                    stdout: stdout.to_owned(),
-                    stderr: String::new(),
-                }),
-                seen: Mutex::new(Vec::new()),
-            }
-        }
-    }
-
-    impl Runner for Scripted {
-        fn run(&self, _bin: &str, args: &[&str]) -> Result<CmdOutput, RunError> {
-            self.seen
-                .lock()
-                .expect("lock")
-                .push(args.iter().map(|a| (*a).to_owned()).collect());
-            self.answer.clone()
-        }
-    }
+    use crate::test_util::RecordingRunner;
 
     const ID_A: &str = "aaaaaaaaaaaa000000000000000000000000000000000000000000000000000a";
     const ID_B: &str = "bbbbbbbbbbbb000000000000000000000000000000000000000000000000000b";
@@ -270,12 +241,12 @@ mod tests {
     /// An unscoped `stats` samples every container on a daemon this machine shares.
     #[test]
     fn no_visible_containers_means_no_invocation_at_all() {
-        let runner = Scripted::ok("");
+        let runner = RecordingRunner::ok("");
         let samples = sample_with(Cli::docker(), &runner, &[], "2026-10-03T00:00:00Z")
             .expect("an empty tick cannot fail");
         assert!(samples.is_empty());
         assert!(
-            runner.seen.lock().expect("lock").is_empty(),
+            runner.calls().is_empty(),
             "an empty id list must not reach the runtime"
         );
     }
@@ -307,7 +278,7 @@ mod tests {
             r#"{"ID":"aaaaaaaaaaaa","Name":"shop-web","CPUPerc":"3.21%","MemUsage":"24.56MiB / 31.25GiB","MemPerc":"0.08%"}"#,
             r#"{"ID":"bbbbbbbbbbbb","Name":"shop-db","CPUPerc":"--","MemUsage":"-- / --","MemPerc":"--"}"#,
         );
-        let runner = Scripted::ok(&stdout);
+        let runner = RecordingRunner::ok(&stdout);
         let samples = sample_with(
             Cli::docker(),
             &runner,
@@ -331,8 +302,9 @@ mod tests {
     /// that has passed.
     #[test]
     fn a_container_left_out_of_the_answer_still_gets_an_unavailable_sample() {
-        let runner =
-            Scripted::ok(r#"{"ID":"aaaaaaaaaaaa","CPUPerc":"1.00%","MemUsage":"1MiB / 1GiB"}"#);
+        let runner = RecordingRunner::ok(
+            r#"{"ID":"aaaaaaaaaaaa","CPUPerc":"1.00%","MemUsage":"1MiB / 1GiB"}"#,
+        );
         let samples = sample_with(
             Cli::docker(),
             &runner,
@@ -351,20 +323,9 @@ mod tests {
     fn stopping_the_sampler_leaves_nothing_ticking() {
         use std::sync::atomic::AtomicUsize;
 
-        struct Counting(AtomicUsize);
-        impl Runner for Counting {
-            fn run(&self, _bin: &str, _args: &[&str]) -> Result<CmdOutput, RunError> {
-                self.0.fetch_add(1, Ordering::Relaxed);
-                Ok(CmdOutput {
-                    success: true,
-                    stdout: r#"{"ID":"aaaaaaaaaaaa","CPUPerc":"1.00%","MemUsage":"1MiB / 1GiB"}"#
-                        .to_owned(),
-                    stderr: String::new(),
-                })
-            }
-        }
-
-        let runner = Arc::new(Counting(AtomicUsize::new(0)));
+        let runner = Arc::new(RecordingRunner::ok(
+            r#"{"ID":"aaaaaaaaaaaa","CPUPerc":"1.00%","MemUsage":"1MiB / 1GiB"}"#,
+        ));
         let seen = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&seen);
         let sampler = Sampler::start(
@@ -385,10 +346,10 @@ mod tests {
         assert_eq!(seen.load(Ordering::Relaxed), 1, "one tick, and only one");
         sampler.stop();
 
-        let after = runner.0.load(Ordering::Relaxed);
+        let after = runner.call_count();
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(
-            runner.0.load(Ordering::Relaxed),
+            runner.call_count(),
             after,
             "the runtime was invoked again after the sampler was stopped"
         );
@@ -396,15 +357,11 @@ mod tests {
 
     #[test]
     fn a_refusing_runtime_fails_rather_than_reporting_zeroes() {
-        let runner = Scripted {
-            answer: Ok(CmdOutput {
-                success: false,
-                stdout: String::new(),
-                stderr: "Cannot connect to the Docker daemon at unix:///var/run/docker.sock.\n"
-                    .to_owned(),
-            }),
-            seen: Mutex::new(Vec::new()),
-        };
+        let runner = RecordingRunner::new(
+            false,
+            "",
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock.\n",
+        );
         let err = sample_with(Cli::docker(), &runner, &[ID_A.to_owned()], "t")
             .expect_err("a refused tick is not an empty one");
         assert_eq!(

@@ -3,11 +3,135 @@
 //! Nothing here touches a daemon: a [`ScriptedProcess`] replays lines, a [`ChannelSink`] records
 //! events, and the mock runners answer from a table.
 
+use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender, channel, sync_channel};
 use std::sync::{Arc, Mutex};
 
+use crate::runner::{CmdOutput, RunError, Runner};
 use crate::sink::{StreamEvent, StreamSink};
-use crate::stream::{Killer, RunningProcess, StreamLine};
+use crate::stream::{Killer, RunningProcess, StreamLine, StreamRunner};
+
+/// A successful run that printed `stdout`.
+pub fn ok(stdout: &str) -> Result<CmdOutput, RunError> {
+    Ok(CmdOutput {
+        success: true,
+        stdout: stdout.to_owned(),
+        stderr: String::new(),
+    })
+}
+
+/// A run that exited non-zero, saying `stderr`.
+pub fn failed(stderr: &str) -> Result<CmdOutput, RunError> {
+    Ok(CmdOutput {
+        success: false,
+        stdout: String::new(),
+        stderr: stderr.to_owned(),
+    })
+}
+
+/// Answers by binary name from a table. A binary not in the table is not installed.
+pub struct MockRunner(HashMap<String, Result<CmdOutput, RunError>>);
+
+impl MockRunner {
+    pub fn new<'a>(
+        entries: impl IntoIterator<Item = (&'a str, Result<CmdOutput, RunError>)>,
+    ) -> Self {
+        Self(
+            entries
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v))
+                .collect(),
+        )
+    }
+}
+
+impl Runner for MockRunner {
+    fn run(&self, bin: &str, _args: &[&str]) -> Result<CmdOutput, RunError> {
+        self.0.get(bin).cloned().unwrap_or(Err(RunError::NotFound))
+    }
+}
+
+/// Records every argv it is asked to run (program first) and answers each with the same reply.
+pub struct RecordingRunner {
+    reply: Result<CmdOutput, RunError>,
+    seen: Mutex<Vec<Vec<String>>>,
+}
+
+impl RecordingRunner {
+    /// Answers every call with this exit status and output.
+    pub fn new(success: bool, stdout: &str, stderr: &str) -> Self {
+        Self::answering(Ok(CmdOutput {
+            success,
+            stdout: stdout.to_owned(),
+            stderr: stderr.to_owned(),
+        }))
+    }
+
+    /// Answers every call successfully with `stdout`.
+    pub fn ok(stdout: &str) -> Self {
+        Self::new(true, stdout, "")
+    }
+
+    pub fn answering(reply: Result<CmdOutput, RunError>) -> Self {
+        Self {
+            reply,
+            seen: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Every argv run so far, in order.
+    pub fn calls(&self) -> Vec<Vec<String>> {
+        self.seen.lock().expect("lock").clone()
+    }
+
+    /// The first argv run, or empty if nothing ran.
+    pub fn argv(&self) -> Vec<String> {
+        self.calls().into_iter().next().unwrap_or_default()
+    }
+
+    pub fn call_count(&self) -> usize {
+        self.seen.lock().expect("lock").len()
+    }
+}
+
+impl Runner for RecordingRunner {
+    fn run(&self, bin: &str, args: &[&str]) -> Result<CmdOutput, RunError> {
+        let mut argv = vec![bin.to_owned()];
+        argv.extend(args.iter().map(|a| (*a).to_owned()));
+        self.seen.lock().expect("lock").push(argv);
+        self.reply.clone()
+    }
+}
+
+/// A stream runner whose first spawn replays `lines` as a [`ScriptedProcess`]; later spawns
+/// replay nothing. Records every argv it spawned (program first).
+pub struct ScriptedStreamRunner {
+    script: Mutex<Option<Vec<StreamLine>>>,
+    seen: Mutex<Vec<Vec<String>>>,
+}
+
+impl ScriptedStreamRunner {
+    pub fn new(lines: Vec<StreamLine>) -> Self {
+        Self {
+            script: Mutex::new(Some(lines)),
+            seen: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn calls(&self) -> Vec<Vec<String>> {
+        self.seen.lock().expect("lock").clone()
+    }
+}
+
+impl StreamRunner for ScriptedStreamRunner {
+    fn spawn(&self, bin: &str, args: &[&str]) -> Result<Box<dyn RunningProcess>, RunError> {
+        let mut argv = vec![bin.to_owned()];
+        argv.extend(args.iter().map(|a| (*a).to_owned()));
+        self.seen.lock().expect("lock").push(argv);
+        let script = self.script.lock().expect("lock").take().unwrap_or_default();
+        Ok(Box::new(ScriptedProcess::new(script)))
+    }
+}
 
 /// A scripted process for tests: replays canned lines, then exits.
 pub struct ScriptedProcess {
@@ -80,5 +204,34 @@ mod tests {
         assert!(!proc.was_killed());
         proc.kill();
         assert!(proc.was_killed());
+    }
+
+    #[test]
+    fn the_mock_runners_answer_from_their_scripts() {
+        let mock = MockRunner::new([("docker", ok("29.8.1"))]);
+        assert_eq!(mock.run("docker", &["version"]).unwrap().stdout, "29.8.1");
+        assert!(matches!(mock.run("podman", &[]), Err(RunError::NotFound)));
+
+        let rec = RecordingRunner::new(false, "", "refused");
+        assert!(!rec.run("docker", &["ps", "-a"]).unwrap().success);
+        assert_eq!(rec.argv(), vec!["docker", "ps", "-a"]);
+        assert_eq!(rec.call_count(), 1);
+
+        let streams = ScriptedStreamRunner::new(vec![StreamLine::Exited { success: true }]);
+        let first: Vec<StreamLine> = streams
+            .spawn("docker", &["logs"])
+            .unwrap()
+            .lines()
+            .iter()
+            .collect();
+        assert_eq!(first.len(), 1);
+        let second: Vec<StreamLine> = streams
+            .spawn("docker", &["logs"])
+            .unwrap()
+            .lines()
+            .iter()
+            .collect();
+        assert!(second.is_empty(), "the script plays once");
+        assert_eq!(streams.calls().len(), 2);
     }
 }
