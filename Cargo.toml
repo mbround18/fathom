@@ -135,6 +135,9 @@ wiremock = "0.6"
 rsa = { version = "0.9", features = ["sha2"] }
 rand08 = { package = "rand", version = "0.8" }
 
+# 050: the shared runtime's test doubles (scripted processes, mock runners).
+container-runtime = { path = "crates/container-runtime", features = ["test-util"] }
+
 
 [lints.clippy]
 # Enforce manageable code sizes - warn if functions exceed 100 lines

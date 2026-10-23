@@ -16,9 +16,10 @@ pub mod logs;
 pub mod mutate;
 pub mod preview;
 pub mod probe;
-pub mod session;
+/// The pty session and the streaming runner live in the shared crate (spec 050 T008).
+pub use ::container_runtime::session;
 pub mod stats;
-pub mod stream;
+pub use ::container_runtime::stream;
 
 use super::kind::{CmdOutput, RunError, Runner};
 

@@ -14,7 +14,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 
-use super::super::kind::RunError;
+use crate::runner::RunError;
 
 /// One line of a running process's output, tagged with which stream it came from.
 ///
@@ -53,6 +53,10 @@ pub trait RunningProcess: Send {
 pub struct Killer(Box<dyn Fn() + Send + Sync>);
 
 impl Killer {
+    pub fn new(kill: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(Box::new(kill))
+    }
+
     pub fn kill(&self) {
         (self.0)();
     }
@@ -168,49 +172,6 @@ impl Drop for SpawnedProcess {
     }
 }
 
-/// A scripted process for tests: replays canned lines, then exits.
-#[cfg(test)]
-pub struct ScriptedProcess {
-    rx: Receiver<StreamLine>,
-    killed: Arc<std::sync::atomic::AtomicBool>,
-}
-
-#[cfg(test)]
-impl ScriptedProcess {
-    pub fn new(lines: Vec<StreamLine>) -> Self {
-        let (tx, rx) = sync_channel(lines.len().max(1));
-        for line in lines {
-            drop(tx.send(line));
-        }
-        Self {
-            rx,
-            killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        }
-    }
-
-    pub fn was_killed(&self) -> bool {
-        self.killed.load(std::sync::atomic::Ordering::Acquire)
-    }
-}
-
-#[cfg(test)]
-impl RunningProcess for ScriptedProcess {
-    fn lines(&self) -> &Receiver<StreamLine> {
-        &self.rx
-    }
-    fn kill(&self) {
-        self.killed
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-
-    fn killer(&self) -> Killer {
-        let killed = Arc::clone(&self.killed);
-        Killer(Box::new(move || {
-            killed.store(true, std::sync::atomic::Ordering::Release);
-        }))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,7 +217,7 @@ mod tests {
 
     #[test]
     fn a_missing_binary_is_not_found_not_a_generic_failure() {
-        let Err(err) = SystemStreamRunner.spawn("fathom-no-such-binary-048", &[]) else {
+        let Err(err) = SystemStreamRunner.spawn("depths-test-no-such-binary", &[]) else {
             panic!("a binary that does not exist must not spawn");
         };
         assert_eq!(err, RunError::NotFound);
@@ -302,18 +263,5 @@ mod tests {
             tail.iter().any(|l| matches!(l, StreamLine::Exited { .. })),
             "a killed follow never reported its exit: {tail:?}"
         );
-    }
-
-    #[test]
-    fn a_scripted_process_replays_its_lines_and_records_the_kill() {
-        let proc = ScriptedProcess::new(vec![
-            StreamLine::Stdout("hello from busybox".into()),
-            StreamLine::Exited { success: true },
-        ]);
-        let collected: Vec<StreamLine> = proc.lines().iter().collect();
-        assert_eq!(collected.len(), 2);
-        assert!(!proc.was_killed());
-        proc.kill();
-        assert!(proc.was_killed());
     }
 }

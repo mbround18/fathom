@@ -1011,7 +1011,9 @@ mod tests {
             argv.extend(args.iter().map(|a| (*a).to_owned()));
             self.seen.lock().unwrap().push(argv);
             let script = self.script.lock().unwrap().take().unwrap_or_default();
-            Ok(Box::new(super::super::stream::ScriptedProcess::new(script)))
+            Ok(Box::new(
+                ::container_runtime::test_util::ScriptedProcess::new(script),
+            ))
         }
     }
 

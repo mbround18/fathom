@@ -13,6 +13,20 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 // ---------------------------------------------------------------------------
+// Streams
+// ---------------------------------------------------------------------------
+
+/// Monotonic stream counter. Exported to TypeScript as `number` (safe below 2^53).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct StreamId(#[ts(type = "number")] pub u64);
+
+impl std::fmt::Display for StreamId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "stream-{}", self.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Runtime
 // ---------------------------------------------------------------------------
 

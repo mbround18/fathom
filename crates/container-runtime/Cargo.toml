@@ -6,10 +6,21 @@ edition = "2024"
 license = "Apache-2.0"
 publish = false
 
+[features]
+# Test doubles (scripted processes, mock runners, a channel sink) for consumers' tests.
+test-util = []
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 # Same features as Fathom's: the bindings it generates from these types must not change.
 ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
+# `spawn_blocking` for the log follow's pump.
+tokio = { version = "1.54.1", features = ["rt"] }
+
+[target.'cfg(unix)'.dependencies]
+# The pseudo-terminal behind an interactive session.
+libc = "0.2"
 
 [dev-dependencies]
 serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["rt", "macros"] }

@@ -1,29 +1,20 @@
 //! 048-docker-management US5: an interactive session inside one container.
 //!
-//! Gated, unlike the log follow next door. `adoption::requirement` classifies
-//! `StartContainerSession` as needing the container's own grant, because a shell inside a
-//! container is unbounded execution inside someone else's project (FR-013) — there is no preview
-//! that could describe what the operator is about to type, so the grant is the only honest place
-//! to ask. A container backing a cluster Fathom manages is actionable without one (FR-016), and
-//! the gate already knows that.
+//! `docker exec -it` needs a pseudo-terminal on this machine, because the runtime refuses `-t`
+//! when its own stdin is not one. So the pty is opened here, in about a hundred lines.
 //!
-//! **Deviation from the plan.** `plan.md` named `src/backend/node_shell.rs` as the PTY machinery to
-//! adapt. It is not: `node_shell.rs` builds a privileged debug *pod*, and the exec plumbing it
-//! leads to (`src/backend/exec.rs`) attaches over the Kubernetes API's own streaming protocol,
-//! which has no local terminal in it at all. `docker exec -it` needs the thing neither of them
-//! has: a pseudo-terminal on this machine, because the runtime refuses `-t` when its own stdin is
-//! not one. So the pty is opened here, in about a hundred lines, rather than pretended to be
-//! borrowed from somewhere it does not exist.
+//! Whether a session may be opened at all is the app's decision (Fathom gates it on the
+//! container's adoption grant): a shell inside a container is unbounded execution inside someone
+//! else's project, and no preview could describe what the operator is about to type.
 //!
-//! One session at a time, application-wide, exactly as pod exec does it: a second start replaces
-//! the first, and replacing it ends it. Ending always kills *and reaps* — "no process left behind"
-//! (FR-036) is not satisfied by a dead child nobody waited on.
+//! Ending always kills *and reaps* — "no process left behind" (FR-036) is not satisfied by a dead
+//! child nobody waited on.
 
 use std::io::{Read, Write};
 use std::process::{Child, Command, Stdio};
 
-use super::super::log_streams::StreamSink;
-use crate::protocol::{StreamEvent, StreamId};
+use crate::sink::{StreamEvent, StreamSink};
+use crate::wire::StreamId;
 
 /// The shell a session opens when the operator names none.
 ///
@@ -60,12 +51,11 @@ pub struct Session {
 
 impl Session {
     /// Opens a pty, spawns the session on it, and starts forwarding its output to `sink`.
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn open(
+    pub fn open<S: StreamSink + 'static>(
         stream_id: StreamId,
         bin: &str,
         args: &[String],
-        sink: StreamSink,
+        sink: S,
     ) -> std::io::Result<Self> {
         let (master, slave) = pty::open()?;
         let mut cmd = Command::new(bin);
@@ -77,7 +67,7 @@ impl Session {
         let child = cmd.spawn()?;
 
         let mut out = master.try_clone()?;
-        let reader = std::thread::spawn(move || relay(&mut out, &sink));
+        let reader = std::thread::spawn(move || relay(&mut out, &sink, stream_id));
         Ok(Self {
             stream_id,
             child,
@@ -101,7 +91,7 @@ impl Session {
     /// Ends the session and leaves nothing running (FR-036).
     ///
     /// Kill, then *wait*: an unreaped child is still a process in the table, and "closing the view
-    /// leaves no process behind" is a claim about the machine and not about Fathom's bookkeeping.
+    /// leaves no process behind" is a claim about the machine and not about the app's bookkeeping.
     pub fn close(mut self) {
         drop(self.child.kill());
         drop(self.child.wait());
@@ -116,22 +106,24 @@ impl Session {
 ///
 /// Lossy on purpose: a terminal carries whatever bytes the program wrote, and a shell that prints
 /// a partial multi-byte sequence across two reads must not take the pane down with it.
-fn relay(out: &mut std::fs::File, sink: &StreamSink) {
+fn relay(out: &mut std::fs::File, sink: &dyn StreamSink, stream_id: StreamId) {
     let mut buf = [0_u8; READ_CHUNK];
     loop {
         match out.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => sink.emit(StreamEvent::ContainerSessionOutput {
-                stream_id: sink.stream_id,
-                data: String::from_utf8_lossy(&buf[..n]).into_owned(),
-            }),
+            Ok(n) => {
+                sink.emit(StreamEvent::ContainerSessionOutput {
+                    stream_id,
+                    data: String::from_utf8_lossy(&buf[..n]).into_owned(),
+                });
+            }
             // EIO is what a pty reports when the far end went away; it is this loop's EOF, not a
             // failure worth telling the operator about.
             Err(e) if e.raw_os_error() == Some(5) => break,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => {
                 sink.emit(StreamEvent::ContainerSessionClosed {
-                    stream_id: sink.stream_id,
+                    stream_id,
                     error: Some(e.to_string()),
                 });
                 return;
@@ -139,7 +131,7 @@ fn relay(out: &mut std::fs::File, sink: &StreamSink) {
         }
     }
     sink.emit(StreamEvent::ContainerSessionClosed {
-        stream_id: sink.stream_id,
+        stream_id,
         error: None,
     });
 }
@@ -251,36 +243,22 @@ mod pty {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{BackendEvent, BackendEventEnvelope, Route, section_keys};
-    use crossbeam_channel::{Receiver, unbounded};
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicU64;
+    use crate::test_util::ChannelSink;
+    use std::sync::mpsc::Receiver;
     use std::time::{Duration, Instant};
 
-    fn sink(tx: &crossbeam_channel::Sender<BackendEventEnvelope>) -> StreamSink {
-        StreamSink {
-            stream_id: StreamId(3),
-            route: Route::global(section_keys::system()),
-            seq: Arc::new(AtomicU64::new(0)),
-            sender: tx.clone(),
-        }
-    }
-
     /// Output and closes received within `within`, as (text, closed-with-error).
-    fn drain(
-        rx: &Receiver<BackendEventEnvelope>,
-        within: Duration,
-    ) -> (String, Vec<Option<String>>) {
+    fn drain(rx: &Receiver<StreamEvent>, within: Duration) -> (String, Vec<Option<String>>) {
         let deadline = Instant::now() + within;
         let mut text = String::new();
         let mut closes = Vec::new();
         while Instant::now() < deadline {
             match rx.recv_timeout(Duration::from_millis(50)) {
-                Ok(env) => match env.event {
-                    BackendEvent::Stream(StreamEvent::ContainerSessionOutput { data, .. }) => {
+                Ok(ev) => match ev {
+                    StreamEvent::ContainerSessionOutput { data, .. } => {
                         text.push_str(&data);
                     }
-                    BackendEvent::Stream(StreamEvent::ContainerSessionClosed { error, .. }) => {
+                    StreamEvent::ContainerSessionClosed { error, .. } => {
                         closes.push(error);
                         break;
                     }
@@ -310,12 +288,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_session_runs_on_a_real_terminal() {
-        let (tx, rx) = unbounded();
+        let (sink, rx) = ChannelSink::new();
         let session = Session::open(
             StreamId(3),
             "sh",
             &["-c".to_owned(), "tty".to_owned()],
-            sink(&tx),
+            sink,
         )
         .expect("a pty and a shell");
         let (text, closes) = drain(&rx, Duration::from_secs(10));
@@ -336,12 +314,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn closing_a_session_leaves_no_process_behind() {
-        let (tx, _rx) = unbounded();
+        let (sink, _rx) = ChannelSink::new();
         let session = Session::open(
             StreamId(3),
             "sh",
             &["-c".to_owned(), "while true; do sleep 1; done".to_owned()],
-            sink(&tx),
+            sink,
         )
         .expect("a pty and a shell");
         let pid = i32::try_from(session.child.id()).expect("a pid fits");
@@ -360,7 +338,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_shell_that_does_not_exist_ends_the_session_rather_than_hanging() {
-        let (tx, rx) = unbounded();
+        let (sink, rx) = ChannelSink::new();
         let session = Session::open(
             StreamId(3),
             "sh",
@@ -368,7 +346,7 @@ mod tests {
                 "-c".to_owned(),
                 "echo 'exec: /bin/nope: not found' >&2; exit 127".to_owned(),
             ],
-            sink(&tx),
+            sink,
         )
         .expect("a pty and a shell");
         let (text, closes) = drain(&rx, Duration::from_secs(10));
@@ -382,12 +360,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn resizing_is_harmless() {
-        let (tx, _rx) = unbounded();
+        let (sink, _rx) = ChannelSink::new();
         let mut session = Session::open(
             StreamId(3),
             "sh",
             &["-c".to_owned(), "sleep 5".to_owned()],
-            sink(&tx),
+            sink,
         )
         .expect("a pty and a shell");
         session.resize(120, 40);

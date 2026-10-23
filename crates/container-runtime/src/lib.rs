@@ -5,5 +5,12 @@
 //! operation in a form the operator could reproduce themselves, and an argv is reproducible where
 //! a socket call is not. No dependency on any app crate, `kube` or `tauri` (checked in CI).
 
+pub mod logs;
 pub mod runner;
+pub mod session;
+pub mod sink;
+pub mod stream;
 pub mod wire;
+
+#[cfg(any(test, feature = "test-util"))]
+pub mod test_util;
