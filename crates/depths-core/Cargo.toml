@@ -7,3 +7,13 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+# The 048 wire types (`Container`) that stack status is derived from. No I/O happens here.
+container-runtime = { path = "../container-runtime" }
+serde = { version = "1.0.229", features = ["derive"] }
+# The `services` of a compose file, for status and the service list.
+serde_yaml = "0.9"
+# `content_hash`.
+sha2 = "0.11"
+
+[dev-dependencies]
+serde_json = "1.0.154"
