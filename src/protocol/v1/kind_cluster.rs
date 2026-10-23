@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Defined in the shared crate with the container wire types (spec 050 T009).
+pub use container_runtime::wire::KindRuntimeKind;
+
 /// Starting configuration for a new kind cluster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -11,14 +14,6 @@ pub enum KindClusterProfileId {
     Bare,
     /// Operator-supplied kind config YAML.
     CustomYaml,
-}
-
-/// Container runtime detected on the host.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum KindRuntimeKind {
-    Docker,
-    Podman,
 }
 
 /// Host readiness snapshot (backend-computed).

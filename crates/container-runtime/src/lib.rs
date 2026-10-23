@@ -6,3 +6,4 @@
 //! a socket call is not. No dependency on any app crate, `kube` or `tauri` (checked in CI).
 
 pub mod runner;
+pub mod wire;
