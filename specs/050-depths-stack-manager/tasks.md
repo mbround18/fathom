@@ -79,7 +79,7 @@ The final phase covers shipping (plan phase E).
 - [X] T005 [P] Create empty packages:
   - `packages/theme` (`@companion/theme`), `packages/ui` (`@companion/ui`) and `packages/terminal` (`@companion/terminal`), each with `package.json` (private, `type: module`, `exports`), `tsconfig.json` extending a new root `tsconfig.base.json`, and `src/index.ts`.
   - `apps/depths/web` (`@companion/depths-web`) from Vite's React-TS template trimmed to the repo's ESLint and Vitest setup, with the `@/` alias.
-- [ ] T006 [P] Extend `scripts/hygiene.sh` to report leftover `depths-test-*` compose projects and temp stacks dirs. Extend `Makefile`:
+- [X] T006 [P] Extend `scripts/hygiene.sh` to report leftover `depths-test-*` compose projects and temp stacks dirs. Extend `Makefile`:
   - `depths-dev`: server plus `vite dev`.
   - `depths-image`: depends on `gc`.
   - `depths-test`.

@@ -38,7 +38,8 @@ GC_DOCKER_KEEP ?= 40GB
 WIN_TRIPLE := x86_64-pc-windows-msvc
 HOST_OS    := $(shell uname -s)
 
-.PHONY: help build-linux build-windows build-macos windows-deps dist-clean version gc
+.PHONY: help build-linux build-windows build-macos windows-deps dist-clean version gc \
+        depths-dev depths-image depths-test
 
 help: ## Print this target list
 	@echo "Fathom $(VERSION) — artifacts go to ./$(DIST)"
@@ -108,6 +109,25 @@ gc: ## Sweep cargo output unused for GC_DAYS days; cap the Docker build cache at
 	else \
 	  echo "gc: Docker daemon not running, skipping build-cache prune"; \
 	fi
+
+# ---- Depths (spec 050) ---------------------------------------------------------------------
+DEPTHS_WEB := apps/depths/web
+DEPTHS_PKGS := -p container-runtime -p web-auth -p audit-log -p depths-core \
+               -p depths-stacks-fs -p depths-protocol -p depths-server
+
+depths-dev: ## Depths server on 127.0.0.1:5001 (--insecure-dev) plus vite dev on :5174
+	@trap 'kill 0' EXIT; \
+	DEPTHS_LISTEN=127.0.0.1:5001 DEPTHS_PUBLIC_URL=http://127.0.0.1:5174 DEPTHS_INSECURE_DEV=true \
+	  STATIC_DIR=$(DEPTHS_WEB)/dist cargo run -p depths-server & \
+	pnpm --filter @companion/depths-web dev & \
+	wait
+
+depths-image: gc ## Build the Depths container image (depths:dev)
+	docker build -f apps/depths/Dockerfile -t depths:dev .
+
+depths-test: ## Depths and shared-crate tests: cargo (Rust side) and vitest (web)
+	cargo test $(DEPTHS_PKGS)
+	pnpm --filter @companion/depths-web test
 
 dist-clean: ## Empty ./dist
 	rm -rf $(DIST)

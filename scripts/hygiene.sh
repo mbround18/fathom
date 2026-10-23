@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Local resource hygiene: find (and optionally clean) what agent runs leave behind, so they don't
-# eat the disk and RAM: Claude worktrees, kind clusters, Docker build cache and dangling images.
+# eat the disk and RAM: Claude worktrees, kind clusters, Docker build cache and dangling images,
+# and Depths test leftovers (depths-test-* compose projects, temp stacks roots).
 #
 #   scripts/hygiene.sh [check]   report only; exits 1 when anything dangling is found
 #   scripts/hygiene.sh clean     remove only what is provably safe to remove (see below)
@@ -18,6 +19,9 @@
 #     is live (an agent may own one); other clusters are reported, never deleted
 #   - Docker: only build cache older than CACHE_AGE and dangling images; containers, volumes and
 #     tagged images (other projects share this daemon) are never touched
+#   - Depths tests: compose projects named depths-test-* are only reported (their volumes may be
+#     wanted for a failing test); temp stacks roots ($TMPDIR/depths-test-*) older than an hour,
+#     so never a running test's, are removed
 set -euo pipefail
 
 CMD="${1:-check}"
@@ -91,6 +95,19 @@ if docker info >/dev/null 2>&1; then
     docker image prune -f | tail -1 | sed 's/^/    images: /'
   fi
 fi
+
+echo "== Depths test leftovers"
+if docker info >/dev/null 2>&1; then
+  while read -r proj; do
+    [[ -n "$proj" ]] && flag "review  compose project $proj: docker compose -p $proj down --volumes"
+  done < <(docker compose ls --all --format json 2>/dev/null \
+    | python3 -c 'import json,sys; [print(p["Name"]) for p in json.load(sys.stdin) if p["Name"].startswith("depths-test-")]' 2>/dev/null || true)
+fi
+while read -r d; do
+  [[ -n "$d" ]] || continue
+  flag "stale   temp stacks root $d"
+  [[ "$CMD" == clean ]] && rm -rf -- "$d" && echo "    removed"
+done < <(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'depths-test-*' -mmin +60 2>/dev/null)
 
 echo "== cargo target (report only)"
 du -sh "$ROOT/target" 2>/dev/null | sed 's/^/  /' || true
