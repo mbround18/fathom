@@ -1,0 +1,894 @@
+//! Payload types shared by commands and events.
+//!
+//! Every string a client can send is a validated newtype: it fails to *parse*, not just to
+//! authorise, when it is out of bounds. That is defence in depth, not the check itself: the server
+//! still resolves names through the fs adapter and authorises every command (contracts/protocol.md,
+//! "Rules the server enforces"). Doc comments here are exported into the TypeScript bindings.
+
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+use uuid::Uuid;
+
+use crate::wire::Container;
+
+// ---------------------------------------------------------------------------
+// Limits
+// ---------------------------------------------------------------------------
+
+/// Longest stack, service or container name accepted: one path component (`NAME_MAX`).
+pub const MAX_NAME_BYTES: usize = 255;
+/// Longest subject in a user id. OIDC caps `sub` at 255 ASCII characters.
+pub const MAX_SUBJECT_BYTES: usize = 255;
+/// Longest CSRF token accepted. `web-auth` issues 43 (32 bytes, URL-safe base64).
+pub const MAX_CSRF_TOKEN_BYTES: usize = 128;
+/// Longest opaque audit cursor accepted.
+pub const MAX_CURSOR_BYTES: usize = 256;
+/// Longest RFC 3339 timestamp accepted.
+pub const MAX_TIMESTAMP_BYTES: usize = 64;
+/// Most log lines a client may ask to back-fill. The web keeps rings of 10,000 lines.
+pub const MAX_LOG_TAIL: u32 = 10_000;
+/// Largest base64 payload in one `ShellInput` (48 KiB of keystrokes or paste).
+pub const MAX_SHELL_INPUT_B64_BYTES: usize = 64 * 1024;
+/// Most targets in one `WatchStats`.
+pub const MAX_STATS_TARGETS: usize = 64;
+/// Most stacks in one `PutUser`.
+pub const MAX_USER_STACKS: usize = 1024;
+
+// ---------------------------------------------------------------------------
+// Validated strings
+// ---------------------------------------------------------------------------
+
+/// Why a value from the client was refused by the parser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidValue {
+    pub what: &'static str,
+    pub reason: &'static str,
+}
+
+impl fmt::Display for InvalidValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid {}: {}", self.what, self.reason)
+    }
+}
+
+impl std::error::Error for InvalidValue {}
+
+/// A string newtype that serializes as a plain string and checks itself on the way in.
+macro_rules! checked_string {
+    ($(#[$meta:meta])* $name:ident, $what:literal, $check:expr) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+        #[serde(try_from = "String", into = "String")]
+        pub struct $name(String);
+
+        impl $name {
+            /// Checks `value` against this type's rule.
+            pub fn new(value: impl Into<String>) -> Result<Self, InvalidValue> {
+                let value = value.into();
+                let check: fn(&str) -> Result<(), &'static str> = $check;
+                check(&value).map_err(|reason| InvalidValue { what: $what, reason })?;
+                Ok(Self(value))
+            }
+
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl TryFrom<String> for $name {
+            type Error = InvalidValue;
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                Self::new(value)
+            }
+        }
+
+        impl From<$name> for String {
+            fn from(value: $name) -> Self {
+                value.0
+            }
+        }
+
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+    };
+}
+
+fn bounded(value: &str, max: usize) -> Result<(), &'static str> {
+    if value.is_empty() {
+        Err("empty")
+    } else if value.len() > max {
+        Err("too long")
+    } else {
+        Ok(())
+    }
+}
+
+/// `first` for the first byte, `rest` for the others. A leading alphanumeric also keeps a name
+/// from ever reading as an argv flag.
+fn charset(value: &str, first: fn(u8) -> bool, rest: fn(u8) -> bool) -> Result<(), &'static str> {
+    let mut bytes = value.bytes();
+    match bytes.next() {
+        Some(b) if first(b) => {}
+        _ => return Err("bad first character"),
+    }
+    if bytes.all(rest) {
+        Ok(())
+    } else {
+        Err("bad character")
+    }
+}
+
+checked_string!(
+    /// A stack (compose project) name: `^[a-z0-9][a-z0-9_-]*$`, at most 255 bytes.
+    StackName,
+    "stack name",
+    |v| {
+        bounded(v, MAX_NAME_BYTES)?;
+        charset(
+            v,
+            |b| b.is_ascii_lowercase() || b.is_ascii_digit(),
+            |b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-',
+        )
+    }
+);
+
+checked_string!(
+    /// A compose service name: `^[a-zA-Z0-9][a-zA-Z0-9._-]*$`, at most 255 bytes.
+    ServiceName,
+    "service name",
+    |v| {
+        bounded(v, MAX_NAME_BYTES)?;
+        charset(v, |b| b.is_ascii_alphanumeric(), |b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')
+        })
+    }
+);
+
+checked_string!(
+    /// A container id or name as docker accepts it: `^[a-zA-Z0-9][a-zA-Z0-9._-]*$`, at most 255
+    /// bytes.
+    ContainerRef,
+    "container",
+    |v| {
+        bounded(v, MAX_NAME_BYTES)?;
+        charset(v, |b| b.is_ascii_alphanumeric(), |b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')
+        })
+    }
+);
+
+checked_string!(
+    /// A users-registry key, `<provider>:<subject>`: `discord:<snowflake>`, `github:<numeric id>`
+    /// or `oidc:<sub>`. Never a display name.
+    UserId,
+    "user id",
+    |v| {
+        let (provider, subject) = v.split_once(':').ok_or("missing provider")?;
+        bounded(subject, MAX_SUBJECT_BYTES)?;
+        match provider {
+            "discord" | "github" if subject.bytes().all(|b| b.is_ascii_digit()) => Ok(()),
+            "discord" | "github" => Err("subject must be a numeric id"),
+            "oidc" if subject.bytes().all(|b| b.is_ascii_graphic()) => Ok(()),
+            "oidc" => Err("bad character"),
+            _ => Err("unknown provider"),
+        }
+    }
+);
+
+checked_string!(
+    /// The session's CSRF token (URL-safe base64), at most 128 bytes.
+    CsrfToken,
+    "csrf token",
+    |v| {
+        bounded(v, MAX_CSRF_TOKEN_BYTES)?;
+        charset(v, is_b64url, is_b64url)
+    }
+);
+
+checked_string!(
+    /// A stack's `content_hash`: lowercase sha256 hex.
+    ContentHash,
+    "content hash",
+    |v| {
+        if v.len() != 64 {
+            return Err("not 64 hex digits");
+        }
+        charset(v, is_lower_hex, is_lower_hex)
+    }
+);
+
+checked_string!(
+    /// An RFC 3339 timestamp.
+    Timestamp,
+    "timestamp",
+    |v| {
+        bounded(v, MAX_TIMESTAMP_BYTES)?;
+        chrono::DateTime::parse_from_rfc3339(v)
+            .map(|_| ())
+            .map_err(|_| "not RFC 3339")
+    }
+);
+
+checked_string!(
+    /// Where the next audit page starts. Opaque: pass back the server's `next_cursor`.
+    AuditCursor,
+    "audit cursor",
+    |v| {
+        bounded(v, MAX_CURSOR_BYTES)?;
+        charset(v, is_b64url, is_b64url)
+    }
+);
+
+checked_string!(
+    /// Terminal bytes, standard base64 with padding, at most 64 KiB encoded.
+    ShellBytes,
+    "shell bytes",
+    |v| {
+        if v.len() > MAX_SHELL_INPUT_B64_BYTES {
+            return Err("too long");
+        }
+        if v.len() % 4 != 0 {
+            return Err("not padded base64");
+        }
+        let body = v.trim_end_matches('=');
+        if v.len() - body.len() > 2 {
+            return Err("not padded base64");
+        }
+        if body
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+        {
+            Ok(())
+        } else {
+            Err("bad character")
+        }
+    }
+);
+
+fn is_b64url(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
+}
+
+fn is_lower_hex(b: u8) -> bool {
+    b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
+}
+
+/// How many lines of history a log stream starts with, at most 10,000.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(try_from = "u32", into = "u32")]
+pub struct LogTail(u32);
+
+impl LogTail {
+    pub fn new(lines: u32) -> Result<Self, InvalidValue> {
+        if lines > MAX_LOG_TAIL {
+            return Err(InvalidValue {
+                what: "log tail",
+                reason: "more than 10000 lines",
+            });
+        }
+        Ok(Self(lines))
+    }
+
+    pub fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl TryFrom<u32> for LogTail {
+    type Error = InvalidValue;
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<LogTail> for u32 {
+    fn from(value: LogTail) -> Self {
+        value.0
+    }
+}
+
+/// Deserializes a list of at most `MAX` items.
+pub(crate) fn at_most<'de, D, T, const MAX: usize>(de: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    let items = Vec::<T>::deserialize(de)?;
+    if items.len() > MAX {
+        return Err(serde::de::Error::invalid_length(
+            items.len(),
+            &format!("at most {MAX} items").as_str(),
+        ));
+    }
+    Ok(items)
+}
+
+// ---------------------------------------------------------------------------
+// Ids
+// ---------------------------------------------------------------------------
+
+/// Client-chosen id of one command, echoed as `reply_to` on the events it produces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct RequestId(#[ts(type = "number")] pub u64);
+
+/// Single-use id of a preview (data-model "Preview").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct PreviewId(#[ts(type = "string")] pub Uuid);
+
+/// Server-generated id of a running or finished operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct OperationId(#[ts(type = "string")] pub Uuid);
+
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
+
+/// Sign-in provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    Oidc,
+    Github,
+    Discord,
+}
+
+/// Access level in the users registry. `pending` = signed in, no access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    Pending,
+    User,
+    Admin,
+}
+
+/// Who did something, as the audit log and `Busy` name them. No tokens, no email.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Actor {
+    pub provider: Provider,
+    pub subject: String,
+    pub username: String,
+}
+
+/// One users-registry entry (data-model "User").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct User {
+    /// `<provider>:<subject>`.
+    pub id: String,
+    pub provider: Provider,
+    /// Set for `oidc:` entries: a `sub` from another issuer never matches.
+    pub issuer: Option<String>,
+    pub subject: String,
+    /// Refreshed at each sign-in; display only.
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub role: Role,
+    /// Assigned stacks; ignored for `admin`. A name with no directory is kept and shown missing.
+    pub stacks: Vec<String>,
+    /// From `DEPTHS_OWNER_USER_ID`; owners are always `admin` and cannot be demoted or removed.
+    pub owner: bool,
+    /// The `github:<login>` an owner entry was pinned from.
+    pub pinned_from: Option<String>,
+    /// `None` for an invited id that has not signed in yet.
+    pub first_seen: Option<String>,
+    pub last_seen: Option<String>,
+}
+
+/// The users list: assigned people and those waiting for access.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct UserList {
+    pub users: Vec<User>,
+    pub pending: Vec<User>,
+}
+
+/// Runtime feature flags (R12), as `GET /api/v1/me` reports them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Features {
+    pub shell: bool,
+    pub edit: bool,
+}
+
+/// The signed-in person as the UI shows them. No tokens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct MeIdentity {
+    pub provider: Provider,
+    pub subject: String,
+    pub username: String,
+    pub email: Option<String>,
+}
+
+/// `GET /api/v1/me`. `role: pending` drives the no-access page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Me {
+    pub identity: MeIdentity,
+    pub csrf_token: String,
+    pub role: Role,
+    pub owner: bool,
+    pub stacks: Vec<String>,
+    pub features: Features,
+}
+
+// ---------------------------------------------------------------------------
+// Stacks
+// ---------------------------------------------------------------------------
+
+/// The compose file a stack uses: the first present, in Compose's own order (R1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ComposeFileName {
+    #[serde(rename = "compose.yaml")]
+    ComposeYaml,
+    #[serde(rename = "compose.yml")]
+    ComposeYml,
+    #[serde(rename = "docker-compose.yml")]
+    DockerComposeYml,
+    #[serde(rename = "docker-compose.yaml")]
+    DockerComposeYaml,
+}
+
+/// Derived stack status (R2). A container that exited 0 with restart policy `no` is completed
+/// and never makes a stack partial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum StackStatus {
+    Running,
+    Partial,
+    Stopped,
+    NotDeployed,
+    Invalid,
+}
+
+/// One service from the compose file, joined with its containers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ServiceSummary {
+    pub name: String,
+    pub image: Option<String>,
+    pub containers: Vec<Container>,
+}
+
+/// One stack (an immediate sub-directory of the stacks root holding a compose file).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Stack {
+    pub name: String,
+    /// `false` when the directory name is not a valid compose project name: listed, never acted on.
+    pub valid_name: bool,
+    pub compose_file: ComposeFileName,
+    /// Other compose file names present; non-empty means a warning (FR-004).
+    pub shadowed_files: Vec<ComposeFileName>,
+    pub has_env: bool,
+    pub content_hash: String,
+    pub status: StackStatus,
+    /// Any container's health is `unhealthy`.
+    pub unhealthy: bool,
+    pub services: Vec<ServiceSummary>,
+    pub running_services: u32,
+    pub total_services: u32,
+    /// Latest mtime of the compose file and `.env`, RFC 3339.
+    pub modified_at: Option<String>,
+    /// The I/O error when the directory or compose file cannot be read; never edited.
+    pub read_error: Option<String>,
+    /// Set when Depths cannot write the files, or the stack directory is a symlink.
+    pub read_only_reason: Option<String>,
+    /// A compose or `.env` file exceeds `DEPTHS_MAX_FILE_BYTES`: shown, not loaded for editing.
+    pub too_large: bool,
+}
+
+/// A compose project with no matching stack directory. Read-only; admins only (FR-008).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ForeignProject {
+    pub name: String,
+    pub working_dir: Option<String>,
+    pub containers: Vec<Container>,
+    /// The stack whose directory this project runs from under another name (`-p`).
+    pub elsewhere_of: Option<String>,
+}
+
+/// What `ListStacks` returns, and every live `StacksChanged` after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StackList {
+    pub root: String,
+    pub stacks: Vec<Stack>,
+    /// Empty for a `user`.
+    pub foreign: Vec<ForeignProject>,
+    /// Containers with no project label. Empty for a `user`.
+    pub standalone: Vec<Container>,
+    pub warnings: Vec<String>,
+    /// The runtime stopped answering: this is the last known state (FR-010).
+    pub stale: bool,
+    pub as_of: String,
+}
+
+/// A stack's `.env` as sent to the client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "text", rename_all = "snake_case")]
+pub enum EnvText {
+    /// Values of secret-looking keys (`PASS`, `SECRET`, `TOKEN`, `KEY`, `PRIVATE`, `CREDENTIAL`,
+    /// case-insensitive) replaced. `RevealEnv` for the real text.
+    Masked(String),
+    /// The exact text (no secret-looking keys, or after `RevealEnv`).
+    Plain(String),
+}
+
+/// A stack's files, for the editor (`GetStack`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StackDetail {
+    pub stack: Stack,
+    /// `None` when the stack is `too_large` or unreadable.
+    pub compose_text: Option<String>,
+    /// `None` when there is no `.env`, or it is too large to load.
+    pub env: Option<EnvText>,
+    pub content_hash: String,
+}
+
+/// An edit to save, or a stack to create (data-model "StackDraft").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct StackDraft {
+    pub stack: StackName,
+    /// The `content_hash` the editor loaded; absent for create.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub base_hash: Option<ContentHash>,
+    /// Exact text, written byte for byte.
+    pub compose: String,
+    /// Exact text. Absent leaves `.env` as it is; empty with no existing file creates none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub env: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+/// Every operation kind (data-model "Operation").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationKind {
+    Up,
+    Stop,
+    Restart,
+    Down,
+    Pull,
+    Update,
+    Save,
+    Create,
+    Delete,
+    ServiceUp,
+    ServiceStop,
+    ServiceRestart,
+}
+
+/// What `PreviewOp` asks for: an operation kind with its options. Save and create go through
+/// `PreviewSave` instead, because they carry a draft.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    content = "options",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum StackOp {
+    Up,
+    Stop,
+    Restart,
+    /// Both off by default; named in the preview when on (FR-015). Either one is admin-only.
+    Down {
+        #[serde(default)]
+        remove_volumes: bool,
+        #[serde(default)]
+        remove_images: bool,
+    },
+    Pull,
+    /// Pull, then up: one preview, two commands.
+    Update,
+    /// `down --remove-orphans`, then the directory only when `remove_directory`. Admin-only.
+    Delete {
+        #[serde(default)]
+        remove_directory: bool,
+    },
+    ServiceUp {
+        service: ServiceName,
+    },
+    ServiceStop {
+        service: ServiceName,
+    },
+    ServiceRestart {
+        service: ServiceName,
+    },
+}
+
+impl StackOp {
+    pub fn kind(&self) -> OperationKind {
+        match self {
+            Self::Up => OperationKind::Up,
+            Self::Stop => OperationKind::Stop,
+            Self::Restart => OperationKind::Restart,
+            Self::Down { .. } => OperationKind::Down,
+            Self::Pull => OperationKind::Pull,
+            Self::Update => OperationKind::Update,
+            Self::Delete { .. } => OperationKind::Delete,
+            Self::ServiceUp { .. } => OperationKind::ServiceUp,
+            Self::ServiceStop { .. } => OperationKind::ServiceStop,
+            Self::ServiceRestart { .. } => OperationKind::ServiceRestart,
+        }
+    }
+}
+
+/// What a step reads on stdin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum StepStdin {
+    /// The draft's compose text (`config --quiet -f -`).
+    Draft,
+    None,
+}
+
+/// One command a preview will run, exactly as it will run it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Step {
+    /// The literal argv, program first.
+    pub argv: Vec<String>,
+    pub cwd: String,
+    pub stdin: StepStdin,
+}
+
+/// What an operation affects. Volumes only when chosen.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Reach {
+    pub containers: Vec<String>,
+    pub networks: Vec<String>,
+    pub volumes: Vec<String>,
+}
+
+/// What an operation will do, before it does it. `Confirm` with `preview_id` to run it.
+///
+/// The server binds the preview to the session, the stack's `content_hash` and `expires_at`
+/// (5 min); the session id stays on the server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Preview {
+    pub preview_id: PreviewId,
+    pub stack: String,
+    pub kind: OperationKind,
+    pub steps: Vec<Step>,
+    /// Unified diff, for save, create and delete.
+    pub file_diff: Option<String>,
+    pub reaches: Reach,
+    pub destructive: bool,
+    pub stack_hash: String,
+    pub expires_at: String,
+}
+
+/// One error from validating a draft. `line` when Compose gives one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ValidationError {
+    pub line: Option<u32>,
+    pub message: String,
+}
+
+/// Why a `Confirm` found its preview void.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewVoidReason {
+    /// No such preview for this session. Also what another session's id gets: existence is not
+    /// disclosed.
+    Unknown,
+    /// Already confirmed once.
+    Used,
+    Expired,
+    /// The stack's files changed since the preview.
+    StackChanged,
+}
+
+/// How an operation ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OpOutcome {
+    Succeeded,
+    /// Docker's stderr, verbatim (FR-013). `exit_code` is absent when the process was killed.
+    Failed {
+        exit_code: Option<i32>,
+        stderr: String,
+    },
+    /// `Cancel` sent SIGINT.
+    Cancelled,
+}
+
+/// Why a command was refused before anything ran. Audited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum DenyReason {
+    /// The person's role or stack list does not cover this command.
+    NotPermitted,
+    /// Signed in, not yet given access.
+    Pending,
+    /// The feature flag for this command is off (`DEPTHS_FEATURE_SHELL`, `DEPTHS_FEATURE_EDIT`).
+    FeatureDisabled,
+    /// Owners cannot be demoted or removed.
+    Owner,
+    /// `PutUser` may only assign `user` or `admin`.
+    RoleNotAssignable,
+}
+
+// ---------------------------------------------------------------------------
+// Streams
+// ---------------------------------------------------------------------------
+
+/// What a log stream follows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LogTarget {
+    /// `docker compose logs`, of one service or the whole stack.
+    Stack {
+        stack: StackName,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        service: Option<ServiceName>,
+    },
+    /// `docker logs` of one container. Admin-only for a container outside every stack.
+    Container { container: ContainerRef },
+}
+
+/// What `WatchStats` samples.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum StatsTarget {
+    /// Every container of the stack.
+    Stack {
+        stack: StackName,
+    },
+    Container {
+        container: ContainerRef,
+    },
+}
+
+/// The shell `OpenShell` runs in the container. Absent: the server picks (`bash`, else `sh`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Shell {
+    Sh,
+    Bash,
+    Ash,
+}
+
+/// Why a stream closed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum StreamCloseReason {
+    /// The process ended (container stopped, shell exited).
+    Ended,
+    /// `CloseStream`.
+    Closed,
+    /// The connection dropped (proxy idle cut, R8): reopen with backoff.
+    Disconnected,
+    /// The stream could not continue. Carries the runtime's message.
+    Failed(String),
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+/// What an audit entry records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditAction {
+    Up,
+    Stop,
+    Restart,
+    Down,
+    Pull,
+    Update,
+    Save,
+    Create,
+    Delete,
+    ServiceUp,
+    ServiceStop,
+    ServiceRestart,
+    SignIn,
+    SignOut,
+    Denied,
+    ShellOpen,
+    RevealEnv,
+    UserAdded,
+    UserChanged,
+    UserRemoved,
+}
+
+impl From<OperationKind> for AuditAction {
+    fn from(kind: OperationKind) -> Self {
+        match kind {
+            OperationKind::Up => Self::Up,
+            OperationKind::Stop => Self::Stop,
+            OperationKind::Restart => Self::Restart,
+            OperationKind::Down => Self::Down,
+            OperationKind::Pull => Self::Pull,
+            OperationKind::Update => Self::Update,
+            OperationKind::Save => Self::Save,
+            OperationKind::Create => Self::Create,
+            OperationKind::Delete => Self::Delete,
+            OperationKind::ServiceUp => Self::ServiceUp,
+            OperationKind::ServiceStop => Self::ServiceStop,
+            OperationKind::ServiceRestart => Self::ServiceRestart,
+        }
+    }
+}
+
+/// A role and stack list, before or after a users change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Grant {
+    pub role: Role,
+    pub stacks: Vec<String>,
+}
+
+/// The target of a `user_added`, `user_changed` or `user_removed` entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct UserChange {
+    pub id: String,
+    pub before: Option<Grant>,
+    pub after: Option<Grant>,
+}
+
+/// How an audited action ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AuditOutcome {
+    Succeeded,
+    Failed {
+        exit_code: Option<i32>,
+        stderr_tail: String,
+    },
+    Denied {
+        reason: String,
+    },
+}
+
+/// One audit-log line. Never holds `.env` values or file contents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditEntry {
+    /// RFC 3339 UTC.
+    pub at: String,
+    pub actor: Actor,
+    pub action: AuditAction,
+    pub stack: Option<String>,
+    pub preview_id: Option<PreviewId>,
+    pub operation_id: Option<OperationId>,
+    /// The steps run, each an argv.
+    pub argv: Vec<Vec<String>>,
+    /// For users changes.
+    pub target: Option<UserChange>,
+    /// For saves: files and lines changed, `.env` lines reduced to their keys.
+    pub diff_summary: Option<String>,
+    pub outcome: AuditOutcome,
+    pub source_ip: String,
+}
+
+/// `GetAudit` filter. Every field narrows; absent means any.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct AuditFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stack: Option<StackName>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub actor: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub action: Option<AuditAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub from: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub to: Option<Timestamp>,
+}

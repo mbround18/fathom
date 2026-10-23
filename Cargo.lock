@@ -1541,6 +1541,14 @@ version = "0.1.0"
 [[package]]
 name = "depths-protocol"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "container-runtime",
+ "serde",
+ "serde_json",
+ "ts-rs",
+ "uuid",
+]
 
 [[package]]
 name = "depths-server"
