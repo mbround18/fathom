@@ -36,17 +36,8 @@ pub struct OidcConfig {
     pub ca_file: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ClaimsConfig {
-    pub username: String,
-    pub groups: String,
-    pub username_prefix: String,
-    pub groups_prefix: String,
-    /// A missing groups claim is a sign-in error only when Fathom must assert the groups itself
-    /// (impersonation). In pass-through the API server reads the token and, like it, a missing
-    /// claim means no groups: Keycloak's group mapper omits the claim for a user in no groups.
-    pub groups_required: bool,
-}
+/// Claim mapping; `groups_required` is set from the access model (impersonation only).
+pub use web_auth::oidc::ClaimsConfig;
 
 pub use crate::limits::SessionLimits;
 

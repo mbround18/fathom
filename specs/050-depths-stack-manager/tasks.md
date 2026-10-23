@@ -111,7 +111,7 @@ worktrees and merge each green.
 ### B2. `crates/web-auth` and `crates/audit-log`
 
 - [X] T014 [P] [B2] Move `server/src/session.rs` and `server/src/csrf.rs` to `crates/web-auth/src/{session,csrf}.rs` with their tests. `server/src/{session,csrf}.rs` become `pub use web_auth::…`. Extend `Identity` with `provider` (`oidc | github | discord`, defaulting to `oidc` so server behaviour is unchanged).
-- [ ] T015 [B2] Move `server/src/oidc.rs` to `crates/web-auth/src/oidc.rs`:
+- [X] T015 [B2] Move `server/src/oidc.rs` to `crates/web-auth/src/oidc.rs`:
   - Narrow the constructor from `HostedConfig` to `OidcConfig{issuer, client_id, client_secret, redirect_url, scopes}` + `ClaimsConfig{groups_claim, username_claim, groups_required}`.
   - The server builds both from `HostedConfig` and `AccessModel` in `server/src/main.rs` or wherever `OidcClient::discover` is called today.
   - Keep `map_identity` and its tests in the crate.
