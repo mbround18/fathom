@@ -23,6 +23,7 @@ fn tokens() -> Tokens {
 
 fn identity() -> Identity {
     Identity {
+        provider: Default::default(),
         issuer: "https://idp".into(),
         sub: "sub-1".into(),
         username: "alice".into(),

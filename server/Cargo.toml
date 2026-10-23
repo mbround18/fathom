@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 fathom = { path = "..", default-features = false }
+web-auth = { path = "../crates/web-auth" }
 anyhow = "1.0.104"
 axum = { version = "0.8", features = ["macros"] }
 openidconnect = { version = "4", default-features = false }

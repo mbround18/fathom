@@ -65,6 +65,7 @@ fn cfg(issuer: &str) -> HostedConfig {
 
 fn identity(groups: &[&str]) -> Identity {
     Identity {
+        provider: Default::default(),
         issuer: "https://idp".into(),
         sub: "sub-1".into(),
         username: "alice".into(),

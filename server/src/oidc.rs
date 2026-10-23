@@ -389,6 +389,7 @@ pub fn map_identity(
         _ => return Err(OidcError::MissingGroups(cfg.groups.clone())),
     };
     Ok(Identity {
+        provider: Default::default(),
         issuer: issuer.to_string(),
         sub,
         username: format!("{}{}", cfg.username_prefix, username),

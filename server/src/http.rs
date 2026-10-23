@@ -534,6 +534,7 @@ mod tests {
         let s = store
             .create(
                 Identity {
+                    provider: Default::default(),
                     issuer: "i".into(),
                     sub: "s".into(),
                     username: "u".into(),

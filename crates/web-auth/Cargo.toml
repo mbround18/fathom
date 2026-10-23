@@ -7,3 +7,15 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+base64 = "0.23"
+rand = "0.10"
+secrecy = "0.10"
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.11"
+subtle = "2.6"
+thiserror = "2"
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
+url = "2.5"
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["full", "test-util"] }

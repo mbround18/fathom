@@ -2235,6 +2235,7 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "url",
+ "web-auth",
 ]
 
 [[package]]
@@ -8276,6 +8277,17 @@ dependencies = [
 [[package]]
 name = "web-auth"
 version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "rand 0.10.3",
+ "secrecy",
+ "serde",
+ "sha2 0.11.1",
+ "subtle",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+]
 
 [[package]]
 name = "web-sys"

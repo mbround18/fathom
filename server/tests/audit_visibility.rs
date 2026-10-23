@@ -92,6 +92,7 @@ fn cfg(issuer: &str, state_dir: &std::path::Path) -> HostedConfig {
 
 fn identity(name: &str, groups: &[&str]) -> Identity {
     Identity {
+        provider: Default::default(),
         issuer: "https://idp".into(),
         sub: format!("sub-{name}"),
         username: name.into(),

@@ -258,6 +258,7 @@ mod tests {
     fn rig(script: Vec<Result<Tokens, OidcError>>, cfg: RefreshConfig) -> Rig {
         let store = Arc::new(SessionStore::new(SessionConfig::default()));
         let ident = Identity {
+            provider: Default::default(),
             issuer: "https://idp".into(),
             sub: "s".into(),
             username: "alice".into(),
