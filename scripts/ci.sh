@@ -93,9 +93,16 @@ job_test() {
 && $N cargo test -p fathom --test export_bindings \
 && if ! diff -r /tmp/generated-before ui/src/protocol/generated; then \
 echo 'error: ui/src/protocol/generated is stale. Run cargo test -p fathom --test export_bindings and commit the result.' >&2; exit 1; fi"
+  # Spec 050 (T034): the same check for Depths' protocol bindings.
+  local depths_drift="rm -rf /tmp/depths-generated-before \
+&& cp -r apps/depths/web/src/protocol/generated /tmp/depths-generated-before \
+&& $N cargo test -p depths-protocol --test export_bindings \
+&& if ! diff -r /tmp/depths-generated-before apps/depths/web/src/protocol/generated; then \
+echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p depths-protocol --test export_bindings and commit the result.' >&2; exit 1; fi"
   rust_run \
     --step "$N cargo test --all" \
-    --step "$drift"
+    --step "$drift" \
+    --step "$depths_drift"
 }
 
 job_ui() {

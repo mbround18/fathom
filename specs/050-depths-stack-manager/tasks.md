@@ -192,7 +192,7 @@ worktrees and merge each green.
   - Nothing is written when not asked (FR-003).
   - A stack dir or file Depths cannot read is listed with `read_error` and offers no edit; one it cannot write is listed with `read_only_reason`.
 - [X] T033 Define the protocol in `crates/depths-protocol/src/{cmd,event,types}.rs` exactly as in contracts/protocol.md, with ts-rs `export_to = "../../apps/depths/web/src/protocol/generated/"`. Re-export the container wire types from `container_runtime::wire`. Add `protocol_version`.
-- [ ] T034 [P] Add round-trip serde tests for every command and event variant in `crates/depths-protocol/tests/roundtrip.rs`. Add `tests/export_bindings.rs`, and add a drift check (`git diff --exit-code apps/depths/web/src/protocol/generated`) to `scripts/ci.sh`.
+- [X] T034 [P] Add round-trip serde tests for every command and event variant in `crates/depths-protocol/tests/roundtrip.rs`. Add `tests/export_bindings.rs`, and add a drift check (`git diff --exit-code apps/depths/web/src/protocol/generated`) to `scripts/ci.sh`.
 - [ ] T035 Write `apps/depths/server/src/config.rs`: clap flags and env per contracts/config.md. Startup must refuse with a message naming the setting in each of these cases:
   - No provider is configured.
   - The public URL is not https without `--insecure-dev`.
