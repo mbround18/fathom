@@ -13,14 +13,14 @@
 //! output, and the error text is its stderr verbatim (FR-021) — unwrapped, unprefixed, not
 //! rephrased into something friendlier that no longer matches what a terminal would have said.
 
-use crate::protocol::v1::{
+use crate::wire::{
     Container, Discrepancy, ObjectOutcome, ObjectRef, OperationOutcome, OperationRefusal,
     OutcomeStatus, RemovableObject, RuntimeContainerState,
 };
 
-use super::super::kind::{CmdOutput, RunError, Runner};
 use super::preview::{Expected, StoredPreview};
 use super::stream::{StreamLine, StreamRunner};
+use crate::runner::{CmdOutput, RunError, Runner};
 
 /// Runs a stored preview.
 ///
@@ -126,7 +126,7 @@ fn attribute(targets: &[ObjectRef], output: &CmdOutput) -> Vec<ObjectOutcome> {
     if targets.is_empty() {
         return vec![ObjectOutcome {
             object: ObjectRef {
-                class: crate::protocol::v1::ObjectClass::Container,
+                class: crate::wire::ObjectClass::Container,
                 id: String::new(),
                 name: String::new(),
             },
@@ -298,9 +298,9 @@ fn state_word(state: &RuntimeContainerState) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::container_runtime::Cli;
-    use crate::backend::container_runtime::preview::{self, PreviewContext};
-    use crate::protocol::v1::{
+    use crate::cli::Cli;
+    use crate::preview::{self, PreviewContext};
+    use crate::wire::{
         Container, LifecycleAction, ObjectClass, OperationRequest, OperationScope,
         RuntimeContainerState,
     };
@@ -357,7 +357,7 @@ mod tests {
             project: project.map(str::to_owned),
             service: None,
             cluster: None,
-            adoption: crate::protocol::v1::AdoptionState::NotAdopted,
+            adoption: crate::wire::AdoptionState::NotAdopted,
         }
     }
 
@@ -371,15 +371,16 @@ mod tests {
     }
 
     /// No networks unless a test says otherwise; `compose down` is the only path that reads them.
-    const NO_NETWORKS: &[crate::protocol::v1::RemovableObject] = &[];
+    const NO_NETWORKS: &[crate::wire::RemovableObject] = &[];
 
     /// The removal paths are previewed in `blast_radius`'s own tests; these fixtures exercise the
     /// lifecycle half, so there is nothing here for a removal to reach and no project is adopted.
-    const NO_OBJECTS: &[crate::protocol::v1::RemovableObject] = &[];
+    const NO_OBJECTS: &[crate::wire::RemovableObject] = &[];
     const NO_GRANTS: &[String] = &[];
 
     fn ctx<'a>(containers: &'a [Container]) -> PreviewContext<'a> {
         PreviewContext {
+            app_name: "Fathom",
             cli: Cli::docker(),
             containers,
             images: NO_OBJECTS,
@@ -387,7 +388,7 @@ mod tests {
             networks: NO_NETWORKS,
             adopted: NO_GRANTS,
             definition_file: Some("/srv/proj/compose.yaml"),
-            active_context: None,
+            cluster: None,
             as_of: "2026-10-02T12:00:00Z",
         }
     }
@@ -436,7 +437,7 @@ mod tests {
     fn a_creation_runs_the_argv_the_form_produced_and_no_shell() {
         let containers: Vec<Container> = vec![];
         let request = OperationRequest::CreateContainer {
-            spec: crate::protocol::v1::ContainerSpec {
+            spec: crate::wire::ContainerSpec {
                 image: "busybox".to_owned(),
                 name: Some("probe".to_owned()),
                 ports: vec![],
@@ -574,7 +575,7 @@ mod tests {
         let containers = four_member_project();
         let request = OperationRequest::ProjectLifecycle {
             project: "proj".to_owned(),
-            action: crate::protocol::v1::ProjectAction::Up,
+            action: crate::wire::ProjectAction::Up,
         };
         let stored = preview::build("prev-6".to_owned(), &request, &ctx(&containers)).unwrap();
         assert_eq!(
@@ -597,7 +598,7 @@ mod tests {
     /// A `down` with an empty removal list would be the exact "trust me" dialog the spec forbids.
     #[test]
     fn compose_down_names_its_containers_and_networks_and_asks_for_the_project_name() {
-        use crate::protocol::v1::{ObjectClass, RemovableObject};
+        use crate::wire::{ObjectClass, RemovableObject};
 
         let containers = four_member_project();
         let networks = vec![
@@ -628,7 +629,7 @@ mod tests {
 
         let request = OperationRequest::ProjectLifecycle {
             project: "proj".to_owned(),
-            action: crate::protocol::v1::ProjectAction::Down,
+            action: crate::wire::ProjectAction::Down,
         };
         let stored = preview::build("prev-down".to_owned(), &request, &context).unwrap();
         let preview = &stored.preview;
@@ -674,7 +675,7 @@ mod tests {
         context.definition_file = None;
         let request = OperationRequest::ProjectLifecycle {
             project: "proj".to_owned(),
-            action: crate::protocol::v1::ProjectAction::Down,
+            action: crate::wire::ProjectAction::Down,
         };
         let err = preview::build("prev-7".to_owned(), &request, &context).unwrap_err();
         assert_eq!(
@@ -682,9 +683,9 @@ mod tests {
             preview::NotPreviewable::NoDefinitionFile("proj".to_owned())
         );
         assert!(
-            err.detail().contains("has not changed the file"),
+            err.detail("Fathom").contains("has not changed the file"),
             "{}",
-            err.detail()
+            err.detail("Fathom")
         );
     }
 
@@ -767,42 +768,56 @@ mod tests {
         assert!(store.consume(&shown.preview_id).is_none());
     }
 
+    /// The cluster question is the app's to answer: the preview asks its `ClusterImpact` with the
+    /// objects the argv targets and shows what comes back. Without one, it names no cluster at all.
+    /// (Fathom's kind answer, stop-breaks/start-repairs included, is tested in its `cluster_link`.)
     #[test]
-    fn a_stopping_verb_on_a_cluster_node_names_the_cluster_it_breaks() {
+    fn cluster_breakage_comes_from_the_apps_cluster_impact() {
+        struct Breaks;
+        impl preview::ClusterImpact for Breaks {
+            fn breaks(
+                &self,
+                _: &OperationRequest,
+                targets: &[ObjectRef],
+                containers: &[Container],
+            ) -> Vec<crate::wire::ClusterBreak> {
+                targets
+                    .iter()
+                    .filter_map(|t| containers.iter().find(|c| c.id == t.id))
+                    .filter_map(|c| c.cluster.clone())
+                    .map(|cluster| crate::wire::ClusterBreak {
+                        cluster,
+                        connected: true,
+                    })
+                    .collect()
+            }
+        }
+
         let mut node = container("eeee000000005", "fathom-dev-control-plane", None);
         node.cluster = Some("fathom-dev".to_owned());
         let containers = vec![node];
-        let mut context = ctx(&containers);
-        context.active_context = Some("kind-fathom-dev");
-
         let request = OperationRequest::Lifecycle {
             action: LifecycleAction::Stop,
             scope: OperationScope::Container {
                 id: "eeee000000005".to_owned(),
             },
         };
-        let stored = preview::build("prev-9".to_owned(), &request, &context).unwrap();
-        assert_eq!(stored.preview.breaks_clusters.len(), 1);
-        assert_eq!(stored.preview.breaks_clusters[0].cluster, "fathom-dev");
-        assert!(stored.preview.breaks_clusters[0].connected);
 
-        // Starting it back up breaks nothing, and must not say it does: a warning that fires on
-        // the repair as well as the damage is a warning the operator learns to click through.
-        let start = OperationRequest::Lifecycle {
-            action: LifecycleAction::Start,
-            scope: OperationScope::Container {
-                id: "eeee000000005".to_owned(),
-            },
-        };
-        let stored = preview::build("prev-10".to_owned(), &start, &context).unwrap();
-        assert!(stored.preview.breaks_clusters.is_empty());
+        let without = preview::build("prev-9".to_owned(), &request, &ctx(&containers)).unwrap();
+        assert!(without.preview.breaks_clusters.is_empty());
+
+        let mut context = ctx(&containers);
+        context.cluster = Some(&Breaks);
+        let with = preview::build("prev-10".to_owned(), &request, &context).unwrap();
+        assert_eq!(with.preview.breaks_clusters.len(), 1);
+        assert_eq!(with.preview.breaks_clusters[0].cluster, "fathom-dev");
     }
 
     // ---------------------------------------------------------------------------
     // Post-verification (FR-023)
 
-    fn removable(class: ObjectClass, name: &str) -> crate::protocol::v1::RemovableObject {
-        crate::protocol::v1::RemovableObject {
+    fn removable(class: ObjectClass, name: &str) -> crate::wire::RemovableObject {
+        crate::wire::RemovableObject {
             class,
             id: format!("{name}-id"),
             name: name.to_owned(),
@@ -831,7 +846,7 @@ mod tests {
 
     fn stored_expecting(object: &ObjectRef, want: preview::Expected) -> preview::StoredPreview {
         preview::StoredPreview {
-            preview: crate::protocol::v1::OperationPreview {
+            preview: crate::wire::OperationPreview {
                 preview_id: "prev-v".to_owned(),
                 request: OperationRequest::Remove {
                     objects: vec![object.clone()],
@@ -997,23 +1012,21 @@ mod tests {
 
     /// A scripted builder: replays its lines once, for one spawn.
     struct ScriptedBuilder {
-        script: Mutex<Option<Vec<super::super::stream::StreamLine>>>,
+        script: Mutex<Option<Vec<crate::stream::StreamLine>>>,
         seen: Mutex<Vec<Vec<String>>>,
     }
 
-    impl super::super::stream::StreamRunner for ScriptedBuilder {
+    impl crate::stream::StreamRunner for ScriptedBuilder {
         fn spawn(
             &self,
             bin: &str,
             args: &[&str],
-        ) -> Result<Box<dyn super::super::stream::RunningProcess>, RunError> {
+        ) -> Result<Box<dyn crate::stream::RunningProcess>, RunError> {
             let mut argv = vec![bin.to_owned()];
             argv.extend(args.iter().map(|a| (*a).to_owned()));
             self.seen.lock().unwrap().push(argv);
             let script = self.script.lock().unwrap().take().unwrap_or_default();
-            Ok(Box::new(
-                ::container_runtime::test_util::ScriptedProcess::new(script),
-            ))
+            Ok(Box::new(crate::test_util::ScriptedProcess::new(script)))
         }
     }
 
@@ -1021,14 +1034,14 @@ mod tests {
     /// — the builder's own lines, in the builder's own order, not a sentence about them.
     #[test]
     fn a_failing_build_streams_the_builders_words_and_then_repeats_them_verbatim() {
-        use super::super::stream::StreamLine;
+        use crate::stream::StreamLine;
 
         // One literal, used both as what the builder wrote and as what the operator is told, so
         // the test cannot pass on two texts that merely resemble each other.
         const FAILED_SOLVE: &str = "ERROR: failed to solve: process \"/bin/sh -c npm ci\" did not complete successfully: exit code: 1";
 
-        let request = crate::protocol::v1::OperationRequest::BuildImage {
-            spec: crate::protocol::v1::ImageBuildSpec {
+        let request = crate::wire::OperationRequest::BuildImage {
+            spec: crate::wire::ImageBuildSpec {
                 context_path: "/srv/app".to_owned(),
                 dockerfile: None,
                 tag: "shop-web:dev".to_owned(),
@@ -1084,10 +1097,10 @@ mod tests {
     /// A build that worked is a build that worked: one outcome, no error, no invented object.
     #[test]
     fn a_build_that_succeeds_reports_success_from_the_exit_status() {
-        use super::super::stream::StreamLine;
+        use crate::stream::StreamLine;
 
-        let request = crate::protocol::v1::OperationRequest::BuildImage {
-            spec: crate::protocol::v1::ImageBuildSpec {
+        let request = crate::wire::OperationRequest::BuildImage {
+            spec: crate::wire::ImageBuildSpec {
                 context_path: ".".to_owned(),
                 dockerfile: None,
                 tag: "t:1".to_owned(),

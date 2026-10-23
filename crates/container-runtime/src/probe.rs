@@ -6,9 +6,9 @@
 //! remediation, and a boolean cannot carry it. So this probes the same two binaries with the same
 //! `info` invocation and the same timeout discipline, keeping stderr and the endpoint.
 
-use crate::protocol::v1::{KindRuntimeKind, RuntimePresence, RuntimePresenceState};
+use crate::wire::{KindRuntimeKind, RuntimePresence, RuntimePresenceState};
 
-use super::super::kind::{RunError, Runner, SystemRunner};
+use crate::runner::{RunError, Runner, SystemRunner};
 
 /// Matches the kind probe's budget: a wedged socket must not stall the scene.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -112,7 +112,7 @@ fn looks_like_daemon_down(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::kind::CmdOutput;
+    use crate::runner::CmdOutput;
     use std::collections::HashMap;
 
     struct Mock(HashMap<String, Result<CmdOutput, RunError>>);

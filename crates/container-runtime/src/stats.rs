@@ -23,10 +23,10 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::protocol::v1::UsageSample;
+use crate::wire::UsageSample;
 
-use super::super::kind::{RunError, Runner};
-use super::{Cli, parse_size};
+use crate::cli::{Cli, parse_size};
+use crate::runner::{RunError, Runner};
 
 /// The floor on how often a tick may run.
 ///
@@ -222,7 +222,7 @@ impl Drop for Sampler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::kind::CmdOutput;
+    use crate::runner::CmdOutput;
     use std::sync::Mutex;
 
     struct Scripted {

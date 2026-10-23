@@ -23,7 +23,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::protocol::v1::{
+use crate::wire::{
     Container, ExcludedObject, ExclusionReason, ObjectClass, ObjectRef, PruneFilter,
     RemovableObject, RemovalLine, RuntimeContainerState,
 };
@@ -249,7 +249,7 @@ fn judge(scene: &Scene<'_>, candidates: Vec<Candidate>) -> Radius {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::v1::{ContainerHealth, ObjectReference, ReferenceKind};
+    use crate::wire::{ContainerHealth, ObjectReference, ReferenceKind};
 
     fn object(class: ObjectClass, name: &str, project: Option<&str>) -> RemovableObject {
         RemovableObject {
@@ -288,7 +288,7 @@ mod tests {
             project: project.map(str::to_owned),
             service: None,
             cluster: None,
-            adoption: crate::protocol::v1::AdoptionState::NotAdopted,
+            adoption: crate::wire::AdoptionState::NotAdopted,
         }
     }
 

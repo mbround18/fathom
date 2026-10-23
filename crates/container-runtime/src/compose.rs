@@ -18,7 +18,7 @@
 use std::io::{Error, ErrorKind};
 
 use super::grouping::DefinitionProbe;
-use crate::protocol::v1::DefinitionFileState;
+use crate::wire::DefinitionFileState;
 
 /// A definition file is a page or two of YAML. Anything past this is not one, and slurping it to
 /// find that out would be the one place this feature could be made to read a DVD image

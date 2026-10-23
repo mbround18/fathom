@@ -15,18 +15,35 @@
 
 use std::collections::VecDeque;
 
-use crate::protocol::v1::{
-    Container, ContainerSpec, ExcludedObject, ExclusionReason, ImageBuildSpec, LifecycleAction,
-    NetworkSpec, ObjectClass, ObjectRef, OperationPreview, OperationRequest, OperationScope,
-    ProjectAction, RemovableObject, RemovalLine, RuntimeContainerState, VolumeSpec,
+use crate::wire::{
+    ClusterBreak, Container, ContainerSpec, ExcludedObject, ExclusionReason, ImageBuildSpec,
+    LifecycleAction, NetworkSpec, ObjectClass, ObjectRef, OperationPreview, OperationRequest,
+    OperationScope, ProjectAction, RemovableObject, RemovalLine, RuntimeContainerState, VolumeSpec,
 };
 
-use super::Cli;
 use super::blast_radius::{Scene, resolve_objects, resolve_prune};
-use super::cluster_link;
+use crate::cli::Cli;
+
+/// What an operation does to the clusters whose nodes run on this daemon.
+///
+/// The crate can see that a container carries a cluster label, but not what a cluster *is* to the
+/// app showing the preview, nor which one the operator is connected to. An app that manages
+/// clusters (Fathom: kind) implements this; one that does not passes `None`, and a preview then
+/// names no cluster breakage at all.
+pub trait ClusterImpact: Send + Sync {
+    /// The clusters `request` takes down with it, given the objects it targets.
+    fn breaks(
+        &self,
+        request: &OperationRequest,
+        targets: &[ObjectRef],
+        containers: &[Container],
+    ) -> Vec<ClusterBreak>;
+}
 
 /// Everything a preview is derived from, as of one reading of the runtime.
 pub struct PreviewContext<'a> {
+    /// The product name operator-facing sentences speak as ("Fathom", "Depths").
+    pub app_name: &'a str,
     pub cli: Cli,
     /// The containers of the inventory the preview is derived from.
     pub containers: &'a [Container],
@@ -41,9 +58,8 @@ pub struct PreviewContext<'a> {
     /// it is readable. `None` means project-level operations are unavailable for that project
     /// (FR-033) — and this module never reads or writes the file itself.
     pub definition_file: Option<&'a str>,
-    /// The kubeconfig context the operator is connected to right now, used only to decide whether
-    /// a cluster this operation breaks is *the* cluster they are looking at.
-    pub active_context: Option<&'a str>,
+    /// Who answers "which clusters does this break". `None` for an app with no clusters.
+    pub cluster: Option<&'a dyn ClusterImpact>,
     /// The projects the operator has adopted, which is what decides whether an object inside a
     /// removal set is touched or excluded (FR-025).
     pub adopted: &'a [String],
@@ -69,19 +85,19 @@ pub enum NotPreviewable {
 }
 
 impl NotPreviewable {
-    /// The operator-facing sentence. Plain, and never blaming them for it.
-    pub fn detail(&self) -> String {
+    /// The operator-facing sentence, spoken as `app_name`. Plain, and never blaming them for it.
+    pub fn detail(&self, app_name: &str) -> String {
         match self {
             Self::NotEnumerable(what) => format!(
-                "Fathom cannot list in advance everything {what} would affect, so it does not \
+                "{app_name} cannot list in advance everything {what} would affect, so it does not \
                  offer it."
             ),
             Self::UnknownTarget(id) => {
-                format!("'{id}' is not in the inventory Fathom last read.")
+                format!("'{id}' is not in the inventory {app_name} last read.")
             }
             Self::NoDefinitionFile(project) => format!(
                 "'{project}' has no readable definition file, so project-level operations are \
-                 unavailable for it. Fathom has not changed the file."
+                 unavailable for it. {app_name} has not changed the file."
             ),
             Self::AllExcluded(projects) => format!(
                 "Every object in that selection belongs to a project that has not been adopted: \
@@ -308,12 +324,10 @@ pub fn build(
             removals,
             blast_radius,
             excluded,
-            breaks_clusters: cluster_link::cluster_breaks(
-                request,
-                &targets,
-                ctx.containers,
-                ctx.active_context,
-            ),
+            breaks_clusters: ctx
+                .cluster
+                .map(|c| c.breaks(request, &targets, ctx.containers))
+                .unwrap_or_default(),
             required_confirmation,
             as_of: ctx.as_of.to_owned(),
         },
@@ -747,7 +761,7 @@ fn object_ref(container: &Container) -> ObjectRef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::v1::{AdoptionState, PublishedPort};
+    use crate::wire::{AdoptionState, PublishedPort};
 
     const NO_OBJECTS: &[RemovableObject] = &[];
 
@@ -774,13 +788,14 @@ mod tests {
         definition_file: Option<&'a str>,
     ) -> PreviewContext<'a> {
         PreviewContext {
+            app_name: "Fathom",
             cli: Cli::docker(),
             containers,
             images: NO_OBJECTS,
             volumes: NO_OBJECTS,
             networks: NO_OBJECTS,
             definition_file,
-            active_context: None,
+            cluster: None,
             adopted: &[],
             as_of: "2026-10-03T12:00:00Z",
         }
@@ -1076,6 +1091,6 @@ mod tests {
         let err = build("prev-1".to_owned(), &request, &ctx(&containers, None))
             .expect_err("no file, no preview");
         assert_eq!(err, NotPreviewable::NoDefinitionFile("shop".to_owned()));
-        assert!(err.detail().contains("has not changed the file"));
+        assert!(err.detail("Fathom").contains("has not changed the file"));
     }
 }

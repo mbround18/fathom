@@ -462,7 +462,11 @@ fn preview_operation(
         .clone()
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
+    let kind = cluster_link::KindClusters {
+        active_context: state.cluster.current_context.as_deref(),
+    };
     let ctx = PreviewContext {
+        app_name: "Fathom",
         cli,
         containers: &state.containers.containers,
         networks: &state.containers.networks,
@@ -470,7 +474,7 @@ fn preview_operation(
         volumes: &state.containers.volumes,
         adopted: &adopted,
         definition_file,
-        active_context: state.cluster.current_context.as_deref(),
+        cluster: Some(&kind),
         as_of: &as_of,
     };
 
@@ -492,7 +496,7 @@ fn preview_operation(
             sender,
             StreamEvent::ContainerOperationRefused {
                 request_id,
-                reason: OperationRefusal::NotPreviewable(e.detail()),
+                reason: OperationRefusal::NotPreviewable(e.detail(ctx.app_name)),
             },
         ),
     }

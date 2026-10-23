@@ -118,6 +118,23 @@ pub fn cluster_breaks(
         .collect()
 }
 
+/// Fathom's answer to the shared preview's cluster question: kind clusters, with the operator's
+/// current kubeconfig context deciding which one they are connected to.
+pub struct KindClusters<'a> {
+    pub active_context: Option<&'a str>,
+}
+
+impl ::container_runtime::preview::ClusterImpact for KindClusters<'_> {
+    fn breaks(
+        &self,
+        request: &OperationRequest,
+        targets: &[ObjectRef],
+        containers: &[Container],
+    ) -> Vec<ClusterBreak> {
+        cluster_breaks(request, targets, containers, self.active_context)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,8 +164,8 @@ mod tests {
             "127.0.0.1:6443->6443/tcp",
             "",
             "",
-            Box::leak(cluster.to_owned().into_boxed_str()),
             "",
+            Box::leak(cluster.to_owned().into_boxed_str()),
         ]
     }
 
@@ -287,6 +304,50 @@ mod tests {
                 "{action:?} brings the node back"
             );
         }
+    }
+
+    /// End to end through the shared preview: with Fathom's `KindClusters` as its cluster answer,
+    /// stopping a node names the cluster it breaks and that the operator is in it, and starting it
+    /// back up names nothing. (Moved from the runtime crate's mutate tests in 050.)
+    #[test]
+    fn a_stopping_verb_on_a_cluster_node_names_the_cluster_it_breaks() {
+        use ::container_runtime::preview::{self, PreviewContext};
+
+        let rows = ps(&[node(
+            "eeee000000005",
+            "fathom-dev-control-plane",
+            "fathom-dev",
+        )]);
+        let containers: Vec<Container> = rows.iter().map(|r| r.container.clone()).collect();
+        let kind = KindClusters {
+            active_context: Some("kind-fathom-dev"),
+        };
+        let context = PreviewContext {
+            app_name: "Fathom",
+            cli: ::container_runtime::Cli::docker(),
+            containers: &containers,
+            images: &[],
+            volumes: &[],
+            networks: &[],
+            adopted: &[],
+            definition_file: None,
+            cluster: Some(&kind),
+            as_of: "2026-10-02T12:00:00Z",
+        };
+
+        let stored = preview::build("prev-9".to_owned(), &stop("eeee000000005"), &context).unwrap();
+        assert_eq!(stored.preview.breaks_clusters.len(), 1);
+        assert_eq!(stored.preview.breaks_clusters[0].cluster, "fathom-dev");
+        assert!(stored.preview.breaks_clusters[0].connected);
+
+        let start = OperationRequest::Lifecycle {
+            action: LifecycleAction::Start,
+            scope: OperationScope::Container {
+                id: "eeee000000005".to_owned(),
+            },
+        };
+        let stored = preview::build("prev-10".to_owned(), &start, &context).unwrap();
+        assert!(stored.preview.breaks_clusters.is_empty());
     }
 
     /// Two nodes of one cluster are one warning. "This breaks fathom-dev" twice is noise.

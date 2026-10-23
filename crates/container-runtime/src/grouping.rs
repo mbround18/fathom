@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::protocol::v1::{
+use crate::wire::{
     AdoptionState, Container, DefinitionFileState, Project, ProjectGroup, RuntimeContainerState,
 };
 
@@ -111,7 +111,7 @@ fn declared_definition(members: &[&ContainerRow]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::container_runtime::inventory::parse_containers;
+    use crate::inventory::parse_containers_labelled;
 
     const SEP: char = '\u{1f}';
 
@@ -175,13 +175,22 @@ mod tests {
             "",
             project,
             name,
-            cluster,
             files,
+            cluster,
         ])
     }
 
+    /// Parsed as an app that manages kind clusters reads them: the node label as an extra
+    /// projection, copied onto the container.
     fn rows(lines: &[String]) -> Vec<ContainerRow> {
-        parse_containers(&lines.join("\n"))
+        const KIND: &str = "io.x-k8s.kind.cluster";
+        parse_containers_labelled(&lines.join("\n"), &[KIND])
+            .into_iter()
+            .map(|mut r| {
+                r.container.cluster = r.labels.get(KIND).cloned();
+                r
+            })
+            .collect()
     }
 
     #[test]
