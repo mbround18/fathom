@@ -145,7 +145,7 @@ worktrees and merge each green.
   - `TerminalSurface({transport, subscribe, onResize})`, the store-free core of `ui/src/components/panels/TerminalView.tsx`.
   - `PaneStates` (from `components/shell/PaneStates.tsx`).
   - `YamlDiffView`.
-- [ ] T025 [B3] Gate: check that `pnpm -r test`, Fathom's lint and type check, and the Fathom E2E projects for theme, containers and terminal all pass. Check that a visual spot-check of 3 Fathom screens against `docs/guides` screenshots shows no change.
+- [X] T025 [B3] Gate: check that `pnpm -r test`, Fathom's lint and type check, and the Fathom E2E projects for theme, containers and terminal all pass. Check that a visual spot-check of 3 Fathom screens against `docs/guides` screenshots shows no change.
 
 **Checkpoint**: shared code extracted, Fathom unchanged. Depths work can start.
 
