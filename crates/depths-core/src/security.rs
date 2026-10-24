@@ -306,6 +306,18 @@ pub struct Mount {
     pub destination: String,
     #[serde(default, rename = "RW", deserialize_with = "nullable")]
     pub rw: bool,
+    /// The named volume's name (inspect `Name`). `None` for a bind or tmpfs, which have none;
+    /// an empty name reads as none.
+    #[serde(default, deserialize_with = "non_empty")]
+    pub name: Option<String>,
+}
+
+/// `null`, a missing field and `""` all read as `None`.
+fn non_empty<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(d)?.filter(|s| !s.is_empty()))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -897,7 +909,7 @@ mod tests {
             "NetworkMode": "bridge", "IpcMode": "private", "UTSMode": "", "UsernsMode": "",
             "Devices": [], "SecurityOpt": ["no-new-privileges:true"], "ReadonlyRootfs": true},
         "Mounts": [
-            {"Type": "volume", "Source": "/var/lib/docker/volumes/data/_data", "Destination": "/data", "RW": true},
+            {"Type": "volume", "Name": "web_data", "Source": "/var/lib/docker/volumes/web_data/_data", "Destination": "/data", "RW": true},
             {"Type": "bind", "Source": "/etc/localtime", "Destination": "/etc/localtime", "RW": false},
             {"Type": "bind", "Source": "/opt/stacks/web/conf", "Destination": "/conf", "RW": true}
         ]
@@ -908,6 +920,19 @@ mod tests {
         let p = profile(&inspect(PLAIN), DaemonMode::Rootful);
         assert_eq!(p.level, Level::Ok);
         assert!(p.reasons.is_empty(), "{:?}", p.reasons);
+    }
+
+    #[test]
+    fn a_named_volume_has_its_name_and_a_bind_has_none() {
+        let i = inspect(PLAIN);
+        let names: Vec<Option<&str>> = i.mounts.iter().map(|m| m.name.as_deref()).collect();
+        assert_eq!(names, vec![Some("web_data"), None, None]);
+        for json in [
+            r#"{"Mounts":[{"Type":"bind","Name":null}]}"#,
+            r#"{"Mounts":[{"Type":"bind","Name":""}]}"#,
+        ] {
+            assert_eq!(inspect(json).mounts[0].name, None, "{json}");
+        }
     }
 
     #[test]
@@ -991,6 +1016,7 @@ mod tests {
                     source: src.into(),
                     destination: "/x".into(),
                     rw: false,
+                    name: None,
                 }],
                 ..Inspect::default()
             };
@@ -1011,6 +1037,7 @@ mod tests {
                 source: src.into(),
                 destination: "/mnt".into(),
                 rw,
+                name: None,
             }],
             ..Inspect::default()
         };
