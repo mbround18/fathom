@@ -133,10 +133,17 @@ pub enum CommandKind {
     AnswerNetwork,
     /// Ending one's own sessions, or (admin) someone else's.
     EndSession,
+    /// Listing a stack's mounts and a folder in one (spec 053 `ListMounts`, `ListDir`).
+    FilesList,
+    /// Reading a volume file's contents: `ReadFile`, `FolderSize`, `ListHistory`, `ReadVersion`
+    /// and the download route.
+    FilesRead,
+    /// Changing a volume: `PreviewFileOp` and its confirm, and the upload route.
+    FilesWrite,
 }
 
 impl CommandKind {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 20] = [
         Self::View,
         Self::Subscribe,
         Self::Start,
@@ -154,12 +161,26 @@ impl CommandKind {
         Self::ManageNetworks,
         Self::AnswerNetwork,
         Self::EndSession,
+        Self::FilesList,
+        Self::FilesRead,
+        Self::FilesWrite,
     ];
+
+    /// The [`Action`] the volume explorer's kinds need: [`Action::Edit`] for all three, so a
+    /// viewer gets no Files tab and none of its commands (spec 053 FR-017). `None` for every
+    /// other kind, whose action the server picks per command.
+    pub fn files_action(self) -> Option<Action> {
+        match self {
+            Self::FilesList | Self::FilesRead | Self::FilesWrite => Some(Action::Edit),
+            _ => None,
+        }
+    }
 }
 
 /// Whether `kind` is allowed from an untrusted network: the restricted view (spec 052 FR-010).
-/// Viewing, start/stop/restart for maintenance, answering the question and ending sessions;
-/// nothing else. This is checked after [`permits`], never instead of it.
+/// Viewing, start/stop/restart for maintenance, answering the question and ending sessions,
+/// and listing a volume's folders (never its file contents, spec 053 FR-018); nothing else.
+/// This is checked after [`permits`], never instead of it.
 pub fn restricted_ok(kind: CommandKind) -> bool {
     use CommandKind as K;
     match kind {
@@ -169,7 +190,8 @@ pub fn restricted_ok(kind: CommandKind) -> bool {
         | K::Stop
         | K::Restart
         | K::AnswerNetwork
-        | K::EndSession => true,
+        | K::EndSession
+        | K::FilesList => true,
         K::Down
         | K::Pull
         | K::Update
@@ -179,7 +201,9 @@ pub fn restricted_ok(kind: CommandKind) -> bool {
         | K::Shell
         | K::ReadAudit
         | K::ManageUsers
-        | K::ManageNetworks => false,
+        | K::ManageNetworks
+        | K::FilesRead
+        | K::FilesWrite => false,
     }
 }
 
@@ -302,7 +326,7 @@ mod tests {
     }
 
     /// spec 052 FR-010: (kind, allowed from an untrusted network).
-    const RESTRICTED: [(CommandKind, bool); 17] = [
+    const RESTRICTED: [(CommandKind, bool); 20] = [
         (CommandKind::View, true),
         (CommandKind::Subscribe, true),
         (CommandKind::Start, true),
@@ -320,7 +344,50 @@ mod tests {
         (CommandKind::ManageNetworks, false),
         (CommandKind::AnswerNetwork, true),
         (CommandKind::EndSession, true),
+        (CommandKind::FilesList, true),
+        (CommandKind::FilesRead, false),
+        (CommandKind::FilesWrite, false),
     ];
+
+    const FILES: [CommandKind; 3] = [
+        CommandKind::FilesList,
+        CommandKind::FilesRead,
+        CommandKind::FilesWrite,
+    ];
+
+    #[test]
+    fn the_files_kinds_need_edit_and_nothing_else_names_an_action() {
+        for kind in CommandKind::ALL {
+            let want = FILES.contains(&kind).then_some(Action::Edit);
+            assert_eq!(kind.files_action(), want, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_viewer_is_refused_every_files_kind() {
+        let viewers = [
+            Access {
+                role: Role::Pending,
+                stacks: [name("web")].into(),
+            },
+            user(&["db"]),
+            user(&[]),
+        ];
+        for kind in FILES {
+            let action = kind.files_action().unwrap();
+            for v in &viewers {
+                assert!(!permits(v, Some(&name("web")), action), "{kind:?} {v:?}");
+            }
+            assert!(permits(&user(&["web"]), Some(&name("web")), action));
+            assert!(permits(&admin(), Some(&name("web")), action));
+        }
+    }
+
+    #[test]
+    fn only_listing_files_is_allowed_when_restricted() {
+        let ok: Vec<CommandKind> = FILES.into_iter().filter(|k| restricted_ok(*k)).collect();
+        assert_eq!(ok, vec![CommandKind::FilesList]);
+    }
 
     #[test]
     fn the_restricted_table_covers_every_kind_and_matches() {
