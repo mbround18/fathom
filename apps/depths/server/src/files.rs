@@ -17,16 +17,19 @@ use depths_core::ports::{
 use depths_core::role::{self, CommandKind};
 use depths_core::security::{self, Severity};
 use depths_protocol::{
-    AuditAction, AuditFile, AuditOutcome, Browsable, DenyReason, EntryKind, Event, FileContent,
-    FileOp, FilePreview, FileRefusal, FileVersion, Fingerprint, Mount, MountId, MountKind,
-    MountService, MountState, Name, NotBrowsable, NotBrowsableCode, PreviewId, PreviewVoidReason,
-    RelPath, RuntimeContainerState, VersionId, VersionReason, WriteBlocked,
+    AuditAction, AuditFile, AuditOutcome, Browsable, CreateKind, DenyReason, EntryKind, Event,
+    FileContent, FileOp, FilePreview, FileRefusal, FileVersion, Fingerprint, Mount, MountId,
+    MountKind, MountService, MountState, Name, NotBrowsable, NotBrowsableCode, PreviewId,
+    PreviewVoidReason, RawName, RelPath, RuntimeContainerState, VersionId, VersionReason,
+    WriteBlocked,
 };
 use depths_runtime_cli::helper::{HELPER_IDLE, ImageId, OneShot, PoolError, SystemClock};
 use depths_runtime_cli::{CliRuntime, CliVolumeHelper, HelperPool};
 use depths_volumes::frame::{Frame, FrameError, FrameKind};
 use depths_volumes::mount::{BindRating, HelperSource, browsability};
-use depths_volumes::op::{Hello, HelperError, Op, Reply, StatInfo};
+use depths_volumes::op::{
+    CreateKind as OpCreateKind, Hello, HelperError, Op, Reply, SizeCap, StatInfo,
+};
 use depths_volumes::text;
 
 use crate::audit;
@@ -1136,6 +1139,27 @@ struct Pending {
 #[derive(Clone)]
 enum Change {
     Write(Write),
+    /// An empty file or folder `name` in `parent`.
+    Create {
+        mount: MountId,
+        parent: RelPath,
+        name: Name,
+        kind: CreateKind,
+    },
+    Rename {
+        mount: MountId,
+        from: RelPath,
+        to: RelPath,
+    },
+    /// `path`, or `raw_name` in folder `path`; `folder` goes with everything in it. `size` is a
+    /// file's size at the preview, for the audit.
+    Delete {
+        mount: MountId,
+        path: RelPath,
+        raw_name: Option<RawName>,
+        folder: bool,
+        size: Option<u64>,
+    },
 }
 
 impl Change {
@@ -1227,6 +1251,18 @@ pub fn preview(app: &AppState, who: &Who, stack: &StackName, op: FileOp) -> Answ
             let bytes = text::encode(&text, bom, eol);
             preview_save(app, who, stack, &mount, &path, bytes, base)
         }
+        FileOp::Create {
+            mount,
+            parent,
+            name,
+            kind,
+        } => preview_create(app, who, stack, mount, parent, name, kind),
+        FileOp::Rename { mount, from, to } => preview_rename(app, who, stack, mount, from, to),
+        FileOp::Delete {
+            mount,
+            path,
+            raw_name,
+        } => preview_delete(app, who, stack, mount, path, raw_name),
         _ => {
             gate(app, who, stack, CommandKind::FilesWrite, PREVIEW, None)?;
             Err(Box::new(refuse(
@@ -1354,6 +1390,20 @@ pub fn confirm(app: &AppState, who: &Who, id: PreviewId) -> Answer<Event> {
     let (stack, change) = app.files.take(&who.session, id, true).map_err(void)?;
     match change {
         Change::Write(w) => write(app, who, &stack, id, w),
+        Change::Create {
+            mount,
+            parent,
+            name,
+            kind,
+        } => create(app, who, &stack, id, &mount, &parent, name, kind),
+        Change::Rename { mount, from, to } => rename(app, who, &stack, id, &mount, &from, &to),
+        Change::Delete {
+            mount,
+            path,
+            raw_name,
+            folder,
+            size,
+        } => delete(app, who, &stack, id, &mount, &path, raw_name, folder, size),
     }
 }
 
@@ -1399,28 +1449,32 @@ fn write(app: &AppState, who: &Who, stack: &StackName, id: PreviewId, w: Write) 
         VersionReason::Restore => AuditAction::FilesRestore,
         _ => AuditAction::FilesSave,
     };
-    audit_done(app, who, &t, path, action, w.bytes.len() as u64);
+    audit_done(app, who, &t, path, action, Some(w.bytes.len() as u64));
     keep(app, who, &t, path, w.reason, prior);
-    Ok(Event::FileOpDone {
-        preview_id: id,
-        mount: t.mount.id.clone(),
-        path: w.path.clone(),
-        fingerprint: Some(fingerprint),
-        running: t.mount.running.clone(),
-    })
+    Ok(done(id, &t, w.path.clone(), Some(fingerprint)))
 }
 
-/// A change that went through, audited with its size.
+fn done(id: PreviewId, t: &Target<'_>, path: RelPath, fingerprint: Option<Fingerprint>) -> Event {
+    Event::FileOpDone {
+        preview_id: id,
+        mount: t.mount.id.clone(),
+        path,
+        fingerprint,
+        running: t.mount.running.clone(),
+    }
+}
+
+/// A change that went through, audited with its size when it has one.
 fn audit_done(
     app: &AppState,
     who: &Who,
     t: &Target<'_>,
     path: &RelPath,
     action: AuditAction,
-    bytes: u64,
+    bytes: Option<u64>,
 ) {
     let mut place = place(&t.mount, path);
-    place.bytes = Some(bytes);
+    place.bytes = bytes;
     let _ = app.audit.record(&audit::file(
         who.actor.clone(),
         who.ip,
@@ -1429,6 +1483,426 @@ fn audit_done(
         place,
         AuditOutcome::Succeeded,
     ));
+}
+
+/// The most entries a folder delete's preview counts before it says "10,000+".
+const DELETE_COUNT_CAP: u64 = 10_000;
+
+fn preview_create(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: MountId,
+    parent: RelPath,
+    name: Name,
+    kind: CreateKind,
+) -> Answer<FilePreview> {
+    let t = target(
+        app,
+        who,
+        stack,
+        &mount,
+        &parent,
+        CommandKind::FilesWrite,
+        PREVIEW,
+    )?;
+    let path = joined(app, who, &t, &parent, &name, PREVIEW)?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, PREVIEW, Some(t.at(&path)), r));
+    let owner = owner_of(app, &t, &parent).map_err(fail)?;
+    if look(app, &t, &path, None, owner).map_err(fail)?.is_some() {
+        return Err(fail(FileRefusal::Exists));
+    }
+    let what = match kind {
+        CreateKind::File => "file",
+        CreateKind::Dir => "folder",
+    };
+    let summary = format!("Create {what} {path}");
+    let change = Change::Create {
+        mount,
+        parent,
+        name,
+        kind,
+    };
+    bound(app, who, &t, change, summary).map_err(fail)
+}
+
+fn preview_rename(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: MountId,
+    from: RelPath,
+    to: RelPath,
+) -> Answer<FilePreview> {
+    let t = target(
+        app,
+        who,
+        stack,
+        &mount,
+        &from,
+        CommandKind::FilesWrite,
+        PREVIEW,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, PREVIEW, Some(t.at(&from)), r));
+    let owner = rename_owner(app, &t, &from, &to).map_err(fail)?;
+    if look(app, &t, &from, None, owner).map_err(fail)?.is_none() {
+        return Err(fail(FileRefusal::NotFound));
+    }
+    if look(app, &t, &to, None, owner).map_err(fail)?.is_some() {
+        return Err(fail(FileRefusal::Exists));
+    }
+    let summary = format!("Rename {from} → {to}");
+    let change = Change::Rename {
+        mount,
+        from: from.clone(),
+        to,
+    };
+    bound(app, who, &t, change, summary).map_err(fail)
+}
+
+fn preview_delete(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: MountId,
+    path: RelPath,
+    raw_name: Option<RawName>,
+) -> Answer<FilePreview> {
+    let t = target(
+        app,
+        who,
+        stack,
+        &mount,
+        &path,
+        CommandKind::FilesWrite,
+        PREVIEW,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, PREVIEW, Some(t.at(&path)), r));
+    let holder = holder(&path, raw_name.as_ref()).map_err(fail)?;
+    let owner = owner_of(app, &t, &holder).map_err(fail)?;
+    let Some(info) = look(app, &t, &path, raw_name.as_ref(), owner).map_err(fail)? else {
+        return Err(fail(FileRefusal::NotFound));
+    };
+    let shown = shown(&path, raw_name.as_ref());
+    let folder = info.kind == EntryKind::Dir;
+    let (summary, entries, capped) = if folder {
+        let walker = (info.owner.uid, info.owner.gid);
+        let (n, capped) = count(app, &t, &path, raw_name.as_ref(), walker).map_err(fail)?;
+        let n = n.min(DELETE_COUNT_CAP);
+        let plus = if capped { "+" } else { "" };
+        let summary = format!(
+            "Delete folder {shown} and the {}{plus} entries in it",
+            grouped(n)
+        );
+        (summary, Some(n), capped)
+    } else {
+        (format!("Delete {shown} ({} bytes)", info.size), None, false)
+    };
+    let change = Change::Delete {
+        mount,
+        path: path.clone(),
+        raw_name,
+        folder,
+        size: (!folder).then_some(info.size),
+    };
+    let mut p = bound(app, who, &t, change, summary).map_err(fail)?;
+    p.entries = entries;
+    p.entries_capped = capped;
+    Ok(p)
+}
+
+/// `name` in `parent`, or `invalid_name` (audited) when they do not make a path.
+fn joined(
+    app: &AppState,
+    who: &Who,
+    t: &Target<'_>,
+    parent: &RelPath,
+    name: &Name,
+    cmd: &str,
+) -> Answer<RelPath> {
+    parent.join(name.as_str()).map_err(|_| {
+        Box::new(refuse(
+            app,
+            who,
+            t.stack,
+            cmd,
+            Some(t.at(parent)),
+            FileRefusal::InvalidName,
+        ))
+    })
+}
+
+/// The folder an entry to delete sits in: `path` itself when the entry is `raw` in it.
+fn holder(path: &RelPath, raw: Option<&RawName>) -> Result<RelPath, FileRefusal> {
+    match raw {
+        Some(_) => Ok(path.clone()),
+        None => path.parent().ok_or(FileRefusal::InvalidName),
+    }
+}
+
+/// How a path reads in a preview, with a raw last name shown lossily.
+fn shown(path: &RelPath, raw: Option<&RawName>) -> String {
+    match raw {
+        Some(raw) if path.is_root() => raw.lossy(),
+        Some(raw) => format!("{path}/{}", raw.lossy()),
+        None => path.to_string(),
+    }
+}
+
+/// `n` with thousands separators: 10,000.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, d) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(d);
+    }
+    out
+}
+
+/// The uid:gid a rename runs as: both folders' owner, or `mixed_owners` when they differ (no
+/// single uid could move it without privileges).
+fn rename_owner(
+    app: &AppState,
+    t: &Target<'_>,
+    from: &RelPath,
+    to: &RelPath,
+) -> Result<(u32, u32), FileRefusal> {
+    let (Some(from_dir), Some(to_dir)) = (from.parent(), to.parent()) else {
+        return Err(FileRefusal::InvalidName);
+    };
+    let owner = owner_of(app, t, &from_dir)?;
+    if owner_of(app, t, &to_dir)? != owner {
+        return Err(FileRefusal::MixedOwners);
+    }
+    Ok(owner)
+}
+
+/// `path` (or `raw` in it) as `owner` sees it; `None` when it is not there.
+fn look(
+    app: &AppState,
+    t: &Target<'_>,
+    path: &RelPath,
+    raw: Option<&RawName>,
+    owner: (u32, u32),
+) -> Result<Option<StatInfo>, FileRefusal> {
+    let asked = on_helper(app, t, owner, |chan| {
+        let op = Op::Stat {
+            path: path.clone(),
+            raw_name: raw.cloned(),
+            hash: false,
+        };
+        match ask(chan, &op)? {
+            Ok(Reply::Stat(info)) => Ok(Ok(Some(info))),
+            Ok(_) => Err(unexpected("Stat")),
+            Err(HelperError::NotFound) => Ok(Ok(None)),
+            Err(e) => Ok(Err(e)),
+        }
+    });
+    settle(app, t, path, asked)
+}
+
+/// The entries beneath a folder, walked as `owner` up to [`DELETE_COUNT_CAP`], and whether the
+/// walk stopped there.
+fn count(
+    app: &AppState,
+    t: &Target<'_>,
+    path: &RelPath,
+    raw: Option<&RawName>,
+    owner: (u32, u32),
+) -> Result<(u64, bool), FileRefusal> {
+    let asked = on_helper(app, t, owner, |chan| {
+        let op = Op::Size {
+            path: path.clone(),
+            raw_name: raw.cloned(),
+            cap: SizeCap {
+                bytes: u64::MAX,
+                entries: DELETE_COUNT_CAP,
+            },
+        };
+        match ask(chan, &op)? {
+            Ok(Reply::Size {
+                entries, capped, ..
+            }) => Ok(Ok((entries, capped))),
+            Ok(_) => Err(unexpected("Size")),
+            Err(e) => Ok(Err(e)),
+        }
+    });
+    settle(app, t, path, asked)
+}
+
+/// Sends `op` and expects the bare reply `ok` accepts.
+fn plain(
+    chan: &mut HelperChannel,
+    op: &Op,
+    ok: fn(&Reply) -> bool,
+) -> Result<Result<(), HelperError>, ChannelError> {
+    match ask(chan, op)? {
+        Ok(r) if ok(&r) => Ok(Ok(())),
+        Ok(_) => Err(unexpected("change")),
+        Err(e) => Ok(Err(e)),
+    }
+}
+
+/// Makes the empty file or folder as its folder's owner; audited `files.create`.
+#[allow(clippy::too_many_arguments)]
+fn create(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    id: PreviewId,
+    mount: &MountId,
+    parent: &RelPath,
+    name: Name,
+    kind: CreateKind,
+) -> Answer<Event> {
+    let t = target(
+        app,
+        who,
+        stack,
+        mount,
+        parent,
+        CommandKind::FilesWrite,
+        CONFIRM,
+    )?;
+    let path = joined(app, who, &t, parent, &name, CONFIRM)?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, CONFIRM, Some(t.at(&path)), r));
+    let owner = owner_of(app, &t, parent).map_err(fail)?;
+    let op = Op::Create {
+        parent: parent.clone(),
+        name,
+        kind: match kind {
+            CreateKind::File => OpCreateKind::File,
+            CreateKind::Dir => OpCreateKind::Dir,
+        },
+    };
+    let made = once(app, &t, owner, |chan| {
+        plain(chan, &op, |r| matches!(r, Reply::Created))
+    });
+    settle(app, &t, &path, made).map_err(fail)?;
+    app.files.note_owners(stack, mount, [(path.clone(), owner)]);
+    audit_done(app, who, &t, &path, AuditAction::FilesCreate, None);
+    Ok(done(id, &t, path, None))
+}
+
+/// Moves `from` to `to` as both folders' owner; audited `files.rename`.
+fn rename(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    id: PreviewId,
+    mount: &MountId,
+    from: &RelPath,
+    to: &RelPath,
+) -> Answer<Event> {
+    let t = target(
+        app,
+        who,
+        stack,
+        mount,
+        from,
+        CommandKind::FilesWrite,
+        CONFIRM,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, CONFIRM, Some(t.at(from)), r));
+    let owner = rename_owner(app, &t, from, to).map_err(fail)?;
+    let op = Op::Rename {
+        from: from.clone(),
+        to: to.clone(),
+    };
+    let moved = once(app, &t, owner, |chan| {
+        plain(chan, &op, |r| matches!(r, Reply::Renamed))
+    });
+    settle(app, &t, from, moved).map_err(fail)?;
+    app.files.forget_owner(stack, mount, from);
+    audit_done(app, who, &t, from, AuditAction::FilesRename, None);
+    Ok(done(id, &t, to.clone(), None))
+}
+
+/// Deletes the entry as its folder's owner; audited `files.delete`, a deleted file's content
+/// kept in history. A folder delete that stops part way is audited as failed with what it
+/// removed, and answered `partial` verbatim.
+#[allow(clippy::too_many_arguments)]
+fn delete(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    id: PreviewId,
+    mount: &MountId,
+    path: &RelPath,
+    raw_name: Option<RawName>,
+    folder: bool,
+    size: Option<u64>,
+) -> Answer<Event> {
+    let t = target(
+        app,
+        who,
+        stack,
+        mount,
+        path,
+        CommandKind::FilesWrite,
+        CONFIRM,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, CONFIRM, Some(t.at(path)), r));
+    let holder = holder(path, raw_name.as_ref()).map_err(fail)?;
+    let owner = owner_of(app, &t, &holder).map_err(fail)?;
+    let raw = raw_name.is_some();
+    let op = Op::Delete {
+        path: path.clone(),
+        raw_name,
+        recursive: folder,
+    };
+    let gone = once(app, &t, owner, |chan| match ask(chan, &op)? {
+        Ok(Reply::Deleted { prior, .. }) => Ok(Ok(if prior {
+            Some(drain(chan, PRIOR_MAX)?)
+        } else {
+            None
+        })),
+        Ok(_) => Err(unexpected("Delete")),
+        Err(e) => Ok(Err(e)),
+    });
+    let prior = match gone {
+        Ok(Err(HelperError::Partial {
+            removed,
+            failed_at,
+            errno,
+            message,
+        })) => {
+            app.files.forget_owner(stack, mount, path);
+            let mut place = place(&t.mount, path);
+            place.bytes = size;
+            let _ = app.audit.record(&audit::file(
+                who.actor.clone(),
+                who.ip,
+                AuditAction::FilesDelete,
+                stack.as_str(),
+                place,
+                AuditOutcome::Failed {
+                    exit_code: None,
+                    stderr_tail: format!(
+                        "removed {removed} entries, then {failed_at}: {errno}: {message}"
+                    ),
+                },
+            ));
+            return Err(Box::new(Event::FileRefused(FileRefusal::Partial {
+                removed,
+                failed_at,
+                errno,
+                message,
+            })));
+        }
+        gone => settle(app, &t, path, gone).map_err(fail)?,
+    };
+    if !raw {
+        app.files.forget_owner(stack, mount, path);
+    }
+    audit_done(app, who, &t, path, AuditAction::FilesDelete, size);
+    if !raw {
+        keep(app, who, &t, path, VersionReason::Delete, prior);
+    }
+    Ok(done(id, &t, path.clone(), None))
 }
 
 /// A path as its folder and its name; the mount root has no name.

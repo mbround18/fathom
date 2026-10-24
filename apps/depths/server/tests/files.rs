@@ -684,8 +684,8 @@ mod browse {
     use std::time::Duration;
 
     use depths_protocol::{
-        BinaryReason, FileOp, FilePreview, LineEnding, MountId, PreviewId, PreviewVoidReason,
-        VersionReason,
+        BinaryReason, CreateKind, FileOp, FilePreview, LineEnding, MountId, Name, PreviewId,
+        PreviewVoidReason, VersionReason,
     };
     use depths_runtime_cli::helper::{HELPER_IDLE, HelperPool, SystemClock};
     use http::{StatusCode, header};
@@ -1378,5 +1378,277 @@ mod browse {
         let at = chrono::DateTime::parse_from_rfc3339(&p.expires_at).unwrap();
         let left = at.signed_duration_since(chrono::Utc::now()).num_seconds();
         assert!((295..=300).contains(&left), "{left}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Create, rename and delete (T053)
+    // -----------------------------------------------------------------------
+
+    fn create_op(b: &Browse, parent: &str, name: &str, kind: CreateKind) -> FileOp {
+        FileOp::Create {
+            mount: b.mount.clone(),
+            parent: rel(parent),
+            name: Name::new(name).unwrap(),
+            kind,
+        }
+    }
+
+    fn rename_op(b: &Browse, from: &str, to: &str) -> FileOp {
+        FileOp::Rename {
+            mount: b.mount.clone(),
+            from: rel(from),
+            to: rel(to),
+        }
+    }
+
+    fn delete_op(b: &Browse, p: &str) -> FileOp {
+        FileOp::Delete {
+            mount: b.mount.clone(),
+            path: rel(p),
+            raw_name: None,
+        }
+    }
+
+    /// Fakes `path`'s owner, as a listing would have recorded it.
+    fn own(b: &Browse, path: &str, owner: (u32, u32)) {
+        b.a.state
+            .files
+            .note_owners(&stack(), &b.mount, [(rel(path), owner)]);
+    }
+
+    fn done_path(e: &Event) -> RelPath {
+        match e {
+            Event::FileOpDone { path, .. } => path.clone(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_previews_the_full_path_and_runs_as_the_parents_owner() {
+        let b = browse(&[]).await;
+        own(&b, "sub", (4242, 4243));
+        let p = b
+            .preview(&admin(), create_op(&b, "sub", "new.txt", CreateKind::File))
+            .unwrap();
+        assert!(p.summary.contains("sub/new.txt"), "{}", p.summary);
+        assert!(p.summary.contains("file"), "{}", p.summary);
+        assert!(!b.root.join("sub/new.txt").exists());
+        assert!(b.rw_specs().is_empty());
+
+        let done = b.confirm(&admin(), p.preview_id).unwrap();
+        assert_eq!(done_path(&done), rel("sub/new.txt"));
+        assert_eq!(std::fs::read(b.root.join("sub/new.txt")).unwrap(), b"");
+        let rw = b.rw_specs();
+        assert_eq!(rw.len(), 1, "{rw:?}");
+        assert_eq!((rw[0].uid, rw[0].gid), (4242, 4243));
+
+        let p = b
+            .preview(&admin(), create_op(&b, "", "newdir", CreateKind::Dir))
+            .unwrap();
+        assert!(p.summary.contains("folder"), "{}", p.summary);
+        b.confirm(&admin(), p.preview_id).unwrap();
+        assert!(b.root.join("newdir").is_dir());
+
+        let creates = audited(&b.a, AuditAction::FilesCreate);
+        assert_eq!(creates.len(), 2);
+        let paths: Vec<_> = creates
+            .iter()
+            .map(|e| e.file.clone().unwrap().path)
+            .collect();
+        assert!(paths.contains(&rel("sub/new.txt")), "{paths:?}");
+        assert!(creates.iter().all(|e| e.outcome == AuditOutcome::Succeeded));
+    }
+
+    #[tokio::test]
+    async fn a_name_that_exists_or_the_mount_root_is_refused_at_the_preview() {
+        let b = browse(&[]).await;
+        let err = *b
+            .preview(&admin(), create_op(&b, "", "a.txt", CreateKind::File))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::Exists));
+        let err = *b
+            .preview(&admin(), rename_op(&b, "a.txt", "sub/b.txt"))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::Exists));
+        let err = *b
+            .preview(&admin(), rename_op(&b, "nope.txt", "nope2.txt"))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::NotFound));
+        let err = *b.preview(&admin(), delete_op(&b, "")).unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::InvalidName));
+        assert!(b.rw_specs().is_empty());
+        assert_eq!(reason_of(refused(&b.a).last().unwrap()), "invalid_name");
+    }
+
+    #[tokio::test]
+    async fn a_rename_names_old_and_new_and_is_audited() {
+        let b = browse(&[]).await;
+        let p = b
+            .preview(&admin(), rename_op(&b, "sub/b.txt", "sub/deep/b2.txt"))
+            .unwrap();
+        assert!(
+            p.summary.contains("sub/b.txt → sub/deep/b2.txt"),
+            "{}",
+            p.summary
+        );
+        assert!(b.root.join("sub/b.txt").exists());
+        let done = b.confirm(&admin(), p.preview_id).unwrap();
+        assert_eq!(done_path(&done), rel("sub/deep/b2.txt"));
+        assert!(!b.root.join("sub/b.txt").exists());
+        assert_eq!(
+            std::fs::read(b.root.join("sub/deep/b2.txt")).unwrap(),
+            b"hello b"
+        );
+        let rw = b.rw_specs();
+        assert_eq!(rw.len(), 1);
+        assert_eq!(rw[0].uid, b.uid);
+        let renames = audited(&b.a, AuditAction::FilesRename);
+        assert_eq!(renames.len(), 1);
+        assert_eq!(renames[0].file.as_ref().unwrap().path, rel("sub/b.txt"));
+    }
+
+    #[tokio::test]
+    async fn a_rename_between_folders_of_different_owners_is_refused_before_any_write() {
+        let b = browse(&[]).await;
+        own(&b, "sub", (4242, 4242));
+        let err = *b
+            .preview(&admin(), rename_op(&b, "a.txt", "sub/a.txt"))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::MixedOwners));
+        assert!(b.rw_specs().is_empty());
+        assert_eq!(reason_of(refused(&b.a).last().unwrap()), "mixed_owners");
+
+        // The owners moved apart between the preview and the confirm.
+        let gid = std::fs::metadata(&b.root).unwrap().gid();
+        own(&b, "sub", (b.uid, gid));
+        let p = b
+            .preview(&admin(), rename_op(&b, "a.txt", "sub/a.txt"))
+            .unwrap();
+        own(&b, "sub", (4242, 4242));
+        let err = *b.confirm(&admin(), p.preview_id).unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::MixedOwners));
+        assert!(b.rw_specs().is_empty());
+        assert!(b.root.join("a.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_file_delete_keeps_its_content_in_history() {
+        let b = browse(&[]).await;
+        let kept = b.kept();
+        let p = b
+            .preview(&admin(), delete_op(&b, "sub/deep/c.txt"))
+            .unwrap();
+        assert!(p.summary.contains("sub/deep/c.txt"), "{}", p.summary);
+        assert_eq!(p.entries, None);
+        assert!(b.root.join("sub/deep/c.txt").exists());
+
+        b.confirm(&admin(), p.preview_id).unwrap();
+        assert!(!b.root.join("sub/deep/c.txt").exists());
+        let rw = b.rw_specs();
+        assert_eq!(rw.len(), 1);
+        assert_eq!(rw[0].uid, b.uid);
+        let deletes = audited(&b.a, AuditAction::FilesDelete);
+        assert_eq!(deletes.len(), 1);
+        assert_eq!(deletes[0].outcome, AuditOutcome::Succeeded);
+        assert_eq!(deletes[0].file.as_ref().unwrap().bytes, Some(7));
+
+        let got = kept.0.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0.path, rel("sub/deep/c.txt"));
+        assert_eq!(got[0].2, VersionReason::Delete);
+        assert_eq!(got[0].3, b"hello c");
+    }
+
+    #[tokio::test]
+    async fn a_folder_delete_counts_its_entries_up_to_ten_thousand() {
+        let b = browse(&[]).await;
+        let kept = b.kept();
+        let p = b.preview(&admin(), delete_op(&b, "sub")).unwrap();
+        assert!(!p.entries_capped);
+        assert!(p.entries.unwrap() >= 3, "{p:?}");
+        assert!(p.summary.contains("sub"), "{}", p.summary);
+
+        let many = b.root.join("many");
+        std::fs::create_dir(&many).unwrap();
+        for i in 0..10_001 {
+            std::fs::write(many.join(format!("f{i:05}")), b"").unwrap();
+        }
+        let p = b.preview(&admin(), delete_op(&b, "many")).unwrap();
+        assert_eq!(p.entries, Some(10_000));
+        assert!(p.entries_capped);
+        assert!(p.summary.contains("10,000+"), "{}", p.summary);
+        assert!(many.exists());
+
+        b.confirm(&admin(), p.preview_id).unwrap();
+        assert!(!many.exists());
+        assert_eq!(audited(&b.a, AuditAction::FilesDelete).len(), 1);
+        assert!(
+            kept.0.lock().unwrap().is_empty(),
+            "a folder keeps no history"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_partial_delete_is_audited_with_what_was_removed_and_shown_verbatim() {
+        let b = browse(&[]).await;
+        if b.uid == 0 {
+            eprintln!("skipped: root removes entries from a read-only folder anyway");
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let d = b.root.join("d");
+        std::fs::create_dir_all(d.join("locked")).unwrap();
+        std::fs::write(d.join("a"), b"a").unwrap();
+        std::fs::write(d.join("locked/f"), b"f").unwrap();
+        std::fs::set_permissions(d.join("locked"), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let p = b.preview(&admin(), delete_op(&b, "d")).unwrap();
+        let err = *b.confirm(&admin(), p.preview_id).unwrap_err();
+        std::fs::set_permissions(d.join("locked"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let Event::FileRefused(FileRefusal::Partial {
+            removed,
+            failed_at,
+            errno,
+            message,
+        }) = err
+        else {
+            panic!("{err:?}")
+        };
+        assert_eq!(removed, 1);
+        assert_eq!(failed_at, "d/locked/f");
+        assert_eq!(errno, "EACCES");
+        assert!(!message.is_empty());
+
+        let deletes = audited(&b.a, AuditAction::FilesDelete);
+        assert_eq!(deletes.len(), 1, "{deletes:?}");
+        let AuditOutcome::Failed { stderr_tail, .. } = &deletes[0].outcome else {
+            panic!("{deletes:?}")
+        };
+        assert!(stderr_tail.contains("removed 1"), "{stderr_tail}");
+        assert!(stderr_tail.contains("d/locked/f"), "{stderr_tail}");
+        assert!(stderr_tail.contains(&message), "{stderr_tail}");
+    }
+
+    #[tokio::test]
+    async fn a_rename_over_the_socket_is_previewed_then_confirmed() {
+        let b = browse(&[]).await;
+        let (mut s, _server, _) = ws::open(&b.a, OWNER).await;
+        let op = serde_json::to_value(rename_op(&b, "a.txt", "a2.txt")).unwrap();
+        let r = ws::ask(
+            &mut s,
+            1,
+            serde_json::json!({"type": "PreviewFileOp", "data": {"stack": "valheim", "op": op}}),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "FilePreview", "{r}");
+        let id = r["event"]["data"]["preview_id"].clone();
+        let r = ws::ask(
+            &mut s,
+            2,
+            serde_json::json!({"type": "Confirm", "data": {"preview_id": id}}),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "FileOpDone", "{r}");
+        assert!(r["event"]["data"]["fingerprint"].is_null(), "{r}");
+        assert!(b.root.join("a2.txt").exists());
     }
 }

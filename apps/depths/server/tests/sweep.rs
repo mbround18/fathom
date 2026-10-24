@@ -309,13 +309,9 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
         },
         // Spec 053. The sample's mount is not one of the stack's: `missing`.
         Cmd::ListMounts { stack } => gate(who, stack_place(stack), Reply("Mounts")),
-        Cmd::ListDir { stack, .. } | Cmd::ReadFile { stack, .. } => {
-            gate(who, stack_place(stack), Refused("missing"))
-        }
-        // The sample is a rename, which lands with US4.
-        Cmd::PreviewFileOp { stack, .. } => {
-            gate(who, stack_place(stack), Refused("helper_unavailable"))
-        }
+        Cmd::ListDir { stack, .. }
+        | Cmd::ReadFile { stack, .. }
+        | Cmd::PreviewFileOp { stack, .. } => gate(who, stack_place(stack), Refused("missing")),
         // Placeholders until their handlers land.
         Cmd::FolderSize { .. } | Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => {
             Denied(FEATURE_DISABLED)
@@ -645,7 +641,6 @@ fn observe(replies: &[Value]) -> Result<Outcome, String> {
                 },
                 "Invalid" => Invalid,
                 "FileRefused" if d["kind"] == "missing" => Refused("missing"),
-                "FileRefused" if d["kind"] == "helper_unavailable" => Refused("helper_unavailable"),
                 "PreviewVoid" if d["reason"] == "unknown" => Void,
                 "Stacks" | "StackDetail" | "EnvRevealed" | "Preview" | "OpStarted"
                 | "StreamOpened" | "StreamClosed" | "AuditPage" | "Users" | "LintResult"
