@@ -4,7 +4,6 @@
 
 pub mod frame;
 pub mod history;
-pub mod lang;
 pub mod mount;
 pub mod op;
 pub mod path;
