@@ -2,7 +2,10 @@
 # Fathom CI, run through paws (https://github.com/mbround18/paws) so the same command is the CI
 # job locally and on GitHub (.github/workflows/ci.yml calls this script, nothing else).
 #
-#   scripts/ci.sh [check|test|ui|all]      default: all
+#   scripts/ci.sh [check|test|depths|ui|all]      default: all
+#
+# `depths` is Depths alone (its crates, bindings and web app), minutes rather than the ui job's
+# hour and a half, so a Depths change can be gated without the Fathom Playwright suite.
 #
 # Each job is one `paws run`: a container (rust:1-bookworm, or the Playwright image for the UI)
 # built from the working tree filtered by .gitignore on the host, so a local run sees what a fresh
@@ -12,7 +15,7 @@
 #   CARGO_BUILD_JOBS    cargo parallelism inside the container      (default 4)
 #   PLAYWRIGHT_WORKERS  Playwright workers inside the container     (default 2)
 #   CI_NICE             nice level for paws and every step          (default 10)
-#   CI_MIN_FREE_GB      GB of available memory the ui job needs     (default 8)
+#   CI_MIN_FREE_GB      GB of available memory the ui job needs     (default 8; depths needs half)
 #   VITEST_WORKERS      forks in vitest's pool                      (default 6)
 #   CI_LOCK_WAIT        0 = exit 75 if another run holds the machine-wide lock   (default 1: wait)
 #   CI_RUN_ID           part of every step's cache key         (default: new per invocation)
@@ -101,29 +104,58 @@ job_test() {
 && $N cargo test -p fathom --test export_bindings \
 && if ! diff -r /tmp/generated-before ui/src/protocol/generated; then \
 echo 'error: ui/src/protocol/generated is stale. Run cargo test -p fathom --test export_bindings and commit the result.' >&2; exit 1; fi"
-  # Spec 050 (T034): the same check for Depths' protocol bindings.
+  rust_run \
+    --step "$N cargo test --all" \
+    --step "$drift"
+}
+
+# need_mem <GB> <job>: refuse to start a Playwright job the machine has no room for.
+need_mem() {
+  local avail
+  avail=$(free -g | awk '/^Mem:/ {print $7}')
+  if [ "${avail:-0}" -lt "$1" ]; then
+    echo "ci: only ${avail}GB memory available, the $2 job wants ${1}GB (CI_MIN_FREE_GB)." >&2
+    echo "ci: wait for other Playwright/cargo runs to finish, or lower PLAYWRIGHT_WORKERS." >&2
+    return 1
+  fi
+}
+
+# Spec 050: Depths' crates (and the shared ones it builds on), then its web app against the fake
+# backend. The workspace-wide check and test jobs cover these crates too; this job is the fast
+# path for a Depths-only change.
+DEPTHS_WEB=@companion/depths-web
+DEPTHS_CRATES="-p depths-core -p depths-protocol -p depths-runtime-cli -p depths-stacks-fs \
+-p depths-server -p container-runtime -p web-auth -p audit-log"
+
+job_depths() {
+  need_mem $((CI_MIN_FREE_GB / 2)) depths || return 1
+  # Spec 050 (T034): Depths' protocol bindings must not drift, as for Fathom's in job_test.
   local depths_drift="rm -rf /tmp/depths-generated-before \
 && cp -r apps/depths/web/src/protocol/generated /tmp/depths-generated-before \
 && $N cargo test -p depths-protocol --test export_bindings \
 && if ! diff -r /tmp/depths-generated-before apps/depths/web/src/protocol/generated; then \
 echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p depths-protocol --test export_bindings and commit the result.' >&2; exit 1; fi"
   rust_run \
-    --step "$N cargo test --all" \
-    --step "$drift" \
-    --step "$depths_drift"
+    --step "$N cargo clippy $DEPTHS_CRATES --all-targets -- -D warnings" \
+    --step "$N cargo test $DEPTHS_CRATES" \
+    --step "$depths_drift" || return 1
+  nice -n "$CI_NICE" paws run \
+    --image "$PLAYWRIGHT_IMAGE" \
+    --workdir apps/depths/web \
+    --env CI=true --env PLAYWRIGHT_WORKERS --env VITEST_WORKERS --env CI_RUN_ID --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    --cache fathom-ci-pnpm-store=/pnpm-store \
+    --cache fathom-ci-corepack=/root/.cache/node/corepack \
+    --step "corepack enable" \
+    --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" \
+    --step "$N pnpm --filter $DEPTHS_WEB lint" \
+    --step "$N pnpm --filter $DEPTHS_WEB typecheck" \
+    --step "$N pnpm --filter $DEPTHS_WEB test" \
+    --step "$N pnpm --filter $DEPTHS_WEB build" \
+    --step "$N pnpm --filter $DEPTHS_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
 }
 
-# Spec 050: Depths' web app gets the same gate as ui, against its fake backend.
-DEPTHS_WEB=@companion/depths-web
-
 job_ui() {
-  local avail
-  avail=$(free -g | awk '/^Mem:/ {print $7}')
-  if [ "${avail:-0}" -lt "$CI_MIN_FREE_GB" ]; then
-    echo "ci: only ${avail}GB memory available, the ui job wants ${CI_MIN_FREE_GB}GB (CI_MIN_FREE_GB)." >&2
-    echo "ci: wait for other Playwright/cargo runs to finish, or lower PLAYWRIGHT_WORKERS." >&2
-    return 1
-  fi
+  need_mem "$CI_MIN_FREE_GB" ui || return 1
   # pnpm comes from packageManager via corepack. Installing from ui/ installs the whole workspace
   # against the root pnpm-lock.yaml.
   nice -n "$CI_NICE" paws run \
@@ -139,12 +171,7 @@ job_ui() {
     --step "$N pnpm test" \
     --step "$N pnpm build" \
     --step "$N pnpm e2e --workers=\"\$PLAYWRIGHT_WORKERS\"" \
-    --step "$N pnpm audit --prod --audit-level high" \
-    --step "$N pnpm --filter $DEPTHS_WEB lint" \
-    --step "$N pnpm --filter $DEPTHS_WEB typecheck" \
-    --step "$N pnpm --filter $DEPTHS_WEB test" \
-    --step "$N pnpm --filter $DEPTHS_WEB build" \
-    --step "$N pnpm --filter $DEPTHS_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
+    --step "$N pnpm audit --prod --audit-level high"
 }
 
 run_job() {
@@ -178,12 +205,13 @@ if [ -z "${GITHUB_ACTIONS:-}" ] && command -v flock >/dev/null; then
 fi
 
 case "${1:-all}" in
-  check | test | ui) run_job "$1" ;;
+  check | test | depths | ui) run_job "$1" ;;
   all)
-    # Like the workflow's matrix (fail-fast: false): every job runs, then one verdict.
+    # Like the workflow's matrix (fail-fast: false): every job runs, then one verdict. One job at
+    # a time (two Playwright suites at once do not fit), depths before ui so it reports early.
     overall=$(date +%s)
     failed=()
-    for job in check test ui; do
+    for job in check test depths ui; do
       run_job "$job" || failed+=("$job")
     done
     if [ "${#failed[@]}" -gt 0 ]; then
@@ -193,7 +221,7 @@ case "${1:-all}" in
     echo "ci: all passed in $(($(date +%s) - overall))s"
     ;;
   *)
-    echo "usage: $0 [check|test|ui|all]" >&2
+    echo "usage: $0 [check|test|depths|ui|all]" >&2
     exit 2
     ;;
 esac

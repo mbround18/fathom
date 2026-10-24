@@ -118,11 +118,13 @@ cargo clippy
 cargo fmt
 
 # CI, exactly as GitHub runs it (containers via paws + Docker)
-scripts/ci.sh                          # all jobs; or: scripts/ci.sh check|test|ui
+scripts/ci.sh                          # all jobs; or: scripts/ci.sh check|test|depths|ui
 ```
 
 `scripts/ci.sh` is the only thing `.github/workflows/ci.yml` runs, so a green local run is a green
-CI run. It needs [`paws`](https://github.com/mbround18/paws) with `paws run`
+CI run. For a Depths-only change, `scripts/ci.sh depths` gates its crates, bindings and web app in
+minutes, without the Fathom Playwright suite that makes `ui` take an hour and a half. It needs
+[`paws`](https://github.com/mbround18/paws) with `paws run`
 (`cargo install --locked --git https://github.com/mbround18/paws --branch feat/fathom-local-ci paws-cli`
 until that is released) and Docker. It builds from your working tree minus everything `.gitignore`d,
 so uncommitted edits are tested but local `target/` and `node_modules/` are not. It is sized for a
