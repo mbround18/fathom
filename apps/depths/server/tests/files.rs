@@ -395,3 +395,215 @@ async fn every_helper_error_maps_to_its_refusal_and_one_audit_entry() {
         assert_eq!(place.op.as_deref(), Some("ReadFile"));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Mount discovery (T024)
+// ---------------------------------------------------------------------------
+
+use depths_server::files::{Found, Seen, discover};
+use depths_volumes::mount::HelperSource;
+use std::path::{Path, PathBuf};
+
+fn inspected(service: &str, running: bool, mounts: serde_json::Value) -> Seen {
+    Seen {
+        service: service.into(),
+        running,
+        mounts: serde_json::from_value(mounts).unwrap(),
+    }
+}
+
+fn found_all(_: &HelperSource) -> Found {
+    Found::Dir
+}
+
+const DIR: &str = "/stacks/valheim";
+
+#[test]
+fn an_inspected_volume_is_listed_by_name_and_ready() {
+    let seen = [inspected(
+        "valheim",
+        true,
+        serde_json::json!([{
+            "Type": "volume", "Name": "valheim_saves",
+            "Source": "/var/lib/docker/volumes/valheim_saves/_data",
+            "Destination": "/config", "RW": true,
+        }]),
+    )];
+    let d = discover("valheim", Path::new(DIR), &seen, None, &found_all);
+    assert_eq!(d.mounts.len(), 1);
+    let m = &d.mounts[0];
+    assert_eq!(
+        (m.kind, m.source.as_str()),
+        (MountKind::Volume, "valheim_saves")
+    );
+    assert_eq!(m.state, MountState::Ready);
+    assert!(m.browsable.ok && m.writable);
+    assert_eq!(m.running, vec!["valheim".to_owned()]);
+    assert_eq!(
+        d.sources.get(&m.id),
+        Some(&HelperSource::Volume("valheim_saves".into()))
+    );
+}
+
+#[test]
+fn a_relative_bind_from_compose_resolves_against_the_stack_dir() {
+    let compose = serde_json::json!({
+        "name": "valheim",
+        "services": {"valheim": {"volumes": [
+            {"type": "bind", "source": "./server", "target": "/opt/valheim", "read_only": true},
+        ]}},
+    });
+    let d = discover("valheim", Path::new(DIR), &[], Some(&compose), &found_all);
+    let m = &d.mounts[0];
+    assert_eq!(m.source, "/stacks/valheim/server");
+    assert_eq!(m.state, MountState::Ready);
+    assert!(m.browsable.ok && !m.writable);
+    assert!(m.running.is_empty());
+    assert_eq!(
+        d.sources.get(&m.id),
+        Some(&HelperSource::Bind(PathBuf::from("/stacks/valheim/server")))
+    );
+}
+
+#[test]
+fn a_bind_of_the_host_root_is_listed_but_not_browsable() {
+    let seen = [inspected(
+        "agent",
+        true,
+        serde_json::json!([{"Type": "bind", "Source": "/", "Destination": "/host", "RW": true}]),
+    )];
+    let d = discover("valheim", Path::new(DIR), &seen, None, &found_all);
+    let m = &d.mounts[0];
+    assert!(!m.browsable.ok);
+    let why = m.browsable.reason.as_ref().unwrap();
+    assert_eq!(why.code, NotBrowsableCode::RiskyBind);
+    assert!(why.message.contains("whole filesystem"), "{}", why.message);
+}
+
+#[test]
+fn tmpfs_is_listed_by_destination_with_no_source() {
+    let seen = [inspected(
+        "valheim",
+        true,
+        serde_json::json!([{"Type": "tmpfs", "Source": "", "Destination": "/tmp", "RW": true}]),
+    )];
+    let d = discover("valheim", Path::new(DIR), &seen, None, &found_all);
+    let m = &d.mounts[0];
+    assert_eq!((m.kind, m.source.as_str()), (MountKind::Tmpfs, "/tmp"));
+    assert_eq!(
+        m.browsable.reason.as_ref().unwrap().code,
+        NotBrowsableCode::Tmpfs
+    );
+    assert!(d.sources.is_empty());
+}
+
+#[test]
+fn a_mount_shared_by_services_is_merged() {
+    let vol = |rw| {
+        serde_json::json!([{
+            "Type": "volume", "Name": "valheim_saves", "Source": "/x",
+            "Destination": "/saves", "RW": rw,
+        }])
+    };
+    let seen = [
+        inspected("valheim", true, vol(true)),
+        inspected("backup", false, vol(false)),
+    ];
+    let d = discover("valheim", Path::new(DIR), &seen, None, &found_all);
+    assert_eq!(d.mounts.len(), 1);
+    let m = &d.mounts[0];
+    let names: Vec<_> = m.services.iter().map(|s| s.service.as_str()).collect();
+    assert_eq!(names, ["valheim", "backup"]);
+    assert!(m.writable);
+    assert_eq!(m.running, vec!["valheim".to_owned()]);
+}
+
+#[test]
+fn a_never_deployed_stack_lists_its_volumes_as_not_created() {
+    let compose = serde_json::json!({
+        "name": "valheim",
+        "services": {"valheim": {"volumes": [
+            {"type": "volume", "source": "saves", "target": "/saves"},
+            {"type": "volume", "source": "named", "target": "/named"},
+            {"type": "volume", "target": "/anon"},
+            {"type": "bind", "source": "${DATA}/x", "target": "/data"},
+        ]}},
+        "volumes": {"saves": {}, "named": {"name": "shared-named"}},
+    });
+    let missing = |_: &HelperSource| Found::Missing;
+    let d = discover("valheim", Path::new(DIR), &[], Some(&compose), &missing);
+    let got: Vec<_> = d
+        .mounts
+        .iter()
+        .map(|m| (m.source.as_str(), m.state))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("valheim_saves", MountState::NotCreated),
+            ("shared-named", MountState::NotCreated),
+            ("${DATA}/x", MountState::Unresolved),
+        ]
+    );
+    assert_eq!(d.sources.len(), 2, "an unresolved bind has no source");
+}
+
+#[test]
+fn a_source_gone_since_deploy_is_missing_and_a_file_bind_is_not_browsable() {
+    let seen = [inspected(
+        "valheim",
+        false,
+        serde_json::json!([
+            {"Type": "volume", "Name": "gone", "Source": "/x", "Destination": "/a", "RW": true},
+            {"Type": "bind", "Source": "/srv/app.cfg", "Destination": "/app.cfg", "RW": true},
+        ]),
+    )];
+    let probe = |s: &HelperSource| match s {
+        HelperSource::Volume(_) => Found::Missing,
+        HelperSource::Bind(_) => Found::File,
+    };
+    let d = discover("valheim", Path::new(DIR), &seen, None, &probe);
+    assert_eq!(d.mounts[0].state, MountState::Missing);
+    assert_eq!(
+        d.mounts[1].browsable.reason.as_ref().unwrap().code,
+        NotBrowsableCode::SingleFile
+    );
+}
+
+#[test]
+fn a_service_with_a_container_is_read_from_inspect_not_compose() {
+    let seen = [inspected("valheim", true, serde_json::json!([]))];
+    let compose = serde_json::json!({
+        "name": "valheim",
+        "services": {"valheim": {"volumes": [
+            {"type": "volume", "source": "old", "target": "/old"},
+        ]}},
+    });
+    let d = discover("valheim", Path::new(DIR), &seen, Some(&compose), &found_all);
+    assert!(d.mounts.is_empty());
+}
+
+#[test]
+fn mounts_reads_the_stacks_containers_and_remembers_the_sources() {
+    let a = app();
+    a.set_containers(vec![support::container(
+        "valheim",
+        "valheim",
+        "running",
+        "Up 1 hour",
+    )]);
+    a.set_inspect(
+        "valheim-valheim-id",
+        serde_json::json!({"Mounts": [{
+            "Type": "volume", "Name": "valheim_saves", "Source": "/x",
+            "Destination": "/config", "RW": true,
+        }]}),
+    );
+    let d = files::mounts(&a.state, &stack()).unwrap();
+    assert_eq!(d.mounts.len(), 1);
+    let m = &d.mounts[0];
+    assert_eq!(m.running, vec!["valheim".to_owned()]);
+    let (known, src) = a.state.files.known(&stack(), &m.id).unwrap();
+    assert_eq!(&known, m);
+    assert_eq!(src, HelperSource::Volume("valheim_saves".into()));
+}
