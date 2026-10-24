@@ -287,8 +287,8 @@ onServerEvent(({ reply_to, event }) => {
 function onPage(replyTo: RequestId, page: number, entries: Entry[], last: boolean): void {
   const all = placePage(page, entries)
   if (last) lastPage = page
-  // `filter` skips holes, so this counts the pages that have landed.
-  const complete = lastPage >= 0 && pages.filter(() => true).length === lastPage + 1
+  // `reduce` skips holes, so this counts the pages that have landed.
+  const complete = lastPage >= 0 && pages.reduce((n) => n + 1, 0) === lastPage + 1
   if (complete) pending.delete(replyTo)
   useFiles.setState({ entries: all, list: complete ? 'ready' : 'loading' })
   if (complete) settleTarget()
@@ -299,6 +299,40 @@ export function filterEntries(entries: readonly Entry[], filter: string): readon
   const q = filter.trim().toLowerCase()
   if (q === '') return entries
   return entries.filter((e) => e.name.toLowerCase().includes(q))
+}
+
+/** A refusal in words, for the listing or the file pane. */
+export function refusalText(r: FilesRefusal): string {
+  switch (r.kind) {
+    case 'denied':
+      return r.reason === 'untrusted_network'
+        ? 'Files are not available from this network.'
+        : r.reason === 'feature_disabled'
+          ? 'Files are turned off on this server.'
+          : 'You are not allowed to browse these files.'
+    case 'not_browsable':
+      return `This mount cannot be browsed: ${r.reason.message}.`
+    case 'helper_unavailable':
+      return `The file helper could not start: ${r.reason}`
+    case 'not_created':
+      return 'This volume is not created yet: it appears after the first deploy.'
+    case 'missing':
+      return 'The source of this mount does not exist on the host.'
+    case 'outside_mount':
+      return 'This points outside the mount, so it does not open.'
+    case 'not_found':
+      return 'Not found: it may have been moved or deleted.'
+    case 'not_text':
+      return 'This is not a file that opens here.'
+    case 'too_large':
+      return 'Too large to open here.'
+    case 'write_blocked':
+      return 'This entry does not open here.'
+    case 'os_error':
+      return `The system refused: ${r.message} (${r.errno}).`
+    default:
+      return `Refused (${r.kind.replaceAll('_', ' ')}).`
+  }
 }
 
 /** The path of `entry` in the folder `dir`. */

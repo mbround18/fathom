@@ -18,6 +18,10 @@ const highlight = HighlightStyle.define([
   { tag: [t.comment, t.lineComment], color: 'var(--muted-foreground)', fontStyle: 'italic' },
   { tag: [t.keyword, t.meta, t.labelName], color: 'var(--accent-foreground)' },
   { tag: [t.punctuation, t.separator], color: 'var(--muted-foreground)' },
+  // The legacy modes (spec 053 files): `properties`/INI keys are `def`, values `quote`, `[sections]` `header`.
+  { tag: t.definition(t.variableName), color: 'var(--primary)' },
+  { tag: t.quote, color: 'var(--status-ok)' },
+  { tag: t.heading, color: 'var(--accent-foreground)', fontWeight: 'bold' },
 ])
 
 /** `.env`: `KEY=value` and `# comments`, nothing more. */
