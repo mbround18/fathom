@@ -566,7 +566,7 @@ and every attempt shows up in the audit log.
     `Unreachable`, and the server-level tests.
 - [X] T073 [US5] Implement `GetAudit`, `GetUsers`, `PutUser`, `RemoveUser` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader. Broadcast `UsersChanged` to admin sockets; on a removal, end the returned sessions and close their sockets.
 - [X] T074 [US5] Build the admin views in `apps/depths/web/src/features/{audit/{AuditLog,AuditFilters},users/UsersView}.tsx`: the audit log as a virtualised table that collapses to cards at narrow widths, with export. UsersView lists users and the pending list, sets role and stacks (missing stacks marked), adds an id by hand, and shows owners locked.
-- [ ] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, as unauthenticated, pending, a user on an assigned stack, a user on an unassigned stack, and admin, and asserts that the outcome matches the permission table in data-model.md (SC-006).
+- [X] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, as unauthenticated, pending, a user on an assigned stack, a user on an unassigned stack, and admin, and asserts that the outcome matches the permission table in data-model.md (SC-006).
 
 ---
 
