@@ -6,6 +6,7 @@ import { ArrowClockwiseIcon, ArrowDownIcon, CloudArrowDownIcon, PlayIcon, StopIc
 import { Button } from '@companion/ui'
 import type { ReactNode } from 'react'
 
+import { RESTRICTED_OPS, useUntrusted } from '@/features/network/model'
 import type { Stack, StackOp } from '@/protocol/generated'
 
 import { blockedReason } from './model'
@@ -22,21 +23,28 @@ const STACK_OPS: { op: StackOp; label: string; icon: ReactNode }[] = [
 
 export function StackActions({ stack }: { stack: Stack }) {
   const requestPreview = useOps((s) => s.requestPreview)
+  const untrusted = useUntrusted()
   if (blockedReason(stack) !== null) return null
   return (
     <div role="toolbar" aria-label="Stack actions" className="flex min-w-0 flex-wrap gap-1">
-      {STACK_OPS.map(({ op, label, icon }) => (
-        <Button
-          key={op.kind}
-          variant="outline"
-          size="sm"
-          data-action={op.kind}
-          onClick={() => requestPreview({ kind: 'op', stack: stack.name, op })}
-        >
-          {icon}
-          {label}
-        </Button>
-      ))}
+      {STACK_OPS.map(({ op, label, icon }) => {
+        const blocked = RESTRICTED_OPS.has(op.kind) ? null : untrusted
+        return (
+          <Button
+            key={op.kind}
+            variant="outline"
+            size="sm"
+            data-action={op.kind}
+            disabled={blocked !== null}
+            title={blocked ?? undefined}
+            data-blocked={blocked === null ? undefined : 'untrusted_network'}
+            onClick={() => requestPreview({ kind: 'op', stack: stack.name, op })}
+          >
+            {icon}
+            {label}
+          </Button>
+        )
+      })}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { ClipboardTextIcon, MoonIcon, RowsIcon, SignOutIcon, SunIcon, UsersIcon } from '@phosphor-icons/react'
+import { ClipboardTextIcon, DevicesIcon, MoonIcon, RowsIcon, SignOutIcon, SunIcon, UsersIcon } from '@phosphor-icons/react'
 import { BrandMark } from '@companion/theme'
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@companion/ui'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
@@ -13,6 +13,7 @@ import { useSession } from './session-store'
 import { useTheme } from './theme-store'
 
 const TabDock = lazy(() => import('@/features/tabs/TabDock'))
+const NetworkGate = lazy(() => import('@/features/network/NetworkGate'))
 
 const CONNECTION_LABEL = {
   connecting: 'Connecting',
@@ -69,6 +70,7 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [count])
 
   const showDock = count > 0 && open
+  const gate = me !== null && (!me.network.trusted || me.needs_answer || me.proxy_warning)
   const page = <div className="h-full min-h-0 overflow-auto">{children}</div>
 
   return (
@@ -107,12 +109,17 @@ export function Shell({ children }: { children: ReactNode }) {
           </Button>
         )}
         {me && (
-          <span
-            data-testid="whoami"
-            className="hidden max-w-40 truncate text-xs text-muted-foreground sm:inline"
+          <Link
+            to="/account/sessions"
+            aria-label="Your sessions"
+            title="Your sessions"
+            className="inline-flex h-7 min-w-0 items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
-            {me.identity.username}
-          </span>
+            <DevicesIcon aria-hidden className="size-3.5 shrink-0" />
+            <span data-testid="whoami" className="hidden max-w-40 truncate sm:inline">
+              {me.identity.username}
+            </span>
+          </Link>
         )}
         <Button
           variant="ghost"
@@ -126,6 +133,11 @@ export function Shell({ children }: { children: ReactNode }) {
           <SignOutIcon />
         </Button>
       </header>
+      {gate && (
+        <Suspense fallback={null}>
+          <NetworkGate />
+        </Suspense>
+      )}
       <main className="min-h-0 flex-1">
         {wide ? (
           // One group throughout, so opening the dock never remounts the page.

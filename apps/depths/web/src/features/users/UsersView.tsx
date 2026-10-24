@@ -8,6 +8,7 @@ import { LockSimpleIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
 import { useEffect, useId, useMemo, useState, type SyntheticEvent, type ReactNode } from 'react'
 
+import { useUntrusted } from '@/features/network/model'
 import { DENY_TEXT } from '@/features/stacks/argv'
 import { formatTime } from '@/features/stacks/model'
 import { useStacks } from '@/features/stacks/store'
@@ -105,6 +106,7 @@ function Empty({ children }: { children: string }) {
 /** Pre-add someone by provider id, before they ever sign in (FR-030). */
 function AddById({ existing }: { existing: ReadonlySet<string> }) {
   const put = useUsers((s) => s.put)
+  const blocked = useUntrusted()
   const [id, setId] = useState('')
   const [role, setRole] = useState<Role>('user')
   const [problem, setProblem] = useState<string | null>(null)
@@ -138,7 +140,7 @@ function AddById({ existing }: { existing: ReadonlySet<string> }) {
         className="h-7 min-w-0 flex-1 basis-48 border border-input bg-background px-1.5 font-mono text-xs outline-none placeholder:text-muted-foreground focus:border-ring aria-invalid:border-status-err"
       />
       <RoleSelect value={role} onChange={setRole} label="Role for the new id" />
-      <Button type="submit" variant="outline" size="sm">
+      <Button type="submit" variant="outline" size="sm" disabled={blocked !== null} title={blocked ?? undefined} data-blocked={blocked === null ? undefined : 'untrusted_network'}>
         <PlusIcon aria-hidden />
         Add
       </Button>
@@ -166,6 +168,7 @@ function RoleSelect({ value, onChange, label }: { value: Role; onChange: (r: Rol
 function UserRow({ user, known, pending = false }: { user: User; known: readonly string[]; pending?: boolean }) {
   const saving = useUsers((s) => s.saving.includes(user.id))
   const remove = useUsers((s) => s.remove)
+  const blocked = useUntrusted()
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const knownSet = useMemo(() => new Set(known), [known])
@@ -231,11 +234,11 @@ function UserRow({ user, known, pending = false }: { user: User; known: readonly
         </div>
       ) : (
         <div className="flex flex-wrap gap-1">
-          <Button variant="outline" size="xs" onClick={() => setEditing(true)} aria-label={`${pending ? 'Admit' : 'Edit'} ${name}`}>
+          <Button variant="outline" size="xs" disabled={blocked !== null} title={blocked ?? undefined} data-blocked={blocked === null ? undefined : 'untrusted_network'} onClick={() => setEditing(true)} aria-label={`${pending ? 'Admit' : 'Edit'} ${name}`}>
             {pending ? 'Admit' : 'Edit'}
           </Button>
           {!pending && (
-            <Button variant="ghost" size="xs" onClick={() => setConfirming(true)} aria-label={`Remove ${name}`}>
+            <Button variant="ghost" size="xs" disabled={blocked !== null} title={blocked ?? undefined} data-blocked={blocked === null ? undefined : 'untrusted_network'} onClick={() => setConfirming(true)} aria-label={`Remove ${name}`}>
               Remove
             </Button>
           )}

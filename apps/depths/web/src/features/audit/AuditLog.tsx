@@ -12,6 +12,7 @@ import { Button } from '@companion/ui'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { useUntrusted } from '@/features/network/model'
 import { formatTime } from '@/features/stacks/model'
 import { useStacks } from '@/features/stacks/store'
 import type { AuditEntry } from '@/protocol/generated'
@@ -40,6 +41,7 @@ export default function AuditLog() {
   const setFilter = useAudit((s) => s.setFilter)
   const refresh = useAudit((s) => s.refresh)
   const more = useAudit((s) => s.more)
+  const blocked = useUntrusted()
   const loadStacks = useStacks((s) => s.load)
   const stackList = useStacks((s) => s.list)
   const stackNames = useMemo(() => stackList?.stacks.map((s) => s.name) ?? NO_NAMES, [stackList])
@@ -81,15 +83,17 @@ export default function AuditLog() {
         <Button variant="ghost" size="sm" onClick={refresh} aria-label="Refresh the audit log">
           <ArrowClockwiseIcon aria-hidden />
         </Button>
-        <a
-          href={exportHref(filter)}
-          download="depths-audit.jsonl"
-          data-action="export"
-          className="inline-flex h-7 shrink-0 items-center gap-1 border border-input px-2 text-xs hover:border-primary hover:text-primary"
-        >
-          <DownloadSimpleIcon aria-hidden className="size-3.5" />
-          Export JSONL
-        </a>
+        {blocked === null && (
+          <a
+            href={exportHref(filter)}
+            download="depths-audit.jsonl"
+            data-action="export"
+            className="inline-flex h-7 shrink-0 items-center gap-1 border border-input px-2 text-xs hover:border-primary hover:text-primary"
+          >
+            <DownloadSimpleIcon aria-hidden className="size-3.5" />
+            Export JSONL
+          </a>
+        )}
       </div>
 
       <AuditFilters filter={filter} stacks={stackNames} onChange={setFilter} />

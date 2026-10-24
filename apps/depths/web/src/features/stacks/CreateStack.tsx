@@ -11,6 +11,7 @@ import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } f
 import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import { yamlProblems } from '@/features/editor/problems'
+import { useUntrusted } from '@/features/network/model'
 import { useUnsavedGuard } from '@/features/editor/useUnsavedGuard'
 
 import { OperationOutput } from './OperationOutput'
@@ -40,6 +41,7 @@ function Loading() {
 }
 
 function Form() {
+  const blocked = useUntrusted()
   const [name, setName] = useState('')
   const [compose, setCompose] = useState(TEMPLATE)
   const [env, setEnv] = useState('')
@@ -60,7 +62,7 @@ function Form() {
   useUnsavedGuard(dirty)
 
   const asking = flow?.request.kind === 'save' && (flow.phase === 'previewing' || flow.phase === 'confirming')
-  const canCreate = name !== '' && badName === null && yamlErrors.length === 0 && !asking && created === null
+  const canCreate = name !== '' && badName === null && yamlErrors.length === 0 && !asking && created === null && blocked === null
 
   const create = (deploy: boolean): void => {
     setAwaiting({ name, before: ops[name]?.operationId ?? null })
@@ -115,11 +117,11 @@ function Form() {
         </Suspense>
       </section>
       <div className="flex flex-wrap gap-1">
-        <Button variant="outline" size="sm" disabled={!canCreate} onClick={() => create(false)} data-action="create">
+        <Button variant="outline" size="sm" disabled={!canCreate} title={blocked ?? undefined} onClick={() => create(false)} data-action="create" data-blocked={blocked === null ? undefined : 'untrusted_network'}>
           <PlusIcon />
           Create
         </Button>
-        <Button size="sm" disabled={!canCreate} onClick={() => create(true)} data-action="create-deploy">
+        <Button size="sm" disabled={!canCreate} title={blocked ?? undefined} onClick={() => create(true)} data-action="create-deploy" data-blocked={blocked === null ? undefined : 'untrusted_network'}>
           <RocketLaunchIcon />
           Create &amp; deploy
         </Button>

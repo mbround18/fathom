@@ -30,6 +30,8 @@ export interface SessionState {
   expired: boolean
   bootstrap: (fetchFn?: FetchLike) => Promise<void>
   signOut: () => Promise<void>
+  /** Re-reads `/me` in place (after a home/public answer, say) without touching the socket. */
+  refreshMe: () => Promise<void>
 }
 
 /** FR-031: nothing to show this person. */
@@ -97,6 +99,12 @@ export const useSession = create<SessionState>()((set, get) => {
         onStatus: (connection) => set({ connection }),
         onTerminal,
       })
+    },
+
+    refreshMe: async () => {
+      const r = await fetchMe()
+      if (r.kind === 'ok' && get().status === 'ready') set({ me: r.me })
+      else if (r.kind === 'unauthenticated') onTerminal('unauthenticated')
     },
 
     signOut: async () => {

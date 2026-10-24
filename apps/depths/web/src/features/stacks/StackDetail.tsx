@@ -15,6 +15,7 @@ import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import { useCanReveal, useReveal } from '@/features/editor/reveal-store'
+import { useUntrusted } from '@/features/network/model'
 import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
 import type { Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
 
@@ -218,6 +219,7 @@ function Env({ detail }: { detail: Detail }) {
   const { stack } = detail
   const env = detail.env
   const canReveal = useCanReveal()
+  const blocked = useUntrusted()
   const revealed = useReveal((s) => s.env[stack.name])
   const reveal = useReveal((s) => s.reveal)
   const forget = useReveal((s) => s.forget)
@@ -237,7 +239,7 @@ function Env({ detail }: { detail: Detail }) {
           Environment <span className="font-mono normal-case">.env</span>
         </h2>
         {offerReveal && (
-          <Button variant="outline" size="xs" data-action="reveal-env" disabled={revealed?.state === 'asking'} onClick={() => reveal(stack.name)}>
+          <Button variant="outline" size="xs" data-action="reveal-env" disabled={revealed?.state === 'asking' || blocked !== null} title={blocked ?? undefined} data-blocked={blocked === null ? undefined : 'untrusted_network'} onClick={() => reveal(stack.name)}>
             {revealed?.state === 'asking' ? 'Revealing…' : 'Reveal'}
           </Button>
         )}

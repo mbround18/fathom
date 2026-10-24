@@ -6,6 +6,7 @@ import { ChartBarIcon, ScrollIcon, TerminalWindowIcon } from '@phosphor-icons/re
 import { Button } from '@companion/ui'
 
 import { useSession } from '@/app/session-store'
+import { useUntrusted } from '@/features/network/model'
 import type { LogTarget, StatsTarget } from '@/protocol/generated'
 
 import { useTabs } from './store'
@@ -32,6 +33,7 @@ export function OpenStats({ target, label }: { target: StatsTarget; label: strin
 export function OpenShell({ container }: { container: string }) {
   const shellOn = useSession((s) => s.me?.features.shell ?? false)
   const openTab = useTabs((s) => s.openTab)
+  const blocked = useUntrusted()
   if (!shellOn) return null
   return (
     <Button
@@ -39,7 +41,9 @@ export function OpenShell({ container }: { container: string }) {
       size="icon-xs"
       data-open="shell"
       aria-label={`Shell in ${container}`}
-      title="Shell"
+      title={blocked ?? 'Shell'}
+      disabled={blocked !== null}
+      data-blocked={blocked === null ? undefined : 'untrusted_network'}
       onClick={() => openTab({ kind: 'shell', container })}
     >
       <TerminalWindowIcon aria-hidden />

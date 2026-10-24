@@ -28,6 +28,7 @@ import { editBlockedReason, maskEnv } from '@/features/stacks/model'
 import { useOps } from '@/features/stacks/ops-store'
 import { PreviewDialog } from '@/features/stacks/PreviewDialog'
 import { useStacks } from '@/features/stacks/store'
+import { useUntrusted } from '@/features/network/model'
 
 import { problemText, serverProblems, yamlProblems } from './problems'
 import { useCanReveal, useReveal } from './reveal-store'
@@ -87,6 +88,7 @@ function Editor({ detail }: { detail: StackDetail }) {
   const revealed = useReveal((s) => s.env[name])
   const reveal = useReveal((s) => s.reveal)
   const canReveal = useCanReveal()
+  const blocked = useUntrusted()
   const flow = useOps((s) => s.flow)
   const run = useOps((s) => s.ops[name])
   const requestPreview = useOps((s) => s.requestPreview)
@@ -164,7 +166,7 @@ function Editor({ detail }: { detail: StackDetail }) {
   }
 
   const asking = mine !== null && (mine.phase === 'previewing' || mine.phase === 'confirming')
-  const canSave = dirty && yamlErrors.length === 0 && !asking
+  const canSave = dirty && yamlErrors.length === 0 && !asking && blocked === null
   const changedOnDisk = detail.content_hash !== base.hash && conflict === null
 
   return (
@@ -182,11 +184,11 @@ function Editor({ detail }: { detail: StackDetail }) {
         <span data-field="dirty" className="text-xs text-muted-foreground">
           {dirty ? 'Unsaved changes' : 'No changes'}
         </span>
-        <Button variant="outline" size="sm" disabled={!canSave} onClick={() => save(false)} data-action="save">
+        <Button variant="outline" size="sm" disabled={!canSave} title={blocked ?? undefined} onClick={() => save(false)} data-action="save" data-blocked={blocked === null ? undefined : 'untrusted_network'}>
           <FloppyDiskIcon />
           Save
         </Button>
-        <Button size="sm" disabled={!canSave} onClick={() => save(true)} data-action="save-deploy">
+        <Button size="sm" disabled={!canSave} title={blocked ?? undefined} onClick={() => save(true)} data-action="save-deploy" data-blocked={blocked === null ? undefined : 'untrusted_network'}>
           <RocketLaunchIcon />
           Save &amp; deploy
         </Button>
@@ -279,8 +281,8 @@ function Editor({ detail }: { detail: StackDetail }) {
                         variant="outline"
                         size="sm"
                         data-action="reveal-env"
-                        disabled={revealed?.state === 'asking' || envChanged}
-                        title={envChanged ? 'Reveal before editing .env' : 'Revealing is recorded in the audit log'}
+                        disabled={revealed?.state === 'asking' || envChanged || blocked !== null}
+                        title={blocked ?? (envChanged ? 'Reveal before editing .env' : 'Revealing is recorded in the audit log')}
                         onClick={() => reveal(name)}
                       >
                         {revealed?.state === 'asking' ? 'Revealing…' : 'Reveal values'}
