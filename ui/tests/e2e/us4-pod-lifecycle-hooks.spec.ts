@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test'
 
 import { DETAIL_POD } from '../fixtures'
 import { podLifecycleDetail, podLifecycleEvents } from '../fixtures/batches'
-import { emit, inspector, open, row, sentTypes } from './helpers'
+import { emit, inspector, open, row, sentTypes, settleFakeReplies } from './helpers'
 
 const key = (p: { namespace: string; name: string }) => `${p.namespace}/${p.name}`
 
@@ -22,6 +22,11 @@ test.describe('US4 pod lifecycle: hooks', () => {
     const insp = inspector(page)
     await expect(insp).toBeVisible()
     await expect.poll(() => sentTypes(page)).toContain('SelectPod')
+
+    // The poll above proves `SelectPod` was *sent*, not answered. At ultra-plus the cascade mounts
+    // six panes at once, so canned replies are still queued; drain them or one lands after the
+    // injection below and takes the lifecycle detail back out.
+    await settleFakeReplies(page)
 
     await emit(page, podLifecycleDetail('kind-a', DETAIL_POD))
     await emit(page, podLifecycleEvents(DETAIL_POD))
