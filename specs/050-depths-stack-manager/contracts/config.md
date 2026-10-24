@@ -19,7 +19,7 @@ start with a message naming the setting.
 | `--session-idle` / `--session-max` | `DEPTHS_SESSION_IDLE`, `DEPTHS_SESSION_MAX` | `8h`, `24h` | Session lifetime. |
 | `--max-file-bytes` | `DEPTHS_MAX_FILE_BYTES` | `1MiB` | Largest compose or `.env` file the editor loads. |
 | `--audit-rotate-bytes` | `DEPTHS_AUDIT_ROTATE_BYTES` | `64MiB` | Rotation size. |
-| — | `DEPTHS_FEATURE_SHELL`, `DEPTHS_FEATURE_EDIT` | `true`, `true` | Runtime flags (R12). |
+| — | `DEPTHS_FEATURE_SHELL`, `DEPTHS_FEATURE_EDIT` | `false`, `true` | Runtime flags (R12). The shell is off unless turned on (least privilege); turning it on also needs `DEPTHS_SOCKET_EXEC=1` on the socket proxy. |
 | — | `OTEL_EXPORTER_OTLP_ENDPOINT` (+ standard `OTEL_*`) | unset = off | Telemetry export. |
 | `--insecure-dev` | `DEPTHS_INSECURE_DEV` | `false` | Allows `http://` public URL and non-`__Host-` cookie. Refused when `DEPTHS_LISTEN` is not loopback. |
 

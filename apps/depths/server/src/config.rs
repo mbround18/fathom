@@ -655,18 +655,17 @@ impl Config {
             None => 64 << 20,
         };
 
-        let mut feature = |setting: &'static str, name: &str| -> Result<bool, ConfigError> {
-            match r.var(name) {
-                Some(v) => {
-                    r.sources.push((setting, name.to_owned()));
-                    parse_bool(name, &v)
-                }
-                None => Ok(true),
+        let mut feature = |setting: &'static str, name: &str, default: bool| match r.var(name) {
+            Some(v) => {
+                r.sources.push((setting, name.to_owned()));
+                parse_bool(name, &v)
             }
+            None => Ok::<_, ConfigError>(default),
         };
+        // A shell into a container is the most a session can do, so it is off unless asked for.
         let features = Features {
-            shell: feature("feature_shell", "DEPTHS_FEATURE_SHELL")?,
-            edit: feature("feature_edit", "DEPTHS_FEATURE_EDIT")?,
+            shell: feature("feature_shell", "DEPTHS_FEATURE_SHELL", false)?,
+            edit: feature("feature_edit", "DEPTHS_FEATURE_EDIT", true)?,
         };
 
         let trusted_proxies = match r.pick(
@@ -851,9 +850,10 @@ mod tests {
         assert_eq!(
             c.features,
             Features {
-                shell: true,
+                shell: false,
                 edit: true
-            }
+            },
+            "the shell is off unless DEPTHS_FEATURE_SHELL turns it on"
         );
         match &c.providers[0] {
             ProviderConfig::Discord {
@@ -1060,15 +1060,16 @@ mod tests {
     #[test]
     fn feature_flags_and_proxies_parse() {
         let c = Fixture::deploy()
-            .set("DEPTHS_FEATURE_SHELL", "false")
+            .set("DEPTHS_FEATURE_SHELL", "true")
+            .set("DEPTHS_FEATURE_EDIT", "false")
             .set(
                 "DEPTHS_TRUSTED_PROXIES",
                 "172.18.0.0/16, 100.64.0.0/10,::1/128",
             )
             .resolve()
             .unwrap();
-        assert!(!c.features.shell);
-        assert!(c.features.edit);
+        assert!(c.features.shell);
+        assert!(!c.features.edit);
         assert_eq!(c.trusted_proxies.len(), 3);
         let r = Fixture::deploy()
             .set("DEPTHS_FEATURE_SHELL", "maybe")

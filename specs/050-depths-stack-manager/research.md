@@ -316,8 +316,8 @@ The example `apps/depths/compose.yaml` sets `restart: ${RESTART_POLICY:-no}` on 
   `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 - Runtime feature flags as environment variables, all read at start-up and shown on the admin
   page:
-  - `DEPTHS_FEATURE_SHELL` (default on): turns interactive shells off entirely, for
-    least-privilege installs.
+  - `DEPTHS_FEATURE_SHELL` (default off, for least privilege): turns interactive shells on;
+    off, they are refused entirely.
   - `DEPTHS_FEATURE_EDIT` (default on): makes every stack read-only in the UI and API.
 
 ## R13. Discord sign-in
