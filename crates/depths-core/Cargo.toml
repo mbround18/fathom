@@ -16,6 +16,8 @@ serde_yaml = "0.9"
 sha2 = "0.11"
 # Network trust times and UTC days (spec 052). No clock: callers pass `now`.
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+# The volume helper's frames, mount source and op mode (spec 053), for the `VolumeHelper` port.
+depths-volumes = { path = "../depths-volumes" }
 
 [dev-dependencies]
 serde_json = "1.0.154"

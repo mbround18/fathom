@@ -4,8 +4,10 @@
 //!   path to `root/<name>` (FR-005).
 //! - [`ContainerRuntime`]: the container runtime. The server implements it over
 //!   `container-runtime`'s `Runner` (argv only, never a shell).
+//! - [`VolumeHelper`]: starts a volume helper container on a mount and hands back its frame
+//!   [`HelperChannel`] (spec 053). `depths-runtime-cli` implements it with `docker run -i`.
 //!
-//! Both are synchronous, like `container_runtime::runner::Runner`: the server calls them from a
+//! All are synchronous, like `container_runtime::runner::Runner`: the server calls them from a
 //! blocking task. Names reach them only as [`StackName`]s, and commands only as the plan's
 //! [`RunStep`]s, so neither port ever sees a path or a command line a client wrote.
 //!
@@ -13,6 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,6 +24,9 @@ use std::time::SystemTime;
 pub use container_runtime::sink::{StreamEvent, StreamSink};
 use container_runtime::wire::Container;
 pub use container_runtime::wire::{StreamId, UsageSample};
+use depths_volumes::frame::{Frame, FrameError, FrameKind, read_frame};
+pub use depths_volumes::mount::{HelperSource, OpMode};
+use depths_volumes::op::{Hello, PROTO};
 use serde::{Deserialize, Serialize};
 
 use crate::discovery::ComposeFile;
@@ -473,6 +479,180 @@ fn stdin_for<'a>(
         StepStdin::Draft => draft.map(Some).ok_or_else(|| {
             RuntimeError::Failed("the step reads a draft and none was given".into())
         }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The volume helper (spec 053)
+// ---------------------------------------------------------------------------
+
+/// Which helper to start: the stack it works for (its `depths.helper.stack` label), what it
+/// mounts at `/volume`, the numeric uid:gid it runs as (R5), and whether the mount is writable.
+/// The server derives `source` itself; a client never supplies one (R10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelperSpec {
+    pub stack: StackName,
+    pub source: HelperSource,
+    pub uid: u32,
+    pub gid: u32,
+    pub mode: OpMode,
+}
+
+/// Why a helper's channel failed. Every one ends that helper: the caller kills it with
+/// [`HelperChannel::kill`] and never sends it another op.
+#[derive(Debug)]
+pub enum ChannelError {
+    /// The helper's stdout ended: it exited, or its container is gone.
+    Closed,
+    /// A frame broke the protocol, or a pipe failed.
+    Protocol(FrameError),
+    /// The first frame was not a `Hello` this server speaks.
+    Handshake(String),
+}
+
+impl fmt::Display for ChannelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Closed => f.write_str("the volume helper exited"),
+            Self::Protocol(e) => write!(f, "volume helper protocol error: {e}"),
+            Self::Handshake(why) => write!(f, "volume helper handshake failed: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for ChannelError {}
+
+impl From<FrameError> for ChannelError {
+    fn from(e: FrameError) -> Self {
+        Self::Protocol(e)
+    }
+}
+
+/// The process behind a [`HelperChannel`], ended the way its adapter knows how.
+pub trait HelperProcess: Send {
+    /// A clean end. The channel has already closed the helper's stdin, so the helper is exiting
+    /// 0; wait for it.
+    fn close(self: Box<Self>);
+    /// A forced end, after a protocol error: kill the helper and remove its container.
+    fn kill(self: Box<Self>);
+}
+
+/// A started helper's frame channel: its stdout to read, its stdin to write, and its process.
+///
+/// Blocking, like [`ShellSession`]: the server drives it from a blocking task. One op at a time;
+/// the pool serialises. Generic over any byte pipes, so an in-process helper on a thread serves
+/// the same channel a container does. Dropping it without [`HelperChannel::close`] kills the
+/// helper.
+pub struct HelperChannel {
+    hello: Hello,
+    reader: Box<dyn Read + Send>,
+    writer: Option<Box<dyn Write + Send>>,
+    process: Option<Box<dyn HelperProcess>>,
+}
+
+impl fmt::Debug for HelperChannel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HelperChannel")
+            .field("hello", &self.hello)
+            .finish_non_exhaustive()
+    }
+}
+
+impl HelperChannel {
+    /// Reads the helper's `Hello` from `reader`. A first frame that is not a `Hello` of
+    /// protocol [`PROTO`] kills `process` and fails. `Hello.openat2 == false` is not an error
+    /// here: the caller reports `helper_unavailable` from [`HelperChannel::hello`].
+    pub fn open(
+        mut reader: Box<dyn Read + Send>,
+        writer: Box<dyn Write + Send>,
+        process: Box<dyn HelperProcess>,
+    ) -> Result<Self, ChannelError> {
+        let hello = match handshake(&mut reader) {
+            Ok(hello) => hello,
+            Err(e) => {
+                drop(writer);
+                process.kill();
+                return Err(e);
+            }
+        };
+        Ok(Self {
+            hello,
+            reader,
+            writer: Some(writer),
+            process: Some(process),
+        })
+    }
+
+    pub fn hello(&self) -> &Hello {
+        &self.hello
+    }
+
+    /// Writes one frame and flushes it.
+    pub fn send(&mut self, frame: &Frame) -> Result<(), ChannelError> {
+        let writer = self.writer.as_mut().ok_or(ChannelError::Closed)?;
+        frame.write_to(writer)?;
+        writer
+            .flush()
+            .map_err(|e| ChannelError::Protocol(FrameError::Io(e)))
+    }
+
+    /// Reads the next frame. A clean end of the helper's stdout is [`ChannelError::Closed`].
+    pub fn recv(&mut self) -> Result<Frame, ChannelError> {
+        read_frame(&mut self.reader)?.ok_or(ChannelError::Closed)
+    }
+
+    /// Closes the helper's stdin, so it exits 0, and waits for it.
+    pub fn close(mut self) {
+        drop(self.writer.take());
+        if let Some(process) = self.process.take() {
+            process.close();
+        }
+    }
+
+    /// Kills the helper and removes its container, after a protocol error.
+    pub fn kill(mut self) {
+        self.end_by_force();
+    }
+
+    fn end_by_force(&mut self) {
+        drop(self.writer.take());
+        if let Some(process) = self.process.take() {
+            process.kill();
+        }
+    }
+}
+
+impl Drop for HelperChannel {
+    fn drop(&mut self) {
+        self.end_by_force();
+    }
+}
+
+fn handshake(reader: &mut impl Read) -> Result<Hello, ChannelError> {
+    let frame = read_frame(reader)?.ok_or(ChannelError::Closed)?;
+    let hello: Hello = frame
+        .parse(FrameKind::Hello)
+        .map_err(|e| ChannelError::Handshake(e.to_string()))?;
+    if hello.proto != PROTO {
+        return Err(ChannelError::Handshake(format!(
+            "the helper speaks protocol {}, this server {PROTO}",
+            hello.proto
+        )));
+    }
+    Ok(hello)
+}
+
+/// Starts volume helpers (contracts/helper.md).
+pub trait VolumeHelper: Send + Sync {
+    /// Starts a helper for `spec` and completes its handshake. Blocking: a cold start is a
+    /// `docker run` (0.3–0.8 s). A named volume that does not exist is refused, never created,
+    /// and a `Hello` for another uid:gid than `spec`'s is refused.
+    fn start(&self, spec: &HelperSpec) -> Result<HelperChannel, RuntimeError>;
+
+    /// Removes helpers an earlier run left behind (labelled `depths.helper=1`), at server start.
+    /// How many it removed. The default has none to remove.
+    fn sweep(&self) -> Result<usize, RuntimeError> {
+        Ok(0)
     }
 }
 
@@ -1076,5 +1256,113 @@ mod tests {
             .unwrap();
         assert!(matches!(out, StepOutcome::Failed { .. }));
         assert_eq!(log.take().len(), 1);
+    }
+
+    // -- The volume helper channel ------------------------------------------------------------
+
+    /// Records how the channel ended its process.
+    #[derive(Clone, Default)]
+    struct Ends(Arc<Mutex<Vec<&'static str>>>);
+
+    impl HelperProcess for Ends {
+        fn close(self: Box<Self>) {
+            self.0.lock().unwrap().push("close");
+        }
+        fn kill(self: Box<Self>) {
+            self.0.lock().unwrap().push("kill");
+        }
+    }
+
+    impl Ends {
+        fn take(&self) -> Vec<&'static str> {
+            std::mem::take(&mut self.0.lock().unwrap())
+        }
+    }
+
+    fn hello(proto: u32) -> Frame {
+        Frame::json(
+            FrameKind::Hello,
+            &Hello {
+                proto,
+                openat2: true,
+                uid: 1000,
+                gid: 1000,
+            },
+        )
+        .unwrap()
+    }
+
+    /// A channel over real pipes to a "helper" thread that sends `first`, then echoes every
+    /// frame back until its stdin ends, and reports how many it echoed.
+    fn echo_helper(first: Frame) -> (Result<HelperChannel, ChannelError>, Ends, ThreadCount) {
+        let (mut from_server, to_helper) = std::io::pipe().unwrap();
+        let (from_helper, mut to_server) = std::io::pipe().unwrap();
+        let thread = std::thread::spawn(move || {
+            first.write_to(&mut to_server).unwrap();
+            let mut n = 0;
+            while let Ok(Some(frame)) = read_frame(&mut from_server) {
+                frame.write_to(&mut to_server).unwrap();
+                n += 1;
+            }
+            n
+        });
+        let ends = Ends::default();
+        let chan = HelperChannel::open(
+            Box::new(from_helper),
+            Box::new(to_helper),
+            Box::new(ends.clone()),
+        );
+        (chan, ends, thread)
+    }
+
+    type ThreadCount = std::thread::JoinHandle<usize>;
+
+    #[test]
+    fn a_channel_handshakes_then_carries_frames_and_closes_cleanly() {
+        let (chan, ends, thread) = echo_helper(hello(PROTO));
+        let mut chan = chan.unwrap();
+        assert_eq!(chan.hello().uid, 1000);
+        assert!(chan.hello().openat2);
+        for body in [b"one".to_vec(), Vec::new()] {
+            chan.send(&Frame::data(body.clone())).unwrap();
+            assert_eq!(chan.recv().unwrap(), Frame::data(body));
+        }
+        chan.close();
+        // Closing ended the helper's stdin, so it saw EOF after two frames.
+        assert_eq!(thread.join().unwrap(), 2);
+        assert_eq!(ends.take(), ["close"]);
+    }
+
+    #[test]
+    fn a_wrong_first_frame_or_protocol_fails_the_handshake_and_kills() {
+        for first in [hello(PROTO + 1), Frame::end(), Frame::data(b"{}".to_vec())] {
+            let (chan, ends, thread) = echo_helper(first);
+            let err = chan.unwrap_err();
+            assert!(matches!(err, ChannelError::Handshake(_)), "{err}");
+            assert_eq!(ends.take(), ["kill"]);
+            assert_eq!(thread.join().unwrap(), 0);
+        }
+    }
+
+    #[test]
+    fn a_dropped_channel_kills_and_a_closed_stdout_is_closed() {
+        let (chan, ends, thread) = echo_helper(hello(PROTO));
+        drop(chan.unwrap());
+        assert_eq!(ends.take(), ["kill"]);
+        thread.join().unwrap();
+
+        // A helper that sends nothing at all.
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(writer);
+        let (_, to_helper) = std::io::pipe().unwrap();
+        let ends = Ends::default();
+        let err = HelperChannel::open(
+            Box::new(reader),
+            Box::new(to_helper),
+            Box::new(ends.clone()),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ChannelError::Closed), "{err}");
+        assert_eq!(ends.take(), ["kill"]);
     }
 }
