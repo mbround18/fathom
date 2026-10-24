@@ -3,4 +3,4 @@
 /**
  * Why a stream closed.
  */
-export type StreamCloseReason = { "kind": "ended" } | { "kind": "closed" } | { "kind": "disconnected" } | { "kind": "failed", "detail": string };
+export type StreamCloseReason = { "kind": "ended" } | { "kind": "closed" } | { "kind": "disconnected" } | { "kind": "failed", "detail": string } | { "kind": "container_recreated" } | { "kind": "container_removed" };

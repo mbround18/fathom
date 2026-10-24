@@ -124,6 +124,15 @@ fn all_cmds() -> Vec<Cmd> {
         },
         Cmd::Confirm {
             preview_id: preview_id(),
+            acknowledge_findings: false,
+        },
+        Cmd::Confirm {
+            preview_id: preview_id(),
+            acknowledge_findings: true,
+        },
+        Cmd::LintCompose {
+            stack: stack("web"),
+            compose_text: "services:\n  app:\n    image: busybox\n    privileged: true\n".into(),
         },
         Cmd::Cancel {
             operation_id: operation_id(),
@@ -223,6 +232,7 @@ fn cmd_covered(cmd: &Cmd) -> &'static str {
         Cmd::PreviewOp { .. } => "PreviewOp",
         Cmd::PreviewSave { .. } => "PreviewSave",
         Cmd::Confirm { .. } => "Confirm",
+        Cmd::LintCompose { .. } => "LintCompose",
         Cmd::Cancel { .. } => "Cancel",
         Cmd::OpenLogs { .. } => "OpenLogs",
         Cmd::OpenShell { .. } => "OpenShell",
@@ -240,7 +250,7 @@ fn cmd_covered(cmd: &Cmd) -> &'static str {
     }
 }
 
-const CMD_VARIANTS: usize = 20;
+const CMD_VARIANTS: usize = 21;
 const STACK_OP_VARIANTS: usize = 10;
 
 #[test]
@@ -300,10 +310,22 @@ fn cmd_wire_shape_is_pinned() {
     );
     assert_eq!(
         serde_json::to_value(Cmd::Confirm {
-            preview_id: preview_id()
+            preview_id: preview_id(),
+            acknowledge_findings: false,
         })
         .unwrap(),
         json!({ "type": "Confirm", "data": { "preview_id": "00000000-0000-0000-0000-000000000001" } })
+    );
+    // 051 FR-018: the acknowledgement is sent only when given, and defaults to off.
+    assert_eq!(
+        serde_json::to_value(Cmd::Confirm {
+            preview_id: preview_id(),
+            acknowledge_findings: true,
+        })
+        .unwrap(),
+        json!({ "type": "Confirm", "data": {
+            "preview_id": "00000000-0000-0000-0000-000000000001", "acknowledge_findings": true
+        } })
     );
     // Options default to off when absent.
     let parsed: Cmd = serde_json::from_value(json!({
@@ -603,7 +625,21 @@ fn stack_summary() -> Stack {
         services: vec![ServiceSummary {
             name: "app".into(),
             image: Some("busybox:1.37".into()),
-            containers: vec![container()],
+            containers: vec![
+                StackContainer {
+                    container: container(),
+                    security: Some(ContainerSecurity {
+                        level: SecurityLevel::Escape,
+                        reasons: vec![SecurityReason {
+                            code: "privileged".into(),
+                            severity: SecuritySeverity::Escape,
+                            message: "runs privileged".into(),
+                        }],
+                        shell: ShellRule::Refused,
+                    }),
+                },
+                container().into(),
+            ],
         }],
         running_services: 1,
         total_services: 2,
@@ -612,6 +648,7 @@ fn stack_summary() -> Stack {
         invalid_reason: None,
         read_only_reason: Some("stack directory is a symlink".into()),
         too_large: false,
+        security: Some(SecurityLevel::Escape),
     }
 }
 
@@ -685,6 +722,7 @@ fn all_events() -> Vec<Event> {
             compose_text: Some("services: {}\n".into()),
             env: Some(EnvText::Masked("DB_PASSWORD=********\nPORT=80\n".into())),
             content_hash: "a".repeat(64),
+            compose_warnings: vec![warning()],
         }),
         Event::StackDetail(StackDetail {
             stack: Stack {
@@ -694,6 +732,7 @@ fn all_events() -> Vec<Event> {
             compose_text: None,
             env: Some(EnvText::Plain("PORT=80\n".into())),
             content_hash: "b".repeat(64),
+            compose_warnings: vec![],
         }),
         Event::EnvRevealed {
             name: "web".into(),
@@ -731,6 +770,8 @@ fn all_events() -> Vec<Event> {
             destructive: false,
             stack_hash: "a".repeat(64),
             expires_at: "2026-10-23T09:05:00Z".into(),
+            warnings: vec![warning()],
+            ack_required: true,
         }),
         Event::ValidationFailed {
             errors: vec![
@@ -753,6 +794,10 @@ fn all_events() -> Vec<Event> {
         },
         Event::PreviewVoid {
             reason: PreviewVoidReason::StackChanged,
+        },
+        Event::LintResult {
+            stack: "web".into(),
+            findings: vec![warning()],
         },
         Event::OpStarted {
             operation_id: operation_id(),
@@ -778,6 +823,11 @@ fn all_events() -> Vec<Event> {
         },
         Event::Denied {
             reason: DenyReason::NotPermitted,
+            detail: None,
+        },
+        Event::Denied {
+            reason: DenyReason::ShellEscape,
+            detail: Some("runs privileged".into()),
         },
         Event::Busy {
             stack: "web".into(),
@@ -874,6 +924,7 @@ fn all_events() -> Vec<Event> {
                     },
                     source_ip: "203.0.113.7".into(),
                     network: None,
+                    security: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:01:00Z".into(),
@@ -898,6 +949,7 @@ fn all_events() -> Vec<Event> {
                     outcome: AuditOutcome::Succeeded,
                     source_ip: "203.0.113.7".into(),
                     network: None,
+                    security: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:02:00Z".into(),
@@ -917,6 +969,11 @@ fn all_events() -> Vec<Event> {
                         network: Some("198.51.100.7/32".into()),
                         cmd: Some("open_shell".into()),
                         ..AuditNetwork::default()
+                    }),
+                    security: Some(AuditSecurity {
+                        level: SecurityLevel::Root,
+                        reasons: vec!["root_user".into()],
+                        acknowledged: false,
                     }),
                 },
             ],
@@ -942,6 +999,7 @@ fn event_covered(event: &Event) -> &'static str {
         Event::ValidationFailed { .. } => "ValidationFailed",
         Event::Conflict { .. } => "Conflict",
         Event::PreviewVoid { .. } => "PreviewVoid",
+        Event::LintResult { .. } => "LintResult",
         Event::OpStarted { .. } => "OpStarted",
         Event::OpOutput { .. } => "OpOutput",
         Event::OpFinished { .. } => "OpFinished",
@@ -961,7 +1019,7 @@ fn event_covered(event: &Event) -> &'static str {
     }
 }
 
-const EVENT_VARIANTS: usize = 25;
+const EVENT_VARIANTS: usize = 26;
 
 #[test]
 fn every_event_roundtrips_in_an_envelope() {
@@ -987,8 +1045,15 @@ fn every_deny_and_void_reason_roundtrips() {
         DenyReason::FeatureDisabled,
         DenyReason::Owner,
         DenyReason::RoleNotAssignable,
+        DenyReason::ShellEscape,
+        DenyReason::ShellRootAdminOnly,
+        DenyReason::ShellUnverifiable,
+        DenyReason::ComposeBlocked,
     ] {
-        roundtrip(&Event::Denied { reason });
+        roundtrip(&Event::Denied {
+            reason,
+            detail: None,
+        });
     }
     for reason in [
         PreviewVoidReason::Unknown,
@@ -998,7 +1063,12 @@ fn every_deny_and_void_reason_roundtrips() {
     ] {
         roundtrip(&Event::PreviewVoid { reason });
     }
-    for reason in [StreamCloseReason::Ended, StreamCloseReason::Closed] {
+    for reason in [
+        StreamCloseReason::Ended,
+        StreamCloseReason::Closed,
+        StreamCloseReason::ContainerRecreated,
+        StreamCloseReason::ContainerRemoved,
+    ] {
         roundtrip(&reason);
     }
 }
@@ -1009,7 +1079,8 @@ fn event_wire_shape_is_pinned() {
         serde_json::to_value(EventEnvelope {
             reply_to: Some(RequestId(4)),
             event: Event::Denied {
-                reason: DenyReason::NotPermitted
+                reason: DenyReason::NotPermitted,
+                detail: None,
             },
         })
         .unwrap(),
@@ -1051,6 +1122,9 @@ fn me_roundtrips() {
             shell: false,
             edit: true,
             host_metrics: false,
+            shell_policy: ShellPolicy::Strict,
+            compose_policy: ComposePolicy::Enforce,
+            daemon: Some(DaemonMode::Rootful),
         },
         network: TrustDecision {
             trusted: false,
@@ -1061,4 +1135,55 @@ fn me_roundtrips() {
         needs_answer: false,
         proxy_warning: false,
     });
+}
+
+fn warning() -> ComposeWarning {
+    ComposeWarning {
+        service: "app".into(),
+        code: "privileged".into(),
+        severity: SecuritySeverity::Escape,
+        message: "runs privileged: it can reach the host".into(),
+        line: Some(4),
+    }
+}
+
+#[test]
+fn security_wire_shapes_are_pinned() {
+    // 051: a rated container is the container's fields plus `security`; an unrated one has none.
+    let rated = StackContainer {
+        container: container(),
+        security: Some(ContainerSecurity {
+            level: SecurityLevel::Root,
+            reasons: vec![SecurityReason {
+                code: "root_user".into(),
+                severity: SecuritySeverity::Root,
+                message: "runs as root".into(),
+            }],
+            shell: ShellRule::AdminOnly,
+        }),
+    };
+    let v = serde_json::to_value(&rated).unwrap();
+    assert_eq!(v["id"], serde_json::to_value(container()).unwrap()["id"]);
+    assert_eq!(
+        v["security"],
+        json!({ "level": "root", "shell": "admin_only", "reasons": [
+            { "code": "root_user", "severity": "root", "message": "runs as root" }
+        ] })
+    );
+    let plain = serde_json::to_value(StackContainer::from(container())).unwrap();
+    assert!(plain.get("security").is_none());
+    assert_eq!(plain, serde_json::to_value(container()).unwrap());
+    // Older payloads without the new fields still parse.
+    let mut old = serde_json::to_value(stack_summary()).unwrap();
+    old.as_object_mut().unwrap().remove("security");
+    let back: Stack = serde_json::from_value(old).unwrap();
+    assert_eq!(back.security, None);
+    assert_eq!(
+        serde_json::to_value(DenyReason::ShellUnverifiable).unwrap(),
+        json!("shell_unverifiable")
+    );
+    assert_eq!(
+        serde_json::to_value(StreamCloseReason::ContainerRecreated).unwrap(),
+        json!({ "kind": "container_recreated" })
+    );
 }

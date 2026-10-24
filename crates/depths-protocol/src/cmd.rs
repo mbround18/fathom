@@ -65,6 +65,16 @@ pub enum Cmd {
     /// `OpStarted`, `OpOutput`*, `OpFinished`; or `PreviewVoid`.
     Confirm {
         preview_id: PreviewId,
+        /// "Deploy anyway": an admin acknowledging a preview's `ack_required` (051 FR-018).
+        /// Audited. Ignored for a preview that does not require it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        acknowledge_findings: bool,
+    },
+    /// `LintResult`: the compose lint of an editor's text (051 FR-016). Nothing is written.
+    LintCompose {
+        stack: StackName,
+        compose_text: String,
     },
     /// `OpFinished{outcome: cancelled}`. The actor or an admin.
     Cancel {

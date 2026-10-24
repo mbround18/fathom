@@ -42,6 +42,7 @@ import type {
   AuditFilter,
   Cmd,
   CmdEnvelope,
+  ComposeWarning,
   Container,
   DenyReason,
   DraftFile,
@@ -333,6 +334,27 @@ export const fixtures = {
 }
 
 /** The argv `PreviewOp` shows for each kind, as research R2 lays it out (shape, not exact flags). */
+/**
+ * A stand-in for the server's compose lint (051 FR-015): `privileged: true` and a mounted docker
+ * socket are escapes. Enough for stories; the real rules are tested in depths-core.
+ */
+export function fakeLint(text: string): ComposeWarning[] {
+  const out: ComposeWarning[] = []
+  let service = ''
+  text.split('\n').forEach((raw, i) => {
+    const m = /^ {2}([A-Za-z0-9_.-]+):\s*$/.exec(raw)
+    if (m?.[1]) service = m[1]
+    const line = i + 1
+    if (/^\s+privileged:\s*true\s*$/.test(raw)) {
+      out.push({ service, code: 'privileged', severity: 'escape', message: 'runs privileged: it can reach the host', line })
+    }
+    if (raw.includes('/var/run/docker.sock')) {
+      out.push({ service, code: 'runtime_socket', severity: 'escape', message: 'mounts the container runtime socket: it can control the host', line })
+    }
+  })
+  return out
+}
+
 function stepsFor(stack: string, op: StackOp): Step[] {
   const compose = ['docker', 'compose', '-p', stack, '-f', 'compose.yaml']
   const cwd = `/srv/stacks/${stack}`
@@ -443,6 +465,8 @@ export class FakeBackend {
   auditPageSize = 100
   /** Server-side compose errors `PreviewSave` returns for a stack, if any. */
   /** Per stack; an error without `file` is about the compose file. */
+  /** 051: what `LintCompose` answers for a stack; unset, a tiny stand-in lint runs. */
+  lint: Record<string, ComposeWarning[]> = {}
   validationErrors: Record<string, { file?: DraftFile; line: number | null; message: string }[]> = {}
   /** Close code for every new socket's `Hello`, e.g. `CloseCode.TooMany`. `null` = accept. */
   helloClose: number | null = null
@@ -948,6 +972,12 @@ export class FakeBackend {
 
       case 'Confirm':
         return this.confirm(cmd.data.preview_id, socket, id)
+
+      case 'LintCompose': {
+        const { stack, compose_text } = cmd.data
+        if (!may(stack)) return denied()
+        return [{ type: 'LintResult', data: { stack, findings: this.lint[stack] ?? fakeLint(compose_text) } }]
+      }
 
       case 'Cancel': {
         const i = this.held.findIndex((h) => h.operationId === cmd.data.operation_id)

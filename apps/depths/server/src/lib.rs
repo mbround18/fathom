@@ -15,6 +15,7 @@ pub mod network_routes;
 pub mod networks;
 pub mod ops;
 pub mod refresh;
+pub mod security;
 pub mod serve;
 pub mod session_meta;
 pub mod telemetry;

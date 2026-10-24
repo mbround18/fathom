@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::types::{
-    Actor, AuditEntry, DenyReason, EnvText, HostSample, OpOutcome, OperationId, OperationKind,
-    Preview, PreviewVoidReason, RequestId, StackDetail, StackList, StreamCloseReason, UserList,
-    ValidationError,
+    Actor, AuditEntry, ComposeWarning, DenyReason, EnvText, HostSample, OpOutcome, OperationId,
+    OperationKind, Preview, PreviewVoidReason, RequestId, StackDetail, StackList,
+    StreamCloseReason, UserList, ValidationError,
 };
 use crate::wire::{StreamId, UsageSample};
 
@@ -53,6 +53,11 @@ pub enum Event {
     PreviewVoid {
         reason: PreviewVoidReason,
     },
+    /// `LintCompose`'s findings, worst first; empty when the text does not parse.
+    LintResult {
+        stack: String,
+        findings: Vec<ComposeWarning>,
+    },
     OpStarted {
         operation_id: OperationId,
     },
@@ -69,6 +74,11 @@ pub enum Event {
     /// Not permitted. Audited.
     Denied {
         reason: DenyReason,
+        /// A human sentence on why, when the reason alone does not say (a container's security
+        /// findings, the compose policy).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        detail: Option<String>,
     },
     /// Another operation is running on this stack (FR-014): which one, and whose.
     Busy {

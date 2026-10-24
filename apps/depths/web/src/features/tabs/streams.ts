@@ -356,6 +356,8 @@ const SHELL_END: Record<StreamCloseReason['kind'], string> = {
   closed: 'The session was closed.',
   disconnected: 'The connection to the container dropped.',
   failed: 'The shell failed.',
+  container_recreated: 'The container was recreated, so its shell was closed.',
+  container_removed: 'The container is gone, so its shell was closed.',
 }
 
 function decode(b64: string, decoder: TextDecoder | undefined): string {

@@ -76,7 +76,10 @@ pub enum Refusal {
 impl From<Refusal> for Event {
     fn from(r: Refusal) -> Self {
         match r {
-            Refusal::Denied(reason) => Event::Denied { reason },
+            Refusal::Denied(reason) => Event::Denied {
+                reason,
+                detail: None,
+            },
             Refusal::Invalid(reason) => Event::Invalid { reason },
             Refusal::Busy {
                 stack,
@@ -455,6 +458,8 @@ impl Ops {
             destructive: plan.destructive,
             stack_hash: stack_hash.clone(),
             expires_at,
+            warnings: Vec::new(),
+            ack_required: false,
         };
 
         self.bind(
@@ -723,6 +728,8 @@ impl Ops {
             destructive: plan.destructive,
             stack_hash: stack_hash.clone(),
             expires_at: self.expires_at(),
+            warnings: Vec::new(),
+            ack_required: false,
         };
         self.bind(
             preview_id,

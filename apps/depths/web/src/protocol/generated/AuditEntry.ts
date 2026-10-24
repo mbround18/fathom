@@ -3,6 +3,7 @@ import type { Actor } from "./Actor";
 import type { AuditAction } from "./AuditAction";
 import type { AuditNetwork } from "./AuditNetwork";
 import type { AuditOutcome } from "./AuditOutcome";
+import type { AuditSecurity } from "./AuditSecurity";
 import type { OperationId } from "./OperationId";
 import type { PreviewId } from "./PreviewId";
 import type { UserChange } from "./UserChange";
@@ -30,4 +31,8 @@ diff_summary: string | null, outcome: AuditOutcome, source_ip: string,
 /**
  * For network and session entries (spec 052). Never a location.
  */
-network?: AuditNetwork, };
+network?: AuditNetwork, 
+/**
+ * Shell opens and refusals, and enforced deploys: the level and reason codes that decided.
+ */
+security?: AuditSecurity, };

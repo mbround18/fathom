@@ -213,6 +213,12 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
     match cmd {
         Cmd::ListStacks => Reply("Stacks"),
         Cmd::GetStack { name } => gate(who, stack_place(name), Reply("StackDetail")),
+        // 051 FR-016: whoever may see the stack may lint a draft of it.
+        // An admin may lint a stack that does not exist yet: the one they are creating.
+        Cmd::LintCompose { stack, .. } => match (who, stack_place(stack)) {
+            (Who::Admin, _) | (Who::User, Place::Assigned) => Reply("LintResult"),
+            (Who::User, _) => Denied(NOT_PERMITTED),
+        },
         // Admin-only, even on an assigned stack.
         Cmd::RevealEnv { name } => match who {
             Who::Admin => gate(who, stack_place(name), Reply("EnvRevealed")),
@@ -332,6 +338,13 @@ fn samples() -> Vec<(Prep, Value)> {
     let mut v = vec![(Prep::None, bare("ListStacks"))];
     for s in ["web", "db", "ghost"] {
         v.push((Prep::None, cmd("GetStack", json!({ "name": s }))));
+        v.push((
+            Prep::None,
+            cmd(
+                "LintCompose",
+                json!({ "stack": s, "compose_text": "services:\n  app:\n    image: busybox\n" }),
+            ),
+        ));
         v.push((Prep::None, cmd("RevealEnv", json!({ "name": s }))));
         v.push((
             Prep::None,
@@ -513,7 +526,7 @@ fn declared_variants() -> BTreeSet<String> {
 #[test]
 fn every_command_has_a_sample() {
     let declared = declared_variants();
-    assert_eq!(declared.len(), 20, "{declared:?}");
+    assert_eq!(declared.len(), 21, "{declared:?}");
     let sampled: BTreeSet<String> = samples()
         .iter()
         .map(|(_, c)| c["type"].as_str().unwrap().to_owned())
@@ -570,17 +583,20 @@ fn observe(replies: &[Value]) -> Result<Outcome, String> {
                 "Invalid" => Invalid,
                 "PreviewVoid" if d["reason"] == "unknown" => Void,
                 "Stacks" | "StackDetail" | "EnvRevealed" | "Preview" | "OpStarted"
-                | "StreamOpened" | "StreamClosed" | "AuditPage" | "Users" => Reply(match ty {
-                    "Stacks" => "Stacks",
-                    "StackDetail" => "StackDetail",
-                    "EnvRevealed" => "EnvRevealed",
-                    "Preview" => "Preview",
-                    "OpStarted" => "OpStarted",
-                    "StreamOpened" => "StreamOpened",
-                    "StreamClosed" => "StreamClosed",
-                    "AuditPage" => "AuditPage",
-                    _ => "Users",
-                }),
+                | "StreamOpened" | "StreamClosed" | "AuditPage" | "Users" | "LintResult" => {
+                    Reply(match ty {
+                        "Stacks" => "Stacks",
+                        "StackDetail" => "StackDetail",
+                        "EnvRevealed" => "EnvRevealed",
+                        "Preview" => "Preview",
+                        "OpStarted" => "OpStarted",
+                        "StreamOpened" => "StreamOpened",
+                        "StreamClosed" => "StreamClosed",
+                        "AuditPage" => "AuditPage",
+                        "LintResult" => "LintResult",
+                        _ => "Users",
+                    })
+                }
                 _ => return Err(format!("{e}")),
             })
         }

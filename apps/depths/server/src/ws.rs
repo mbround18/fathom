@@ -198,6 +198,7 @@ impl Conn {
             id,
             Event::Denied {
                 reason: DenyReason::NotPermitted,
+                detail: None,
             },
         )
     }
@@ -219,6 +220,7 @@ impl Conn {
                     id,
                     Event::Denied {
                         reason: DenyReason::UntrustedNetwork,
+                        detail: None,
                     },
                 )
             })
@@ -235,7 +237,13 @@ impl Conn {
             .app
             .audit
             .record(&audit::denied(self.actor.clone(), self.ip, stack, why));
-        reply(id, Event::Denied { reason })
+        reply(
+            id,
+            Event::Denied {
+                reason,
+                detail: None,
+            },
+        )
     }
 }
 
@@ -576,6 +584,16 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             out
         }
         Cmd::GetStack { name } => vec![get_stack(conn, &access, id, name.as_str()).await],
+        Cmd::LintCompose {
+            stack,
+            compose_text,
+        } => vec![lint_compose(
+            conn,
+            &access,
+            id,
+            stack.as_str(),
+            &compose_text,
+        )],
         Cmd::RevealEnv { name } => vec![reveal_env(conn, &access, id, name.as_str()).await],
         Cmd::PreviewOp { stack, op } => {
             let kind = crate::ops::command_kind(op.kind());
@@ -592,7 +610,10 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 Err(r) => vec![reply(id, r.into())],
             }
         }
-        Cmd::Confirm { preview_id } => {
+        Cmd::Confirm {
+            preview_id,
+            acknowledge_findings: _,
+        } => {
             // The preview was authorised when made; the network may have changed since.
             if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
                 && let Some(refused) = conn.untrusted(id, crate::ops::command_kind(k), "Confirm")
@@ -855,6 +876,27 @@ async fn get_stack(
     };
     let files = read_files(conn, &core).await.ok();
     reply(id, Event::StackDetail(inventory::detail(stack, files)))
+}
+
+/// `LintCompose` (051 FR-016): the lint of an editor's text, for anyone who may see the stack.
+/// Nothing is read from or written to disk.
+fn lint_compose(
+    conn: &Conn,
+    access: &Access,
+    id: Option<RequestId>,
+    name: &str,
+    compose_text: &str,
+) -> EventEnvelope {
+    if !inventory::visible(access, name) {
+        return conn.deny(id, Some(name), "LintCompose on a stack not granted".into());
+    }
+    reply(
+        id,
+        Event::LintResult {
+            stack: name.to_owned(),
+            findings: crate::security::warnings(compose_text),
+        },
+    )
 }
 
 /// `RevealEnv`: audited before anything is sent; if the audit cannot be written, nothing is.

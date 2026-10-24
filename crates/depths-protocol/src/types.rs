@@ -401,6 +401,138 @@ pub struct Features {
     /// `WatchHost` is available: the server reads the host's `/proc` (`DEPTHS_HOST_PROC`) and
     /// this person is an admin. Always `false` for anyone else.
     pub host_metrics: bool,
+    /// `DEPTHS_SHELL_POLICY`: who may open a shell by a container's security level.
+    #[serde(default)]
+    #[ts(as = "Option<ShellPolicy>", optional)]
+    pub shell_policy: ShellPolicy,
+    /// `DEPTHS_COMPOSE_POLICY`: whether escape-level compose findings block `up` and saves.
+    #[serde(default)]
+    #[ts(as = "Option<ComposePolicy>", optional)]
+    pub compose_policy: ComposePolicy,
+    /// How the docker daemon runs, for admins only; absent for anyone else, or when it could
+    /// not be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub daemon: Option<DaemonMode>,
+}
+
+// ---------------------------------------------------------------------------
+// Container security
+// ---------------------------------------------------------------------------
+
+/// How contained a container is (`docs/guides/depths/security.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SecurityLevel {
+    /// Not root on the host, nothing that reaches the host.
+    Ok,
+    /// uid 0 on a rootful daemon, nothing worse.
+    Root,
+    /// The container can reach the host: a shell in it is a shell on the host.
+    Escape,
+}
+
+/// How much one finding weighs. `info` never raises the level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SecuritySeverity {
+    Info,
+    Root,
+    Escape,
+}
+
+/// One finding: a machine-readable `code` (`privileged`, `runtime_socket`, `root_user`, ...)
+/// and one sentence for a person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct SecurityReason {
+    pub code: String,
+    pub severity: SecuritySeverity,
+    pub message: String,
+}
+
+/// Who may open a shell in a container under the server's policy, past the role check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellRule {
+    /// Whoever the role table lets in.
+    PerRole,
+    AdminOnly,
+    /// Nobody, whatever their role.
+    Refused,
+}
+
+/// A container's containment, from `docker inspect` (cached by container id) and the daemon's
+/// mode. The server re-inspects at shell open; this is for display.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ContainerSecurity {
+    pub level: SecurityLevel,
+    /// Worst first.
+    pub reasons: Vec<SecurityReason>,
+    pub shell: ShellRule,
+}
+
+/// A container in a stack, with its containment when it is known.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StackContainer {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub container: Container,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub security: Option<ContainerSecurity>,
+}
+
+impl From<Container> for StackContainer {
+    fn from(container: Container) -> Self {
+        Self {
+            container,
+            security: None,
+        }
+    }
+}
+
+/// `DEPTHS_SHELL_POLICY`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellPolicy {
+    /// Escape: nobody. Root on a rootful daemon: admins. Otherwise per role.
+    #[default]
+    Strict,
+    /// Escape: admins. Otherwise per role.
+    Relaxed,
+}
+
+/// `DEPTHS_COMPOSE_POLICY`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposePolicy {
+    /// Findings are shown; nothing is blocked.
+    #[default]
+    Warn,
+    /// `up` and saves with an escape-level finding need an admin's audited acknowledgement.
+    Enforce,
+}
+
+/// How the docker daemon runs (`docker info` `SecurityOptions`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonMode {
+    Rootless,
+    /// `userns-remap` is on.
+    Userns,
+    Rootful,
+}
+
+/// One compose lint finding: what a service asks for that weakens containment. Warnings; the
+/// file is never rewritten.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ComposeWarning {
+    pub service: String,
+    pub code: String,
+    pub severity: SecuritySeverity,
+    pub message: String,
+    /// 1-based line in the compose file, when found.
+    pub line: Option<u32>,
 }
 
 /// The signed-in person as the UI shows them. No tokens.
@@ -465,7 +597,7 @@ pub enum StackStatus {
 pub struct ServiceSummary {
     pub name: String,
     pub image: Option<String>,
-    pub containers: Vec<Container>,
+    pub containers: Vec<StackContainer>,
 }
 
 /// One stack (an immediate sub-directory of the stacks root holding a compose file).
@@ -496,6 +628,10 @@ pub struct Stack {
     pub read_only_reason: Option<String>,
     /// A compose or `.env` file exceeds `DEPTHS_MAX_FILE_BYTES`: shown, not loaded for editing.
     pub too_large: bool,
+    /// The worst level among its containers whose containment is known; absent when none is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub security: Option<SecurityLevel>,
 }
 
 /// A compose project with no matching stack directory. Read-only; admins only (FR-008).
@@ -543,6 +679,10 @@ pub struct StackDetail {
     /// `None` when there is no `.env`, or it is too large to load.
     pub env: Option<EnvText>,
     pub content_hash: String,
+    /// Compose lint of `compose_text`, worst first.
+    #[serde(default)]
+    #[ts(as = "Option<Vec<ComposeWarning>>", optional)]
+    pub compose_warnings: Vec<ComposeWarning>,
 }
 
 /// An edit to save, or a stack to create (data-model "StackDraft").
@@ -682,6 +822,15 @@ pub struct Preview {
     pub destructive: bool,
     pub stack_hash: String,
     pub expires_at: String,
+    /// Compose lint of what this operation deploys or writes, worst first.
+    #[serde(default)]
+    #[ts(as = "Option<Vec<ComposeWarning>>", optional)]
+    pub warnings: Vec<ComposeWarning>,
+    /// `DEPTHS_COMPOSE_POLICY=enforce` and an escape-level warning: `Confirm` needs
+    /// `acknowledge_findings`, which only an admin may give, and it is audited.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub ack_required: bool,
 }
 
 /// Which file of a draft a validation error is about.
@@ -746,6 +895,17 @@ pub enum DenyReason {
     /// The request came from a network not trusted for this person (spec 052): only the
     /// restricted view is allowed. `GET /api/v1/me` `network` says why and when it may mature.
     UntrustedNetwork,
+    /// 051: the container can reach the host and the shell policy refuses it to this person
+    /// (strict: everyone; relaxed: everyone but admins). `detail` names the findings.
+    ShellEscape,
+    /// 051: the container runs as root on a rootful daemon and strict keeps it to admins.
+    ShellRootAdminOnly,
+    /// 051: the container's configuration could not be read at the moment of the request, so the
+    /// shell is refused (fail closed).
+    ShellUnverifiable,
+    /// 051: `DEPTHS_COMPOSE_POLICY=enforce` and an escape-level finding: only an admin with
+    /// `acknowledge_findings` may save or deploy it. `detail` names the findings.
+    ComposeBlocked,
 }
 
 // ---------------------------------------------------------------------------
@@ -801,6 +961,10 @@ pub enum StreamCloseReason {
     Disconnected,
     /// The stream could not continue. Carries the runtime's message.
     Failed(String),
+    /// 051 FR-014: the shell's container was recreated (a new container under its name).
+    ContainerRecreated,
+    /// 051 FR-014: the shell's container is gone.
+    ContainerRemoved,
 }
 
 // ---------------------------------------------------------------------------
@@ -916,6 +1080,20 @@ pub struct AuditEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub network: Option<AuditNetwork>,
+    /// Shell opens and refusals, and enforced deploys: the level and reason codes that decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub security: Option<AuditSecurity>,
+}
+
+/// What an audit entry records of a container's or compose file's containment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditSecurity {
+    pub level: SecurityLevel,
+    pub reasons: Vec<String>,
+    /// An admin acknowledged the risk ("deploy anyway").
+    #[serde(default)]
+    pub acknowledged: bool,
 }
 
 /// `GetAudit` filter. Every field narrows; absent means any.

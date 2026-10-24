@@ -96,7 +96,7 @@ fn to_wire(s: CoreStack, valid_name: bool, invalid_reason: Option<String>) -> St
             .map(|v| ServiceSummary {
                 name: v.name,
                 image: v.image,
-                containers: v.containers,
+                containers: v.containers.into_iter().map(Into::into).collect(),
             })
             .collect(),
         running_services: s.running_services,
@@ -105,6 +105,7 @@ fn to_wire(s: CoreStack, valid_name: bool, invalid_reason: Option<String>) -> St
         read_error: s.read_error,
         read_only_reason: s.read_only_reason,
         too_large: s.too_large,
+        security: None,
         name: s.name,
     }
 }
@@ -253,11 +254,12 @@ pub fn detail(stack: Stack, files: Option<StackFiles>) -> StackDetail {
     match files {
         Some(f) => StackDetail {
             content_hash: f.content_hash.as_str().to_owned(),
-            compose_text: Some(f.compose),
             env: f.env.map(|t| match depths_core::secrets::mask_env(&t) {
                 Some(m) => EnvText::Masked(m),
                 None => EnvText::Plain(t),
             }),
+            compose_warnings: crate::security::warnings(&f.compose),
+            compose_text: Some(f.compose),
             stack,
         },
         None => StackDetail {
@@ -265,6 +267,7 @@ pub fn detail(stack: Stack, files: Option<StackFiles>) -> StackDetail {
             compose_text: None,
             env: None,
             stack,
+            compose_warnings: Vec::new(),
         },
     }
 }

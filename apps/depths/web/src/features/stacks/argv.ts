@@ -49,6 +49,10 @@ export const DENY_TEXT: Record<DenyReason, string> = {
   role_not_assignable: 'That role cannot be assigned.',
   untrusted_network:
     'Not from this network: it is not trusted yet. Stop, start, restart, logs and stats still work here.',
+  shell_escape: 'This container can reach the host, so shells into it are refused.',
+  shell_root_admin_only: 'This container runs as root on the host, so only an administrator may open a shell in it.',
+  shell_unverifiable: 'The container could not be checked just now, so the shell was refused. Try again.',
+  compose_blocked: 'This compose file lets a container reach the host. Only an administrator can deploy it, by acknowledging the findings.',
 }
 
 export function actorLabel(a: Actor): string {

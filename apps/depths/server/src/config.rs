@@ -17,6 +17,9 @@ use clap::Parser;
 use secrecy::SecretString;
 use url::Url;
 
+use depths_core::compose_lint::ComposePolicy;
+use depths_core::security::ShellPolicy;
+
 use crate::client_ip::Cidr;
 use depths_core::network::{Grouping, NetworkKey, TrustPolicy};
 
@@ -79,6 +82,14 @@ pub struct Flags {
     /// Allow an http:// public URL; loopback listen only [env: DEPTHS_INSECURE_DEV]
     #[arg(long)]
     pub insecure_dev: bool,
+    /// Who may open a shell by a container's security level: strict or relaxed
+    /// [env: DEPTHS_SHELL_POLICY] [default: strict]
+    #[arg(long)]
+    pub shell_policy: Option<String>,
+    /// Whether escape-level compose findings block saves and deploys: warn or enforce
+    /// [env: DEPTHS_COMPOSE_POLICY] [default: warn]
+    #[arg(long)]
+    pub compose_policy: Option<String>,
 }
 
 /// Why start-up refused.
@@ -207,6 +218,10 @@ pub struct Config {
     pub network: NetworkSettings,
     pub insecure_dev: bool,
     pub otlp_endpoint: Option<String>,
+    /// 051 FR-007: `DEPTHS_SHELL_POLICY`.
+    pub shell_policy: ShellPolicy,
+    /// 051 FR-017: `DEPTHS_COMPOSE_POLICY`.
+    pub compose_policy: ComposePolicy,
     /// `(setting, where it came from)`, for the start-up log. Never a secret value.
     pub sources: Vec<(&'static str, String)>,
 }
@@ -823,6 +838,28 @@ impl Config {
 
         let otlp_endpoint = r.var("OTEL_EXPORTER_OTLP_ENDPOINT");
 
+        let shell_policy =
+            match r.pick("shell_policy", flags.shell_policy, &["DEPTHS_SHELL_POLICY"]) {
+                Some(v) => ShellPolicy::parse(&v).ok_or_else(|| {
+                    ConfigError(format!(
+                        "DEPTHS_SHELL_POLICY: `{v}` is not a shell policy (strict or relaxed)"
+                    ))
+                })?,
+                None => ShellPolicy::default(),
+            };
+        let compose_policy = match r.pick(
+            "compose_policy",
+            flags.compose_policy,
+            &["DEPTHS_COMPOSE_POLICY"],
+        ) {
+            Some(v) => ComposePolicy::parse(&v).ok_or_else(|| {
+                ConfigError(format!(
+                    "DEPTHS_COMPOSE_POLICY: `{v}` is not a compose policy (warn or enforce)"
+                ))
+            })?,
+            None => ComposePolicy::default(),
+        };
+
         Ok(Self {
             listen,
             public_url,
@@ -843,6 +880,8 @@ impl Config {
             network,
             insecure_dev,
             otlp_endpoint,
+            shell_policy,
+            compose_policy,
             sources: r.sources,
         })
     }
@@ -1264,6 +1303,29 @@ mod tests {
             .set("DEPTHS_TRUSTED_PROXIES", "10.0.0.0/33")
             .refusal();
         assert!(r.contains("DEPTHS_TRUSTED_PROXIES"), "{r}");
+    }
+
+    #[test]
+    fn security_policies_default_strict_and_warn_and_refuse_anything_else() {
+        // 051 FR-007, FR-017.
+        let c = Fixture::deploy().resolve().unwrap();
+        assert_eq!(c.shell_policy, ShellPolicy::Strict);
+        assert_eq!(c.compose_policy, ComposePolicy::Warn);
+        let c = Fixture::deploy()
+            .set("DEPTHS_SHELL_POLICY", "Relaxed")
+            .set("DEPTHS_COMPOSE_POLICY", "enforce")
+            .resolve()
+            .unwrap();
+        assert_eq!(c.shell_policy, ShellPolicy::Relaxed);
+        assert_eq!(c.compose_policy, ComposePolicy::Enforce);
+        let r = Fixture::deploy()
+            .set("DEPTHS_SHELL_POLICY", "off")
+            .refusal();
+        assert!(r.contains("DEPTHS_SHELL_POLICY"), "{r}");
+        let r = Fixture::deploy()
+            .set("DEPTHS_COMPOSE_POLICY", "block")
+            .refusal();
+        assert!(r.contains("DEPTHS_COMPOSE_POLICY"), "{r}");
     }
 
     #[test]

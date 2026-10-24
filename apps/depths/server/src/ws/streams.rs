@@ -442,7 +442,7 @@ fn every_container(list: &StackList) -> impl Iterator<Item = (Option<&str>, &Con
         s.services.iter().flat_map(move |svc| {
             svc.containers
                 .iter()
-                .map(move |c| (Some(s.name.as_str()), c))
+                .map(move |c| (Some(s.name.as_str()), &c.container))
         })
     });
     let foreign = list
@@ -899,7 +899,7 @@ fn stats_ids(list: &StackList, access: &Access, targets: &[StatsTarget]) -> Vec<
                     ids.extend(
                         s.services
                             .iter()
-                            .flat_map(|svc| svc.containers.iter().map(|c| c.id.clone())),
+                            .flat_map(|svc| svc.containers.iter().map(|c| c.container.id.clone())),
                     );
                 }
             }
