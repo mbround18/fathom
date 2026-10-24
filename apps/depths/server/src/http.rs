@@ -126,7 +126,7 @@ impl AppState {
             })?,
         );
         let trust = Arc::new(Trust::open(&cfg, audit.clone(), &sessions)?);
-        let watch = Watch::new(store.clone(), runtime.clone());
+        let watch = Watch::new(store.clone(), runtime.clone()).with_shell_policy(cfg.shell_policy);
         let ops = Arc::new(Ops::new(
             store.clone(),
             runtime.clone(),
@@ -832,8 +832,11 @@ async fn me(
             host_metrics: role == depths_protocol::Role::Admin && app.cfg.host_proc.is_some(),
             shell_policy: crate::security::shell_policy(app.cfg.shell_policy),
             compose_policy: crate::security::compose_policy(app.cfg.compose_policy),
-            // 051 FR-006: admin only; filled from the inventory's cached probe.
-            daemon: None,
+            // 051 FR-006: admin only, from the inventory's cached probe.
+            daemon: (role == depths_protocol::Role::Admin)
+                .then(|| app.watch.daemon())
+                .flatten()
+                .map(crate::security::daemon),
         },
         network: crate::trust::wire(&decision),
         needs_answer: decision.needs_answer(),

@@ -18,8 +18,14 @@
 //! When docker does not answer (FR-010), the list keeps the last containers seen, marked
 //! `stale` with the `as_of` of that reading, and [`Update::Unavailable`] carries docker's stderr
 //! verbatim. The next good reading clears both.
+//!
+//! 051 FR-001/FR-002: each reading also rates every compose container's containment. The
+//! `docker inspect` inputs are cached by container id: a reading inspects only the ids it has
+//! not seen (in one batched call) and forgets the ones that are gone, and the daemon's mode is
+//! re-read only when new containers appear or it is not known yet. A container whose inspect
+//! failed carries no rating, which the shell gate treats as unknown (refused).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,6 +35,7 @@ use depths_core::discovery::{ComposeFile, ENV_FILE, GLOBAL_ENV_FILE};
 use depths_core::ports::{
     CancelToken, ContainerRuntime, RuntimeError, RuntimeSnapshot, StackListing, StackStore,
 };
+use depths_core::security::{DaemonMode, Inspect, ShellPolicy};
 use depths_protocol::StackList;
 use notify::{EventKind, RecursiveMode, Watcher as _};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -68,6 +75,16 @@ struct Inner {
     tx: broadcast::Sender<Update>,
     debounce: Duration,
     state: Mutex<State>,
+    /// `DEPTHS_SHELL_POLICY`, for the per-container shell rule the inventory carries.
+    shell_policy: ShellPolicy,
+    /// 051: inspect results by full container id, and the daemon's mode.
+    security: Mutex<SecurityCache>,
+}
+
+#[derive(Default)]
+struct SecurityCache {
+    by_id: BTreeMap<String, Inspect>,
+    daemon: Option<DaemonMode>,
 }
 
 #[derive(Default)]
@@ -128,8 +145,28 @@ impl Watch {
                 tx: broadcast::channel(16).0,
                 debounce,
                 state: Mutex::new(State::default()),
+                shell_policy: ShellPolicy::default(),
+                security: Mutex::new(SecurityCache::default()),
             }),
         }
+    }
+
+    /// Sets the shell policy the inventory's ratings carry. Call before the watch is shared.
+    #[must_use]
+    pub fn with_shell_policy(mut self, policy: ShellPolicy) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_shell_policy before the watch is shared")
+            .shell_policy = policy;
+        self
+    }
+
+    pub fn shell_policy(&self) -> ShellPolicy {
+        self.inner.shell_policy
+    }
+
+    /// The daemon's mode as last read; `None` before any reading or when it could not be read.
+    pub fn daemon(&self) -> Option<DaemonMode> {
+        self.inner.security.lock().unwrap().daemon
     }
 
     pub fn store(&self) -> &Arc<dyn StackStore> {
@@ -206,7 +243,12 @@ fn same(a: &StackList, b: &StackList) -> bool {
 async fn refresh(inner: Arc<Inner>) -> (Inventory, Vec<PathBuf>) {
     let task = inner.clone();
     let read = tokio::task::spawn_blocking(move || {
-        (task.store.list(), task.runtime.containers_by_project())
+        let listing = task.store.list();
+        let runtime = task.runtime.containers_by_project();
+        if let Ok(snap) = &runtime {
+            inspect_new(&task, snap);
+        }
+        (listing, runtime)
     })
     .await;
     let (listing, runtime) = match read {
@@ -256,6 +298,11 @@ async fn refresh(inner: Arc<Inner>) -> (Inventory, Vec<PathBuf>) {
         };
         let mut list = list;
         list.warnings.extend(warnings);
+        rate(
+            &mut list,
+            &inner.security.lock().unwrap(),
+            inner.shell_policy,
+        );
         let changed = st.last.as_deref().is_none_or(|l| !same(l, &list));
         let newly_unavailable = unavailable.is_some() && st.unavailable != unavailable;
         let list = Arc::new(list);
@@ -271,6 +318,74 @@ async fn refresh(inner: Arc<Inner>) -> (Inventory, Vec<PathBuf>) {
         let _ = inner.tx.send(Update::Unavailable(r.clone()));
     }
     (inv, dirs)
+}
+
+/// Inspects the containers this snapshot has that the cache has not seen, in one call, and
+/// forgets the ones that are gone. Blocking: runs on the inventory's blocking task.
+fn inspect_new(inner: &Inner, snap: &RuntimeSnapshot) {
+    let ids: BTreeSet<&str> = snap
+        .projects
+        .values()
+        .flat_map(|p| p.containers.iter().map(|c| c.id.as_str()))
+        .collect();
+    let new: Vec<String> = {
+        let mut cache = inner.security.lock().unwrap();
+        cache.by_id.retain(|id, _| ids.contains(id.as_str()));
+        ids.iter()
+            .filter(|id| !cache.by_id.contains_key(**id))
+            .map(|id| (*id).to_owned())
+            .collect()
+    };
+    let daemon_known = inner.security.lock().unwrap().daemon.is_some();
+    let daemon = (!new.is_empty() || !daemon_known).then(|| inner.runtime.daemon_mode());
+    let inspected = if new.is_empty() {
+        Ok(Vec::new())
+    } else {
+        inner.runtime.inspect_security(&new)
+    };
+    let mut cache = inner.security.lock().unwrap();
+    match daemon {
+        Some(Ok(d)) => cache.daemon = Some(d),
+        Some(Err(RuntimeError::Unsupported)) | None => {}
+        Some(Err(e)) => tracing::debug!(error = ?e, "cannot read the daemon's security options"),
+    }
+    match inspected {
+        Ok(found) => {
+            for i in found {
+                // `docker inspect` answers with full ids; `docker ps` may have listed a prefix.
+                let key = new
+                    .iter()
+                    .find(|n| i.id == **n || i.id.starts_with(n.as_str()))
+                    .cloned()
+                    .unwrap_or_else(|| i.id.clone());
+                cache.by_id.insert(key, i);
+            }
+        }
+        Err(RuntimeError::Unsupported) => {}
+        // Left uncached: those containers carry no rating and the next reading tries again.
+        Err(e) => tracing::warn!(error = ?e, "cannot inspect containers for their security"),
+    }
+}
+
+/// Rates each compose container from the cache, and each stack by its worst known container.
+fn rate(list: &mut StackList, cache: &SecurityCache, policy: ShellPolicy) {
+    let daemon = cache.daemon.unwrap_or_default();
+    for stack in &mut list.stacks {
+        let mut known = Vec::new();
+        for c in stack
+            .services
+            .iter_mut()
+            .flat_map(|s| s.containers.iter_mut())
+        {
+            c.security = cache.by_id.get(&c.container.id).map(|i| {
+                let p = depths_core::security::profile(i, daemon);
+                known.push(p.level);
+                crate::security::container(&p, policy)
+            });
+        }
+        stack.security = (!known.is_empty())
+            .then(|| crate::security::level(depths_core::security::rollup(known)));
+    }
 }
 
 fn start(inner: &Arc<Inner>) -> Running {
@@ -633,5 +748,187 @@ mod tests {
         assert!(relevant(root, Path::new("/stacks/web/docker-compose.yml")));
         assert!(!relevant(root, Path::new("/stacks/web/app.log")));
         assert!(!relevant(root, Path::new("/stacks/web/data")));
+    }
+
+    /// 051 FR-001/FR-002: a runtime with rated containers, counting its inspects.
+    #[derive(Default)]
+    struct Rated {
+        /// `(id, inspect JSON)`; `None` JSON: present in `ps`, missing from inspect.
+        containers: Mutex<Vec<(String, Option<serde_json::Value>)>>,
+        inspected: Mutex<Vec<Vec<String>>>,
+        daemon_reads: AtomicUsize,
+        inspect_fails: AtomicBool,
+    }
+
+    impl ContainerRuntime for Rated {
+        fn containers_by_project(&self) -> Result<RuntimeSnapshot, RuntimeError> {
+            let containers = self
+                .containers
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(id, _)| depths_protocol::Container {
+                    id: id.clone(),
+                    name: format!("web-{id}-1"),
+                    image: "nginx".into(),
+                    state: depths_protocol::RuntimeContainerState::Running,
+                    health: None,
+                    status: "Up".into(),
+                    created_at: String::new(),
+                    command: String::new(),
+                    ports: vec![],
+                    project: Some("web".into()),
+                    service: Some("app".into()),
+                    cluster: None,
+                    adoption: depths_protocol::AdoptionState::NotAdopted,
+                })
+                .collect();
+            let mut s = RuntimeSnapshot::default();
+            s.projects.insert(
+                "web".into(),
+                ProjectContainers {
+                    working_dir: None,
+                    containers,
+                },
+            );
+            Ok(s)
+        }
+        fn run_step(
+            &self,
+            _: &RunStep,
+            _: Option<&[u8]>,
+            _: &dyn OutputSink,
+            _: &CancelToken,
+        ) -> Result<StepOutcome, RuntimeError> {
+            Err(RuntimeError::Unsupported)
+        }
+        fn validate(&self, _: &RunStep, _: &[u8]) -> Result<Validation, RuntimeError> {
+            Err(RuntimeError::Unsupported)
+        }
+        fn inspect_security(&self, ids: &[String]) -> Result<Vec<Inspect>, RuntimeError> {
+            self.inspected.lock().unwrap().push(ids.to_vec());
+            if self.inspect_fails.load(Ordering::SeqCst) {
+                return Err(RuntimeError::Failed("inspect failed".into()));
+            }
+            let all = self.containers.lock().unwrap();
+            Ok(ids
+                .iter()
+                .filter_map(|id| all.iter().find(|(c, _)| c == id))
+                .filter_map(|(_, j)| j.clone())
+                .map(|j| serde_json::from_value(j).unwrap())
+                .collect())
+        }
+        fn daemon_mode(&self) -> Result<DaemonMode, RuntimeError> {
+            self.daemon_reads.fetch_add(1, Ordering::SeqCst);
+            Ok(DaemonMode::Rootful)
+        }
+    }
+
+    fn rated_setup(rt: Rated) -> (tempfile::TempDir, Arc<Rated>, Watch) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("web")).unwrap();
+        std::fs::write(
+            dir.path().join("web/compose.yaml"),
+            "services:\n  app:\n    image: nginx\n",
+        )
+        .unwrap();
+        let store = depths_stacks_fs::FsStackStore::open(dir.path()).unwrap();
+        let rt = Arc::new(rt);
+        let w = Watch::new(Arc::new(store), rt.clone()).with_shell_policy(ShellPolicy::Strict);
+        (dir, rt, w)
+    }
+
+    fn ratings(
+        list: &StackList,
+    ) -> (
+        Option<depths_protocol::SecurityLevel>,
+        Vec<(String, Option<depths_protocol::SecurityLevel>)>,
+    ) {
+        let s = list.stacks.iter().find(|s| s.name == "web").unwrap();
+        let cs = s
+            .services
+            .iter()
+            .flat_map(|v| v.containers.iter())
+            .map(|c| (c.container.id.clone(), c.security.as_ref().map(|x| x.level)))
+            .collect();
+        (s.security, cs)
+    }
+
+    #[tokio::test]
+    async fn containers_are_rated_once_by_id_and_stacks_by_their_worst() {
+        use depths_protocol::SecurityLevel as L;
+        use serde_json::json;
+        let rt = Rated::default();
+        *rt.containers.lock().unwrap() = vec![
+            (
+                "aaa".into(),
+                Some(json!({ "Id": "aaa", "Config": { "User": "1000" } })),
+            ),
+            (
+                "bbb".into(),
+                Some(
+                    json!({ "Id": "bbb", "Config": { "User": "" }, "HostConfig": { "Privileged": true } }),
+                ),
+            ),
+        ];
+        let (_d, rt, w) = rated_setup(rt);
+        let inv = w.inventory().await;
+        let (stack, cs) = ratings(&inv.list);
+        assert_eq!(stack, Some(L::Escape));
+        assert_eq!(
+            cs,
+            vec![("aaa".into(), Some(L::Ok)), ("bbb".into(), Some(L::Escape))]
+        );
+        let c = &inv.list.stacks[0].services[0].containers[1];
+        assert_eq!(
+            c.security.as_ref().unwrap().shell,
+            depths_protocol::ShellRule::Refused
+        );
+        assert_eq!(w.daemon(), Some(DaemonMode::Rootful));
+
+        // A second reading inspects nothing new and leaves the daemon alone.
+        let _ = w.inventory().await;
+        assert_eq!(rt.inspected.lock().unwrap().len(), 1);
+        assert_eq!(rt.daemon_reads.load(Ordering::SeqCst), 1);
+
+        // A new container is inspected alone; a gone one is forgotten.
+        rt.containers.lock().unwrap().remove(1);
+        rt.containers.lock().unwrap().push((
+            "ccc".into(),
+            Some(json!({ "Id": "ccc", "Config": { "User": "root" } })),
+        ));
+        let inv = w.inventory().await;
+        assert_eq!(
+            rt.inspected.lock().unwrap().last().unwrap(),
+            &vec!["ccc".to_owned()]
+        );
+        let (stack, cs) = ratings(&inv.list);
+        assert_eq!(stack, Some(L::Root), "root on a rootful daemon");
+        assert_eq!(
+            cs,
+            vec![("aaa".into(), Some(L::Ok)), ("ccc".into(), Some(L::Root))]
+        );
+        assert_eq!(w.inner.security.lock().unwrap().by_id.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_failed_inspect_leaves_containers_unrated_and_is_retried() {
+        use serde_json::json;
+        let rt = Rated::default();
+        *rt.containers.lock().unwrap() = vec![(
+            "aaa".into(),
+            Some(json!({ "Id": "aaa", "Config": { "User": "1000" } })),
+        )];
+        rt.inspect_fails.store(true, Ordering::SeqCst);
+        let (_d, rt, w) = rated_setup(rt);
+        let inv = w.inventory().await;
+        assert_eq!(ratings(&inv.list), (None, vec![("aaa".into(), None)]));
+        rt.inspect_fails.store(false, Ordering::SeqCst);
+        let inv = w.inventory().await;
+        assert_eq!(rt.inspected.lock().unwrap().len(), 2, "retried");
+        assert_eq!(
+            ratings(&inv.list).0,
+            Some(depths_protocol::SecurityLevel::Ok)
+        );
     }
 }
