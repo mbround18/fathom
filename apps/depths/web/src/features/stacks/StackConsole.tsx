@@ -9,6 +9,7 @@ import { Button } from '@companion/ui'
 import { useEffect, useId } from 'react'
 
 import { useSession } from '@/app/session-store'
+import { useUntrusted } from '@/features/network/model'
 import { LogsTab } from '@/features/tabs/LogsTab'
 import { useTabs } from '@/features/tabs/store'
 import { closeConsole, openConsole } from '@/features/tabs/streams'
@@ -42,6 +43,7 @@ export default function StackConsole({ stack, source }: { stack: string; source:
   const shellOn = useSession((s) => s.me?.features.shell ?? false)
   const role = useSession((s) => s.me?.role)
   const { target, label, container, security } = source
+  const blocked = useUntrusted()
   const gate = shellGate(security, role)
   const statsTarget = container === null ? { kind: 'stack' as const, stack } : { kind: 'container' as const, container }
 
@@ -72,10 +74,12 @@ export default function StackConsole({ stack, source }: { stack: string; source:
             variant="ghost"
             size="xs"
             data-action="console-pop-shell"
+            disabled={blocked !== null}
+            data-blocked={blocked === null ? undefined : 'untrusted_network'}
             aria-disabled={!gate.enabled || undefined}
             data-disabled-reason={gate.reason ?? undefined}
             aria-label={gate.reason === null ? `Open a shell in ${container} in a tab` : `Shell in ${container}: ${gate.reason}`}
-            title={gate.reason ?? 'Open a shell in a tab'}
+            title={blocked ?? gate.reason ?? 'Open a shell in a tab'}
             className={gate.enabled ? undefined : 'cursor-not-allowed opacity-50'}
             onClick={() => gate.enabled && openTab({ kind: 'shell', container })}
           >
