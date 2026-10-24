@@ -25,10 +25,12 @@ import {
 import { useId, useState, type ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
-import type { Preview, StackOp, Step } from '@/protocol/generated'
+import type { ComposeWarning, Preview, StackOp, Step } from '@/protocol/generated'
 
 import { argvLine, KIND_LABEL, refusalText } from './argv'
 import { requestKind, requestStack, useOps, type Flow, type PreviewRequest } from './ops-store'
+import { SecurityChip } from './SecurityChip'
+import { SECURITY_GUIDE, worstFinding } from './security'
 
 function copy(text: string): void {
   try {
@@ -188,11 +190,53 @@ function kept(request: PreviewRequest): string | null {
   return null
 }
 
+/**
+ * What the compose file asks for that weakens containment (051 FR-016): shown on every linted
+ * preview, worst first; nothing is rewritten.
+ */
+export function Findings({ warnings }: { warnings: readonly ComposeWarning[] }) {
+  const shown = warnings.filter((w) => w.severity !== 'info')
+  if (shown.length === 0) return null
+  const level = worstFinding(shown)
+  const order = { escape: 0, root: 1, info: 2 } as const
+  const sorted = [...shown].sort((a, b) => order[a.severity] - order[b.severity])
+  return (
+    <section aria-label="Security findings" data-findings={level} className="flex min-w-0 flex-col gap-1">
+      <h3 className="flex items-center gap-1.5 font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+        Security findings <SecurityChip level={level} reasons={sorted.map((w) => `${w.service}: ${w.message}`)} />
+      </h3>
+      <ul className="min-w-0 border border-border bg-background/40 px-2">
+        {sorted.map((w, i) => (
+          <li
+            key={i}
+            data-finding={w.code}
+            data-severity={w.severity}
+            className={`flex min-w-0 flex-col border-t border-border py-1 text-xs first:border-t-0 ${w.severity === 'escape' ? 'text-status-err' : 'text-status-warn'}`}
+          >
+            <span className="font-mono break-all">
+              {w.service}
+              {w.line !== null ? `, line ${String(w.line)}` : ''}
+            </span>
+            <span className="break-words text-foreground/90">{w.message}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        The file is deployed as written.{' '}
+        <a href={SECURITY_GUIDE} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+          Running stacks rootless
+        </a>
+      </p>
+    </section>
+  )
+}
+
 function PreviewBody({ preview, request }: { preview: Preview; request: PreviewRequest }) {
   const on = chosen(request)
   const keep = kept(request)
   return (
     <>
+      <Findings warnings={preview.warnings ?? []} />
       <section aria-label="Commands" className="flex min-w-0 flex-col gap-1">
         <h3 className="font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           {preview.steps.length === 1 ? 'Command' : `Commands, in order (${String(preview.steps.length)})`}
@@ -276,7 +320,9 @@ export function PreviewDialog() {
   const admin = useSession((s) => s.me?.role === 'admin')
   const [typed, setTyped] = useState('')
   const [typedFor, setTypedFor] = useState<string | null>(null)
+  const [acked, setAcked] = useState(false)
   const typedId = useId()
+  const ackId = useId()
 
   const open = flow !== null && !editorOwned(flow)
   const previewId = flow?.preview?.preview_id ?? null
@@ -284,6 +330,7 @@ export function PreviewDialog() {
   if (typedFor !== previewId) {
     setTypedFor(previewId)
     setTyped('')
+    setAcked(false)
   }
   if (!flow || !open) return null
 
@@ -292,7 +339,8 @@ export function PreviewDialog() {
   const service = serviceOf(flow.request)
   const destructive = flow.preview?.destructive ?? false
   const typedOk = !destructive || typed === stack
-  const canConfirm = flow.phase === 'ready' && flow.preview !== null && typedOk
+  const ackRequired = flow.preview?.ack_required ?? false
+  const canConfirm = flow.phase === 'ready' && flow.preview !== null && typedOk && (!ackRequired || acked)
   const canRetry = flow.refusal?.kind === 'void' || flow.refusal?.kind === 'busy' || flow.refusal?.kind === 'lost'
 
   return (
@@ -324,6 +372,21 @@ export function PreviewDialog() {
             />
           </div>
         )}
+        {ackRequired && flow.preview && (
+          <div data-ack className="flex min-w-0 items-start gap-2 border border-status-err/50 bg-status-err/10 p-2 text-xs">
+            <input
+              id={ackId}
+              type="checkbox"
+              checked={acked}
+              onChange={(e) => setAcked(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-[var(--status-err)]"
+            />
+            <label htmlFor={ackId} className="min-w-0 break-words text-status-err">
+              I have read the findings: a container in this stack can reach the host. Deploy it anyway (recorded in
+              the audit log).
+            </label>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={dismiss}>
             Cancel
@@ -337,7 +400,7 @@ export function PreviewDialog() {
             <Button
               variant={destructive ? 'destructive' : 'default'}
               disabled={!canConfirm}
-              onClick={confirm}
+              onClick={() => confirm(ackRequired && acked)}
               data-confirm
             >
               {flow.phase === 'confirming' ? 'Starting…' : `Confirm ${KIND_LABEL[kind].toLowerCase()}`}

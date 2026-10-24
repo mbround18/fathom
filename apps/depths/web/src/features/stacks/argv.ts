@@ -75,7 +75,8 @@ export function refusalText(r: Refusal): string {
     case 'busy':
       return `${actorLabel(r.actor)} is already running ${r.running ? KIND_LABEL[r.running].toLowerCase() : 'an operation'} on ${r.stack} (operation ${r.operationId}). Wait for it to finish.`
     case 'denied':
-      return DENY_TEXT[r.reason]
+      // The compose policy names the findings that blocked it (051 FR-018).
+      return r.reason === 'compose_blocked' && r.detail ? `${DENY_TEXT[r.reason]} ${r.detail}` : DENY_TEXT[r.reason]
     case 'invalid':
       return r.reason
     case 'void':

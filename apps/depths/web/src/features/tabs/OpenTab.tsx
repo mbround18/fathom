@@ -7,7 +7,8 @@ import { Button } from '@companion/ui'
 
 import { useSession } from '@/app/session-store'
 import { useUntrusted } from '@/features/network/model'
-import type { LogTarget, StatsTarget } from '@/protocol/generated'
+import { shellGate } from '@/features/stacks/security'
+import type { ContainerSecurity, LogTarget, StatsTarget } from '@/protocol/generated'
 
 import { useTabs } from './store'
 
@@ -29,22 +30,31 @@ export function OpenStats({ target, label }: { target: StatsTarget; label: strin
   )
 }
 
-/** Hidden while the shell feature is off (FR-027): the server refuses it anyway. */
-export function OpenShell({ container }: { container: string }) {
+/**
+ * Hidden while the shell feature is off (FR-027): the server refuses it anyway. Disabled, saying
+ * why, when the container's rating keeps its shell from this person (051 FR-005); it stays
+ * focusable so the reason can be read. The server re-checks the container at open either way.
+ */
+export function OpenShell({ container, security }: { container: string; security?: ContainerSecurity }) {
   const shellOn = useSession((s) => s.me?.features.shell ?? false)
+  const role = useSession((s) => s.me?.role)
   const openTab = useTabs((s) => s.openTab)
   const blocked = useUntrusted()
   if (!shellOn) return null
+  const gate = shellGate(security, role)
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       data-open="shell"
-      aria-label={`Shell in ${container}`}
-      title={blocked ?? 'Shell'}
       disabled={blocked !== null}
       data-blocked={blocked === null ? undefined : 'untrusted_network'}
-      onClick={() => openTab({ kind: 'shell', container })}
+      aria-disabled={!gate.enabled || undefined}
+      data-disabled-reason={gate.reason ?? undefined}
+      aria-label={gate.reason === null ? `Shell in ${container}` : `Shell in ${container}: ${gate.reason}`}
+      title={blocked ?? gate.reason ?? 'Shell'}
+      className={gate.enabled ? undefined : 'cursor-not-allowed opacity-50'}
+      onClick={() => gate.enabled && openTab({ kind: 'shell', container })}
     >
       <TerminalWindowIcon aria-hidden />
     </Button>

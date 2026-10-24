@@ -5,6 +5,7 @@ import { Link } from '@/app/Link'
 import type { ForeignProject, Stack } from '@/protocol/generated'
 
 import { blockedReason, formatTime, stackHref, stackNotes, type StackNote } from './model'
+import { SecurityChip } from './SecurityChip'
 import { StatusBadge } from './StatusBadge'
 
 export function StackNotes({ notes }: { notes: readonly StackNote[] }) {
@@ -23,6 +24,13 @@ export function StackNotes({ notes }: { notes: readonly StackNote[] }) {
       ))}
     </ul>
   )
+}
+
+/** A stack chip's reasons: which of its containers are at its level. */
+function stackReasons(stack: Stack): string[] {
+  const at = stack.services.flatMap((s) => s.containers).filter((c) => c.security?.level === stack.security)
+  const what = stack.security === 'escape' ? 'can reach the host' : 'runs as root on the host'
+  return at.map((c) => `${c.name} ${what}.`)
 }
 
 /**
@@ -62,7 +70,8 @@ export const StackRow = memo(function StackRow({
           </span>
           <span data-field="modified">changed {formatTime(stack.modified_at)}</span>
         </div>
-        <span className="col-start-2 row-start-1 justify-self-end @2xl:col-start-3">
+        <span className="col-start-2 row-start-1 flex items-center gap-1 justify-self-end @2xl:col-start-3">
+          <SecurityChip level={stack.security} reasons={stackReasons(stack)} />
           <StatusBadge status={stack.status} unhealthy={stack.unhealthy} />
         </span>
       </div>

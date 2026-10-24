@@ -27,7 +27,7 @@ vi.mock('@/app/connection', () => ({
 }))
 
 const { useOps, resetOpsStore } = await import('@/features/stacks/ops-store')
-const { argvLine, quoteArg } = await import('@/features/stacks/argv')
+const { argvLine, quoteArg, refusalText } = await import('@/features/stacks/argv')
 
 function emit(event: Event, reply_to?: number): void {
   for (const l of bus.listeners) l(reply_to === undefined ? { event } : { reply_to, event })
@@ -153,5 +153,19 @@ describe('ops store', () => {
     bus.socket = false
     useOps.getState().requestPreview(up)
     expect(useOps.getState().flow).toMatchObject({ phase: 'refused', refusal: { kind: 'lost' } })
+  })
+})
+
+describe('051 compose findings', () => {
+  it('sends acknowledge_findings only when asked, and carries a compose block detail', () => {
+    useOps.getState().requestPreview(up)
+    emit({ type: 'Preview', data: preview({ ack_required: true, warnings: [] }) }, 1)
+    useOps.getState().confirm(true)
+    expect(bus.sent[1]).toEqual({ type: 'Confirm', data: { preview_id: 'pv-1', acknowledge_findings: true } })
+    emit({ type: 'Denied', data: { reason: 'compose_blocked', detail: 'app: privileged' } }, 2)
+    const refusal = useOps.getState().flow?.refusal
+    expect(refusal).toEqual({ kind: 'denied', reason: 'compose_blocked', detail: 'app: privileged' })
+    if (!refusal) throw new Error('refused')
+    expect(refusalText(refusal)).toMatch(/acknowledging the findings\. app: privileged$/)
   })
 })

@@ -12,7 +12,10 @@ import { useSession } from '@/app/session-store'
 import { LogsTab } from '@/features/tabs/LogsTab'
 import { useTabs } from '@/features/tabs/store'
 import { closeConsole, openConsole } from '@/features/tabs/streams'
-import type { LogTarget } from '@/protocol/generated'
+import type { ContainerSecurity, LogTarget } from '@/protocol/generated'
+
+import { shellGate } from './security'
+import { SecurityChip } from './SecurityChip'
 
 export interface ConsoleSource {
   /** What the console streams. */
@@ -21,6 +24,8 @@ export interface ConsoleSource {
   label: string
   /** The container, when it is one (a shell and its stats need one). */
   container: string | null
+  /** The container's rating, when it is one and it is known (051). */
+  security?: ContainerSecurity
 }
 
 export default function StackConsole({ stack, source }: { stack: string; source: ConsoleSource }) {
@@ -35,7 +40,9 @@ export default function StackConsole({ stack, source }: { stack: string; source:
 
   const openTab = useTabs((s) => s.openTab)
   const shellOn = useSession((s) => s.me?.features.shell ?? false)
-  const { target, label, container } = source
+  const role = useSession((s) => s.me?.role)
+  const { target, label, container, security } = source
+  const gate = shellGate(security, role)
   const statsTarget = container === null ? { kind: 'stack' as const, stack } : { kind: 'container' as const, container }
 
   return (
@@ -49,6 +56,7 @@ export default function StackConsole({ stack, source }: { stack: string; source:
         <h2 className="min-w-0 flex-1 truncate font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           Logs <span className="font-mono normal-case text-foreground">{label}</span>
         </h2>
+        {container !== null && <SecurityChip level={security?.level} security={security} />}
         <Button
           variant="ghost"
           size="xs"
@@ -64,9 +72,12 @@ export default function StackConsole({ stack, source }: { stack: string; source:
             variant="ghost"
             size="xs"
             data-action="console-pop-shell"
-            aria-label={`Open a shell in ${container} in a tab`}
-            title="Open a shell in a tab"
-            onClick={() => openTab({ kind: 'shell', container })}
+            aria-disabled={!gate.enabled || undefined}
+            data-disabled-reason={gate.reason ?? undefined}
+            aria-label={gate.reason === null ? `Open a shell in ${container} in a tab` : `Shell in ${container}: ${gate.reason}`}
+            title={gate.reason ?? 'Open a shell in a tab'}
+            className={gate.enabled ? undefined : 'cursor-not-allowed opacity-50'}
+            onClick={() => gate.enabled && openTab({ kind: 'shell', container })}
           >
             <TerminalWindowIcon aria-hidden /> Shell
           </Button>

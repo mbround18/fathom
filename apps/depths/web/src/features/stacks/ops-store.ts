@@ -37,7 +37,7 @@ export type PreviewRequest =
 
 export type Refusal =
   | { kind: 'busy'; stack: string; operationId: string; actor: Actor; running: OperationKind | null }
-  | { kind: 'denied'; reason: DenyReason }
+  | { kind: 'denied'; reason: DenyReason; detail?: string }
   | { kind: 'invalid'; reason: string }
   | { kind: 'void'; reason: PreviewVoidReason }
   | { kind: 'validation'; errors: ValidationError[] }
@@ -73,7 +73,8 @@ export interface OpsState {
   requestPreview: (req: PreviewRequest) => void
   /** Re-issues the open flow's request (after a void or busy refusal). */
   retry: () => void
-  confirm: () => void
+  /** `acknowledge` sends `acknowledge_findings` (051 FR-018: an admin deploying escape findings). */
+  confirm: (acknowledge?: boolean) => void
   dismiss: () => void
   cancelOp: (stack: string) => void
   clearOp: (stack: string) => void
@@ -133,10 +134,14 @@ export const useOps = create<OpsState>()((set, get) => {
       send(flow.request)
     },
 
-    confirm: () => {
+    confirm: (acknowledge = false) => {
       const flow = get().flow
       if (flow?.phase !== 'ready' || !flow.preview) return
-      const id = sendCmd({ type: 'Confirm', data: { preview_id: flow.preview.preview_id } })
+      const preview_id = flow.preview.preview_id
+      const id = sendCmd({
+        type: 'Confirm',
+        data: acknowledge ? { preview_id, acknowledge_findings: true } : { preview_id },
+      })
       if (id === null) {
         set({ flow: { ...flow, phase: 'refused', refusal: { kind: 'lost' } } })
         return
@@ -257,7 +262,9 @@ onServerEvent(({ reply_to, event }) => {
       refuse(
         asked.token,
         event.type === 'Denied'
-          ? { kind: 'denied', reason: event.data.reason }
+          ? event.data.detail
+            ? { kind: 'denied', reason: event.data.reason, detail: event.data.detail }
+            : { kind: 'denied', reason: event.data.reason }
           : event.type === 'Invalid'
             ? { kind: 'invalid', reason: event.data.reason }
             : event.type === 'ValidationFailed'

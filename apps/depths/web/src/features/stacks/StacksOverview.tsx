@@ -6,7 +6,10 @@
  */
 import { useEffect, useMemo } from 'react'
 
+import { WarningIcon } from '@phosphor-icons/react'
+
 import { Link } from '@/app/Link'
+import { useSession } from '@/app/session-store'
 import { useStreams, watchStatsAll } from '@/features/tabs/streams'
 import { MAX_STATS_TARGETS, type StackStatus } from '@/protocol/generated'
 
@@ -14,6 +17,7 @@ import { useCanSeeHost } from './host-store'
 import { HostPanel } from './HostMetrics'
 import { formatBytes, formatPercent, stackUsages, watchedStacks } from './metrics'
 import { STATUS_LABEL, STATUS_ORDER, stackHref } from './model'
+import { rootfulNotice, SECURITY_GUIDE } from './security'
 import { useStacks } from './store'
 
 const TONE: Record<StackStatus, string> = {
@@ -99,6 +103,24 @@ function StackUsageTable() {
   )
 }
 
+/** 051 FR-006: an admin is told when the docker daemon itself runs as root. */
+function RootfulNotice() {
+  const show = useSession((s) => rootfulNotice(s.me?.role, s.me?.features))
+  if (!show) return null
+  return (
+    <p data-notice="rootful" role="note" className="flex min-w-0 items-start gap-1.5 border border-status-warn/60 bg-status-warn/10 p-2 text-xs text-status-warn">
+      <WarningIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+      <span className="min-w-0 break-words">
+        The docker daemon runs as root, so a container running as root is root on this host. Prefer rootless Docker,
+        userns-remap or a <code className="font-mono">user:</code> in each service.{' '}
+        <a href={SECURITY_GUIDE} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+          How to run stacks rootless
+        </a>
+      </span>
+    </p>
+  )
+}
+
 export default function StacksOverview() {
   const showHost = useCanSeeHost()
   const list = useStacks((s) => s.list)
@@ -122,6 +144,7 @@ export default function StacksOverview() {
       <h1 id="overview-title" className="font-display text-sm font-semibold tracking-wider uppercase">
         Overview
       </h1>
+      <RootfulNotice />
       <div className="grid min-w-0 grid-cols-2 gap-2 xl:grid-cols-3 2xl:grid-cols-6">
         <Tile label="Stacks" value={list.stacks.length} onClick={() => setStatus('all')} />
         {STATUS_ORDER.map((s) => (

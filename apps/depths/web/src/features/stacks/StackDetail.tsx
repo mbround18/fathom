@@ -17,12 +17,13 @@ import { useSession } from '@/app/session-store'
 import { useCanReveal, useReveal } from '@/features/editor/reveal-store'
 import { useUntrusted } from '@/features/network/model'
 import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
-import type { Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
+import type { StackContainer as Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
 
 import { DENY_TEXT } from './argv'
 import { DeleteStack } from './DeleteStack'
 import { OperationOutput } from './OperationOutput'
 import { PreviewDialog } from './PreviewDialog'
+import { SecurityChip } from './SecurityChip'
 import { ServiceActions, StackActions } from './StackActions'
 import type { ConsoleSource } from './StackConsole'
 import { StackNotes } from './StackRow'
@@ -60,7 +61,8 @@ function defaultPick(stack: Stack): Pick {
 
 function sourceOf(stack: Stack, pick: Pick): ConsoleSource {
   if (pick.kind === 'container') {
-    return { target: { kind: 'container', container: pick.name }, label: pick.name, container: pick.name }
+    const security = stack.services.flatMap((s) => s.containers).find((c) => c.name === pick.name)?.security
+    return { target: { kind: 'container', container: pick.name }, label: pick.name, container: pick.name, security }
   }
   return { target: { kind: 'stack', stack: stack.name }, label: 'all containers', container: null }
 }
@@ -91,6 +93,7 @@ function ContainerRow({ c, picked, onPick }: { c: Container; picked: boolean; on
           <Dot state={state} />
           <span className="min-w-0 truncate">{c.name}</span>
         </button>
+        <SecurityChip level={c.security?.level} security={c.security} />
         <span data-field="state" className={`shrink-0 text-xs ${STATE_TONE[state] ?? 'text-muted-foreground'}`}>
           {state}
         </span>
@@ -101,7 +104,7 @@ function ContainerRow({ c, picked, onPick }: { c: Container; picked: boolean; on
         )}
         <span className="flex shrink-0 items-center">
           <OpenLogs target={{ kind: 'container', container: c.name }} label={c.name} />
-          <OpenShell container={c.name} />
+          <OpenShell container={c.name} security={c.security} />
           <OpenStats target={{ kind: 'container', container: c.name }} label={c.name} />
         </span>
       </div>
