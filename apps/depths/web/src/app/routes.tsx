@@ -23,6 +23,8 @@ const stacksPage = lazy(() => import('@/features/stacks/StacksRoute'))
 const ROUTES: readonly Route[] = [
   { pattern: '/', page: stacksPage, group: 'stacks' },
   { pattern: '/stacks/:name', page: stacksPage, group: 'stacks' },
+  // Spec 053: `/stacks/:name/files/<mount>/<path…>`, the stack page's Files tab.
+  { pattern: '/stacks/:name/files/*', page: stacksPage, group: 'stacks' },
   { pattern: '/stacks/:name/edit', page: lazy(() => import('@/features/editor/EditStack')) },
   { pattern: '/new', page: lazy(() => import('@/features/stacks/CreateStack')) },
   { pattern: '/account/sessions', page: lazy(() => import('@/features/sessions/SessionsPage')) },

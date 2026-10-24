@@ -6,6 +6,9 @@
  * secret-looking `.env` keys are masked; an admin can reveal them (audited, FR-021), and they are
  * masked again on leaving the page or after five minutes. Lazy-loaded at `/stacks/:name`; the
  * console and CodeMirror load lazily inside it.
+ *
+ * Spec 053 adds a second view, the Files tab at `/stacks/:name/files/*` (the volume explorer,
+ * lazy-loaded too), for people with the files feature and edit rights.
  */
 import { ArrowLeftIcon, PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
@@ -15,6 +18,7 @@ import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import { useCanReveal, useReveal } from '@/features/editor/reveal-store'
+import { filesHref, parseFilesRest, showFilesTab, type FilesLocation } from '@/features/files/model'
 import { useUntrusted } from '@/features/network/model'
 import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
 import type { StackContainer as Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
@@ -34,6 +38,7 @@ import { useStacks } from './store'
 
 const CodeView = lazy(() => import('@/features/editor/CodeView'))
 const StackConsole = lazy(() => import('./StackConsole'))
+const FilesTab = lazy(() => import('@/features/files/FilesTab'))
 
 const STATE_TONE: Record<string, string> = {
   running: 'text-status-ok',
@@ -137,7 +142,7 @@ function ConsoleTabs({ stack, pick, onPick }: { stack: Stack; pick: Pick; onPick
               selected ? 'border-b-2 border-b-primary bg-background text-foreground' : 'text-muted-foreground'
             }`}
           >
-            {c && <Dot state={c.state} />}
+            {c && <Dot state={stateLabel(c.state)} />}
             <span className="truncate font-mono">{name}</span>
             {c && <span className="sr-only">, {stateLabel(c.state)}</span>}
             {chip && (
@@ -360,8 +365,75 @@ function Env({ detail }: { detail: Detail }) {
   )
 }
 
+function FilesFallback() {
+  return (
+    <p role="status" data-pane-state="loading" className="text-xs text-muted-foreground">
+      Loading files…
+    </p>
+  )
+}
+
+/**
+ * The stack page's views as links (they are URLs, FR-024): the overview and, for people who may
+ * use it, Files. Hidden when there is only the overview.
+ */
+function StackViews({ stack, files }: { stack: string; files: boolean }) {
+  const views = [
+    { key: 'overview', label: 'Overview', to: `/stacks/${encodeURIComponent(stack)}`, current: !files },
+    { key: 'files', label: 'Files', to: filesHref(stack), current: files },
+  ]
+  return (
+    <nav aria-label="Stack views" className="flex min-w-0 shrink-0 border-b border-border">
+      {views.map((v) => (
+        <Link
+          key={v.key}
+          to={v.to}
+          data-view={v.key}
+          aria-current={v.current ? 'page' : undefined}
+          className={`flex h-8 items-center px-3 text-xs outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset ${
+            v.current ? 'border-b-2 border-b-primary text-foreground' : 'text-muted-foreground'
+          }`}
+        >
+          {v.label}
+        </Link>
+      ))}
+    </nav>
+  )
+}
+
+/** The Files view's body: the explorer, or why it is not here. */
+function FilesView({ stack, rest, shown }: { stack: string; rest: string; shown: boolean }) {
+  if (!shown) {
+    return (
+      <p role="status" data-pane-state="unavailable" className="text-xs text-muted-foreground">
+        Files are not available here.
+      </p>
+    )
+  }
+  const location: FilesLocation | null = parseFilesRest(rest)
+  if (location === null) {
+    return (
+      <p role="status" data-pane-state="bad-path" className="text-xs text-muted-foreground">
+        That is not a path inside this stack.{' '}
+        <Link to={filesHref(stack)} className="underline hover:text-primary">
+          Show its mounts
+        </Link>
+      </p>
+    )
+  }
+  return (
+    <Suspense fallback={<FilesFallback />}>
+      <FilesTab stack={stack} location={location} />
+    </Suspense>
+  )
+}
+
 export default function StackDetail({ params }: { params: Params }) {
   const name = params.name ?? ''
+  // `/stacks/:name/files/*` puts the rest of the path in `*`; plain `/stacks/:name` has none.
+  const filesRest = params['*']
+  const inFiles = filesRest !== undefined
+  const filesShown = useSession((s) => showFilesTab(s.me))
   const entry = useStacks((s) => s.details[name])
   const list = useStacks((s) => s.list)
   const openDetail = useStacks((s) => s.openDetail)
@@ -436,6 +508,7 @@ export default function StackDetail({ params }: { params: Params }) {
           <OpenLogs target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
           <OpenStats target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
         </div>
+        {filesShown && <StackViews stack={stack.name} files={inFiles} />}
       </header>
 
       <div className="min-w-0 shrink-0">
@@ -443,42 +516,48 @@ export default function StackDetail({ params }: { params: Params }) {
       </div>
       <PreviewDialog />
 
-      <div
-        data-layout="stack-body"
-        className="grid min-w-0 gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_24rem] xl:grid-cols-[minmax(0,1fr)_28rem] 2xl:grid-cols-[minmax(0,1fr)_36rem]"
-      >
-        <div data-column="console" className="flex min-w-0 flex-col gap-2 lg:min-h-0">
-          <section aria-labelledby="services-title" className="flex min-w-0 shrink-0 flex-col gap-1 lg:max-h-[45%] lg:overflow-auto">
-            <h2 id="services-title" className={SECTION_TITLE}>
-              Services
-            </h2>
-            {stack.services.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No services.</p>
-            ) : (
-              <div className="grid min-w-0 gap-2 md:grid-cols-2 2xl:grid-cols-3">
-                {stack.services.map((s) => (
-                  <ServiceCard key={s.name} service={s} stack={stack} pick={pick} onPick={onPick} />
-                ))}
-              </div>
-            )}
-          </section>
-          <div className="h-96 min-w-0 shrink-0 lg:h-auto lg:min-h-64 lg:flex-1 lg:shrink">
-            <Suspense fallback={<ConsoleFallback />}>
-              <StackConsole
-                key={stack.name}
-                stack={stack.name}
-                source={sourceOf(stack, pick)}
-                tabs={<ConsoleTabs stack={stack} pick={pick} onPick={onPick} />}
-              />
-            </Suspense>
-          </div>
+      {inFiles ? (
+        <div data-layout="stack-files" className="flex min-w-0 flex-col gap-2 lg:min-h-0 lg:flex-1">
+          <FilesView stack={stack.name} rest={filesRest} shown={filesShown} />
         </div>
+      ) : (
+        <div
+          data-layout="stack-body"
+          className="grid min-w-0 gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_24rem] xl:grid-cols-[minmax(0,1fr)_28rem] 2xl:grid-cols-[minmax(0,1fr)_36rem]"
+        >
+          <div data-column="console" className="flex min-w-0 flex-col gap-2 lg:min-h-0">
+            <section aria-labelledby="services-title" className="flex min-w-0 shrink-0 flex-col gap-1 lg:max-h-[45%] lg:overflow-auto">
+              <h2 id="services-title" className={SECTION_TITLE}>
+                Services
+              </h2>
+              {stack.services.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No services.</p>
+              ) : (
+                <div className="grid min-w-0 gap-2 md:grid-cols-2 2xl:grid-cols-3">
+                  {stack.services.map((s) => (
+                    <ServiceCard key={s.name} service={s} stack={stack} pick={pick} onPick={onPick} />
+                  ))}
+                </div>
+              )}
+            </section>
+            <div className="h-96 min-w-0 shrink-0 lg:h-auto lg:min-h-64 lg:flex-1 lg:shrink">
+              <Suspense fallback={<ConsoleFallback />}>
+                <StackConsole
+                  key={stack.name}
+                  stack={stack.name}
+                  source={sourceOf(stack, pick)}
+                  tabs={<ConsoleTabs stack={stack} pick={pick} onPick={onPick} />}
+                />
+              </Suspense>
+            </div>
+          </div>
 
-        <aside aria-label="Files" data-column="files" className="flex min-w-0 flex-col gap-3 lg:min-h-0 lg:overflow-auto">
-          <Compose detail={detail} />
-          <Env detail={detail} />
-        </aside>
-      </div>
+          <aside aria-label="Compose file and .env" data-column="files" className="flex min-w-0 flex-col gap-3 lg:min-h-0 lg:overflow-auto">
+            <Compose detail={detail} />
+            <Env detail={detail} />
+          </aside>
+        </div>
+      )}
     </section>
   )
 }

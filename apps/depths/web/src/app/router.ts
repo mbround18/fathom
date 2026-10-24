@@ -1,6 +1,7 @@
 /**
  * A small history router: the app has a handful of flat routes, so a path matcher over
- * `history.pushState` is all it needs. Patterns are `/literal/:param`; params are decoded.
+ * `history.pushState` is all it needs. Patterns are `/literal/:param`, optionally ending in `/*`;
+ * params are decoded.
  */
 import { useSyncExternalStore } from 'react'
 
@@ -57,12 +58,21 @@ export function navigate(to: string, opts: { replace?: boolean } = {}): void {
 
 export type Params = Readonly<Record<string, string>>
 
-/** Match `path` against `pattern`; `null` when it does not match. Trailing slashes are ignored. */
+/**
+ * Match `path` against `pattern`; `null` when it does not match. Trailing slashes are ignored.
+ * A last segment `*` matches zero or more segments, kept as `params['*']` still percent-encoded
+ * (joined by `/`), so a segment holding an encoded `/` stays one segment for its page to decode.
+ */
 export function matchPath(pattern: string, path: string): Params | null {
   const want = pattern.split('/').filter(Boolean)
   const got = path.split('/').filter(Boolean)
-  if (want.length !== got.length) return null
   const params: Record<string, string> = {}
+  if (want.at(-1) === '*') {
+    want.pop()
+    if (got.length < want.length) return null
+    params['*'] = got.splice(want.length).join('/')
+  }
+  if (want.length !== got.length) return null
   for (const [i, seg] of want.entries()) {
     const value = got[i] ?? ''
     if (seg.startsWith(':')) {
