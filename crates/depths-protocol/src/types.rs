@@ -671,9 +671,19 @@ pub struct Preview {
     pub expires_at: String,
 }
 
-/// One error from validating a draft. `line` when Compose gives one.
+/// Which file of a draft a validation error is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum DraftFile {
+    Compose,
+    Env,
+}
+
+/// One error from validating a draft. `line` when Compose gives one; `file` says which of the
+/// draft's files it is in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ValidationError {
+    pub file: DraftFile,
     pub line: Option<u32>,
     pub message: String,
 }

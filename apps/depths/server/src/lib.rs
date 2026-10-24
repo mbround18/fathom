@@ -4,6 +4,7 @@
 pub mod audit;
 pub mod client_ip;
 pub mod config;
+pub mod diff;
 pub mod headers;
 pub mod http;
 pub mod inventory;

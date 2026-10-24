@@ -6,6 +6,10 @@
 //! permission (the role may have changed in between) and the hash, refuses while another
 //! operation runs on the stack, and runs the plan's steps unchanged.
 //!
+//! `PreviewSave` (T060) does the same for an edit: it checks the draft against the hash the
+//! editor loaded (`Conflict`), validates it with Compose (`ValidationFailed`), and previews the
+//! write with a diff. The confirm writes exactly the previewed draft.
+//!
 //! Every refusal of an action is audited as `denied`; every confirmed operation is audited
 //! once it finishes, with its argv and outcome, before `OpFinished` goes out.
 
@@ -14,16 +18,17 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use depths_core::StackName;
 use depths_core::plan::{self, Operation, Plan, StackContext, Step as PlanStep};
 use depths_core::ports::{
-    CancelToken, ContainerRuntime, ExecError, OutputChunk, OutputSink, RuntimeError, StackStore,
-    StepOutcome, StoreError,
+    CancelToken, ContainerRuntime, ExecError, OutputChunk, OutputSink, RuntimeError, StackDraft,
+    StackStore, StepOutcome, StoreError, Validation,
 };
-use depths_core::role::{self, Access, Role};
+use depths_core::role::{self, Access, Action, Role};
+use depths_core::{ContentHash, StackName};
 use depths_protocol::{
-    Actor, AuditAction, AuditOutcome, DenyReason, Event, EventEnvelope, OpOutcome, OperationId,
-    Preview, PreviewId, PreviewVoidReason, Reach, StackOp, Step, StepStdin,
+    Actor, AuditOutcome, DenyReason, DraftFile, EnvText, Event, EventEnvelope, OpOutcome,
+    OperationId, OperationKind, Preview, PreviewId, PreviewVoidReason, Reach, StackOp, Step,
+    StepStdin, ValidationError,
 };
 use tokio::sync::mpsc;
 
@@ -55,9 +60,17 @@ pub enum Refusal {
     Busy {
         stack: String,
         operation_id: OperationId,
+        kind: OperationKind,
         actor: Actor,
     },
     Void(PreviewVoidReason),
+    ValidationFailed(Vec<ValidationError>),
+    /// The stack changed since the editor loaded it.
+    Conflict {
+        current_text: String,
+        current_env: Option<EnvText>,
+        current_hash: String,
+    },
 }
 
 impl From<Refusal> for Event {
@@ -68,13 +81,25 @@ impl From<Refusal> for Event {
             Refusal::Busy {
                 stack,
                 operation_id,
+                kind,
                 actor,
             } => Event::Busy {
                 stack,
                 operation_id,
+                kind,
                 actor,
             },
             Refusal::Void(reason) => Event::PreviewVoid { reason },
+            Refusal::ValidationFailed(errors) => Event::ValidationFailed { errors },
+            Refusal::Conflict {
+                current_text,
+                current_env,
+                current_hash,
+            } => Event::Conflict {
+                current_text,
+                current_env,
+                current_hash,
+            },
         }
     }
 }
@@ -82,10 +107,13 @@ impl From<Refusal> for Event {
 struct Bound {
     session: String,
     stack: StackName,
-    kind: AuditAction,
+    kind: OperationKind,
     op: Operation,
     plan: Plan,
+    /// What a save or create writes, exactly as previewed.
+    draft: Option<StackDraft>,
     argv: Vec<Vec<String>>,
+    /// Empty for a create: the stack must still not exist at the confirm.
     stack_hash: String,
     expires: Instant,
     used: bool,
@@ -93,6 +121,7 @@ struct Bound {
 
 struct RunningOp {
     operation_id: OperationId,
+    kind: OperationKind,
     actor: Actor,
     user: String,
     cancel: CancelToken,
@@ -114,6 +143,7 @@ pub struct Job {
     pub operation_id: OperationId,
     stack: StackName,
     plan: Plan,
+    draft: Option<StackDraft>,
     record: OpRecord,
     cancel: CancelToken,
     store: Arc<dyn StackStore>,
@@ -215,6 +245,70 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
         .map_err(|_| Refusal::Invalid("the server could not complete the request".into()))
 }
 
+/// The compose file's name in the stack, for the diff header.
+fn files_name(entry: &depths_core::ports::StackEntry) -> &'static str {
+    entry
+        .compose_file
+        .map(|f| f.file_name())
+        .unwrap_or("compose.yaml")
+}
+
+/// Checks a draft `.env` for what Compose would misread, and for a secret that would be lost:
+/// a line that is not `KEY=value`, `KEY`, a comment or blank; and a secret still showing the
+/// mask (`GetStack` masks secret values, so saving one back unrevealed would overwrite the real
+/// value with asterisks).
+fn lint_env(draft: &str, current: Option<&str>) -> Vec<ValidationError> {
+    let key_of = |line: &str| -> Option<(String, String)> {
+        let t = line.trim_start();
+        if t.is_empty() || t.starts_with('#') {
+            return None;
+        }
+        let (k, v) = t.split_once('=').unwrap_or((t, ""));
+        Some((
+            k.trim().trim_start_matches("export ").trim().to_owned(),
+            v.trim_end_matches('\r').to_owned(),
+        ))
+    };
+    let current: HashMap<String, String> = current
+        .map(|c| c.lines().filter_map(key_of).collect())
+        .unwrap_or_default();
+    let mut errors = Vec::new();
+    for (i, line) in draft.lines().enumerate() {
+        let Some((key, value)) = key_of(line) else {
+            continue;
+        };
+        let at = Some(u32::try_from(i + 1).unwrap_or(u32::MAX));
+        let valid_key = key
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+        if !valid_key {
+            errors.push(ValidationError {
+                file: DraftFile::Env,
+                line: at,
+                message: "expected KEY=value".into(),
+            });
+        } else if value == depths_core::secrets::MASK
+            && current
+                .get(&key)
+                .is_some_and(|v| v != depths_core::secrets::MASK)
+        {
+            errors.push(ValidationError {
+                file: DraftFile::Env,
+                line: at,
+                message: format!(
+                    "{key} still shows the masked value; reveal the .env before editing it, \
+                     or leave .env out of the save"
+                ),
+            });
+        }
+    }
+    errors
+}
+
 impl Ops {
     pub fn new(
         store: Arc<dyn StackStore>,
@@ -258,6 +352,7 @@ impl Ops {
             .map(|r| Refusal::Busy {
                 stack: stack.to_owned(),
                 operation_id: r.operation_id,
+                kind: r.kind,
                 actor: r.actor.clone(),
             })
     }
@@ -270,15 +365,7 @@ impl Ops {
         op: &StackOp,
     ) -> Result<Preview, Refusal> {
         let kind = op.kind();
-        let name = StackName::parse(stack.as_str()).map_err(|e| {
-            let _ = self.audit.record(&audit::denied(
-                who.actor.clone(),
-                who.ip,
-                Some(stack.as_str()),
-                "invalid stack name",
-            ));
-            Refusal::Invalid(format!("invalid stack name: {e}"))
-        })?;
+        let name = self.parse_name(who, stack.as_str())?;
         let core_op = to_core(op)?;
         if !role::permits(&who.access, Some(&name), core_op.required_action()) {
             return Err(self.deny(who, name.as_str(), format!("{kind:?} is not permitted")));
@@ -334,15 +421,13 @@ impl Ops {
             .map(|h| h.as_str().to_owned())
             .unwrap_or_default();
         let preview_id = PreviewId(uuid::Uuid::new_v4());
-        let expires_at = (chrono::Utc::now()
-            + chrono::Duration::from_std(self.ttl).unwrap_or_default())
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let expires_at = self.expires_at();
         let preview = Preview {
             preview_id,
             stack: name.as_str().to_owned(),
             kind,
             steps,
-            file_diff: None,
+            file_diff: self.removal_diff(&name, &core_op).await,
             reaches: Reach {
                 containers,
                 ..Reach::default()
@@ -352,6 +437,26 @@ impl Ops {
             expires_at,
         };
 
+        self.bind(
+            preview_id,
+            Bound {
+                session: who.session.clone(),
+                stack: name,
+                kind,
+                op: core_op,
+                plan,
+                draft: None,
+                argv,
+                stack_hash,
+                expires: Instant::now() + self.ttl,
+                used: false,
+            },
+        )?;
+        Ok(preview)
+    }
+
+    /// Keeps a preview for its confirm, dropping the spent and expired ones.
+    fn bind(&self, id: PreviewId, bound: Bound) -> Result<(), Refusal> {
         let mut previews = self.previews.lock().unwrap();
         let now = Instant::now();
         previews.retain(|_, b| b.expires > now && !b.used);
@@ -360,20 +465,247 @@ impl Ops {
                 "too many unconfirmed previews; try again in a few minutes".into(),
             ));
         }
-        previews.insert(
+        previews.insert(id, bound);
+        Ok(())
+    }
+
+    fn expires_at(&self) -> String {
+        (chrono::Utc::now() + chrono::Duration::from_std(self.ttl).unwrap_or_default())
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    }
+
+    /// A stack name from the wire; an invalid one is audited and refused.
+    fn parse_name(&self, who: &Who, stack: &str) -> Result<StackName, Refusal> {
+        StackName::parse(stack).map_err(|e| {
+            let _ = self.audit.record(&audit::denied(
+                who.actor.clone(),
+                who.ip,
+                Some(stack),
+                "invalid stack name",
+            ));
+            Refusal::Invalid(format!("invalid stack name: {e}"))
+        })
+    }
+
+    /// The removal diff a `Delete{remove_directory}` preview shows. Best effort: a stack whose
+    /// files cannot be read still previews, without a diff.
+    async fn removal_diff(&self, name: &StackName, op: &Operation) -> Option<String> {
+        if !matches!(
+            op,
+            Operation::Delete {
+                remove_directory: true
+            }
+        ) {
+            return None;
+        }
+        let (store, n) = (self.store.clone(), name.clone());
+        let files = blocking(move || store.read(&n)).await.ok()?.ok()?;
+        let mut diff =
+            crate::diff::unified(files.compose_file.file_name(), Some(&files.compose), None);
+        if let Some(env) = files.env.as_deref() {
+            let masked = depths_core::secrets::mask_env(env).unwrap_or_else(|| env.to_owned());
+            diff.push_str(&crate::diff::unified(".env", Some(&masked), None));
+        }
+        Some(diff)
+    }
+
+    /// `PreviewSave`: a save when the draft carries `base_hash` (the stack's editors), a create
+    /// when it does not (admins). Refuses with `Conflict` when the stack changed since the
+    /// editor loaded it and with `ValidationFailed` when the draft does not validate; otherwise
+    /// previews the write, then `up` when `deploy`.
+    pub async fn preview_save(
+        &self,
+        who: &Who,
+        draft: &depths_protocol::StackDraft,
+        deploy: bool,
+    ) -> Result<Preview, Refusal> {
+        let name = self.parse_name(who, draft.stack.as_str())?;
+        let base_hash = match &draft.base_hash {
+            Some(h) => Some(
+                ContentHash::parse(h.as_str())
+                    .ok_or_else(|| Refusal::Invalid("invalid base hash".into()))?,
+            ),
+            None => None,
+        };
+        let (kind, action) = match base_hash {
+            Some(_) => (OperationKind::Save, Action::Edit),
+            None => (OperationKind::Create, Action::CreateStack),
+        };
+        if !role::permits(&who.access, Some(&name), action) {
+            return Err(self.deny(who, name.as_str(), format!("{kind:?} is not permitted")));
+        }
+
+        // What is on disk now: the base of the diff, and whether `.env` exists.
+        let (store, n) = (self.store.clone(), name.clone());
+        let found = blocking(move || store.entry(&n)).await?;
+        let (current, compose_file, has_env) = match (&base_hash, found) {
+            (None, Err(StoreError::NotFound)) => (None, "compose.yaml", false),
+            (None, Ok(_) | Err(StoreError::NotAStack)) => {
+                return Err(Refusal::Invalid(format!(
+                    "the name {} is taken: the stacks directory already has it",
+                    name.as_str()
+                )));
+            }
+            (_, Err(e)) => return Err(store_refusal(&name, e)),
+            (Some(base), Ok(entry)) => {
+                if !entry.editable() {
+                    let why = entry
+                        .read_only_reason
+                        .clone()
+                        .or(crate::inventory::invalid_reason(&entry))
+                        .or(entry.read_error.clone())
+                        .unwrap_or_else(|| "the stack cannot be edited".into());
+                    return Err(Refusal::Invalid(why));
+                }
+                let (store, n) = (self.store.clone(), name.clone());
+                let files = blocking(move || store.read(&n))
+                    .await?
+                    .map_err(|e| store_refusal(&name, e))?;
+                if &files.content_hash != base {
+                    return Err(Refusal::Conflict {
+                        current_env: files.env.map(|t| match depths_core::secrets::mask_env(&t) {
+                            Some(m) => EnvText::Masked(m),
+                            None => EnvText::Plain(t),
+                        }),
+                        current_text: files.compose,
+                        current_hash: files.content_hash.as_str().to_owned(),
+                    });
+                }
+                (Some(files), files_name(&entry), entry.has_env)
+            }
+        };
+        if let Some(b) = self.busy(name.as_str()) {
+            return Err(b);
+        }
+
+        let core_draft = StackDraft {
+            stack: name.clone(),
+            base_hash: base_hash.clone(),
+            compose: draft.compose.clone(),
+            env: draft.env.clone(),
+        };
+        let env_after_write = core_draft.env_exists_after(has_env);
+        let core_op = match base_hash {
+            Some(_) => Operation::Save {
+                deploy,
+                env_after_write,
+            },
+            None => Operation::Create {
+                deploy,
+                env_after_write,
+            },
+        };
+        let ctx = StackContext {
+            stacks_root: self.store.root(),
+            stack: &name,
+            global_env: self.store.global_env(),
+            has_env,
+        };
+        let plan = plan::plan(&ctx, &core_op);
+
+        // Validate: `.env` by the lint here, the compose file by Compose itself.
+        let current_env = current.as_ref().and_then(|f| f.env.as_deref());
+        let mut errors = draft
+            .env
+            .as_deref()
+            .map(|e| lint_env(e, current_env))
+            .unwrap_or_default();
+        let Some(step) = plan
+            .commands()
+            .find(|s| s.stdin == plan::StepStdin::Draft)
+            .cloned()
+        else {
+            return Err(Refusal::Invalid("the save has no validate step".into()));
+        };
+        let (runtime, text) = (self.runtime.clone(), draft.compose.clone());
+        match blocking(move || runtime.validate(&step, text.as_bytes())).await? {
+            Ok(Validation::Valid) => {}
+            Ok(Validation::Invalid(issues)) => {
+                errors.extend(issues.into_iter().map(|i| ValidationError {
+                    file: DraftFile::Compose,
+                    line: i.line,
+                    message: i.message,
+                }));
+            }
+            Err(e) => {
+                let why = match e {
+                    RuntimeError::Unavailable(r) | RuntimeError::Failed(r) => r,
+                    RuntimeError::Unsupported => "it cannot validate".into(),
+                };
+                return Err(Refusal::Invalid(format!(
+                    "the draft could not be validated: the container runtime is unavailable: {why}"
+                )));
+            }
+        }
+        if !errors.is_empty() {
+            return Err(Refusal::ValidationFailed(errors));
+        }
+
+        // The diff: the compose file, then `.env` masked on both sides.
+        let mut file_diff = crate::diff::unified(
+            compose_file,
+            current.as_ref().map(|f| f.compose.as_str()),
+            Some(&draft.compose),
+        );
+        if let Some(new_env) = draft.env.as_deref() {
+            let mask = |t: &str| depths_core::secrets::mask_env(t).unwrap_or_else(|| t.to_owned());
+            let old = current_env.map(mask);
+            let new = (!new_env.is_empty() || old.is_some()).then(|| mask(new_env));
+            file_diff.push_str(&crate::diff::unified(
+                ".env",
+                old.as_deref(),
+                new.as_deref(),
+            ));
+        }
+
+        let containers = if deploy {
+            let runtime = self.runtime.clone();
+            let project = name.as_str().to_owned();
+            blocking(move || runtime.containers_by_project())
+                .await?
+                .ok()
+                .and_then(|mut snap| snap.projects.remove(&project))
+                .map(|p| p.containers.into_iter().map(|c| c.name).collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let steps = wire_steps(&plan, self.store.root(), &name);
+        let argv = steps.iter().map(|s| s.argv.clone()).collect();
+        let stack_hash = base_hash
+            .as_ref()
+            .map(|h| h.as_str().to_owned())
+            .unwrap_or_default();
+        let preview_id = PreviewId(uuid::Uuid::new_v4());
+        let preview = Preview {
+            preview_id,
+            stack: name.as_str().to_owned(),
+            kind,
+            steps,
+            file_diff: Some(file_diff),
+            reaches: Reach {
+                containers,
+                ..Reach::default()
+            },
+            destructive: plan.destructive,
+            stack_hash: stack_hash.clone(),
+            expires_at: self.expires_at(),
+        };
+        self.bind(
             preview_id,
             Bound {
                 session: who.session.clone(),
                 stack: name,
-                kind: kind.into(),
+                kind,
                 op: core_op,
                 plan,
+                draft: Some(core_draft),
                 argv,
                 stack_hash,
-                expires: now + self.ttl,
+                expires: Instant::now() + self.ttl,
                 used: false,
             },
-        );
+        )?;
         Ok(preview)
     }
 
@@ -386,7 +718,7 @@ impl Ops {
     /// `Confirm`: claims the preview and reserves the stack. Run the returned job after sending
     /// `OpStarted`.
     pub async fn confirm(&self, who: &Who, preview_id: PreviewId) -> Result<Job, Refusal> {
-        let (stack, kind, op, plan, argv, stack_hash) = {
+        let (stack, kind, op, plan, draft, argv, stack_hash) = {
             let mut previews = self.previews.lock().unwrap();
             let Some(b) = previews.get_mut(&preview_id) else {
                 return Err(Refusal::Void(PreviewVoidReason::Unknown));
@@ -407,6 +739,7 @@ impl Ops {
                 b.kind,
                 b.op.clone(),
                 b.plan.clone(),
+                b.draft.clone(),
                 b.argv.clone(),
                 b.stack_hash.clone(),
             )
@@ -419,16 +752,20 @@ impl Ops {
             ));
         }
         let (store, n) = (self.store.clone(), stack.clone());
-        let entry = match blocking(move || store.entry(&n)).await? {
-            Ok(e) => e,
-            Err(_) => return Err(Refusal::Void(PreviewVoidReason::StackChanged)),
+        let unchanged = match (&op, blocking(move || store.entry(&n)).await?) {
+            // A create's name must still be free.
+            (Operation::Create { .. }, Err(StoreError::NotFound)) => true,
+            (Operation::Create { .. }, _) | (_, Err(_)) => false,
+            (_, Ok(entry)) => {
+                entry
+                    .content_hash
+                    .as_ref()
+                    .map(|h| h.as_str())
+                    .unwrap_or_default()
+                    == stack_hash
+            }
         };
-        let now_hash = entry
-            .content_hash
-            .as_ref()
-            .map(|h| h.as_str().to_owned())
-            .unwrap_or_default();
-        if now_hash != stack_hash {
+        if !unchanged {
             return Err(Refusal::Void(PreviewVoidReason::StackChanged));
         }
         let operation_id = OperationId(uuid::Uuid::new_v4());
@@ -439,6 +776,7 @@ impl Ops {
                 let busy = Refusal::Busy {
                     stack: stack.as_str().to_owned(),
                     operation_id: r.operation_id,
+                    kind: r.kind,
                     actor: r.actor.clone(),
                 };
                 drop(running);
@@ -449,6 +787,7 @@ impl Ops {
                 stack.as_str().to_owned(),
                 RunningOp {
                     operation_id,
+                    kind,
                     actor: who.actor.clone(),
                     user: who.user.clone(),
                     cancel: cancel.clone(),
@@ -461,7 +800,7 @@ impl Ops {
             record: OpRecord {
                 actor: who.actor.clone(),
                 ip: who.ip,
-                action: kind,
+                action: kind.into(),
                 stack: stack.as_str().to_owned(),
                 preview_id,
                 operation_id,
@@ -469,6 +808,7 @@ impl Ops {
             },
             stack,
             plan,
+            draft,
             cancel,
             store: self.store.clone(),
             runtime: self.runtime.clone(),
@@ -528,7 +868,7 @@ impl Job {
         };
         let result = depths_core::ports::execute(
             &self.plan,
-            None,
+            self.draft.as_ref(),
             &self.stack,
             self.store.as_ref(),
             self.runtime.as_ref(),
@@ -595,7 +935,7 @@ mod tests {
 
     use depths_core::plan::RunStep;
     use depths_core::ports::{OutputStream, RuntimeSnapshot, Validation};
-    use depths_protocol::{AuditFilter, Provider};
+    use depths_protocol::{AuditAction, AuditFilter, Provider};
 
     #[derive(Default)]
     struct Mock {
@@ -603,6 +943,10 @@ mod tests {
         fail_with: Mutex<Option<String>>,
         /// Blocks `run_step` until cleared, or until cancelled.
         hold: std::sync::atomic::AtomicBool,
+        /// What `validate` answers; `None` is valid.
+        validation: Mutex<Option<Validation>>,
+        /// Every validate step and the draft it was given.
+        validated: Mutex<Vec<(RunStep, String)>>,
     }
 
     impl ContainerRuntime for Mock {
@@ -635,8 +979,17 @@ mod tests {
                 None => StepOutcome::Succeeded,
             })
         }
-        fn validate(&self, _: &RunStep, _: &[u8]) -> Result<Validation, RuntimeError> {
-            Err(RuntimeError::Unsupported)
+        fn validate(&self, step: &RunStep, draft: &[u8]) -> Result<Validation, RuntimeError> {
+            self.validated
+                .lock()
+                .unwrap()
+                .push((step.clone(), String::from_utf8(draft.to_vec()).unwrap()));
+            Ok(self
+                .validation
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or(Validation::Valid))
         }
         fn follow_events(
             &self,
@@ -880,10 +1233,12 @@ mod tests {
         match f.ops.preview(&b, &name("web"), &StackOp::Stop).await {
             Err(Refusal::Busy {
                 operation_id,
+                kind,
                 actor,
                 ..
             }) => {
                 assert_eq!(operation_id, id);
+                assert_eq!(kind, OperationKind::Up);
                 assert_eq!(actor.subject, "7");
             }
             r => panic!("{r:?}"),
@@ -904,5 +1259,256 @@ mod tests {
         let a = who("s1", "1", Role::Admin, &[]);
         let r = f.ops.preview(&a, &name("missing"), &StackOp::Up).await;
         assert!(matches!(r, Err(Refusal::Invalid(why)) if why.contains("missing")));
+    }
+
+    // -- T060: save, create, delete --------------------------------------------------------
+
+    const CADDY: &str = "services:\n  app:\n    image: caddy\n";
+
+    fn hash_of(f: &Fx, stack: &str) -> String {
+        f.ops
+            .store
+            .read(&StackName::parse(stack).unwrap())
+            .unwrap()
+            .content_hash
+            .as_str()
+            .to_owned()
+    }
+
+    fn draft(
+        stack: &str,
+        base: Option<&str>,
+        compose: &str,
+        env: Option<&str>,
+    ) -> depths_protocol::StackDraft {
+        depths_protocol::StackDraft {
+            stack: name(stack),
+            base_hash: base.map(|h| depths_protocol::ContentHash::new(h).unwrap()),
+            compose: compose.into(),
+            env: env.map(Into::into),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_assigned_user_saves_exactly_the_previewed_draft() {
+        let f = fx(PREVIEW_TTL);
+        let u = who("s1", "7", Role::User, &["web"]);
+        let base = hash_of(&f, "web");
+        let p = f
+            .ops
+            .preview_save(&u, &draft("web", Some(&base), CADDY, None), true)
+            .await
+            .unwrap();
+        assert_eq!(p.kind, OperationKind::Save);
+        assert_eq!(p.stack_hash, base);
+        // validate (reads the draft), write, up.
+        assert_eq!(p.steps.len(), 3);
+        assert_eq!(p.steps[0].stdin, StepStdin::Draft);
+        assert_eq!(
+            p.steps[0].argv,
+            ["docker", "compose", "-f", "-", "config", "--quiet"]
+        );
+        assert_eq!(p.steps[1].argv[0], "depths:write-draft");
+        assert_eq!(p.steps[2].argv[2..], ["up", "-d", "--remove-orphans"]);
+        let diff = p.file_diff.clone().unwrap();
+        assert!(
+            diff.contains("-    image: nginx\n+    image: caddy\n"),
+            "{diff}"
+        );
+        // Compose saw the draft, not the file on disk.
+        assert_eq!(f.mock.validated.lock().unwrap()[0].1, CADDY);
+
+        let (out, _) = run(f.ops.confirm(&u, p.preview_id).await.unwrap()).await;
+        assert_eq!(out, OpOutcome::Succeeded);
+        let web = f.dir.path().join("stacks/web");
+        assert_eq!(
+            std::fs::read_to_string(web.join("compose.yaml")).unwrap(),
+            CADDY
+        );
+        assert!(
+            !web.join(".env").exists(),
+            "an absent env leaves .env alone"
+        );
+        let ran = f.mock.ran.lock().unwrap().clone();
+        assert_eq!(ran, vec![p.steps[0].argv.clone(), p.steps[2].argv.clone()]);
+        assert_eq!(entries(&f.audit)[0].action, AuditAction::Save);
+    }
+
+    #[tokio::test]
+    async fn saves_and_creates_need_their_permission() {
+        let f = fx(PREVIEW_TTL);
+        let u = who("s1", "7", Role::User, &["web"]);
+        let base = hash_of(&f, "db");
+        let r = f
+            .ops
+            .preview_save(&u, &draft("db", Some(&base), CADDY, None), false)
+            .await;
+        assert_eq!(r.unwrap_err(), Refusal::Denied(DenyReason::NotPermitted));
+        let r = f
+            .ops
+            .preview_save(&u, &draft("new", None, CADDY, None), false)
+            .await;
+        assert_eq!(r.unwrap_err(), Refusal::Denied(DenyReason::NotPermitted));
+        let e = entries(&f.audit);
+        assert_eq!(e.len(), 2);
+        assert!(e.iter().all(|e| e.action == AuditAction::Denied));
+        assert!(f.mock.validated.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stale_base_hash_is_a_conflict_with_the_current_files_masked() {
+        let f = fx(PREVIEW_TTL);
+        let a = who("s1", "1", Role::Admin, &[]);
+        let base = hash_of(&f, "web");
+        let web = f.dir.path().join("stacks/web");
+        std::fs::write(web.join(".env"), "DB_PASSWORD=hunter2\nPORT=80\n").unwrap();
+        match f
+            .ops
+            .preview_save(&a, &draft("web", Some(&base), CADDY, None), false)
+            .await
+        {
+            Err(Refusal::Conflict {
+                current_text,
+                current_env,
+                current_hash,
+            }) => {
+                assert_eq!(current_text, "services:\n  app:\n    image: nginx\n");
+                assert_eq!(
+                    current_env,
+                    Some(EnvText::Masked("DB_PASSWORD=********\nPORT=80\n".into()))
+                );
+                assert_eq!(current_hash, hash_of(&f, "web"));
+                assert_ne!(current_hash, base);
+            }
+            r => panic!("{r:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn validation_errors_name_their_file_and_line() {
+        let f = fx(PREVIEW_TTL);
+        let a = who("s1", "1", Role::Admin, &[]);
+        let web = f.dir.path().join("stacks/web");
+        std::fs::write(web.join(".env"), "DB_PASSWORD=hunter2\n").unwrap();
+        let base = hash_of(&f, "web");
+        *f.mock.validation.lock().unwrap() = Some(Validation::Invalid(vec![
+            depths_core::ports::ValidationIssue {
+                line: Some(3),
+                message: "services.app.image must be a string".into(),
+            },
+        ]));
+        let env = "DB_PASSWORD=********\nnot a key\n";
+        match f
+            .ops
+            .preview_save(&a, &draft("web", Some(&base), CADDY, Some(env)), false)
+            .await
+        {
+            Err(Refusal::ValidationFailed(errors)) => {
+                assert_eq!(
+                    errors.iter().map(|e| (e.file, e.line)).collect::<Vec<_>>(),
+                    vec![
+                        (DraftFile::Env, Some(1)),
+                        (DraftFile::Env, Some(2)),
+                        (DraftFile::Compose, Some(3)),
+                    ]
+                );
+                assert!(errors[0].message.contains("DB_PASSWORD"));
+                assert!(!errors.iter().any(|e| e.message.contains("hunter2")));
+            }
+            r => panic!("{r:?}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(web.join(".env")).unwrap(),
+            "DB_PASSWORD=hunter2\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_admin_creates_a_stack_whose_name_is_free() {
+        let f = fx(PREVIEW_TTL);
+        let a = who("s1", "1", Role::Admin, &[]);
+        let r = f
+            .ops
+            .preview_save(&a, &draft("web", None, CADDY, None), false)
+            .await;
+        assert!(matches!(r, Err(Refusal::Invalid(why)) if why.contains("taken")));
+
+        let p = f
+            .ops
+            .preview_save(&a, &draft("cache", None, CADDY, Some("PORT=6379\n")), false)
+            .await
+            .unwrap();
+        assert_eq!(p.kind, OperationKind::Create);
+        assert_eq!(p.stack_hash, "");
+        assert_eq!(p.steps.len(), 2);
+        assert_eq!(p.steps[0].stdin, StepStdin::Draft);
+        let diff = p.file_diff.clone().unwrap();
+        assert!(
+            diff.starts_with("--- /dev/null\n+++ b/compose.yaml\n"),
+            "{diff}"
+        );
+        assert!(
+            diff.contains("+++ b/.env\n@@ -0,0 +1,1 @@\n+PORT=6379\n"),
+            "{diff}"
+        );
+
+        let (out, _) = run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        assert_eq!(out, OpOutcome::Succeeded);
+        let cache = f.dir.path().join("stacks/cache");
+        assert_eq!(
+            std::fs::read_to_string(cache.join("compose.yaml")).unwrap(),
+            CADDY
+        );
+        assert_eq!(
+            std::fs::read_to_string(cache.join(".env")).unwrap(),
+            "PORT=6379\n"
+        );
+
+        // The name was taken between the preview and the confirm.
+        let p = f
+            .ops
+            .preview_save(&a, &draft("late", None, CADDY, None), false)
+            .await
+            .unwrap();
+        std::fs::create_dir(f.dir.path().join("stacks/late")).unwrap();
+        assert_eq!(
+            f.ops.confirm(&a, p.preview_id).await.err(),
+            Some(Refusal::Void(PreviewVoidReason::StackChanged))
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_is_admin_only_and_keeps_the_directory_unless_asked() {
+        let f = fx(PREVIEW_TTL);
+        let u = who("s1", "7", Role::User, &["web"]);
+        let keep = StackOp::Delete {
+            remove_directory: false,
+        };
+        assert_eq!(
+            f.ops.preview(&u, &name("web"), &keep).await.unwrap_err(),
+            Refusal::Denied(DenyReason::NotPermitted)
+        );
+        let a = who("s2", "1", Role::Admin, &[]);
+        let p = f.ops.preview(&a, &name("web"), &keep).await.unwrap();
+        assert_eq!(p.steps.len(), 1);
+        assert!(p.file_diff.is_none());
+        assert!(!p.destructive);
+        run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        assert!(f.dir.path().join("stacks/web/compose.yaml").exists());
+
+        let gone = StackOp::Delete {
+            remove_directory: true,
+        };
+        let p = f.ops.preview(&a, &name("web"), &gone).await.unwrap();
+        assert!(p.destructive);
+        assert!(
+            p.file_diff
+                .as_deref()
+                .unwrap()
+                .contains("+++ /dev/null\n@@ -1,3 +0,0 @@\n-services:")
+        );
+        let (out, _) = run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        assert_eq!(out, OpOutcome::Succeeded);
+        assert!(!f.dir.path().join("stacks/web").exists());
     }
 }

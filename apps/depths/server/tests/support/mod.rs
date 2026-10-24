@@ -139,7 +139,7 @@ impl ContainerRuntime for FakeRuntime {
         })
     }
     fn validate(&self, _: &RunStep, _: &[u8]) -> Result<Validation, RuntimeError> {
-        Err(RuntimeError::Unsupported)
+        Ok(Validation::Valid)
     }
     fn follow_events(
         &self,

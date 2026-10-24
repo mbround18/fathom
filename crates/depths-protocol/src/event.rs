@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::types::{
-    Actor, AuditEntry, DenyReason, EnvText, OpOutcome, OperationId, Preview, PreviewVoidReason,
-    RequestId, StackDetail, StackList, StreamCloseReason, UserList, ValidationError,
+    Actor, AuditEntry, DenyReason, EnvText, OpOutcome, OperationId, OperationKind, Preview,
+    PreviewVoidReason, RequestId, StackDetail, StackList, StreamCloseReason, UserList,
+    ValidationError,
 };
 use crate::wire::{StreamId, UsageSample};
 
@@ -69,10 +70,11 @@ pub enum Event {
     Denied {
         reason: DenyReason,
     },
-    /// Another operation is running on this stack (FR-014).
+    /// Another operation is running on this stack (FR-014): which one, and whose.
     Busy {
         stack: String,
         operation_id: OperationId,
+        kind: OperationKind,
         actor: Actor,
     },
     /// The command named something that does not exist or cannot be acted on (an invalid stack,

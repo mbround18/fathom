@@ -15,6 +15,7 @@ export type * from "./ContainerRef";
 export type * from "./ContentHash";
 export type * from "./CsrfToken";
 export type * from "./DenyReason";
+export type * from "./DraftFile";
 export type * from "./EnvText";
 export type * from "./Event";
 export type * from "./EventEnvelope";

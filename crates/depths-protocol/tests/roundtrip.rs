@@ -731,10 +731,12 @@ fn all_events() -> Vec<Event> {
         Event::ValidationFailed {
             errors: vec![
                 ValidationError {
+                    file: DraftFile::Compose,
                     line: Some(3),
                     message: "services.app.image must be a string".into(),
                 },
                 ValidationError {
+                    file: DraftFile::Env,
                     line: None,
                     message: "yaml: did not find expected key".into(),
                 },
@@ -776,6 +778,7 @@ fn all_events() -> Vec<Event> {
         Event::Busy {
             stack: "web".into(),
             operation_id: operation_id(),
+            kind: OperationKind::Restart,
             actor: actor(),
         },
         Event::Invalid {

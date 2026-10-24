@@ -527,9 +527,13 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 Err(r) => vec![reply(id, r.into())],
             }
         }
-        Cmd::PreviewSave { .. } => {
+        Cmd::PreviewSave { draft, deploy } => {
             if app.cfg.features.edit {
-                vec![invalid(id, "not available yet")]
+                let who = conn.who(access);
+                match app.ops.preview_save(&who, &draft, deploy).await {
+                    Ok(p) => vec![reply(id, Event::Preview(p))],
+                    Err(r) => vec![reply(id, r.into())],
+                }
             } else {
                 vec![conn.deny_reason(
                     id,

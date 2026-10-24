@@ -444,6 +444,106 @@ async fn a_malformed_command_is_invalid_with_its_id() {
 }
 
 #[tokio::test]
+async fn an_assigned_user_saves_over_the_socket_and_a_stale_hash_conflicts() {
+    let a = app();
+    a.add_stack("web", COMPOSE, Some("API_TOKEN=s3cr3t\n"));
+    grant(&a, "7", &["web"]);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let d = ask(
+        &mut ws,
+        1,
+        json!({ "type": "GetStack", "data": { "name": "web" } }),
+    )
+    .await;
+    let base = d["event"]["data"]["content_hash"].clone();
+    let edited = COMPOSE.replace("nginx", "caddy");
+
+    let p = ask(
+        &mut ws,
+        2,
+        json!({ "type": "PreviewSave", "data": {
+            "draft": { "stack": "web", "base_hash": base, "compose": edited },
+            "deploy": false,
+        } }),
+    )
+    .await;
+    assert_eq!(p["event"]["type"], "Preview", "{p}");
+    assert_eq!(p["event"]["data"]["kind"], "save");
+    assert_eq!(p["event"]["data"]["steps"][0]["stdin"], "draft");
+    let s = ask(
+        &mut ws,
+        3,
+        json!({ "type": "Confirm", "data": { "preview_id": p["event"]["data"]["preview_id"] } }),
+    )
+    .await;
+    assert_eq!(s["event"]["type"], "OpStarted", "{s}");
+    let done = next_of(&mut ws, "OpFinished").await;
+    assert_eq!(
+        done["event"]["data"]["outcome"]["kind"], "succeeded",
+        "{done}"
+    );
+    let dir = a.stacks.join("web");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("compose.yaml")).unwrap(),
+        edited
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".env")).unwrap(),
+        "API_TOKEN=s3cr3t\n"
+    );
+
+    // The same base again: the files moved on, so it conflicts, `.env` masked.
+    let c = ask(
+        &mut ws,
+        4,
+        json!({ "type": "PreviewSave", "data": {
+            "draft": { "stack": "web", "base_hash": base, "compose": COMPOSE },
+            "deploy": false,
+        } }),
+    )
+    .await;
+    assert_eq!(c["event"]["type"], "Conflict", "{c}");
+    assert_eq!(c["event"]["data"]["current_text"], edited);
+    assert!(!c.to_string().contains("s3cr3t"), "{c}");
+
+    // A create is admin-only.
+    let r = ask(
+        &mut ws,
+        5,
+        json!({ "type": "PreviewSave", "data": {
+            "draft": { "stack": "new", "compose": COMPOSE },
+            "deploy": false,
+        } }),
+    )
+    .await;
+    assert_eq!(r["event"]["data"]["reason"], "not_permitted", "{r}");
+    server.abort();
+}
+
+#[tokio::test]
+async fn saving_is_refused_when_editing_is_off() {
+    let a = app_with(|s| {
+        let mut cfg = (*s.cfg).clone();
+        cfg.features.edit = false;
+        s.cfg = std::sync::Arc::new(cfg);
+    });
+    a.add_stack("web", COMPOSE, None);
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let r = ask(
+        &mut ws,
+        1,
+        json!({ "type": "PreviewSave", "data": {
+            "draft": { "stack": "web", "compose": COMPOSE },
+            "deploy": false,
+        } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Denied", "{r}");
+    assert_eq!(r["event"]["data"]["reason"], "feature_disabled", "{r}");
+    server.abort();
+}
+
+#[tokio::test]
 async fn the_shell_and_edit_flags_refuse_when_off() {
     let a = app();
     let (mut ws, server, _) = open(&a, OWNER).await;

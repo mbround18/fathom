@@ -21,7 +21,7 @@ version handling mirror Fathom's `BackendCmdEnvelope` / `BackendEventEnvelope`.
 | `GetStack{name}` | user (assigned stack) | `StackDetail{stack, compose_text, env_text_masked \| env_text, content_hash}` |
 | `RevealEnv{name}` | user (assigned stack) | `EnvRevealed{name, env_text}` (audited; masking is by key: names containing `PASS`, `SECRET`, `TOKEN`, `KEY`, `PRIVATE`, `CREDENTIAL`, case-insensitive) |
 | `PreviewOp{stack, kind, options}` | per data-model table | `Preview{…}` or `Denied` / `Busy` / `Invalid` |
-| `PreviewSave{draft, deploy}` | user (assigned stack) for a save; admin for create | `Preview{file_diff, steps: [validate, up?]}`, or `ValidationFailed{errors[{line?, message}]}`, or `Conflict{current_text, current_hash}` |
+| `PreviewSave{draft, deploy}` | user (assigned stack) for a save; admin for create | `Preview{file_diff, steps: [validate, up?]}`, or `ValidationFailed{errors[{file, line?, message}]}`, or `Conflict{current_text, current_env, current_hash}` |
 | `Confirm{preview_id}` | as previewed | `OpStarted{operation_id}`, `OpOutput{operation_id, chunk}`*, `OpFinished{operation_id, outcome}` |
 | `Cancel{operation_id}` | actor or admin | `OpFinished{outcome: cancelled}` (SIGINT to the compose process) |
 | `OpenLogs{target, tail, since?}` | user (assigned stack; a `{container}` target outside a stack is admin) | `StreamOpened{stream_id}`, `LogChunk{stream_id, lines}`*, `StreamClosed{stream_id, reason}` |
@@ -51,7 +51,7 @@ the tab shows "reconnected".
 2. `Confirm` succeeds only if the preview id exists, is unused, belongs to this session, has not
    expired, and the stack's current `content_hash` equals the one bound into it. Otherwise
    `PreviewVoid{reason}`.
-3. One running operation per stack (`Busy`).
+3. One running operation per stack (`Busy{stack, operation_id, kind, actor}`).
 4. All paths come from stack names resolved by the fs adapter; no command carries a path.
 5. Each `Confirm`, denial, shell open and env reveal writes one audit entry before the event is
    sent.

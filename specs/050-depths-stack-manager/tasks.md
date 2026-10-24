@@ -441,7 +441,7 @@ and deploy works in one preview, and every other byte is unchanged.
   - Delete defaults to keeping the directory, and removing it is an explicit option named in the preview.
   - These actions are admin only.
   - With `DEPTHS_FEATURE_EDIT=false`, editing is hidden and the server refuses it.
-- [ ] T060 [US3] Implement `PreviewSave` (validation via `ContainerRuntime::validate`, which runs `docker compose -f - config --quiet` with the draft on stdin and cwd = the stack dir), the save/create/delete kinds and `RevealEnv` (audited) in `apps/depths/server/src/ops.rs`. Add mock-runner tests that compose errors with line numbers are passed through, and that writes go through `write_atomic` with `base_hash`.
+- [X] T060 [US3] Implement `PreviewSave` (validation via `ContainerRuntime::validate`, which runs `docker compose -f - config --quiet` with the draft on stdin and cwd = the stack dir), the save/create/delete kinds and `RevealEnv` (audited) in `apps/depths/server/src/ops.rs`. Add mock-runner tests that compose errors with line numbers are passed through, and that writes go through `write_atomic` with `base_hash`.
 - [X] T061 [US3] Build the editor in `apps/depths/web/src/features/editor/{ComposeEditor,EnvEditor}.tsx`:
   - CodeMirror 6 with `@codemirror/lang-yaml` and `@codemirror/lint`, fed by client-side `yaml` parse errors plus server errors.
   - Loaded with `React.lazy`.
