@@ -90,6 +90,34 @@ pub struct Flags {
     /// [env: DEPTHS_COMPOSE_POLICY] [default: warn]
     #[arg(long)]
     pub compose_policy: Option<String>,
+    /// Image the volume helper runs [env: DEPTHS_HELPER_IMAGE] [default: Depths' own image]
+    #[arg(long)]
+    pub helper_image: Option<String>,
+    /// Largest file opened in the editor [env: DEPTHS_FILES_EDITOR_MAX] [default: 2MiB]
+    #[arg(long)]
+    pub files_editor_max: Option<String>,
+    /// Largest file or folder download [env: DEPTHS_FILES_DOWNLOAD_MAX] [default: 2GiB]
+    #[arg(long)]
+    pub files_download_max: Option<String>,
+    /// Largest upload, per file [env: DEPTHS_FILES_UPLOAD_MAX] [default: 1GiB]
+    #[arg(long)]
+    pub files_upload_max: Option<String>,
+    /// Files larger than this keep no history [env: DEPTHS_FILES_HISTORY_FILE_MAX]
+    /// [default: 10MiB]
+    #[arg(long)]
+    pub files_history_file_max: Option<String>,
+    /// Versions kept per file [env: DEPTHS_FILES_HISTORY_VERSIONS] [default: 20]
+    #[arg(long)]
+    pub files_history_versions: Option<String>,
+    /// Total size of file history [env: DEPTHS_FILES_HISTORY_TOTAL] [default: 1GiB]
+    #[arg(long)]
+    pub files_history_total: Option<String>,
+    /// Days a version is kept [env: DEPTHS_FILES_HISTORY_DAYS] [default: 30]
+    #[arg(long)]
+    pub files_history_days: Option<String>,
+    /// Volume helpers running at once [env: DEPTHS_FILES_HELPERS] [default: 8]
+    #[arg(long)]
+    pub files_helpers: Option<String>,
 }
 
 /// Why start-up refused.
@@ -192,6 +220,56 @@ impl fmt::Display for Owner {
 pub struct Features {
     pub shell: bool,
     pub edit: bool,
+    /// 053 FR-022: `DEPTHS_FEATURE_FILES`.
+    pub files: FilesMode,
+}
+
+/// How much of the volume explorer is on (053 FR-022). Not a boolean: `read_only` keeps
+/// browsing, reading and downloading and refuses every change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FilesMode {
+    Off,
+    /// List, read, download.
+    ReadOnly,
+    #[default]
+    Full,
+}
+
+impl FilesMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::ReadOnly => "read_only",
+            Self::Full => "full",
+        }
+    }
+
+    /// `off`, `read_only` or `full`, any case.
+    pub fn parse(v: &str) -> Option<Self> {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "off" => Some(Self::Off),
+            "read_only" => Some(Self::ReadOnly),
+            "full" => Some(Self::Full),
+            _ => None,
+        }
+    }
+}
+
+/// The volume explorer's limits (053 contracts/config.md).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilesSettings {
+    /// `DEPTHS_HELPER_IMAGE`. `None` runs the helper from Depths' own image (R2).
+    pub helper_image: Option<String>,
+    pub editor_max: u64,
+    pub download_max: u64,
+    pub upload_max: u64,
+    /// Larger files get no history.
+    pub history_file_max: u64,
+    pub history_versions: u32,
+    pub history_total: u64,
+    pub history_days: u32,
+    /// At most this many helpers at once.
+    pub helpers: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +300,8 @@ pub struct Config {
     pub shell_policy: ShellPolicy,
     /// 051 FR-017: `DEPTHS_COMPOSE_POLICY`.
     pub compose_policy: ComposePolicy,
+    /// The volume explorer (spec 053).
+    pub files: FilesSettings,
     /// `(setting, where it came from)`, for the start-up log. Never a secret value.
     pub sources: Vec<(&'static str, String)>,
 }
@@ -377,6 +457,97 @@ fn network_settings(
         },
         geoip_db,
     })
+}
+
+/// The 053 limits. Sizes take [`parse_bytes`]' units; counts are whole numbers above zero.
+fn files_settings(r: &mut Resolver<'_>, flags: FilesFlags) -> Result<FilesSettings, ConfigError> {
+    let mut size = |setting: &'static str, flag, name: &str, default: u64| match r.pick(
+        setting,
+        flag,
+        &[name],
+    ) {
+        Some(v) => parse_bytes(name, &v),
+        None => Ok(default),
+    };
+    let editor_max = size(
+        "files_editor_max",
+        flags.editor_max,
+        "DEPTHS_FILES_EDITOR_MAX",
+        2 << 20,
+    )?;
+    let download_max = size(
+        "files_download_max",
+        flags.download_max,
+        "DEPTHS_FILES_DOWNLOAD_MAX",
+        2 << 30,
+    )?;
+    let upload_max = size(
+        "files_upload_max",
+        flags.upload_max,
+        "DEPTHS_FILES_UPLOAD_MAX",
+        1 << 30,
+    )?;
+    let history_file_max = size(
+        "files_history_file_max",
+        flags.history_file_max,
+        "DEPTHS_FILES_HISTORY_FILE_MAX",
+        10 << 20,
+    )?;
+    let history_total = size(
+        "files_history_total",
+        flags.history_total,
+        "DEPTHS_FILES_HISTORY_TOTAL",
+        1 << 30,
+    )?;
+    let mut count = |setting: &'static str, flag, name: &str, default: u32| match r.pick(
+        setting,
+        flag,
+        &[name],
+    ) {
+        Some(v) => match v.trim().parse::<u32>() {
+            Ok(n) if n > 0 => Ok(n),
+            _ => refuse(format!("{name}: `{v}` is not a whole number above zero")),
+        },
+        None => Ok(default),
+    };
+    let history_versions = count(
+        "files_history_versions",
+        flags.history_versions,
+        "DEPTHS_FILES_HISTORY_VERSIONS",
+        20,
+    )?;
+    let history_days = count(
+        "files_history_days",
+        flags.history_days,
+        "DEPTHS_FILES_HISTORY_DAYS",
+        30,
+    )?;
+    let helpers = count("files_helpers", flags.helpers, "DEPTHS_FILES_HELPERS", 8)?;
+    let helper_image = r.pick("helper_image", flags.helper_image, &["DEPTHS_HELPER_IMAGE"]);
+    Ok(FilesSettings {
+        helper_image,
+        editor_max,
+        download_max,
+        upload_max,
+        history_file_max,
+        history_versions,
+        history_total,
+        history_days,
+        helpers,
+    })
+}
+
+/// The 053 flags, moved out of [`Flags`] together.
+struct FilesFlags {
+    helper_image: Option<String>,
+    editor_max: Option<String>,
+    download_max: Option<String>,
+    upload_max: Option<String>,
+    history_file_max: Option<String>,
+    history_versions: Option<String>,
+    history_total: Option<String>,
+    history_days: Option<String>,
+    helpers: Option<String>,
 }
 
 fn parse_bool(name: &str, v: &str) -> Result<bool, ConfigError> {
@@ -779,10 +950,39 @@ impl Config {
             None => Ok::<_, ConfigError>(default),
         };
         // A shell into a container is the most a session can do, so it is off unless asked for.
-        let features = Features {
-            shell: feature("feature_shell", "DEPTHS_FEATURE_SHELL", false)?,
-            edit: feature("feature_edit", "DEPTHS_FEATURE_EDIT", true)?,
+        let shell = feature("feature_shell", "DEPTHS_FEATURE_SHELL", false)?;
+        let edit = feature("feature_edit", "DEPTHS_FEATURE_EDIT", true)?;
+        let files_mode = match r.var("DEPTHS_FEATURE_FILES") {
+            Some(v) => {
+                r.sources
+                    .push(("feature_files", "DEPTHS_FEATURE_FILES".to_owned()));
+                FilesMode::parse(&v).ok_or_else(|| {
+                    ConfigError(format!(
+                        "DEPTHS_FEATURE_FILES: `{v}` is not off, read_only or full"
+                    ))
+                })?
+            }
+            None => FilesMode::default(),
         };
+        let features = Features {
+            shell,
+            edit,
+            files: files_mode,
+        };
+        let files = files_settings(
+            &mut r,
+            FilesFlags {
+                helper_image: flags.helper_image,
+                editor_max: flags.files_editor_max,
+                download_max: flags.files_download_max,
+                upload_max: flags.files_upload_max,
+                history_file_max: flags.files_history_file_max,
+                history_versions: flags.files_history_versions,
+                history_total: flags.files_history_total,
+                history_days: flags.files_history_days,
+                helpers: flags.files_helpers,
+            },
+        )?;
 
         // Off unless asked for: the host's /proc also shows every process and its command line.
         let host_proc = r
@@ -882,6 +1082,7 @@ impl Config {
             otlp_endpoint,
             shell_policy,
             compose_policy,
+            files,
             sources: r.sources,
         })
     }
@@ -1025,7 +1226,8 @@ mod tests {
             c.features,
             Features {
                 shell: false,
-                edit: true
+                edit: true,
+                files: FilesMode::Full,
             },
             "the shell is off unless DEPTHS_FEATURE_SHELL turns it on"
         );
@@ -1378,6 +1580,121 @@ mod tests {
             .set("DEPTHS_HOST_PROC", "/nonexistent/depths-host-proc")
             .refusal();
         assert!(r.contains("DEPTHS_HOST_PROC"), "{r}");
+    }
+
+    #[test]
+    fn files_settings_default_per_the_contract() {
+        let c = Fixture::deploy().resolve().unwrap();
+        assert_eq!(c.features.files, FilesMode::Full);
+        assert_eq!(
+            c.files,
+            FilesSettings {
+                helper_image: None,
+                editor_max: 2 << 20,
+                download_max: 2 << 30,
+                upload_max: 1 << 30,
+                history_file_max: 10 << 20,
+                history_versions: 20,
+                history_total: 1 << 30,
+                history_days: 30,
+                helpers: 8,
+            }
+        );
+        for setting in [
+            "feature_files",
+            "helper_image",
+            "files_editor_max",
+            "files_history_days",
+        ] {
+            assert!(
+                !c.sources
+                    .iter()
+                    .any(|(s, v)| *s == setting && v != "default"),
+                "{setting}"
+            );
+        }
+    }
+
+    #[test]
+    fn files_settings_parse_from_env_and_flags() {
+        let c = Fixture::deploy()
+            .set("DEPTHS_FEATURE_FILES", "Read_Only")
+            .set("DEPTHS_HELPER_IMAGE", "ghcr.io/x/depths:1")
+            .set("DEPTHS_FILES_EDITOR_MAX", "4MiB")
+            .set("DEPTHS_FILES_DOWNLOAD_MAX", "1GB")
+            .set("DEPTHS_FILES_UPLOAD_MAX", "512KiB")
+            .set("DEPTHS_FILES_HISTORY_FILE_MAX", "1048576")
+            .set("DEPTHS_FILES_HISTORY_VERSIONS", "5")
+            .set("DEPTHS_FILES_HISTORY_TOTAL", "3GiB")
+            .set("DEPTHS_FILES_HISTORY_DAYS", "7")
+            .set("DEPTHS_FILES_HELPERS", "2")
+            .resolve()
+            .unwrap();
+        assert_eq!(c.features.files, FilesMode::ReadOnly);
+        assert_eq!(
+            c.files,
+            FilesSettings {
+                helper_image: Some("ghcr.io/x/depths:1".into()),
+                editor_max: 4 << 20,
+                download_max: 1_000_000_000,
+                upload_max: 512 << 10,
+                history_file_max: 1 << 20,
+                history_versions: 5,
+                history_total: 3 << 30,
+                history_days: 7,
+                helpers: 2,
+            }
+        );
+        assert!(
+            c.sources
+                .contains(&("feature_files", "DEPTHS_FEATURE_FILES".to_owned()))
+        );
+        assert_eq!(
+            Fixture::deploy()
+                .set("DEPTHS_FEATURE_FILES", "off")
+                .resolve()
+                .unwrap()
+                .features
+                .files,
+            FilesMode::Off
+        );
+
+        let c = Fixture::deploy()
+            .set("DEPTHS_FILES_HELPERS", "2")
+            .resolve_with(Flags {
+                files_helpers: Some("3".into()),
+                helper_image: Some("local/depths".into()),
+                ..Flags::default()
+            })
+            .unwrap();
+        assert_eq!(c.files.helpers, 3);
+        assert_eq!(c.files.helper_image.as_deref(), Some("local/depths"));
+        assert!(
+            c.sources
+                .contains(&("files_helpers", "--files-helpers".to_owned()))
+        );
+        assert!(
+            c.sources
+                .contains(&("helper_image", "--helper-image".to_owned()))
+        );
+    }
+
+    #[test]
+    fn invalid_files_settings_refuse_naming_the_variable() {
+        for (name, value) in [
+            ("DEPTHS_FEATURE_FILES", "readonly"),
+            ("DEPTHS_FILES_EDITOR_MAX", "big"),
+            ("DEPTHS_FILES_DOWNLOAD_MAX", "0"),
+            ("DEPTHS_FILES_UPLOAD_MAX", "1TiB"),
+            ("DEPTHS_FILES_HISTORY_FILE_MAX", "-1MiB"),
+            ("DEPTHS_FILES_HISTORY_VERSIONS", "0"),
+            ("DEPTHS_FILES_HISTORY_TOTAL", "1.5GiB"),
+            ("DEPTHS_FILES_HISTORY_DAYS", "month"),
+            ("DEPTHS_FILES_HELPERS", "-2"),
+        ] {
+            let r = Fixture::deploy().set(name, value).refusal();
+            assert!(r.contains(name), "{name}={value}: {r}");
+        }
     }
 
     #[test]

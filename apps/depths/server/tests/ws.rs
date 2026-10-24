@@ -509,7 +509,8 @@ async fn a_binary_frame_closes_1003() {
 async fn an_oversized_message_ends_the_socket() {
     let a = app();
     let (mut ws, server, _) = open(&a, OWNER).await;
-    let max = depths_server::ws::max_message_bytes(a.state.cfg.max_file_bytes);
+    let max =
+        depths_server::ws::message_cap(a.state.cfg.max_file_bytes, a.state.cfg.files.editor_max);
     let _ = ws.send(Message::text("x".repeat(max + 1))).await;
     match tokio::time::timeout(WAIT, async {
         loop {

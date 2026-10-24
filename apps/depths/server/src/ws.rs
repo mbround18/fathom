@@ -97,6 +97,13 @@ pub fn max_message_bytes(max_file_bytes: u64) -> usize {
     usize::try_from(n).unwrap_or(usize::MAX)
 }
 
+/// The socket's message cap: [`max_message_bytes`], or a file saved from the volume explorer's
+/// editor (at most `editor_max`) plus the envelope, whichever is larger (053 contracts/config.md).
+pub fn message_cap(max_file_bytes: u64, editor_max: u64) -> usize {
+    let editor = usize::try_from(editor_max.saturating_add(64 * 1024)).unwrap_or(usize::MAX);
+    max_message_bytes(max_file_bytes).max(editor)
+}
+
 pub async fn upgrade(
     State(app): State<AppState>,
     addr: Option<Extension<ClientAddr>>,
@@ -112,7 +119,7 @@ pub async fn upgrade(
     };
     let ip = addr.map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |Extension(a)| a.0);
     let session = app.auth.session(&headers);
-    let max = max_message_bytes(app.cfg.max_file_bytes);
+    let max = message_cap(app.cfg.max_file_bytes, app.cfg.files.editor_max);
     ws.max_message_size(max)
         .max_frame_size(max)
         .on_upgrade(move |socket| run(app, session, ip, socket))
@@ -961,6 +968,16 @@ mod tests {
     fn the_message_cap_is_two_files_and_an_envelope() {
         assert_eq!(max_message_bytes(1024 * 1024), 2 * 1024 * 1024 + 64 * 1024);
         assert_eq!(max_message_bytes(u64::MAX), usize::MAX);
+    }
+
+    #[test]
+    fn the_message_cap_grows_to_fit_the_volume_editor() {
+        const MIB: u64 = 1024 * 1024;
+        // The defaults (1 MiB files, 2 MiB editor) land on the same cap.
+        assert_eq!(message_cap(MIB, 2 * MIB), 2 * 1024 * 1024 + 64 * 1024);
+        assert_eq!(message_cap(MIB, 8 * MIB), 8 * 1024 * 1024 + 64 * 1024);
+        assert_eq!(message_cap(4 * MIB, MIB), max_message_bytes(4 * MIB));
+        assert_eq!(message_cap(MIB, u64::MAX), usize::MAX);
     }
 
     #[test]
