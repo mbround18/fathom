@@ -38,6 +38,8 @@ export interface LogExplorerProps
   toolbarStart?: ReactNode
   /** Controls after the facets (a time window, a "new lines" count, …). */
   toolbarEnd?: ReactNode
+  /** Shown between the bar and the lines (a "stream ended" notice, …). */
+  banner?: ReactNode
   /** The caller's own narrowing, by index into `lines`; composes with the query. */
   filter?: (index: number) => boolean
   /** Whether `filter` currently narrows anything (it is skipped when false). */
@@ -63,6 +65,7 @@ export function LogExplorer({
   placeholder,
   toolbarStart,
   toolbarEnd,
+  banner,
   filter,
   filterActive = false,
   searchLabel = 'Search logs',
@@ -177,6 +180,7 @@ export function LogExplorer({
         )}
         {toolbarEnd}
       </div>
+      {banner}
       <LogView
         lines={lines}
         follow={follow}
