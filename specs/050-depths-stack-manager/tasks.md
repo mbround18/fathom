@@ -205,7 +205,7 @@ worktrees and merge each green.
   Accept the R14 aliases (`DOCKGE_STACKS_DIR`, `ORIGIN_URL`, `OAUTH_PROVIDER` + `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET`, `OWNER_USER_ID`) below the `DEPTHS_*` names: flag > `DEPTHS_*` > alias > default. `ORIGIN_URL` with no scheme means `https://`. Default listen `0.0.0.0:8080`. Log which name each setting came from, never a secret's value.
 
   Secrets are accepted via `*_FILE` and never logged. Add unit tests for each refusal, for alias precedence, and for a scheme-less `ORIGIN_URL`.
-- [ ] T036 Write `apps/depths/server/src/users.rs`, the users registry per data-model.md and research R6 (load, atomic 0600 write, owners, pinning, sign-in recording and the no-admin refusal done; `authorise`, `put`/`remove` and their audit still open):
+- [X] T036 Write `apps/depths/server/src/users.rs`, the users registry per data-model.md and research R6 (`authorise` is `Registry::access` + `role::permits`, read fresh per command in `ws.rs`; `put`/`remove` audit there):
   - Load `<data-dir>/users.json`; a missing file is an empty list, one that fails to parse refuses start with its path.
   - Write by temp file, fsync, rename, mode 0600, behind one async mutex. Depths is the only writer.
   - Merge in owners from config: always `admin`, never removable or demotable (`Denied`). Pin a `github:<login>` owner to its numeric id at first sign-in and record `pinned_from`.
@@ -222,14 +222,14 @@ worktrees and merge each green.
   - Serve static files from `--static-dir` with an SPA fallback.
   - Set security headers (CSP, nosniff, Referrer-Policy, X-Frame-Options).
   - Add integration tests: every non-exempt route without a session returns 401 (FR-028), and a mutating POST without `X-CSRF-Token` returns 403 (FR-034).
-- [ ] T038 Write `apps/depths/server/src/ws.rs`: the WebSocket upgrade (stub done: Origin, Hello, 4401/4403, close on session end; dispatch, 4429 and `SessionExpiring` open).
+- [X] T038 Write `apps/depths/server/src/ws.rs`: the WebSocket upgrade (done; the `StreamSink` for logs/shell/stats lands with those streams, which answer `Invalid` "not available yet" until then).
   - Check `Origin` against the public URL and require the session.
   - Handle `Hello{protocol_version, csrf_token}`, with close codes 4401, 4403 and 4429 (8 sockets per session).
   - Dispatch `CmdEnvelope`, authorising every command server-side against the users registry at the time of the command (FR-032, FR-033).
   - Implement `StreamSink` for the socket.
   - Send `SessionExpiring`.
   - Add tests for each close code, for a user's forged `Confirm` on an unassigned stack returning `Denied` and being audited, and for removing a user closing their sockets with 4403.
-- [ ] T039 Write `apps/depths/server/src/ops.rs`: the operation engine.
+- [X] T039 Write `apps/depths/server/src/ops.rs`: the operation engine.
   - Build a preview through `depths-core::plan`, and store it with a single-use id bound to `{session_id, stack_hash, expires_at = now + 5 min}`.
   - `Confirm` checks the binding, or returns `PreviewVoid{reason}`.
   - A per-stack mutex makes a second operation return `Busy{operation_id, actor}` (FR-014).
@@ -239,9 +239,9 @@ worktrees and merge each green.
   - A stack name that fails `valid_name` or path confinement is refused with `Invalid` and writes a `denied` audit entry (spec Edge Cases).
   - Exactly one audit entry per confirmed or denied operation (SC-003).
   - Add tests with a mock runner for: name and confinement refusals audited, binding (reuse, expiry, other session, hash changed), busy, concurrent ops on different stacks, verbatim stderr, and an audit entry for denied, failed and succeeded.
-- [ ] T040 Write `apps/depths/server/src/audit.rs`: the Depths `AuditEntry` per data-model.md, over `audit-log` with `RotateAtBytes`.
+- [X] T040 Write `apps/depths/server/src/audit.rs`: the Depths `AuditEntry` per data-model.md, over `audit-log` with `RotateAtBytes`.
   - Add a test that no `.env` value or file content ever reaches an entry, with a fixture `.env` holding `DB_PASSWORD=hunter2`. Assert that `hunter2` is absent from the log file bytes (FR-021, FR-035).
-- [ ] T041 Write `apps/depths/server/src/watch.rs`.
+- [X] T041 Write `apps/depths/server/src/watch.rs`.
   - Start `docker events --format '{{json .}}'` and a `notify` watcher on the stacks root when the first session connects. Stop both when the last disconnects.
   - Debounce changes 250 ms into one re-inventory, and broadcast `StacksChanged`.
   - Add a test with the mock runner that no docker process is spawned while no session is connected (SC-008).
@@ -267,13 +267,14 @@ Depths is exposed at `https://depth.boop.ninja` through Cloudflare and a tailnet
 the Docker socket (host root). Treat every request as hostile until it carries a valid session, and
 every signed-in person as limited to exactly their permission row. Each task below lands with tests.
 
-- [ ] T090 Rate and concurrency limits in `apps/depths/server/src/limits.rs`, keyed by the client IP
+- [X] T090 Rate and concurrency limits in `apps/depths/server/src/limits.rs`, keyed by the client IP
   from T091:
   - Per-IP token buckets: `/auth/login` and `/auth/callback/*` 10/min (burst 5), other `/auth/*` and
     `/api/*` 120/min, WebSocket upgrades 20/min. Excess returns 429 with `Retry-After`, no body
     detail. Static files are unlimited.
   - WebSocket: at most 8 sockets per session (4429, T038) and 32 per IP; at most 20 commands/s per
-    socket (burst 50), excess closes with 4429; at most 32 open streams per socket.
+    socket (burst 50), excess closes with 4429; at most 32 open streams per socket (open: lands with
+    the log/shell/stats streams).
   - Buckets live in memory, are bounded (LRU, 10,000 keys) and are swept, so they cannot be
     exhausted.
   - Tests for each limit, and for the sweep keeping memory bounded under 100,000 distinct IPs.
@@ -283,7 +284,7 @@ every signed-in person as limited to exactly their permission row. Each task bel
   trusted CIDR; otherwise use the peer address and ignore those headers. This IP feeds limits and
   the audit `source_ip`. Tests: a spoofed header from an untrusted peer is ignored, a chain through
   two trusted hops resolves to the client, and a malformed header falls back to the peer.
-- [ ] T092 Size and time limits in `app.rs`:
+- [X] T092 Size and time limits in `app.rs`:
   - HTTP request bodies: 16 KiB (the only POSTs are refresh and logout).
   - WebSocket messages: at most `2 × DEPTHS_MAX_FILE_BYTES + 64 KiB`; frames that are not text are
     refused.
@@ -372,9 +373,9 @@ Sign in and see each listed correctly. Then sign out and get redirected to sign-
   - Filtering by name and status.
   - At 360 px wide there is no horizontal scroll.
 - [X] T046 [P] [US1] Write a performance test in `apps/depths/web/tests/e2e/us1-stacks/scale.spec.ts`: the fake backend serves 200 stacks / 2,000 containers. Assert the first render is under 2 s and filter input is handled in under 100 ms (SC-004).
-- [ ] T047 [US1] Implement `ListStacks`/`GetStack` in `apps/depths/server/src/ws.rs` via `FsStackStore` + `containers_by_project` + `depths-core::status`, filtered to the person's assigned stacks (all for an admin; `foreign` and `standalone` empty for a user). Add a test that a user never receives an unassigned stack, and that foreign projects are those with no stack dir, or a `working_dir` outside the root, and that a project whose `working_dir` is a stack's directory but whose name differs is foreign with `elsewhere_of = <stack>`.
-- [ ] T087 [US1] Handle an unreachable runtime (FR-010) in `apps/depths/server/src/watch.rs` and `apps/depths/web/src/features/stacks/StackList.tsx`. When `docker ps` fails, send `RuntimeUnavailable{reason}` with docker's stderr verbatim, keep the last `Stacks` snapshot with `stale: true` and `as_of`, and show a banner. Clear it on the next successful inventory. Add a mock-runner test and an E2E case in `tests/e2e/us1-stacks/list.spec.ts`. Lifecycle previews are refused while the runtime is unavailable.
-- [ ] T048 [US1] Add path-identity detection in `apps/depths/server/src/watch.rs`: warn and send a banner event when a recognised stack's `com.docker.compose.project.working_dir` is under a different root (research R1). Add a test.
+- [X] T047 [US1] Implement `ListStacks`/`GetStack` in `apps/depths/server/src/ws.rs` via `FsStackStore` + `containers_by_project` + `depths-core::status`, filtered to the person's assigned stacks (all for an admin; `foreign` and `standalone` empty for a user). Add a test that a user never receives an unassigned stack, and that foreign projects are those with no stack dir, or a `working_dir` outside the root, and that a project whose `working_dir` is a stack's directory but whose name differs is foreign with `elsewhere_of = <stack>`.
+- [X] T087 [US1] Handle an unreachable runtime (FR-010) in `apps/depths/server/src/watch.rs` and `apps/depths/web/src/features/stacks/StackList.tsx`. When `docker ps` fails, send `RuntimeUnavailable{reason}` with docker's stderr verbatim, keep the last `Stacks` snapshot with `stale: true` and `as_of`, and show a banner. Clear it on the next successful inventory. Add a mock-runner test and an E2E case in `tests/e2e/us1-stacks/list.spec.ts`. Lifecycle previews are refused while the runtime is unavailable.
+- [X] T048 [US1] Add path-identity detection in `apps/depths/server/src/watch.rs`: warn and send a banner event when a recognised stack's `com.docker.compose.project.working_dir` is under a different root (research R1). Add a test.
 - [X] T049 [US1] Build the stack list UI in `apps/depths/web/src/features/stacks/{StackList,StackRow,StatusBadge,ForeignList}.tsx`:
   - A virtualised list using `@companion/ui` primitives.
   - Status uses both colour and text (WCAG AA).
@@ -407,7 +408,7 @@ confirming, the output streams and the status turns running, and the audit log h
   - Destructive options are off by default and named in the preview when on (FR-015).
   - A preview made before another person's edit is refused (`PreviewVoid`).
   - The preview expires after 5 minutes.
-- [ ] T054 [US2] Implement `PreviewOp`, `Confirm` and `Cancel` handling for lifecycle kinds in `apps/depths/server/src/ops.rs`, using T039's engine. Add a mock-runner test for each argv in research R2, including `global.env` flags and per-service ops carrying `[env-files]`.
+- [X] T054 [US2] Implement `PreviewOp`, `Confirm` and `Cancel` handling for lifecycle kinds in `apps/depths/server/src/ops.rs`, using T039's engine. Add a mock-runner test for each argv in research R2, including `global.env` flags and per-service ops carrying `[env-files]`.
 - [X] T055 [US2] Build the preview dialog in `apps/depths/web/src/features/stacks/PreviewDialog.tsx`, shared by US3:
   - Argv rendered copyable, one step per line.
   - cwd.
