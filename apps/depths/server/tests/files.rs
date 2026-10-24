@@ -661,3 +661,443 @@ fn a_helper_without_openat2_turns_the_feature_off() {
     assert_eq!(a.state.files.mode(), FilesMode::Off);
     assert_eq!(a.state.files.reason().as_deref(), Some(files::NO_OPENAT2));
 }
+
+// ---------------------------------------------------------------------------
+// Browse, read and download through a fake helper (T030)
+// ---------------------------------------------------------------------------
+
+#[path = "../../volume-helper/tests/cases/mod.rs"]
+mod cases;
+
+mod browse {
+    use super::*;
+
+    use std::collections::HashMap;
+    use std::os::unix::fs::MetadataExt;
+    use std::sync::{Arc, Mutex};
+    use std::thread::JoinHandle;
+
+    use axum::body::Body;
+    use depths_core::ports::{
+        HelperChannel, HelperProcess, HelperSpec, OpMode, RuntimeError, VolumeHelper,
+    };
+    use depths_protocol::{BinaryReason, MountId};
+    use depths_runtime_cli::helper::{HELPER_IDLE, HelperPool, SystemClock};
+    use http::{StatusCode, header};
+
+    use super::cases::{Access, Expect, build_tree, cases, snapshot};
+    use super::support::ws;
+
+    /// Runs the real helper's `serve` on a thread over pipes, rooted at the folder its source
+    /// maps to, and records every spec it was started with.
+    #[derive(Default)]
+    struct FakeVolumeHelper {
+        roots: HashMap<String, PathBuf>,
+        specs: Mutex<Vec<HelperSpec>>,
+    }
+
+    struct Thread(Option<JoinHandle<i32>>);
+
+    impl HelperProcess for Thread {
+        fn close(mut self: Box<Self>) {
+            if let Some(t) = self.0.take() {
+                let _ = t.join();
+            }
+        }
+        fn kill(self: Box<Self>) {}
+    }
+
+    impl VolumeHelper for FakeVolumeHelper {
+        fn start(&self, spec: &HelperSpec) -> Result<HelperChannel, RuntimeError> {
+            self.specs.lock().unwrap().push(spec.clone());
+            let dir = match &spec.source {
+                HelperSource::Volume(name) => self.roots.get(name).cloned(),
+                HelperSource::Bind(path) => Some(path.clone()),
+            }
+            .ok_or(RuntimeError::Unsupported)?;
+            let root: std::os::fd::OwnedFd = std::fs::File::open(dir).unwrap().into();
+            let (in_r, in_w) = std::io::pipe().unwrap();
+            let (out_r, out_w) = std::io::pipe().unwrap();
+            let t = std::thread::spawn(move || depths_volume_helper::serve(root, in_r, out_w));
+            Ok(
+                HelperChannel::open(Box::new(out_r), Box::new(in_w), Box::new(Thread(Some(t))))
+                    .unwrap(),
+            )
+        }
+
+        fn volume_exists(&self, name: &str) -> Result<bool, RuntimeError> {
+            Ok(self.roots.contains_key(name))
+        }
+    }
+
+    struct Browse {
+        a: App,
+        helper: Arc<FakeVolumeHelper>,
+        root: PathBuf,
+        mount: MountId,
+        uid: u32,
+        _tree: tempfile::TempDir,
+    }
+
+    impl Browse {
+        fn specs(&self) -> Vec<HelperSpec> {
+            self.helper.specs.lock().unwrap().clone()
+        }
+        fn read(&self, w: &Who, p: &str) -> files::Answer<depths_protocol::FileContent> {
+            files::read_file(&self.a.state, w, &stack(), &self.mount, &rel(p))
+        }
+        fn list(&self, w: &Who, p: &str) -> files::Answer<Vec<files::Page>> {
+            files::list_dir(&self.a.state, w, &stack(), &self.mount, &rel(p))
+        }
+    }
+
+    fn rel(p: &str) -> RelPath {
+        RelPath::parse(p).unwrap()
+    }
+
+    /// An app whose `valheim` stack mounts volume `valheim_saves`, backed by the escape tree.
+    async fn browse(env: &[(&str, &str)]) -> Browse {
+        let tree_dir = tempfile::tempdir().unwrap();
+        let tree = build_tree(tree_dir.path());
+        std::fs::write(tree.root.join("bin.dat"), b"\x00\x01\x02binary").unwrap();
+        let a = app_with_env(env, |_| {});
+        a.sign_in(OWNER).await;
+        let helper = Arc::new(FakeVolumeHelper {
+            roots: HashMap::from([("valheim_saves".to_owned(), tree.root.clone())]),
+            ..Default::default()
+        });
+        let pool = HelperPool::new(helper.clone(), Arc::new(SystemClock), 8, HELPER_IDLE);
+        a.state.files.install(helper.clone(), pool);
+        a.set_containers(vec![support::container(
+            "valheim",
+            "valheim",
+            "running",
+            "Up 1 hour",
+        )]);
+        a.set_inspect(
+            "valheim-valheim-id",
+            serde_json::json!({"Mounts": [{
+                "Type": "volume", "Name": "valheim_saves", "Source": "/x",
+                "Destination": "/config", "RW": true,
+            }]}),
+        );
+        let mounts = files::list_mounts(&a.state, &admin(), &stack()).unwrap();
+        assert_eq!(mounts.len(), 1);
+        assert_eq!(mounts[0].state, MountState::Ready);
+        let uid = std::fs::metadata(&tree.root).unwrap().uid();
+        Browse {
+            a,
+            helper,
+            root: tree.root,
+            mount: mounts[0].id.clone(),
+            uid,
+            _tree: tree_dir,
+        }
+    }
+
+    #[tokio::test]
+    async fn list_mounts_dir_pages_and_read_over_the_socket() {
+        let b = browse(&[]).await;
+        let (mut s, _server, _) = ws::open(&b.a, OWNER).await;
+        let r = ws::ask(
+            &mut s,
+            1,
+            serde_json::json!({
+                "type": "ListMounts", "data": {"stack": "valheim"},
+            }),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "Mounts", "{r}");
+        let m = &r["event"]["data"]["mounts"][0];
+        assert_eq!(m["id"], serde_json::json!(b.mount));
+        assert_eq!(m["source"], "valheim_saves");
+        assert_eq!(m["state"], "ready");
+
+        let r = ws::ask(
+            &mut s,
+            2,
+            serde_json::json!({
+                "type": "ListDir",
+                "data": {"stack": "valheim", "mount": b.mount, "path": "sub", "req": 41},
+            }),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "DirPage", "{r}");
+        let page = &r["event"]["data"];
+        assert_eq!(page["req"], 41);
+        assert_eq!(page["path"], "sub");
+        assert_eq!(page["last"], true);
+        let names: Vec<&str> = page["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["name"].as_str())
+            .collect();
+        assert_eq!(names[0], "deep", "folders first: {names:?}");
+        assert!(names.contains(&"b.txt"), "{names:?}");
+
+        let r = ws::ask(
+            &mut s,
+            3,
+            serde_json::json!({
+                "type": "ReadFile",
+                "data": {"stack": "valheim", "mount": b.mount, "path": "a.txt", "req": 7},
+            }),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "FileContent", "{r}");
+        assert_eq!(r["event"]["data"]["req"], 7);
+        assert!(r["event"]["data"]["file"]["text"].is_string(), "{r}");
+    }
+
+    #[tokio::test]
+    async fn a_big_folder_arrives_in_pages() {
+        let b = browse(&[]).await;
+        let big = b.root.join("big");
+        std::fs::create_dir(&big).unwrap();
+        for i in 0..5_001 {
+            std::fs::write(big.join(format!("f{i:05}")), b"").unwrap();
+        }
+        let pages = b.list(&admin(), "big").unwrap();
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].entries.len(), 5_000);
+        assert!(!pages[0].last && pages[1].last);
+        assert_eq!((pages[0].page, pages[1].page), (0, 1));
+    }
+
+    #[tokio::test]
+    async fn read_decodes_text_binary_and_too_large_and_audits_the_read() {
+        let b = browse(&[("DEPTHS_FILES_EDITOR_MAX", "64")]).await;
+        std::fs::write(b.root.join("big.txt"), "x".repeat(100)).unwrap();
+
+        let text = b.read(&admin(), "sub/b.txt").unwrap();
+        assert!(text.text.is_some() && text.binary_reason.is_none());
+        let bin = b.read(&admin(), "bin.dat").unwrap();
+        assert_eq!(bin.binary_reason, Some(BinaryReason::Binary));
+        assert!(bin.text.is_none());
+        let big = b.read(&admin(), "big.txt").unwrap();
+        assert_eq!(big.binary_reason, Some(BinaryReason::TooLarge));
+        assert_eq!(big.size, 100);
+
+        let reads: Vec<_> =
+            b.a.audit_entries()
+                .into_iter()
+                .filter(|e| e.action == AuditAction::FilesRead)
+                .collect();
+        assert_eq!(reads.len(), 3);
+        let place = reads[0].file.as_ref().unwrap();
+        assert_eq!(place.source, "valheim_saves");
+        assert!(reads.iter().all(|e| e.outcome == AuditOutcome::Succeeded));
+        assert!(refused(&b.a).is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_root_is_stat_ed_as_nobody_and_the_rest_as_its_owner() {
+        let b = browse(&[]).await;
+        b.list(&admin(), "").unwrap();
+        b.read(&admin(), "sub/deep/c.txt").unwrap();
+        let specs = b.specs();
+        assert_eq!((specs[0].uid, specs[0].gid), files::NOBODY);
+        assert!(specs[1..].iter().all(|s| s.uid == b.uid), "{specs:?}");
+        assert!(specs.iter().all(|s| s.mode == OpMode::ReadOnly));
+        // The listing's owners are reused: reading its children starts no new helper.
+        let started = specs.len();
+        b.read(&admin(), "a.txt").unwrap();
+        assert_eq!(b.specs().len(), started);
+    }
+
+    #[tokio::test]
+    async fn an_owner_that_moved_is_owner_changed_and_forgotten() {
+        let b = browse(&[]).await;
+        let p = rel("a.txt");
+        b.a.state
+            .files
+            .note_owners(&stack(), &b.mount, [(p.clone(), (4242, 4242))]);
+        let err = *b.read(&admin(), "a.txt").unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::OwnerChanged));
+        assert_eq!(b.specs().last().unwrap().uid, 4242);
+        assert_eq!(b.a.state.files.owner(&stack(), &b.mount, &p), None);
+        assert_eq!(reason_of(&refused(&b.a)[0]), "owner_changed");
+        // The next read re-learns the owner and succeeds.
+        b.read(&admin(), "a.txt").unwrap();
+    }
+
+    #[tokio::test]
+    async fn every_refused_escape_case_is_one_files_refused_entry() {
+        let b = browse(&[]).await;
+        let tree_sentinels = [b.root.parent().unwrap().join("outside/secret.txt")];
+        let before = snapshot(&tree_sentinels);
+        let mut want = 0;
+        for case in cases() {
+            // Raw names are not opened in the editor; invalid paths never parse (see below);
+            // writes arrive with saving (US2).
+            if case.raw_name.is_some()
+                || case.expect == Expect::InvalidPath
+                || case.access == Access::Write
+            {
+                continue;
+            }
+            let path = RelPath::parse(case.path).unwrap();
+            let r = files::read_file(&b.a.state, &admin(), &stack(), &b.mount, &path);
+            let refused_now = match (&case.expect, case.access, &r) {
+                (Expect::OutsideMount, _, Err(e)) => {
+                    assert_eq!(
+                        **e,
+                        Event::FileRefused(FileRefusal::OutsideMount),
+                        "{}",
+                        case.name
+                    );
+                    true
+                }
+                (Expect::Blocked(_), _, Err(e)) => {
+                    assert!(
+                        matches!(**e, Event::FileRefused(FileRefusal::WriteBlocked { .. })),
+                        "{}: {e:?}",
+                        case.name
+                    );
+                    true
+                }
+                (Expect::NotFound, _, Err(e)) => {
+                    assert_eq!(
+                        **e,
+                        Event::FileRefused(FileRefusal::NotFound),
+                        "{}",
+                        case.name
+                    );
+                    true
+                }
+                // A stat-only case read as a file: whatever it is, it never leaves the root.
+                (_, Access::Stat, _) => r.is_err(),
+                (Expect::Inside, Access::Read, Ok(f)) => {
+                    assert!(
+                        !f.text.as_deref().unwrap_or("").contains("SENTINEL"),
+                        "{}",
+                        case.name
+                    );
+                    false
+                }
+                (_, _, r) => panic!("{}: unexpected {r:?}", case.name),
+            };
+            if refused_now {
+                want += 1;
+            }
+            assert_eq!(refused(&b.a).len(), want, "{}", case.name);
+        }
+        assert!(want >= 10, "only {want} refused cases ran");
+        assert_eq!(snapshot(&tree_sentinels), before);
+    }
+
+    #[tokio::test]
+    async fn an_invalid_path_is_refused_before_the_gate() {
+        let b = browse(&[]).await;
+        let (mut s, _server, _) = ws::open(&b.a, OWNER).await;
+        for p in ["..", "sub/..", "/etc/passwd"] {
+            let r = ws::ask(
+                &mut s,
+                1,
+                serde_json::json!({
+                    "type": "ReadFile",
+                    "data": {"stack": "valheim", "mount": b.mount, "path": p, "req": 1},
+                }),
+            )
+            .await;
+            assert_ne!(r["event"]["type"], "FileContent", "{p}: {r}");
+        }
+        assert!(b.specs().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_viewer_is_refused_and_the_restricted_view_may_list_but_not_read() {
+        let b = browse(&[]).await;
+        let viewer = who("3003", Role::User, &["other"], support::LOOPBACK);
+        let err = *b.read(&viewer, "a.txt").unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Event::Denied {
+                    reason: DenyReason::NotPermitted,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        assert!(files::list_mounts(&b.a.state, &viewer, &stack()).is_err());
+
+        b.a.sign_in_from(AWAY, OWNER).await;
+        let away = who(OWNER, Role::Admin, &[], CAFE);
+        files::list_mounts(&b.a.state, &away, &stack()).unwrap();
+        b.list(&away, "sub").unwrap();
+        let err = *b.read(&away, "a.txt").unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Event::Denied {
+                    reason: DenyReason::UntrustedNetwork,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+    }
+
+    fn download_uri(mount: &MountId, path: &str) -> String {
+        let q: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("mount", mount.as_str())
+            .append_pair("path", path)
+            .finish();
+        format!("/api/v1/stacks/valheim/files/download?{q}")
+    }
+
+    async fn body(r: http::Response<Body>) -> Vec<u8> {
+        axum::body::to_bytes(r.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec()
+    }
+
+    #[tokio::test]
+    async fn a_download_streams_the_file_with_safe_headers_and_is_audited() {
+        let b = browse(&[("DEPTHS_FILES_DOWNLOAD_MAX", "16")]).await;
+        let cookie = b.a.sign_in(OWNER).await;
+        std::fs::write(b.root.join("big.txt"), "x".repeat(17)).unwrap();
+
+        let r =
+            b.a.get(&download_uri(&b.mount, "sub/b.txt"), Some(&cookie))
+                .await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let h = r.headers().clone();
+        assert_eq!(h[header::CONTENT_TYPE], "application/octet-stream");
+        assert_eq!(h[header::CACHE_CONTROL], "no-store");
+        assert_eq!(h["x-content-type-options"], "nosniff");
+        let disposition = h[header::CONTENT_DISPOSITION].to_str().unwrap();
+        assert!(disposition.starts_with("attachment;"), "{disposition}");
+        assert!(disposition.contains("b.txt"), "{disposition}");
+        let want = std::fs::read(b.root.join("sub/b.txt")).unwrap();
+        assert_eq!(h[header::CONTENT_LENGTH], want.len().to_string().as_str());
+        assert_eq!(body(r).await, want);
+
+        let downloads: Vec<_> =
+            b.a.audit_entries()
+                .into_iter()
+                .filter(|e| e.action == AuditAction::FilesDownload)
+                .collect();
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(
+            downloads[0].file.as_ref().unwrap().bytes,
+            Some(want.len() as u64)
+        );
+
+        let r =
+            b.a.get(&download_uri(&b.mount, "big.txt"), Some(&cookie))
+                .await;
+        assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let r = b.a.get(&download_uri(&b.mount, "sub"), Some(&cookie)).await;
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        let r =
+            b.a.get(&download_uri(&b.mount, "link_out"), Some(&cookie))
+                .await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        let r = b.a.get(&download_uri(&b.mount, "a.txt"), None).await;
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
+}

@@ -10,22 +10,29 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use depths_core::StackName;
 use depths_core::plan::{self, StackContext};
-use depths_core::ports::{ContainerRuntime, RuntimeError, VolumeHelper};
+use depths_core::ports::{
+    ChannelError, ContainerRuntime, HelperChannel, HelperSpec, OpMode, RuntimeError, VolumeHelper,
+};
 use depths_core::role::{self, CommandKind};
 use depths_core::security::{self, Severity};
 use depths_protocol::{
-    AuditFile, Browsable, DenyReason, Event, FileRefusal, Mount, MountId, MountKind, MountService,
-    MountState, NotBrowsable, NotBrowsableCode, RelPath, RuntimeContainerState,
+    AuditAction, AuditFile, AuditOutcome, Browsable, DenyReason, EntryKind, Event, FileContent,
+    FileRefusal, Mount, MountId, MountKind, MountService, MountState, NotBrowsable,
+    NotBrowsableCode, RelPath, RuntimeContainerState, WriteBlocked,
 };
-use depths_runtime_cli::helper::{HELPER_IDLE, ImageId, SystemClock};
+use depths_runtime_cli::helper::{HELPER_IDLE, ImageId, OneShot, PoolError, SystemClock};
 use depths_runtime_cli::{CliRuntime, CliVolumeHelper, HelperPool};
+use depths_volumes::frame::{Frame, FrameError, FrameKind};
 use depths_volumes::mount::{BindRating, HelperSource, browsability};
-use depths_volumes::op::{Hello, HelperError};
+use depths_volumes::op::{Hello, HelperError, Op, Reply, StatInfo};
 
 use crate::audit;
 use crate::config::FilesMode;
 use crate::http::AppState;
 use crate::ops::Who;
+
+/// A mount's owners as listed, by path.
+type Owners = HashMap<RelPath, (u32, u32)>;
 
 /// The explorer's run-time state: the configured mode, lowered to `off` (with a reason admins
 /// see) when the helper cannot run here, and the helper pool once it is installed.
@@ -34,6 +41,8 @@ pub struct Files {
     pool: OnceLock<(Arc<dyn VolumeHelper>, HelperPool)>,
     /// Each stack's mounts as last discovered, so a command naming a mount id finds its source.
     known: Mutex<HashMap<StackName, Discovered>>,
+    /// Owners seen in listings, per mount, so the next op on a path runs as its owner (R5).
+    owners: Mutex<HashMap<(StackName, MountId), Owners>>,
 }
 
 impl Files {
@@ -42,6 +51,7 @@ impl Files {
             state: RwLock::new((mode, None)),
             pool: OnceLock::new(),
             known: Mutex::new(HashMap::new()),
+            owners: Mutex::new(HashMap::new()),
         }
     }
 
@@ -97,7 +107,49 @@ impl Files {
         let (m, src) = known.get(stack)?.get(id)?;
         Some((m.clone(), src.clone()))
     }
+
+    /// The uid:gid `path` had when it was last listed or stat-ed.
+    pub fn owner(&self, stack: &StackName, mount: &MountId, path: &RelPath) -> Option<(u32, u32)> {
+        let owners = self.owners.lock().unwrap();
+        owners
+            .get(&(stack.clone(), mount.clone()))?
+            .get(path)
+            .copied()
+    }
+
+    /// Remembers owners seen in a listing or a stat. A mount's map is dropped once it holds
+    /// [`OWNERS_MAX`] paths; later ops then stat their way down again.
+    pub fn note_owners(
+        &self,
+        stack: &StackName,
+        mount: &MountId,
+        seen: impl IntoIterator<Item = (RelPath, (u32, u32))>,
+    ) {
+        let mut owners = self.owners.lock().unwrap();
+        let map = owners.entry((stack.clone(), mount.clone())).or_default();
+        for (path, owner) in seen {
+            if map.len() >= OWNERS_MAX {
+                map.clear();
+            }
+            map.insert(path, owner);
+        }
+    }
+
+    /// Forgets `path`'s owner after the helper found it changed.
+    pub fn forget_owner(&self, stack: &StackName, mount: &MountId, path: &RelPath) {
+        if let Some(map) = self
+            .owners
+            .lock()
+            .unwrap()
+            .get_mut(&(stack.clone(), mount.clone()))
+        {
+            map.remove(path);
+        }
+    }
 }
+
+/// How many owners one mount's map keeps before it starts over.
+const OWNERS_MAX: usize = 100_000;
 
 // ---------------------------------------------------------------------------
 // The helper image (R2)
@@ -238,9 +290,23 @@ pub fn gate(
             detail: None,
         }));
     }
-    let Some(at) = at else {
-        return Ok(());
-    };
+    match at {
+        Some(at) => gate_mount(app, who, stack, kind, cmd, at),
+        None => Ok(()),
+    }
+}
+
+/// The mount half of [`gate`], for a command whose mount is looked up after the person passed:
+/// its state, whether it may be browsed and, for a write, whether any service mounts it
+/// read-write.
+pub fn gate_mount(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    kind: CommandKind,
+    cmd: &str,
+    at: At<'_>,
+) -> Result<(), Box<Event>> {
     let m = at.mount;
     let refusal = match m.state {
         MountState::NotCreated => Some(FileRefusal::NotCreated),
@@ -687,4 +753,463 @@ pub fn probe(helper: Option<&dyn VolumeHelper>, src: &HelperSource) -> Found {
             Err(_) => Found::Unknown,
         },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Browsing (US1)
+// ---------------------------------------------------------------------------
+
+/// The uid:gid a mount root is stat-ed as (R5): a stat of `/volume` needs no permission.
+pub const NOBODY: (u32, u32) = (65534, 65534);
+
+/// A file command's answers, or the refusal it ended with (already audited).
+pub type Answer<T> = Result<T, Box<Event>>;
+
+/// The mount a command names, as discovered.
+struct Target<'a> {
+    stack: &'a StackName,
+    mount: Mount,
+    source: HelperSource,
+}
+
+impl Target<'_> {
+    fn at<'p>(&'p self, path: &'p RelPath) -> At<'p> {
+        At {
+            mount: &self.mount,
+            path,
+        }
+    }
+}
+
+/// `ListMounts`: gate, then discover. Blocking.
+pub fn list_mounts(app: &AppState, who: &Who, stack: &StackName) -> Answer<Vec<Mount>> {
+    gate(app, who, stack, CommandKind::FilesList, "ListMounts", None)?;
+    match mounts(app, stack) {
+        Ok(found) => Ok(found.mounts),
+        Err(e) => {
+            tracing::warn!(error = %e, "mount discovery failed");
+            Err(Box::new(refuse(
+                app,
+                who,
+                stack,
+                "ListMounts",
+                None,
+                FileRefusal::HelperUnavailable {
+                    reason: "the stack's containers could not be read".into(),
+                },
+            )))
+        }
+    }
+}
+
+/// One page of a listing, as the helper sent it.
+pub struct Page {
+    pub entries: Vec<depths_protocol::Entry>,
+    pub page: u32,
+    pub last: bool,
+}
+
+/// `ListDir`: every page of `path`, run as the folder's owner. Blocking.
+pub fn list_dir(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: &MountId,
+    path: &RelPath,
+) -> Answer<Vec<Page>> {
+    const CMD: &str = "ListDir";
+    let t = target(app, who, stack, mount, path, CommandKind::FilesList, CMD)?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, CMD, Some(t.at(path)), r));
+    let owner = owner_of(app, &t, path).map_err(fail)?;
+    let pages = on_helper(app, &t, owner, |chan| {
+        if let Err(e) = recheck(chan, path, owner)? {
+            return Ok(Err(e));
+        }
+        let mut pages = Vec::new();
+        for n in 0.. {
+            let op = Op::List {
+                path: path.clone(),
+                page: n,
+            };
+            match ask(chan, &op)? {
+                Ok(Reply::Page {
+                    entries,
+                    page,
+                    last,
+                }) => {
+                    pages.push(Page {
+                        entries,
+                        page,
+                        last,
+                    });
+                    if last {
+                        break;
+                    }
+                }
+                Ok(_) => return Err(unexpected("List")),
+                Err(e) => return Ok(Err(e)),
+            }
+        }
+        Ok(Ok(pages))
+    });
+    let pages = settle(app, &t, path, pages).map_err(fail)?;
+    app.files.note_owners(
+        stack,
+        mount,
+        pages.iter().flat_map(|p| &p.entries).filter_map(|e| {
+            let child = e.name_b64.is_none().then(|| path.join(&e.name).ok())??;
+            Some((child, (e.uid, e.gid)))
+        }),
+    );
+    Ok(pages)
+}
+
+/// `ReadFile`: the file decoded for the editor, run as its owner; audited `files.read`.
+/// Blocking.
+pub fn read_file(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: &MountId,
+    path: &RelPath,
+) -> Answer<FileContent> {
+    const CMD: &str = "ReadFile";
+    let t = target(app, who, stack, mount, path, CommandKind::FilesRead, CMD)?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, CMD, Some(t.at(path)), r));
+    let owner = owner_of(app, &t, path).map_err(fail)?;
+    let max = app.cfg.files.editor_max;
+    let read = on_helper(app, &t, owner, |chan| {
+        let op = Op::Read {
+            path: path.clone(),
+            raw_name: None,
+            max,
+        };
+        match ask(chan, &op)? {
+            Ok(Reply::Content {
+                fingerprint,
+                owner,
+                write_blocked,
+                data,
+            }) => {
+                let bytes = if data { Some(drain(chan, max)?) } else { None };
+                Ok(Ok((fingerprint, owner, write_blocked, bytes)))
+            }
+            Ok(_) => Err(unexpected("Read")),
+            Err(e) => Ok(Err(e)),
+        }
+    });
+    let (fingerprint, found, blocked, bytes) = settle(app, &t, path, read).map_err(fail)?;
+    if (found.uid, found.gid) != owner {
+        app.files.forget_owner(stack, mount, path);
+        return Err(fail(FileRefusal::OwnerChanged));
+    }
+    let read_only = blocked.or((!t.mount.writable).then_some(WriteBlocked::ReadOnlyMount));
+    let file = FileContent::build(fingerprint, found, read_only, bytes.as_deref(), max);
+    let mut place = place(&t.mount, path);
+    place.bytes = Some(file.size);
+    let _ = app.audit.record(&audit::file(
+        who.actor.clone(),
+        who.ip,
+        AuditAction::FilesRead,
+        stack.as_str(),
+        place,
+        AuditOutcome::Succeeded,
+    ));
+    Ok(file)
+}
+
+/// A download on a helper of its own: the size and name, and the helper with the file's bytes
+/// waiting as Data… End.
+pub struct Download {
+    pub chan: OneShot,
+    pub size: u64,
+    pub name: String,
+}
+
+/// Why a download did not start, for the HTTP status.
+pub enum NoDownload {
+    /// Refused and audited, as a WS command would be.
+    Refused(Box<Event>),
+    /// A folder: downloads of folders arrive with uploads (T050).
+    Folder,
+}
+
+/// Opens `path` for download, as its owner, on a one-shot helper; audited `files.download` with
+/// the size. Blocking.
+pub fn open_download(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: &MountId,
+    path: &RelPath,
+) -> Result<Download, NoDownload> {
+    const CMD: &str = "download";
+    let t = target(app, who, stack, mount, path, CommandKind::FilesRead, CMD)
+        .map_err(NoDownload::Refused)?;
+    let fail = |r: FileRefusal| {
+        NoDownload::Refused(Box::new(refuse(app, who, stack, CMD, Some(t.at(path)), r)))
+    };
+    let owner = owner_of(app, &t, path).map_err(fail)?;
+    let Some(pool) = app.files.pool() else {
+        return Err(fail(unavailable(app)));
+    };
+    let mut chan = pool
+        .one_shot(&spec(&t, owner))
+        .map_err(|e| fail(start_failed(app, &t, e)))?;
+    app.files.check_hello(chan.hello()).map_err(fail)?;
+    let max = app.cfg.files.download_max;
+    let opened = (|| {
+        let info = match recheck(&mut chan, path, owner)? {
+            Ok(info) => info,
+            Err(e) => return Ok(Err(e)),
+        };
+        if info.kind == EntryKind::Dir {
+            return Ok(Ok(None));
+        }
+        let op = Op::Read {
+            path: path.clone(),
+            raw_name: None,
+            max,
+        };
+        match ask(&mut chan, &op)? {
+            Ok(Reply::Content {
+                fingerprint, data, ..
+            }) => Ok(Ok(Some((fingerprint.size(), data)))),
+            Ok(_) => Err(unexpected("Read")),
+            Err(e) => Ok(Err(e)),
+        }
+    })();
+    let (size, data) = match opened {
+        Ok(Ok(Some(opened))) => opened,
+        Ok(Ok(None)) => {
+            chan.close();
+            return Err(NoDownload::Folder);
+        }
+        Ok(Err(e)) => {
+            chan.close();
+            return Err(fail(helper_refusal(app, &t, path, e)));
+        }
+        Err(e) => {
+            chan.kill();
+            tracing::warn!(error = %e, "volume helper failed");
+            return Err(fail(FileRefusal::HelperUnavailable {
+                reason: "the volume helper failed".into(),
+            }));
+        }
+    };
+    if !data {
+        chan.close();
+        return Err(fail(FileRefusal::TooLarge { bytes: Some(size) }));
+    }
+    let mut place = place(&t.mount, path);
+    place.bytes = Some(size);
+    let _ = app.audit.record(&audit::file(
+        who.actor.clone(),
+        who.ip,
+        AuditAction::FilesDownload,
+        stack.as_str(),
+        place,
+        AuditOutcome::Succeeded,
+    ));
+    Ok(Download {
+        chan,
+        size,
+        name: path.file_name().unwrap_or("download").to_owned(),
+    })
+}
+
+/// Passes the person, finds the mount (discovering the stack's mounts when it is not known
+/// yet), then passes the mount.
+fn target<'a>(
+    app: &AppState,
+    who: &Who,
+    stack: &'a StackName,
+    mount: &MountId,
+    path: &RelPath,
+    kind: CommandKind,
+    cmd: &str,
+) -> Answer<Target<'a>> {
+    gate(app, who, stack, kind, cmd, None)?;
+    let found = app.files.known(stack, mount).or_else(|| {
+        mounts(app, stack).ok()?;
+        app.files.known(stack, mount)
+    });
+    let Some((m, source)) = found else {
+        return Err(Box::new(refuse(
+            app,
+            who,
+            stack,
+            cmd,
+            None,
+            FileRefusal::Missing,
+        )));
+    };
+    let t = Target {
+        stack,
+        mount: m,
+        source,
+    };
+    gate_mount(app, who, stack, kind, cmd, t.at(path))?;
+    Ok(t)
+}
+
+/// The uid:gid to act on `path` as: from the listing that led here, else a stat as its parent's
+/// owner, and the mount root stat-ed as [`NOBODY`].
+fn owner_of(app: &AppState, t: &Target<'_>, path: &RelPath) -> Result<(u32, u32), FileRefusal> {
+    if let Some(owner) = app.files.owner(t.stack, &t.mount.id, path) {
+        return Ok(owner);
+    }
+    let asker = match path.parent() {
+        Some(parent) => owner_of(app, t, &parent)?,
+        None => NOBODY,
+    };
+    let stat = on_helper(app, t, asker, |chan| stat(chan, path));
+    let info = settle(app, t, path, stat)?;
+    let owner = (info.owner.uid, info.owner.gid);
+    app.files
+        .note_owners(t.stack, &t.mount.id, [(path.clone(), owner)]);
+    Ok(owner)
+}
+
+/// What the helper answered, or why it could not answer.
+type Asked<T> = Result<Result<T, HelperError>, FileRefusal>;
+
+fn spec(t: &Target<'_>, (uid, gid): (u32, u32)) -> HelperSpec {
+    HelperSpec {
+        stack: t.stack.clone(),
+        source: t.source.clone(),
+        uid,
+        gid,
+        mode: OpMode::ReadOnly,
+    }
+}
+
+/// Runs `op` on the pooled helper for `t` as `owner`, after checking its `Hello`.
+fn on_helper<T>(
+    app: &AppState,
+    t: &Target<'_>,
+    owner: (u32, u32),
+    op: impl FnOnce(&mut HelperChannel) -> Result<Result<T, HelperError>, ChannelError>,
+) -> Asked<T> {
+    let Some(pool) = app.files.pool() else {
+        return Err(unavailable(app));
+    };
+    let mut hello = Ok(());
+    let ran = pool.run(&spec(t, owner), |chan| {
+        hello = app.files.check_hello(chan.hello());
+        match hello {
+            Ok(()) => op(chan).map(Some),
+            Err(_) => Ok(None),
+        }
+    });
+    match ran {
+        Ok(Some(answer)) => Ok(answer),
+        Ok(None) => Err(hello.err().unwrap_or_else(|| unavailable(app))),
+        Err(PoolError::Start(e)) => Err(start_failed(app, t, PoolError::Start(e))),
+        Err(PoolError::Channel(e)) => {
+            tracing::warn!(error = %e, "volume helper failed");
+            Err(FileRefusal::HelperUnavailable {
+                reason: "the volume helper failed".into(),
+            })
+        }
+    }
+}
+
+/// A helper error as the refusal to answer with; an owner that moved is forgotten.
+fn settle<T>(
+    app: &AppState,
+    t: &Target<'_>,
+    path: &RelPath,
+    asked: Asked<T>,
+) -> Result<T, FileRefusal> {
+    match asked? {
+        Ok(v) => Ok(v),
+        Err(e) => Err(helper_refusal(app, t, path, e)),
+    }
+}
+
+fn helper_refusal(app: &AppState, t: &Target<'_>, path: &RelPath, e: HelperError) -> FileRefusal {
+    if e == HelperError::OwnerChanged {
+        app.files.forget_owner(t.stack, &t.mount.id, path);
+    }
+    refusal_from_helper(e)
+}
+
+fn unavailable(app: &AppState) -> FileRefusal {
+    FileRefusal::HelperUnavailable {
+        reason: app.files.reason().unwrap_or_else(|| NO_IMAGE.into()),
+    }
+}
+
+/// A helper that did not start: its source is gone, or the helper cannot run.
+fn start_failed(app: &AppState, t: &Target<'_>, e: PoolError) -> FileRefusal {
+    if probe(app.files.helper().map(|h| h.as_ref()), &t.source) == Found::Missing {
+        return FileRefusal::Missing;
+    }
+    tracing::warn!(error = %e, "volume helper did not start");
+    FileRefusal::HelperUnavailable {
+        reason: "the volume helper did not start".into(),
+    }
+}
+
+/// Sends `op` and reads its answer: a Reply, or the helper's Error.
+fn ask(chan: &mut HelperChannel, op: &Op) -> Result<Result<Reply, HelperError>, ChannelError> {
+    chan.send(&Frame::json(FrameKind::Op, op)?)?;
+    let frame = chan.recv()?;
+    if frame.kind == FrameKind::Error {
+        return Ok(Err(frame.parse(FrameKind::Error)?));
+    }
+    Ok(Ok(frame.parse(FrameKind::Reply)?))
+}
+
+fn stat(
+    chan: &mut HelperChannel,
+    path: &RelPath,
+) -> Result<Result<StatInfo, HelperError>, ChannelError> {
+    let op = Op::Stat {
+        path: path.clone(),
+        raw_name: None,
+        hash: false,
+    };
+    match ask(chan, &op)? {
+        Ok(Reply::Stat(info)) => Ok(Ok(info)),
+        Ok(_) => Err(unexpected("Stat")),
+        Err(e) => Ok(Err(e)),
+    }
+}
+
+/// Re-checks with a stat that `path` is still owned by `owner` (R5).
+fn recheck(
+    chan: &mut HelperChannel,
+    path: &RelPath,
+    owner: (u32, u32),
+) -> Result<Result<StatInfo, HelperError>, ChannelError> {
+    Ok(stat(chan, path)?.and_then(|info| {
+        if (info.owner.uid, info.owner.gid) == owner {
+            Ok(info)
+        } else {
+            Err(HelperError::OwnerChanged)
+        }
+    }))
+}
+
+/// The Data… End after a `Content` reply, at most `max` bytes.
+pub fn drain(chan: &mut HelperChannel, max: u64) -> Result<Vec<u8>, ChannelError> {
+    let mut bytes = Vec::new();
+    loop {
+        let frame = chan.recv()?;
+        match frame.kind {
+            FrameKind::Data if (bytes.len() + frame.body.len()) as u64 <= max => {
+                bytes.extend_from_slice(&frame.body);
+            }
+            FrameKind::End => return Ok(bytes),
+            _ => return Err(unexpected("Data")),
+        }
+    }
+}
+
+fn unexpected(what: &str) -> ChannelError {
+    ChannelError::Protocol(FrameError::Io(std::io::Error::other(format!(
+        "unexpected answer to {what}"
+    ))))
 }

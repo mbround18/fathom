@@ -39,6 +39,7 @@ use tokio::time::Instant;
 use web_auth::session::{EndReason, Session};
 
 use crate::audit;
+use crate::files;
 use crate::http::{AppState, ClientAddr, error};
 use crate::inventory;
 #[allow(unused_imports)] // SOCKETS_*: named in the module docs.
@@ -807,11 +808,74 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             let r = app.users.remove(&target);
             vec![user_changed(conn, id, &target, r)]
         }
-        // Spec 053: the file handlers land with the helper pool.
-        Cmd::ListMounts { .. }
-        | Cmd::ListDir { .. }
-        | Cmd::ReadFile { .. }
-        | Cmd::FolderSize { .. }
+        Cmd::ListMounts { stack } => {
+            let Ok(stack) = depths_core::StackName::parse(stack.as_str()) else {
+                return vec![invalid(id, "not a stack name")];
+            };
+            let who = conn.who(access);
+            let app = app.clone();
+            let answer = blocking(move || {
+                files::list_mounts(&app, &who, &stack).map(|mounts| {
+                    vec![Event::Mounts {
+                        stack: stack.as_str().to_owned(),
+                        mounts,
+                    }]
+                })
+            });
+            answers(id, answer.await)
+        }
+        Cmd::ListDir {
+            stack,
+            mount,
+            path,
+            req,
+        } => {
+            let Ok(stack) = depths_core::StackName::parse(stack.as_str()) else {
+                return vec![invalid(id, "not a stack name")];
+            };
+            let who = conn.who(access);
+            let app = app.clone();
+            let answer = blocking(move || {
+                let pages = files::list_dir(&app, &who, &stack, &mount, &path)?;
+                Ok(pages
+                    .into_iter()
+                    .map(|p| Event::DirPage {
+                        req,
+                        mount: mount.clone(),
+                        path: path.clone(),
+                        entries: p.entries,
+                        page: p.page,
+                        last: p.last,
+                    })
+                    .collect())
+            });
+            answers(id, answer.await)
+        }
+        Cmd::ReadFile {
+            stack,
+            mount,
+            path,
+            req,
+        } => {
+            let Ok(stack) = depths_core::StackName::parse(stack.as_str()) else {
+                return vec![invalid(id, "not a stack name")];
+            };
+            let who = conn.who(access);
+            let app = app.clone();
+            let answer = blocking(move || {
+                let file = files::read_file(&app, &who, &stack, &mount, &path)?;
+                Ok(vec![Event::FileContent {
+                    req,
+                    mount,
+                    path,
+                    version: None,
+                    file,
+                }])
+            });
+            answers(id, answer.await)
+        }
+        // Spec 053: the rest of the file handlers land with their stories.
+        Cmd::FolderSize { .. }
         | Cmd::PreviewFileOp { .. }
         | Cmd::ListHistory { .. }
         | Cmd::ReadVersion { .. } => vec![conn.deny_reason(
@@ -820,6 +884,22 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             DenyReason::FeatureDisabled,
             "files are not available yet".into(),
         )],
+    }
+}
+
+/// Runs a blocking file command off the async workers.
+async fn blocking(
+    f: impl FnOnce() -> files::Answer<Vec<Event>> + Send + 'static,
+) -> Option<files::Answer<Vec<Event>>> {
+    tokio::task::spawn_blocking(f).await.ok()
+}
+
+/// A file command's events, or its refusal, as replies to `id`.
+fn answers(id: Option<RequestId>, answer: Option<files::Answer<Vec<Event>>>) -> Vec<EventEnvelope> {
+    match answer {
+        Some(Ok(events)) => events.into_iter().map(|e| reply(id, e)).collect(),
+        Some(Err(refused)) => vec![reply(id, *refused)],
+        None => vec![invalid(id, "the file command failed")],
     }
 }
 

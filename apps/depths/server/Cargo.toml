@@ -42,6 +42,7 @@ tower-http = { version = "0.7", features = ["fs", "limit", "timeout"] }
 opentelemetry = "0.33.1"
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics"] }
+futures-util = "0.3"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.34.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
@@ -50,9 +51,10 @@ uuid = { version = "1", features = ["v4"] }
 web-auth = { path = "../../../crates/web-auth" }
 
 [dev-dependencies]
+# The fake volume helper runs the real `serve` over pipes (spec 053 T030).
+depths-volume-helper = { path = "../volume-helper" }
 async-trait = "0.1"
 http-body-util = "0.1"
-futures-util = "0.3"
 tempfile = "3"
 tokio = { version = "1.54.1", features = ["full", "test-util"] }
 tokio-tungstenite = "0.30"

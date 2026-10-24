@@ -133,6 +133,8 @@ enum Outcome {
     Reply(&'static str),
     Denied(&'static str),
     Invalid,
+    /// `FileRefused` of this kind.
+    Refused(&'static str),
     /// `PreviewVoid{unknown}`: existence is not disclosed.
     Void,
     /// Accepted with no reply (stream input, stats, cancel).
@@ -305,11 +307,13 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
             Who::Admin if str_of(id) == format!("discord:{OWNER}") => Denied("owner"),
             Who::Admin => Reply("Users"),
         },
-        // Spec 053: placeholder until the file handlers land (T033 replaces these rows).
-        Cmd::ListMounts { .. }
-        | Cmd::ListDir { .. }
-        | Cmd::ReadFile { .. }
-        | Cmd::FolderSize { .. }
+        // Spec 053. The sample's mount is not one of the stack's: `missing`.
+        Cmd::ListMounts { stack } => gate(who, stack_place(stack), Reply("Mounts")),
+        Cmd::ListDir { stack, .. } | Cmd::ReadFile { stack, .. } => {
+            gate(who, stack_place(stack), Refused("missing"))
+        }
+        // Placeholders until their handlers land.
+        Cmd::FolderSize { .. }
         | Cmd::PreviewFileOp { .. }
         | Cmd::ListHistory { .. }
         | Cmd::ReadVersion { .. } => Denied(FEATURE_DISABLED),
@@ -637,22 +641,23 @@ fn observe(replies: &[Value]) -> Result<Outcome, String> {
                     _ => return Err(format!("{e}")),
                 },
                 "Invalid" => Invalid,
+                "FileRefused" if d["kind"] == "missing" => Refused("missing"),
                 "PreviewVoid" if d["reason"] == "unknown" => Void,
                 "Stacks" | "StackDetail" | "EnvRevealed" | "Preview" | "OpStarted"
-                | "StreamOpened" | "StreamClosed" | "AuditPage" | "Users" | "LintResult" => {
-                    Reply(match ty {
-                        "Stacks" => "Stacks",
-                        "StackDetail" => "StackDetail",
-                        "EnvRevealed" => "EnvRevealed",
-                        "Preview" => "Preview",
-                        "OpStarted" => "OpStarted",
-                        "StreamOpened" => "StreamOpened",
-                        "StreamClosed" => "StreamClosed",
-                        "AuditPage" => "AuditPage",
-                        "LintResult" => "LintResult",
-                        _ => "Users",
-                    })
-                }
+                | "StreamOpened" | "StreamClosed" | "AuditPage" | "Users" | "LintResult"
+                | "Mounts" => Reply(match ty {
+                    "Stacks" => "Stacks",
+                    "StackDetail" => "StackDetail",
+                    "EnvRevealed" => "EnvRevealed",
+                    "Preview" => "Preview",
+                    "OpStarted" => "OpStarted",
+                    "StreamOpened" => "StreamOpened",
+                    "StreamClosed" => "StreamClosed",
+                    "AuditPage" => "AuditPage",
+                    "LintResult" => "LintResult",
+                    "Mounts" => "Mounts",
+                    _ => "Users",
+                }),
                 _ => return Err(format!("{e}")),
             })
         }
@@ -1154,6 +1159,11 @@ const ROUTES: &[Route] = &[
         probe: "/api/v1/audit/export",
     },
     Route {
+        kind: "get",
+        path: "/api/v1/stacks/{stack}/files/download",
+        probe: "/api/v1/stacks/web/files/download?mount=dd4b12a5169c0658&path=a.cfg",
+    },
+    Route {
         kind: "post",
         path: "/auth/logout",
         probe: "/auth/logout",
@@ -1219,6 +1229,12 @@ fn http_expected(route: &Route, v: Visitor) -> u16 {
             Visitor::SignedOut => 401,
             Visitor::Pending | Visitor::User => 403,
             Visitor::Admin => 200,
+        },
+        // The sample's mount is not one of the stack's.
+        "/api/v1/stacks/{stack}/files/download" => match v {
+            Visitor::SignedOut => 401,
+            Visitor::Pending => 403,
+            Visitor::User | Visitor::Admin => 404,
         },
         // A plain GET is not an upgrade; who you are is checked after the Hello.
         "/api/v1/ws" => 426,

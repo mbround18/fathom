@@ -203,6 +203,7 @@ pub fn router(state: AppState) -> Router {
     let api_limited = Router::new()
         .route("/api/v1/me", get(me))
         .route("/api/v1/audit/export", get(audit_export))
+        .route("/api/v1/stacks/{stack}/files/download", get(download))
         .route("/auth/logout", post(logout))
         .route("/auth/refresh", post(refresh))
         .merge(crate::network_routes::routes())
@@ -423,6 +424,144 @@ async fn audit_export(
         }
         Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
     }
+}
+
+#[derive(Deserialize)]
+struct DownloadQuery {
+    mount: depths_protocol::MountId,
+    path: depths_protocol::RelPath,
+}
+
+/// `GET /api/v1/stacks/{stack}/files/download?mount=&path=` (spec 053): one file, streamed from a
+/// helper of its own as it reads, never buffered whole. Gated as `ReadFile` is; audited
+/// `files.download` with the size. A folder is refused until folder downloads land (T050).
+async fn download(
+    State(app): State<AppState>,
+    SessionUser(session): SessionUser,
+    ClientAddrExt(ip): ClientAddrExt,
+    Path(stack): Path<String>,
+    query: Result<Query<DownloadQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let (Ok(stack), Ok(Query(q))) = (depths_core::StackName::parse(&stack), query) else {
+        return error(StatusCode::BAD_REQUEST, "invalid_request");
+    };
+    let sign_in = SignIn::from_identity(&session.identity);
+    let who = crate::ops::Who {
+        session: session.id.clone(),
+        user: sign_in.id(),
+        access: app.users.access(&sign_in.id()),
+        actor: crate::audit::actor_of(&session.identity),
+        ip,
+    };
+    let a = app.clone();
+    let opened = tokio::task::spawn_blocking(move || {
+        crate::files::open_download(&a, &who, &stack, &q.mount, &q.path)
+    })
+    .await;
+    let d = match opened {
+        Ok(Ok(d)) => d,
+        Ok(Err(crate::files::NoDownload::Folder)) => {
+            return error(StatusCode::BAD_REQUEST, "folder");
+        }
+        Ok(Err(crate::files::NoDownload::Refused(event))) => return refused(&event),
+        Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+    };
+    let (size, name) = (d.size, d.name.clone());
+    // Two frames in flight: the helper reads only as fast as the client takes them.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(2);
+    tokio::task::spawn_blocking(move || pump(d.chan, &tx));
+    let body =
+        axum::body::Body::from_stream(futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx)));
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (header::CONTENT_LENGTH, size.to_string()),
+            (header::CACHE_CONTROL, "no-store".to_owned()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            (header::CONTENT_DISPOSITION, attachment(&name)),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// Feeds a download's Data frames to the response until End, then closes the helper. A client
+/// that goes away, or a helper that breaks, kills it.
+fn pump(
+    mut chan: depths_runtime_cli::helper::OneShot,
+    tx: &tokio::sync::mpsc::Sender<Result<Vec<u8>, std::io::Error>>,
+) {
+    use depths_volumes::frame::FrameKind;
+    loop {
+        match chan.recv() {
+            Ok(f) if f.kind == FrameKind::Data => {
+                if tx.blocking_send(Ok(f.body)).is_err() {
+                    chan.kill();
+                    return;
+                }
+            }
+            Ok(f) if f.kind == FrameKind::End => {
+                chan.close();
+                return;
+            }
+            other => {
+                if let Err(e) = other {
+                    tracing::warn!(error = %e, "download broke off");
+                }
+                let _ = tx.blocking_send(Err(std::io::Error::other("the volume helper failed")));
+                chan.kill();
+                return;
+            }
+        }
+    }
+}
+
+/// `Content-Disposition` for `name`: an ASCII fallback, and the exact name per RFC 5987.
+fn attachment(name: &str) -> String {
+    let plain: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._-".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mut exact = String::new();
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || b"._-~".contains(&b) {
+            exact.push(b as char);
+        } else {
+            exact.push_str(&format!("%{b:02X}"));
+        }
+    }
+    format!("attachment; filename=\"{plain}\"; filename*=UTF-8''{exact}")
+}
+
+/// A file refusal as an HTTP error: the refusal's code, with the status it means.
+fn refused(event: &depths_protocol::Event) -> Response {
+    use depths_protocol::{DenyReason, Event, FileRefusal};
+    let (status, code) = match event {
+        Event::Denied { reason, .. } => match reason {
+            DenyReason::FeatureDisabled => (StatusCode::NOT_FOUND, "feature_disabled"),
+            DenyReason::UntrustedNetwork => (StatusCode::FORBIDDEN, "untrusted_network"),
+            _ => (StatusCode::FORBIDDEN, "forbidden"),
+        },
+        Event::FileRefused(r) => match r {
+            FileRefusal::TooLarge { .. } => (StatusCode::PAYLOAD_TOO_LARGE, "too_large"),
+            FileRefusal::Missing | FileRefusal::NotFound | FileRefusal::NotCreated => {
+                (StatusCode::NOT_FOUND, "not_found")
+            }
+            FileRefusal::OutsideMount => (StatusCode::FORBIDDEN, "outside_mount"),
+            FileRefusal::HelperUnavailable { .. } => {
+                (StatusCode::SERVICE_UNAVAILABLE, "helper_unavailable")
+            }
+            _ => (StatusCode::CONFLICT, "refused"),
+        },
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+    };
+    error(status, code)
 }
 
 /// The resolved client address as an extractor (set by [`client_ip_layer`]).
