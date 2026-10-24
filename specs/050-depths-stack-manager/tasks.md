@@ -355,10 +355,41 @@ every signed-in person as limited to exactly their permission row. Each task bel
   the network. The steam deploy (ansible 7ebac57) binds the same way behind its tailscale sidecar.
   HOME is `/var/lib/depths` (the data volume), so the docker CLI's config dir stays writable under
   `read_only`.
-- [ ] T099 (gate before deploy) An adversarial security review of `apps/depths/server`,
+- [X] T099 (gate before deploy) An adversarial security review of `apps/depths/server`,
   `crates/web-auth` and `crates/depths-*` by a reviewer who did not write the code, against
   T090–T097, the T075 sweep and the OWASP ASVS L2 session, access-control and input sections.
   Fix every confirmed finding, or record why not in this file.
+  - Review done (ASVS L2 V2/V3, V4, V5, V8, V13, V14; server, web app, Dockerfile, compose).
+    Fixed, each with a test written first:
+    - F1 (medium): sign-ins that nobody admitted could fill the global session cap (50) and
+      lock the admins out. At the cap, an admitted person's sign-in now ends the least recently
+      seen unadmitted session; anyone else still gets 503.
+    - F9 (medium): `diff_summary` was always empty (FR-035). Saves and creates now audit the
+      lines added and removed, a sha256 of the new compose file, the `.env` keys added, changed
+      and removed (never values) and the base hash.
+    - F5 (medium): a quoted multi-line `.env` secret (a PEM key) was masked on its first line
+      only, so anyone with View read the rest without the audited reveal. It is now masked
+      whole, and an unterminated quote masks to the end of the file.
+    Recorded, not fixed:
+    - F4 (design limit): Edit is host root. A compose file can ask for `privileged`, a bind
+      mount of `/` or the Docker socket, or an `env_file` that reads Depths' own data, and the
+      socket proxy must allow container creation. Grant Edit only to people you would give root;
+      F9's audit summary shows who changed what.
+    - F2 (low): a pending sign-in is not bound to its provider. Not exploitable: state and PKCE
+      are per provider.
+    - F3 (low): signing in again does not end the old session. No fixation: the cookie is new.
+    - F6 (low): output of an operation already running keeps streaming after its access is
+      revoked. New commands re-check access.
+    - F7 (low): `compose_text` goes out unmasked. It is the compose file, which View may read;
+      secrets belong in `.env`.
+    - F8 (info): Cancel answers Invalid for an unknown op and Denied for someone else's, which
+      tells you an op id exists. The ids are random UUIDs.
+    - F10 (low): the reveal store's comment says reveals are forgotten on reconnect, but only
+      `pending` is. Revealed `.env` stays until the editor closes or the person signs out.
+    - F11 (low): a `github:<login>` owner goes to whoever holds that login at first sign-in, so
+      a renamed and re-registered login could claim it. Use the numeric id form.
+    - F12 (low): the tab layout in `localStorage` keeps stack names per browser.
+    - F13 (low): expired sessions count toward the cap until the sweep removes them.
 
 ---
 
