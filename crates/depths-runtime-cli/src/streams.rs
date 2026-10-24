@@ -6,8 +6,11 @@
 //!   line without limit;
 //! - at most [`BACKLOG`] lines wait between the pipe readers and the batcher, which back-pressures
 //!   the CLI rather than queueing;
-//! - a flush window holds at most [`WINDOW_CAP`] lines; past that the oldest are dropped and the
-//!   next batch says `truncated`.
+//! - a flush window holds at most [`WINDOW_CAP`] lines and [`WINDOW_BYTES`]; past that the oldest
+//!   are dropped and the next batch says `truncated`;
+//! - one batch carries at most [`BATCH_LINES`] lines and [`BATCH_BYTES`].
+//!
+//! So one follow holds at most about `BACKLOG * LINE_CAP + WINDOW_BYTES` (1.5 MiB).
 
 use std::collections::VecDeque;
 use std::io::{BufRead as _, BufReader, Read};
@@ -27,15 +30,19 @@ use depths_core::ports::{
 use crate::{CliRuntime, Mapped};
 
 /// The longest log line passed on whole; longer ones arrive as several.
-pub const LINE_CAP: usize = 16 * 1024;
+pub const LINE_CAP: usize = 8 * 1024;
 /// Lines waiting between the pipe readers and the batcher.
-pub const BACKLOG: usize = 1024;
+pub const BACKLOG: usize = 64;
 /// How long lines gather before they are sent.
 pub const FLUSH_INTERVAL: Duration = Duration::from_millis(120);
 /// The most lines one batch carries.
 pub const BATCH_LINES: usize = 256;
 /// The most lines one flush window holds before the oldest are dropped.
 pub const WINDOW_CAP: usize = 4096;
+/// The most bytes of lines one flush window holds before the oldest are dropped.
+pub const WINDOW_BYTES: usize = 1024 * 1024;
+/// The most bytes of lines one batch carries (a batch always carries at least one line).
+pub const BATCH_BYTES: usize = 256 * 1024;
 
 const POLL: Duration = Duration::from_millis(50);
 
@@ -194,6 +201,7 @@ fn read_lines(
 struct Batcher {
     stream_id: StreamId,
     window: VecDeque<String>,
+    bytes: usize,
     dropped: bool,
 }
 
@@ -202,15 +210,21 @@ impl Batcher {
         Self {
             stream_id,
             window: VecDeque::new(),
+            bytes: 0,
             dropped: false,
         }
     }
 
     fn push(&mut self, line: String) {
-        if self.window.len() >= WINDOW_CAP {
-            self.window.pop_front();
+        while !self.window.is_empty()
+            && (self.window.len() >= WINDOW_CAP || self.bytes + line.len() > WINDOW_BYTES)
+        {
+            if let Some(old) = self.window.pop_front() {
+                self.bytes -= old.len();
+            }
             self.dropped = true;
         }
+        self.bytes += line.len();
         self.window.push_back(line);
     }
 
@@ -218,7 +232,16 @@ impl Batcher {
     /// nobody behind it.
     fn flush(&mut self, sink: &dyn StreamSink) -> bool {
         while !self.window.is_empty() {
-            let take = self.window.len().min(BATCH_LINES);
+            let mut take = 0;
+            let mut size = 0;
+            for l in self.window.iter().take(BATCH_LINES) {
+                if take > 0 && size + l.len() > BATCH_BYTES {
+                    break;
+                }
+                take += 1;
+                size += l.len();
+            }
+            self.bytes -= size;
             let lines: Vec<String> = self.window.drain(..take).collect();
             if !sink.emit(StreamEvent::ContainerLogBatch {
                 stream_id: self.stream_id,
@@ -226,6 +249,7 @@ impl Batcher {
                 truncated: std::mem::take(&mut self.dropped),
             }) {
                 self.window.clear();
+                self.bytes = 0;
                 return false;
             }
         }
@@ -266,6 +290,16 @@ impl ShellSession for CliShell {
             s.close();
         }
     }
+
+    fn stopper(&self) -> Arc<dyn Fn() + Send + Sync> {
+        match &self.0 {
+            Some(s) => {
+                let stopper = s.stopper();
+                Arc::new(move || stopper.stop())
+            }
+            None => Arc::new(|| {}),
+        }
+    }
 }
 
 impl Drop for CliShell {
@@ -273,5 +307,62 @@ impl Drop for CliShell {
         if let Some(s) = self.0.take() {
             s.close();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Got(Mutex<Vec<(usize, usize, bool)>>);
+
+    impl StreamSink for Got {
+        fn emit(&self, ev: StreamEvent) -> bool {
+            if let StreamEvent::ContainerLogBatch {
+                lines, truncated, ..
+            } = ev
+            {
+                let bytes = lines.iter().map(String::len).sum();
+                self.0.lock().unwrap().push((lines.len(), bytes, truncated));
+            }
+            true
+        }
+    }
+
+    #[test]
+    fn the_window_drops_the_oldest_past_its_byte_cap() {
+        let mut b = Batcher::new(StreamId(1));
+        let line = "x".repeat(LINE_CAP);
+        for _ in 0..(WINDOW_BYTES / LINE_CAP + 10) {
+            b.push(line.clone());
+        }
+        assert_eq!(b.bytes, WINDOW_BYTES);
+        assert_eq!(b.window.len(), WINDOW_BYTES / LINE_CAP);
+        let got = Got::default();
+        assert!(b.flush(&got));
+        let got = got.0.into_inner().unwrap();
+        assert!(got[0].2, "the first batch says lines were dropped");
+        assert!(got[1..].iter().all(|g| !g.2));
+        assert!(got.iter().all(|g| g.1 <= BATCH_BYTES));
+        assert_eq!(got.iter().map(|g| g.1).sum::<usize>(), WINDOW_BYTES);
+        assert_eq!(b.bytes, 0);
+    }
+
+    #[test]
+    fn short_lines_batch_by_count() {
+        let mut b = Batcher::new(StreamId(1));
+        for _ in 0..(BATCH_LINES + 1) {
+            b.push("a".into());
+        }
+        let got = Got::default();
+        b.flush(&got);
+        let got = got.0.into_inner().unwrap();
+        assert_eq!(
+            got.iter().map(|g| g.0).collect::<Vec<_>>(),
+            [BATCH_LINES, 1]
+        );
     }
 }

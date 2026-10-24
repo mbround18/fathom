@@ -47,6 +47,34 @@ pub struct Session {
     /// The controlling end of the pty. Written to for keystrokes, `ioctl`-ed for resizes.
     master: std::fs::File,
     reader: Option<std::thread::JoinHandle<()>>,
+    /// Set, under its lock, once the child is reaped: a [`Stopper`] never signals a pid that may
+    /// belong to something else by then.
+    reaped: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+/// Kills a session's process from another thread, for when the owner is stuck in a write to a
+/// terminal nobody reads. The owner still reaps it with [`Session::close`].
+#[derive(Clone)]
+pub struct Stopper {
+    pid: i32,
+    reaped: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+impl Stopper {
+    /// `SIGKILL` the session's process, unless it was already reaped.
+    pub fn stop(&self) {
+        let reaped = self
+            .reaped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !*reaped {
+            // SAFETY: the pid is our own child, not yet waited on (checked under the lock that
+            // `close` holds while it reaps), so it cannot have been reused.
+            unsafe {
+                libc::kill(self.pid, libc::SIGKILL);
+            }
+        }
+    }
 }
 
 impl Session {
@@ -73,6 +101,7 @@ impl Session {
             child,
             master,
             reader: Some(reader),
+            reaped: std::sync::Arc::default(),
         })
     }
 
@@ -93,13 +122,28 @@ impl Session {
         pty::resize(&self.master, cols, rows);
     }
 
+    /// A handle that can kill this session's process from another thread.
+    pub fn stopper(&self) -> Stopper {
+        Stopper {
+            pid: i32::try_from(self.child.id()).unwrap_or(i32::MAX),
+            reaped: self.reaped.clone(),
+        }
+    }
+
     /// Ends the session and leaves nothing running (FR-036).
     ///
     /// Kill, then *wait*: an unreaped child is still a process in the table, and "closing the view
     /// leaves no process behind" is a claim about the machine and not about the app's bookkeeping.
     pub fn close(mut self) {
-        drop(self.child.kill());
-        drop(self.child.wait());
+        {
+            let mut reaped = self
+                .reaped
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            drop(self.child.kill());
+            drop(self.child.wait());
+            *reaped = true;
+        }
         // Dropping the master end gives the reader thread its EOF, so it finishes on its own.
         if let Some(reader) = self.reader.take() {
             drop(reader.join());
@@ -335,6 +379,27 @@ mod tests {
         // SAFETY: signal 0 only tests for the process's existence and sends nothing.
         let alive = unsafe { libc::kill(pid, 0) } == 0;
         assert!(!alive, "pid {pid} outlived the session that owned it");
+    }
+
+    /// A stopper reaches a session whose owner is busy elsewhere, and is harmless once reaped.
+    #[cfg(unix)]
+    #[test]
+    fn a_stopper_ends_the_session_from_another_thread() {
+        let (sink, rx) = ChannelSink::new();
+        let session = Session::open(
+            StreamId(3),
+            "sh",
+            &["-c".to_owned(), "while true; do sleep 1; done".to_owned()],
+            sink,
+        )
+        .expect("a pty and a shell");
+        let stopper = session.stopper();
+        std::thread::spawn(move || stopper.stop()).join().unwrap();
+        let (_, closes) = drain(&rx, Duration::from_secs(10));
+        assert_eq!(closes.len(), 1, "the kill ended the session");
+        let late = session.stopper();
+        session.close();
+        late.stop();
     }
 
     /// FR-013's other half: a session whose command does not exist must surface the failure rather

@@ -28,7 +28,9 @@ use depths_core::ports::{
 };
 
 mod streams;
-pub use streams::{BACKLOG, BATCH_LINES, FLUSH_INTERVAL, LINE_CAP, WINDOW_CAP};
+pub use streams::{
+    BACKLOG, BATCH_BYTES, BATCH_LINES, FLUSH_INTERVAL, LINE_CAP, WINDOW_BYTES, WINDOW_CAP,
+};
 
 /// The compose label naming the directory a project was started from (R1, T048).
 pub const WORKING_DIR_LABEL: &str = "com.docker.compose.project.working_dir";

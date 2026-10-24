@@ -344,6 +344,12 @@ pub trait ShellSession: Send {
     fn resize(&self, cols: u16, rows: u16);
     /// Ends the session, leaving no process behind.
     fn close(self: Box<Self>);
+    /// Kills the session's process from another thread, for when the owner is stuck writing to a
+    /// terminal nobody reads; the owner's write then fails and it calls [`ShellSession::close`].
+    /// Harmless after the close.
+    fn stopper(&self) -> Arc<dyn Fn() + Send + Sync> {
+        Arc::new(|| {})
+    }
 }
 
 /// The container runtime.
