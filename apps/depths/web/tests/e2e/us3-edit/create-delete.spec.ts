@@ -117,7 +117,7 @@ test('a user who is not an admin cannot delete', async ({ page, backend }) => {
 
 test('with editing off, editing is hidden and the server refuses it', async ({ page, backend }) => {
   seed(backend)
-  backend.me = sessions.admin({ features: { shell: true, edit: false } })
+  backend.me = sessions.admin({ features: { shell: true, edit: false, host_metrics: false } })
   await page.goto('/stacks/web')
   await expect(page.getByRole('heading', { name: 'web', level: 1 })).toBeVisible()
   await expect(page.locator('[data-action="edit"]')).toHaveCount(0)
@@ -137,7 +137,7 @@ test('a save after editing was turned off on the server is refused there', async
   const content = page.locator('[data-code-editor="yaml"] .cm-content')
   await expect(content).toContainText('nginx:1.29')
   // The server's config changes under the open editor: the server is the gate, not the button.
-  backend.me = sessions.admin({ features: { shell: true, edit: false } })
+  backend.me = sessions.admin({ features: { shell: true, edit: false, host_metrics: false } })
   await content.click()
   await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.insertText(COMPOSE)

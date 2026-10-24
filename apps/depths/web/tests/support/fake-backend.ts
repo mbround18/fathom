@@ -44,6 +44,7 @@ import type {
   EventEnvelope,
   Grant,
   Hello,
+  HostSample,
   Me,
   OperationKind,
   OpOutcome,
@@ -145,7 +146,7 @@ export const fixtures = {
       role: 'admin',
       owner: false,
       stacks: [],
-      features: { shell: true, edit: true },
+      features: { shell: true, edit: true, host_metrics: false },
       ...over,
     }
   },
@@ -256,6 +257,24 @@ export const fixtures = {
       ...over,
     }
   },
+
+  /** 25% CPU on 4 cores, 2 of 8 GiB memory, 40 of 100 GiB disk, load 1.00, up a day. */
+  hostSample(over: Partial<HostSample> = {}): HostSample {
+    const GiB = 1024 ** 3
+    return {
+      at: NOW,
+      cpu_percent: 25,
+      cpu_cores: 4,
+      load: { one: 1, five: 0.5, fifteen: 0.25 },
+      memory: { total_bytes: 8 * GiB, available_bytes: 6 * GiB, used_bytes: 2 * GiB },
+      swap: { total_bytes: GiB, free_bytes: GiB, used_bytes: 0 },
+      uptime_secs: 86_400,
+      disk: { total_bytes: 100 * GiB, used_bytes: 40 * GiB, free_bytes: 60 * GiB },
+      containers_running: 3,
+      containers_stopped: 1,
+      ...over,
+    }
+  },
 }
 
 /** The argv `PreviewOp` shows for each kind, as research R2 lays it out (shape, not exact flags). */
@@ -354,6 +373,8 @@ export class FakeBackend {
   shellBanner = '/ # '
   /** `StatsSample` sent once per `WatchStats`; empty = one canned sample per targeted container. */
   samples: UsageSample[] = []
+  /** `HostSample` sent once per `WatchHost` an admin sends with `me.features.host_metrics` on. */
+  host: HostSample = fixtures.hostSample()
   users: UserList = { users: [], pending: [] }
   /** Oldest first, as recorded; `GetAudit` pages it newest first. */
   audit: AuditEntry[] = []
@@ -732,6 +753,15 @@ export class FakeBackend {
 
       case 'ShellResize':
       case 'UnwatchStats':
+      case 'UnwatchHost':
+        return []
+
+      case 'WatchHost':
+        // As the server: the permission first, so a user never learns whether it is on.
+        if (!admin) return denied()
+        if (!me.features.host_metrics) return denied('feature_disabled')
+        // A live sample, not a reply: the server's ticks carry no `reply_to`.
+        queueMicrotask(() => socket.send({ type: 'HostSample', data: this.host }))
         return []
 
       case 'CloseStream': {

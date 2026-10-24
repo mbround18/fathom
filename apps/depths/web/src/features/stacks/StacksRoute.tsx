@@ -4,6 +4,8 @@ import type { Params } from '@/app/router'
 import { PageFallback } from '@/app/routes'
 import { useMedia } from '@/app/useMedia'
 
+import { useCanSeeHost } from './host-store'
+import { HostStrip } from './HostMetrics'
 import { StackList } from './StackList'
 
 const StackDetail = lazy(() => import('./StackDetail'))
@@ -19,6 +21,7 @@ const SPLIT = '(min-width: 1024px)'
  */
 export default function StacksRoute({ params }: { params: Params }) {
   const split = useMedia(SPLIT)
+  const showHost = useCanSeeHost()
   const name = params.name
   const main = (
     <Suspense fallback={<PageFallback />}>
@@ -26,7 +29,19 @@ export default function StacksRoute({ params }: { params: Params }) {
     </Suspense>
   )
 
-  if (!split) return name === undefined ? <StackList /> : main
+  if (!split) {
+    if (name !== undefined) return main
+    if (!showHost) return <StackList />
+    // Admins get a one-line host summary above the list; the full panel is on the wide overview.
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <HostStrip />
+        <div className="min-h-0 flex-1">
+          <StackList />
+        </div>
+      </div>
+    )
+  }
   return (
     <div data-layout="split" className="flex h-full min-h-0">
       <aside aria-label="Stack list" className="h-full w-80 shrink-0 border-r border-border xl:w-96">

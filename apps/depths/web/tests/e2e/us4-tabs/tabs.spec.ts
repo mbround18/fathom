@@ -249,7 +249,7 @@ test.describe('shell turned off', () => {
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await expect(page.getByRole('tab')).toHaveCount(2)
 
-    backend.me = f.me({ features: { shell: false, edit: true } })
+    backend.me = f.me({ features: { shell: false, edit: true, host_metrics: false } })
     await page.reload()
     await expect(page.getByRole('heading', { name: 'web', level: 1 })).toBeVisible()
     await expect(container(page).getByRole('button', { name: 'Shell in web-app-1' })).toHaveCount(0)

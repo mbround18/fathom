@@ -1,12 +1,19 @@
 /**
  * Beside the stack list on wide screens, before a stack is picked: how many stacks are in each
  * state, and what else is running on the host. Counts link to the list filtered by that state.
+ * Admins also see the host's CPU, memory, disk and load (when the server reads its `/proc`), and
+ * everyone sees CPU and memory per stack they may view, busiest first.
  */
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
-import type { StackStatus } from '@/protocol/generated'
+import { Link } from '@/app/Link'
+import { useStreams, watchStatsAll } from '@/features/tabs/streams'
+import { MAX_STATS_TARGETS, type StackStatus } from '@/protocol/generated'
 
-import { STATUS_LABEL, STATUS_ORDER } from './model'
+import { useCanSeeHost } from './host-store'
+import { HostPanel } from './HostMetrics'
+import { formatBytes, formatPercent, stackUsages, watchedStacks } from './metrics'
+import { STATUS_LABEL, STATUS_ORDER, stackHref } from './model'
 import { useStacks } from './store'
 
 const TONE: Record<StackStatus, string> = {
@@ -34,7 +41,66 @@ function Tile({ label, value, tone = '', onClick }: { label: string; value: numb
   )
 }
 
+/** Watches the named stacks' stats while mounted; the server sends only those we may view. */
+function useStackStats(names: string[]): void {
+  const key = names.join('\n')
+  useEffect(() => {
+    if (key === '') return
+    // Stack names are compose project names: never a newline.
+    return watchStatsAll(key.split('\n').map((stack) => [`overview:${stack}`, { kind: 'stack', stack }] as const))
+  }, [key])
+}
+
+function StackUsageTable() {
+  const list = useStacks((s) => s.list)
+  const samples = useStreams((s) => s.samples)
+  const names = useMemo(() => watchedStacks(list, MAX_STATS_TARGETS), [list])
+  useStackStats(names)
+  const rows = useMemo(() => stackUsages(list, samples), [list, samples])
+  if (rows.length === 0) return null
+  return (
+    <section data-section="stack-usage" aria-labelledby="usage-title" className="flex min-w-0 flex-col gap-2">
+      <h2 id="usage-title" className="font-display text-xs font-semibold tracking-wider uppercase">
+        Stacks by CPU
+      </h2>
+      <table className="w-full min-w-0 table-fixed border border-border text-xs">
+        <thead className="text-muted-foreground">
+          <tr className="border-b border-border">
+            <th scope="col" className="px-2 py-1 text-left font-normal">
+              Stack
+            </th>
+            <th scope="col" className="w-20 px-2 py-1 text-right font-normal">
+              CPU
+            </th>
+            <th scope="col" className="w-24 px-2 py-1 text-right font-normal">
+              Memory
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.name} data-stack-usage={r.name} className="border-b border-border last:border-b-0 hover:bg-muted">
+              <th scope="row" className="truncate px-2 py-1 text-left font-medium">
+                <Link to={stackHref(r.name)} className="text-foreground hover:text-primary focus-visible:text-primary">
+                  {r.name}
+                </Link>
+              </th>
+              <td data-field="cpu" className="px-2 py-1 text-right tabular-nums">
+                {formatPercent(r.cpu)}
+              </td>
+              <td data-field="memory" className="px-2 py-1 text-right tabular-nums">
+                {formatBytes(r.memory)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
 export default function StacksOverview() {
+  const showHost = useCanSeeHost()
   const list = useStacks((s) => s.list)
   const setStatus = useStacks((s) => s.setStatus)
   const counts = useMemo(() => {
@@ -68,6 +134,8 @@ export default function StacksOverview() {
           <Tile label="Standalone containers" value={list.standalone.length} />
         </div>
       )}
+      {showHost && <HostPanel />}
+      <StackUsageTable />
       <p className="text-xs text-muted-foreground">Pick a stack from the list to see its services, files and logs.</p>
     </section>
   )
