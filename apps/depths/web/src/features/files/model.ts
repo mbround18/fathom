@@ -93,3 +93,30 @@ export function parentPath(path: string): string {
 export function joinPath(path: string, name: string): string {
   return [...(pathParts(path) ?? []), name].join('/')
 }
+
+/** Permission bits as `ls` prints them: `0o750` → `rwxr-x---`, with setuid, setgid and sticky. */
+export function modeString(mode: number): string {
+  const bit = (mask: number, c: string): string => ((mode & mask) !== 0 ? c : '-')
+  const exec = (x: number, special: number, on: string): string => {
+    const has = (mode & x) !== 0
+    if ((mode & special) !== 0) return has ? on : on.toUpperCase()
+    return has ? 'x' : '-'
+  }
+  return [
+    bit(0o400, 'r'),
+    bit(0o200, 'w'),
+    exec(0o100, 0o4000, 's'),
+    bit(0o040, 'r'),
+    bit(0o020, 'w'),
+    exec(0o010, 0o2000, 's'),
+    bit(0o004, 'r'),
+    bit(0o002, 'w'),
+    exec(0o001, 0o1000, 't'),
+  ].join('')
+}
+
+/** The download route for a file in a mount (T033): `GET /api/v1/stacks/{stack}/files/download`. */
+export function downloadHref(stack: string, mount: string, path: string): string {
+  const q = new URLSearchParams({ mount, path })
+  return `/api/v1/stacks/${encodeURIComponent(stack)}/files/download?${q.toString()}`
+}
