@@ -22,8 +22,8 @@
 - [x] T009 [US1] `gate()` after `permits` in WS dispatch and every mutating HTTP route; audit refusals; close a session's shells on an untrusted request (FR-012) in apps/depths/server/src/{ws,routes,streams}.rs
 - [x] T010 [US1] `/api/me` trust state and `needs_answer`; `POST /api/networks/answer` (never grants trust) in apps/depths/server/src/routes.rs
 - [x] T011 [US1] Server tests: every FR-010 command refused, restricted set allowed, maturity, always-trusted, crafted direct requests; sweep rows in apps/depths/server/tests/
-- [ ] T012 [US1] Home/public dialog, restricted banner, controls disabled with reason in apps/depths/web/src/features/network/
-- [ ] T013 [US1] Fake backend trust state + Playwright in apps/depths/web/tests/e2e/us5-access/network-gate.spec.ts
+- [x] T012 [US1] Home/public dialog, restricted banner, controls disabled with reason in apps/depths/web/src/features/network/
+- [x] T013 [US1] Fake backend trust state + Playwright in apps/depths/web/tests/e2e/us5-access/network-gate.spec.ts
 
 ## Phase 4: US2 Sessions (P1)
 

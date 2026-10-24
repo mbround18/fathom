@@ -7,6 +7,10 @@
  * - `GET /api/v1/me` answers the scripted `Me`, or a 401 naming the configured providers.
  * - `POST /auth/logout` and `/auth/refresh` are recorded and answered; `/auth/login` is a stub page.
  * - `GET /api/v1/audit/export?…` is `audit`, filtered, as JSONL (admin only, 403 otherwise).
+ * - Spec 052: `/api/v1/networks*`, `/api/v1/sessions*` and the admin `/api/v1/users/{id}/sessions|networks*`
+ *   answer from `networks`, `sessionList`, `userSessions` and `userNetworks`. While `me.network` is
+ *   untrusted, every command and route outside the restricted list is refused `untrusted_network`
+ *   and audited `network_refused`, as the server does (FR-009..FR-011).
  * - `/api/v1/ws` is a mocked WebSocket that speaks the generated protocol: it checks `Hello`, closes
  *   with the contract's codes, and answers each `CmdEnvelope` with `EventEnvelope`s.
  *
@@ -33,6 +37,7 @@
 import { test as base, expect, type Page, type Request, type WebSocketRoute } from '@playwright/test'
 
 import type {
+  AnswerNetwork,
   AuditEntry,
   AuditFilter,
   Cmd,
@@ -46,21 +51,25 @@ import type {
   Hello,
   HostSample,
   Me,
+  NetworkView,
   OperationKind,
   OpOutcome,
   Preview,
   PreviewVoidReason,
   Provider,
   Role,
+  SessionView,
   Stack,
   StackDetail,
   StackList,
   StackOp,
   Step,
   StreamCloseReason,
+  TrustDecision,
   UsageSample,
   User,
   UserList,
+  WhitelistNetwork,
 } from '../../src/protocol/generated'
 import { CloseCode, PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
 
@@ -137,6 +146,16 @@ interface OpenStream {
 
 const NOW = '2026-10-23T12:00:00Z'
 
+/** What an untrusted network may still run (spec 052 FR-009); kept apart from the app's copy on purpose. */
+const RESTRICTED_OPS: ReadonlySet<OperationKind> = new Set<OperationKind>([
+  'up',
+  'stop',
+  'restart',
+  'service_up',
+  'service_stop',
+  'service_restart',
+])
+
 /** Canned data builders. Each takes overrides for the fields a story cares about. */
 export const fixtures = {
   me(over: Partial<Me> = {}): Me {
@@ -150,6 +169,39 @@ export const fixtures = {
       network: { trusted: true, reason: 'first', network: '203.0.113.7/32' },
       needs_answer: false,
       proxy_warning: false,
+      ...over,
+    }
+  },
+
+  /** A remembered network (spec 052), unknown and untrusted unless `over` says otherwise. */
+  networkView(key: string, over: Partial<NetworkView> = {}): NetworkView {
+    return {
+      key,
+      first_used: NOW,
+      last_used: NOW,
+      days: [NOW.slice(0, 10)],
+      source: 'seen',
+      answer: 'none',
+      trusted: false,
+      reason: 'unknown',
+      location: 'unknown',
+      current: false,
+      ...over,
+    }
+  },
+
+  /** One live session, as `GET /api/v1/sessions` lists it. */
+  sessionView(id_hint: string, over: Partial<SessionView> = {}): SessionView {
+    return {
+      id_hint,
+      created: NOW,
+      last_used: NOW,
+      address: '203.0.113.7',
+      network: '203.0.113.7/32',
+      trusted: true,
+      location: 'unknown',
+      browser: 'Firefox on Linux',
+      current: false,
       ...over,
     }
   },
@@ -381,6 +433,13 @@ export class FakeBackend {
   users: UserList = { users: [], pending: [] }
   /** Oldest first, as recorded; `GetAudit` pages it newest first. */
   audit: AuditEntry[] = []
+  /** Spec 052: the signed-in person's networks and sessions, and other people's for admins. */
+  networks: NetworkView[] = []
+  sessionList: SessionView[] = []
+  userSessions: Record<string, SessionView[]> = {}
+  userNetworks: Record<string, NetworkView[]> = {}
+  /** When a network answered "home" now would mature. */
+  maturesAt = '2026-10-30T12:00:00Z'
   auditPageSize = 100
   /** Server-side compose errors `PreviewSave` returns for a stack, if any. */
   /** Per stack; an error without `file` is about the compose file. */
@@ -414,6 +473,9 @@ export class FakeBackend {
     await page.route('**/auth/**', (r) => this.auth(r.request()).then((res) => r.fulfill(res)))
     await page.route('**/api/v1/me', (r) => r.fulfill(this.meResponse(r.request())))
     await page.route('**/api/v1/audit/export**', (r) => r.fulfill(this.exportResponse(r.request())))
+    for (const glob of ['**/api/v1/networks**', '**/api/v1/sessions**', '**/api/v1/users/**']) {
+      await page.route(glob, (r) => r.fulfill(this.networkResponse(r.request())))
+    }
     await page.routeWebSocket(/\/api\/v1\/ws$/, (ws) => {
       this.accept(ws)
     })
@@ -524,6 +586,7 @@ export class FakeBackend {
     this.record(req)
     if (this.me === null) return { status: 401, json: { error: 'unauthenticated', providers: this.providers } }
     if (this.me.role !== 'admin') return { status: 403, json: { error: 'forbidden' } }
+    if (!this.me.network.trusted) return this.refuse('AuditExport')
     const q = new URL(req.url()).searchParams
     const f: AuditFilter = {}
     for (const k of ['stack', 'actor', 'action', 'from', 'to'] as const) {
@@ -537,6 +600,157 @@ export class FakeBackend {
       headers: { 'content-disposition': 'attachment; filename="depths-audit.jsonl"' },
       body,
     }
+  }
+
+  /** Spec 052: what an untrusted network may send (FR-009). Confirm goes by its preview's kind. */
+  private restrictedOk(cmd: Cmd): boolean {
+    switch (cmd.type) {
+      case 'PreviewOp':
+        return RESTRICTED_OPS.has(cmd.data.op.kind)
+      case 'Confirm': {
+        const p = this.previews.get(cmd.data.preview_id)
+        return p === undefined || RESTRICTED_OPS.has(p.preview.kind)
+      }
+      case 'PreviewSave':
+      case 'RevealEnv':
+      case 'OpenShell':
+      case 'ShellInput':
+      case 'ShellResize':
+      case 'GetAudit':
+      case 'GetUsers':
+      case 'PutUser':
+      case 'RemoveUser':
+        return false
+      default:
+        return true
+    }
+  }
+
+  /** The 403 body of a route refused for its network, audited. */
+  private refuse(what: string) {
+    const d = (this.me ?? fixtures.me()).network
+    this.recordAudit({
+      action: 'network_refused',
+      outcome: { kind: 'denied', reason: 'untrusted_network' },
+      network: { network: d.network, cmd: what },
+    })
+    return {
+      status: 403,
+      json: { error: 'untrusted_network', network: d.network, reason: d.reason, ...(d.matures_at ? { matures_at: d.matures_at } : {}) },
+    }
+  }
+
+  /** The decision for `n` after an answer: never trusted by the answer alone (FR-006). */
+  private decisionAfter(n: NetworkView): TrustDecision {
+    if (n.trusted) return { trusted: true, reason: n.reason, network: n.key }
+    return n.answer === 'home'
+      ? { trusted: false, reason: 'maturing', matures_at: this.maturesAt, network: n.key }
+      : { trusted: false, reason: n.answer === 'public' ? 'public' : 'unknown', network: n.key }
+  }
+
+  /** Spec 052's routes: own networks and sessions from any network; admin whitelist from a trusted one. */
+  private networkResponse(req: Request) {
+    this.record(req)
+    const me = this.me
+    if (me === null) return { status: 401, json: { error: 'unauthenticated', providers: this.providers } }
+    const method = req.method()
+    const path = decodeURIComponent(new URL(req.url()).pathname)
+    const json = (status: number, body: unknown) => ({ status, json: body })
+    if (method !== 'GET' && req.headers()['x-csrf-token'] !== me.csrf_token) return json(403, { error: 'csrf' })
+    const audit = (action: AuditEntry['action'], network: AuditEntry['network']): void => {
+      this.recordAudit({ action, outcome: { kind: 'succeeded' }, ...(network ? { network } : {}) })
+    }
+
+    if (path === '/api/v1/networks' && method === 'GET') return json(200, this.networks)
+    if (path === '/api/v1/networks/answer' && method === 'POST') {
+      const body = req.postDataJSON() as AnswerNetwork
+      if (body.answer !== 'home' && body.answer !== 'public') return json(400, { error: 'invalid_answer' })
+      let n = this.networks.find((x) => x.key === body.network)
+      if (!n && body.network === me.network.network) {
+        n = fixtures.networkView(body.network, { current: true })
+        this.networks.push(n)
+      }
+      if (!n) return json(404, { error: 'unknown_network' })
+      n.answer = body.answer
+      if (n.source === 'seen') n.source = 'answer'
+      const d = this.decisionAfter(n)
+      n.reason = d.reason
+      if (body.network === me.network.network) this.me = { ...me, network: d, needs_answer: false }
+      audit('network_answer', { network: n.key, answer: body.answer })
+      return json(200, d)
+    }
+
+    if (path === '/api/v1/sessions' && method === 'GET') return json(200, this.sessionList)
+    if (path === '/api/v1/sessions/end-others' && method === 'POST') {
+      const ended = this.sessionList.filter((x) => !x.current).length
+      this.sessionList = this.sessionList.filter((x) => x.current)
+      audit('session_end', { session: 'others' })
+      return json(200, { ended })
+    }
+    const one = /^\/api\/v1\/sessions\/([^/]+)$/.exec(path)
+    if (one && method === 'DELETE') {
+      const hint = one[1] ?? ''
+      if (!this.sessionList.some((x) => x.id_hint === hint)) return json(404, { error: 'unknown_session' })
+      this.sessionList = this.sessionList.filter((x) => x.id_hint !== hint)
+      audit('session_end', { session: hint })
+      return json(200, { ended: 1 })
+    }
+
+    const u = /^\/api\/v1\/users\/([^/]+)\/(sessions|networks)(?:\/(.+))?$/.exec(path)
+    if (!u) return json(404, { error: 'not_found' })
+    if (me.role !== 'admin') return json(403, { error: 'forbidden' })
+    const id = u[1] ?? ''
+    const rest = u[3]
+    if (u[2] === 'sessions' && rest === undefined) {
+      if (method === 'GET') return json(200, this.userSessions[id] ?? [])
+      if (method === 'DELETE') {
+        const ended = (this.userSessions[id] ?? []).length
+        this.userSessions[id] = []
+        audit('session_end', { person: id, session: 'all' })
+        return json(200, { ended })
+      }
+    }
+    if (u[2] === 'networks') {
+      const list = this.userNetworks[id] ?? []
+      if (method === 'GET' && rest === undefined) return json(200, list)
+      // Whitelisting, removing and forgetting: from a trusted network only (FR-006, FR-017).
+      if (!me.network.trusted) return this.refuse(`${method} ${path}`)
+      if (method === 'POST' && rest === 'whitelist') {
+        const body = req.postDataJSON() as WhitelistNetwork
+        if (!/^[0-9a-f:.]+(\/\d{1,3})?$/i.test(body.cidr)) return json(400, { error: 'invalid_network' })
+        const key = body.cidr.includes('/') ? body.cidr : `${body.cidr}/${body.cidr.includes(':') ? '128' : '32'}`
+        const entry = list.find((x) => x.key === key) ?? fixtures.networkView(key, { days: [] })
+        Object.assign(entry, {
+          source: 'whitelist',
+          trusted: true,
+          reason: 'whitelist',
+          whitelisted_by: `${me.identity.provider}:${me.identity.subject}`,
+          at: NOW,
+          ...(body.label ? { label: body.label } : {}),
+        })
+        this.userNetworks[id] = list.includes(entry) ? list : [...list, entry]
+        audit('network_whitelist_add', { network: key, person: id })
+        return json(200, this.userNetworks[id])
+      }
+      if (method === 'DELETE' && rest !== undefined) {
+        const entry = list.find((x) => x.key === rest)
+        if (!entry) return json(404, { error: 'unknown_network' })
+        if (entry.source === 'whitelist') {
+          // Removing a whitelist entry leaves the network known, and unknown again.
+          const kept: NetworkView = { ...entry, source: 'seen', trusted: false, reason: 'unknown' }
+          delete kept.whitelisted_by
+          delete kept.at
+          delete kept.label
+          this.userNetworks[id] = list.map((x) => (x === entry ? kept : x))
+          audit('network_whitelist_remove', { network: rest, person: id })
+        } else {
+          this.userNetworks[id] = list.filter((x) => x !== entry)
+          audit('network_forget', { network: rest, person: id })
+        }
+        return json(200, this.userNetworks[id])
+      }
+    }
+    return json(404, { error: 'not_found' })
   }
 
   /** `audit` narrowed by a filter, as `GetAudit` and the export both read it. */
@@ -644,6 +858,18 @@ export class FakeBackend {
     }
     if (this.me.role === 'pending' || (this.me.role === 'user' && this.me.stacks.length === 0)) {
       socket.close(CloseCode.Forbidden)
+      return
+    }
+
+    // Spec 052: the network gate, after the session checks and before any handler.
+    if (!this.me.network.trusted && !this.restrictedOk(cmd)) {
+      this.recordAudit({
+        action: 'network_refused',
+        stack: stackOf(cmd),
+        outcome: { kind: 'denied', reason: 'untrusted_network' },
+        network: { network: this.me.network.network, cmd: cmd.type },
+      })
+      socket.send({ type: 'Denied', data: { reason: 'untrusted_network' } }, id)
       return
     }
 
@@ -933,6 +1159,9 @@ export const sessions = {
   admin: (over: Partial<Me> = {}): Me => fixtures.me({ role: 'admin', ...over }),
   user: (stacks: string[], over: Partial<Me> = {}): Me => fixtures.me({ role: 'user' as Role, stacks, ...over }),
   pending: (over: Partial<Me> = {}): Me => fixtures.me({ role: 'pending', stacks: [], ...over }),
+  /** An admin on a network Depths has not seen for them (spec 052): asked home or public. */
+  untrusted: (over: Partial<Me> = {}): Me =>
+    fixtures.me({ network: { trusted: false, reason: 'unknown', network: '198.51.100.7/32' }, needs_answer: true, ...over }),
 }
 
 /**
