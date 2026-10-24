@@ -35,6 +35,8 @@ pub const MAX_SHELL_INPUT_B64_BYTES: usize = 64 * 1024;
 pub const MAX_STATS_TARGETS: usize = 64;
 /// Most stacks in one `PutUser`.
 pub const MAX_USER_STACKS: usize = 1024;
+/// Most open streams (log follows, shells and the stats watch) on one socket (T090).
+pub const MAX_STREAMS_PER_SOCKET: usize = 32;
 
 // ---------------------------------------------------------------------------
 // Validated strings

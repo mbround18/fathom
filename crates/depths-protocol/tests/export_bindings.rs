@@ -8,7 +8,9 @@
 //! `u64`/`i64` are emitted as `number` (not `bigint`): JSON carries them as plain numbers and every
 //! such field (request and stream ids, byte counts) stays below 2^53 in practice.
 
-use depths_protocol::{CloseCode, CmdEnvelope, EventEnvelope, Hello, Me, PROTOCOL_VERSION};
+use depths_protocol::{
+    CloseCode, CmdEnvelope, EventEnvelope, Hello, MAX_STREAMS_PER_SOCKET, Me, PROTOCOL_VERSION,
+};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use ts_rs::{Config, TS};
@@ -44,6 +46,11 @@ fn export_typescript_bindings() {
     writeln!(
         constants,
         "/** The version a client states in `Hello.protocol_version`. */\nexport const PROTOCOL_VERSION = {PROTOCOL_VERSION} as const;\n"
+    )
+    .unwrap();
+    writeln!(
+        constants,
+        "/** Most open streams (log follows, shells and the stats watch) on one socket. */\nexport const MAX_STREAMS_PER_SOCKET = {MAX_STREAMS_PER_SOCKET} as const;\n"
     )
     .unwrap();
     constants.push_str("/** WebSocket close codes. */\nexport const CloseCode = {\n");
