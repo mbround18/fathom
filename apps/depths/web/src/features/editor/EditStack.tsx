@@ -26,12 +26,13 @@ import type { EnvText, StackDetail } from '@/protocol/generated'
 import { DENY_TEXT } from '@/features/stacks/argv'
 import { editBlockedReason, maskEnv } from '@/features/stacks/model'
 import { useOps } from '@/features/stacks/ops-store'
-import { PreviewDialog } from '@/features/stacks/PreviewDialog'
+import { Findings, PreviewDialog } from '@/features/stacks/PreviewDialog'
 import { useStacks } from '@/features/stacks/store'
 import { useUntrusted } from '@/features/network/model'
 
 import { problemText, serverProblems, yamlProblems } from './problems'
 import { useCanReveal, useReveal } from './reveal-store'
+import { useComposeLint } from './useComposeLint'
 import { useUnsavedGuard } from './useUnsavedGuard'
 
 const ComposeEditor = lazy(() => import('./ComposeEditor'))
@@ -105,6 +106,7 @@ function Editor({ detail }: { detail: StackDetail }) {
   const refusal = mine?.refusal ?? null
   const conflict = refusal?.kind === 'conflict' ? refusal : null
   const yamlErrors = useMemo(() => yamlProblems(compose), [compose])
+  const findings = useComposeLint(name, compose)
   const validation = refusal?.kind === 'validation' ? refusal.errors : null
   const serverErrors = useMemo(() => (validation ? serverProblems(validation, 'compose') : []), [validation])
   const envErrors = useMemo(() => (validation ? serverProblems(validation, 'env') : []), [validation])
@@ -260,6 +262,9 @@ function Editor({ detail }: { detail: StackDetail }) {
             <Suspense fallback={<Loading what="editor" />}>
               <ComposeEditor value={compose} onChange={setCompose} label={detail.stack.compose_file} problems={problems} />
             </Suspense>
+            <div data-lint-panel aria-live="polite">
+              <Findings warnings={findings} />
+            </div>
           </section>
           <section aria-labelledby="edit-env" className="flex min-w-0 flex-col gap-1">
             <SectionTitle id="edit-env">

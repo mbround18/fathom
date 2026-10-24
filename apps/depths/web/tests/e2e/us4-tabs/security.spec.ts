@@ -116,4 +116,17 @@ test.describe('051 container security', () => {
     await page.locator('[role="toolbar"][aria-label="Stack actions"] [data-action="up"]').click()
     await expect(page.getByRole('dialog').locator('[data-refusal="denied"]')).toContainText('privileged')
   })
+
+  test('the editor lints the file as it is written, and warn never blocks', async ({ page, backend }) => {
+    backend.me = sessions.admin()
+    const web = backend.stacks.stacks[0]
+    if (!web) throw new Error('seeded')
+    backend.details.web = f.detail(web, { compose_text: 'services:\n  app:\n    image: nginx:1.29\n    privileged: true\n' })
+    await page.goto('/stacks/web/edit')
+    const lint = await backend.waitForCmd('LintCompose')
+    expect(lint.data.stack).toBe('web')
+    const panel = page.locator('[data-lint-panel]')
+    await expect(panel.locator('[data-finding="privileged"]')).toContainText('line 4')
+    await expect(panel.locator('[data-field="security"]')).toHaveAttribute('data-level', 'escape')
+  })
 })
