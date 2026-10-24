@@ -445,13 +445,18 @@ pub fn classify_host_path(path: &str) -> HostPath {
 pub fn bind_reason(source: &str, writable: bool) -> Option<Reason> {
     let path = normalise_host_path(source)?;
     match classify_host_path(&path) {
-        HostPath::Root => Some(Reason::new(
+        // 051 FR-003/FR-004: a writable `/` is an escape; a read-only one discloses the host
+        // (its `/etc`, its keys) without handing it over, so it is a root-level finding.
+        HostPath::Root if writable => Some(Reason::new(
             Code::HostRootMount,
             Severity::Escape,
-            format!(
-                "mounts the host's whole filesystem ({}); it can read or change anything on the host",
-                if writable { "writable" } else { "read-only" }
-            ),
+            "mounts the host's whole filesystem writable; it can change anything on the host",
+        )),
+        HostPath::Root => Some(Reason::new(
+            Code::HostRootMount,
+            Severity::Root,
+            "mounts the host's whole filesystem read-only; it can read anything on the host, \
+             secrets included",
         )),
         HostPath::RuntimeSocket => Some(Reason::new(
             Code::RuntimeSocket,
@@ -465,6 +470,14 @@ pub fn bind_reason(source: &str, writable: bool) -> Option<Reason> {
             Severity::Escape,
             format!(
                 "mounts {path} from the host writable; changes to {dir} can take over the host"
+            ),
+        )),
+        // 051 FR-004: a read-only `/etc` is root-level disclosure (password hashes, keys).
+        HostPath::Sensitive("/etc") => Some(Reason::new(
+            Code::SensitiveMountReadOnly,
+            Severity::Root,
+            format!(
+                "mounts {path} from the host read-only; it can read the host's configuration and secrets"
             ),
         )),
         HostPath::Sensitive(_) => Some(Reason::new(
@@ -733,6 +746,81 @@ pub fn shell_permitted(rule: ShellRule, admin: bool) -> bool {
     }
 }
 
+/// Why a shell was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellRefusal {
+    /// The person's role on the stack does not include shells.
+    Role,
+    /// The container's configuration could not be read at the moment of the request
+    /// (051 FR-010: fail closed).
+    Unknown,
+    /// The policy refuses this level for everyone (strict, escape).
+    Refused,
+    /// The policy keeps this level to administrators.
+    AdminOnly,
+}
+
+/// The container gate's answer, with the findings that decided it, so an allowed shell and a
+/// refused one are both audited with them (051 FR-012).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellDecision {
+    Allow {
+        level: Level,
+        reasons: Vec<Reason>,
+        /// Open only because the person is an administrator: it closes if they stop being one.
+        admin_only: bool,
+    },
+    Refuse {
+        why: ShellRefusal,
+        level: Option<Level>,
+        reasons: Vec<Reason>,
+    },
+}
+
+impl ShellDecision {
+    pub fn allowed(&self) -> bool {
+        matches!(self, Self::Allow { .. })
+    }
+}
+
+/// The inputs of the container gate on a shell, every one read at the moment of the request.
+#[derive(Debug, Clone, Copy)]
+pub struct ShellRequest<'a> {
+    pub policy: ShellPolicy,
+    /// The container's profile from a fresh inspect; `None` when that inspect failed.
+    pub profile: Option<&'a Profile>,
+    /// Whether the person's role on the stack includes shells at all.
+    pub role_allows: bool,
+    pub admin: bool,
+}
+
+/// The whole container gate on a shell, as one pure function (051 FR-008 to FR-010). Later gates
+/// (spec 052's network trust) compose after it: a shell opens only when every gate allows it.
+pub fn shell_decision(req: ShellRequest<'_>) -> ShellDecision {
+    let level = req.profile.map(|p| p.level);
+    let reasons = req.profile.map(|p| p.reasons.clone()).unwrap_or_default();
+    let refuse = |why| ShellDecision::Refuse {
+        why,
+        level,
+        reasons: reasons.clone(),
+    };
+    if !req.role_allows {
+        return refuse(ShellRefusal::Role);
+    }
+    let Some(level) = level else {
+        return refuse(ShellRefusal::Unknown);
+    };
+    match shell_rule(req.policy, Some(level)) {
+        ShellRule::Refused => refuse(ShellRefusal::Refused),
+        ShellRule::AdminOnly if !req.admin => refuse(ShellRefusal::AdminOnly),
+        rule => ShellDecision::Allow {
+            level,
+            reasons,
+            admin_only: rule == ShellRule::AdminOnly,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -872,13 +960,12 @@ mod tests {
 
     #[test]
     fn sensitive_writable_binds_are_escapes_read_only_ones_are_informational() {
+        // 051 FR-003: writable is escape; FR-004: other read-only sensitive paths are not.
         for src in [
             "/proc",
             "/sys",
             "/sys/fs/cgroup",
             "/dev",
-            "/etc",
-            "/etc/",
             "/root",
             "/root/.ssh",
             "/home",
@@ -898,11 +985,21 @@ mod tests {
     }
 
     #[test]
-    fn the_host_root_is_an_escape_even_read_only() {
+    fn the_host_root_and_etc_are_escapes_writable_and_root_level_read_only() {
+        // 051 FR-004.
         for src in ["/", "//", "/.", "/etc/.."] {
-            let p = bind(src, false);
-            assert_eq!(p.level, Level::Escape, "{src}");
+            let p = bind(src, true);
+            assert_eq!(p.level, Level::Escape, "{src} writable");
             assert_eq!(codes(&p), vec![Code::HostRootMount]);
+            let p = bind(src, false);
+            assert_eq!(p.level, Level::Root, "{src} read-only");
+            assert_eq!(codes(&p), vec![Code::HostRootMount]);
+        }
+        for src in ["/etc", "/etc/", "/etc/./"] {
+            assert_eq!(bind(src, true).level, Level::Escape, "{src} writable");
+            let p = bind(src, false);
+            assert_eq!(p.level, Level::Root, "{src} read-only");
+            assert_eq!(codes(&p), vec![Code::SensitiveMountReadOnly]);
         }
     }
 
@@ -1206,5 +1303,75 @@ mod tests {
         assert_eq!(ShellPolicy::parse("relaxed"), Some(Relaxed));
         assert_eq!(ShellPolicy::parse("off"), None);
         assert_eq!(ShellPolicy::default(), Strict);
+    }
+
+    fn prof(level: Level) -> Profile {
+        let (code, severity) = match level {
+            Level::Ok => (Code::RootRemapped, Severity::Info),
+            Level::Root => (Code::RootUser, Severity::Root),
+            Level::Escape => (Code::Privileged, Severity::Escape),
+        };
+        Profile::from_reasons(vec![Reason::new(code, severity, "x")])
+    }
+
+    #[test]
+    fn the_shell_decision_sweeps_policy_level_and_admin() {
+        // 051 FR-008, FR-009, FR-010, SC-001. `Ok(admin_only)` is allowed, `Err` refused.
+        use Level::{Escape, Root};
+        use ShellPolicy::{Relaxed, Strict};
+        use ShellRefusal as R;
+        let fine = Level::Ok;
+        type Case = (ShellPolicy, Option<Level>, bool, Result<bool, ShellRefusal>);
+        let cases: [Case; 16] = [
+            (Strict, Some(fine), false, Ok(false)),
+            (Strict, Some(fine), true, Ok(false)),
+            (Strict, Some(Root), false, Err(R::AdminOnly)),
+            (Strict, Some(Root), true, Ok(true)),
+            (Strict, Some(Escape), false, Err(R::Refused)),
+            (Strict, Some(Escape), true, Err(R::Refused)),
+            (Strict, None, false, Err(R::Unknown)),
+            (Strict, None, true, Err(R::Unknown)),
+            (Relaxed, Some(fine), false, Ok(false)),
+            (Relaxed, Some(fine), true, Ok(false)),
+            (Relaxed, Some(Root), false, Ok(false)),
+            (Relaxed, Some(Root), true, Ok(false)),
+            (Relaxed, Some(Escape), false, Err(R::AdminOnly)),
+            (Relaxed, Some(Escape), true, Ok(true)),
+            (Relaxed, None, false, Err(R::Unknown)),
+            (Relaxed, None, true, Err(R::Unknown)),
+        ];
+        for (policy, level, admin, want) in cases {
+            let p = level.map(prof);
+            let req = ShellRequest {
+                policy,
+                profile: p.as_ref(),
+                role_allows: true,
+                admin,
+            };
+            let got = match shell_decision(req) {
+                ShellDecision::Allow {
+                    admin_only,
+                    reasons,
+                    ..
+                } => {
+                    assert_eq!(reasons.len(), 1, "an allowed shell carries its reasons");
+                    Ok(admin_only)
+                }
+                ShellDecision::Refuse { why, reasons, .. } => {
+                    assert_eq!(reasons.len(), usize::from(level.is_some()));
+                    Err(why)
+                }
+            };
+            assert_eq!(got, want, "{policy:?} {level:?} admin={admin}");
+            // The role check comes first, whatever the level.
+            let no_role = ShellRequest {
+                role_allows: false,
+                ..req
+            };
+            assert!(matches!(
+                shell_decision(no_role),
+                ShellDecision::Refuse { why: R::Role, .. }
+            ));
+        }
     }
 }

@@ -591,4 +591,16 @@ services:
         assert_eq!(ComposePolicy::parse("block"), None);
         assert_eq!(ComposePolicy::default(), ComposePolicy::Warn);
     }
+
+    #[test]
+    fn read_only_host_root_and_etc_are_root_level_but_a_read_only_socket_is_an_escape() {
+        // 051 FR-004: root-level findings never block (FR-018), a socket always does.
+        let ro = "services:\n  a:\n    user: \"1\"\n    volumes:\n      - /:/host:ro\n      - /etc:/hostetc:ro\n";
+        let f = lint(ro);
+        assert_eq!(f.len(), 2, "{f:?}");
+        assert!(f.iter().all(|f| f.reason.severity == Severity::Root));
+        assert!(!has_escape(&f));
+        let sock = "services:\n  a:\n    user: \"1\"\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock:ro\n";
+        assert!(has_escape(&lint(sock)));
+    }
 }
