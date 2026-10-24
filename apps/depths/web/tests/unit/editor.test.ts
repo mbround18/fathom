@@ -26,8 +26,8 @@ describe('yamlProblems', () => {
 describe('serverProblems', () => {
   it('keeps the server line and message', () => {
     const p = serverProblems([
-      { line: 3, message: 'service "app" has no image' },
-      { line: null, message: 'project has no services' },
+      { file: 'compose', line: 3, message: 'service "app" has no image' },
+      { file: 'compose', line: null, message: 'project has no services' },
     ])
     expect(p.map(problemText)).toEqual(['Line 3: service "app" has no image', 'project has no services'])
     expect(p.every((x) => x.source === 'server')).toBe(true)

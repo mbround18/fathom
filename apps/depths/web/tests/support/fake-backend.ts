@@ -37,6 +37,7 @@ import type {
   CmdEnvelope,
   Container,
   DenyReason,
+  DraftFile,
   Event,
   EventEnvelope,
   Hello,
@@ -120,6 +121,7 @@ export class FakeSocket {
 interface HeldOp {
   operationId: string
   stack: string
+  kind: OperationKind
   socket: FakeSocket
   replyTo: number
 }
@@ -192,6 +194,7 @@ export const fixtures = {
       total_services: 1,
       modified_at: NOW,
       read_error: null,
+      invalid_reason: null,
       read_only_reason: null,
       too_large: false,
       ...over,
@@ -330,7 +333,8 @@ export class FakeBackend {
   users: UserList = { users: [], pending: [] }
   audit: AuditEntry[] = []
   /** Server-side compose errors `PreviewSave` returns for a stack, if any. */
-  validationErrors: Record<string, { line: number | null; message: string }[]> = {}
+  /** Per stack; an error without `file` is about the compose file. */
+  validationErrors: Record<string, { file?: DraftFile; line: number | null; message: string }[]> = {}
   /** Close code for every new socket's `Hello`, e.g. `CloseCode.TooMany`. `null` = accept. */
   helloClose: number | null = null
 
@@ -586,7 +590,9 @@ export class FakeBackend {
         if (!me.features.edit) return denied('feature_disabled')
         if (creating && s) return [{ type: 'Invalid', data: { reason: `a stack named ${draft.stack} already exists` } }]
         const errors = this.validationErrors[draft.stack]
-        if (errors?.length) return [{ type: 'ValidationFailed', data: { errors } }]
+        if (errors?.length) {
+          return [{ type: 'ValidationFailed', data: { errors: errors.map((e) => ({ file: 'compose' as const, ...e })) } }]
+        }
         const current = s ? (this.details[s.name] ?? fixtures.detail(s)) : null
         if (current && draft.base_hash !== current.content_hash) {
           return [
@@ -738,7 +744,7 @@ export class FakeBackend {
     return [
       {
         type: 'Busy',
-        data: { stack, operation_id: h.operationId, actor: { provider: who.provider, subject: who.subject, username: who.username } },
+        data: { stack, operation_id: h.operationId, kind: h.kind, actor: { provider: who.provider, subject: who.subject, username: who.username } },
       },
     ]
   }
@@ -780,7 +786,7 @@ export class FakeBackend {
       { type: 'OpStarted', data: { operation_id: operationId } },
       ...this.op.output.map((chunk): Event => ({ type: 'OpOutput', data: { operation_id: operationId, chunk } })),
     ]
-    if (this.op.hold) this.held.push({ operationId, stack: p.preview.stack, socket, replyTo })
+    if (this.op.hold) this.held.push({ operationId, stack: p.preview.stack, kind: p.preview.kind, socket, replyTo })
     else events.push({ type: 'OpFinished', data: { operation_id: operationId, outcome: this.op.outcome } })
     return events
   }

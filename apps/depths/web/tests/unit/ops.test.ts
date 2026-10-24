@@ -111,7 +111,7 @@ describe('ops store', () => {
 
   it('records who holds a busy stack', () => {
     useOps.getState().requestPreview(up)
-    emit({ type: 'Busy', data: { stack: 'web', operation_id: 'op-9', actor: { provider: 'discord', subject: '1', username: 'bo' } } }, 1)
+    emit({ type: 'Busy', data: { stack: 'web', operation_id: 'op-9', kind: 'up', actor: { provider: 'discord', subject: '1', username: 'bo' } } }, 1)
     expect(useOps.getState().flow?.refusal).toEqual({
       kind: 'busy',
       stack: 'web',

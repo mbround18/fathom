@@ -46,6 +46,7 @@ function stack(name: string, over: Partial<Stack> = {}): Stack {
     total_services: 1,
     modified_at: '2026-10-23T12:00:00Z',
     read_error: null,
+    invalid_reason: null,
     read_only_reason: null,
     too_large: false,
     ...over,
