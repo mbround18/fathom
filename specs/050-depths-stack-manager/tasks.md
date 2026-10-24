@@ -428,7 +428,7 @@ and byte preservation. Admins also create and delete stacks.
 **Independent test**: add a service to a compose file, and check the diff shows exactly that, save
 and deploy works in one preview, and every other byte is unchanged.
 
-- [ ] T058 [P] [US3] Write E2E tests in `apps/depths/web/tests/e2e/us3-edit/edit.spec.ts`:
+- [X] T058 [P] [US3] Write E2E tests in `apps/depths/web/tests/e2e/us3-edit/edit.spec.ts`:
   - The highlight is present.
   - A broken indent gives a line-anchored error and save is disabled (FR-017).
   - A compose error from the server (`ValidationFailed`) is anchored to its line.
@@ -436,18 +436,18 @@ and deploy works in one preview, and every other byte is unchanged.
   - On conflict, the other change is shown and nothing is written (FR-019).
   - Save and deploy shows the diff and `up` in one preview (FR-020).
   - `.env` secret-looking values are masked until revealed, and reveal works for a user on an assigned stack (FR-021).
-- [ ] T059 [P] [US3] Write E2E tests in `apps/depths/web/tests/e2e/us3-edit/create-delete.spec.ts`:
+- [X] T059 [P] [US3] Write E2E tests in `apps/depths/web/tests/e2e/us3-edit/create-delete.spec.ts`:
   - Create refuses an invalid or taken name with the reason (FR-022).
   - Delete defaults to keeping the directory, and removing it is an explicit option named in the preview.
   - These actions are admin only.
   - With `DEPTHS_FEATURE_EDIT=false`, editing is hidden and the server refuses it.
 - [ ] T060 [US3] Implement `PreviewSave` (validation via `ContainerRuntime::validate`, which runs `docker compose -f - config --quiet` with the draft on stdin and cwd = the stack dir), the save/create/delete kinds and `RevealEnv` (audited) in `apps/depths/server/src/ops.rs`. Add mock-runner tests that compose errors with line numbers are passed through, and that writes go through `write_atomic` with `base_hash`.
-- [ ] T061 [US3] Build the editor in `apps/depths/web/src/features/editor/{ComposeEditor,EnvEditor}.tsx`:
+- [X] T061 [US3] Build the editor in `apps/depths/web/src/features/editor/{ComposeEditor,EnvEditor}.tsx`:
   - CodeMirror 6 with `@codemirror/lang-yaml` and `@codemirror/lint`, fed by client-side `yaml` parse errors plus server errors.
   - Loaded with `React.lazy`.
   - A diff view via `@codemirror/merge`, or `@companion/terminal` `YamlDiffView`.
   - Unsaved-change guard on navigation.
-- [ ] T062 [US3] Build the create and delete flows in `apps/depths/web/src/features/stacks/{CreateStack,DeleteStack}.tsx`, reusing `PreviewDialog`.
+- [X] T062 [US3] Build the create and delete flows in `apps/depths/web/src/features/stacks/{CreateStack,DeleteStack}.tsx`, reusing `PreviewDialog`.
 - [ ] T063 [US3] Add a byte-preservation check, `apps/depths/server/tests/real_daemon.rs::save_preserves_bytes`: save a compose file with comments, CRLF and odd indentation after changing one line, then confirm `sha256` of everything outside the changed line matches.
 
 ---

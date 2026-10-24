@@ -14,6 +14,8 @@ interface Route {
 const ROUTES: readonly Route[] = [
   { pattern: '/', page: lazy(() => import('@/features/stacks/StacksRoute')) },
   { pattern: '/stacks/:name', page: lazy(() => import('@/features/stacks/StackDetail')) },
+  { pattern: '/stacks/:name/edit', page: lazy(() => import('@/features/editor/EditStack')) },
+  { pattern: '/new', page: lazy(() => import('@/features/stacks/CreateStack')) },
 ]
 
 const NotFound = lazy(() => import('@/pages/NotFound'))

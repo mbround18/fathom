@@ -3,10 +3,12 @@
  * and standalone containers, read-only. One virtualised scroller holds all three groups, so 200
  * stacks and their neighbours stay cheap to render and to filter (SC-004).
  */
-import { MagnifyingGlassIcon, WarningOctagonIcon } from '@phosphor-icons/react'
+import { MagnifyingGlassIcon, PlusIcon, WarningOctagonIcon } from '@phosphor-icons/react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { Link } from '@/app/Link'
+import { useSession } from '@/app/session-store'
 import type { Container, ForeignProject, Stack } from '@/protocol/generated'
 
 import { ForeignRow, GroupHeading, StandaloneRow } from './ForeignList'
@@ -90,6 +92,7 @@ export function StackList() {
           {list ? `${String(shownStacks.length)} of ${String(totalStacks)}` : ''}
         </span>
         <span className="flex-1" />
+        <NewStackLink />
         <label className="flex h-7 min-w-0 flex-1 basis-40 items-center gap-1 border border-input bg-background px-1.5 focus-within:border-ring">
           <MagnifyingGlassIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           <input
@@ -176,5 +179,21 @@ export function StackList() {
         )}
       </div>
     </section>
+  )
+}
+
+/** Creating a stack is for admins, and only while editing is on (FR-022). */
+function NewStackLink() {
+  const show = useSession((s) => s.me?.role === 'admin' && s.me.features.edit)
+  if (!show) return null
+  return (
+    <Link
+      to="/new"
+      data-action="new-stack"
+      className="inline-flex h-7 shrink-0 items-center gap-1 border border-input px-2 text-xs hover:border-primary hover:text-primary"
+    >
+      <PlusIcon aria-hidden className="size-3.5" />
+      New stack
+    </Link>
   )
 }

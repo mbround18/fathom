@@ -186,7 +186,9 @@ test('a running operation can be cancelled', async ({ page, backend }) => {
 test('a stack that does not parse offers no lifecycle actions', async ({ page, backend }) => {
   seed(backend)
   await open(page, 'broken')
-  await expect(page.locator('[data-action]')).toHaveCount(0)
+  // Deleting is not a lifecycle action; an admin can still remove the stack (US3).
+  await expect(page.locator('[data-action]:not([data-action="delete"])')).toHaveCount(0)
+  await expect(page.getByRole('toolbar', { name: 'Stack actions' })).toHaveCount(0)
 })
 
 test('at 360 px the preview and output fit without horizontal scroll', async ({ page, backend }) => {

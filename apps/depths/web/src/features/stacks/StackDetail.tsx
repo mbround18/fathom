@@ -3,18 +3,20 @@
  * health (FR-007), then the compose file and `.env`, read-only. Values of secret-looking `.env`
  * keys are masked. Lazy-loaded at `/stacks/:name`; CodeMirror loads lazily inside it.
  */
-import { ArrowLeftIcon } from '@phosphor-icons/react'
+import { ArrowLeftIcon, PencilSimpleIcon } from '@phosphor-icons/react'
 import { lazy, Suspense, useEffect } from 'react'
 
 import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
+import { useSession } from '@/app/session-store'
 import type { Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
 
+import { DeleteStack } from './DeleteStack'
 import { OperationOutput } from './OperationOutput'
 import { PreviewDialog } from './PreviewDialog'
 import { ServiceActions, StackActions } from './StackActions'
 import { StackNotes } from './StackRow'
-import { elsewhereByStack, formatPorts, formatTime, maskEnv, stackNotes, stateLabel } from './model'
+import { editBlockedReason, elsewhereByStack, formatPorts, formatTime, maskEnv, stackNotes, stateLabel } from './model'
 import { StatusBadge } from './StatusBadge'
 import { useStacks } from './store'
 
@@ -207,7 +209,11 @@ export default function StackDetail({ params }: { params: Params }) {
           <span>changed {formatTime(stack.modified_at)}</span>
         </p>
         <StackNotes notes={stackNotes(stack, elsewhere)} />
-        <StackActions stack={stack} />
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <StackActions stack={stack} />
+          <EditLink detail={detail} />
+          <DeleteStack stack={stack.name} />
+        </div>
       </header>
 
       <OperationOutput stack={stack.name} />
@@ -232,5 +238,21 @@ export default function StackDetail({ params }: { params: Params }) {
         <Files detail={detail} />
       </div>
     </section>
+  )
+}
+
+/** The way into the editor (US3): shown while editing is on and the files can be edited here. */
+function EditLink({ detail }: { detail: Detail }) {
+  const editOn = useSession((s) => s.me?.features.edit ?? false)
+  if (!editOn || editBlockedReason(detail) !== null) return null
+  return (
+    <Link
+      to={`/stacks/${encodeURIComponent(detail.stack.name)}/edit`}
+      data-action="edit"
+      className="inline-flex h-7 items-center gap-1 border border-input px-2 text-xs hover:border-primary hover:text-primary"
+    >
+      <PencilSimpleIcon aria-hidden className="size-3.5" />
+      Edit
+    </Link>
   )
 }

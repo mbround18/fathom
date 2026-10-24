@@ -17,6 +17,29 @@ function subscribe(onChange: () => void): () => void {
 
 const currentPath = (): string => globalThis.location.pathname
 
+/**
+ * One page at a time may hold unsaved work: it registers a guard that returns `true` to let a
+ * navigation go ahead. In-app `navigate` asks it first; Back/Forward is undone (the path is pushed
+ * back) when it says no. Closing or reloading the tab is the page's own `beforeunload`.
+ */
+type Guard = () => boolean
+let guard: Guard | null = null
+let lastPath = typeof globalThis.location === 'undefined' ? '/' : currentPath()
+
+export function setNavigationGuard(g: Guard | null): void {
+  guard = g
+}
+
+// Registered at import, before any `usePath` subscriber, so a refused Back never re-renders.
+globalThis.addEventListener('popstate', (e) => {
+  if (guard && currentPath() !== lastPath && !guard()) {
+    e.stopImmediatePropagation()
+    globalThis.history.pushState(null, '', lastPath)
+    return
+  }
+  lastPath = currentPath()
+})
+
 /** The current pathname, re-rendering on navigation. */
 export function usePath(): string {
   return useSyncExternalStore(subscribe, currentPath, () => '/')
@@ -25,8 +48,10 @@ export function usePath(): string {
 /** Go to a same-origin path. Anything that is not a plain absolute path is ignored. */
 export function navigate(to: string, opts: { replace?: boolean } = {}): void {
   if (!to.startsWith('/') || to.startsWith('//')) return
+  if (guard && to !== currentPath() && !guard()) return
   if (opts.replace) globalThis.history.replaceState(null, '', to)
   else globalThis.history.pushState(null, '', to)
+  lastPath = currentPath()
   globalThis.dispatchEvent(new Event(NAVIGATE))
 }
 

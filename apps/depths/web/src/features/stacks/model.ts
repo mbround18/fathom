@@ -8,6 +8,7 @@ import type {
   PublishedPort,
   RuntimeContainerState,
   Stack,
+  StackDetail,
   StackList,
   StackStatus,
 } from '@/protocol/generated'
@@ -153,4 +154,16 @@ export function stackNotes(stack: Stack, elsewhere: readonly ForeignProject[]): 
   if (stack.read_only_reason !== null) notes.push({ key: 'ro', tone: 'warn', text: `Read-only: ${stack.read_only_reason}` })
   if (stack.too_large) notes.push({ key: 'large', tone: 'warn', text: 'A file is too large to load for editing' })
   return notes
+}
+
+/** Why a stack's files cannot be edited here, or `null`. */
+export function editBlockedReason(detail: StackDetail): string | null {
+  const { stack } = detail
+  const blocked = blockedReason(stack)
+  if (stack.read_error !== null) return `Cannot read: ${stack.read_error}`
+  if (stack.read_only_reason !== null) return `Read-only: ${stack.read_only_reason}`
+  if (stack.too_large || detail.compose_text === null) return 'The compose file is too large to edit here.'
+  // A compose file that does not parse is exactly what the editor is for; a bad name is not.
+  if (!stack.valid_name) return blocked
+  return null
 }
