@@ -342,6 +342,47 @@ impl SessionStore {
         removed
     }
 
+    /// A live session by handle, without refreshing its idle timer (`None` once expired).
+    pub fn peek(&self, id: &str) -> Option<Session> {
+        let now = Instant::now();
+        let map = self.inner.lock().unwrap();
+        map.get(id)
+            .filter(|s| self.expiry(s, now).is_none())
+            .cloned()
+    }
+
+    /// When `s` expires if nothing touches it again: the earlier of its absolute deadline and
+    /// its idle deadline.
+    pub fn deadline(&self, s: &Session) -> Instant {
+        s.absolute_deadline.min(s.last_seen + self.cfg.idle)
+    }
+
+    /// End every session `pred` matches (e.g. all of one user's sessions when their access is
+    /// revoked). Returns what was ended.
+    pub fn end_matching(&self, pred: impl Fn(&Session) -> bool, reason: EndReason) -> Vec<Ended> {
+        let out: Vec<Ended> = {
+            let mut map = self.inner.lock().unwrap();
+            let ids: Vec<String> = map
+                .values()
+                .filter(|s| pred(s))
+                .map(|s| s.id.clone())
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| {
+                    map.remove(&id).map(|s| Ended {
+                        id,
+                        user_key: s.user_key,
+                        reason,
+                    })
+                })
+                .collect()
+        };
+        for e in &out {
+            let _ = self.ended.send(e.clone());
+        }
+        out
+    }
+
     /// Remove every expired session; returns what was ended.
     pub fn sweep(&self) -> Vec<Ended> {
         let now = Instant::now();
@@ -571,5 +612,47 @@ mod tests {
             s.touch(&x.id).unwrap().tokens.id_token.expose_secret(),
             "new"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deadline_is_the_earlier_of_idle_and_absolute() {
+        let s = SessionStore::new(cfg());
+        let x = s.create(ident("u"), toks()).unwrap();
+        assert_eq!(
+            s.deadline(&x.session),
+            x.created_at + Duration::from_secs(60)
+        );
+        for _ in 0..10 {
+            tokio::time::advance(Duration::from_secs(58)).await;
+            s.touch(&x.id);
+        }
+        let now = s.peek(&x.id).unwrap();
+        assert_eq!(s.deadline(&now), x.created_at + Duration::from_secs(600));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn peek_does_not_extend_the_idle_timer() {
+        let s = SessionStore::new(cfg());
+        let x = s.create(ident("u"), toks()).unwrap();
+        tokio::time::advance(Duration::from_secs(50)).await;
+        assert!(s.peek(&x.id).is_some());
+        tokio::time::advance(Duration::from_secs(11)).await;
+        assert!(s.peek(&x.id).is_none());
+    }
+
+    #[test]
+    fn end_matching_ends_only_the_matches() {
+        let s = SessionStore::new(cfg());
+        let mut rx = s.subscribe_ended();
+        let a = s.create(ident("a"), toks()).unwrap();
+        let a2 = s.create(ident("a"), toks()).unwrap();
+        let b = s.create(ident("b"), toks()).unwrap();
+        let ended = s.end_matching(|x| x.identity.sub == "a", EndReason::Revoked);
+        assert_eq!(ended.len(), 2);
+        assert!(s.peek(&a.id).is_none() && s.peek(&a2.id).is_none());
+        assert!(s.peek(&b.id).is_some());
+        assert_eq!(rx.try_recv().unwrap().reason, EndReason::Revoked);
+        assert_eq!(rx.try_recv().unwrap().reason, EndReason::Revoked);
+        assert!(rx.try_recv().is_err());
     }
 }

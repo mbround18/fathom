@@ -13,7 +13,8 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use depths_protocol::{Provider, Role, User};
+use depths_core::role::Access;
+use depths_protocol::{DenyReason, Grant, Provider, Role, User, UserChange, UserId, UserList};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Owner;
@@ -37,6 +38,47 @@ impl std::fmt::Display for RegistryError {
 }
 
 impl std::error::Error for RegistryError {}
+
+/// Why `PutUser` / `RemoveUser` changed nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    Denied(DenyReason),
+    Invalid(String),
+    /// The change could not be written; the registry is as it was.
+    Failed(RegistryError),
+}
+
+/// What an admin's change did: the audit target, whether it added an entry, and whether the
+/// person is left with no access (their sessions end and their sockets close with 4403).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Changed {
+    pub change: UserChange,
+    pub added: bool,
+    pub revoke: bool,
+}
+
+fn grant(u: &User) -> Grant {
+    Grant {
+        role: u.role,
+        stacks: u.stacks.clone(),
+    }
+}
+
+/// The core's view of a registry entry. A stack name that no longer parses grants nothing.
+pub fn access_of(u: &User) -> Access {
+    Access {
+        role: match u.role {
+            Role::Pending => depths_core::role::Role::Pending,
+            Role::User => depths_core::role::Role::User,
+            Role::Admin => depths_core::role::Role::Admin,
+        },
+        stacks: u
+            .stacks
+            .iter()
+            .filter_map(|s| depths_core::name::StackName::parse(s).ok())
+            .collect(),
+    }
+}
 
 /// Who signed in, as the registry needs it.
 #[derive(Debug, Clone)]
@@ -289,6 +331,112 @@ impl Registry {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// The access `id` holds right now; an unknown id holds none.
+    pub fn access(&self, id: &str) -> Access {
+        self.get(id).map(|u| access_of(&u)).unwrap_or_default()
+    }
+
+    /// The registry as `GetUsers` shows it: admitted people, then the pending queue.
+    pub fn list(&self) -> UserList {
+        let (pending, users) = self
+            .lock()
+            .iter()
+            .cloned()
+            .partition(|u| u.role == Role::Pending);
+        UserList { users, pending }
+    }
+
+    /// `PutUser`: admit, change, or invite (an unknown id) a person. Owners cannot be changed,
+    /// and only `user` and `admin` can be assigned. A stack with no directory is kept.
+    pub fn put(
+        &self,
+        id: &UserId,
+        role: Role,
+        stacks: &[depths_protocol::StackName],
+    ) -> Result<Changed, Refusal> {
+        if role == Role::Pending {
+            return Err(Refusal::Denied(DenyReason::RoleNotAssignable));
+        }
+        let mut stacks: Vec<String> = stacks.iter().map(|s| s.as_str().to_owned()).collect();
+        stacks.sort();
+        stacks.dedup();
+        let mut users = self.lock();
+        let mut next = users.clone();
+        let (before, added) = match next.iter_mut().find(|u| u.id == id.as_str()) {
+            Some(u) if u.owner => return Err(Refusal::Denied(DenyReason::Owner)),
+            Some(u) => {
+                let before = grant(u);
+                u.role = role;
+                u.stacks = stacks;
+                (Some(before), false)
+            }
+            None => {
+                let subject = id.as_str().split_once(':').map_or("", |(_, s)| s);
+                // `UserId` has checked the provider prefix already.
+                let provider = provider_of(id.as_str()).unwrap_or(Provider::Oidc);
+                next.push(User {
+                    id: id.as_str().to_owned(),
+                    provider,
+                    issuer: (provider == Provider::Oidc)
+                        .then(|| self.oidc_issuer.clone())
+                        .flatten(),
+                    subject: subject.to_owned(),
+                    username: None,
+                    email: None,
+                    role,
+                    stacks,
+                    owner: false,
+                    pinned_from: None,
+                    first_seen: None,
+                    last_seen: None,
+                });
+                (None, true)
+            }
+        };
+        let after = next
+            .iter()
+            .find(|u| u.id == id.as_str())
+            .map(|u| (grant(u), access_of(u)));
+        let (after, access) = after.ok_or_else(|| Refusal::Invalid("lost the entry".into()))?;
+        let changed = Changed {
+            revoke: !depths_core::role::has_any_access(&access),
+            change: UserChange {
+                id: id.as_str().to_owned(),
+                before,
+                after: Some(after),
+            },
+            added,
+        };
+        persist(&self.path, &next).map_err(Refusal::Failed)?;
+        *users = next;
+        Ok(changed)
+    }
+
+    /// `RemoveUser`: drops the entry. Owners cannot be removed. The person's sessions end.
+    pub fn remove(&self, id: &UserId) -> Result<Changed, Refusal> {
+        let mut users = self.lock();
+        let i = users
+            .iter()
+            .position(|u| u.id == id.as_str())
+            .ok_or_else(|| Refusal::Invalid(format!("no such user: {id}")))?;
+        if users[i].owner {
+            return Err(Refusal::Denied(DenyReason::Owner));
+        }
+        let mut next = users.clone();
+        let gone = next.remove(i);
+        persist(&self.path, &next).map_err(Refusal::Failed)?;
+        *users = next;
+        Ok(Changed {
+            change: UserChange {
+                id: gone.id.clone(),
+                before: Some(grant(&gone)),
+                after: None,
+            },
+            added: false,
+            revoke: true,
+        })
+    }
 }
 
 /// Temp file in the same directory (0600), fsync, rename over, fsync the directory.
@@ -453,5 +601,98 @@ mod tests {
         let r = open(d.path(), owner()).unwrap();
         let u = r.get("discord:5").unwrap();
         assert!(!u.owner);
+    }
+
+    fn uid(s: &str) -> UserId {
+        UserId::new(s).unwrap()
+    }
+
+    fn stacks(names: &[&str]) -> Vec<depths_protocol::StackName> {
+        names
+            .iter()
+            .map(|n| depths_protocol::StackName::new(*n).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn an_admin_admits_a_pending_person_to_stacks() {
+        let d = tempfile::tempdir().unwrap();
+        let r = open(d.path(), owner()).unwrap();
+        r.sign_in(&discord("2", "kid")).unwrap();
+        assert_eq!(r.list().pending.len(), 1);
+        let c = r
+            .put(
+                &uid("discord:2"),
+                Role::User,
+                &stacks(&["minecraft", "gone"]),
+            )
+            .unwrap();
+        assert!(!c.added && !c.revoke);
+        assert_eq!(c.change.before.unwrap().role, Role::Pending);
+        let a = r.access("discord:2");
+        assert_eq!(a.role, depths_core::role::Role::User);
+        // A stack with no directory is kept, and shown missing by the UI.
+        assert_eq!(a.stacks.len(), 2);
+        assert!(r.list().pending.is_empty());
+        let r = open(d.path(), owner()).unwrap();
+        assert_eq!(r.get("discord:2").unwrap().stacks, ["gone", "minecraft"]);
+    }
+
+    #[test]
+    fn put_on_an_unknown_id_is_an_invite() {
+        let d = tempfile::tempdir().unwrap();
+        let r = open(d.path(), owner()).unwrap();
+        let c = r
+            .put(&uid("github:77"), Role::User, &stacks(&["web"]))
+            .unwrap();
+        assert!(c.added);
+        assert_eq!(c.change.before, None);
+        let u = r.get("github:77").unwrap();
+        assert_eq!((u.provider, u.subject.as_str()), (Provider::Github, "77"));
+        assert!(u.first_seen.is_none());
+    }
+
+    #[test]
+    fn owners_cannot_be_demoted_or_removed() {
+        let d = tempfile::tempdir().unwrap();
+        let r = open(d.path(), owner()).unwrap();
+        assert_eq!(
+            r.put(&uid("discord:1"), Role::User, &[]),
+            Err(Refusal::Denied(DenyReason::Owner))
+        );
+        assert_eq!(
+            r.remove(&uid("discord:1")),
+            Err(Refusal::Denied(DenyReason::Owner))
+        );
+        assert_eq!(r.access("discord:1").role, depths_core::role::Role::Admin);
+    }
+
+    #[test]
+    fn pending_is_not_assignable() {
+        let d = tempfile::tempdir().unwrap();
+        let r = open(d.path(), owner()).unwrap();
+        assert_eq!(
+            r.put(&uid("discord:2"), Role::Pending, &[]),
+            Err(Refusal::Denied(DenyReason::RoleNotAssignable))
+        );
+    }
+
+    #[test]
+    fn losing_the_last_stack_or_the_entry_revokes() {
+        let d = tempfile::tempdir().unwrap();
+        let r = open(d.path(), owner()).unwrap();
+        r.put(&uid("discord:2"), Role::User, &stacks(&["a"]))
+            .unwrap();
+        assert!(r.put(&uid("discord:2"), Role::User, &[]).unwrap().revoke);
+        assert!(!r.put(&uid("discord:2"), Role::Admin, &[]).unwrap().revoke);
+        let c = r.remove(&uid("discord:2")).unwrap();
+        assert!(c.revoke);
+        assert_eq!(c.change.after, None);
+        assert!(r.get("discord:2").is_none());
+        assert_eq!(r.access("discord:2"), Access::default());
+        assert!(matches!(
+            r.remove(&uid("discord:2")),
+            Err(Refusal::Invalid(_))
+        ));
     }
 }
