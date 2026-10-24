@@ -81,6 +81,22 @@ const TEXT = [
   '--status-warn',
   '--status-err',
   '--destructive',
+  '--ansi-black',
+  '--ansi-red',
+  '--ansi-green',
+  '--ansi-yellow',
+  '--ansi-blue',
+  '--ansi-magenta',
+  '--ansi-cyan',
+  '--ansi-white',
+  '--ansi-bright-black',
+  '--ansi-bright-red',
+  '--ansi-bright-green',
+  '--ansi-bright-yellow',
+  '--ansi-bright-blue',
+  '--ansi-bright-magenta',
+  '--ansi-bright-cyan',
+  '--ansi-bright-white',
 ] as const
 const SURFACES = ['--background', '--card'] as const
 const TEXT_ON_OWN_SURFACE = [
