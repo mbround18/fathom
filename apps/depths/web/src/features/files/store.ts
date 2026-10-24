@@ -10,15 +10,19 @@
  *   never mixes two listings.
  * - Pages land at their `page` index, so the server's order (folders first, then by name) holds
  *   whatever order they arrive in.
- * - The open file follows data-model.md's state machine; this wave has the read path only:
- *   `closed → loading → open(clean)`, or `refused` with the server's reason.
+ * - The open file follows data-model.md's state machine: `closed → loading → open`, or `refused`
+ *   with the server's reason. Its draft, dirty state and save flow live in `FileEditor` and
+ *   `fileops-store`; `fileSaved` records a save here, `reopen` reads it again (a reload).
+ * - `fetchFile` and `fetchVersion` read a file (or a kept version) without touching the open one,
+ *   for a conflict's compare and the history panel; `askHistory` lists a file's versions.
+ * - `relist` re-reads the folder on screen after a change, keeping the rows until the new ones land.
  * - A reconnect asks again for what is on screen. Signing out forgets everything.
  */
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
-import type { DenyReason, Entry, FileContent, FileRefusal, Mount, RequestId } from '@/protocol/generated'
+import type { DenyReason, Entry, FileContent, FileRefusal, FileVersion, Mount, RequestId } from '@/protocol/generated'
 
 import { joinPath, parentPath, pathParts, type FilesLocation } from './model'
 
@@ -53,7 +57,16 @@ export interface FilesState {
   setFilter: (filter: string) => void
 }
 
-type Asked = { what: 'mounts' } | { what: 'list'; req: number } | { what: 'probe'; req: number; path: string } | { what: 'file'; req: number }
+type Asked =
+  | { what: 'mounts' }
+  | { what: 'list'; req: number }
+  | { what: 'probe'; req: number; path: string }
+  | { what: 'file'; req: number }
+  | { what: 'fetch'; req: number; done: (r: Fetched<FileContent>) => void }
+  | { what: 'history'; done: (r: Fetched<FileVersion[]>) => void }
+
+/** A one-off read's answer: the value, or why not. */
+export type Fetched<T> = { ok: true; value: T } | { ok: false; refusal: FilesRefusal | { kind: 'lost' } }
 
 const CLOSED: OpenFile = { state: 'closed' }
 
@@ -222,6 +235,20 @@ onServerEvent(({ reply_to, event }) => {
   const asked = pending.get(reply_to)
   if (!asked) return
 
+  if (asked.what === 'fetch' || asked.what === 'history') {
+    pending.delete(reply_to)
+    const no: FilesRefusal | null =
+      event.type === 'Denied' ? { kind: 'denied', reason: event.data.reason } : event.type === 'FileRefused' ? event.data : null
+    if (asked.what === 'fetch') {
+      if (event.type === 'FileContent' && event.data.req === asked.req) asked.done({ ok: true, value: event.data.file })
+      else if (no) asked.done({ ok: false, refusal: no })
+      else pending.set(reply_to, asked)
+    } else if (event.type === 'History') asked.done({ ok: true, value: event.data.versions })
+    else if (no) asked.done({ ok: false, refusal: no })
+    else pending.set(reply_to, asked)
+    return
+  }
+
   if (asked.what === 'mounts') {
     pending.delete(reply_to)
     if (event.type === 'Mounts') useFiles.setState({ mounts: event.data.mounts, mountsRefusal: null })
@@ -294,6 +321,55 @@ function onPage(replyTo: RequestId, page: number, entries: Entry[], last: boolea
   if (complete) settleTarget()
 }
 
+/** Reads `path` (or its kept `version`) once, leaving the open file as it is. */
+export function fetchFile(mount: string, path: string, version?: string): Promise<Fetched<FileContent>> {
+  return new Promise((done) => {
+    reqSeq += 1
+    const req = reqSeq
+    const stack = useFiles.getState().stack ?? ''
+    const sent =
+      version === undefined
+        ? send({ what: 'fetch', req, done }, { type: 'ReadFile', data: { stack, mount, path, req } })
+        : send({ what: 'fetch', req, done }, { type: 'ReadVersion', data: { stack, mount, path, version, req } })
+    if (!sent) done({ ok: false, refusal: { kind: 'lost' } })
+  })
+}
+
+/** The kept versions of `path`, newest first. */
+export function askHistory(mount: string, path: string): Promise<Fetched<FileVersion[]>> {
+  return new Promise((done) => {
+    const stack = useFiles.getState().stack ?? ''
+    if (!send({ what: 'history', done }, { type: 'ListHistory', data: { stack, mount, path } })) done({ ok: false, refusal: { kind: 'lost' } })
+  })
+}
+
+/** Reads the open file again from disk (a reload: the editor's draft goes with it). */
+export function reopen(): void {
+  const { mount, file } = useFiles.getState()
+  if (mount === null || file.state === 'closed') return
+  readFile(mount, file.path)
+}
+
+/** A save of the open file landed: its text and fingerprint are now these. */
+export function fileSaved(path: string, text: string, fingerprint: string | undefined): void {
+  const file = useFiles.getState().file
+  if (file.state !== 'open' || file.path !== path) return
+  const content: FileContent = { ...file.content, text, ...(fingerprint === undefined ? {} : { fingerprint }) }
+  useFiles.setState({ file: { ...file, content } })
+}
+
+/** Lists the folder on screen again after a change, keeping its rows until the new ones land. */
+export function relist(): void {
+  const { mount, dir, list: status, stack } = useFiles.getState()
+  if (mount === null || stack === null || status === 'idle') return
+  reqSeq += 1
+  listReq = reqSeq
+  pages = []
+  lastPage = -1
+  if (!send({ what: 'list', req: listReq }, { type: 'ListDir', data: { stack, mount, path: dir, req: listReq } })) return
+  useFiles.setState({ list: 'loading' })
+}
+
 /** Entries whose name holds `filter`, ignoring case, in listing order. */
 export function filterEntries(entries: readonly Entry[], filter: string): readonly Entry[] {
   const q = filter.trim().toLowerCase()
@@ -301,7 +377,9 @@ export function filterEntries(entries: readonly Entry[], filter: string): readon
   return entries.filter((e) => e.name.toLowerCase().includes(q))
 }
 
-/** A refusal in words, for the listing or the file pane. */
+const count = (n: number): string => n.toLocaleString('en-US')
+
+/** A refusal in words, for the listing, the file pane or a change's dialog. */
 export function refusalText(r: FilesRefusal): string {
   switch (r.kind) {
     case 'denied':
@@ -325,13 +403,32 @@ export function refusalText(r: FilesRefusal): string {
     case 'not_text':
       return 'This is not a file that opens here.'
     case 'too_large':
-      return 'Too large to open here.'
+      return r.bytes === undefined ? 'Too large to open here.' : `Too large: ${count(r.bytes)} bytes is over this server's limit.`
     case 'write_blocked':
       return 'This entry does not open here.'
+    case 'feature_read_only':
+      return 'Files are read-only on this server.'
+    case 'read_only_mount':
+      return 'This mount is read-only in every container that uses it.'
+    case 'changed_on_disk':
+      return 'The file changed on disk since it was opened.'
+    case 'owner_changed':
+      return 'The owner of this folder changed since it was listed. List it again.'
+    case 'exists':
+      return 'Something with that name already exists here.'
+    case 'invalid_name':
+      return 'That name is not allowed: no "/", no NUL, not "." or "..".'
+    case 'mixed_owners':
+      return 'The source and destination folders have different owners, so this cannot be moved there.'
+    case 'not_confirmed':
+      return 'This change was not confirmed. Preview it again.'
+    case 'partial':
+      return `Stopped after removing ${count(r.removed)} ${r.removed === 1 ? 'entry' : 'entries'}: ${r.failed_at} could not be removed: ${r.message} (${r.errno}).`
     case 'os_error':
       return `The system refused: ${r.message} (${r.errno}).`
     default:
-      return `Refused (${r.kind.replaceAll('_', ' ')}).`
+      // A refusal newer than this client.
+      return `Refused (${String((r as { kind: unknown }).kind).replaceAll('_', ' ')}).`
   }
 }
 

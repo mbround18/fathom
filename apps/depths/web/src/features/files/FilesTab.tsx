@@ -15,6 +15,7 @@ import { useEffect } from 'react'
 import { useSession } from '@/app/session-store'
 
 import { FileEditor } from './FileEditor'
+import { FileOpDialog } from './FileOpDialog'
 import { Listing } from './Listing'
 import { filesMode, type FilesLocation } from './model'
 import { MountList } from './MountList'
@@ -80,6 +81,7 @@ export default function FilesTab({ stack, location }: { stack: string; location:
           )}
         </div>
       )}
+      <FileOpDialog />
     </section>
   )
 }

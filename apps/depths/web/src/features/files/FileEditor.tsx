@@ -1,23 +1,37 @@
 /**
- * The open file (spec 053, T037), read path only: a header with the path, owner and permissions,
- * then the text in the shared CodeEditor (language guessed from the name and content, line
- * numbers, soft wrap), or, for a binary, too-large or non-UTF-8 file, its size and type and a
- * download.
+ * The open file (spec 053, T037, T045): a header with the path, owner and permissions, then the
+ * text in the shared CodeEditor (language guessed from the name and content, line numbers, soft
+ * wrap), or, for a binary, too-large or non-UTF-8 file, its size and type and a download.
  *
  * The editor is read-only, with the reason shown, when the mount is read-only in every container,
  * the server's files feature is read-only, or the server marks the file write-blocked (a hard
- * link, a special file, a link out of the mount). Saving lands in a later wave.
+ * link, a special file, a link out of the mount).
+ *
+ * Saving (US2): **Save** previews the change (`PreviewFileOp{save}`, the server's diff) and the
+ * shared `FileOpDialog` confirms it. The save carries the fingerprint the file was opened at, so a
+ * file that changed on disk meanwhile is refused (`changed_on_disk`); the editor then offers to
+ * reload (the edit is lost) or to compare the edit with the file as it is now and save over it.
+ * Parse problems (JSON, YAML, TOML, XML, INI) are marked on their lines as warnings; saving with
+ * any asks once more. Leaving with unsaved changes asks to confirm.
  */
-import { ArrowLeftIcon, DownloadSimpleIcon } from '@phosphor-icons/react'
+import { ArrowLeftIcon, DownloadSimpleIcon, FloppyDiskIcon, WarningIcon } from '@phosphor-icons/react'
+import { Button } from '@companion/ui'
+import { useMemo, useState } from 'react'
 
 import { Link } from '@/app/Link'
 import { CodeEditor } from '@/features/editor/CodeEditor'
+import { useUnsavedGuard } from '@/features/editor/useUnsavedGuard'
 import { formatBytes } from '@/features/stacks/metrics'
+import { useOps } from '@/features/stacks/ops-store'
+import { DiffText } from '@/features/stacks/PreviewDialog'
 import type { FileContent, Mount, WriteBlocked } from '@/protocol/generated'
 
+import { lineDiff } from './diff'
+import { isSaveConflict, useFileOps } from './fileops-store'
 import { guessLanguage } from './lang'
+import { parseProblems } from './lint'
 import { downloadHref, filesHref, modeString, parentPath, pathParts, type FilesMode } from './model'
-import { refusalText, type OpenFile } from './store'
+import { fetchFile, fileSaved, refusalText, relist, reopen, type OpenFile } from './store'
 
 const BLOCKED: Record<WriteBlocked, string> = {
   hard_link: 'It has more than one hard link, so an edit would change the other names too.',
@@ -56,6 +70,8 @@ export function FileEditor({ stack, mount, mountInfo, rootLabel, file, mode }: F
   const folder = pathParts(parent)?.at(-1) ?? rootLabel
   const content = file.state === 'open' ? file.content : null
   const binary = content?.binary_reason ?? null
+  // Kept outside the keyed text view, which starts afresh after every save.
+  const [savedPath, setSavedPath] = useState<string | null>(null)
 
   return (
     <div data-pane="file" data-path={file.path} data-binary={binary ?? undefined} className="flex min-w-0 flex-col gap-1">
@@ -101,13 +117,78 @@ export function FileEditor({ stack, mount, mountInfo, rootLabel, file, mode }: F
           </a>
         </div>
       ) : (
-        <TextView name={name} path={file.path} text={content.text} reason={readOnlyReason(content, mountInfo, mode)} />
+        <TextView
+          key={`${file.path}\u0000${content.fingerprint}`}
+          stack={stack}
+          mount={mount}
+          name={name}
+          path={file.path}
+          content={content}
+          text={content.text}
+          reason={readOnlyReason(content, mountInfo, mode)}
+          onSaved={() => setSavedPath(file.path)}
+        />
       )}
+      <p role="status" aria-live="polite" data-save-status className="min-h-4 text-xs text-status-ok">
+        {savedPath === file.path ? 'Saved.' : ''}
+      </p>
     </div>
   )
 }
 
-function TextView({ name, path, text, reason }: { name: string; path: string; text: string; reason: string | null }) {
+interface TextViewProps {
+  stack: string
+  mount: string
+  name: string
+  path: string
+  content: FileContent
+  /** `content.text`, known to be present. */
+  text: string
+  reason: string | null
+  onSaved: () => void
+}
+
+/** The editable text. Keyed by path and fingerprint, so a save or a reload starts it afresh. */
+function TextView({ stack, mount, name, path, content, text, reason, onSaved }: TextViewProps) {
+  const [draft, setDraft] = useState(text)
+  const [askProblems, setAskProblems] = useState(false)
+  const [disk, setDisk] = useState<FileContent | null>(null)
+  const [comparing, setComparing] = useState<'idle' | 'loading' | 'failed'>('idle')
+  const language = guessLanguage(name, text)
+  const problems = useMemo(() => parseProblems(language, draft, name), [language, draft, name])
+  const dirty = draft !== text
+  useUnsavedGuard(dirty && reason === null)
+
+  const flow = useFileOps((s) => s.flow)
+  const request = useFileOps((s) => s.request)
+  const dismiss = useFileOps((s) => s.dismiss)
+  const ours = flow?.op.kind === 'save' && flow.op.options.path === path && flow.op.options.mount === mount
+  const conflict = ours && isSaveConflict(flow)
+  const busy = ours && !conflict
+
+  const save = (base: string) => {
+    const body = draft
+    setAskProblems(false)
+    request(stack, { kind: 'save', options: { mount, path, text: body, base, bom: content.bom, eol: content.save_eol } }, (done, choice) => {
+      onSaved()
+      fileSaved(path, body, done.fingerprint)
+      relist()
+      if (choice.then === 'restart') {
+        useOps.getState().requestPreview({ kind: 'op', stack, op: { kind: 'service_restart', options: { service: choice.service } } })
+      }
+    })
+  }
+
+  const compare = () => {
+    setComparing('loading')
+    void fetchFile(mount, path).then((r) => {
+      if (r.ok && r.value.text !== undefined) {
+        setDisk(r.value)
+        setComparing('idle')
+      } else setComparing('failed')
+    })
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {reason !== null && (
@@ -115,7 +196,81 @@ function TextView({ name, path, text, reason }: { name: string; path: string; te
           Read-only: {reason}
         </p>
       )}
-      <CodeEditor key={path} value={text} language={guessLanguage(name, text)} label={path} readOnly={reason !== null} />
+      {reason === null && content.eol === 'mixed' && (
+        <p data-mixed-eol role="note" className="text-xs text-muted-foreground">
+          This file mixes line endings; saving writes them all as {content.save_eol === 'crlf' ? 'CRLF (Windows)' : 'LF (Unix)'}.
+        </p>
+      )}
+      {reason === null && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Button size="sm" data-save disabled={!dirty || busy} onClick={() => (problems.length > 0 ? setAskProblems(true) : save(content.fingerprint))}>
+            <FloppyDiskIcon aria-hidden className="size-3.5" />
+            Save
+          </Button>
+          {dirty && (
+            <Button size="sm" variant="ghost" data-discard onClick={() => setDraft(text)}>
+              Discard changes
+            </Button>
+          )}
+          <span data-dirty={dirty || undefined} className="text-xs text-muted-foreground">
+            {dirty ? 'Unsaved changes' : ''}
+          </span>
+        </div>
+      )}
+      {askProblems && (
+        <div
+          data-save-anyway
+          role="alert"
+          className="flex min-w-0 flex-wrap items-center gap-2 border border-status-warn/60 bg-status-warn/10 p-1.5 text-xs text-status-warn"
+        >
+          <WarningIcon aria-hidden className="size-3.5 shrink-0" />
+          <span className="min-w-0">
+            {problems.length === 1 ? 'The file check found a problem' : `The file check found ${String(problems.length)} problems`}; the service may
+            not read it.
+          </span>
+          <Button size="sm" variant="secondary" onClick={() => save(content.fingerprint)}>
+            Save anyway
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setAskProblems(false)}>
+            Keep editing
+          </Button>
+        </div>
+      )}
+      {conflict && (
+        <div data-conflict role="alert" className="flex min-w-0 flex-col gap-2 border border-status-warn/60 bg-status-warn/10 p-2 text-xs">
+          <p className="text-status-warn">This file changed on disk since you opened it, so it was not saved.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              data-reload
+              onClick={() => {
+                dismiss()
+                reopen()
+              }}
+            >
+              Reload (lose my edit)
+            </Button>
+            <Button size="sm" variant="secondary" data-compare disabled={comparing === 'loading'} onClick={compare}>
+              Compare
+            </Button>
+            <Button size="sm" variant="ghost" onClick={dismiss}>
+              Keep editing
+            </Button>
+          </div>
+          {comparing === 'failed' && <p className="text-status-err">The file could not be read again. Try again.</p>}
+          {disk && (
+            <section aria-label="On disk now, then your edit" data-compare-diff className="flex min-w-0 flex-col gap-1">
+              <h3 className="font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">On disk now → your edit</h3>
+              <DiffText diff={lineDiff(path, disk.text ?? '', draft) || 'No differences.'} />
+              <Button size="sm" data-save-over className="self-start" onClick={() => save(disk.fingerprint)}>
+                Save over it
+              </Button>
+            </section>
+          )}
+        </div>
+      )}
+      <CodeEditor value={draft} onChange={setDraft} language={language} label={path} problems={problems} readOnly={reason !== null} />
     </div>
   )
 }

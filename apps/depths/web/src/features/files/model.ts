@@ -36,6 +36,15 @@ export function showFilesTab(me: Me | null): boolean {
   return (me?.features.edit ?? false) && filesMode(me) !== 'off'
 }
 
+/**
+ * Whether the person may restart `stack`'s services, mirroring the server's `role::permits` for
+ * `Lifecycle`: an admin may, a user may on a stack assigned to them. The server checks again.
+ */
+export function mayRestart(me: Me | null, stack: string): boolean {
+  if (!me) return false
+  return me.role === 'admin' || (me.role === 'user' && me.stacks.includes(stack))
+}
+
 /** Where the explorer is: a mount (`null` for the mount list) and a path inside it. */
 export interface FilesLocation {
   mount: string | null
