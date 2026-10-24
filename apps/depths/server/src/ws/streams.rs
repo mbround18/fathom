@@ -130,6 +130,10 @@ enum Kind {
     Shell {
         input: std::sync::mpsc::SyncSender<ShellCmd>,
         stop: Arc<dyn Fn() + Send + Sync>,
+        /// 051 FR-009: open only because its person is an admin; closes when they stop being one.
+        admin_only: bool,
+        /// 051 FR-014: dropping it stops the task that ends the shell when its container goes.
+        _follow: tokio::sync::oneshot::Sender<()>,
     },
 }
 
@@ -145,7 +149,7 @@ impl Entry {
     fn stop(self) {
         match self.kind {
             Kind::Logs(cancel) => cancel.cancel(),
-            Kind::Shell { input, stop } => {
+            Kind::Shell { input, stop, .. } => {
                 // The input thread sees the queue close and reaps the session; the kill gets it
                 // out of a write the terminal is not reading.
                 drop(input);
@@ -268,7 +272,9 @@ impl Registry {
         let gone: Vec<StreamId> = self
             .open
             .iter()
-            .filter(|(_, e)| !role::permits(access, e.stack.as_ref(), e.action))
+            .filter(|(_, e)| {
+                !role::permits(access, e.stack.as_ref(), e.action) || admin_lost(access, e)
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in &gone {
@@ -281,6 +287,17 @@ impl Registry {
     fn open_count(&self) -> usize {
         self.open.len()
     }
+}
+
+/// 051 FR-009: an admin-only shell whose person is no longer an admin.
+fn admin_lost(access: &Access, e: &Entry) -> bool {
+    matches!(
+        e.kind,
+        Kind::Shell {
+            admin_only: true,
+            ..
+        }
+    ) && access.role != role::Role::Admin
 }
 
 impl Drop for Registry {
@@ -719,7 +736,25 @@ pub(super) async fn open_shell(
         return too_many(id);
     }
     let container_id = found.container().id.clone();
+    let container_name = found.container().name.clone();
     let shell = shell_path(shell);
+
+    // 051 FR-008 to FR-012: the container gate, on an inspect made now, failing closed.
+    let decision = container_gate(&app, &container_id, access.role == role::Role::Admin).await;
+    let (security, admin_only) = match decision {
+        depths_core::security::ShellDecision::Allow {
+            level,
+            reasons,
+            admin_only,
+        } => (audit_security(level, &reasons), admin_only),
+        depths_core::security::ShellDecision::Refuse {
+            why,
+            level,
+            reasons,
+        } => {
+            return refuse_shell(conn, id, found.stack(), why, level, &reasons);
+        }
+    };
 
     let mut e = audit::entry(
         conn.actor.clone(),
@@ -740,6 +775,7 @@ pub(super) async fn open_shell(
         .map(str::to_owned)
         .to_vec(),
     ];
+    e.security = Some(security);
     if let Err(err) = app.audit.record(&e) {
         tracing::error!(error = %err, "audit write failed; not opening the shell");
         return invalid(id, "the audit log could not be written");
@@ -747,6 +783,7 @@ pub(super) async fn open_shell(
     let (stack, action) = needs(&found, Action::Shell);
 
     let stream = conn.streams.next_id();
+    let opened_id = container_id.clone();
     let sink = Arc::new(ShellSink {
         stream,
         tx: conn.streams.tx.clone(),
@@ -766,15 +803,178 @@ pub(super) async fn open_shell(
     let stop = session.stopper();
     let (input, rx) = std::sync::mpsc::sync_channel(SHELL_INPUT_QUEUE);
     std::thread::spawn(move || feed(session, &rx));
+    let follow = follow_container(
+        &app,
+        stream,
+        opened_id,
+        container_name,
+        conn.streams.tx.clone(),
+    );
     conn.streams.open.insert(
         stream,
         Entry {
             stack,
             action,
-            kind: Kind::Shell { input, stop },
+            kind: Kind::Shell {
+                input,
+                stop,
+                admin_only,
+                _follow: follow,
+            },
         },
     );
     reply(id, Event::StreamOpened { stream_id: stream })
+}
+
+/// Whether two container ids name the same container: `docker ps` may list a short id where
+/// `docker inspect` answers with the full one.
+fn same_id(a: &str, b: &str) -> bool {
+    !a.is_empty() && !b.is_empty() && (a.starts_with(b) || b.starts_with(a))
+}
+
+/// 051 FR-008/FR-010: inspects the container now, not from the inventory's cache, and asks the
+/// one pure decision. An inspect that fails, is unsupported or answers for another container is
+/// an unknown profile, which the decision refuses. The daemon's mode comes from the inventory's
+/// reading when it has one, else is read now; unreadable counts as rootful.
+async fn container_gate(
+    app: &AppState,
+    container_id: &str,
+    admin: bool,
+) -> depths_core::security::ShellDecision {
+    use depths_core::security::{ShellRequest, profile, shell_decision};
+    let runtime = app.runtime.clone();
+    let cached = app.watch.daemon();
+    let id = container_id.to_owned();
+    let read = tokio::task::spawn_blocking(move || {
+        let inspect = runtime.inspect_security(std::slice::from_ref(&id));
+        let daemon = cached.map_or_else(|| runtime.daemon_mode(), Ok);
+        (id, inspect, daemon)
+    })
+    .await;
+    let found = match read {
+        Ok((id, Ok(found), daemon)) => found
+            .into_iter()
+            .find(|i| same_id(&i.id, &id))
+            .map(|i| profile(&i, daemon.unwrap_or_default())),
+        Ok((_, Err(e), _)) => {
+            tracing::warn!(error = ?e, "cannot inspect the container; refusing its shell");
+            None
+        }
+        Err(_) => None,
+    };
+    shell_decision(ShellRequest {
+        policy: app.cfg.shell_policy,
+        profile: found.as_ref(),
+        role_allows: true,
+        admin,
+    })
+}
+
+fn audit_security(
+    level: depths_core::security::Level,
+    reasons: &[depths_core::security::Reason],
+) -> depths_protocol::AuditSecurity {
+    depths_protocol::AuditSecurity {
+        level: crate::security::level(level),
+        reasons: reasons.iter().map(|r| r.code.as_str().to_owned()).collect(),
+        acknowledged: false,
+    }
+}
+
+/// A refused shell: audited `denied` with the level and reasons that decided it (051 FR-012),
+/// and `Denied` with the reason kind and the findings in words.
+fn refuse_shell(
+    conn: &Conn,
+    id: Option<RequestId>,
+    stack: Option<&depths_core::StackName>,
+    why: depths_core::security::ShellRefusal,
+    level: Option<depths_core::security::Level>,
+    reasons: &[depths_core::security::Reason],
+) -> EventEnvelope {
+    use depths_core::security::{Level, Severity, ShellRefusal};
+    use depths_protocol::DenyReason;
+    let reason = match (why, level) {
+        (ShellRefusal::Role, _) => DenyReason::NotPermitted,
+        (ShellRefusal::Unknown, _) => DenyReason::ShellUnverifiable,
+        (ShellRefusal::Refused, _) | (ShellRefusal::AdminOnly, Some(Level::Escape)) => {
+            DenyReason::ShellEscape
+        }
+        (ShellRefusal::AdminOnly, _) => DenyReason::ShellRootAdminOnly,
+    };
+    let detail = if why == ShellRefusal::Unknown {
+        "the container's configuration could not be read, so its shell is refused".to_owned()
+    } else {
+        reasons
+            .iter()
+            .filter(|r| r.severity != Severity::Info)
+            .map(|r| r.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let mut e = audit::denied(
+        conn.actor.clone(),
+        conn.ip,
+        stack.map(depths_core::StackName::as_str),
+        format!("OpenShell refused ({why:?}): {detail}"),
+    );
+    e.security = level.map(|l| audit_security(l, reasons));
+    if let Err(err) = conn.app.audit.record(&e) {
+        tracing::error!(error = %err, "audit write failed for a refused shell");
+    }
+    reply(
+        id,
+        Event::Denied {
+            reason,
+            detail: Some(detail),
+        },
+    )
+}
+
+/// 051 FR-014: ends the shell `stream` when its container is removed, or recreated under its
+/// name with a new id, as the inventory sees it. Stops when the returned sender is dropped.
+fn follow_container(
+    app: &AppState,
+    stream: StreamId,
+    id: String,
+    name: String,
+    tx: mpsc::Sender<Outgoing>,
+) -> tokio::sync::oneshot::Sender<()> {
+    use tokio::sync::broadcast::error::RecvError;
+    let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
+    let sub = app.watch.subscribe();
+    tokio::spawn(async move {
+        // The whole subscription, not just its receiver: its guard keeps the watch running.
+        let mut sub = sub;
+        loop {
+            tokio::select! {
+                _ = &mut stopped => return,
+                u = sub.rx.recv() => match u {
+                    Ok(crate::watch::Update::Stacks(list)) => {
+                        if let Some(reason) = container_fate(&list, &id, &name) {
+                            let _ = tx.send(Outgoing::End { stream, reason }).await;
+                            return;
+                        }
+                    }
+                    Ok(crate::watch::Update::Unavailable(_)) | Err(RecvError::Lagged(_)) => {}
+                    Err(RecvError::Closed) => return,
+                },
+            }
+        }
+    });
+    stop
+}
+
+/// What became of a shell's container in this reading: `None` while it is still there (or the
+/// reading is stale), else removed, or recreated when its name now belongs to another id.
+fn container_fate(list: &StackList, id: &str, name: &str) -> Option<StreamCloseReason> {
+    if list.stale || every_container(list).any(|(_, c)| same_id(&c.id, id)) {
+        return None;
+    }
+    Some(if every_container(list).any(|(_, c)| c.name == name) {
+        StreamCloseReason::ContainerRecreated
+    } else {
+        StreamCloseReason::ContainerRemoved
+    })
 }
 
 /// The session's owner: writes and resizes in order, and the close when the queue closes or the

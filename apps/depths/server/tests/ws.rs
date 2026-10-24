@@ -975,3 +975,201 @@ async fn losing_a_stack_closes_its_streams() {
     .await;
     server.abort();
 }
+
+// ---------------------------------------------------------------------------
+// 051: the container gate on shells, and shells ending with their container
+// ---------------------------------------------------------------------------
+
+/// Stack `web` (`web-app-1`) under a shell policy, its container inspecting as `level`.
+fn gated_app(policy: depths_core::security::ShellPolicy, level: &str) -> App {
+    let a = app_with(|s| {
+        let mut cfg = (*s.cfg).clone();
+        cfg.shell_policy = policy;
+        s.cfg = std::sync::Arc::new(cfg);
+    });
+    a.add_stack("web", COMPOSE, None);
+    a.set_containers(vec![container("web", "app", "running", "Up 1 hour")]);
+    match level {
+        "ok" => a.set_inspect("web-app-id", json!({ "Config": { "User": "1000:1000" } })),
+        "root" => a.set_inspect("web-app-id", json!({ "Config": { "User": "" } })),
+        "escape" => a.set_inspect(
+            "web-app-id",
+            json!({ "Config": { "User": "1000" }, "HostConfig": { "Privileged": true } }),
+        ),
+        "unknown" => a
+            .runtime
+            .inspect_fails
+            .store(true, std::sync::atomic::Ordering::SeqCst),
+        other => panic!("no level {other}"),
+    }
+    a
+}
+
+/// 051 FR-008 to FR-012, every policy x role x level: what `OpenShell` answers, that a refused
+/// shell never reaches docker, and that both outcomes are audited with the level and reasons.
+#[tokio::test]
+async fn a_shell_is_gated_by_policy_role_and_container_level() {
+    use depths_core::security::ShellPolicy::{Relaxed, Strict};
+    use depths_protocol::{AuditAction, SecurityLevel};
+    let allow = "open";
+    let table = [
+        (Strict, "ok", allow, allow),
+        (Strict, "root", allow, "shell_root_admin_only"),
+        (Strict, "escape", "shell_escape", "shell_escape"),
+        (
+            Strict,
+            "unknown",
+            "shell_unverifiable",
+            "shell_unverifiable",
+        ),
+        (Relaxed, "ok", allow, allow),
+        (Relaxed, "root", allow, allow),
+        (Relaxed, "escape", allow, "shell_escape"),
+        (
+            Relaxed,
+            "unknown",
+            "shell_unverifiable",
+            "shell_unverifiable",
+        ),
+    ];
+    for (policy, level, admin, user) in table {
+        for (who, want) in [(OWNER, admin), ("7", user)] {
+            let a = gated_app(policy, level);
+            grant(&a, "7", &["web"]);
+            let (mut ws, server, _) = open(&a, who).await;
+            let r = ask(&mut ws, 1, open_shell("web-app-1")).await;
+            let case = format!("{policy:?} {level} {who}: {r}");
+            let audited = a.audit_entries();
+            if want == allow {
+                stream_of(&r);
+                assert_eq!(a.runtime.shells.lock().unwrap().len(), 1, "{case}");
+                let e = audited
+                    .iter()
+                    .find(|e| e.action == AuditAction::ShellOpen)
+                    .expect("audited open");
+                let sec = e.security.as_ref().expect("the open carries its rating");
+                let expect = match level {
+                    "ok" => SecurityLevel::Ok,
+                    "root" => SecurityLevel::Root,
+                    _ => SecurityLevel::Escape,
+                };
+                assert_eq!(sec.level, expect, "{case}");
+            } else {
+                assert_eq!(r["event"]["type"], "Denied", "{case}");
+                assert_eq!(r["event"]["data"]["reason"], want, "{case}");
+                assert!(
+                    !r["event"]["data"]["detail"]
+                        .as_str()
+                        .unwrap_or("")
+                        .is_empty(),
+                    "{case}"
+                );
+                assert!(a.runtime.shells.lock().unwrap().is_empty(), "{case}");
+                assert!(!audited.iter().any(|e| e.action == AuditAction::ShellOpen));
+                let d = audited
+                    .iter()
+                    .find(|e| e.action == AuditAction::Denied)
+                    .expect("audited refusal");
+                if level == "unknown" {
+                    assert!(d.security.is_none(), "{case}");
+                } else {
+                    let sec = d.security.as_ref().expect("the refusal carries its rating");
+                    assert!(!sec.reasons.is_empty(), "{case}");
+                }
+            }
+            // The gate inspected the container at the moment of the request.
+            assert!(
+                a.runtime
+                    .inspects
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|ids| ids == &["web-app-id".to_owned()]),
+                "{case}"
+            );
+            server.abort();
+        }
+    }
+}
+
+/// 051 FR-008: the gate reads the container now, not the inventory's cached rating: a container
+/// rated ok when the list was read and privileged by the time of the request is refused.
+#[tokio::test]
+async fn the_shell_gate_reads_the_container_at_the_moment_of_the_request() {
+    let a = gated_app(depths_core::security::ShellPolicy::Strict, "ok");
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let list = ask(&mut ws, 1, json!({ "type": "ListStacks" })).await;
+    assert_eq!(
+        list["event"]["data"]["stacks"][0]["security"], "ok",
+        "{list}"
+    );
+    a.set_inspect(
+        "web-app-id",
+        json!({ "HostConfig": { "Privileged": true } }),
+    );
+    let r = ask(&mut ws, 2, open_shell("web-app-1")).await;
+    assert_eq!(r["event"]["data"]["reason"], "shell_escape", "{r}");
+    server.abort();
+}
+
+/// 051 FR-014: a shell ends when its container is recreated under its name, or removed.
+#[tokio::test]
+async fn a_shell_ends_when_its_container_is_recreated_or_removed() {
+    for (gone, kind) in [(false, "container_recreated"), (true, "container_removed")] {
+        let a = gated_app(depths_core::security::ShellPolicy::Strict, "ok");
+        let (mut ws, server, _) = open(&a, OWNER).await;
+        let id = stream_of(&ask(&mut ws, 1, open_shell("web-app-1")).await);
+        if gone {
+            a.set_containers(Vec::new());
+        } else {
+            let mut c = container("web", "app", "running", "Up 1 second");
+            c["id"] = json!("web-app-new-id");
+            a.set_containers(vec![c]);
+        }
+        // As a `docker events` would; the shell's own follow keeps the watch running.
+        assert_eq!(
+            a.state.watch.subscribers(),
+            1,
+            "the shell follows the inventory"
+        );
+        a.state.watch.kick();
+        until("the reading", || {
+            a.state.watch.last().is_some_and(|l| {
+                !l.stacks[0].services[0]
+                    .containers
+                    .iter()
+                    .any(|c| c.container.id == "web-app-id")
+            })
+        })
+        .await;
+        let closed = next_of(&mut ws, "StreamClosed").await;
+        assert_eq!(closed["event"]["data"]["stream_id"], id, "{closed}");
+        assert_eq!(closed["event"]["data"]["reason"]["kind"], kind, "{closed}");
+        until("the session closes", || {
+            count(&a.runtime.shell_log.closed) == 1
+        })
+        .await;
+        server.abort();
+    }
+}
+
+/// 051 FR-009: a shell open only because its person is an admin closes when they stop being one.
+#[tokio::test]
+async fn an_admin_only_shell_closes_when_its_person_stops_being_an_admin() {
+    use depths_protocol::{Role, StackName, UserId};
+    let a = gated_app(depths_core::security::ShellPolicy::Strict, "root");
+    let who = UserId::new("discord:8").unwrap();
+    let web = [StackName::new("web").unwrap()];
+    a.state.users.put(&who, Role::Admin, &web).unwrap();
+    let (mut ws, server, _) = open(&a, "8").await;
+    let id = stream_of(&ask(&mut ws, 1, open_shell("web-app-1")).await);
+    a.state.users.put(&who, Role::User, &web).unwrap();
+    let _ = a.state.users_changed.send(());
+    let closed = next_of(&mut ws, "StreamClosed").await;
+    assert_eq!(closed["event"]["data"]["stream_id"], id, "{closed}");
+    assert_eq!(
+        closed["event"]["data"]["reason"]["kind"], "failed",
+        "{closed}"
+    );
+    server.abort();
+}

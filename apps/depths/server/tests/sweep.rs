@@ -57,8 +57,14 @@ const OFF: Features = Features {
 /// stack, `USER` given `web`, `ADMIN` made admin. Rate limits are raised: the sweep signs in far
 /// more often than a person would.
 fn sweep_app(f: Features) -> App {
+    sweep_app_under(f, depths_core::security::ShellPolicy::Strict)
+}
+
+/// [`sweep_app`] under a shell policy (051).
+fn sweep_app_under(f: Features, policy: depths_core::security::ShellPolicy) -> App {
     let a = app_with(|s| {
         let mut cfg = (*s.cfg).clone();
+        cfg.shell_policy = policy;
         cfg.features.shell = f.shell;
         cfg.features.edit = f.edit;
         cfg.host_proc = f.host.then(|| support::fake_host_proc(&cfg));
@@ -137,6 +143,9 @@ use Outcome::*;
 
 const NOT_PERMITTED: &str = "not_permitted";
 const FEATURE_DISABLED: &str = "feature_disabled";
+const SHELL_ESCAPE: &str = "shell_escape";
+const SHELL_ROOT: &str = "shell_root_admin_only";
+const SHELL_UNVERIFIABLE: &str = "shell_unverifiable";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Place {
@@ -578,6 +587,9 @@ fn observe(replies: &[Value]) -> Result<Outcome, String> {
                     Some(NOT_PERMITTED) => Denied(NOT_PERMITTED),
                     Some(FEATURE_DISABLED) => Denied(FEATURE_DISABLED),
                     Some("owner") => Denied("owner"),
+                    Some(SHELL_ESCAPE) => Denied(SHELL_ESCAPE),
+                    Some(SHELL_ROOT) => Denied(SHELL_ROOT),
+                    Some(SHELL_UNVERIFIABLE) => Denied(SHELL_UNVERIFIABLE),
                     _ => return Err(format!("{e}")),
                 },
                 "Invalid" => Invalid,
@@ -735,6 +747,88 @@ async fn every_command_as_an_admin_matches_the_table() {
 async fn every_command_with_shell_and_edit_off_matches_the_table() {
     let mut wrong = sweep(Who::User, OFF).await;
     wrong.extend(sweep(Who::Admin, OFF).await);
+    assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+}
+
+// ---------------------------------------------------------------------------
+// 051: the container gate on OpenShell, every policy x role x place x level
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Level {
+    Ok,
+    Root,
+    Escape,
+    /// The inspect at the moment of the request fails.
+    Unknown,
+}
+
+/// 051 FR-008 to FR-010, written from `contracts/protocol.md` rather than the server: the role
+/// table first, then the container's level under the policy.
+fn shell_expected(
+    who: Who,
+    place: Place,
+    level: Level,
+    policy: depths_core::security::ShellPolicy,
+) -> Outcome {
+    use depths_core::security::ShellPolicy::{Relaxed, Strict};
+    let role = gate(who, place, Reply("StreamOpened"));
+    if role != Reply("StreamOpened") {
+        return role;
+    }
+    match (policy, level, who) {
+        (_, Level::Unknown, _) => Denied(SHELL_UNVERIFIABLE),
+        (Strict, Level::Escape, _) | (Relaxed, Level::Escape, Who::User) => Denied(SHELL_ESCAPE),
+        (Strict, Level::Root, Who::User) => Denied(SHELL_ROOT),
+        _ => Reply("StreamOpened"),
+    }
+}
+
+#[tokio::test]
+async fn every_shell_matches_the_policy_and_level_table() {
+    use depths_core::security::ShellPolicy::{Relaxed, Strict};
+    let mut wrong = Vec::new();
+    for policy in [Strict, Relaxed] {
+        for level in [Level::Ok, Level::Root, Level::Escape, Level::Unknown] {
+            let a = sweep_app_under(ON, policy);
+            let inspect = match level {
+                Level::Ok | Level::Unknown => json!({ "Config": { "User": "1000" } }),
+                Level::Root => json!({ "Config": { "User": "0" } }),
+                // A runtime socket is an escape even read-only (051 FR-004).
+                Level::Escape => json!({
+                    "Config": { "User": "1000" },
+                    "Mounts": [{ "Type": "bind", "Source": "/var/run/docker.sock",
+                        "Destination": "/var/run/docker.sock", "RW": false }],
+                }),
+            };
+            for id in ["web-app-id", "db-app-id", "stray-x-id"] {
+                a.set_inspect(id, inspect.clone());
+            }
+            a.runtime
+                .inspect_fails
+                .store(level == Level::Unknown, Ordering::SeqCst);
+            for who in [Who::User, Who::Admin] {
+                let mut held = Held::default();
+                let mut ws = socket(&a, who.subject(), &mut held).await;
+                for (n, c) in ["web-app-1", "db-app-1", "stray-x-1", "nope-1"]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let sent = cmd(
+                        "OpenShell",
+                        json!({ "container": c, "cols": 80, "rows": 24 }),
+                    );
+                    let want = shell_expected(who, container_place(&c), level, policy);
+                    let got = observe(&replies(&mut ws, n as u64 + 1, &sent).await);
+                    if got.as_ref() != Ok(&want) {
+                        wrong.push(format!(
+                            "{policy:?} {level:?} {who:?} {c}: want {want:?}, got {got:?}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
     assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
 }
 

@@ -154,6 +154,15 @@ pub struct FakeRuntime {
     /// While set, a step runs until it is cancelled or this is cleared, so an operation can be
     /// caught running.
     pub hold: AtomicBool,
+    /// 051: `docker inspect` answers by container id. A container without one inspects as a plain
+    /// non-root container.
+    pub inspect: Mutex<HashMap<String, serde_json::Value>>,
+    /// Every inspect's ids.
+    pub inspects: Mutex<Vec<Vec<String>>>,
+    /// While set, every inspect fails.
+    pub inspect_fails: AtomicBool,
+    /// The daemon's mode; `None` is rootful.
+    pub daemon: Mutex<Option<depths_core::security::DaemonMode>>,
 }
 
 /// A shell opened: container id, shell, (cols, rows).
@@ -303,6 +312,35 @@ impl ContainerRuntime for FakeRuntime {
             log: self.shell_log.clone(),
         }))
     }
+    fn inspect_security(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<depths_core::security::Inspect>, RuntimeError> {
+        self.inspects.lock().unwrap().push(ids.to_vec());
+        if self.inspect_fails.load(Ordering::SeqCst) {
+            return Err(RuntimeError::Failed("Error: No such object".into()));
+        }
+        let known = self.inspect.lock().unwrap();
+        let snap = self.snapshot.lock().unwrap();
+        let present = |id: &str| {
+            snap.projects
+                .values()
+                .flat_map(|p| p.containers.iter())
+                .any(|c| c.id == id)
+        };
+        Ok(ids
+            .iter()
+            .filter_map(|id| match known.get(id) {
+                Some(j) => Some(j.clone()),
+                None => present(id)
+                    .then(|| serde_json::json!({ "Id": id, "Config": { "User": "1000" } })),
+            })
+            .map(|j| serde_json::from_value(j).unwrap())
+            .collect())
+    }
+    fn daemon_mode(&self) -> Result<depths_core::security::DaemonMode, RuntimeError> {
+        Ok(self.daemon.lock().unwrap().unwrap_or_default())
+    }
     fn stats(&self, ids: &[String], at: &str) -> Result<Vec<UsageSample>, RuntimeError> {
         self.stats_calls.lock().unwrap().push(ids.to_vec());
         Ok(ids
@@ -440,6 +478,17 @@ impl App {
             entry.containers.push(serde_json::from_value(c).unwrap());
         }
         *self.runtime.snapshot.lock().unwrap() = snap;
+    }
+
+    /// What `docker inspect` answers for `id` (051), e.g. `{"HostConfig": {"Privileged": true}}`;
+    /// `Id` is filled in.
+    pub fn set_inspect(&self, id: &str, mut inspect: serde_json::Value) {
+        inspect["Id"] = serde_json::Value::String(id.to_owned());
+        self.runtime
+            .inspect
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), inspect);
     }
 
     /// Every audit entry so far.
