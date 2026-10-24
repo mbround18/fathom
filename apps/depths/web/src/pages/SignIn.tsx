@@ -15,6 +15,7 @@ const LABELS: Record<Provider, string> = {
 /** Shown to anyone without a session. Lists the providers the server says are configured. */
 export default function SignIn() {
   const providers = useSession((s) => s.providers)
+  const expired = useSession((s) => s.expired)
   return (
     <main
       data-page="sign-in"
@@ -28,6 +29,11 @@ export default function SignIn() {
         <h1 id="sign-in-title" className="font-display text-sm font-semibold tracking-wider uppercase">
           Sign in
         </h1>
+        {expired && (
+          <p role="status" data-notice="expired" className="border border-status-warn/40 px-2 py-1 text-xs text-status-warn">
+            Your session expired. Sign in again; your tabs come back.
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">Sign in to manage your stacks.</p>
         <ul className="flex flex-col gap-2">
           {providers.length === 0 ? (

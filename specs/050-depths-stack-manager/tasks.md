@@ -467,7 +467,7 @@ and deploy works in one preview, and every other byte is unchanged.
 **Independent test**: open logs A, a shell in B and stats for C. Arrange them, reload, and find the
 layout restored and every tab live.
 
-- [ ] T064 [P] [US4] Write E2E tests in `apps/depths/web/tests/e2e/us4-tabs/tabs.spec.ts`:
+- [X] T064 [P] [US4] Write E2E tests in `apps/depths/web/tests/e2e/us4-tabs/tabs.spec.ts`:
   - Open 6 tabs across kinds, split and resize.
   - Reload restores order and layout (FR-025).
   - On phone width, one pane with a tab strip (FR-024).
@@ -476,14 +476,14 @@ layout restored and every tab live.
   - A stats tab samples only while visible.
   - A dropped stream shows "reconnected".
   - When the session expires mid-stream, the tab says so; after signing in again the log tabs reopen and the shell tab offers a new session.
-- [ ] T065 [P] [US4] Write a soak test in `apps/depths/web/tests/e2e/us4-tabs/soak.spec.ts`: the fake backend streams 6 tabs at 50 lines/s for a simulated hour, with time compressed. Assert JS heap stays bounded (ring cap) and input latency stays under 100 ms (SC-005).
+- [X] T065 [P] [US4] Write a soak test in `apps/depths/web/tests/e2e/us4-tabs/soak.spec.ts`: the fake backend streams 6 tabs at 50 lines/s for a simulated hour, with time compressed. Assert JS heap stays bounded (ring cap) and input latency stays under 100 ms (SC-005).
 - [ ] T066 [US4] Implement `OpenLogs` (compose logs per service or `docker logs` per container, `--since` on reopen), `OpenShell`/`ShellInput`/`ShellResize` (048 `session.rs` PTY, gated by role and `DEPTHS_FEATURE_SHELL`, audited as `shell_open`), `WatchStats`/`UnwatchStats` (2 s `stats --no-stream`, only while watched) and `CloseStream` in `apps/depths/server/src/ws.rs`. Add mock-runner tests for each, including that stats stop on unwatch and on socket close.
-- [ ] T067 [US4] Build the tab system in `apps/depths/web/src/features/tabs/{TabHost,TabStrip,LogsTab,ShellTab,StatsTab}.tsx`:
+- [X] T067 [US4] Build the tab system in `apps/depths/web/src/features/tabs/{TabHost,TabStrip,LogsTab,ShellTab,StatsTab}.tsx`:
   - `react-resizable-panels` at wide widths, a single pane at narrow widths.
   - Layout persisted in `localStorage` under `depths:layout:<subject>`, with every read and write wrapped so the page works without storage.
   - Shells reconnect as new sessions on reload.
   - Logs resume with `since`.
-- [ ] T068 [US4] Add a Vitest test in `apps/depths/web/tests/unit/layout.test.ts`: layout serialise/restore, unknown tabs dropped on restore, and a storage exception tolerated.
+- [X] T068 [US4] Add a Vitest test in `apps/depths/web/tests/unit/layout.test.ts`: layout serialise/restore, unknown tabs dropped on restore, and a storage exception tolerated.
 
 ---
 

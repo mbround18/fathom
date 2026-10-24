@@ -1,0 +1,48 @@
+/**
+ * The buttons that open a tab (logs, a shell, stats) from the stack views. Light: no stream or
+ * terminal code loads until a tab exists.
+ */
+import { ChartBarIcon, ScrollIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import { Button } from '@companion/ui'
+
+import { useSession } from '@/app/session-store'
+import type { LogTarget, StatsTarget } from '@/protocol/generated'
+
+import { useTabs } from './store'
+
+export function OpenLogs({ target, label }: { target: LogTarget; label: string }) {
+  const openTab = useTabs((s) => s.openTab)
+  return (
+    <Button variant="ghost" size="icon-xs" data-open="logs" aria-label={`Logs for ${label}`} title="Logs" onClick={() => openTab({ kind: 'logs', target })}>
+      <ScrollIcon aria-hidden />
+    </Button>
+  )
+}
+
+export function OpenStats({ target, label }: { target: StatsTarget; label: string }) {
+  const openTab = useTabs((s) => s.openTab)
+  return (
+    <Button variant="ghost" size="icon-xs" data-open="stats" aria-label={`Stats for ${label}`} title="Stats" onClick={() => openTab({ kind: 'stats', target })}>
+      <ChartBarIcon aria-hidden />
+    </Button>
+  )
+}
+
+/** Hidden while the shell feature is off (FR-027): the server refuses it anyway. */
+export function OpenShell({ container }: { container: string }) {
+  const shellOn = useSession((s) => s.me?.features.shell ?? false)
+  const openTab = useTabs((s) => s.openTab)
+  if (!shellOn) return null
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      data-open="shell"
+      aria-label={`Shell in ${container}`}
+      title="Shell"
+      onClick={() => openTab({ kind: 'shell', container })}
+    >
+      <TerminalWindowIcon aria-hidden />
+    </Button>
+  )
+}

@@ -9,6 +9,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
+import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
 import type { Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
 
 import { DeleteStack } from './DeleteStack'
@@ -46,6 +47,11 @@ function ContainerRow({ c }: { c: Container }) {
             {c.health}
           </span>
         )}
+        <span className="flex shrink-0 items-center">
+          <OpenLogs target={{ kind: 'container', container: c.name }} label={c.name} />
+          <OpenShell container={c.name} />
+          <OpenStats target={{ kind: 'container', container: c.name }} label={c.name} />
+        </span>
       </div>
       <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2 text-xs text-muted-foreground">
         <dt>Image</dt>
@@ -79,6 +85,7 @@ function ServiceCard({ service, stack }: { service: ServiceSummary; stack: Stack
       <header className="flex min-w-0 items-center gap-2 border-b border-border px-2 py-1">
         <h3 className="min-w-0 flex-1 truncate text-xs font-semibold">{service.name}</h3>
         {service.image !== null && <span className="min-w-0 truncate text-xs text-muted-foreground">{service.image}</span>}
+        <OpenLogs target={{ kind: 'stack', stack: stack.name, service: service.name }} label={`service ${service.name}`} />
         <ServiceActions stack={stack} service={service.name} />
       </header>
       {service.containers.length === 0 ? (
@@ -213,6 +220,8 @@ export default function StackDetail({ params }: { params: Params }) {
           <StackActions stack={stack} />
           <EditLink detail={detail} />
           <DeleteStack stack={stack.name} />
+          <OpenLogs target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
+          <OpenStats target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
         </div>
       </header>
 

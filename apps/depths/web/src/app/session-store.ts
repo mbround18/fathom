@@ -26,6 +26,8 @@ export interface SessionState {
   /** Sign-in providers the server's 401 named. */
   providers: Provider[]
   connection: ConnectionStatus
+  /** The session ended under a signed-in page (expiry, revocation), not by signing out. */
+  expired: boolean
   bootstrap: (fetchFn?: FetchLike) => Promise<void>
   signOut: () => Promise<void>
 }
@@ -43,7 +45,7 @@ export const useSession = create<SessionState>()((set, get) => {
 
   const onTerminal = (reason: TerminalReason): void => {
     if (reason === 'unauthenticated') {
-      set({ status: 'signed_out', me: null })
+      set({ status: 'signed_out', me: null, expired: get().status === 'ready' })
       void refreshProviders()
     } else if (reason === 'forbidden') {
       set({ status: 'no_access' })
@@ -70,6 +72,7 @@ export const useSession = create<SessionState>()((set, get) => {
     me: null,
     providers: [],
     connection: 'closed',
+    expired: false,
 
     bootstrap: async (fetchFn) => {
       set({ status: 'loading' })
@@ -89,7 +92,7 @@ export const useSession = create<SessionState>()((set, get) => {
         set({ status: 'no_access', me })
         return
       }
-      set({ status: 'ready', me })
+      set({ status: 'ready', me, expired: false })
       connect(me.csrf_token, {
         onStatus: (connection) => set({ connection }),
         onTerminal,
@@ -112,7 +115,7 @@ export const useSession = create<SessionState>()((set, get) => {
           /* The session is gone either way from this tab's view. */
         }
       }
-      set({ status: 'signed_out', me: null })
+      set({ status: 'signed_out', me: null, expired: false })
       if (endSessionUrl) globalThis.location.assign(endSessionUrl)
       else void refreshProviders()
     },

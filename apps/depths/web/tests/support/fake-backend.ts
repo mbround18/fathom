@@ -664,7 +664,12 @@ export class FakeBackend {
 
       case 'WatchStats': {
         const ids = cmd.data.targets.flatMap((t) =>
-          t.kind === 'container' ? [t.container] : may(t.stack) ? this.containersOf(t.stack).map((c) => c.id) : [],
+          // Samples carry the full id, as docker reports it, whatever ref the target named.
+          t.kind === 'container'
+            ? [this.stacks.stacks.flatMap((s) => this.containersOf(s.name)).find((c) => c.name === t.container)?.id ?? t.container]
+            : may(t.stack)
+              ? this.containersOf(t.stack).map((c) => c.id)
+              : [],
         )
         const samples = this.samples.length ? this.samples : ids.map((cid) => fixtures.sample(cid))
         return [{ type: 'StatsSample', data: { samples } }]
