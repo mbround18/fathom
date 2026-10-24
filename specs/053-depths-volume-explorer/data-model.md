@@ -12,7 +12,7 @@ The types live in `depths-volumes`, and those that cross to the UI are re-export
 | `source` | string | volume name, or host path for a bind; shown to editors only |
 | `services` | `[{ service, destination, read_only }]` | one entry per service that mounts it |
 | `writable` | bool | true when any service mounts it RW |
-| `state` | `ready` \| `not_created` \| `unresolved` \| `missing` | `not_created`: a named volume that does not exist before the first deploy; `missing`: the volume or path is gone |
+| `state` | `ready` \| `not_created` \| `unresolved` \| `missing` | `not_created`: a named volume that does not exist before the first deploy; `missing`: the volume or path is gone. Only `ready` mounts get a helper (a `docker run` on a missing named volume would create it) |
 | `browsable` | `{ ok: true }` \| `{ ok: false, reason: Reason }` | tmpfs/other: never; bind: `bind_reason()` must not be root or escape |
 | `running` | `[service]` | services with a running container that mounts it (FR-010) |
 
@@ -44,6 +44,8 @@ Server-only, never serialised to the UI: `HelperSource::{Volume(name), Bind(Path
 | `nlink` | u32 | > 1 → `write_blocked: hard_link` |
 | `write_blocked` | `hard_link` \| `read_only_mount` \| `special` \| `outside_link` \| null | why writes are off |
 
+An Entry carries no content fingerprint: hashing every file would break SC-002. A fingerprint comes from `ReadFile`, or from an `Upload` preview for a name it would replace.
+
 Listings are sorted by the server, folders first and then by name (byte order, case-folded for
 ASCII). They are sent in pages of 5,000.
 
@@ -69,6 +71,7 @@ ASCII). They are sent in pages of 5,000.
 | `Rename` | `mount, from, to` | old → new; refused across mounts (there is no field for it) |
 | `Delete` | `mount, path` | the name; for a folder, its entry count (bounded walk, "10,000+") |
 | `Restore` | `mount, path, version` | diff between that version and the current file |
+| `Upload` | `mount, dir, files: [{ name, size }]` | the folder and every file; for each existing name, `replace` with its current fingerprint (from a helper `Stat` + hash of that one file) |
 
 A confirmed op becomes one helper call. After it, its history capture runs (R9), then its audit
 entry is written.

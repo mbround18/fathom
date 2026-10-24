@@ -17,6 +17,8 @@ docker run -i --rm --pull never --network none --read-only --cap-drop ALL
   - `<name>` must match Docker's volume-name rule.
   - `<abs host path>` must be absolute, normalised, rated by `bind_reason()` as info or nothing,
     and free of `,` and `=` (`--mount` syntax). Anything else is refused before the argv is built.
+  - A named volume must be proven to exist (`docker volume inspect`) before the argv is built:
+    `--mount type=volume` creates a missing volume, so only `ready` mounts reach the adapter.
 - `uid` and `gid` are numbers, never names.
 - `readonly` is set unless the op writes.
 

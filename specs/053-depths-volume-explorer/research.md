@@ -66,6 +66,10 @@
   - create, rename and delete: the parent folder's.
 - The owner comes from the listing that led to the operation, and the helper re-checks it with
   `statx`. If the owner changed, the reply is `owner_changed` and the UI reloads.
+- **Rename across owners**: a rename whose source and destination folders have different owners
+  is refused `mixed_owners`; no single uid could do it without privileges.
+- **Recursive delete** runs as the folder's owner. If it reaches an entry that uid cannot remove,
+  it stops and replies `partial` with what it removed and the system error, shown verbatim.
 - **Root-owned objects**: the helper runs as uid 0 with no capabilities, so it has no DAC override
   and gets only the owner's mode bits.
 - **Mount root**: a stat of the mount root runs as `65534:65534`, since stat on `/volume` needs no
@@ -127,6 +131,9 @@
   - When a service has no container, from `docker compose config --format json` of the stack (an
     argv like the existing `config --quiet` steps), for volumes and binds. A named volume that
     does not exist yet is listed as `not_created`.
+  - Only `ready` mounts get a helper. `docker run --mount type=volume` creates a missing volume,
+    so the gate refuses `not_created`/`missing`, and the adapter needs proof (`docker volume
+    inspect`) that the volume exists before it builds the argv.
 - **Mount id**: stable and opaque, `sha256(kind \0 source)` shortened to 16 hex digits. It is
   computed by the server, so the URL is stable and the client never supplies a source.
 - **Browsability**:
@@ -149,8 +156,10 @@
   - It sits behind `CsrfLayer`, with its own body limit (`DEPTHS_FILES_UPLOAD_MAX`, default
     1 GiB) instead of the global one.
   - The body streams into the helper, which writes a temp file and renames it (R6).
-  - Replacing a name needs the fingerprint of the file being replaced (the UI got it from the
-    listing after the confirm). A mismatch gets 409 `changed_on_disk`.
+  - Every upload goes through `PreviewFileOp{Upload}` → `Confirm` first (constitution I). The
+    preview names each file and, for a name that exists, the fingerprint of the file it would
+    replace (one `Stat` + hash; listings carry no fingerprints). The POST carries the preview id,
+    and a mismatch at write time gets 409 `changed_on_disk`.
 - **Rationale**: the existing WS has a message cap, and binary data over WS would need its own
   chunking. HTTP streaming is native in Axum and gives the browser a progress bar.
 
@@ -162,7 +171,9 @@
   3. **052 trust**: untrusted → `ListMounts`/`ListDir` only, everything else `untrusted_network`.
      The new kinds go into `restricted_ok`.
   4. **Mount**: browsable, and writable for writes.
-- Every refusal is audited. `/api/me` carries `features.files` (`off`, `read_only` or `full`).
+- Every refusal is audited, including the ones the helper returns (`outside_mount`,
+  `write_blocked`, `owner_changed`, `changed_on_disk`, `os_error`, `partial`): the server maps each
+  to a `Refused` and one `files.refused` entry. `/api/me` carries `features.files` (`off`, `read_only` or `full`).
   The Files tab shows only when that is not `off` and the person may edit the stack, the same
   per-stack check the Edit button uses. Viewers never see it.
 

@@ -41,7 +41,7 @@ DEPTHS_E2E_PORT=4196 nice pnpm exec playwright test --project=us6-files
 **Expected**:
 - **US1–US5 scenarios**: the Files tab, browsing a 50,000-entry folder (SC-002 timing asserted),
   the editor with highlighting, a binary file offering download, a save conflict that offers
-  reload or compare, save and restart, an upload replace confirm, delete with a count, and a
+  reload or compare, save and restart, an upload confirm naming every file, delete with a count, and a
   history restore.
 - At 360 px wide the page has no sideways scroll.
 

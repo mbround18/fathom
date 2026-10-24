@@ -35,7 +35,7 @@ existing session and CSRF layers.
   `@codemirror/legacy-modes` (properties, TOML, shell, Lua, INI/CFG).
 
 **Storage**: file history under `<data_dir>/file-history/`, with content-addressed blobs and one
-`meta.json` per tracked file. Writes are atomic, following the `users.rs` pattern. Pruning is
+JSON index per tracked file (`files/<sha256>.json`). Writes are atomic, following the `users.rs` pattern. Pruning is
 bounded by count, total size and age (R9).
 
 **Testing**:
@@ -69,7 +69,7 @@ are capped at 8 at once per server (R4).
 
 | Principle | Check | Status |
 |---|---|---|
-| I. Explicit mutation | Save, create, rename, delete, upload-replace and restore each go through `PreviewFileOp` → `Confirm`. The preview names the stack, mount and path, with a diff for saves. Nothing is shown changed until the helper reports the result. Errors are passed on verbatim. | PASS |
+| I. Explicit mutation | Save, create, rename, delete, every upload and restore each go through `PreviewFileOp` → `Confirm`. The preview names the stack, mount and path, with a diff for saves. Nothing is shown changed until the helper reports the result. Errors are passed on verbatim. | PASS |
 | II. One contract | New `Cmd`/`Event` variants in `depths-protocol`, with ts-rs bindings regenerated. Transfers are HTTP routes, documented in the contract and typed in the protocol crate. The volume logic lives in a new agnostic crate (`depths-volumes`), with the helper and docker as adapters. | PASS |
 | III. Boundary tests | Round-trip tests for every new variant. Playwright for US1–US5. Unit tests for the explorer logic. A 30+ case escape suite (SC-003) in the helper crate. | PASS |
 | IV. Density | Phone: one pane (list, then file). `md`: list and editor side by side. `xl`: mount tree, list and editor. No sideways page scroll; the list is virtualized. | PASS |

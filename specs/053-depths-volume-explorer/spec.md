@@ -90,7 +90,7 @@ disk with the old owner and mode, and the replaced version can be restored (US5)
 
 1. **Given** a file, **When** the person downloads it, **Then** they receive it byte for byte.
 2. **Given** a folder, **When** they download it, **Then** they receive one archive of the folder with its structure, up to the download limit. Above the limit Depths says how large the folder is and does not start the download.
-3. **Given** a writable folder, **When** they upload one or more files up to the upload limit, **Then** each lands in that folder. A name that already exists is replaced only after they confirm.
+3. **Given** a writable folder, **When** they upload one or more files up to the upload limit, **Then** Depths first asks them to confirm, naming the folder and each file, and each then lands in that folder. A name that already exists is marked in that confirm as a replacement.
 4. **Given** the service using the mount is running, **When** they upload over an existing file, **Then** they are warned that the server may hold the file open or overwrite it, and are offered to stop the service first.
 5. **Given** an upload or download, **When** it completes or fails, **Then** it is recorded in the audit log with its size.
 
@@ -267,8 +267,8 @@ recorded as a new save.
   source (volume name or host path), path inside the container, read-only state per service, and
   whether it is browsable (with the reason when not).
 - **Entry**: one item in a mount's folder: name, kind (file, folder, link with its target, special),
-  size, modification time, owner, group, permission bits, link count, and a content fingerprint for
-  change detection when it is a file.
+  size, modification time, owner, group, permission bits and link count. A file's content fingerprint, for
+  change detection, is taken when it is opened or about to be replaced.
 - **File version**: a copy of a file's content kept by Depths before one of its writes: stack,
   mount, path, time, author, size and the content. Bounded by the history limits.
 - **File audit event**: who did what to which path in which mount of which stack, when, with the
