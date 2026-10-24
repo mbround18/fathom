@@ -20,7 +20,7 @@ import { useEffect, useRef } from 'react'
 import { loadLanguage, type FileLanguage } from '@/features/files/lang'
 
 import { baseTheme, highlighting, languageExtensions, type CodeLanguage } from './cm-setup'
-import { problemText, type Problem } from './problems'
+import { PROBLEM_SOURCE_LABEL, problemText, type Problem } from './problems'
 
 export type EditorLanguage = CodeLanguage | FileLanguage
 
@@ -47,7 +47,7 @@ function diagnostics(state: EditorState, problems: readonly Problem[]): Diagnost
   for (const p of problems) {
     if (p.line === null) continue
     const line = state.doc.line(Math.min(Math.max(p.line, 1), state.doc.lines))
-    out.push({ from: line.from, to: line.to, severity: 'error', message: p.message, source: p.source })
+    out.push({ from: line.from, to: line.to, severity: p.severity ?? 'error', message: p.message, source: p.source })
   }
   return out
 }
@@ -132,15 +132,16 @@ export function CodeEditor({ value, onChange, language, label, problems = NO_PRO
         className="min-w-0 border border-border bg-background/40 focus-within:border-ring"
       />
       {problems.length > 0 && (
-        <ul data-problems aria-label={`Problems in ${label}`} className="flex flex-col gap-0.5 text-xs text-status-err">
+        <ul data-problems aria-label={`Problems in ${label}`} className="flex flex-col gap-0.5 text-xs">
           {problems.map((p, i) => (
             <li
               key={`${p.source}-${String(p.line)}-${String(i)}`}
               data-problem-line={p.line ?? ''}
               data-problem-source={p.source}
-              className="break-words"
+              data-problem-severity={p.severity ?? 'error'}
+              className={p.severity === 'warning' ? 'break-words text-status-warn' : 'break-words text-status-err'}
             >
-              {p.source === 'server' ? 'Compose: ' : 'YAML: '}
+              {PROBLEM_SOURCE_LABEL[p.source]}:{' '}
               {problemText(p)}
             </li>
           ))}

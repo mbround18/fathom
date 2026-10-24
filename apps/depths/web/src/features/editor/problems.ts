@@ -11,7 +11,20 @@ export interface Problem {
   /** 1-based; `null` when the source gives no line. */
   line: number | null
   message: string
-  source: 'yaml' | 'server'
+  /** `json`, `toml`, `xml` and `ini` come from the volume explorer's parse checks (spec 053). */
+  source: 'yaml' | 'server' | 'json' | 'toml' | 'xml' | 'ini'
+  /** An error unless set; the explorer's parse checks only warn, and saving stays possible. */
+  severity?: 'error' | 'warning'
+}
+
+/** How the list under an editor names where a problem came from. */
+export const PROBLEM_SOURCE_LABEL: Readonly<Record<Problem['source'], string>> = {
+  yaml: 'YAML',
+  server: 'Compose',
+  json: 'JSON',
+  toml: 'TOML',
+  xml: 'XML',
+  ini: 'INI',
 }
 
 /** YAML syntax errors in `text`, at most one per line. Empty when it parses. */
