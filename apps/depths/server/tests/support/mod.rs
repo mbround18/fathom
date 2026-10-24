@@ -150,6 +150,9 @@ pub struct FakeRuntime {
     pub shell_log: Arc<ShellLog>,
     /// Every stats reading's ids.
     pub stats_calls: Mutex<Vec<Vec<String>>>,
+    /// While set, a step runs until it is cancelled or this is cleared, so an operation can be
+    /// caught running.
+    pub hold: AtomicBool,
 }
 
 /// A shell opened: container id, shell, (cols, rows).
@@ -211,13 +214,19 @@ impl ContainerRuntime for FakeRuntime {
         step: &RunStep,
         _: Option<&[u8]>,
         sink: &dyn OutputSink,
-        _: &CancelToken,
+        cancel: &CancelToken,
     ) -> Result<StepOutcome, RuntimeError> {
         self.ran.lock().unwrap().push(step.argv.clone());
         sink.emit(OutputChunk {
             stream: OutputStream::Stderr,
             text: "Container web-app-1  Started\n".into(),
         });
+        while self.hold.load(Ordering::SeqCst) {
+            if cancel.is_cancelled() {
+                return Ok(StepOutcome::Cancelled);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
         Ok(match self.fail_with.lock().unwrap().clone() {
             Some(stderr_tail) => StepOutcome::Failed {
                 exit_code: Some(1),
