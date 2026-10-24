@@ -238,12 +238,13 @@ test('50,000 entries are visible in under 2 s and the filter answers in under 10
     const input = document.querySelector<HTMLInputElement>('[data-pane="listing"] input[type="search"]')
     const count = document.querySelector('[data-pane="listing"] [data-entry-count]')
     if (!input || !count) throw new Error('no filter')
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- the native setter, so React sees the input event
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
     const t0 = performance.now()
     setValue?.call(input, '49999')
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await new Promise<void>((resolve) => {
-      const check = () => (count.textContent?.startsWith('1 of') ? resolve() : requestAnimationFrame(check))
+      const check = () => (count.textContent.startsWith('1 of') ? resolve() : requestAnimationFrame(check))
       check()
     })
     return performance.now() - t0
