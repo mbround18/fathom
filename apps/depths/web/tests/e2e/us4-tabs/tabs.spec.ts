@@ -24,7 +24,10 @@ async function openStack(page: Page): Promise<void> {
 
 const container = (page: Page) => page.locator('[data-container="web-app-1"]')
 const tab = (page: Page, kind: string) => page.locator(`[data-tab-kind="${kind}"]`)
-const logView = (page: Page) => page.getByTestId('log-view')
+// The stack page has a log console of its own (one more stream, the first running container's);
+// these tests are about the tabs, so they look inside the tab dock.
+const dock = (page: Page) => page.getByTestId('tab-dock')
+const logView = (page: Page) => dock(page).getByTestId('log-view')
 
 test.describe('tabs', () => {
   test.beforeEach(({ backend }) => seed(backend))
@@ -36,7 +39,7 @@ test.describe('tabs', () => {
 
     const open = await backend.waitForCmd('OpenLogs')
     expect(open.data).toEqual({ target: { kind: 'container', container: 'web-app-1' }, tail: 1000 })
-    await expect(page.locator('[data-field="phase"]')).toHaveAttribute('data-phase', 'live')
+    await expect(dock(page).locator('[data-field="phase"]')).toHaveAttribute('data-phase', 'live')
     await expect(logView(page)).toContainText('ready on :8080')
     await expect(logView(page)).not.toContainText('\u001b')
     await expect(logView(page)).not.toContainText('[32m')
@@ -62,13 +65,14 @@ test.describe('tabs', () => {
     await expect(logView(page)).toContainText('booting')
     await btn.click()
     await expect(tab(page, 'logs')).toHaveCount(1)
-    expect(backend.received.filter((c) => c.type === 'OpenLogs')).toHaveLength(1)
+    // The console's stream and the tab's: the second click opened nothing.
+    expect(backend.received.filter((c) => c.type === 'OpenLogs')).toHaveLength(2)
 
-    await page.getByRole('searchbox', { name: 'Search logs' }).fill('health')
-    await expect(page.locator('[data-field="matches"]')).toHaveText('1 of 3')
+    await dock(page).getByRole('searchbox', { name: 'Search logs' }).fill('health')
+    await expect(dock(page).locator('[data-field="matches"]')).toHaveText('1 of 3')
     await expect(logView(page)).toContainText('GET /health 200')
     await expect(logView(page)).not.toContainText('booting')
-    await page.getByRole('searchbox', { name: 'Search logs' }).fill('nothing-matches')
+    await dock(page).getByRole('searchbox', { name: 'Search logs' }).fill('nothing-matches')
     await expect(page.locator('[data-pane-state="no-match"]')).toBeVisible()
   })
 
@@ -108,11 +112,11 @@ test.describe('tabs', () => {
     await openStack(page)
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await expect(logView(page)).toContainText('booting')
-    await page.getByRole('button', { name: 'Pause' }).click()
+    await dock(page).getByRole('button', { name: 'Pause' }).click()
     backend.pushLogs([`${T(6)} after pause one`, `${T(7)} after pause two`])
-    await expect(page.locator('[data-field="new-lines"]')).toHaveText('2 new')
+    await expect(dock(page).locator('[data-field="new-lines"]')).toHaveText('2 new')
     await expect(logView(page)).not.toContainText('after pause')
-    await page.getByRole('button', { name: 'Resume' }).click()
+    await dock(page).getByRole('button', { name: 'Resume' }).click()
     await expect(logView(page)).toContainText('after pause two')
   })
 
@@ -156,7 +160,8 @@ test.describe('tabs', () => {
     await expect(page.locator('[data-pane="pane-2"] [data-tab-kind="stats"]')).toHaveCount(1)
     await expect(page.locator('[data-pane="pane-3"] [data-tab-kind="shell"]')).toHaveCount(1)
     await expect(logView(page)).toContainText('booting')
-    await expect.poll(() => backend.received.filter((c) => c.type === 'OpenLogs').length).toBe(opens + 1)
+    // The tab's stream and the console's.
+    await expect.poll(() => backend.received.filter((c) => c.type === 'OpenLogs').length).toBe(opens + 2)
     // A shell cannot be resumed across a reload: it is a new session.
     await expect(page.locator('[data-tab-body="shell"] [data-testid^="terminal-"]')).toContainText('/ #')
   })
@@ -165,7 +170,7 @@ test.describe('tabs', () => {
     await openStack(page)
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await expect(logView(page)).toContainText('booting')
-    expect(backend.openStreams()).toHaveLength(1)
+    expect(backend.openStreams()).toHaveLength(2)
     await page.getByRole('button', { name: 'Close logs web-app-1' }).click()
     const close = await backend.waitForCmd('CloseStream')
     expect(backend.openStreams()).not.toContain(close.data.stream_id)
@@ -191,13 +196,15 @@ test.describe('tabs', () => {
     await openStack(page)
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await expect(logView(page)).toContainText('GET /health 200')
+    // The console's open, then the tab's: both reopen the same way.
+    await backend.waitForCmd('OpenLogs')
     await backend.waitForCmd('OpenLogs')
 
     backend.closeStreams({ kind: 'disconnected' })
     const again = await backend.waitForCmd('OpenLogs')
     expect(again.data).toEqual({ target: { kind: 'container', container: 'web-app-1' }, tail: 1000, since: T(3) })
-    await expect(page.locator('[data-notice]')).toHaveText('Reconnected')
-    await expect(page.locator('[data-field="phase"]')).toHaveAttribute('data-phase', 'live')
+    await expect(dock(page).locator('[data-notice]')).toHaveText('Reconnected')
+    await expect(dock(page).locator('[data-field="phase"]')).toHaveAttribute('data-phase', 'live')
     // The fake replays the whole tail; the tab keeps one copy of each line.
     await expect(logView(page).getByText('GET /health 200')).toHaveCount(1)
   })
@@ -207,11 +214,11 @@ test.describe('tabs', () => {
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await expect(logView(page)).toContainText('booting')
     backend.closeStreams({ kind: 'ended' })
-    const ended = page.locator('[data-ended]')
+    const ended = dock(page).locator('[data-ended]')
     await expect(ended).toContainText('The container stopped.')
     await expect(ended).toContainText(/Ended \d/)
     await ended.getByRole('button', { name: 'Reopen' }).click()
-    await expect(page.locator('[data-field="phase"]')).toHaveAttribute('data-phase', 'live')
+    await expect(dock(page).locator('[data-field="phase"]')).toHaveAttribute('data-phase', 'live')
     await expect(ended).toHaveCount(0)
   })
 
@@ -219,7 +226,7 @@ test.describe('tabs', () => {
     backend.deny('OpenLogs')
     await openStack(page)
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
-    await expect(page.locator('[data-pane-state="not-permitted"]')).toBeVisible()
+    await expect(dock(page).locator('[data-pane-state="not-permitted"]')).toBeVisible()
   })
 
   test('a dropped socket reopens logs and ends shells, offering a new one', async ({ page, backend }) => {
@@ -232,7 +239,7 @@ test.describe('tabs', () => {
 
     backend.closeSockets(1011)
     await expect(page.locator('[data-ended] [data-field="end-reason"]')).toContainText('The connection to Depths dropped.')
-    await expect(page.locator('[data-notice]')).toHaveText('Reconnected')
+    await expect(dock(page).locator('[data-notice]')).toHaveText('Reconnected')
     expect(backend.received.filter((c) => c.type === 'OpenShell')).toHaveLength(shells)
 
     await page.getByRole('button', { name: 'New session' }).click()
@@ -387,7 +394,7 @@ test.describe('logs, in depth', () => {
     await expect(logView(page)).toContainText('line 399')
     const atBottom = () => logView(page).evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 40)
     await expect.poll(atBottom).toBe(true)
-    const follow = page.getByRole('button', { name: 'Follow' })
+    const follow = dock(page).getByRole('button', { name: 'Follow' })
     await expect(follow).toHaveAttribute('aria-pressed', 'true')
 
     await logView(page).evaluate((el) => {
@@ -413,11 +420,11 @@ test.describe('logs, in depth', () => {
         const p = (n: number) => String(n).padStart(2, '0')
         return `${String(d.getFullYear())}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
       }, iso)
-    await page.getByLabel('From time').fill(await local(T(2)))
-    await expect(page.locator('[data-field="matches"]')).toHaveText('2 of 3')
+    await dock(page).getByLabel('From time').fill(await local(T(2)))
+    await expect(dock(page).locator('[data-field="matches"]')).toHaveText('2 of 3')
     await expect(logView(page)).not.toContainText('booting')
-    await page.getByLabel('To time').fill(await local(T(2)))
-    await expect(page.locator('[data-field="matches"]')).toHaveText('1 of 3')
+    await dock(page).getByLabel('To time').fill(await local(T(2)))
+    await expect(dock(page).locator('[data-field="matches"]')).toHaveText('1 of 3')
     await expect(logView(page)).toContainText('ready on :8080')
   })
 
@@ -426,7 +433,7 @@ test.describe('logs, in depth', () => {
     await openStack(page)
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await expect(logView(page)).toContainText('booting')
-    const marker = page.locator('[data-pane-state="logs-truncated"]')
+    const marker = dock(page).locator('[data-pane-state="logs-truncated"]')
     await expect(marker).toHaveCount(0)
     for (let b = 0; b < 4; b++) backend.pushLogs(Array.from({ length: 2600 }, (_, i) => `bulk ${String(b)}-${String(i)}`))
     await expect(marker).toBeAttached()
