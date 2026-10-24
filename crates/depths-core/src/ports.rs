@@ -352,6 +352,24 @@ pub trait ContainerRuntime: Send + Sync {
     /// errors Compose gave, by line where it named one.
     fn validate(&self, step: &RunStep, draft: &[u8]) -> Result<Validation, RuntimeError>;
 
+    /// Whether the runtime answers at all (`/readyz`). The default asks for the inventory;
+    /// adapters with a cheaper probe override it.
+    fn ping(&self) -> Result<(), RuntimeError> {
+        self.containers_by_project().map(|_| ())
+    }
+
+    /// Follows the runtime's event stream, calling `on_event` once per event, until `cancel` is
+    /// set (`Ok`) or the stream fails (`Err`). Blocking: callers run it on a blocking thread.
+    /// The default has no stream, so watchers fall back to the filesystem alone.
+    fn follow_events(
+        &self,
+        on_event: &(dyn Fn() + Sync),
+        cancel: &CancelToken,
+    ) -> Result<(), RuntimeError> {
+        let _ = (on_event, cancel);
+        Err(RuntimeError::Unsupported)
+    }
+
     /// Runs commands in order, stopping at the first that does not succeed.
     fn run_steps(
         &self,

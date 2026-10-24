@@ -1561,6 +1561,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "depths-runtime-cli"
+version = "0.1.0"
+dependencies = [
+ "container-runtime",
+ "depths-core",
+ "rustix",
+ "tempfile",
+]
+
+[[package]]
 name = "depths-server"
 version = "0.1.0"
 dependencies = [
