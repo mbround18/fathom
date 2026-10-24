@@ -2,7 +2,9 @@
  * The live data behind the tabs (US4, T067): one log stream or shell session per tab, and one
  * stats watch shared by every visible stats tab. Fed by the shared socket, never holding it.
  *
- * - Every tab in the layout gets its stream; closing the tab sends `CloseStream`.
+ * - Every tab in the layout gets its stream; closing the tab sends `CloseStream`. A console (the
+ *   stack page's log view, outside the layout) is a log stream like a tab's, for as long as it is
+ *   registered with `openConsole`; `closeConsole` closes it the same way.
  * - Log lines are kept in a ring of `DEFAULT_RING_CAPACITY` lines, with control sequences removed
  *   (they are untrusted). The view shows "older lines dropped" from the ring's count.
  * - A log stream the proxy cut (`disconnected`) reopens with backoff and `since` the last line
@@ -118,8 +120,18 @@ function forgetStream(tab: string): void {
   byStream.delete(id)
 }
 
+type LogSpec = Extract<TabSpec, { kind: 'logs' }>
+
+/** Log streams outside the tab layout, by id: the stack page's console. */
+const consoles = new Map<string, LogSpec>()
+
+/** Every stream this module should have open: the layout's tabs, then the consoles. */
+function specs(): TabSpec[] {
+  return [...useTabs.getState().layout.tabs, ...consoles.values()]
+}
+
 function tabSpec(id: string): TabSpec | undefined {
-  return useTabs.getState().layout.tabs.find((t) => t.id === id)
+  return consoles.get(id) ?? useTabs.getState().layout.tabs.find((t) => t.id === id)
 }
 
 function setLog(tab: string, patch: Partial<LogStream>): void {
@@ -439,9 +451,10 @@ function reconcile(): void {
     if (known.size > 0 || watching !== '') resetStreams()
     return
   }
-  const ids = new Set(layout.tabs.map((t) => t.id))
+  const all = [...layout.tabs, ...consoles.values()]
+  const ids = new Set(all.map((t) => t.id))
   for (const tab of [...known]) if (!ids.has(tab)) drop(tab)
-  for (const tab of layout.tabs) {
+  for (const tab of all) {
     if (known.has(tab.id)) continue
     known.add(tab.id)
     start(tab)
@@ -474,7 +487,7 @@ onReconnected(() => {
   byStream.clear()
   streamOf.clear()
   const { logs, shells } = useStreams.getState()
-  for (const tab of useTabs.getState().layout.tabs) {
+  for (const tab of specs()) {
     if (tab.kind === 'logs' && logs[tab.id]) {
       pendingNotice.set(tab.id, 'Reconnected')
       openLogs(tab, true)
@@ -585,6 +598,26 @@ function onClosed(tab: string, reason: StreamCloseReason): void {
     const why = reason.kind === 'failed' ? `${SHELL_END.failed} ${reason.detail}` : SHELL_END[reason.kind]
     setShell(tab, { status: reason.kind === 'failed' ? 'error' : 'ended', reason: why, endedAt: now, offerNew: true })
   }
+}
+
+/**
+ * Streams `target`'s logs under `id` (read them with `useStreams((s) => s.logs[id])`) until
+ * `closeConsole(id)`. The id must not be a tab's: `console:` ids are never made by the layout.
+ */
+export function openConsole(id: string, target: LogTarget): void {
+  const cur = consoles.get(id)
+  if (cur && JSON.stringify(cur.target) === JSON.stringify(target)) return
+  if (cur) {
+    consoles.delete(id)
+    reconcile()
+  }
+  consoles.set(id, { id, kind: 'logs', target })
+  reconcile()
+}
+
+/** Stops a console's stream (`CloseStream`) and forgets its lines. */
+export function closeConsole(id: string): void {
+  if (consoles.delete(id)) reconcile()
 }
 
 /** Retry a failed log tab. */
