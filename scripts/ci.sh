@@ -105,6 +105,9 @@ echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p 
     --step "$depths_drift"
 }
 
+# Spec 050: Depths' web app gets the same gate as ui, against its fake backend.
+DEPTHS_WEB=@companion/depths-web
+
 job_ui() {
   local avail
   avail=$(free -g | awk '/^Mem:/ {print $7}')
@@ -127,7 +130,12 @@ job_ui() {
     --step "$N pnpm typecheck" \
     --step "$N pnpm test" \
     --step "$N pnpm build" \
-    --step "$N pnpm e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
+    --step "$N pnpm e2e --workers=\"\$PLAYWRIGHT_WORKERS\"" \
+    --step "$N pnpm --filter $DEPTHS_WEB lint" \
+    --step "$N pnpm --filter $DEPTHS_WEB typecheck" \
+    --step "$N pnpm --filter $DEPTHS_WEB test" \
+    --step "$N pnpm --filter $DEPTHS_WEB build" \
+    --step "$N pnpm --filter $DEPTHS_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
 }
 
 run_job() {
