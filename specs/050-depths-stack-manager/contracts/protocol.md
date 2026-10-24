@@ -19,7 +19,7 @@ version handling mirror Fathom's `BackendCmdEnvelope` / `BackendEventEnvelope`.
 |---|---|---|
 | `ListStacks` | user (filtered to assigned stacks; `foreign` and `standalone` empty) or admin | `Stacks{root, stacks, foreign, standalone, warnings, stale, as_of}` then live `StacksChanged`; `RuntimeUnavailable{reason}` when docker fails (FR-010) |
 | `GetStack{name}` | user (assigned stack) | `StackDetail{stack, compose_text, env_text_masked \| env_text, content_hash}` |
-| `RevealEnv{name}` | user (assigned stack) | `EnvRevealed{name, env_text}` (audited; masking is by key: names containing `PASS`, `SECRET`, `TOKEN`, `KEY`, `PRIVATE`, `CREDENTIAL`, case-insensitive) |
+| `RevealEnv{name}` | admin | `EnvRevealed{name, env_text}` (audited; masking is by key: names containing `PASS`, `SECRET`, `TOKEN`, `KEY`, `PRIVATE`, `CREDENTIAL`, case-insensitive) |
 | `PreviewOp{stack, kind, options}` | per data-model table | `Preview{…}` or `Denied` / `Busy` / `Invalid` |
 | `PreviewSave{draft, deploy}` | user (assigned stack) for a save; admin for create | `Preview{file_diff, steps: [validate, up?]}`, or `ValidationFailed{errors[{file, line?, message}]}`, or `Conflict{current_text, current_env, current_hash}` |
 | `Confirm{preview_id}` | as previewed | `OpStarted{operation_id}`, `OpOutput{operation_id, chunk}`*, `OpFinished{operation_id, outcome}` |

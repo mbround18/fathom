@@ -795,6 +795,13 @@ async fn reveal_env(
         AuditOutcome::Succeeded,
     );
     e.stack = Some(name.to_owned());
+    // Which secrets were shown, by key name only: never a value.
+    let keys = depths_core::secrets::secret_keys(&env_text);
+    e.diff_summary = Some(if keys.is_empty() {
+        "revealed .env: no secret-looking keys".into()
+    } else {
+        format!("revealed .env keys: {}", keys.join(", "))
+    });
     if let Err(err) = conn.app.audit.record(&e) {
         tracing::error!(error = %err, "audit write failed; not revealing");
         return invalid(id, "the audit log could not be written");

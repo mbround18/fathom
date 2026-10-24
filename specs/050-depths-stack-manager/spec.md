@@ -135,8 +135,8 @@ in B's shell and confirm its output. Confirm A's logs follow new lines and can b
 The owner, named in Depths' settings by their provider account id, is always an administrator.
 Anyone else who signs in is recorded as pending and told they don't currently have access, until an
 administrator lists them as a user or an administrator, or pre-adds them by account id. A user is
-assigned specific stacks and sees only those: on them they can view files (with secrets masked, and
-reveal them), logs and stats, run lifecycle operations, open shells and edit. An administrator sees
+assigned specific stacks and sees only those: on them they can view files (with secrets masked; only
+an administrator can reveal them), logs and stats, run lifecycle operations, open shells and edit. An administrator sees
 everything, can also create and delete stacks, remove volumes or images, see projects and containers
 outside the stacks directory, manage the users list and read the full audit log. Anything Depths does
 to the host or the users list is recorded with who, what, when, which stack and the outcome, and the
@@ -250,7 +250,7 @@ which job, and links to each one's install steps and guides, and that every link
 - **FR-018**: Saving MUST show a diff against the file on disk and write only after confirmation. Content the operator did not change MUST be preserved byte for byte.
 - **FR-019**: Saving MUST be refused when the file changed on disk since it was loaded, showing the other change.
 - **FR-020**: "Save and deploy" MUST show the diff and the deploy command in one preview.
-- **FR-021**: Environment values whose key suggests a secret MUST be masked until revealed, and MUST NOT appear in logs or the audit log.
+- **FR-021**: Environment values whose key suggests a secret MUST be masked until revealed, and MUST NOT appear in logs or the audit log. Only an administrator may reveal them; each reveal is audited with who, which stack and the key names. Saving an environment file in which a secret still shows the mask MUST keep that secret's value.
 - **FR-022**: New stack names MUST be valid compose project names and unique. Invalid names MUST be refused with the reason.
 
 **Containers and tabs**

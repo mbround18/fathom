@@ -213,7 +213,11 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
     match cmd {
         Cmd::ListStacks => Reply("Stacks"),
         Cmd::GetStack { name } => gate(who, stack_place(name), Reply("StackDetail")),
-        Cmd::RevealEnv { name } => gate(who, stack_place(name), Reply("EnvRevealed")),
+        // Admin-only, even on an assigned stack.
+        Cmd::RevealEnv { name } => match who {
+            Who::Admin => gate(who, stack_place(name), Reply("EnvRevealed")),
+            Who::User => Denied(NOT_PERMITTED),
+        },
         Cmd::PreviewOp { stack, op } => {
             if admin_only(op) && who == Who::User {
                 Denied(NOT_PERMITTED)

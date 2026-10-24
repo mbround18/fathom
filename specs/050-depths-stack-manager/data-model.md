@@ -142,7 +142,7 @@ The registry is read on every command, so a change applies at that person's next
 | Action | user (on an assigned stack) | admin |
 |---|---|---|
 | See the stack, files (values of secret-looking keys masked, FR-021), status, logs, stats | ✓ | ✓ |
-| Reveal masked `.env` values | ✓ | ✓ |
+| Reveal masked `.env` values (FR-021; a user edits `.env` masked, and the save keeps every value still showing the mask) | | ✓ |
 | Lifecycle (up/stop/restart/down/pull/update, per service) | ✓ | ✓ |
 | Shell (when `DEPTHS_FEATURE_SHELL`) | ✓ | ✓ |
 | Edit and save (when `DEPTHS_FEATURE_EDIT`) | ✓ | ✓ |
@@ -166,6 +166,7 @@ Appended by `audit-log` as one JSON line.
 | stack | name or none |
 | preview_id / operation_id | uuid or none |
 | argv | the steps run |
+| diff_summary | saves and creates: files and lines changed, `.env` reduced to its keys; `reveal_env`: the secret-looking key names shown, never a value |
 | outcome | `succeeded \| failed{exit_code, stderr_tail} \| denied{reason}` |
 | source_ip | string |
 

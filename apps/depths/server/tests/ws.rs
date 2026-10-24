@@ -173,16 +173,61 @@ async fn env_values_are_masked_revealed_only_on_request_and_never_audited() {
             .contains("hunter2")
     );
 
+    // Audited: who, which stack, and the secret key names; never a value.
+    let entries = a.audit_entries();
+    let reveal = entries
+        .iter()
+        .find(|e| e.action == depths_protocol::AuditAction::RevealEnv)
+        .unwrap_or_else(|| panic!("{entries:?}"));
+    assert_eq!(reveal.stack.as_deref(), Some("web"));
+    assert_eq!(reveal.actor.subject, OWNER);
+    assert_eq!(
+        reveal.diff_summary.as_deref(),
+        Some("revealed .env keys: DB_PASSWORD")
+    );
+    let bytes = a.audit_bytes();
+    assert!(!bytes.is_empty());
+    let log = String::from_utf8_lossy(&bytes);
+    assert!(!log.contains("hunter2") && !log.contains("8080"), "{log}");
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_user_cannot_reveal_env_even_on_an_assigned_stack() {
+    let a = app();
+    a.add_stack("web", COMPOSE, Some("DB_PASSWORD=hunter2\nPORT=8080\n"));
+    grant(&a, "7", &["web"]);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let r = ask(
+        &mut ws,
+        1,
+        json!({ "type": "GetStack", "data": { "name": "web" } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "StackDetail", "{r}");
+    assert!(!r.to_string().contains("hunter2"), "{r}");
+    let r = ask(
+        &mut ws,
+        2,
+        json!({ "type": "RevealEnv", "data": { "name": "web" } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Denied", "{r}");
+    assert!(!r.to_string().contains("hunter2"), "{r}");
     let entries = a.audit_entries();
     assert!(
-        entries
+        !entries
             .iter()
             .any(|e| e.action == depths_protocol::AuditAction::RevealEnv),
         "{entries:?}"
     );
-    let bytes = a.audit_bytes();
-    assert!(!bytes.is_empty());
-    assert!(!String::from_utf8_lossy(&bytes).contains("hunter2"));
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.action == depths_protocol::AuditAction::Denied
+                && e.stack.as_deref() == Some("web")),
+        "the refusal is audited: {entries:?}"
+    );
     server.abort();
 }
 

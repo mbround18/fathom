@@ -41,7 +41,8 @@ pub struct Access {
 pub enum Action {
     /// See the stack, its files (secret-looking values masked), status, logs and stats.
     View,
-    /// Reveal masked `.env` values.
+    /// Reveal masked `.env` values. Admin-only: a user edits `.env` with its secrets masked, and
+    /// the save keeps the value of every line still showing the mask.
     RevealEnv,
     /// up, stop, restart, plain down, pull, update, and the per-service forms.
     Lifecycle,
@@ -83,7 +84,7 @@ impl Action {
     pub fn open_to_users(self) -> bool {
         matches!(
             self,
-            Self::View | Self::RevealEnv | Self::Lifecycle | Self::Shell | Self::Edit
+            Self::View | Self::Lifecycle | Self::Shell | Self::Edit
         )
     }
 }
@@ -135,7 +136,7 @@ mod tests {
     /// data-model.md's table: (action, user on an assigned stack, admin).
     const TABLE: [(Action, bool, bool); 12] = [
         (Action::View, true, true),
-        (Action::RevealEnv, true, true),
+        (Action::RevealEnv, false, true),
         (Action::Lifecycle, true, true),
         (Action::Shell, true, true),
         (Action::Edit, true, true),

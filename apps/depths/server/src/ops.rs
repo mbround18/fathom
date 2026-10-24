@@ -255,11 +255,12 @@ fn files_name(entry: &depths_core::ports::StackEntry) -> &'static str {
         .unwrap_or("compose.yaml")
 }
 
-/// Checks a draft `.env` for what Compose would misread, and for a secret that would be lost:
-/// a line that is not `KEY=value`, `KEY`, a comment or blank; and a secret still showing the
-/// mask (`GetStack` masks secret values, so saving one back unrevealed would overwrite the real
-/// value with asterisks).
-fn lint_env(draft: &str, current: Option<&str>) -> Vec<ValidationError> {
+/// Checks a draft `.env` for what Compose would misread: a line that is not `KEY=value`, `KEY`,
+/// a comment or blank. A secret still showing the mask is not an error: the draft has been
+/// through [`depths_core::secrets::unmask_env`], which put the real value back. The inner lines
+/// of a quoted multi-line value (a PEM key) are part of that value, not lines of their own.
+fn lint_env(draft: &str) -> Vec<ValidationError> {
+    use depths_core::secrets::closes;
     let key_of = |line: &str| -> Option<(String, String)> {
         let t = line.trim_start();
         if t.is_empty() || t.starts_with('#') {
@@ -268,17 +269,26 @@ fn lint_env(draft: &str, current: Option<&str>) -> Vec<ValidationError> {
         let (k, v) = t.split_once('=').unwrap_or((t, ""));
         Some((
             k.trim().trim_start_matches("export ").trim().to_owned(),
-            v.trim_end_matches('\r').to_owned(),
+            v.trim_start().to_owned(),
         ))
     };
-    let current: HashMap<String, String> = current
-        .map(|c| c.lines().filter_map(key_of).collect())
-        .unwrap_or_default();
     let mut errors = Vec::new();
+    let mut inside: Option<char> = None;
     for (i, line) in draft.lines().enumerate() {
+        if let Some(q) = inside {
+            if closes(line, q) {
+                inside = None;
+            }
+            continue;
+        }
         let Some((key, value)) = key_of(line) else {
             continue;
         };
+        if let Some(q @ ('"' | '\'')) = value.chars().next()
+            && !closes(&value[1..], q)
+        {
+            inside = Some(q);
+        }
         let at = Some(u32::try_from(i + 1).unwrap_or(u32::MAX));
         let valid_key = key
             .chars()
@@ -292,19 +302,6 @@ fn lint_env(draft: &str, current: Option<&str>) -> Vec<ValidationError> {
                 file: DraftFile::Env,
                 line: at,
                 message: "expected KEY=value".into(),
-            });
-        } else if value == depths_core::secrets::MASK
-            && current
-                .get(&key)
-                .is_some_and(|v| v != depths_core::secrets::MASK)
-        {
-            errors.push(ValidationError {
-                file: DraftFile::Env,
-                line: at,
-                message: format!(
-                    "{key} still shows the masked value; reveal the .env before editing it, \
-                     or leave .env out of the save"
-                ),
             });
         }
     }
@@ -581,11 +578,19 @@ impl Ops {
             return Err(b);
         }
 
+        // `.env` came out masked; every line that still shows the mask for a secret the file
+        // has gets its real value back, so saving without a reveal (users cannot reveal) keeps
+        // the secrets instead of writing asterisks over them.
+        let current_env = current.as_ref().and_then(|f| f.env.as_deref());
+        let env = draft
+            .env
+            .as_deref()
+            .map(|e| depths_core::secrets::unmask_env(e, current_env));
         let core_draft = StackDraft {
             stack: name.clone(),
             base_hash: base_hash.clone(),
             compose: draft.compose.clone(),
-            env: draft.env.clone(),
+            env: env.clone(),
         };
         let env_after_write = core_draft.env_exists_after(has_env);
         let core_op = match base_hash {
@@ -607,12 +612,7 @@ impl Ops {
         let plan = plan::plan(&ctx, &core_op);
 
         // Validate: `.env` by the lint here, the compose file by Compose itself.
-        let current_env = current.as_ref().and_then(|f| f.env.as_deref());
-        let mut errors = draft
-            .env
-            .as_deref()
-            .map(|e| lint_env(e, current_env))
-            .unwrap_or_default();
+        let mut errors = env.as_deref().map(lint_env).unwrap_or_default();
         let Some(step) = plan
             .commands()
             .find(|s| s.stdin == plan::StepStdin::Draft)
@@ -650,7 +650,7 @@ impl Ops {
             current.as_ref().map(|f| f.compose.as_str()),
             Some(&draft.compose),
         );
-        if let Some(new_env) = draft.env.as_deref() {
+        if let Some(new_env) = env.as_deref() {
             let mask = |t: &str| depths_core::secrets::mask_env(t).unwrap_or_else(|| t.to_owned());
             let old = current_env.map(mask);
             let new = (!new_env.is_empty() || old.is_some()).then(|| mask(new_env));
@@ -666,7 +666,7 @@ impl Ops {
             current.as_ref().map(|f| f.compose.as_str()),
             &draft.compose,
             current_env,
-            draft.env.as_deref(),
+            env.as_deref(),
             base_hash.as_ref().map(ContentHash::as_str),
         );
 
@@ -1471,13 +1471,10 @@ mod tests {
             Err(Refusal::ValidationFailed(errors)) => {
                 assert_eq!(
                     errors.iter().map(|e| (e.file, e.line)).collect::<Vec<_>>(),
-                    vec![
-                        (DraftFile::Env, Some(1)),
-                        (DraftFile::Env, Some(2)),
-                        (DraftFile::Compose, Some(3)),
-                    ]
+                    // The masked line is not an error: its value is kept (see below).
+                    vec![(DraftFile::Env, Some(2)), (DraftFile::Compose, Some(3))]
                 );
-                assert!(errors[0].message.contains("DB_PASSWORD"));
+                assert_eq!(errors[0].message, "expected KEY=value");
                 assert!(!errors.iter().any(|e| e.message.contains("hunter2")));
             }
             r => panic!("{r:?}"),
@@ -1486,6 +1483,52 @@ mod tests {
             std::fs::read_to_string(web.join(".env")).unwrap(),
             "DB_PASSWORD=hunter2\n"
         );
+    }
+
+    #[tokio::test]
+    async fn a_user_saving_the_masked_env_keeps_the_real_secrets() {
+        // Users cannot reveal `.env`, so they edit it masked. The save must not write the mask
+        // over the secrets: a line still showing it, for a key the file has, keeps its value.
+        let f = fx(PREVIEW_TTL);
+        let web = f.dir.path().join("stacks/web");
+        let on_disk = "DB_PASSWORD=hunter2\nAPI_TOKEN=t0k\nPRIVATE_KEY=\"-----BEGIN KEY-----\nMIIE\n-----END KEY-----\"\nPORT=80\n";
+        std::fs::write(web.join(".env"), on_disk).unwrap();
+        let u = who("s1", "7", Role::User, &["web"]);
+        let base = hash_of(&f, "web");
+        // What GetStack sent, with PORT and API_TOKEN edited, and a key renamed that keeps the
+        // mask as its literal value.
+        let masked = depths_core::secrets::mask_env(on_disk).unwrap();
+        assert_eq!(
+            masked,
+            "DB_PASSWORD=********\nAPI_TOKEN=********\nPRIVATE_KEY=********\nPORT=80\n"
+        );
+        let edited = "DB_PASSWORD=********\nAPI_TOKEN=new-token\nPRIVATE_KEY=********\nPORT=8080\nOLD_PASSWORD=********\n";
+        let p = f
+            .ops
+            .preview_save(&u, &draft("web", Some(&base), CADDY, Some(edited)), false)
+            .await
+            .unwrap();
+        let diff = p.file_diff.clone().unwrap();
+        for leak in ["hunter2", "MIIE", "new-token", "t0k"] {
+            assert!(!diff.contains(leak), "{leak} leaked into the diff: {diff}");
+        }
+        assert!(diff.contains("-PORT=80\n+PORT=8080\n"), "{diff}");
+        assert!(
+            !diff.contains("-DB_PASSWORD"),
+            "an unchanged secret is not in the diff: {diff}"
+        );
+        let (out, _) = run(f.ops.confirm(&u, p.preview_id).await.unwrap()).await;
+        assert_eq!(out, OpOutcome::Succeeded);
+        assert_eq!(
+            std::fs::read_to_string(web.join(".env")).unwrap(),
+            "DB_PASSWORD=hunter2\nAPI_TOKEN=new-token\nPRIVATE_KEY=\"-----BEGIN KEY-----\nMIIE\n-----END KEY-----\"\nPORT=8080\nOLD_PASSWORD=********\n"
+        );
+        let s = entries(&f.audit)[0].diff_summary.clone().unwrap();
+        assert!(
+            !s.contains("DB_PASSWORD") && !s.contains("PRIVATE_KEY"),
+            "kept keys are unchanged: {s}"
+        );
+        assert!(s.contains("API_TOKEN") && s.contains("PORT"), "{s}");
     }
 
     #[tokio::test]

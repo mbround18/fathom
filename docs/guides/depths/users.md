@@ -6,8 +6,8 @@ what they see.
 | Role | What they can do |
 |---|---|
 | **Pending** | Nothing. They see "You don't currently have access" and a sign-out button, and nothing about the host |
-| **User** | Only the stacks assigned to them: view, reveal `.env` values, start, stop, restart, update, edit the compose and `.env` files, follow logs, watch stats and, when shells are on, open shells |
-| **Admin** | Everything: every stack, creating and deleting stacks, `down` with volumes or images, read-only views of projects that are not in the stacks directory, the audit log, and managing people |
+| **User** | Only the stacks assigned to them: view (with secret-looking `.env` values masked), start, stop, restart, update, edit the compose and `.env` files (a masked value they leave as it is keeps its real value), follow logs, watch stats and, when shells are on, open shells |
+| **Admin** | Everything: every stack, revealing masked `.env` values (each reveal is recorded in the audit log), creating and deleting stacks, `down` with volumes or images, read-only views of projects that are not in the stacks directory, the audit log, and managing people |
 | **Owner** | An admin named in the server's settings. Always admin, and cannot be demoted or removed from the UI |
 
 A user with no stacks assigned has no access, the same as a pending person.
