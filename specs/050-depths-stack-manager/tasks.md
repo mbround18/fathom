@@ -396,26 +396,26 @@ Sign in and see each listed correctly. Then sign out and get redirected to sign-
 **Independent test**: bring a stopped stack up. The preview names the stack, cwd and argv. After
 confirming, the output streams and the status turns running, and the audit log has the entry.
 
-- [ ] T052 [P] [US2] Write E2E tests in `apps/depths/web/tests/e2e/us2-lifecycle/lifecycle.spec.ts`:
+- [X] T052 [P] [US2] Write E2E tests in `apps/depths/web/tests/e2e/us2-lifecycle/lifecycle.spec.ts`:
   - For each of up, stop, restart, down, pull and update (stack and per service), the preview shows argv, cwd and what it reaches.
   - Cancel at the preview changes nothing.
   - Output streams live.
   - A failure shows stderr verbatim.
   - The status updates only when docker reports it (no optimistic state).
-- [ ] T053 [P] [US2] Write E2E tests in `apps/depths/web/tests/e2e/us2-lifecycle/guards.spec.ts`:
+- [X] T053 [P] [US2] Write E2E tests in `apps/depths/web/tests/e2e/us2-lifecycle/guards.spec.ts`:
   - A second operation on a busy stack shows who is running what (FR-014).
   - Destructive options are off by default and named in the preview when on (FR-015).
   - A preview made before another person's edit is refused (`PreviewVoid`).
   - The preview expires after 5 minutes.
 - [ ] T054 [US2] Implement `PreviewOp`, `Confirm` and `Cancel` handling for lifecycle kinds in `apps/depths/server/src/ops.rs`, using T039's engine. Add a mock-runner test for each argv in research R2, including `global.env` flags and per-service ops carrying `[env-files]`.
-- [ ] T055 [US2] Build the preview dialog in `apps/depths/web/src/features/stacks/PreviewDialog.tsx`, shared by US3:
+- [X] T055 [US2] Build the preview dialog in `apps/depths/web/src/features/stacks/PreviewDialog.tsx`, shared by US3:
   - Argv rendered copyable, one step per line.
   - cwd.
   - A reach list.
   - Destructive options as unchecked switches.
   - Confirm sends the `preview_id`.
   - Focus trapped, Escape cancels.
-- [ ] T056 [US2] Build the operation output panel in `apps/depths/web/src/features/stacks/OperationOutput.tsx` on `@companion/terminal` `LogView`: streaming, a final outcome line, and a cancel button.
+- [X] T056 [US2] Build the operation output panel in `apps/depths/web/src/features/stacks/OperationOutput.tsx` on `@companion/terminal` `LogView`: streaming, a final outcome line, and a cancel button.
 - [ ] T057 [US2] Add an ignored real-daemon test in `apps/depths/server/tests/real_daemon.rs`: `depths-test-jobs` up shows `running`, not partial, then down leaves no `depths-test-*` project (quickstart §3).
 
 ---

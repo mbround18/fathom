@@ -8,8 +8,11 @@ import { lazy, Suspense, useEffect } from 'react'
 
 import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
-import type { Container, ServiceSummary, StackDetail as Detail } from '@/protocol/generated'
+import type { Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
 
+import { OperationOutput } from './OperationOutput'
+import { PreviewDialog } from './PreviewDialog'
+import { ServiceActions, StackActions } from './StackActions'
 import { StackNotes } from './StackRow'
 import { elsewhereByStack, formatPorts, formatTime, maskEnv, stackNotes, stateLabel } from './model'
 import { StatusBadge } from './StatusBadge'
@@ -68,12 +71,13 @@ function ContainerRow({ c }: { c: Container }) {
   )
 }
 
-function ServiceCard({ service }: { service: ServiceSummary }) {
+function ServiceCard({ service, stack }: { service: ServiceSummary; stack: Stack }) {
   return (
     <section data-service={service.name} aria-label={`Service ${service.name}`} className="min-w-0 border border-border bg-card">
       <header className="flex min-w-0 items-center gap-2 border-b border-border px-2 py-1">
         <h3 className="min-w-0 flex-1 truncate text-xs font-semibold">{service.name}</h3>
         {service.image !== null && <span className="min-w-0 truncate text-xs text-muted-foreground">{service.image}</span>}
+        <ServiceActions stack={stack} service={service.name} />
       </header>
       {service.containers.length === 0 ? (
         <p className="px-2 py-1.5 text-xs text-muted-foreground">No containers.</p>
@@ -203,7 +207,11 @@ export default function StackDetail({ params }: { params: Params }) {
           <span>changed {formatTime(stack.modified_at)}</span>
         </p>
         <StackNotes notes={stackNotes(stack, elsewhere)} />
+        <StackActions stack={stack} />
       </header>
+
+      <OperationOutput stack={stack.name} />
+      <PreviewDialog />
 
       <section aria-labelledby="services-title" className="flex min-w-0 flex-col gap-1">
         <h2 id="services-title" className="font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">
@@ -214,7 +222,7 @@ export default function StackDetail({ params }: { params: Params }) {
         ) : (
           <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3">
             {stack.services.map((s) => (
-              <ServiceCard key={s.name} service={s} />
+              <ServiceCard key={s.name} service={s} stack={stack} />
             ))}
           </div>
         )}

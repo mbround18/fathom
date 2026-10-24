@@ -180,6 +180,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.15
         version: 6.43.15
+      '@companion/terminal':
+        specifier: workspace:*
+        version: link:../../../packages/terminal
       '@companion/theme':
         specifier: workspace:*
         version: link:../../../packages/theme
