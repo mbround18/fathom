@@ -11,10 +11,10 @@ import {
   parseFilesRest,
   pathParts,
   showFilesTab,
-  type FilesMe,
 } from '@/features/files/model'
+import type { Me } from '@/protocol/generated'
 
-function me(features: Partial<FilesMe['features']> = {}, over: Partial<FilesMe> = {}): FilesMe {
+function me(features: Partial<Me['features']> = {}, over: Partial<Me> = {}): Me {
   return {
     identity: { provider: 'github', subject: '1', username: 'ada', email: null },
     csrf_token: 'x',

@@ -10,43 +10,21 @@
  * the root, no leading slash. The client never resolves `..`; a URL holding one is refused, as the
  * server refuses it.
  */
-import type { Features, Me } from '@/protocol/generated'
+import type { FileLimits, FilesMode, Me } from '@/protocol/generated'
 
-/** `DEPTHS_FEATURE_FILES`, as `/api/v1/me` reports it. */
-export type FilesMode = 'off' | 'read_only' | 'full'
-
-/** `limits.files` in `/api/v1/me`, in bytes. */
-export interface FilesLimits {
-  editor_max: number
-  download_max: number
-  upload_max: number
-}
-
-/**
- * `Me` with the spec 053 fields (T025). Local, not generated: until the server sends them they
- * are optional here, and an absent `files` reads as `off`. Retire this when the bindings carry
- * them.
- */
-export type FilesMe = Me & {
-  features: Features & {
-    files?: FilesMode
-    /** Admins only: why the server forced the feature off. */
-    files_reason?: string
-  }
-  limits?: { files?: FilesLimits }
-}
+export type { FileLimits, FilesMode }
 
 /** The explorer's mode for this person; `off` when the server says nothing. */
-export function filesMode(me: FilesMe | null): FilesMode {
+export function filesMode(me: Me | null): FilesMode {
   return me?.features.files ?? 'off'
 }
 
 /** Admins only: why the server forced files off, when it did. */
-export function filesReason(me: FilesMe | null): string | null {
+export function filesReason(me: Me | null): string | null {
   return me?.features.files_reason ?? null
 }
 
-export function filesLimits(me: FilesMe | null): FilesLimits | null {
+export function filesLimits(me: Me | null): FileLimits | null {
   return me?.limits?.files ?? null
 }
 
@@ -54,7 +32,7 @@ export function filesLimits(me: FilesMe | null): FilesLimits | null {
  * Whether the stack page shows a Files tab: the feature is on (read-only or full) and the person
  * may edit, the same switch as the Edit button. The server gates every command regardless.
  */
-export function showFilesTab(me: FilesMe | null): boolean {
+export function showFilesTab(me: Me | null): boolean {
   return (me?.features.edit ?? false) && filesMode(me) !== 'off'
 }
 

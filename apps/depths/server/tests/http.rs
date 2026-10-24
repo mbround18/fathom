@@ -130,6 +130,34 @@ async fn others_sign_in_as_pending() {
 }
 
 #[tokio::test]
+async fn me_reports_the_files_mode_and_limits() {
+    // 053 T025: the default is `full`; the limits are the configured ones, for everyone.
+    let a = app();
+    let session = a.sign_in(OWNER).await;
+    let me = json(a.get("/api/v1/me", Some(&session)).await).await;
+    assert_eq!(me["features"]["files"], "full", "{me}");
+    assert!(me["features"].get("files_reason").is_none(), "{me}");
+    let files = &a.state.cfg.files;
+    assert_eq!(
+        me["limits"]["files"],
+        serde_json::json!({
+            "editor_max": files.editor_max,
+            "download_max": files.download_max,
+            "upload_max": files.upload_max,
+        })
+    );
+
+    let a = app_with(|s| {
+        let mut cfg = (*s.cfg).clone();
+        cfg.features.files = depths_server::config::FilesMode::ReadOnly;
+        s.cfg = std::sync::Arc::new(cfg);
+    });
+    let session = a.sign_in("555").await;
+    let me = json(a.get("/api/v1/me", Some(&session)).await).await;
+    assert_eq!(me["features"]["files"], "read_only", "{me}");
+}
+
+#[tokio::test]
 async fn sign_ins_nobody_admitted_cannot_lock_the_admins_out() {
     // T099 F1: anyone with a Discord account can sign in and hold a pending session. Enough of
     // them fill the global session cap; the owner must still get in, by evicting one of them.

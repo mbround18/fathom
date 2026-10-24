@@ -1364,6 +1364,8 @@ fn me_roundtrips() {
             shell_policy: ShellPolicy::Strict,
             compose_policy: ComposePolicy::Enforce,
             daemon: Some(DaemonMode::Rootful),
+            files: FilesMode::ReadOnly,
+            files_reason: Some("openat2 is missing".into()),
         },
         network: TrustDecision {
             trusted: false,
@@ -1373,7 +1375,29 @@ fn me_roundtrips() {
         },
         needs_answer: false,
         proxy_warning: false,
+        limits: MeLimits {
+            files: FileLimits {
+                editor_max: 1 << 20,
+                download_max: 1 << 32,
+                upload_max: 1 << 30,
+            },
+        },
     });
+}
+
+#[test]
+fn files_mode_and_limits_default_when_absent() {
+    // An older server sends neither: files are off.
+    let features: Features = serde_json::from_value(json!({
+        "shell": false, "edit": false, "host_metrics": false
+    }))
+    .unwrap();
+    assert_eq!(features.files, FilesMode::Off);
+    assert_eq!(features.files_reason, None);
+    assert_eq!(
+        serde_json::to_value(FilesMode::ReadOnly).unwrap(),
+        json!("read_only")
+    );
 }
 
 fn warning() -> ComposeWarning {

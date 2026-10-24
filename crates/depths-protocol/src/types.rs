@@ -393,8 +393,20 @@ pub struct UserList {
     pub pending: Vec<User>,
 }
 
+/// How much of the volume explorer is on (053 FR-022). Absent means `off`: an older server has
+/// none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesMode {
+    #[default]
+    Off,
+    /// List, read and download; every change is refused.
+    ReadOnly,
+    Full,
+}
+
 /// Runtime feature flags (R12), as `GET /api/v1/me` reports them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct Features {
     pub shell: bool,
     pub edit: bool,
@@ -414,6 +426,14 @@ pub struct Features {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub daemon: Option<DaemonMode>,
+    /// `DEPTHS_FEATURE_FILES`, or `off` when the helper cannot run here.
+    #[serde(default)]
+    #[ts(as = "Option<FilesMode>", optional)]
+    pub files: FilesMode,
+    /// Why files are forced off (no helper image, no `openat2`), for admins only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub files_reason: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -561,6 +581,26 @@ pub struct Me {
     /// configured, so the real client addresses are probably hidden (R7). Always `false` for
     /// anyone else.
     pub proxy_warning: bool,
+    /// Size limits the UI checks before sending.
+    #[serde(default)]
+    #[ts(as = "Option<MeLimits>", optional)]
+    pub limits: MeLimits,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct MeLimits {
+    pub files: FileLimits,
+}
+
+/// The volume explorer's limits, in bytes (053 contracts/config.md).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct FileLimits {
+    /// Larger files open as "too large to edit".
+    pub editor_max: u64,
+    /// Largest file or folder download.
+    pub download_max: u64,
+    /// Largest single uploaded file.
+    pub upload_max: u64,
 }
 
 // ---------------------------------------------------------------------------

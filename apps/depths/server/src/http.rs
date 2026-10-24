@@ -838,10 +838,24 @@ async fn me(
                 .then(|| app.watch.daemon())
                 .flatten()
                 .map(crate::security::daemon),
+            files: match app.cfg.features.files {
+                crate::config::FilesMode::Off => depths_protocol::FilesMode::Off,
+                crate::config::FilesMode::ReadOnly => depths_protocol::FilesMode::ReadOnly,
+                crate::config::FilesMode::Full => depths_protocol::FilesMode::Full,
+            },
+            // Set once the helper pool probes the image and `openat2` (T024).
+            files_reason: None,
         },
         network: crate::trust::wire(&decision),
         needs_answer: decision.needs_answer(),
         proxy_warning: role == depths_protocol::Role::Admin && app.trust.proxy.warning(),
+        limits: depths_protocol::MeLimits {
+            files: depths_protocol::FileLimits {
+                editor_max: app.cfg.files.editor_max,
+                download_max: app.cfg.files.download_max,
+                upload_max: app.cfg.files.upload_max,
+            },
+        },
     };
     Json(me).into_response()
 }

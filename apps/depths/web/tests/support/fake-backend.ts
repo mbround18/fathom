@@ -49,7 +49,6 @@ import type {
   DraftFile,
   Event,
   EventEnvelope,
-  Features,
   Grant,
   Hello,
   HostSample,
@@ -79,15 +78,6 @@ import { CloseCode, PROTOCOL_VERSION } from '../../src/protocol/generated/consta
 export { expect }
 
 export type CmdType = Cmd['type']
-
-/**
- * `Me` with the spec 053 fields the generated bindings do not carry yet (T025), as the app reads
- * them in `src/features/files/model.ts`.
- */
-export type FakeMe = Me & {
-  features: Features & { files?: 'off' | 'read_only' | 'full'; files_reason?: string }
-  limits?: { files?: { editor_max: number; download_max: number; upload_max: number } }
-}
 
 const MIB = 1024 * 1024
 export type CmdOf<T extends CmdType> = Extract<Cmd, { type: T }>
@@ -172,7 +162,7 @@ const RESTRICTED_OPS: ReadonlySet<OperationKind> = new Set<OperationKind>([
 
 /** Canned data builders. Each takes overrides for the fields a story cares about. */
 export const fixtures = {
-  me(over: Partial<FakeMe> = {}): FakeMe {
+  me(over: Partial<Me> = {}): Me {
     return {
       identity: { provider: 'github', subject: '1001', username: 'ada', email: null },
       csrf_token: 'csrf-fake-1',
@@ -447,7 +437,7 @@ function naiveDiff(path: string, before: string, after: string): string {
  */
 export class FakeBackend {
   /** `null` = no session: `/me` is a 401 and the socket closes 4401. */
-  me: FakeMe | null = fixtures.me()
+  me: Me | null = fixtures.me()
   /** What the 401 body names as configured providers. */
   providers: Provider[] = ['github', 'discord']
   /** Every stack on disk, unfiltered; `ListStacks` filters it for a `user`. */
