@@ -580,13 +580,13 @@ manage a stack through the proxy. Check that Depths runs as non-root with no soc
 **Independent test**: read the README cold. It names both apps, says which to pick for Kubernetes
 and which for a Docker host, and links each app's install.
 
-- [ ] T080 [US7] Rebrand `README.md` as the orchestration companion suite. Keep it light:
+- [X] T080 [US7] Rebrand `README.md` as the orchestration companion suite. Keep it light:
   - One paragraph on the suite.
   - A two-row table (Fathom: Kubernetes, desktop and hosted; Depths: Docker/Compose hosts, one container).
   - Install links.
   - Links to `docs/guides/` and `CONTRIBUTING.md`.
   - Keep Fathom's existing screenshots, and add a Depths placeholder until T086.
-- [ ] T081 [P] [US7] Write user guides in `docs/guides/depths/`:
+- [X] T081 [P] [US7] Write user guides in `docs/guides/depths/`:
   - `README.md`.
   - `install.md` (example compose, same-path mount, socket proxy, the root-equivalence warning, `RESTART_POLICY`).
   - `sign-in.md` (OIDC; GitHub OAuth App, with org restriction approval).
@@ -595,7 +595,7 @@ and which for a Docker host, and links each app's install.
   - `tabs-and-shells.md`.
 
   Link them from `docs/guides/README.md`.
-- [ ] T082 [P] [US7] Extend `CONTRIBUTING.md`:
+- [X] T082 [P] [US7] Extend `CONTRIBUTING.md`:
   - Workspace layout (`apps/`, `crates/`, `packages/`, Fathom's existing roots and why they stay).
   - The shared-crate rules (no `fathom`/`kube` deps, the bindings drift checks).
   - The Depths dev loop (`make depths-dev`, fake OIDC under `--insecure-dev`).
@@ -605,7 +605,7 @@ and which for a Docker host, and links each app's install.
 
 ## Phase 11: Polish & cross-cutting
 
-- [ ] T083 [P] Add `THIRD_PARTY_LICENSES.md` / `scripts/third-party-licenses.sh` coverage for the new crates and packages (CodeMirror, `notify`, OTel, `react-resizable-panels`), and add `license` fields in every new `Cargo.toml` and `package.json`.
+- [X] T083 [P] Add `THIRD_PARTY_LICENSES.md` / `scripts/third-party-licenses.sh` coverage for the new crates and packages (CodeMirror, `notify`, OTel, `react-resizable-panels`), and add `license` fields in every new `Cargo.toml` and `package.json`.
 - [ ] T084 [P] Add an accessibility pass over Depths: axe checks in each Playwright story project (`apps/depths/web/tests/support/axe.ts`), keyboard-only flows for preview and confirm, and contrast via `@companion/theme` color tests.
 - [ ] T085 Run `quickstart.md` §1–§5 end to end and record the results, including the wall-clock time from clean host to first sign-in (SC-001, target under 10 minutes), in `specs/050-depths-stack-manager/quickstart.md` under a "Validated" note. Then run `scripts/hygiene.sh` and `docker builder prune --filter until=24h`.
 - [ ] T086 (last) Make the brochure and README screenshots of Depths: the stack list, preview, editor diff, tabs split, phone layout and audit. Take them from the dev server with fixture stacks only. Screen each one for hostnames, emails, tokens and real stack names before committing to `docs/guides/depths/img/` and the README.
