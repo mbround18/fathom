@@ -18,6 +18,7 @@ use secrecy::SecretString;
 use url::Url;
 
 use crate::client_ip::Cidr;
+use depths_core::network::{Grouping, NetworkKey, TrustPolicy};
 
 /// The command line. Every flag is optional here; defaults and env are applied in [`Config::resolve`].
 #[derive(Debug, Default, Parser)]
@@ -64,6 +65,13 @@ pub struct Flags {
     /// [env: DEPTHS_TRUSTED_PROXIES]
     #[arg(long)]
     pub trusted_proxies: Option<String>,
+    /// Restrict untrusted networks (spec 052) [env: DEPTHS_NETWORK_GATE] [default: true]
+    #[arg(long)]
+    pub network_gate: Option<String>,
+    /// Days before a "home" network is trusted; 0 never [env: DEPTHS_NETWORK_MATURITY_DAYS]
+    /// [default: 7]
+    #[arg(long)]
+    pub network_maturity_days: Option<String>,
     /// The host's /proc, mounted read-only, for admin-only host metrics; unset turns them off
     /// [env: DEPTHS_HOST_PROC]
     #[arg(long)]
@@ -195,10 +203,21 @@ pub struct Config {
     /// The host's `/proc` (`DEPTHS_HOST_PROC`). `None` turns host metrics off.
     pub host_proc: Option<PathBuf>,
     pub trusted_proxies: Vec<Cidr>,
+    /// Network trust (spec 052).
+    pub network: NetworkSettings,
     pub insecure_dev: bool,
     pub otlp_endpoint: Option<String>,
     /// `(setting, where it came from)`, for the start-up log. Never a secret value.
     pub sources: Vec<(&'static str, String)>,
+}
+
+/// Network trust settings (spec 052 contracts/config.md).
+#[derive(Debug, Clone, Default)]
+pub struct NetworkSettings {
+    /// The gate, maturity window, grouping and `DEPTHS_TRUSTED_NETWORKS`.
+    pub policy: TrustPolicy,
+    /// `DEPTHS_GEOIP_DB`: a City `.mmdb`, display only. A missing file is logged, not refused.
+    pub geoip_db: Option<PathBuf>,
 }
 
 /// Looks an environment variable up. Empty counts as unset.
@@ -267,6 +286,82 @@ impl Resolver<'_> {
             (None, None) => Ok(None),
         }
     }
+}
+
+/// The 052 settings. Invalid values refuse start, naming the variable.
+fn network_settings(
+    r: &mut Resolver<'_>,
+    (gate_flag, days_flag): &(Option<String>, Option<String>),
+) -> Result<NetworkSettings, ConfigError> {
+    let gate = match r.pick("network_gate", gate_flag.clone(), &["DEPTHS_NETWORK_GATE"]) {
+        Some(v) => parse_bool("DEPTHS_NETWORK_GATE", &v)?,
+        None => true,
+    };
+    let maturity_days = match r.pick(
+        "network_maturity_days",
+        days_flag.clone(),
+        &["DEPTHS_NETWORK_MATURITY_DAYS"],
+    ) {
+        Some(v) => match v.trim().parse::<u32>() {
+            Ok(d) if d <= 365 => d,
+            _ => {
+                return refuse(format!(
+                    "DEPTHS_NETWORK_MATURITY_DAYS: `{v}` is not a number of days from 0 to 365"
+                ));
+            }
+        },
+        None => 7,
+    };
+    let prefix = |r: &mut Resolver<'_>, setting, name: &str, max: u8, default: u8| match r.pick(
+        setting,
+        None,
+        &[name],
+    ) {
+        Some(v) => match v.trim().parse::<u8>() {
+            Ok(p) if (1..=max).contains(&p) => Ok(p),
+            _ => refuse(format!(
+                "{name}: `{v}` is not a prefix length from 1 to {max}"
+            )),
+        },
+        None => Ok(default),
+    };
+    let v4_prefix = prefix(r, "network_v4_prefix", "DEPTHS_NETWORK_V4_PREFIX", 32, 32)?;
+    let v6_prefix = prefix(r, "network_v6_prefix", "DEPTHS_NETWORK_V6_PREFIX", 128, 64)?;
+    let always = match r.pick("trusted_networks", None, &["DEPTHS_TRUSTED_NETWORKS"]) {
+        Some(raw) => raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                if !s.contains('/') {
+                    return refuse(format!(
+                        "DEPTHS_TRUSTED_NETWORKS: `{s}` is not a CIDR (like 100.64.0.0/10)"
+                    ));
+                }
+                NetworkKey::parse(s).ok_or_else(|| {
+                    ConfigError(format!(
+                        "DEPTHS_TRUSTED_NETWORKS: `{s}` is not a CIDR (like 100.64.0.0/10)"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        None => Vec::new(),
+    };
+    let geoip_db = r
+        .pick("geoip_db", None, &["DEPTHS_GEOIP_DB"])
+        .map(PathBuf::from);
+    Ok(NetworkSettings {
+        policy: TrustPolicy {
+            gate,
+            maturity_days,
+            grouping: Grouping {
+                v4_prefix,
+                v6_prefix,
+            },
+            always,
+        },
+        geoip_db,
+    })
 }
 
 fn parse_bool(name: &str, v: &str) -> Result<bool, ConfigError> {
@@ -703,6 +798,7 @@ impl Config {
             }
         }
 
+        let flags_network = (flags.network_gate, flags.network_maturity_days);
         let trusted_proxies = match r.pick(
             "trusted_proxies",
             flags.trusted_proxies,
@@ -723,6 +819,8 @@ impl Config {
             None => Vec::new(),
         };
 
+        let network = network_settings(&mut r, &flags_network)?;
+
         let otlp_endpoint = r.var("OTEL_EXPORTER_OTLP_ENDPOINT");
 
         Ok(Self {
@@ -742,6 +840,7 @@ impl Config {
             features,
             host_proc,
             trusted_proxies,
+            network,
             insecure_dev,
             otlp_endpoint,
             sources: r.sources,
@@ -1091,6 +1190,56 @@ mod tests {
     fn refuses_discord_without_a_secret() {
         let r = Fixture::deploy().unset("OAUTH_CLIENT_SECRET").refusal();
         assert!(r.contains("OAUTH_CLIENT_SECRET"), "{r}");
+    }
+
+    #[test]
+    fn network_settings_default_and_parse() {
+        let c = Fixture::deploy().resolve().unwrap();
+        assert!(c.network.policy.gate);
+        assert_eq!(c.network.policy.maturity_days, 7);
+        assert_eq!(c.network.policy.grouping.v4_prefix, 32);
+        assert_eq!(c.network.policy.grouping.v6_prefix, 64);
+        assert!(c.network.policy.always.is_empty());
+        assert!(c.network.geoip_db.is_none());
+        let c = Fixture::deploy()
+            .set("DEPTHS_NETWORK_GATE", "false")
+            .set("DEPTHS_NETWORK_MATURITY_DAYS", "0")
+            .set("DEPTHS_NETWORK_V4_PREFIX", "24")
+            .set("DEPTHS_NETWORK_V6_PREFIX", "56")
+            .set(
+                "DEPTHS_TRUSTED_NETWORKS",
+                "192.168.1.0/24, 100.64.0.0/10,fd00::/8",
+            )
+            .set("DEPTHS_GEOIP_DB", "/data/city.mmdb")
+            .resolve()
+            .unwrap();
+        assert!(!c.network.policy.gate);
+        assert_eq!(c.network.policy.maturity_days, 0);
+        assert_eq!(c.network.policy.grouping.v4_prefix, 24);
+        assert_eq!(c.network.policy.grouping.v6_prefix, 56);
+        assert_eq!(c.network.policy.always.len(), 3);
+        assert_eq!(
+            c.network.geoip_db.as_deref(),
+            Some(Path::new("/data/city.mmdb"))
+        );
+    }
+
+    #[test]
+    fn invalid_network_settings_refuse_naming_the_variable() {
+        for (name, value) in [
+            ("DEPTHS_NETWORK_GATE", "sometimes"),
+            ("DEPTHS_NETWORK_MATURITY_DAYS", "-1"),
+            ("DEPTHS_NETWORK_MATURITY_DAYS", "week"),
+            ("DEPTHS_NETWORK_V4_PREFIX", "33"),
+            ("DEPTHS_NETWORK_V4_PREFIX", "0"),
+            ("DEPTHS_NETWORK_V6_PREFIX", "129"),
+            ("DEPTHS_TRUSTED_NETWORKS", "10.0.0.0/33"),
+            ("DEPTHS_TRUSTED_NETWORKS", "10.0.0.1"),
+            ("DEPTHS_TRUSTED_NETWORKS", "home"),
+        ] {
+            let r = Fixture::deploy().set(name, value).refusal();
+            assert!(r.contains(name), "{name}={value}: {r}");
+        }
     }
 
     #[test]
