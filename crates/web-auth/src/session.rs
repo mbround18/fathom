@@ -351,6 +351,17 @@ impl SessionStore {
             .cloned()
     }
 
+    /// Every live session, cloned, without refreshing any idle timer: for periodic work such
+    /// as revalidating each session with its provider.
+    pub fn live(&self) -> Vec<Session> {
+        let now = Instant::now();
+        let map = self.inner.lock().unwrap();
+        map.values()
+            .filter(|s| self.expiry(s, now).is_none())
+            .cloned()
+            .collect()
+    }
+
     /// When `s` expires if nothing touches it again: the earlier of its absolute deadline and
     /// its idle deadline.
     pub fn deadline(&self, s: &Session) -> Instant {
@@ -654,5 +665,21 @@ mod tests {
         assert_eq!(rx.try_recv().unwrap().reason, EndReason::Revoked);
         assert_eq!(rx.try_recv().unwrap().reason, EndReason::Revoked);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn live_lists_every_unexpired_session_without_touching_it() {
+        let s = SessionStore::new(cfg());
+        let a = s.create(ident("a"), toks()).unwrap();
+        let b = s.create(ident("b"), toks()).unwrap();
+        let before = s.peek(&a.id).unwrap().last_seen;
+        let mut ids: Vec<String> = s.live().into_iter().map(|x| x.id).collect();
+        ids.sort();
+        let mut want = vec![a.id.clone(), b.id.clone()];
+        want.sort();
+        assert_eq!(ids, want);
+        assert_eq!(s.peek(&a.id).unwrap().last_seen, before);
+        s.end(&b.id, EndReason::SignedOut);
+        assert_eq!(s.live().len(), 1);
     }
 }

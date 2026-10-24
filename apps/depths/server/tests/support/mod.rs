@@ -85,6 +85,9 @@ impl IdentityProvider for FakeDiscord {
         if s.identity.sub == "2" {
             return Err(ProviderError::Rejected("revoked".into()));
         }
+        if s.identity.sub == "3" {
+            return Err(ProviderError::Transient("discord is down".into()));
+        }
         Ok(Refreshed {
             tokens: Tokens {
                 id_token: SecretString::from(""),

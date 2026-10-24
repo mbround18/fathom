@@ -518,7 +518,7 @@ and every attempt shows up in the audit log.
   - *Status:* provider and fake-Discord suite done (`web-auth`). **Still owed:** the one-off
     PKCE exchange against the real Discord application, recorded in R13 (needs the
     production client id/secret and a browser).
-- [ ] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Revalidate the token through the session's provider. When the provider **rejects** it (revoked grant, 401/403), end the session (fail closed). When the provider is **unreachable** (connect error, timeout, 5xx), keep the session until it expires, retry with backoff, and log a warning (spec Edge Cases). Add a test for each case.
+- [X] T072 [US5] Implement session refresh scheduling in `apps/depths/server/src/http.rs`: every 15 min, and on `/auth/refresh`. Revalidate the token through the session's provider. When the provider **rejects** it (revoked grant, 401/403), end the session (fail closed). When the provider is **unreachable** (connect error, timeout, 5xx), keep the session until it expires, retry with backoff, and log a warning (spec Edge Cases). Add a test for each case.
   - *Status: partly done.* `web-auth` side landed: `IdentityProvider::revalidate(&Session) ->
     Revalidation::{Valid(Refreshed), Rejected(ProviderError), Unreachable { error, retry_after }}`,
     with 429 carrying the provider's delay and a changed subject rejected; tested per provider.

@@ -541,3 +541,52 @@ async fn every_response_carries_the_full_header_set() {
         );
     }
 }
+
+/// T072: the periodic revalidation. Subject "2" is rejected by the fake provider, "3" finds it
+/// unreachable, the owner is valid.
+#[tokio::test]
+async fn the_refresh_loop_ends_rejected_sessions_and_backs_off_when_unreachable() {
+    use depths_server::refresh::{BACKOFF_MIN, EVERY, Pass, Refresher};
+    use std::time::Duration;
+    let a = app_with(|s| {
+        s.limits = std::sync::Arc::new(depths_server::limits::Limits {
+            auth: depths_server::limits::RateLimiter::new(600, 100, 100),
+            ..Default::default()
+        })
+    });
+    let ok = a.sign_in(OWNER).await;
+    let rejected = a.sign_in("2").await;
+    let unreachable = a.sign_in("3").await;
+    let r = Refresher::default();
+    let start = tokio::time::Instant::now();
+
+    // Nothing is due before the period.
+    assert_eq!(r.pass(&a.state, start).await, Pass::default());
+
+    let t1 = start + EVERY + Duration::from_secs(1);
+    let p = r.pass(&a.state, t1).await;
+    assert_eq!(
+        p,
+        Pass {
+            checked: 3,
+            ended: 1,
+            deferred: 1
+        }
+    );
+    for (cookie, alive) in [(&ok, true), (&rejected, false), (&unreachable, true)] {
+        let s = a.get("/api/v1/me", Some(cookie)).await.status();
+        assert_eq!(s == StatusCode::OK, alive, "{cookie}");
+    }
+
+    // The unreachable one is retried after the backoff, the valid one only next period.
+    let id = |c: &str| web_auth::session::session_handle(c.split_once('=').unwrap().1);
+    assert_eq!(r.next_check(&id(&unreachable)), Some(t1 + BACKOFF_MIN));
+    assert_eq!(r.next_check(&id(&ok)), Some(t1 + EVERY));
+    assert_eq!(r.next_check(&id(&rejected)), None);
+    let p = r.pass(&a.state, t1 + Duration::from_secs(10)).await;
+    assert_eq!(p.checked, 0);
+    let t2 = t1 + BACKOFF_MIN;
+    let p = r.pass(&a.state, t2).await;
+    assert_eq!(p.deferred, 1);
+    assert_eq!(r.next_check(&id(&unreachable)), Some(t2 + BACKOFF_MIN * 2));
+}

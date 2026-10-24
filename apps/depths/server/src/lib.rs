@@ -10,6 +10,7 @@ pub mod http;
 pub mod inventory;
 pub mod limits;
 pub mod ops;
+pub mod refresh;
 pub mod serve;
 pub mod users;
 pub mod watch;
