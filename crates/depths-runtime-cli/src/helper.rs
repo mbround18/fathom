@@ -390,6 +390,10 @@ impl VolumeHelper for CliVolumeHelper {
         }
         Ok(ids.len())
     }
+
+    fn volume_exists(&self, name: &str) -> Result<bool, RuntimeError> {
+        CliVolumeHelper::volume_exists(self, name).map(|v| v.is_some())
+    }
 }
 
 /// The container ids in `docker ps -q` output, skipping anything that is not one.

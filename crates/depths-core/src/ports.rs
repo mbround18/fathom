@@ -436,6 +436,13 @@ pub trait ContainerRuntime: Send + Sync {
         Err(RuntimeError::Unsupported)
     }
 
+    /// Runs a [`crate::plan::compose_config`] step and returns what Compose printed on stdout:
+    /// the stack's model as JSON (spec 053 mount discovery for services with no container).
+    fn compose_config(&self, step: &RunStep) -> Result<String, RuntimeError> {
+        let _ = step;
+        Err(RuntimeError::Unsupported)
+    }
+
     /// The daemon's mode, from `docker info`'s `SecurityOptions`.
     fn daemon_mode(&self) -> Result<crate::security::DaemonMode, RuntimeError> {
         Err(RuntimeError::Unsupported)
@@ -653,6 +660,13 @@ pub trait VolumeHelper: Send + Sync {
     /// How many it removed. The default has none to remove.
     fn sweep(&self) -> Result<usize, RuntimeError> {
         Ok(0)
+    }
+
+    /// Whether the named volume exists (`docker volume inspect`), so a volume that is not
+    /// created yet is shown as such instead of being created by a helper start.
+    fn volume_exists(&self, name: &str) -> Result<bool, RuntimeError> {
+        let _ = name;
+        Err(RuntimeError::Unsupported)
     }
 }
 

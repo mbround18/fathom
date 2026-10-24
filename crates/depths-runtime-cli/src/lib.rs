@@ -333,6 +333,29 @@ impl ContainerRuntime for CliRuntime {
         }
     }
 
+    fn compose_config(&self, step: &RunStep) -> Result<String, RuntimeError> {
+        let args = self.args_of(&step.argv)?;
+        let out = std::sync::Mutex::new(String::new());
+        let done = self.drive(
+            args,
+            Some(&step.cwd),
+            None,
+            &|chunk| {
+                if chunk.stream == OutputStream::Stdout {
+                    let mut o = out.lock().unwrap_or_else(|e| e.into_inner());
+                    o.push_str(&chunk.text);
+                    o.push('\n');
+                }
+            },
+            &CancelToken::new(),
+        )?;
+        if done.status.success() {
+            Ok(out.into_inner().unwrap_or_else(|e| e.into_inner()))
+        } else {
+            Err(RuntimeError::Failed(done.stderr_tail.trim_end().to_owned()))
+        }
+    }
+
     fn ping(&self) -> Result<(), RuntimeError> {
         let out = Mapped(self)
             .run(DOCKER, &["version", "--format", "{{.Server.Version}}"])

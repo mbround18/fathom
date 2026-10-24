@@ -242,6 +242,10 @@ where
 pub struct Inspect {
     #[serde(default, deserialize_with = "nullable")]
     pub id: String,
+    /// The image id the container runs (`sha256:...`), not its name. Spec 053 runs the volume
+    /// helper from Depths' own image by this id.
+    #[serde(default, deserialize_with = "nullable")]
+    pub image: String,
     #[serde(default, deserialize_with = "nullable")]
     pub config: InspectConfig,
     #[serde(default, deserialize_with = "nullable")]

@@ -247,6 +247,17 @@ pub fn stack_logs(
     }
 }
 
+/// The stack's resolved model as JSON: `docker compose ... config --format json`, run in the
+/// stack directory like every other compose step (spec 053 mount discovery).
+pub fn compose_config(ctx: &StackContext<'_>) -> RunStep {
+    let env = env_files(ctx.global_env, ctx.has_env);
+    RunStep {
+        argv: compose(&env, &["config", "--format", "json"]),
+        cwd: ctx.stack_dir(),
+        stdin: StepStdin::None,
+    }
+}
+
 /// Follows one container's logs by its full id: `docker logs ... <id>`, run in `stacks_root`.
 pub fn container_logs(stacks_root: &Path, container_id: &str, window: LogWindow<'_>) -> RunStep {
     let mut argv = vec![DOCKER.to_owned(), "logs".to_owned()];
@@ -772,6 +783,24 @@ mod tests {
             one.argv[one.argv.len() - 2..],
             ["--since=2026-01-01T00:00:00Z".to_owned(), "db".to_owned()]
         );
+    }
+
+    #[test]
+    fn compose_config_prints_the_model_as_json_in_the_stack_directory() {
+        let stack = name();
+        let ctx = StackContext {
+            stacks_root: Path::new(ROOT),
+            stack: &stack,
+            global_env: true,
+            has_env: true,
+        };
+        let step = compose_config(&ctx);
+        assert_eq!(
+            step.argv.join(" "),
+            "docker compose --env-file ../global.env --env-file ./.env config --format json"
+        );
+        assert_eq!(step.cwd, Path::new("/opt/stacks/web"));
+        assert_eq!(step.stdin, StepStdin::None);
     }
 
     #[test]
