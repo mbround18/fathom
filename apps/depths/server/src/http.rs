@@ -84,6 +84,8 @@ pub struct AppState {
     pub ws: WsConfig,
     /// The network gate (spec 052).
     pub trust: Arc<Trust>,
+    /// The volume explorer (spec 053).
+    pub files: Arc<crate::files::Files>,
     /// The last `/readyz` docker probe and when it ran: at most one probe per
     /// [`READY_PROBE_EVERY`], so an unauthenticated caller cannot make Depths spawn docker at will.
     ready: Arc<std::sync::Mutex<Option<(Instant, bool)>>>,
@@ -144,6 +146,7 @@ impl AppState {
             sockets: Arc::new(SocketCounts::default()),
             ws: WsConfig::default(),
             trust,
+            files: Arc::new(crate::files::Files::new(cfg.features.files)),
             ready: Arc::default(),
             auth: AuthState {
                 sessions,

@@ -229,26 +229,42 @@ pub fn file(
     e
 }
 
-/// `files.refused`: `op` refused for `reason` (a `DenyReason` or `FileRefusal` code).
+/// `files.refused`: `op` refused for `reason` (a `DenyReason` or `FileRefusal` code). `place` is
+/// `None` when the refusal came before any mount was named; the op then leads the reason.
 pub fn file_refused(
     actor: Actor,
     ip: IpAddr,
     stack: &str,
     op: &str,
-    mut place: AuditFile,
+    place: Option<AuditFile>,
     reason: impl Into<String>,
 ) -> AuditEntry {
-    place.op = Some(op.to_owned());
-    file(
-        actor,
-        ip,
-        AuditAction::FilesRefused,
-        stack,
-        place,
-        AuditOutcome::Denied {
-            reason: reason.into(),
-        },
-    )
+    let reason = reason.into();
+    match place {
+        Some(mut place) => {
+            place.op = Some(op.to_owned());
+            file(
+                actor,
+                ip,
+                AuditAction::FilesRefused,
+                stack,
+                place,
+                AuditOutcome::Denied { reason },
+            )
+        }
+        None => {
+            let mut e = entry(
+                actor,
+                AuditAction::FilesRefused,
+                ip,
+                AuditOutcome::Denied {
+                    reason: format!("{op}: {reason}"),
+                },
+            );
+            e.stack = Some(stack.to_owned());
+            e
+        }
+    }
 }
 
 /// A users-registry change.
@@ -403,7 +419,7 @@ mod tests {
             ip(),
             "valheim",
             "save",
-            place,
+            Some(place),
             "changed_on_disk",
         );
         assert_eq!(e.action, AuditAction::FilesRefused);
