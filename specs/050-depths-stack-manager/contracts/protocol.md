@@ -65,7 +65,7 @@ Ratings, refusals and lint added by spec 051. Every field is additive and option
 |---|---|
 | `SecurityLevel` | `ok \| root \| escape` |
 | `SecuritySeverity` | `info \| root \| escape` |
-| `SecurityReason` | `{code, severity, message}`; codes are snake_case (`privileged`, `runtime_socket`, `host_root_mount`, `sensitive_mount`, `sensitive_mount_read_only`, `dangerous_capability`, `added_capability`, `host_pid`, `host_ipc`, `host_userns`, `host_network`, `host_uts`, `unconfined`, `devices`, `root_user`, `root_remapped`, `no_user`, `interpolated`) |
+| `SecurityReason` | `{code, severity, message}`; codes are snake_case (`privileged`, `runtime_socket`, `host_root_mount`, `sensitive_mount`, `sensitive_mount_read_only`, `dangerous_capability`, `added_capability`, `host_pid`, `host_ipc`, `host_userns`, `host_network`, `host_uts`, `unconfined`, `devices`, `root_user`, `root_remapped`, `no_user`, `interpolated`, `tunnel`) |
 | `ShellRule` | `per_role \| admin_only \| refused`: the policy applied to the level, past the role check |
 | `ContainerSecurity` | `{level, reasons (worst first), shell: ShellRule}` on each `StackContainer.security`; absent when not yet inspected |
 | `Stack.security` | the worst container level; absent when none is rated |

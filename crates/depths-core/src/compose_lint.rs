@@ -13,7 +13,8 @@
 use serde_yaml::{Mapping, Value};
 
 use crate::security::{
-    Code, Level, Reason, Severity, bind_reason, cap_reasons, is_root_user, unconfined_opt,
+    Code, Level, Reason, Severity, bind_reason, cap_reasons, is_root_user, tunnel_reason,
+    unconfined_opt,
 };
 
 /// One warning about one service.
@@ -257,6 +258,11 @@ fn lint_service(name: &str, body: &Mapping, lines: &Lines, out: &mut Vec<Finding
             );
         }
     }
+    if let Some(image) = body.get("image").and_then(scalar)
+        && let Some(r) = tunnel_reason(&image, mode_is_host(body, "network_mode"))
+    {
+        push(r, at("image"));
+    }
 
     let devices = strings(body.get("devices"));
     let device_maps = body
@@ -451,6 +457,23 @@ mod tests {
         assert_eq!(f[2].line, Some(8));
         assert_eq!(level_of(&f), Level::Root);
         assert!(!has_escape(&f));
+    }
+
+    #[test]
+    fn a_tunnel_agent_on_the_host_network_is_an_escape() {
+        let text = "services:\n  playit:\n    image: ghcr.io/playit-cloud/playit-agent:1.0\n    user: \"1000\"\n    network_mode: host\n  tunnel:\n    image: cloudflare/cloudflared\n    user: \"1000\"\n";
+        let f = lint(text);
+        let t: Vec<_> = f.iter().filter(|f| f.reason.code == Code::Tunnel).collect();
+        assert_eq!(t.len(), 2);
+        assert_eq!(
+            (t[0].service.as_str(), t[0].reason.severity),
+            ("playit", Severity::Escape)
+        );
+        assert_eq!(t[0].line, Some(3));
+        assert_eq!(
+            (t[1].service.as_str(), t[1].reason.severity),
+            ("tunnel", Severity::Info)
+        );
     }
 
     #[test]

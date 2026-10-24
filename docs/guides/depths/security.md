@@ -112,11 +112,49 @@ A container is **escape** when any of these is true:
 - it adds `SYS_ADMIN`, `SYS_MODULE`, `SYS_RAWIO`, `DAC_READ_SEARCH` or `BPF` (or `ALL`);
 - it shares the host's pid, ipc or user namespace, or is given host devices;
 - it runs as root with seccomp or AppArmor turned off (`unconfined`).
+- it is a public **tunnel agent** on the host's network (`network_mode: host`), see below.
 
 The host's `/` or `/etc` mounted **read-only** is rated **root**, not escape: it shows the
 host's files (user names, configuration) but cannot change them. Other sensitive paths mounted
 read-only are informational. So are other added capabilities (`NET_ADMIN` among them) and the
 host's network, which widen what a container can do on the network without handing it the host.
+
+### Tunnel agents (playit.gg, Cloudflare Tunnel, ngrok, ...)
+
+A tunnel agent makes an outbound connection to a service on the internet. That service then
+forwards public traffic back through the connection. It is how a game server or a web app gets
+a public address without opening a port on the router: the firewall never sees the traffic
+arrive, because the agent fetches it from inside.
+
+Depths recognises playit.gg (`playit-cloud/playit-agent`), Cloudflare Tunnel (`cloudflared`),
+ngrok, frp (`frpc`), bore, zrok, Pinggy and localtunnel by the image's name.
+
+- **On the host's network** (`network_mode: host`) a tunnel agent is rated **escape**. It can
+  reach every port on the host, including services that listen only on `localhost` because they
+  were never meant to be public: the Docker API on a TCP port, databases, admin panels, the Depths
+  socket proxy. What it publishes is decided in the tunnel provider's dashboard, not on this
+  machine. So anyone who signs in to that playit.gg (or Cloudflare, ngrok, ...) account, or steals
+  the agent's secret key, can put any of those ports on the internet, past the firewall.
+- **On a container network** it is informational: it can still publish what that network
+  reaches, but not the host's own services.
+
+To bring one down to informational, give it its own network and list only the services it should
+expose:
+
+```yaml
+services:
+  playit:
+    image: ghcr.io/playit-cloud/playit-agent:1.0
+    user: "1000:1000"
+    networks: [public]
+  game:
+    networks: [public]
+networks:
+  public: {}
+```
+
+In the playit.gg dashboard, the tunnel's local address then becomes `game:<port>` instead of
+`127.0.0.1:<port>`. Keep the agent's secret key in `.env` and treat it like a password.
 
 Root on a **rootless** or **userns-remapped** daemon is rated ok: uid 0 inside maps to an
 unprivileged user outside. The chip's tooltip (hover it, focus it with the keyboard, or tap it on

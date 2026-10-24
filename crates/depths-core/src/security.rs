@@ -98,6 +98,9 @@ pub enum Code {
     NoUser,
     /// A setting whose value comes from a variable, so it cannot be judged from the file.
     Interpolated,
+    /// A public tunnel agent (playit.gg, cloudflared, ngrok, ...): it publishes ports to the
+    /// internet from outside, past the host's firewall.
+    Tunnel,
 }
 
 impl Code {
@@ -121,6 +124,7 @@ impl Code {
             Self::Devices => "devices",
             Self::NoUser => "no_user",
             Self::Interpolated => "interpolated",
+            Self::Tunnel => "tunnel",
         }
     }
 }
@@ -251,6 +255,9 @@ pub struct Inspect {
 pub struct InspectConfig {
     #[serde(default, deserialize_with = "nullable")]
     pub user: String,
+    /// The image as the container was created from it (`ghcr.io/playit-cloud/playit-agent:1.0`).
+    #[serde(default, deserialize_with = "nullable")]
+    pub image: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -336,6 +343,52 @@ pub fn is_root_user(user: &str) -> bool {
     !digits.is_empty()
         && digits.bytes().all(|b| b.is_ascii_digit())
         && digits.bytes().all(|b| b == b'0')
+}
+
+/// Public tunnel agents, by the last segment of the image's repository, and what to call them.
+const TUNNELS: &[(&str, &str)] = &[
+    ("playit-agent", "playit.gg"),
+    ("playit", "playit.gg"),
+    ("cloudflared", "Cloudflare Tunnel"),
+    ("ngrok", "ngrok"),
+    ("frpc", "frp"),
+    ("bore", "bore"),
+    ("zrok", "zrok"),
+    ("pinggy", "Pinggy"),
+    ("localtunnel", "localtunnel"),
+];
+
+/// Which tunnel service an image runs, if it is a known one. Registry, tag and digest are
+/// ignored, so mirrors and pinned versions match too.
+pub fn tunnel_service(image: &str) -> Option<&'static str> {
+    let repo = image.trim().split('@').next().unwrap_or("");
+    let last = repo.rsplit('/').next().unwrap_or("");
+    let name = last.split(':').next().unwrap_or("").to_ascii_lowercase();
+    TUNNELS.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+}
+
+/// A tunnel agent opens the host to the internet from inside. On the host's network it can
+/// publish any port, loopback-only ones included, to whoever holds the tunnel account: an
+/// escape. On a container network it reaches what that network reaches.
+pub fn tunnel_reason(image: &str, host_network: bool) -> Option<Reason> {
+    let svc = tunnel_service(image)?;
+    Some(if host_network {
+        Reason::new(
+            Code::Tunnel,
+            Severity::Escape,
+            format!(
+                "is a {svc} tunnel agent on the host's network: whoever controls its {svc} account can publish any port on this host to the internet, including services bound only to localhost, past the firewall"
+            ),
+        )
+    } else {
+        Reason::new(
+            Code::Tunnel,
+            Severity::Info,
+            format!(
+                "is a {svc} tunnel agent: it publishes services on its network to the internet, past the host's firewall"
+            ),
+        )
+    })
 }
 
 fn is_host(mode: &str) -> bool {
@@ -598,6 +651,10 @@ pub fn profile(inspect: &Inspect, daemon: DaemonMode) -> Profile {
             "uses the host's user namespace",
         ));
     }
+    r.extend(tunnel_reason(
+        &inspect.config.image,
+        is_host(&hc.network_mode),
+    ));
     if is_host(&hc.network_mode) {
         r.push(Reason::new(
             Code::HostNetwork,
@@ -927,6 +984,7 @@ mod tests {
             let i = Inspect {
                 config: InspectConfig {
                     user: "1000".into(),
+                    ..Default::default()
                 },
                 mounts: vec![Mount {
                     r#type: "bind".into(),
@@ -946,6 +1004,7 @@ mod tests {
         let i = Inspect {
             config: InspectConfig {
                 user: "1000".into(),
+                ..Default::default()
             },
             mounts: vec![Mount {
                 r#type: "bind".into(),
@@ -1045,6 +1104,7 @@ mod tests {
             let i = Inspect {
                 config: InspectConfig {
                     user: "1000".into(),
+                    ..Default::default()
                 },
                 host_config: HostConfig {
                     cap_add: vec![cap.into()],
@@ -1063,6 +1123,7 @@ mod tests {
         let mut i = Inspect {
             config: InspectConfig {
                 user: "1000".into(),
+                ..Default::default()
             },
             host_config: HostConfig {
                 cap_add: vec!["SYS_PTRACE".into(), "NET_ADMIN".into()],
@@ -1107,6 +1168,41 @@ mod tests {
     }
 
     #[test]
+    fn a_tunnel_agent_on_the_host_network_is_an_escape() {
+        let i = inspect(
+            r#"{"Config":{"User":"1000","Image":"ghcr.io/playit-cloud/playit-agent:1.0"},"HostConfig":{"NetworkMode":"host"}}"#,
+        );
+        let p = profile(&i, DaemonMode::Rootless);
+        assert_eq!(p.level, Level::Escape);
+        assert_eq!(codes(&p), vec![Code::Tunnel, Code::HostNetwork]);
+        assert!(p.reasons[0].message.contains("playit.gg"));
+
+        // On its own network it is a note, not a level.
+        let i = inspect(
+            r#"{"Config":{"User":"1000","Image":"cloudflare/cloudflared@sha256:abc"},"HostConfig":{"NetworkMode":"bridge"}}"#,
+        );
+        let p = profile(&i, DaemonMode::Rootless);
+        assert_eq!(p.level, Level::Ok);
+        assert_eq!(codes(&p), vec![Code::Tunnel]);
+    }
+
+    #[test]
+    fn tunnel_images_match_by_repository_name() {
+        for (img, svc) in [
+            ("ghcr.io/playit-cloud/playit-agent:1.0", Some("playit.gg")),
+            ("PLAYIT-CLOUD/PLAYIT-AGENT", Some("playit.gg")),
+            ("cloudflare/cloudflared:latest", Some("Cloudflare Tunnel")),
+            ("ngrok/ngrok", Some("ngrok")),
+            ("localhost:5000/snowdreamtech/frpc:0.61", Some("frp")),
+            ("nginx:1.27", None),
+            ("ngrok-exporter", None),
+            ("", None),
+        ] {
+            assert_eq!(tunnel_service(img), svc, "{img}");
+        }
+    }
+
+    #[test]
     fn unconfined_is_an_escape_only_with_root() {
         for opt in [
             "seccomp=unconfined",
@@ -1118,6 +1214,7 @@ mod tests {
             let mut i = Inspect {
                 config: InspectConfig {
                     user: "1000".into(),
+                    ..Default::default()
                 },
                 host_config: HostConfig {
                     security_opt: vec![opt.into()],
