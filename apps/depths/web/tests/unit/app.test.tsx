@@ -15,7 +15,7 @@ function me(over: Partial<Me> = {}): Me {
     role: 'user',
     owner: false,
     stacks: ['web'],
-    features: { shell: true, edit: true },
+    features: { shell: true, edit: true, host_metrics: false },
     ...over,
   }
 }

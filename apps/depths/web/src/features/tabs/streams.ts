@@ -380,10 +380,15 @@ function syncStats(): void {
 
 /** A stats tab is on screen: watch its target until the returned function is called. */
 export function watchStats(tab: string, target: StatsTarget): () => void {
-  watchers.set(tab, target)
+  return watchStatsAll([[tab, target]])
+}
+
+/** `watchStats` for several keys at once, sending one `WatchStats` rather than one per key. */
+export function watchStatsAll(entries: readonly (readonly [string, StatsTarget])[]): () => void {
+  for (const [key, target] of entries) watchers.set(key, target)
   syncStats()
   return () => {
-    watchers.delete(tab)
+    for (const [key] of entries) watchers.delete(key)
     syncStats()
   }
 }
