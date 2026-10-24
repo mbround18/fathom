@@ -766,7 +766,7 @@ pub enum StatsTarget {
     },
 }
 
-/// The shell `OpenShell` runs in the container. Absent: the server picks (`bash`, else `sh`).
+/// The shell `OpenShell` runs in the container. Absent: `/bin/sh`, which every image with a shell has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Shell {
