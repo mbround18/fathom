@@ -280,8 +280,10 @@ mod follow {
             &CancelToken::new(),
         );
         assert_eq!(out, Err(RuntimeError::Failed("no such container".into())));
+        // stdout and stderr are separate pipes: order holds within each, not across them.
         let lines = sink.lines();
-        assert_eq!(&lines[..2], ["one", "two"]);
+        let stdout: Vec<_> = lines.iter().filter(|l| *l != "no such container").collect();
+        assert_eq!(stdout, ["one", "two"]);
         assert!(lines.contains(&"no such container".to_owned()));
     }
 
