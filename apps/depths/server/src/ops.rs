@@ -10,14 +10,23 @@
 //! editor loaded (`Conflict`), validates it with Compose (`ValidationFailed`), and previews the
 //! write with a diff. The confirm writes exactly the previewed draft.
 //!
+//! 051 FR-015 to FR-019: the previews of what brings containers up from a compose file (`Up`,
+//! `Update`, `ServiceUp`, `Save`, `Create`) carry that file's lint. Under
+//! `DEPTHS_COMPOSE_POLICY=enforce` an escape-level finding refuses a user's preview
+//! (`compose_blocked`) and makes an admin's `ack_required`: its confirm runs only with
+//! `acknowledge_findings`, and the audit entry records the findings and the acknowledgement.
+//! Root-level findings never block, and nothing here rewrites a file.
+//!
 //! Every refusal of an action is audited as `denied`; every confirmed operation is audited
 //! once it finishes, with its argv and outcome, before `OpFinished` goes out.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use depths_core::compose_lint::ComposePolicy;
 use depths_core::plan::{self, Operation, Plan, StackContext, Step as PlanStep};
 use depths_core::ports::{
     CancelToken, ContainerRuntime, ExecError, OutputChunk, OutputSink, RuntimeError, StackDraft,
@@ -26,9 +35,9 @@ use depths_core::ports::{
 use depths_core::role::{self, Access, Action, Role};
 use depths_core::{ContentHash, StackName};
 use depths_protocol::{
-    Actor, AuditOutcome, DenyReason, DraftFile, EnvText, Event, EventEnvelope, OpOutcome,
-    OperationId, OperationKind, Preview, PreviewId, PreviewVoidReason, Reach, StackOp, Step,
-    StepStdin, ValidationError,
+    Actor, AuditOutcome, AuditSecurity, ComposeWarning, DenyReason, DraftFile, EnvText, Event,
+    EventEnvelope, OpOutcome, OperationId, OperationKind, Preview, PreviewId, PreviewVoidReason,
+    Reach, SecurityLevel, SecuritySeverity, StackOp, Step, StepStdin, ValidationError,
 };
 use tokio::sync::mpsc;
 
@@ -64,6 +73,8 @@ pub enum Refusal {
         actor: Actor,
     },
     Void(PreviewVoidReason),
+    /// 051 FR-018: escape-level compose findings under `enforce`; the detail names them.
+    ComposeBlocked(String),
     ValidationFailed(Vec<ValidationError>),
     /// The stack changed since the editor loaded it.
     Conflict {
@@ -93,6 +104,10 @@ impl From<Refusal> for Event {
                 actor,
             },
             Refusal::Void(reason) => Event::PreviewVoid { reason },
+            Refusal::ComposeBlocked(detail) => Event::Denied {
+                reason: DenyReason::ComposeBlocked,
+                detail: Some(detail),
+            },
             Refusal::ValidationFailed(errors) => Event::ValidationFailed { errors },
             Refusal::Conflict {
                 current_text,
@@ -122,6 +137,44 @@ struct Bound {
     stack_hash: String,
     expires: Instant,
     used: bool,
+    /// 051: what the audit entry records of the compose findings, and whether only an
+    /// admin's acknowledgement may confirm.
+    security: Option<AuditSecurity>,
+    ack_required: bool,
+}
+
+/// 051 FR-015 to FR-018: a preview's compose lint and what it means for the confirm.
+#[derive(Default)]
+struct Findings {
+    warnings: Vec<ComposeWarning>,
+    /// Anything above informational: what the audit entry records.
+    security: Option<AuditSecurity>,
+    ack_required: bool,
+}
+
+/// The operations that bring containers up from the compose file, so its lint applies.
+fn linted(kind: OperationKind) -> bool {
+    matches!(
+        kind,
+        OperationKind::Up
+            | OperationKind::Update
+            | OperationKind::ServiceUp
+            | OperationKind::Save
+            | OperationKind::Create
+    )
+}
+
+fn blocked_detail(warnings: &[ComposeWarning]) -> String {
+    let named: Vec<String> = warnings
+        .iter()
+        .filter(|w| w.severity == SecuritySeverity::Escape)
+        .map(|w| format!("{}: {}", w.service, w.message))
+        .collect();
+    format!(
+        "the compose file can break containment ({}); DEPTHS_COMPOSE_POLICY=enforce lets only \
+         an admin deploy it, acknowledging the findings",
+        named.join("; ")
+    )
 }
 
 struct RunningOp {
@@ -141,6 +194,8 @@ pub struct Ops {
     previews: Mutex<HashMap<PreviewId, Bound>>,
     /// By stack name: one operation per stack at a time.
     running: Arc<Mutex<HashMap<String, RunningOp>>>,
+    /// `DEPTHS_COMPOSE_POLICY=enforce` (051 FR-017).
+    enforce: AtomicBool,
 }
 
 /// A confirmed operation, ready to run. Send `OpStarted` first, then [`Job::run`].
@@ -357,7 +412,66 @@ impl Ops {
             ttl,
             previews: Mutex::new(HashMap::new()),
             running: Arc::new(Mutex::new(HashMap::new())),
+            enforce: AtomicBool::new(false),
         }
+    }
+
+    /// `DEPTHS_COMPOSE_POLICY` (051 FR-017); `warn` until set.
+    pub fn set_compose_policy(&self, p: ComposePolicy) {
+        self.enforce
+            .store(p == ComposePolicy::Enforce, Ordering::SeqCst);
+    }
+
+    /// Lints `compose` for a preview of `kind` (051 FR-015 to FR-018). Refuses a non-admin
+    /// under `enforce` when there is an escape-level finding, audited with the findings.
+    fn lint(
+        &self,
+        who: &Who,
+        stack: &str,
+        kind: OperationKind,
+        compose: Option<&str>,
+    ) -> Result<Findings, Refusal> {
+        let Some(text) = compose.filter(|_| linted(kind)) else {
+            return Ok(Findings::default());
+        };
+        let warnings = crate::security::warnings(text);
+        let serious: Vec<&ComposeWarning> = warnings
+            .iter()
+            .filter(|w| w.severity != SecuritySeverity::Info)
+            .collect();
+        let escape = serious
+            .iter()
+            .any(|w| w.severity == SecuritySeverity::Escape);
+        let security = (!serious.is_empty()).then(|| AuditSecurity {
+            level: if escape {
+                SecurityLevel::Escape
+            } else {
+                SecurityLevel::Root
+            },
+            reasons: serious
+                .iter()
+                .map(|w| format!("{}:{}", w.service, w.code))
+                .collect(),
+            acknowledged: false,
+        });
+        let enforced = escape && self.enforce.load(Ordering::SeqCst);
+        if enforced && who.access.role != Role::Admin {
+            let detail = blocked_detail(&warnings);
+            let mut e = audit::denied(
+                who.actor.clone(),
+                who.ip,
+                Some(stack),
+                format!("{kind:?} refused: {detail}"),
+            );
+            e.security = security;
+            let _ = self.audit.record(&e);
+            return Err(Refusal::ComposeBlocked(detail));
+        }
+        Ok(Findings {
+            warnings,
+            security,
+            ack_required: enforced,
+        })
     }
 
     fn deny(&self, who: &Who, stack: &str, why: String) -> Refusal {
@@ -443,6 +557,16 @@ impl Ops {
             .as_ref()
             .map(|h| h.as_str().to_owned())
             .unwrap_or_default();
+        let compose = if linted(kind) {
+            let (store, n) = (self.store.clone(), name.clone());
+            let files = blocking(move || store.read(&n))
+                .await?
+                .map_err(|e| store_refusal(&name, e))?;
+            Some(files.compose)
+        } else {
+            None
+        };
+        let findings = self.lint(who, name.as_str(), kind, compose.as_deref())?;
         let preview_id = PreviewId(uuid::Uuid::new_v4());
         let expires_at = self.expires_at();
         let preview = Preview {
@@ -458,8 +582,8 @@ impl Ops {
             destructive: plan.destructive,
             stack_hash: stack_hash.clone(),
             expires_at,
-            warnings: Vec::new(),
-            ack_required: false,
+            warnings: findings.warnings,
+            ack_required: findings.ack_required,
         };
 
         self.bind(
@@ -476,6 +600,8 @@ impl Ops {
                 stack_hash,
                 expires: Instant::now() + self.ttl,
                 used: false,
+                security: findings.security,
+                ack_required: findings.ack_required,
             },
         )?;
         Ok(preview)
@@ -714,6 +840,7 @@ impl Ops {
             .as_ref()
             .map(|h| h.as_str().to_owned())
             .unwrap_or_default();
+        let findings = self.lint(who, name.as_str(), kind, Some(&draft.compose))?;
         let preview_id = PreviewId(uuid::Uuid::new_v4());
         let preview = Preview {
             preview_id,
@@ -728,8 +855,8 @@ impl Ops {
             destructive: plan.destructive,
             stack_hash: stack_hash.clone(),
             expires_at: self.expires_at(),
-            warnings: Vec::new(),
-            ack_required: false,
+            warnings: findings.warnings,
+            ack_required: findings.ack_required,
         };
         self.bind(
             preview_id,
@@ -745,6 +872,8 @@ impl Ops {
                 stack_hash,
                 expires: Instant::now() + self.ttl,
                 used: false,
+                security: findings.security,
+                ack_required: findings.ack_required,
             },
         )?;
         Ok(preview)
@@ -767,9 +896,16 @@ impl Ops {
     }
 
     /// `Confirm`: claims the preview and reserves the stack. Run the returned job after sending
-    /// `OpStarted`.
-    pub async fn confirm(&self, who: &Who, preview_id: PreviewId) -> Result<Job, Refusal> {
-        let (stack, kind, op, plan, draft, argv, diff_summary, stack_hash) = {
+    /// `OpStarted`. A preview with `ack_required` confirms only for an admin who gives
+    /// `acknowledge_findings` (051 FR-018); otherwise it is refused, audited, and stays
+    /// unclaimed so it can be confirmed again.
+    pub async fn confirm(
+        &self,
+        who: &Who,
+        preview_id: PreviewId,
+        acknowledge_findings: bool,
+    ) -> Result<Job, Refusal> {
+        let (stack, kind, op, plan, draft, argv, diff_summary, stack_hash, security) = {
             let mut previews = self.previews.lock().unwrap();
             let Some(b) = previews.get_mut(&preview_id) else {
                 return Err(Refusal::Void(PreviewVoidReason::Unknown));
@@ -784,7 +920,31 @@ impl Ops {
                 previews.remove(&preview_id);
                 return Err(Refusal::Void(PreviewVoidReason::Expired));
             }
+            if b.ack_required && !(acknowledge_findings && who.access.role == Role::Admin) {
+                let (stack, kind) = (b.stack.as_str().to_owned(), b.kind);
+                let mut e = audit::denied(
+                    who.actor.clone(),
+                    who.ip,
+                    Some(&stack),
+                    format!("{kind:?} confirm refused: escape-level findings not acknowledged"),
+                );
+                e.security.clone_from(&b.security);
+                drop(previews);
+                let _ = self.audit.record(&e);
+                let why = if who.access.role == Role::Admin {
+                    "this preview has escape-level compose findings; deploy anyway only by \
+                     acknowledging them"
+                } else {
+                    "this preview has escape-level compose findings that only an admin may \
+                     acknowledge"
+                };
+                return Err(Refusal::ComposeBlocked(why.into()));
+            }
             b.used = true;
+            let mut security = b.security.clone();
+            if let Some(s) = security.as_mut() {
+                s.acknowledged = b.ack_required;
+            }
             (
                 b.stack.clone(),
                 b.kind,
@@ -794,6 +954,7 @@ impl Ops {
                 b.argv.clone(),
                 b.diff_summary.clone(),
                 b.stack_hash.clone(),
+                security,
             )
         };
         if !role::permits(&who.access, Some(&stack), op.required_action()) {
@@ -858,6 +1019,7 @@ impl Ops {
                 operation_id,
                 argv,
                 diff_summary,
+                security,
             },
             stack,
             plan,
@@ -1160,7 +1322,7 @@ mod tests {
         assert!(!p.destructive);
         assert_eq!(p.stack_hash.len(), 64);
 
-        let job = f.ops.confirm(&u, p.preview_id).await.unwrap();
+        let job = f.ops.confirm(&u, p.preview_id, false).await.unwrap();
         assert!(f.ops.is_busy("web"));
         let id = job.operation_id;
         let (out, evs) = run(job).await;
@@ -1181,7 +1343,7 @@ mod tests {
         assert_eq!(e[0].argv, vec![p.steps[0].argv.clone()]);
 
         // Used once.
-        let again = f.ops.confirm(&u, p.preview_id).await;
+        let again = f.ops.confirm(&u, p.preview_id, false).await;
         assert!(matches!(
             again,
             Err(Refusal::Void(
@@ -1197,7 +1359,7 @@ mod tests {
         *f.mock.fail_with.lock().unwrap() = Some(stderr.into());
         let a = who("s1", "1", Role::Admin, &[]);
         let p = f.ops.preview(&a, &name("web"), &StackOp::Up).await.unwrap();
-        let (out, _) = run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        let (out, _) = run(f.ops.confirm(&a, p.preview_id, false).await.unwrap()).await;
         assert_eq!(
             out,
             OpOutcome::Failed {
@@ -1226,7 +1388,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            f.ops.confirm(&other, p.preview_id).await.err(),
+            f.ops.confirm(&other, p.preview_id, false).await.err(),
             Some(Refusal::Void(PreviewVoidReason::Unknown)),
             "another session's id is unknown"
         );
@@ -1236,7 +1398,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            f.ops.confirm(&a, p.preview_id).await.err(),
+            f.ops.confirm(&a, p.preview_id, false).await.err(),
             Some(Refusal::Void(PreviewVoidReason::StackChanged))
         );
 
@@ -1247,7 +1409,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            f.ops.confirm(&a, p.preview_id).await.err(),
+            f.ops.confirm(&a, p.preview_id, false).await.err(),
             Some(Refusal::Void(PreviewVoidReason::Expired))
         );
         assert!(f.mock.ran.lock().unwrap().is_empty());
@@ -1264,7 +1426,7 @@ mod tests {
             .unwrap();
         let revoked = who("s1", "7", Role::User, &[]);
         assert_eq!(
-            f.ops.confirm(&revoked, p.preview_id).await.err(),
+            f.ops.confirm(&revoked, p.preview_id, false).await.err(),
             Some(Refusal::Denied(DenyReason::NotPermitted))
         );
         assert_eq!(entries(&f.audit)[0].action, AuditAction::Denied);
@@ -1277,7 +1439,7 @@ mod tests {
         f.mock.hold.store(true, std::sync::atomic::Ordering::SeqCst);
         let u = who("s1", "7", Role::User, &["web"]);
         let p = f.ops.preview(&u, &name("web"), &StackOp::Up).await.unwrap();
-        let job = f.ops.confirm(&u, p.preview_id).await.unwrap();
+        let job = f.ops.confirm(&u, p.preview_id, false).await.unwrap();
         let id = job.operation_id;
         let (tx, _rx) = mpsc::channel(64);
         let h = tokio::task::spawn_blocking(move || job.run(tx));
@@ -1371,7 +1533,7 @@ mod tests {
         // Compose saw the draft, not the file on disk.
         assert_eq!(f.mock.validated.lock().unwrap()[0].1, CADDY);
 
-        let (out, _) = run(f.ops.confirm(&u, p.preview_id).await.unwrap()).await;
+        let (out, _) = run(f.ops.confirm(&u, p.preview_id, false).await.unwrap()).await;
         assert_eq!(out, OpOutcome::Succeeded);
         let web = f.dir.path().join("stacks/web");
         assert_eq!(
@@ -1404,7 +1566,7 @@ mod tests {
             .preview_save(&u, &draft("web", Some(&base), CADDY, Some(env)), false)
             .await
             .unwrap();
-        let (out, _) = run(f.ops.confirm(&u, p.preview_id).await.unwrap()).await;
+        let (out, _) = run(f.ops.confirm(&u, p.preview_id, false).await.unwrap()).await;
         assert_eq!(out, OpOutcome::Succeeded);
         let e = &entries(&f.audit)[0];
         assert_eq!(e.action, AuditAction::Save);
@@ -1427,7 +1589,7 @@ mod tests {
             .preview_save(&a, &draft("fresh", None, CADDY, None), false)
             .await
             .unwrap();
-        run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        run(f.ops.confirm(&a, p.preview_id, false).await.unwrap()).await;
         let e = &entries(&f.audit)[0];
         assert_eq!(e.action, AuditAction::Create);
         let s = e.diff_summary.clone().expect("a create has a diff summary");
@@ -1555,7 +1717,7 @@ mod tests {
             !diff.contains("-DB_PASSWORD"),
             "an unchanged secret is not in the diff: {diff}"
         );
-        let (out, _) = run(f.ops.confirm(&u, p.preview_id).await.unwrap()).await;
+        let (out, _) = run(f.ops.confirm(&u, p.preview_id, false).await.unwrap()).await;
         assert_eq!(out, OpOutcome::Succeeded);
         assert_eq!(
             std::fs::read_to_string(web.join(".env")).unwrap(),
@@ -1598,7 +1760,7 @@ mod tests {
             "{diff}"
         );
 
-        let (out, _) = run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        let (out, _) = run(f.ops.confirm(&a, p.preview_id, false).await.unwrap()).await;
         assert_eq!(out, OpOutcome::Succeeded);
         let cache = f.dir.path().join("stacks/cache");
         assert_eq!(
@@ -1618,7 +1780,7 @@ mod tests {
             .unwrap();
         std::fs::create_dir(f.dir.path().join("stacks/late")).unwrap();
         assert_eq!(
-            f.ops.confirm(&a, p.preview_id).await.err(),
+            f.ops.confirm(&a, p.preview_id, false).await.err(),
             Some(Refusal::Void(PreviewVoidReason::StackChanged))
         );
     }
@@ -1639,7 +1801,7 @@ mod tests {
         assert_eq!(p.steps.len(), 1);
         assert!(p.file_diff.is_none());
         assert!(!p.destructive);
-        run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        run(f.ops.confirm(&a, p.preview_id, false).await.unwrap()).await;
         assert!(f.dir.path().join("stacks/web/compose.yaml").exists());
 
         let gone = StackOp::Delete {
@@ -1653,7 +1815,7 @@ mod tests {
                 .unwrap()
                 .contains("+++ /dev/null\n@@ -1,3 +0,0 @@\n-services:")
         );
-        let (out, _) = run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        let (out, _) = run(f.ops.confirm(&a, p.preview_id, false).await.unwrap()).await;
         assert_eq!(out, OpOutcome::Succeeded);
         assert!(!f.dir.path().join("stacks/web").exists());
     }

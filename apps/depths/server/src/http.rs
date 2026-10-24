@@ -133,6 +133,7 @@ impl AppState {
             audit.clone(),
             watch.clone(),
         ));
+        ops.set_compose_policy(cfg.compose_policy);
         Ok(Self {
             store,
             runtime,

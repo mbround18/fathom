@@ -193,6 +193,9 @@ pub struct OpRecord {
     pub argv: Vec<Vec<String>>,
     /// Saves and creates: [`crate::diff::summary`].
     pub diff_summary: Option<String>,
+    /// 051 FR-018: the compose findings the operation went ahead with, and whether an admin
+    /// acknowledged them.
+    pub security: Option<depths_protocol::AuditSecurity>,
 }
 
 impl OpRecord {
@@ -204,6 +207,7 @@ impl OpRecord {
         e.operation_id = Some(self.operation_id);
         e.argv.clone_from(&self.argv);
         e.diff_summary.clone_from(&self.diff_summary);
+        e.security.clone_from(&self.security);
         e
     }
 }

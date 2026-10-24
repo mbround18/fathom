@@ -612,7 +612,7 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         }
         Cmd::Confirm {
             preview_id,
-            acknowledge_findings: _,
+            acknowledge_findings,
         } => {
             // The preview was authorised when made; the network may have changed since.
             if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
@@ -621,7 +621,11 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 return vec![refused];
             }
             let who = conn.who(access);
-            match app.ops.confirm(&who, preview_id).await {
+            match app
+                .ops
+                .confirm(&who, preview_id, acknowledge_findings)
+                .await
+            {
                 Ok(job) => {
                     let started = reply(
                         id,

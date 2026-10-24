@@ -1173,3 +1173,181 @@ async fn an_admin_only_shell_closes_when_its_person_stops_being_an_admin() {
     );
     server.abort();
 }
+
+// ---------------------------------------------------------------------------
+// 051: compose lint on previews, and `DEPTHS_COMPOSE_POLICY=enforce`
+// ---------------------------------------------------------------------------
+
+const PRIVILEGED: &str =
+    "services:\n  app:\n    image: nginx\n    user: \"1000\"\n    privileged: true\n";
+
+/// Stack `web` with `compose`, user `7` granted it, under a compose policy.
+fn lint_app(policy: depths_core::compose_lint::ComposePolicy, compose: &str) -> App {
+    let a = app_with(|s| {
+        let mut cfg = (*s.cfg).clone();
+        cfg.compose_policy = policy;
+        s.cfg = std::sync::Arc::new(cfg);
+        s.ops.set_compose_policy(policy);
+    });
+    a.add_stack("web", compose, None);
+    grant(&a, "7", &["web"]);
+    a
+}
+
+fn preview_up() -> serde_json::Value {
+    json!({ "type": "PreviewOp", "data": { "stack": "web", "op": { "kind": "up" } } })
+}
+
+fn confirm(p: &serde_json::Value, ack: bool) -> serde_json::Value {
+    json!({ "type": "Confirm", "data": {
+        "preview_id": p["event"]["data"]["preview_id"], "acknowledge_findings": ack,
+    } })
+}
+
+fn op_entry(a: &App) -> depths_protocol::AuditEntry {
+    a.audit_entries()
+        .into_iter()
+        .find(|e| e.operation_id.is_some())
+        .expect("the operation is audited")
+}
+
+/// 051 FR-016/FR-017: under `warn` the preview carries the findings and nothing blocks; the
+/// audit entry records what the deploy went ahead with.
+#[tokio::test]
+async fn under_warn_an_up_shows_its_findings_and_runs() {
+    use depths_core::compose_lint::ComposePolicy::Warn;
+    let a = lint_app(Warn, PRIVILEGED);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let p = ask(&mut ws, 1, preview_up()).await;
+    assert_eq!(p["event"]["type"], "Preview", "{p}");
+    let warnings = p["event"]["data"]["warnings"].as_array().unwrap().clone();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w["severity"] == "escape" && w["service"] == "app"),
+        "{p}"
+    );
+    assert_eq!(p["event"]["data"]["ack_required"], false, "{p}");
+    let s = ask(&mut ws, 2, confirm(&p, false)).await;
+    assert_eq!(s["event"]["type"], "OpStarted", "{s}");
+    next_of(&mut ws, "OpFinished").await;
+    let sec = op_entry(&a).security.expect("the findings are audited");
+    assert_eq!(sec.level, depths_protocol::SecurityLevel::Escape);
+    assert!(!sec.acknowledged);
+    assert!(sec.reasons.iter().any(|r| r.starts_with("app:")), "{sec:?}");
+
+    // A stop does not deploy the file, so it is not linted.
+    let p = ask(
+        &mut ws,
+        3,
+        json!({ "type": "PreviewOp", "data": { "stack": "web", "op": { "kind": "stop" } } }),
+    )
+    .await;
+    assert_eq!(p["event"]["data"]["warnings"], json!([]), "{p}");
+    server.abort();
+}
+
+/// 051 FR-018: under `enforce` a user's up or save of a file with escape findings is refused
+/// with `compose_blocked`, audited with the findings, and nothing runs or is written.
+#[tokio::test]
+async fn under_enforce_a_user_cannot_deploy_or_save_an_escape() {
+    use depths_core::compose_lint::ComposePolicy::Enforce;
+    let a = lint_app(Enforce, PRIVILEGED);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let r = ask(&mut ws, 1, preview_up()).await;
+    assert_eq!(r["event"]["type"], "Denied", "{r}");
+    assert_eq!(r["event"]["data"]["reason"], "compose_blocked", "{r}");
+    assert!(
+        r["event"]["data"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("app:"),
+        "{r}"
+    );
+    let denied = a
+        .audit_entries()
+        .into_iter()
+        .find(|e| e.action == depths_protocol::AuditAction::Denied)
+        .expect("audited");
+    assert_eq!(
+        denied.security.as_ref().map(|s| s.level),
+        Some(depths_protocol::SecurityLevel::Escape)
+    );
+
+    // Saving a clean file over it is fine; saving an escape is not.
+    let d = ask(
+        &mut ws,
+        2,
+        json!({ "type": "GetStack", "data": { "name": "web" } }),
+    )
+    .await;
+    let base = d["event"]["data"]["content_hash"].clone();
+    let save = |compose: &str| {
+        json!({ "type": "PreviewSave", "data": {
+            "draft": { "stack": "web", "base_hash": base, "compose": compose },
+            "deploy": true,
+        } })
+    };
+    let r = ask(&mut ws, 3, save(&PRIVILEGED.replace("app:", "web:"))).await;
+    assert_eq!(r["event"]["data"]["reason"], "compose_blocked", "{r}");
+    let clean = PRIVILEGED.replace("    privileged: true\n", "");
+    let r = ask(&mut ws, 4, save(&clean)).await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    assert_eq!(r["event"]["data"]["ack_required"], false, "{r}");
+    assert!(a.runtime.ran.lock().unwrap().is_empty());
+    assert_eq!(
+        std::fs::read_to_string(a.stacks.join("web/compose.yaml")).unwrap(),
+        PRIVILEGED,
+        "nothing is written or rewritten (FR-019)"
+    );
+    server.abort();
+}
+
+/// 051 FR-018: an admin's preview of an escape needs `acknowledge_findings`; without it the
+/// confirm is refused and the preview stays usable, with it the run is audited as acknowledged.
+#[tokio::test]
+async fn under_enforce_an_admin_deploys_an_escape_only_by_acknowledging_it() {
+    use depths_core::compose_lint::ComposePolicy::Enforce;
+    let a = lint_app(Enforce, PRIVILEGED);
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let p = ask(&mut ws, 1, preview_up()).await;
+    assert_eq!(p["event"]["type"], "Preview", "{p}");
+    assert_eq!(p["event"]["data"]["ack_required"], true, "{p}");
+    let r = ask(&mut ws, 2, confirm(&p, false)).await;
+    assert_eq!(r["event"]["data"]["reason"], "compose_blocked", "{r}");
+    assert!(a.runtime.ran.lock().unwrap().is_empty());
+    let s = ask(&mut ws, 3, confirm(&p, true)).await;
+    assert_eq!(s["event"]["type"], "OpStarted", "{s}");
+    next_of(&mut ws, "OpFinished").await;
+    let sec = op_entry(&a)
+        .security
+        .expect("the acknowledgement is audited");
+    assert_eq!(sec.level, depths_protocol::SecurityLevel::Escape);
+    assert!(sec.acknowledged);
+    server.abort();
+}
+
+/// 051 FR-018: root-level findings never block, even under `enforce`.
+#[tokio::test]
+async fn under_enforce_root_findings_never_block() {
+    use depths_core::compose_lint::ComposePolicy::Enforce;
+    let a = lint_app(Enforce, COMPOSE);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let p = ask(&mut ws, 1, preview_up()).await;
+    assert_eq!(p["event"]["type"], "Preview", "{p}");
+    assert_eq!(p["event"]["data"]["ack_required"], false, "{p}");
+    assert!(
+        p["event"]["data"]["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w["severity"] == "root"),
+        "{p}"
+    );
+    let s = ask(&mut ws, 2, confirm(&p, false)).await;
+    assert_eq!(s["event"]["type"], "OpStarted", "{s}");
+    next_of(&mut ws, "OpFinished").await;
+    let sec = op_entry(&a).security.expect("root findings are audited");
+    assert_eq!(sec.level, depths_protocol::SecurityLevel::Root);
+    server.abort();
+}
