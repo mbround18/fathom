@@ -46,8 +46,8 @@
 
 ## Phase 7: Polish
 
-- [ ] T024 docs/guides/depths/security.md (rule, restricted view, settings, proxy, recovery), users.md (sessions, whitelist), install.md (geo-IP download + DB-IP attribution)
-- [ ] T025 apps/depths/.env.example entries; spec 050 contracts/config.md cross-reference
+- [x] T024 docs/guides/depths/security.md (rule, restricted view, settings, proxy, recovery), users.md (sessions, whitelist), install.md (geo-IP download + DB-IP attribution)
+- [x] T025 apps/depths/.env.example entries; spec 050 contracts/config.md cross-reference
 
 ## Dependencies
 

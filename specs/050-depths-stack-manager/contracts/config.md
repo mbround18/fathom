@@ -22,6 +22,7 @@ start with a message naming the setting.
 | — | `DEPTHS_FEATURE_SHELL`, `DEPTHS_FEATURE_EDIT` | `false`, `true` | Runtime flags (R12). The shell is off unless turned on (least privilege); turning it on also needs `DEPTHS_SOCKET_EXEC=1` on the socket proxy. |
 | `--host-proc` | `DEPTHS_HOST_PROC` | unset = off | The host's `/proc`, mounted read-only (e.g. `/proc:/host/proc:ro` → `/host/proc`). Turns on admin-only host metrics (`WatchHost`): CPU, load, memory, swap, uptime, and disk of the stacks directory. Must be an absolute directory with a readable `stat`, or Depths refuses to start. Exposes the host's process list and command lines to the Depths process. |
 | — | `OTEL_EXPORTER_OTLP_ENDPOINT` (+ standard `OTEL_*`) | unset = off | Telemetry export. |
+| `--network-gate`, `--network-maturity-days` | `DEPTHS_NETWORK_GATE`, `DEPTHS_NETWORK_MATURITY_DAYS`, `DEPTHS_NETWORK_V4_PREFIX`, `DEPTHS_NETWORK_V6_PREFIX`, `DEPTHS_TRUSTED_NETWORKS`, `DEPTHS_GEOIP_DB` | `true`, `7`, `32`, `64`, empty, unset | Network trust and the restricted view: see spec 052 `contracts/config.md`. |
 | `--insecure-dev` | `DEPTHS_INSECURE_DEV` | `false` | Allows `http://` public URL and non-`__Host-` cookie. Refused when `DEPTHS_LISTEN` is not loopback. |
 
 At least one provider must be configured; with none, Depths refuses to start (FR-028: no
