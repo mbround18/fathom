@@ -169,7 +169,8 @@ export default function StackDetail({ params }: { params: Params }) {
   }, [name, load, openDetail, closeDetail])
 
   const back = (
-    <Link to="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+    // The list is beside the stack on wide screens, so the way back is only for narrow ones.
+    <Link to="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary lg:hidden">
       <ArrowLeftIcon aria-hidden className="size-3" /> Stacks
     </Link>
   )

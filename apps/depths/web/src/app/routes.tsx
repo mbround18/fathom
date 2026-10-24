@@ -14,11 +14,15 @@ interface Route {
   pattern: string
   page: LazyExoticComponent<ComponentType<{ params: Params }>>
   admin?: boolean
+  /** Routes in one group share a page instance, so moving between them does not remount it. */
+  group?: string
 }
 
+const stacksPage = lazy(() => import('@/features/stacks/StacksRoute'))
+
 const ROUTES: readonly Route[] = [
-  { pattern: '/', page: lazy(() => import('@/features/stacks/StacksRoute')) },
-  { pattern: '/stacks/:name', page: lazy(() => import('@/features/stacks/StackDetail')) },
+  { pattern: '/', page: stacksPage, group: 'stacks' },
+  { pattern: '/stacks/:name', page: stacksPage, group: 'stacks' },
   { pattern: '/stacks/:name/edit', page: lazy(() => import('@/features/editor/EditStack')) },
   { pattern: '/new', page: lazy(() => import('@/features/stacks/CreateStack')) },
   { pattern: '/admin/users', page: lazy(() => import('@/features/users/UsersView')), admin: true },
@@ -38,13 +42,13 @@ export function PageFallback() {
 export function AppRoutes() {
   const path = usePath()
   const isAdmin = useSession((s) => s.me?.role === 'admin')
-  for (const { pattern, page: Page, admin } of ROUTES) {
+  for (const { pattern, page: Page, admin, group } of ROUTES) {
     if (admin && !isAdmin) continue
     const params = matchPath(pattern, path)
     if (params)
       return (
         <Suspense fallback={<PageFallback />}>
-          <Page key={pattern} params={params} />
+          <Page key={group ?? pattern} params={params} />
         </Suspense>
       )
   }

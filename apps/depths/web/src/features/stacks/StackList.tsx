@@ -34,7 +34,8 @@ const NO_ELSEWHERE: readonly ForeignProject[] = []
 const ESTIMATED_ROW_PX = 56
 const OVERSCAN = 10
 
-export function StackList() {
+/** `selected` marks the stack shown beside the list when it is a sidebar. */
+export function StackList({ selected }: { selected?: string } = {}) {
   const list = useStacks((s) => s.list)
   const runtimeError = useStacks((s) => s.runtimeError)
   const listDenied = useStacks((s) => s.listDenied)
@@ -83,7 +84,7 @@ export function StackList() {
   const totalStacks = list?.stacks.length ?? 0
 
   return (
-    <section data-page="stacks" aria-labelledby="stacks-title" className="flex h-full min-w-0 flex-col">
+    <section data-page="stacks" aria-labelledby="stacks-title" className="@container flex h-full min-w-0 flex-col">
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1.5">
         <h1 id="stacks-title" className="font-display text-sm font-semibold tracking-wider uppercase">
           Stacks
@@ -164,7 +165,11 @@ export function StackList() {
               return (
                 <div key={v.key} data-index={v.index} ref={virtualizer.measureElement}>
                   {item.kind === 'stack' ? (
-                    <StackRow stack={item.stack} elsewhere={elsewhere.get(item.stack.name) ?? NO_ELSEWHERE} />
+                    <StackRow
+                      stack={item.stack}
+                      elsewhere={elsewhere.get(item.stack.name) ?? NO_ELSEWHERE}
+                      selected={item.stack.name === selected}
+                    />
                   ) : item.kind === 'heading' ? (
                     <GroupHeading id={item.id} label={item.label} count={item.count} />
                   ) : item.kind === 'foreign' ? (

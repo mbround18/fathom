@@ -236,3 +236,23 @@ test('at 360 px wide there is no horizontal scroll', async ({ page, backend }) =
   await expect(page.locator('[data-code-view="yaml"]')).toBeVisible()
   expect(await overflow()).toBeLessThanOrEqual(0)
 })
+
+test('wide screens keep the list beside the stack; narrow ones show one or the other', async ({ page, backend }) => {
+  seed(backend)
+  await page.setViewportSize({ width: 1366, height: 800 })
+  await page.goto('/')
+  await expect(page.locator('[data-layout="split"]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible()
+
+  await row(page, 'cache').getByRole('link', { name: 'cache' }).click()
+  await expect(page.getByRole('heading', { name: 'cache', level: 1 })).toBeVisible()
+  await expect(row(page, 'web')).toBeVisible()
+  await expect(row(page, 'cache')).toHaveAttribute('data-selected', 'true')
+  await expect(row(page, 'cache').getByRole('link', { name: 'cache' })).toHaveAttribute('aria-current', 'page')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('[data-layout="split"]')).toHaveCount(0)
+  await expect(row(page, 'web')).toHaveCount(0)
+  await page.getByRole('link', { name: 'Stacks', exact: true }).last().click()
+  await expect(row(page, 'web')).toBeVisible()
+})

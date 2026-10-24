@@ -27,31 +27,44 @@ export function StackNotes({ notes }: { notes: readonly StackNote[] }) {
 
 /**
  * One stack in the list: name, status (colour and text), running/total services, last change.
- * Blocked stacks (invalid, unreadable) say why and carry no actions.
+ * Blocked stacks (invalid, unreadable) say why and carry no actions. Two lines in a narrow list,
+ * one line once the list is wide enough (a container query, so the sidebar stays two lines).
  */
-export const StackRow = memo(function StackRow({ stack, elsewhere }: { stack: Stack; elsewhere: readonly ForeignProject[] }) {
+export const StackRow = memo(function StackRow({
+  stack,
+  elsewhere,
+  selected = false,
+}: {
+  stack: Stack
+  elsewhere: readonly ForeignProject[]
+  selected?: boolean
+}) {
   const blocked = blockedReason(stack) !== null
   return (
     <article
       data-stack={stack.name}
       data-blocked={blocked || undefined}
+      data-selected={selected || undefined}
       aria-label={stack.name}
-      className="flex min-w-0 flex-col gap-1 border-b border-border px-2 py-1.5 hover:bg-muted/40"
+      className="flex min-w-0 flex-col gap-1 border-b border-l-2 border-b-border border-l-transparent px-2 py-1.5 hover:bg-muted/40 data-selected:border-l-primary data-selected:bg-muted/60"
     >
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 @2xl:grid-cols-[minmax(0,1fr)_auto_auto] @2xl:gap-x-4">
         <Link
           to={stackHref(stack.name)}
-          className="min-w-0 flex-1 truncate text-sm font-medium text-foreground hover:text-primary focus-visible:text-primary"
+          aria-current={selected ? 'page' : undefined}
+          className="min-w-0 truncate text-sm font-medium text-foreground hover:text-primary focus-visible:text-primary aria-[current=page]:text-primary"
         >
           {stack.name}
         </Link>
-        <StatusBadge status={stack.status} unhealthy={stack.unhealthy} />
-      </div>
-      <div className="flex min-w-0 flex-wrap gap-x-3 text-xs text-muted-foreground">
-        <span data-field="services">
-          {stack.running_services}/{stack.total_services} services up
+        <div className="col-span-2 row-start-2 flex min-w-0 flex-wrap gap-x-3 text-xs text-muted-foreground @2xl:col-span-1 @2xl:col-start-2 @2xl:row-start-1">
+          <span data-field="services" className="tabular-nums">
+            {stack.running_services}/{stack.total_services} services up
+          </span>
+          <span data-field="modified">changed {formatTime(stack.modified_at)}</span>
+        </div>
+        <span className="col-start-2 row-start-1 justify-self-end @2xl:col-start-3">
+          <StatusBadge status={stack.status} unhealthy={stack.unhealthy} />
         </span>
-        <span data-field="modified">changed {formatTime(stack.modified_at)}</span>
       </div>
       <StackNotes notes={stackNotes(stack, elsewhere)} />
     </article>
