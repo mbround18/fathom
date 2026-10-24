@@ -7,7 +7,7 @@ import { STATUS_LABEL } from './model'
  * only reinforce it. Colours are the theme's contrast-tested status tokens.
  */
 const TONE: Record<StackStatus, string> = {
-  running: 'border-status-ok/60 text-status-ok',
+  running: 'border-status-ok text-status-ok',
   partial: 'border-status-warn/60 text-status-warn',
   stopped: 'border-border text-muted-foreground',
   not_deployed: 'border-dashed border-border text-muted-foreground',

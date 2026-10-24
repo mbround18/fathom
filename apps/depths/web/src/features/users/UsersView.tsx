@@ -184,7 +184,7 @@ function UserRow({ user, known, pending = false }: { user: User; known: readonly
         <span className="min-w-0 truncate font-semibold">{name}</span>
         <span className="min-w-0 truncate font-mono text-muted-foreground">{user.id}</span>
         {user.owner ? (
-          <span data-badge="owner" className="inline-flex items-center gap-0.5 border border-primary/60 px-1 text-primary">
+          <span data-badge="owner" className="inline-flex items-center gap-0.5 border border-primary px-1 text-primary">
             <LockSimpleIcon aria-hidden className="size-3" />
             Owner
           </span>
