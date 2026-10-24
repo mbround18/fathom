@@ -421,6 +421,14 @@ pub struct Me {
     pub owner: bool,
     pub stacks: Vec<String>,
     pub features: Features,
+    /// Whether the network of this request is trusted (spec 052).
+    pub network: TrustDecision,
+    /// Ask "home or public" for this network.
+    pub needs_answer: bool,
+    /// Admins only: every request so far came from a private address and no trusted proxy is
+    /// configured, so the real client addresses are probably hidden (R7). Always `false` for
+    /// anyone else.
+    pub proxy_warning: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -735,6 +743,9 @@ pub enum DenyReason {
     Owner,
     /// `PutUser` may only assign `user` or `admin`.
     RoleNotAssignable,
+    /// The request came from a network not trusted for this person (spec 052): only the
+    /// restricted view is allowed. `GET /api/v1/me` `network` says why and when it may mature.
+    UntrustedNetwork,
 }
 
 // ---------------------------------------------------------------------------
@@ -820,6 +831,19 @@ pub enum AuditAction {
     UserAdded,
     UserChanged,
     UserRemoved,
+    /// A person's first network, trusted (spec 052).
+    NetworkFirst,
+    /// A network not seen before for this person.
+    NetworkSeen,
+    /// The person answered "home or public".
+    NetworkAnswer,
+    NetworkWhitelistAdd,
+    NetworkWhitelistRemove,
+    NetworkForget,
+    /// A session was ended from the sessions page or by an admin.
+    SessionEnd,
+    /// A command refused because the network is untrusted.
+    NetworkRefused,
 }
 
 impl From<OperationKind> for AuditAction {
@@ -888,6 +912,10 @@ pub struct AuditEntry {
     pub diff_summary: Option<String>,
     pub outcome: AuditOutcome,
     pub source_ip: String,
+    /// For network and session entries (spec 052). Never a location.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub network: Option<AuditNetwork>,
 }
 
 /// `GetAudit` filter. Every field narrows; absent means any.
@@ -975,4 +1003,175 @@ pub struct HostDisk {
     /// Free to an unprivileged writer (`f_bavail`).
     #[ts(type = "number")]
     pub free_bytes: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Network trust and sessions (spec 052)
+// ---------------------------------------------------------------------------
+
+/// Why a network is or is not trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustReason {
+    /// In the operator's `DEPTHS_TRUSTED_NETWORKS`.
+    Always,
+    /// The person's first network.
+    First,
+    /// An admin whitelisted it.
+    Whitelist,
+    /// Answered "home" and used long enough, on at least two days.
+    Matured,
+    /// `DEPTHS_NETWORK_GATE=false`.
+    GateOff,
+    /// Not answered yet.
+    Unknown,
+    /// Answered "public": never matures.
+    Public,
+    /// Answered "home", not matured yet.
+    Maturing,
+}
+
+/// The gate's decision for one request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TrustDecision {
+    pub trusted: bool,
+    pub reason: TrustReason,
+    /// RFC 3339: when a maturing "home" network's window ends (two distinct days are needed too).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub matures_at: Option<String>,
+    /// The network, as a CIDR like `203.0.113.7/32`.
+    pub network: String,
+}
+
+/// "Home or public".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkAnswer {
+    Home,
+    Public,
+    None,
+}
+
+/// Where a remembered network came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkSource {
+    First,
+    Answer,
+    Whitelist,
+    Seen,
+}
+
+/// One remembered network, as `GET /api/v1/networks` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct NetworkView {
+    /// CIDR.
+    pub key: String,
+    /// RFC 3339.
+    pub first_used: String,
+    pub last_used: String,
+    /// Distinct UTC days of use, `YYYY-MM-DD`, latest 8.
+    pub days: Vec<String>,
+    pub source: NetworkSource,
+    pub answer: NetworkAnswer,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub whitelisted_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub at: Option<String>,
+    /// Admin label, plain text, at most 64 characters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub label: Option<String>,
+    pub trusted: bool,
+    pub reason: TrustReason,
+    /// City, region, country from the optional offline database; `private network`, or
+    /// `unknown`. Display only.
+    pub location: String,
+    /// The network of this request.
+    pub current: bool,
+}
+
+/// One live session, as `GET /api/v1/sessions` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct SessionView {
+    /// A short non-reversible hash of the session handle; never the cookie.
+    pub id_hint: String,
+    /// RFC 3339.
+    pub created: String,
+    pub last_used: String,
+    pub address: String,
+    /// CIDR of `address`.
+    pub network: String,
+    pub trusted: bool,
+    pub location: String,
+    /// Plain text, like `Firefox on Linux`.
+    pub browser: String,
+    /// The session making this request.
+    pub current: bool,
+}
+
+/// `POST /api/v1/networks/answer`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct AnswerNetwork {
+    /// CIDR of a network the person used.
+    pub network: String,
+    pub answer: NetworkAnswer,
+}
+
+/// `POST /api/v1/users/{id}/networks/whitelist`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct WhitelistNetwork {
+    /// A CIDR like `198.51.100.0/24`, or one address.
+    pub cidr: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub label: Option<String>,
+}
+
+/// `POST /api/v1/sessions/end-others` and the admin `DELETE /api/v1/users/{id}/sessions`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct SessionsEnded {
+    pub ended: u32,
+}
+
+/// The HTTP body of a request refused for its network: status 403.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct UntrustedNetworkRefusal {
+    /// Always `untrusted_network`.
+    pub error: String,
+    pub network: String,
+    pub reason: TrustReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub matures_at: Option<String>,
+}
+
+/// The network part of an audit entry.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditNetwork {
+    /// The network involved, as a CIDR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub network: Option<String>,
+    /// `network_refused`: the command or route refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cmd: Option<String>,
+    /// Whose network or session, when not the actor's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub person: Option<String>,
+    /// `session_end`: the ended session's `id_hint`, or `others` / `all`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session: Option<String>,
+    /// `network_answer`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub answer: Option<NetworkAnswer>,
 }

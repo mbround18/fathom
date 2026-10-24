@@ -40,6 +40,9 @@ function me(role: Me['role']): Me {
     owner: false,
     stacks: [],
     features: { shell: true, edit: true, host_metrics: true },
+    network: { trusted: true, reason: 'first', network: '203.0.113.7/32' },
+    needs_answer: false,
+    proxy_warning: false,
   }
 }
 

@@ -47,6 +47,7 @@ use crate::client_ip::ClientIp;
 use crate::config::Config;
 use crate::limits::{Limits, RateLimiter, SocketCounts};
 use crate::ops::Ops;
+use crate::trust::Trust;
 use crate::users::{Registry, SignIn};
 use crate::watch::Watch;
 use crate::ws::WsConfig;
@@ -81,6 +82,8 @@ pub struct AppState {
     pub users_changed: broadcast::Sender<()>,
     pub sockets: Arc<SocketCounts>,
     pub ws: WsConfig,
+    /// The network gate (spec 052).
+    pub trust: Arc<Trust>,
     /// The last `/readyz` docker probe and when it ran: at most one probe per
     /// [`READY_PROBE_EVERY`], so an unauthenticated caller cannot make Depths spawn docker at will.
     ready: Arc<std::sync::Mutex<Option<(Instant, bool)>>>,
@@ -122,6 +125,7 @@ impl AppState {
                 format!("cannot open the audit log in {}: {e}", audit_dir.display())
             })?,
         );
+        let trust = Arc::new(Trust::open(&cfg, audit.clone(), &sessions)?);
         let watch = Watch::new(store.clone(), runtime.clone());
         let ops = Arc::new(Ops::new(
             store.clone(),
@@ -138,6 +142,7 @@ impl AppState {
             users_changed: broadcast::channel(16).0,
             sockets: Arc::new(SocketCounts::default()),
             ws: WsConfig::default(),
+            trust,
             ready: Arc::default(),
             auth: AuthState {
                 sessions,
@@ -196,10 +201,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/audit/export", get(audit_export))
         .route("/auth/logout", post(logout))
         .route("/auth/refresh", post(refresh))
+        .merge(crate::network_routes::routes())
+        .route_layer(middleware::from_fn_with_state(state.clone(), observe))
         .route_layer(middleware::from_fn_with_state(state.clone(), limit_api));
 
     let ws = Router::new()
         .route("/api/v1/ws", get(crate::ws::upgrade))
+        .route_layer(middleware::from_fn_with_state(state.clone(), observe))
         .route_layer(middleware::from_fn_with_state(state.clone(), limit_ws));
 
     let static_dir = &state.cfg.static_dir;
@@ -252,6 +260,28 @@ async fn client_ip_layer(State(app): State<AppState>, mut req: Request, next: Ne
     let ip = app.client_ip.resolve(peer, req.headers());
     req.extensions_mut().insert(ClientAddr(ip));
     next.run(req).await
+}
+
+/// Spec 052: every request with a live session notes its address and records its network (at
+/// most hourly per session), which also ends the session's shells when the network is untrusted
+/// (FR-012). Requests without a session pass untouched; the handler answers 401.
+async fn observe(State(app): State<AppState>, req: Request, next: Next) -> Response {
+    if let Some(cookie) = app.auth.cookie.get(req.headers())
+        && let Some(s) = app
+            .auth
+            .sessions
+            .peek(&web_auth::session::session_handle(cookie))
+    {
+        let user = SignIn::from_identity(&s.identity).id();
+        let actor = crate::audit::actor_of(&s.identity);
+        app.trust.observe(&user, &actor, &s.id, client_of(&req));
+    }
+    next.run(req).await
+}
+
+/// The 403 for a request refused because its network is untrusted.
+pub fn untrusted(d: &depths_core::network::TrustDecision) -> Response {
+    (StatusCode::FORBIDDEN, Json(crate::trust::refusal(d))).into_response()
 }
 
 fn client_of(req: &Request) -> IpAddr {
@@ -356,6 +386,16 @@ async fn audit_export(
             "audit export needs read_audit",
         ));
         return error(StatusCode::FORBIDDEN, "forbidden");
+    }
+    if let Err(d) = app.trust.gate(
+        &who.id(),
+        &crate::audit::actor_of(&session.identity),
+        &session.id,
+        ip,
+        depths_core::role::CommandKind::ReadAudit,
+        "audit export",
+    ) {
+        return untrusted(&d);
     }
     let Ok(Query(filter)) = filter else {
         return error(StatusCode::BAD_REQUEST, "invalid_filter");
@@ -663,11 +703,21 @@ async fn callback(
     record(
         &app,
         crate::audit::entry(
-            actor,
+            actor.clone(),
             depths_protocol::AuditAction::SignIn,
             ip,
             depths_protocol::AuditOutcome::Succeeded,
         ),
+    );
+    // Spec 052: the session's address and browser, and the network (a first one is trusted).
+    app.trust.signed_in(
+        &user.id,
+        &actor,
+        &session.id,
+        ip,
+        headers
+            .get(header::USER_AGENT)
+            .and_then(|v| v.to_str().ok()),
     );
     // Only ever `/`: no return path from the request is followed.
     let mut r = Redirect::to("/").into_response();
@@ -747,11 +797,16 @@ async fn refresh(State(app): State<AppState>, SessionUser(session): SessionUser)
     }
 }
 
-async fn me(State(app): State<AppState>, headers: HeaderMap) -> Response {
+async fn me(
+    State(app): State<AppState>,
+    ClientAddrExt(ip): ClientAddrExt,
+    headers: HeaderMap,
+) -> Response {
     let Some(s) = app.auth.session(&headers) else {
         return app.unauthenticated();
     };
     let who = SignIn::from_identity(&s.identity);
+    let decision = app.trust.decide(&who.id(), ip);
     let user = app.users.get(&who.id());
     let role = user
         .as_ref()
@@ -776,6 +831,9 @@ async fn me(State(app): State<AppState>, headers: HeaderMap) -> Response {
             // Admin only, like `WatchHost` itself: nobody else learns the setting.
             host_metrics: role == depths_protocol::Role::Admin && app.cfg.host_proc.is_some(),
         },
+        network: crate::trust::wire(&decision),
+        needs_answer: decision.needs_answer(),
+        proxy_warning: role == depths_protocol::Role::Admin && app.trust.proxy.warning(),
     };
     Json(me).into_response()
 }

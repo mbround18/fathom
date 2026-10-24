@@ -24,6 +24,14 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   user_added: 'User added',
   user_changed: 'User changed',
   user_removed: 'User removed',
+  network_first: 'First network',
+  network_seen: 'New network',
+  network_answer: 'Network answered',
+  network_whitelist_add: 'Network whitelisted',
+  network_whitelist_remove: 'Whitelist removed',
+  network_forget: 'Network forgotten',
+  session_end: 'Session ended',
+  network_refused: 'Refused: untrusted network',
 }
 
 export const ACTIONS = Object.keys(ACTION_LABEL) as AuditAction[]

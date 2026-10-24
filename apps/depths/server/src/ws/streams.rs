@@ -233,6 +233,20 @@ impl Registry {
         }
     }
 
+    /// Closes every shell on this socket (spec 052 FR-012); their ids.
+    pub fn close_shells(&mut self) -> Vec<StreamId> {
+        let shells: Vec<StreamId> = self
+            .open
+            .iter()
+            .filter(|(_, e)| matches!(e.kind, Kind::Shell { .. }))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &shells {
+            self.close(*id);
+        }
+        shells
+    }
+
     fn unwatch(&mut self) {
         if let Some(w) = self.stats.take() {
             w.cancel.cancel();
@@ -696,6 +710,11 @@ pub(super) async fn open_shell(
         Ok(f) => f,
         Err(e) => return *e,
     };
+    // Spec 052: the role allowed it; an untrusted network still may not open a shell.
+    // 051 shell guard composes after this
+    if let Some(refused) = conn.untrusted(id, depths_core::role::CommandKind::Shell, "OpenShell") {
+        return refused;
+    }
     if !conn.streams.has_room() {
         return too_many(id);
     }

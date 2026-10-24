@@ -454,7 +454,21 @@ impl App {
         out
     }
 
-    pub async fn send(&self, req: Request<Body>) -> Response<Body> {
+    /// Sends `req` as if from loopback, the peer a real test socket has (spec 052 keys trust on
+    /// the network, so a sign-in and its socket must share one). A test that set its own peer
+    /// keeps it.
+    pub async fn send(&self, mut req: Request<Body>) -> Response<Body> {
+        if req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .is_none()
+        {
+            req.extensions_mut()
+                .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                    [127, 0, 0, 1],
+                    40000,
+                ))));
+        }
         self.router.clone().oneshot(req).await.unwrap()
     }
 

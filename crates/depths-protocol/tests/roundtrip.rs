@@ -873,6 +873,7 @@ fn all_events() -> Vec<Event> {
                         stderr_tail: "permission denied".into(),
                     },
                     source_ip: "203.0.113.7".into(),
+                    network: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:01:00Z".into(),
@@ -896,6 +897,7 @@ fn all_events() -> Vec<Event> {
                     diff_summary: Some("compose.yaml: +1 -1; .env: PORT".into()),
                     outcome: AuditOutcome::Succeeded,
                     source_ip: "203.0.113.7".into(),
+                    network: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:02:00Z".into(),
@@ -911,6 +913,11 @@ fn all_events() -> Vec<Event> {
                         reason: "not_permitted".into(),
                     },
                     source_ip: "203.0.113.7".into(),
+                    network: Some(AuditNetwork {
+                        network: Some("198.51.100.7/32".into()),
+                        cmd: Some("open_shell".into()),
+                        ..AuditNetwork::default()
+                    }),
                 },
             ],
             next_cursor: Some("c2VnLTE".into()),
@@ -1045,5 +1052,13 @@ fn me_roundtrips() {
             edit: true,
             host_metrics: false,
         },
+        network: TrustDecision {
+            trusted: false,
+            reason: TrustReason::Maturing,
+            matures_at: Some("2026-10-30T09:00:00Z".into()),
+            network: "198.51.100.7/32".into(),
+        },
+        needs_answer: false,
+        proxy_warning: false,
     });
 }

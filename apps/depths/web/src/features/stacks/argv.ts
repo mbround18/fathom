@@ -47,6 +47,8 @@ export const DENY_TEXT: Record<DenyReason, string> = {
   feature_disabled: 'This feature is turned off on this server.',
   owner: 'Owners cannot be changed here.',
   role_not_assignable: 'That role cannot be assigned.',
+  untrusted_network:
+    'Not from this network: it is not trusted yet. Stop, start, restart, logs and stats still work here.',
 }
 
 export function actorLabel(a: Actor): string {

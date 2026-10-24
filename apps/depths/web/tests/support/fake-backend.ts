@@ -147,6 +147,9 @@ export const fixtures = {
       owner: false,
       stacks: [],
       features: { shell: true, edit: true, host_metrics: false },
+      network: { trusted: true, reason: 'first', network: '203.0.113.7/32' },
+      needs_answer: false,
+      proxy_warning: false,
       ...over,
     }
   },

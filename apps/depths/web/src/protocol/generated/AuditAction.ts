@@ -3,4 +3,4 @@
 /**
  * What an audit entry records.
  */
-export type AuditAction = "up" | "stop" | "restart" | "down" | "pull" | "update" | "save" | "create" | "delete" | "service_up" | "service_stop" | "service_restart" | "sign_in" | "sign_out" | "denied" | "shell_open" | "reveal_env" | "user_added" | "user_changed" | "user_removed";
+export type AuditAction = "up" | "stop" | "restart" | "down" | "pull" | "update" | "save" | "create" | "delete" | "service_up" | "service_stop" | "service_restart" | "sign_in" | "sign_out" | "denied" | "shell_open" | "reveal_env" | "user_added" | "user_changed" | "user_removed" | "network_first" | "network_seen" | "network_answer" | "network_whitelist_add" | "network_whitelist_remove" | "network_forget" | "session_end" | "network_refused";

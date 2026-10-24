@@ -112,6 +112,62 @@ fn single(headers: &HeaderMap, name: &str) -> Option<IpAddr> {
     v.to_str().ok()?.trim().parse().ok().map(canonical)
 }
 
+/// Requests looked at before the proxy heuristic settles.
+pub const PROXY_SAMPLE: u32 = 20;
+
+/// FR-021 (spec 052): with the network gate on and no `DEPTHS_TRUSTED_PROXIES`, a server behind
+/// a reverse proxy sees the proxy's private address for everyone, so every person looks like
+/// they are on one network. When the first [`PROXY_SAMPLE`] authenticated requests all come from
+/// private addresses, this warns once in the log; admins see a notice from the first one.
+pub struct ProxyWatch {
+    armed: bool,
+    seen: std::sync::atomic::AtomicU32,
+    public: std::sync::atomic::AtomicBool,
+    logged: std::sync::atomic::AtomicBool,
+}
+
+impl ProxyWatch {
+    /// `armed`: the gate is on and no trusted proxies are configured.
+    pub fn new(armed: bool) -> Self {
+        Self {
+            armed,
+            seen: std::sync::atomic::AtomicU32::new(0),
+            public: std::sync::atomic::AtomicBool::new(false),
+            logged: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// One authenticated request (or sign-in) from `ip`.
+    pub fn saw(&self, ip: IpAddr) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if !self.armed || self.public.load(Relaxed) {
+            return;
+        }
+        let n = self.seen.fetch_add(1, Relaxed);
+        if n >= PROXY_SAMPLE {
+            self.seen.store(PROXY_SAMPLE, Relaxed);
+            return;
+        }
+        if !crate::geoip::is_private(ip) {
+            self.public.store(true, Relaxed);
+            return;
+        }
+        if n + 1 == PROXY_SAMPLE && !self.logged.swap(true, Relaxed) {
+            tracing::warn!(
+                "every request so far came from a private address and DEPTHS_TRUSTED_PROXIES is \
+                 not set: behind a reverse proxy, set DEPTHS_TRUSTED_PROXIES so the network gate \
+                 sees real client addresses"
+            );
+        }
+    }
+
+    /// Whether admins should see the notice.
+    pub fn warning(&self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.armed && !self.public.load(Relaxed) && self.seen.load(Relaxed) > 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +291,33 @@ mod tests {
             resolver().resolve(peer("172.18.0.5"), &HeaderMap::new()),
             "172.18.0.5".parse::<IpAddr>().unwrap()
         );
+    }
+
+    #[test]
+    fn proxy_warning_needs_private_addresses_only_and_an_armed_gate() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let w = ProxyWatch::new(true);
+        assert!(!w.warning(), "nothing seen yet");
+        for _ in 0..PROXY_SAMPLE + 5 {
+            w.saw(ip("172.18.0.1"));
+        }
+        assert!(w.warning());
+        let w = ProxyWatch::new(true);
+        w.saw(ip("10.0.0.2"));
+        w.saw(ip("203.0.113.7"));
+        w.saw(ip("10.0.0.2"));
+        assert!(
+            !w.warning(),
+            "a public address means the addresses are real"
+        );
+        let w = ProxyWatch::new(false);
+        w.saw(ip("10.0.0.2"));
+        assert!(!w.warning(), "proxies configured or gate off");
+        let w = ProxyWatch::new(true);
+        for _ in 0..PROXY_SAMPLE {
+            w.saw(ip("10.0.0.2"));
+        }
+        w.saw(ip("203.0.113.7"));
+        assert!(w.warning(), "settled after the sample");
     }
 }

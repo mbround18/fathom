@@ -401,8 +401,11 @@ async fn the_audit_export_is_jsonl_for_admins_only() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(lines.len(), 2, "{body}");
-    assert!(lines.iter().all(|l| l["action"] == "sign_in"));
+    // Each sign-in, and (spec 052) each person's first network.
+    assert_eq!(lines.len(), 4, "{body}");
+    let count = |a: &str| lines.iter().filter(|l| l["action"] == a).count();
+    assert_eq!(count("sign_in"), 2, "{body}");
+    assert_eq!(count("network_first"), 2, "{body}");
 
     // A filter narrows; a bad one is a 400.
     let r = a

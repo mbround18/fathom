@@ -155,6 +155,27 @@ pub struct Job {
     running: Arc<Mutex<HashMap<String, RunningOp>>>,
 }
 
+/// The permission row `op` needs, for callers that check the role before another check (the
+/// network gate, spec 052). `None` for an op that does not parse; `preview` refuses it.
+pub fn required_action(op: &StackOp) -> Option<depths_core::role::Action> {
+    to_core(op).ok().map(|o| o.required_action())
+}
+
+/// What the network gate (spec 052) calls an operation kind.
+pub fn command_kind(kind: OperationKind) -> depths_core::role::CommandKind {
+    use depths_core::role::CommandKind as K;
+    match kind {
+        OperationKind::Up | OperationKind::ServiceUp => K::Start,
+        OperationKind::Stop | OperationKind::ServiceStop => K::Stop,
+        OperationKind::Restart | OperationKind::ServiceRestart => K::Restart,
+        OperationKind::Down => K::Down,
+        OperationKind::Pull => K::Pull,
+        OperationKind::Update => K::Update,
+        OperationKind::Delete => K::Delete,
+        OperationKind::Save | OperationKind::Create => K::Edit,
+    }
+}
+
 fn to_core(op: &StackOp) -> Result<Operation, Refusal> {
     let service = |s: &depths_protocol::ServiceName| {
         depths_core::ServiceName::parse(s.as_str())
@@ -720,6 +741,16 @@ impl Ops {
             },
         )?;
         Ok(preview)
+    }
+
+    /// The kind of `session`'s unconfirmed preview `id`, for the network gate before `Confirm`.
+    pub fn preview_kind(&self, session: &str, id: PreviewId) -> Option<OperationKind> {
+        self.previews
+            .lock()
+            .unwrap()
+            .get(&id)
+            .filter(|b| b.session == session)
+            .map(|b| b.kind)
     }
 
     fn unclaim(&self, id: PreviewId) {

@@ -28,7 +28,7 @@ use axum::extract::State;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::response::{IntoResponse, Response};
-use depths_core::role::{self, Access, Action};
+use depths_core::role::{self, Access, Action, CommandKind};
 use depths_protocol::{
     Actor, AuditAction, AuditOutcome, Cmd, CmdEnvelope, DenyReason, Event, EventEnvelope, Hello,
     PROTOCOL_VERSION, RequestId, UserId,
@@ -202,6 +202,28 @@ impl Conn {
         )
     }
 
+    /// Spec 052: call after the role check. `Some(Denied{untrusted_network})` when the network
+    /// of this socket is not trusted for `kind` (audited, and the session's shells end).
+    fn untrusted(
+        &self,
+        id: Option<RequestId>,
+        kind: CommandKind,
+        cmd: &str,
+    ) -> Option<EventEnvelope> {
+        self.app
+            .trust
+            .gate(&self.user, &self.actor, &self.session, self.ip, kind, cmd)
+            .err()
+            .map(|_| {
+                reply(
+                    id,
+                    Event::Denied {
+                        reason: DenyReason::UntrustedNetwork,
+                    },
+                )
+            })
+    }
+
     fn deny_reason(
         &self,
         id: Option<RequestId>,
@@ -255,6 +277,7 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
     // Subscribe before the Hello so an end in between is not missed.
     let mut ended = app.auth.sessions.subscribe_ended();
     let mut users_changed = app.users_changed.subscribe();
+    let mut end_shells = app.trust.subscribe_shells();
 
     let first = tokio::time::timeout(app.ws.hello_timeout, socket.recv()).await;
     let Ok(Some(Ok(Message::Text(text)))) = first else {
@@ -340,6 +363,8 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                 if !role::has_any_access(&access) {
                     break Flow::Close(CLOSE_NO_ACCESS, "no_access");
                 }
+                // Spec 052: note the request (recorded at most hourly per session).
+                app.trust.observe(&conn.user, &conn.actor, &conn.session, conn.ip);
                 let replies = dispatch(&mut conn, access, text.as_str()).await;
                 for r in &replies {
                     if !send(&mut socket, r).await {
@@ -391,6 +416,27 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                 }
                 Err(broadcast::error::RecvError::Closed) => return,
             },
+            h = end_shells.recv() => {
+                // Spec 052 FR-012: a request in this session came from an untrusted network.
+                let mine = match h {
+                    Ok(h) => h == conn.session,
+                    Err(broadcast::error::RecvError::Lagged(_)) => true,
+                    Err(broadcast::error::RecvError::Closed) => false,
+                };
+                // Missed some: fail safe and close them too.
+                if mine {
+                    for stream in conn.streams.close_shells() {
+                        let reason = depths_protocol::StreamCloseReason::Failed(
+                            "the shell ended: this session was used from an untrusted network"
+                                .into(),
+                        );
+                        let ev = reply(None, Event::StreamClosed { stream_id: stream, reason });
+                        if !send(&mut socket, &ev).await {
+                            return;
+                        }
+                    }
+                }
+            }
             u = users_changed.recv() => {
                 if matches!(u, Err(broadcast::error::RecvError::Closed)) {
                     continue;
@@ -532,6 +578,14 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         Cmd::GetStack { name } => vec![get_stack(conn, &access, id, name.as_str()).await],
         Cmd::RevealEnv { name } => vec![reveal_env(conn, &access, id, name.as_str()).await],
         Cmd::PreviewOp { stack, op } => {
+            let kind = crate::ops::command_kind(op.kind());
+            let role_ok = crate::ops::required_action(&op).is_some_and(|a| {
+                depths_core::StackName::parse(stack.as_str())
+                    .is_ok_and(|s| role::permits(&access, Some(&s), a))
+            });
+            if role_ok && let Some(refused) = conn.untrusted(id, kind, "PreviewOp") {
+                return vec![refused];
+            }
             let who = conn.who(access);
             match app.ops.preview(&who, &stack, &op).await {
                 Ok(p) => vec![reply(id, Event::Preview(p))],
@@ -539,6 +593,12 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             }
         }
         Cmd::Confirm { preview_id } => {
+            // The preview was authorised when made; the network may have changed since.
+            if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
+                && let Some(refused) = conn.untrusted(id, crate::ops::command_kind(k), "Confirm")
+            {
+                return vec![refused];
+            }
             let who = conn.who(access);
             match app.ops.confirm(&who, preview_id).await {
                 Ok(job) => {
@@ -566,6 +626,15 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         }
         Cmd::PreviewSave { draft, deploy } => {
             if app.cfg.features.edit {
+                let role_ok = depths_core::StackName::parse(draft.stack.as_str()).is_ok_and(|s| {
+                    role::permits(&access, Some(&s), Action::Edit)
+                        || role::permits(&access, Some(&s), Action::CreateStack)
+                });
+                if role_ok
+                    && let Some(refused) = conn.untrusted(id, CommandKind::Edit, "PreviewSave")
+                {
+                    return vec![refused];
+                }
                 let who = conn.who(access);
                 match app.ops.preview_save(&who, &draft, deploy).await {
                     Ok(p) => vec![reply(id, Event::Preview(p))],
@@ -605,12 +674,18 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         Cmd::ShellInput {
             stream_id,
             bytes_b64,
-        } => streams::shell_input(conn, id, stream_id, bytes_b64.as_str()),
+        } => match conn.untrusted(id, CommandKind::Shell, "ShellInput") {
+            Some(refused) => vec![refused],
+            None => streams::shell_input(conn, id, stream_id, bytes_b64.as_str()),
+        },
         Cmd::ShellResize {
             stream_id,
             cols,
             rows,
-        } => streams::shell_resize(conn, id, stream_id, cols, rows),
+        } => match conn.untrusted(id, CommandKind::Shell, "ShellResize") {
+            Some(refused) => vec![refused],
+            None => streams::shell_resize(conn, id, stream_id, cols, rows),
+        },
         Cmd::WatchStats { targets } => streams::watch_stats(conn, &access, id, targets).await,
         Cmd::UnwatchStats => {
             streams::unwatch_stats(conn);
@@ -641,6 +716,9 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             if !role::permits(&access, None, Action::ReadAudit) {
                 return vec![conn.deny(id, None, "GetAudit needs read_audit".into())];
             }
+            if let Some(refused) = conn.untrusted(id, CommandKind::ReadAudit, "GetAudit") {
+                return vec![refused];
+            }
             let a = app.audit.clone();
             let page = tokio::task::spawn_blocking(move || a.page(&filter, cursor.as_ref())).await;
             match page {
@@ -665,6 +743,9 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             if !role::permits(&access, None, Action::ManageUsers) {
                 return vec![conn.deny(id, None, "GetUsers needs manage_users".into())];
             }
+            if let Some(refused) = conn.untrusted(id, CommandKind::ManageUsers, "GetUsers") {
+                return vec![refused];
+            }
             conn.users_feed = true;
             vec![reply(id, Event::Users(app.users.list()))]
         }
@@ -676,12 +757,18 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             if !role::permits(&access, None, Action::ManageUsers) {
                 return vec![conn.deny(id, None, "PutUser needs manage_users".into())];
             }
+            if let Some(refused) = conn.untrusted(id, CommandKind::ManageUsers, "PutUser") {
+                return vec![refused];
+            }
             let r = app.users.put(&target, role, &stacks);
             vec![user_changed(conn, id, &target, r)]
         }
         Cmd::RemoveUser { id: target } => {
             if !role::permits(&access, None, Action::ManageUsers) {
                 return vec![conn.deny(id, None, "RemoveUser needs manage_users".into())];
+            }
+            if let Some(refused) = conn.untrusted(id, CommandKind::ManageUsers, "RemoveUser") {
+                return vec![refused];
             }
             let r = app.users.remove(&target);
             vec![user_changed(conn, id, &target, r)]
@@ -780,6 +867,9 @@ async fn reveal_env(
     };
     if !role::permits(access, Some(&core), Action::RevealEnv) {
         return conn.deny(id, Some(name), "RevealEnv on a stack not granted".into());
+    }
+    if let Some(refused) = conn.untrusted(id, CommandKind::RevealEnv, "RevealEnv") {
+        return refused;
     }
     let files = match read_files(conn, &core).await {
         Ok(f) => f,

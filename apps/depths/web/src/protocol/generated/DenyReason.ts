@@ -3,4 +3,4 @@
 /**
  * Why a command was refused before anything ran. Audited.
  */
-export type DenyReason = "not_permitted" | "pending" | "feature_disabled" | "owner" | "role_not_assignable";
+export type DenyReason = "not_permitted" | "pending" | "feature_disabled" | "owner" | "role_not_assignable" | "untrusted_network";

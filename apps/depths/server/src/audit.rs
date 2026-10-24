@@ -157,6 +157,7 @@ pub fn entry(actor: Actor, action: AuditAction, ip: IpAddr, outcome: AuditOutcom
         diff_summary: None,
         outcome,
         source_ip: ip.to_string(),
+        network: None,
     }
 }
 
