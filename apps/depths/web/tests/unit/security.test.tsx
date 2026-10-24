@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { SecurityChip } from '@/features/stacks/SecurityChip'
-import { chipFor, reasonLines, rootfulNotice, shellGate, worstFinding } from '@/features/stacks/security'
-import type { ComposeWarning, ContainerSecurity, Features } from '@/protocol/generated'
+import { chipFor, reasonLines, rootfulNotice, shellGate, stackReasons, worstFinding } from '@/features/stacks/security'
+import type { ComposeWarning, ContainerSecurity, Features, Stack } from '@/protocol/generated'
 
 const features: Features = { shell: true, edit: true, host_metrics: false }
 
@@ -24,6 +24,25 @@ function warning(severity: ComposeWarning['severity'], code = 'x'): ComposeWarni
 }
 
 describe('051 security helpers', () => {
+  it("names a stack's worst containers with their own reasons, and says something when they gave none", () => {
+    const playit = rated({
+      level: 'escape',
+      reasons: [
+        { code: 'tunnel', severity: 'escape', message: 'is a playit.gg tunnel agent on the host\'s network' },
+        { code: 'host_network', severity: 'info', message: "uses the host's network" },
+      ],
+    })
+    const s = {
+      security: 'escape',
+      services: [
+        { containers: [{ name: 'playit', security: playit }, { name: 'web', security: rated() }] },
+        { containers: [{ name: 'odd', security: rated({ level: 'escape', reasons: [] }) }] },
+      ],
+    } as unknown as Stack
+    expect(stackReasons(s)).toEqual(["playit is a playit.gg tunnel agent on the host's network.", 'odd can reach the host.'])
+  })
+
+
   it('chips root amber and escape red, and nothing for ok or unrated', () => {
     expect(chipFor('root')?.tone).toContain('status-warn')
     expect(chipFor('escape')?.tone).toContain('status-err')

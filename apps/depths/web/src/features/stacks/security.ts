@@ -4,7 +4,7 @@
  * at shell open and is the one that decides (051 FR-008), so a missing rating never disables
  * anything here.
  */
-import type { ComposeWarning, ContainerSecurity, Features, Role, SecurityLevel } from '@/protocol/generated'
+import type { ComposeWarning, ContainerSecurity, Features, Role, SecurityLevel, Stack } from '@/protocol/generated'
 
 /** The guide the chips and the rootful notice link to. */
 export const SECURITY_GUIDE = 'https://github.com/mbround18/fathom/blob/main/docs/guides/depths/security.md'
@@ -30,6 +30,16 @@ export function chipFor(level: SecurityLevel | null | undefined): Chip | null {
 /** The reasons, one sentence each, worst first, as the chip's tooltip says them. */
 export function reasonLines(security: ContainerSecurity | undefined): string[] {
   return security?.reasons.filter((r) => r.severity !== 'info').map((r) => r.message) ?? []
+}
+
+/** A stack chip's reasons: each container at its level, with why (`playit is a playit.gg tunnel ...`). */
+export function stackReasons(stack: Stack): string[] {
+  const at = stack.services.flatMap((s) => s.containers).filter((c) => c.security?.level === stack.security)
+  const what = stack.security === 'escape' ? 'can reach the host' : 'runs as root on the host'
+  return at.flatMap((c) => {
+    const why = (c.security?.reasons ?? []).filter((r) => r.severity === stack.security).map((r) => r.message)
+    return why.length > 0 ? why.map((w) => `${c.name} ${w.replace(/\.$/, '')}.`) : [`${c.name} ${what}.`]
+  })
 }
 
 export interface ShellGate {

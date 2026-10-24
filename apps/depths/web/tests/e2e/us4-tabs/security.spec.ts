@@ -54,6 +54,23 @@ test.describe('051 container security', () => {
     await expect(page.locator('[data-console] [data-field="security"]')).toHaveAttribute('data-level', 'root')
   })
 
+  test('a stack row opens on a click anywhere but its chips, and the chip names the container and why', async ({ page, backend }) => {
+    backend.me = sessions.user(['web', 'db', 'ok'])
+    await page.goto('/stacks/web')
+    const db = page.locator('[data-stack="db"]')
+    const chip = db.locator('[data-field="security"]')
+    await chip.click()
+    await expect(page.getByRole('tooltip').filter({ hasText: 'db-app-1 Runs privileged: it can reach the host.' })).toBeVisible()
+    await expect(page).toHaveURL(/\/stacks\/web$/)
+    // The open tooltip hangs over the row; let it close as it would when the pointer moves on.
+    await chip.blur()
+    await page.mouse.move(0, 0)
+    await expect(page.getByRole('tooltip').filter({ hasText: 'db-app-1' })).toBeHidden()
+    // The name link's overlay covers the row, so the click lands on it wherever it falls.
+    await db.locator('[data-field="services"]').click({ force: true })
+    await expect(page).toHaveURL(/\/stacks\/db$/)
+  })
+
   test('a user cannot open a shell in a root container; an admin can, and nobody in an escape', async ({ page, backend }) => {
     backend.me = sessions.user(['web', 'db'])
     await page.goto('/stacks/web')
