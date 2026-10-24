@@ -36,8 +36,8 @@
 
 - [x] T018 [US3] Admin endpoints for a person's sessions/networks; whitelist add/remove and forget (trusted network only; refuse a CIDR containing the requester's own untrusted network) in apps/depths/server/src/routes.rs
 - [x] T019 [US3] Server tests for whitelist from trusted/untrusted, removal reverting to unknown in apps/depths/server/tests/
-- [ ] T020 [US3] Users page panel: sessions, networks, whitelist form in apps/depths/web/src/features/users/
-- [ ] T021 [US3] Playwright admin whitelist in apps/depths/web/tests/e2e/us5-access/whitelist.spec.ts
+- [x] T020 [US3] Users page panel: sessions, networks, whitelist form in apps/depths/web/src/features/users/
+- [x] T021 [US3] Playwright admin whitelist in apps/depths/web/tests/e2e/us5-access/whitelist.spec.ts
 
 ## Phase 6: US4 Address correctness (P2)
 

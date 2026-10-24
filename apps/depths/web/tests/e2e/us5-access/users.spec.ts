@@ -146,7 +146,9 @@ test('the owner is locked; an admin pre-adds an id and sees missing stacks', asy
 
   const owner = row(page, 'github:1001')
   await expect(owner.locator('[data-badge="owner"]')).toHaveText('Owner')
-  await expect(owner.getByRole('button')).toHaveCount(0)
+  // Locked: nothing to change. Viewing their sessions and networks (spec 052) is still offered.
+  await expect(owner.getByRole('button', { name: /^(Edit|Remove|Admit) / })).toHaveCount(0)
+  await expect(owner.getByRole('button')).toHaveCount(1)
 
   // An assigned stack with no directory is kept, and marked.
   await expect(row(page, 'github:2002').locator('[data-stack="gone"][data-missing]')).toContainText('(missing)')

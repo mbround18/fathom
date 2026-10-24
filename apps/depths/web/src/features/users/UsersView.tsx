@@ -6,7 +6,7 @@
  */
 import { LockSimpleIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
-import { useEffect, useId, useMemo, useState, type SyntheticEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useState, type SyntheticEvent, type ReactNode } from 'react'
 
 import { useUntrusted } from '@/features/network/model'
 import { DENY_TEXT } from '@/features/stacks/argv'
@@ -18,6 +18,7 @@ import { displayName, isUserId, missingStacks, sortUsers, stackChoices } from '.
 import { useUsers } from './store'
 
 const NO_STACKS: readonly string[] = []
+const AccessPanel = lazy(() => import('./AccessPanel'))
 
 export default function UsersView() {
   const list = useUsers((s) => s.list)
@@ -171,6 +172,7 @@ function UserRow({ user, known, pending = false }: { user: User; known: readonly
   const blocked = useUntrusted()
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [access, setAccess] = useState(false)
   const knownSet = useMemo(() => new Set(known), [known])
   const missing = missingStacks(user, knownSet)
   const name = displayName(user)
@@ -243,6 +245,16 @@ function UserRow({ user, known, pending = false }: { user: User; known: readonly
             </Button>
           )}
         </div>
+      )}
+      {!pending && (
+        <Button variant="ghost" size="xs" className="self-start" aria-expanded={access} onClick={() => setAccess((v) => !v)} aria-label={`Sessions and networks for ${name}`}>
+          {access ? 'Hide sessions and networks' : 'Sessions and networks'}
+        </Button>
+      )}
+      {access && (
+        <Suspense fallback={<p className="text-muted-foreground">Loading…</p>}>
+          <AccessPanel id={user.id} name={name} />
+        </Suspense>
       )}
     </li>
   )
