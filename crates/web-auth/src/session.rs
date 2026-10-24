@@ -229,6 +229,20 @@ impl SessionStore {
     /// Create a session with a fresh id (never reused: no fixation). Over the per-user cap the
     /// oldest of that user's sessions is evicted; over the global cap creation fails.
     pub fn create(&self, identity: Identity, tokens: Tokens) -> Result<NewSession, SessionError> {
+        self.create_evicting(identity, tokens, |_| false)
+    }
+
+    /// [`Self::create`], except that at the global cap the least recently seen session
+    /// `evictable` matches is ended ([`EndReason::LimitEvicted`]) to make room. With none
+    /// matching, creation fails as before. Lets a caller say whose sessions count for less, so
+    /// that people who were never admitted cannot fill the cap and lock everyone else out.
+    /// `evictable` runs under the store's lock: it must not call back into the store.
+    pub fn create_evicting(
+        &self,
+        identity: Identity,
+        tokens: Tokens,
+        evictable: impl Fn(&Session) -> bool,
+    ) -> Result<NewSession, SessionError> {
         let cookie = random_token();
         let now = Instant::now();
         let user_key = identity.user_key();
@@ -251,7 +265,21 @@ impl SessionStore {
                 });
             }
             if map.len() >= self.cfg.max_sessions {
-                return Err(SessionError::GlobalLimit(self.cfg.max_sessions));
+                let victim = map
+                    .values()
+                    .filter(|s| evictable(s))
+                    .min_by_key(|s| s.last_seen)
+                    .map(|s| s.id.clone());
+                let Some(id) = victim else {
+                    return Err(SessionError::GlobalLimit(self.cfg.max_sessions));
+                };
+                if let Some(s) = map.remove(&id) {
+                    evicted.push(Ended {
+                        id,
+                        user_key: s.user_key,
+                        reason: EndReason::LimitEvicted,
+                    });
+                }
             }
             let s = Session {
                 id: session_handle(&cookie),
@@ -610,6 +638,33 @@ mod tests {
             s.create(ident("d"), toks()).unwrap_err(),
             SessionError::GlobalLimit(3)
         );
+    }
+
+    #[tokio::test]
+    async fn global_cap_evicts_the_least_recently_seen_evictable_session() {
+        let s = SessionStore::new(cfg());
+        let mut rx = s.subscribe_ended();
+        let a = s.create(ident("a"), toks()).unwrap();
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        let b = s.create(ident("b"), toks()).unwrap();
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        let c = s.create(ident("c"), toks()).unwrap();
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        s.touch(&b.id).unwrap();
+        // Nobody evictable: refused, nothing ended.
+        assert_eq!(
+            s.create_evicting(ident("d"), toks(), |_| false)
+                .unwrap_err(),
+            SessionError::GlobalLimit(3)
+        );
+        // `a` is not evictable; of `b` and `c`, `c` was seen least recently.
+        let evictable = |x: &Session| x.identity.sub != "a";
+        let d = s.create_evicting(ident("d"), toks(), evictable).unwrap();
+        assert_eq!(s.len(), 3);
+        assert!(s.peek(&a.id).is_some() && s.peek(&b.id).is_some());
+        assert!(s.peek(&c.id).is_none() && s.peek(&d.id).is_some());
+        let e = rx.try_recv().unwrap();
+        assert_eq!((e.id, e.reason), (c.id.clone(), EndReason::LimitEvicted));
     }
 
     #[test]

@@ -627,20 +627,38 @@ async fn callback(
             );
         }
     };
-    let session = match app
-        .auth
-        .sessions
-        .create(completed.identity, completed.tokens)
-    {
-        Ok(s) => s,
-        Err(SessionError::GlobalLimit(_)) => {
-            return sign_in_failed(
-                StatusCode::SERVICE_UNAVAILABLE,
-                clear,
-                "Too many people are signed in. Try again later.",
-            );
-        }
+    // T099: at the session cap, someone with access takes the slot of someone who has none
+    // (signed in, never admitted), so strangers cannot fill the cap and lock the admins out.
+    // Access is read before the store's lock is taken: the predicate runs under it.
+    let admitted: std::collections::HashSet<String> =
+        if depths_core::role::has_any_access(&app.users.access(&user.id)) {
+            app.users
+                .all()
+                .into_iter()
+                .filter(|u| depths_core::role::has_any_access(&app.users.access(&u.id)))
+                .map(|u| u.id)
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+    let evictable = |s: &web_auth::session::Session| {
+        !admitted.is_empty() && !admitted.contains(&SignIn::from_identity(&s.identity).id())
     };
+    let session =
+        match app
+            .auth
+            .sessions
+            .create_evicting(completed.identity, completed.tokens, evictable)
+        {
+            Ok(s) => s,
+            Err(SessionError::GlobalLimit(_)) => {
+                return sign_in_failed(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    clear,
+                    "Too many people are signed in. Try again later.",
+                );
+            }
+        };
     tracing::info!(user = %user.id, role = ?user.role, "signed in");
     record(
         &app,

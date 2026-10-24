@@ -130,6 +130,47 @@ async fn others_sign_in_as_pending() {
 }
 
 #[tokio::test]
+async fn sign_ins_nobody_admitted_cannot_lock_the_admins_out() {
+    // T099 F1: anyone with a Discord account can sign in and hold a pending session. Enough of
+    // them fill the global session cap; the owner must still get in, by evicting one of them.
+    let a = app();
+    let cap = web_auth::session::SessionConfig::default().max_sessions;
+    let sessions = &a.state.auth.sessions;
+    for i in 0..cap {
+        sessions
+            .create(discord_identity(&format!("9{i:03}")), fake_tokens())
+            .unwrap();
+    }
+    assert_eq!(sessions.len(), cap);
+
+    let session = a.sign_in(OWNER).await;
+    let me = json(a.get("/api/v1/me", Some(&session)).await).await;
+    assert_eq!(me["role"], "admin");
+    assert_eq!(sessions.len(), cap, "one pending session made room");
+
+    // Someone nobody admitted is still turned away at the cap, and evicts nobody.
+    let r = a.get("/auth/login?provider=discord", None).await;
+    let state = Url::parse(location(&r))
+        .unwrap()
+        .query_pairs()
+        .find(|(k, _)| k == "state")
+        .unwrap()
+        .1
+        .into_owned();
+    let login = cookie_pair(&r, "__Host-depths_login");
+    let r = a
+        .get(
+            &format!("/auth/callback/discord?code=777&state={state}"),
+            Some(&login),
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(sessions.len(), cap);
+    let me = a.get("/api/v1/me", Some(&session)).await;
+    assert_eq!(me.status(), StatusCode::OK, "the owner's session survives");
+}
+
+#[tokio::test]
 async fn a_callback_without_its_login_cookie_is_refused_without_echoing() {
     let a = app();
     let r = a

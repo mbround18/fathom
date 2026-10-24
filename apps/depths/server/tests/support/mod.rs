@@ -105,6 +105,27 @@ impl IdentityProvider for FakeDiscord {
     }
 }
 
+/// The identity [`FakeDiscord`] signs `sub` in as.
+pub fn discord_identity(sub: &str) -> Identity {
+    Identity {
+        provider: Provider::Discord,
+        issuer: "https://discord.com".into(),
+        sub: sub.into(),
+        username: format!("user{sub}"),
+        groups: vec![],
+        email: None,
+    }
+}
+
+pub fn fake_tokens() -> Tokens {
+    Tokens {
+        id_token: SecretString::from(""),
+        access_token: SecretString::from("at"),
+        refresh_token: None,
+        expires_at: tokio::time::Instant::now() + Duration::from_secs(3600),
+    }
+}
+
 /// A docker that answers from a snapshot the test sets, and records what it was asked to run.
 #[derive(Default)]
 pub struct FakeRuntime {
