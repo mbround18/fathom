@@ -215,6 +215,130 @@ pub struct FileContent {
     pub owner: Owner,
 }
 
+// ---------------------------------------------------------------------------
+// Text codec (R8)
+// ---------------------------------------------------------------------------
+
+/// How far into a file a NUL marks it as binary.
+pub const NUL_SCAN_BYTES: usize = 8 * 1024;
+/// The UTF-8 byte order mark.
+pub const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+
+/// A text file as the editor works on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decoded {
+    /// LF endings, BOM stripped.
+    pub text: String,
+    pub bom: bool,
+    pub eol: Eol,
+    pub save_eol: LineEnding,
+}
+
+/// `None` when `bytes` is text: within `editor_max`, no NUL in the first 8 KiB, valid UTF-8.
+/// The checks run in that order, so the reason is the first that fails.
+pub fn classify(bytes: &[u8], editor_max: u64) -> Option<BinaryReason> {
+    if bytes.len() as u64 > editor_max {
+        Some(BinaryReason::TooLarge)
+    } else if bytes[..bytes.len().min(NUL_SCAN_BYTES)].contains(&0) {
+        Some(BinaryReason::Binary)
+    } else if std::str::from_utf8(bytes).is_err() {
+        Some(BinaryReason::NotUtf8)
+    } else {
+        None
+    }
+}
+
+/// The endings in `text`: a CRLF counts as one, a lone LF as the other, a lone CR as neither.
+/// `save_eol` is the more common of the two (LF on a tie, and when there is none).
+pub fn detect_eol(text: &str) -> (Eol, LineEnding) {
+    let bytes = text.as_bytes();
+    let (mut crlf, mut lf) = (0usize, 0usize);
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\n' {
+            if i > 0 && bytes[i - 1] == b'\r' {
+                crlf += 1;
+            } else {
+                lf += 1;
+            }
+        }
+    }
+    let save = if crlf > lf { LineEnding::Crlf } else { LineEnding::Lf };
+    let eol = match (crlf, lf) {
+        (0, _) => Eol::Lf,
+        (_, 0) => Eol::Crlf,
+        _ => Eol::Mixed,
+    };
+    (eol, save)
+}
+
+/// The editor's view of `bytes`, or why it has none. A leading BOM is stripped and flagged, and
+/// CRLF becomes LF (for `mixed`, every CRLF does). The trailing newline is kept as it is.
+pub fn decode(bytes: &[u8], editor_max: u64) -> Result<Decoded, BinaryReason> {
+    if let Some(reason) = classify(bytes, editor_max) {
+        return Err(reason);
+    }
+    let (bom, body) = match bytes.strip_prefix(UTF8_BOM) {
+        Some(rest) => (true, rest),
+        None => (false, bytes),
+    };
+    let raw = std::str::from_utf8(body).map_err(|_| BinaryReason::NotUtf8)?;
+    let (eol, save_eol) = detect_eol(raw);
+    let text = if eol == Eol::Lf { raw.to_owned() } else { raw.replace("\r\n", "\n") };
+    Ok(Decoded { text, bom, eol, save_eol })
+}
+
+/// The bytes a save writes: `text` (LF endings) with `eol` applied to every LF and the BOM put
+/// back when `bom`. `encode(decode(x))` is `x` for every text `x` whose endings are not mixed.
+pub fn encode(text: &str, bom: bool, eol: LineEnding) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() + if bom { 3 } else { 0 });
+    if bom {
+        out.extend_from_slice(UTF8_BOM);
+    }
+    match eol {
+        LineEnding::Lf => out.extend_from_slice(text.as_bytes()),
+        LineEnding::Crlf => {
+            for (i, line) in text.split('\n').enumerate() {
+                if i > 0 {
+                    out.extend_from_slice(b"\r\n");
+                }
+                out.extend_from_slice(line.as_bytes());
+            }
+        }
+    }
+    out
+}
+
+impl FileContent {
+    /// The reply for a file whose fingerprint was taken and whose bytes are `content`, or `None`
+    /// when they were not read because the file is over `editor_max`.
+    pub fn build(
+        fingerprint: Fingerprint,
+        owner: Owner,
+        read_only: Option<WriteBlocked>,
+        content: Option<&[u8]>,
+        editor_max: u64,
+    ) -> Self {
+        let decoded = content
+            .ok_or(BinaryReason::TooLarge)
+            .and_then(|bytes| decode(bytes, editor_max));
+        let (text, binary_reason, bom, eol, save_eol) = match decoded {
+            Ok(d) => (Some(d.text), None, d.bom, d.eol, d.save_eol),
+            Err(reason) => (None, Some(reason), false, Eol::Lf, LineEnding::Lf),
+        };
+        Self {
+            fingerprint,
+            size: fingerprint.size(),
+            text,
+            binary_reason,
+            bom,
+            eol,
+            save_eol,
+            read_only,
+            owner,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,5 +429,186 @@ mod tests {
         assert_eq!(json["owner"]["mode"], 0o640);
         assert!(json.get("text").is_none());
         assert_eq!(serde_json::from_value::<FileContent>(json).unwrap(), content);
+    }
+
+    // --- codec ---
+
+    const MAX: u64 = 2 * 1024 * 1024;
+
+    #[test]
+    fn classify_rules_in_order() {
+        assert_eq!(classify(b"plain\n", MAX), None);
+        assert_eq!(classify(b"", MAX), None);
+        assert_eq!(classify(b"a\0b", MAX), Some(BinaryReason::Binary));
+        assert_eq!(classify(b"\xff\xfe", MAX), Some(BinaryReason::NotUtf8));
+        assert_eq!(classify(b"abcd", 3), Some(BinaryReason::TooLarge));
+        assert_eq!(classify(b"abc", 3), None);
+        // A NUL past the first 8 KiB does not make it binary; it is still valid UTF-8.
+        let mut late = vec![b'a'; NUL_SCAN_BYTES];
+        late.push(0);
+        assert_eq!(classify(&late, MAX), None);
+        let mut early = vec![b'a'; NUL_SCAN_BYTES - 1];
+        early.push(0);
+        assert_eq!(classify(&early, MAX), Some(BinaryReason::Binary));
+        // Too large wins over everything.
+        assert_eq!(classify(b"\0\xff", 1), Some(BinaryReason::TooLarge));
+    }
+
+    #[test]
+    fn bom_is_stripped_and_flagged() {
+        let d = decode(b"\xEF\xBB\xBFkey = 1\n", MAX).unwrap();
+        assert!(d.bom);
+        assert_eq!(d.text, "key = 1\n");
+        assert_eq!(encode(&d.text, d.bom, d.save_eol), b"\xEF\xBB\xBFkey = 1\n");
+        assert!(!decode(b"x", MAX).unwrap().bom);
+    }
+
+    #[test]
+    fn line_endings() {
+        let d = decode(b"a\r\nb\r\n", MAX).unwrap();
+        assert_eq!((d.text.as_str(), d.eol, d.save_eol), ("a\nb\n", Eol::Crlf, LineEnding::Crlf));
+        let d = decode(b"a\nb", MAX).unwrap();
+        assert_eq!((d.text.as_str(), d.eol), ("a\nb", Eol::Lf));
+        assert_eq!(decode(b"no newline", MAX).unwrap().eol, Eol::Lf);
+        // A lone CR is content, not an ending.
+        let d = decode(b"a\rb\r\n", MAX).unwrap();
+        assert_eq!((d.text.as_str(), d.eol), ("a\rb\n", Eol::Crlf));
+    }
+
+    #[test]
+    fn mixed_saves_with_the_most_common_ending() {
+        let d = decode(b"a\r\nb\r\nc\n", MAX).unwrap();
+        assert_eq!((d.text.as_str(), d.eol, d.save_eol), ("a\nb\nc\n", Eol::Mixed, LineEnding::Crlf));
+        assert_eq!(encode(&d.text, d.bom, d.save_eol), b"a\r\nb\r\nc\r\n");
+        let d = decode(b"a\r\nb\nc\n", MAX).unwrap();
+        assert_eq!((d.eol, d.save_eol), (Eol::Mixed, LineEnding::Lf));
+        assert_eq!(encode(&d.text, d.bom, d.save_eol), b"a\nb\nc\n");
+        // A tie saves LF.
+        assert_eq!(decode(b"a\r\nb\n", MAX).unwrap().save_eol, LineEnding::Lf);
+    }
+
+    #[test]
+    fn trailing_newline_is_kept_as_is() {
+        for x in [&b"a"[..], b"a\n", b"a\n\n", b"a\r\n", b"a\r\n\r\n", b"\n", b"\r\n", b""] {
+            let d = decode(x, MAX).unwrap();
+            assert_eq!(encode(&d.text, d.bom, d.save_eol), x, "{x:?}");
+        }
+    }
+
+    #[test]
+    fn file_content_build() {
+        let owner = Owner { uid: 1, gid: 2, mode: 0o600 };
+        let bytes = b"\xEF\xBB\xBFa\r\n";
+        let fp = Fingerprint::of_content(bytes, 0, 1);
+        let c = FileContent::build(fp, owner, None, Some(bytes), MAX);
+        assert_eq!(c.text.as_deref(), Some("a\n"));
+        assert_eq!((c.binary_reason, c.bom, c.eol, c.size), (None, true, Eol::Crlf, 6));
+
+        let big = FileContent::build(fp, owner, Some(WriteBlocked::HardLink), None, MAX);
+        assert_eq!((big.text, big.binary_reason), (None, Some(BinaryReason::TooLarge)));
+        assert_eq!(big.read_only, Some(WriteBlocked::HardLink));
+
+        let bin = FileContent::build(fp, owner, None, Some(b"\0"), MAX);
+        assert_eq!(bin.binary_reason, Some(BinaryReason::Binary));
+    }
+
+    /// A deterministic xorshift64* stream, so the property tests need no crate and never flake.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        }
+
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n as u64) as usize
+        }
+    }
+
+    /// Pieces that exercise every rule: endings, a lone CR, BOM bytes anywhere, multi-byte
+    /// characters, a stray continuation byte (not UTF-8) and a NUL.
+    const PIECES: &[&[u8]] = &[
+        b"a",
+        b"key = value",
+        b" ",
+        b"\t",
+        "é".as_bytes(),
+        "日本".as_bytes(),
+        "🦀".as_bytes(),
+        b"\n",
+        b"\n",
+        b"\r\n",
+        b"\r\n",
+        b"\r",
+        UTF8_BOM,
+        b"\x80",
+        b"\0",
+    ];
+
+    fn generate(rng: &mut Rng, pieces: &[&[u8]]) -> Vec<u8> {
+        let mut out = Vec::new();
+        if rng.below(4) == 0 {
+            out.extend_from_slice(UTF8_BOM);
+        }
+        for _ in 0..rng.below(40) {
+            out.extend_from_slice(pieces[rng.below(pieces.len())]);
+        }
+        out
+    }
+
+    #[test]
+    fn property_encode_decode_is_identity_unless_mixed() {
+        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+        let (mut identity, mut mixed, mut binary) = (0, 0, 0);
+        for _ in 0..20_000 {
+            let x = generate(&mut rng, PIECES);
+            match decode(&x, MAX) {
+                Ok(d) if d.eol != Eol::Mixed => {
+                    assert_eq!(encode(&d.text, d.bom, d.save_eol), x, "{x:?}");
+                    identity += 1;
+                }
+                // A mixed file saves with one ending, and saving that again changes nothing. (A
+                // CR left before an LF in the decoded text reads back as a CRLF, so those are
+                // only counted.)
+                Ok(d) if d.text.contains('\r') => mixed += 1,
+                Ok(d) => {
+                    let saved = encode(&d.text, d.bom, d.save_eol);
+                    let again = decode(&saved, MAX).unwrap();
+                    assert_ne!(again.eol, Eol::Mixed);
+                    assert_eq!(again.text, d.text);
+                    assert_eq!(encode(&again.text, again.bom, again.save_eol), saved);
+                    mixed += 1;
+                }
+                Err(_) => binary += 1,
+            }
+        }
+        // The generator reaches every branch often enough to mean something.
+        assert!(identity > 1000 && mixed > 1000 && binary > 1000, "{identity} {mixed} {binary}");
+    }
+
+    #[test]
+    fn property_single_ending_files_always_round_trip() {
+        let lf: Vec<&[u8]> = PIECES
+            .iter()
+            .copied()
+            .filter(|p| !matches!(*p, b"\r\n" | b"\r" | b"\x80" | b"\0"))
+            .collect();
+        let crlf: Vec<&[u8]> =
+            lf.iter().map(|p| if *p == b"\n" { &b"\r\n"[..] } else { *p }).collect();
+        let mut rng = Rng(42);
+        for _ in 0..5_000 {
+            for (pieces, want) in [(&lf, Eol::Lf), (&crlf, Eol::Crlf)] {
+                let x = generate(&mut rng, pieces);
+                let d = decode(&x, MAX).unwrap();
+                if x.contains(&b'\n') {
+                    assert_eq!(d.eol, want, "{x:?}");
+                }
+                assert!(!d.text.contains("\r\n"));
+                assert_eq!(encode(&d.text, d.bom, d.save_eol), x, "{x:?}");
+            }
+        }
     }
 }
