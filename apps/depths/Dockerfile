@@ -3,9 +3,15 @@
 # Web assets are copied beside the binary and served from STATIC_DIR, never embedded.
 ARG RUST_VERSION=1.99.0
 
+# Cache mounts keep downloads (crates, the pnpm store, apt packages) across builds, so even a build
+# whose layers are invalidated (a lockfile change) only fetches what is new. They are BuildKit
+# build cache: `make gc` caps it with the rest.
+
 # ---- Rust: cargo-chef planner -> cook -> build, so dependency layers survive code changes
 FROM rust:${RUST_VERSION}-trixie AS chef
-RUN cargo install cargo-chef --locked --version ^0.1
+RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=depths-cargo-git,target=/usr/local/cargo/git \
+    cargo install cargo-chef --locked --version ^0.1
 WORKDIR /src
 
 FROM chef AS planner
@@ -15,19 +21,28 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef AS builder
 ENV CARGO_BUILD_JOBS=4
 COPY --from=planner /src/recipe.json recipe.json
-RUN cargo chef cook --release -p depths-server --recipe-path recipe.json
+RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=depths-cargo-git,target=/usr/local/cargo/git \
+    cargo chef cook --release -p depths-server --recipe-path recipe.json
 COPY . .
-RUN cargo build --release -p depths-server --bin depths
+RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=depths-cargo-git,target=/usr/local/cargo/git \
+    cargo build --release -p depths-server --bin depths
 
 # ---- Web: one lockfile for the workspace; install only the Depths app and its packages
 FROM node:24-trixie-slim AS web
+ENV npm_config_store_dir=/pnpm-store COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 WORKDIR /src
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
-RUN pnpm fetch
+RUN --mount=type=cache,id=depths-pnpm-store,target=/pnpm-store \
+    --mount=type=cache,id=depths-corepack,target=/root/.cache/node/corepack \
+    pnpm fetch
 COPY packages/ ./packages/
 COPY apps/depths/web/ ./apps/depths/web/
-RUN pnpm install --offline --frozen-lockfile --filter @companion/depths-web... \
+RUN --mount=type=cache,id=depths-pnpm-store,target=/pnpm-store \
+    --mount=type=cache,id=depths-corepack,target=/root/.cache/node/corepack \
+    pnpm install --offline --frozen-lockfile --filter @companion/depths-web... \
     && pnpm --filter @companion/depths-web build
 
 # ---- Docker CLI and the compose plugin, from the official image
@@ -35,9 +50,12 @@ FROM docker:29-cli AS cli
 
 # ---- Runtime
 FROM debian:trixie-slim
-RUN apt-get update \
+# The image's docker-clean hook deletes downloaded packages; drop it so the cache mount keeps them.
+RUN --mount=type=cache,id=depths-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=depths-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl tini \
-    && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group --home-dir /var/lib/depths --create-home depths \
     && chmod 0700 /var/lib/depths
 COPY --from=cli /usr/local/bin/docker /usr/local/bin/docker
