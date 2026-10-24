@@ -743,7 +743,9 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             if !role::permits(&access, None, Action::ManageUsers) {
                 return vec![conn.deny(id, None, "GetUsers needs manage_users".into())];
             }
-            if let Some(refused) = conn.untrusted(id, CommandKind::ManageUsers, "GetUsers") {
+            // Listing is a view (FR-009): an admin on an untrusted network still needs the list to
+            // end someone's sessions. Changes stay gated below.
+            if let Some(refused) = conn.untrusted(id, CommandKind::View, "GetUsers") {
                 return vec![refused];
             }
             conn.users_feed = true;

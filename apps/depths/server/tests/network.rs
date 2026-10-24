@@ -235,7 +235,6 @@ async fn an_untrusted_socket_is_refused_every_dangerous_command_and_allowed_the_
         ),
         open_shell("web-app-1"),
         cmd("GetAudit", json!({ "filter": {} })),
-        json!({ "type": "GetUsers" }),
         cmd(
             "PutUser",
             json!({ "id": "discord:555", "role": "user", "stacks": ["web"] }),
@@ -264,7 +263,6 @@ async fn an_untrusted_socket_is_refused_every_dangerous_command_and_allowed_the_
     cmds.sort();
     let mut want = [
         "GetAudit",
-        "GetUsers",
         "OpenShell",
         "PreviewOp",
         "PreviewOp",
@@ -279,6 +277,9 @@ async fn an_untrusted_socket_is_refused_every_dangerous_command_and_allowed_the_
     assert_eq!(cmds, want);
 
     // The restricted set still works: view, logs, and start/stop/restart.
+    // Listing users is a view, so an admin can still find a session to end.
+    let r = ask(&mut ws, 49, json!({ "type": "GetUsers" })).await;
+    assert_eq!(r["event"]["type"], "Users", "{r}");
     let r = ask(&mut ws, 50, json!({ "type": "ListStacks" })).await;
     assert_ne!(r["event"]["type"], "Denied", "{r}");
     let r = ask(&mut ws, 51, cmd("GetStack", json!({ "name": "web" }))).await;

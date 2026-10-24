@@ -617,7 +617,6 @@ export class FakeBackend {
       case 'ShellInput':
       case 'ShellResize':
       case 'GetAudit':
-      case 'GetUsers':
       case 'PutUser':
       case 'RemoveUser':
         return false
