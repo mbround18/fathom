@@ -6,6 +6,9 @@ edition = "2024"
 license = "Apache-2.0"
 publish = false
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "depths-volume-helper"
 path = "src/main.rs"
@@ -14,8 +17,8 @@ path = "src/main.rs"
 # volume paths (spec 053 R1, R3).
 [dependencies]
 depths-volumes = { path = "../../../crates/depths-volumes" }
-# openat2, statx, renameat without unsafe.
-rustix = { version = "1.1.5", features = ["fs"] }
+# openat2, statx, renameat without unsafe; getuid/getgid for Hello.
+rustix = { version = "1.1.5", features = ["fs", "process"] }
 # Folder downloads (uncompressed tar on stdout).
 tar = "0.4"
 sha2 = "0.11"
