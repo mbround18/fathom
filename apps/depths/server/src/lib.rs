@@ -14,6 +14,7 @@ pub mod networks;
 pub mod ops;
 pub mod refresh;
 pub mod serve;
+pub mod session_meta;
 pub mod telemetry;
 pub mod users;
 pub mod watch;
