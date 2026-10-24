@@ -978,7 +978,13 @@ async fn get_stack(
     let Some(stack) = list.stacks.iter().find(|s| s.name == name).cloned() else {
         return invalid(id, format!("no stack named {name}"));
     };
-    let files = read_files(conn, &core).await.ok();
+    // The compose file and `.env` are only sent to a trusted network; an untrusted one gets the
+    // stack without them (no refusal: the rest of the page is in the restricted view).
+    let files = if conn.app.trust.decide(&conn.user, conn.ip).trusted {
+        read_files(conn, &core).await.ok()
+    } else {
+        None
+    };
     reply(id, Event::StackDetail(inventory::detail(stack, files)))
 }
 

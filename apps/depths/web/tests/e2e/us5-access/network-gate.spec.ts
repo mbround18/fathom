@@ -69,7 +69,8 @@ test('an unknown network asks home or public; home starts the clock but stays re
   }
   for (const kind of ['up', 'stop', 'restart']) await expect(actions(page).locator(`[data-action="${kind}"]`)).toBeEnabled()
   await expect(page.locator('[data-open="shell"]').first()).toBeDisabled()
-  await expect(page.locator('[data-action="reveal-env"]')).toBeDisabled()
+  // `.env` is not sent to this network at all, so there is nothing to reveal.
+  await expect(page.locator('[data-action="reveal-env"]')).toHaveCount(0)
 })
 
 test('public keeps the view restricted, and a restart still runs end to end', async ({ page, backend }) => {
@@ -85,6 +86,20 @@ test('public keeps the view restricted, and a restart still runs end to end', as
   await page.getByRole('dialog').locator('[data-confirm]').click()
   await expect(page.locator('[data-operation="restart"]')).toBeVisible()
   expect(backend.received.map((c) => c.type)).toContain('Confirm')
+  expect(backend.audit.filter((e) => e.action === 'network_refused')).toHaveLength(0)
+})
+
+test('the compose file and .env are not loaded on an untrusted network, and there is no edit', async ({ page, backend }) => {
+  seed(backend)
+  backend.me = sessions.untrusted()
+  await openAsked(page)
+  await question(page).getByRole('button', { name: 'Public' }).click()
+  const files = page.getByRole('complementary', { name: 'Compose file and .env' })
+  await expect(files.locator('[data-field="withheld"]')).toHaveCount(2)
+  await expect(files).not.toContainText('image: nginx')
+  await expect(page.locator('[data-action="edit"]')).toHaveCount(0)
+  await page.goto('/stacks/web/edit')
+  await expect(page.locator('[data-field="not-editable"]')).toContainText('Not from this network')
   expect(backend.audit.filter((e) => e.action === 'network_refused')).toHaveLength(0)
 })
 

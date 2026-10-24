@@ -33,11 +33,11 @@ decide trust.
 | Allowed on any network | Only on a trusted network |
 |---|---|
 | Viewing stacks, containers, logs and stats | Down, pull and update |
-| Viewing compose files and masked `.env` values | Revealing `.env` values |
+| Answering the home or public question | Viewing compose files and `.env` (not even masked) |
 | Listing the folders of a stack's volumes | Opening, downloading, uploading or changing files in them |
 | Start, stop and restart (a stack or one service) | Editing and creating stacks |
-| Answering the home or public question | Deleting stacks |
-| Ending your own sessions | Container shells |
+| Ending your own sessions | Deleting stacks |
+|  | Container shells |
 |  | The audit log and its export |
 |  | Managing people and whitelisting networks |
 

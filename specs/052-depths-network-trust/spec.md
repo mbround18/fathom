@@ -155,7 +155,7 @@ the trusted list and confirm sessions now show the forwarded addresses and the n
 
 **Restricted view**
 
-- **FR-009**: When the network a request comes from is not trusted for its sender, only these MUST be allowed (subject to the person's role from spec 050): viewing stacks, containers, files with secrets masked, logs, stats and the person's own sessions and networks; starting, stopping and restarting stacks and containers; answering the home/public question; ending sessions.
+- **FR-009**: When the network a request comes from is not trusted for its sender, only these MUST be allowed (subject to the person's role from spec 050): viewing stacks, containers, logs, stats and the person's own sessions and networks (but not a stack's compose file or `.env`, which are only sent to a trusted network, not even masked); starting, stopping and restarting stacks and containers; answering the home/public question; ending sessions.
 - **FR-010**: Every other action MUST be refused with an untrusted-network reason that says when, if ever, the network would become trusted, including at least: shells, saving files, revealing secrets, bringing a stack down, deleting stacks, pulling images, removing volumes or images, changes to users and roles, whitelisting and forgetting networks, the compose "deploy anyway" acknowledgement (spec 051) and exporting the audit log.
 - **FR-011**: The check MUST be made server-side on every request and command, after the role check, for page actions and live connections alike. Hiding controls in the UI MUST NOT be the only protection.
 - **FR-012**: An open shell MUST end when a later request in the same session arrives from a network that is untrusted for the person.

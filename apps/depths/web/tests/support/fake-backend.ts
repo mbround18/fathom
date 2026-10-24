@@ -1014,7 +1014,10 @@ export class FakeBackend {
       case 'GetStack': {
         const s = find(cmd.data.name)
         if (!s || !may(s.name)) return denied()
-        return [{ type: 'StackDetail', data: this.details[s.name] ?? fixtures.detail(s) }]
+        const detail = this.details[s.name] ?? fixtures.detail(s)
+        // As the server: the compose file and `.env` go to a trusted network only (no refusal).
+        if (!me.network.trusted) return [{ type: 'StackDetail', data: { ...detail, compose_text: null, env: null, compose_warnings: [] } }]
+        return [{ type: 'StackDetail', data: detail }]
       }
 
       case 'RevealEnv': {

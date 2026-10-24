@@ -274,16 +274,22 @@ function ConsoleFallback() {
 
 const SECTION_TITLE = 'font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase'
 
+/** Shown in place of the compose file and `.env`: the server only sends them to a trusted network. */
+const WITHHELD = 'Not loaded on this network: the compose file and .env are only sent to a trusted network.'
+
 function Compose({ detail }: { detail: Detail }) {
   const { stack } = detail
+  const blocked = useUntrusted()
   return (
     <section aria-labelledby="compose-title" className="flex min-w-0 flex-col gap-1">
       <h2 id="compose-title" className={SECTION_TITLE}>
         Compose file <span className="font-mono normal-case">{stack.compose_file}</span>
       </h2>
       {detail.compose_text === null ? (
-        <p className="text-xs text-muted-foreground">
-          {stack.read_error !== null
+        <p className="text-xs text-muted-foreground" data-field={blocked === null ? undefined : 'withheld'}>
+          {blocked !== null
+            ? WITHHELD
+            : stack.read_error !== null
             ? `Cannot read: ${stack.read_error}`
             : stack.too_large
               ? 'Too large to load.'
@@ -338,7 +344,9 @@ function Env({ detail }: { detail: Detail }) {
         )}
       </div>
       {text === null ? (
-        <p className="text-xs text-muted-foreground">{stack.has_env ? 'Too large to load.' : 'No .env file.'}</p>
+        <p className="text-xs text-muted-foreground" data-field={blocked === null ? undefined : 'withheld'}>
+          {blocked !== null ? WITHHELD : stack.has_env ? 'Too large to load.' : 'No .env file.'}
+        </p>
       ) : (
         <>
           <p data-field="env-note" className="text-xs text-muted-foreground">
@@ -565,7 +573,8 @@ export default function StackDetail({ params }: { params: Params }) {
 /** The way into the editor (US3): shown while editing is on and the files can be edited here. */
 function EditLink({ detail }: { detail: Detail }) {
   const editOn = useSession((s) => s.me?.features.edit ?? false)
-  if (!editOn || editBlockedReason(detail) !== null) return null
+  const blocked = useUntrusted()
+  if (!editOn || blocked !== null || editBlockedReason(detail) !== null) return null
   return (
     <Link
       to={`/stacks/${encodeURIComponent(detail.stack.name)}/edit`}

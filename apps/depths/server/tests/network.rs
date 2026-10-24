@@ -282,8 +282,11 @@ async fn an_untrusted_socket_is_refused_every_dangerous_command_and_allowed_the_
     assert_eq!(r["event"]["type"], "Users", "{r}");
     let r = ask(&mut ws, 50, json!({ "type": "ListStacks" })).await;
     assert_ne!(r["event"]["type"], "Denied", "{r}");
+    // The stack, but not its compose file or `.env`.
     let r = ask(&mut ws, 51, cmd("GetStack", json!({ "name": "web" }))).await;
-    assert_ne!(r["event"]["type"], "Denied", "{r}");
+    assert_eq!(r["event"]["type"], "StackDetail", "{r}");
+    assert!(r["event"]["data"]["compose_text"].is_null(), "{r}");
+    assert!(r["event"]["data"]["env"].is_null(), "{r}");
     let r = ask(
         &mut ws,
         52,
@@ -325,6 +328,34 @@ async fn an_untrusted_socket_is_refused_every_dangerous_command_and_allowed_the_
     assert_eq!(s["event"]["type"], "OpStarted", "{s}");
     assert_eq!(count_action(&a, "network_refused"), refused.len());
     server.abort();
+}
+
+#[tokio::test]
+async fn the_compose_file_and_env_are_sent_only_to_a_trusted_network() {
+    let get = json!({ "type": "GetStack", "data": { "name": "game" } });
+    let game = || {
+        let a = streams_app();
+        a.add_stack("game", COMPOSE, Some("TOKEN=hunter2\nPORT=2456\n"));
+        a
+    };
+
+    let a = game();
+    let session = a.sign_in(OWNER).await;
+    let csrf = csrf_of(&a, &session).await;
+    let (mut ws, _server) = connect(&a, Some(&session)).await;
+    ws.send(Message::text(hello(&csrf))).await.unwrap();
+    let r = ask(&mut ws, 1, get.clone()).await;
+    assert_eq!(r["event"]["data"]["compose_text"], COMPOSE, "{r}");
+    assert!(!r["event"]["data"]["env"].is_null(), "{r}");
+
+    let a = game();
+    let (mut ws, _server, _) = open_untrusted(&a, OWNER, CAFE).await;
+    let r = ask(&mut ws, 1, get).await;
+    assert_eq!(r["event"]["type"], "StackDetail", "{r}");
+    assert!(r["event"]["data"]["compose_text"].is_null(), "{r}");
+    assert!(r["event"]["data"]["env"].is_null(), "{r}");
+    // Withholding them is not a refusal: nothing is audited.
+    assert_eq!(count_action(&a, "network_refused"), 0);
 }
 
 #[tokio::test]

@@ -325,6 +325,7 @@ export default function EditStack({ params }: { params: Params }) {
   const closeDetail = useStacks((s) => s.closeDetail)
   const load = useStacks((s) => s.load)
   const editOn = useSession((s) => s.me?.features.edit ?? false)
+  const blocked = useUntrusted()
 
   useEffect(() => {
     load()
@@ -343,6 +344,8 @@ export default function EditStack({ params }: { params: Params }) {
 
   let body: ReactNode
   if (!editOn) body = <p role="status" className="text-xs text-muted-foreground">Editing is turned off on this server.</p>
+  // The server sends no files to an untrusted network, so there is nothing to edit (spec 052).
+  else if (blocked !== null) body = <p role="status" data-field="not-editable" className="text-xs text-muted-foreground">{blocked}</p>
   else if (entry?.state === 'denied') body = <p role="status" className="text-xs text-muted-foreground">This stack is not available to you.</p>
   else if (entry?.state !== 'ready') body = <Loading what={name} />
   else {
