@@ -4,9 +4,11 @@
  * never put in here, so it can never be saved over the real values. Import it with `React.lazy`.
  */
 import { CodeEditor } from './CodeEditor'
+import type { Problem } from './problems'
 
 const NONE: readonly never[] = []
 
-export default function EnvEditor(props: { value: string; onChange: (text: string) => void }) {
-  return <CodeEditor language="env" label=".env" problems={NONE} {...props} />
+/** `problems`: the server's errors for the `.env` file from the last save attempt. */
+export default function EnvEditor({ problems = NONE, ...props }: { value: string; onChange: (text: string) => void; problems?: readonly Problem[] }) {
+  return <CodeEditor language="env" label=".env" problems={problems} {...props} />
 }

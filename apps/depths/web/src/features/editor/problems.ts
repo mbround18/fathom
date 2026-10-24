@@ -30,8 +30,9 @@ export function yamlProblems(text: string): Problem[] {
   return out
 }
 
-export function serverProblems(errors: readonly ValidationError[]): Problem[] {
-  return errors.map((e) => ({ line: e.line, message: e.message, source: 'server' as const }))
+/** The server's errors for one of the draft's files, so each editor marks only its own. */
+export function serverProblems(errors: readonly ValidationError[], file: ValidationError['file']): Problem[] {
+  return errors.filter((e) => e.file === file).map((e) => ({ line: e.line, message: e.message, source: 'server' as const }))
 }
 
 export function problemText(p: Problem): string {

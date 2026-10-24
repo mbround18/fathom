@@ -27,7 +27,7 @@ import { useOps } from '@/features/stacks/ops-store'
 import { PreviewDialog } from '@/features/stacks/PreviewDialog'
 import { useStacks } from '@/features/stacks/store'
 
-import { serverProblems, yamlProblems } from './problems'
+import { problemText, serverProblems, yamlProblems } from './problems'
 import { useReveal } from './reveal-store'
 import { useUnsavedGuard } from './useUnsavedGuard'
 
@@ -98,7 +98,9 @@ function Editor({ detail }: { detail: StackDetail }) {
   const refusal = mine?.refusal ?? null
   const conflict = refusal?.kind === 'conflict' ? refusal : null
   const yamlErrors = useMemo(() => yamlProblems(compose), [compose])
-  const serverErrors = useMemo(() => (refusal?.kind === 'validation' ? serverProblems(refusal.errors) : []), [refusal])
+  const validation = refusal?.kind === 'validation' ? refusal.errors : null
+  const serverErrors = useMemo(() => (validation ? serverProblems(validation, 'compose') : []), [validation])
+  const envErrors = useMemo(() => (validation ? serverProblems(validation, 'env') : []), [validation])
   const problems = useMemo(() => [...yamlErrors, ...serverErrors], [yamlErrors, serverErrors])
 
   const { release } = useUnsavedGuard(dirty)
@@ -185,10 +187,18 @@ function Editor({ detail }: { detail: StackDetail }) {
           The files changed on disk since you opened them. Saving will show you their change first.
         </p>
       )}
-      {serverErrors.length > 0 && (
-        <p role="alert" data-field="server-errors" className="text-xs text-status-err">
-          The server refused the compose file. Nothing was written.
-        </p>
+      {serverErrors.length + envErrors.length > 0 && (
+        <div role="alert" data-field="server-errors" className="text-xs text-status-err">
+          <p>The server refused the {serverErrors.length > 0 ? 'compose file' : '.env file'}. Nothing was written.</p>
+          {/* A masked .env has no editor to mark, so its errors are listed here. */}
+          {envText === null && envErrors.length > 0 && (
+            <ul data-field="env-errors" className="list-inside list-disc">
+              {envErrors.map((p, i) => (
+                <li key={i}>{problemText(p)}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {conflict && (
         <section data-conflict aria-labelledby="conflict-title" className="flex min-w-0 flex-col gap-1 border border-status-warn/60 p-2">
@@ -243,7 +253,7 @@ function Editor({ detail }: { detail: StackDetail }) {
               <p className="text-xs text-muted-foreground">Too large to edit here.</p>
             ) : envText !== null ? (
               <Suspense fallback={<Loading what="editor" />}>
-                <EnvEditor value={envText} onChange={setEnvDraft} />
+                <EnvEditor value={envText} onChange={setEnvDraft} problems={envErrors} />
               </Suspense>
             ) : (
               <>

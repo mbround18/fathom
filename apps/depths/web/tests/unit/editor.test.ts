@@ -25,12 +25,24 @@ describe('yamlProblems', () => {
 
 describe('serverProblems', () => {
   it('keeps the server line and message', () => {
-    const p = serverProblems([
-      { file: 'compose', line: 3, message: 'service "app" has no image' },
-      { file: 'compose', line: null, message: 'project has no services' },
-    ])
+    const p = serverProblems(
+      [
+        { file: 'compose', line: 3, message: 'service "app" has no image' },
+        { file: 'compose', line: null, message: 'project has no services' },
+      ],
+      'compose',
+    )
     expect(p.map(problemText)).toEqual(['Line 3: service "app" has no image', 'project has no services'])
     expect(p.every((x) => x.source === 'server')).toBe(true)
+  })
+
+  it('keeps only the errors for the asked file', () => {
+    const errors = [
+      { file: 'compose' as const, line: 2, message: 'bad service' },
+      { file: 'env' as const, line: 4, message: 'bad variable' },
+    ]
+    expect(serverProblems(errors, 'env').map(problemText)).toEqual(['Line 4: bad variable'])
+    expect(serverProblems(errors, 'compose').map(problemText)).toEqual(['Line 2: bad service'])
   })
 })
 

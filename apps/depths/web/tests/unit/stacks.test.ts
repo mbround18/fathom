@@ -87,6 +87,9 @@ describe('model', () => {
     expect(model.blockedReason(stack('x', { read_error: 'Permission denied (os error 13)' }))).toBe('Permission denied (os error 13)')
     expect(model.blockedReason(stack('Bad Name', { valid_name: false, status: 'invalid' }))).toBe('Not a valid compose project name')
     expect(model.blockedReason(stack('broken', { status: 'invalid' }))).toBe('The compose file does not parse')
+    expect(model.blockedReason(stack('broken', { status: 'invalid', invalid_reason: 'line 4: mapping values are not allowed' }))).toBe(
+      'line 4: mapping values are not allowed',
+    )
   })
 
   it('names both files when one shadows another (FR-004)', () => {

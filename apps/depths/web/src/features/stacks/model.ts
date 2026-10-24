@@ -49,12 +49,12 @@ export function filterByName<T extends { name: string }>(items: readonly T[], qu
 /**
  * Why a stack cannot be acted on, or `null` when it can.
  *
- * The wire `Stack` carries no parser message for an unparseable compose file (only `read_error`
- * for I/O), so that case falls back to a generic reason; the server's own text, when it sends one,
- * arrives in `StackList.warnings` and is shown verbatim above the list.
+ * An invalid stack shows the server's `invalid_reason` (the parse error, or why the name is not a
+ * valid project name), falling back to a generic reason when the server sends none.
  */
 export function blockedReason(s: Stack): string | null {
   if (s.read_error !== null) return s.read_error
+  if (s.status === 'invalid' && s.invalid_reason !== null) return s.invalid_reason
   if (!s.valid_name) return 'Not a valid compose project name'
   if (s.status === 'invalid') return 'The compose file does not parse'
   return null
