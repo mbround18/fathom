@@ -2,8 +2,11 @@
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::fmt;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
 use crate::path::RawName;
@@ -168,6 +171,242 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
+// ---------------------------------------------------------------------------
+// Mounts
+// ---------------------------------------------------------------------------
+
+/// A mount's stable, opaque id: the first 16 hex digits of `sha256(kind \0 source)`. The server
+/// computes it, so the client names a mount without ever supplying a source.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(try_from = "String", into = "String")]
+#[ts(type = "string")]
+pub struct MountId(String);
+
+/// A string that is not 16 lower-case hex digits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("not a mount id")]
+pub struct InvalidMountId;
+
+impl MountId {
+    pub fn compute(kind: MountKind, source: &str) -> Self {
+        let mut h = Sha256::new();
+        h.update(kind.as_str().as_bytes());
+        h.update([0u8]);
+        h.update(source.as_bytes());
+        let digest = h.finalize();
+        Self(digest[..8].iter().map(|b| format!("{b:02x}")).collect())
+    }
+
+    /// Accepts exactly 16 lower-case hex digits, as a client sends back what it was given.
+    pub fn parse(raw: &str) -> Result<Self, InvalidMountId> {
+        (raw.len() == 16 && raw.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+            .then(|| Self(raw.to_owned()))
+            .ok_or(InvalidMountId)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for MountId {
+    type Error = InvalidMountId;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(&value)
+    }
+}
+
+impl From<MountId> for String {
+    fn from(value: MountId) -> Self {
+        value.0
+    }
+}
+
+impl fmt::Display for MountId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// What backs a mount.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MountKind {
+    Volume,
+    Bind,
+    Tmpfs,
+    /// `npipe`, `image`, `cluster` and anything newer.
+    Other,
+}
+
+impl MountKind {
+    /// From an inspect or compose `Type`. Empty is read as `bind` (the 051 rule: old engines
+    /// leave it out for binds).
+    pub fn from_inspect(raw: &str) -> Self {
+        match raw {
+            "volume" => Self::Volume,
+            "" | "bind" => Self::Bind,
+            "tmpfs" => Self::Tmpfs,
+            _ => Self::Other,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Volume => "volume",
+            Self::Bind => "bind",
+            Self::Tmpfs => "tmpfs",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// Whether the mount's source exists. Only `ready` mounts get a helper: `docker run` on a missing
+/// named volume would create it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MountState {
+    Ready,
+    /// A named volume that does not exist before the first deploy.
+    NotCreated,
+    /// Its source could not be worked out.
+    Unresolved,
+    /// The volume or host path is gone.
+    Missing,
+}
+
+/// One service that mounts it, and where.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct MountService {
+    pub service: String,
+    pub destination: String,
+    pub read_only: bool,
+}
+
+/// Why a mount cannot be browsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum NotBrowsableCode {
+    Tmpfs,
+    Other,
+    /// A bind rated root or escape (`/`, `/etc`, the runtime socket, ...).
+    RiskyBind,
+    /// A bind of a single file or a socket.
+    SingleFile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct NotBrowsable {
+    pub code: NotBrowsableCode,
+    pub message: String,
+}
+
+/// `{ ok: true }` or `{ ok: false, reason }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Browsable {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reason: Option<NotBrowsable>,
+}
+
+impl Browsable {
+    pub fn yes() -> Self {
+        Self { ok: true, reason: None }
+    }
+
+    pub fn no(code: NotBrowsableCode, message: impl Into<String>) -> Self {
+        Self { ok: false, reason: Some(NotBrowsable { code, message: message.into() }) }
+    }
+}
+
+/// The caller's rating of a bind's host path (depths-core's `bind_reason()`), so this crate does
+/// not depend on depths-core: `None` when it raised nothing, `Info` for an info-level reason,
+/// `Risky` with the reason's message for root or escape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BindRating {
+    None,
+    Info,
+    Risky(String),
+}
+
+/// Whether a mount may be browsed: a volume always, a bind unless rated risky, tmpfs and other
+/// kinds never. A single-file bind is the caller's to refuse (it needs a stat), with
+/// [`NotBrowsableCode::SingleFile`].
+pub fn browsability(kind: MountKind, rating: &BindRating) -> Browsable {
+    match (kind, rating) {
+        (MountKind::Volume, _) => Browsable::yes(),
+        (MountKind::Bind, BindRating::None | BindRating::Info) => Browsable::yes(),
+        (MountKind::Bind, BindRating::Risky(why)) => Browsable::no(NotBrowsableCode::RiskyBind, why),
+        (MountKind::Tmpfs, _) => Browsable::no(
+            NotBrowsableCode::Tmpfs,
+            "a tmpfs mount lives in the container's memory; there is nothing on disk to browse",
+        ),
+        (MountKind::Other, _) => {
+            Browsable::no(NotBrowsableCode::Other, "this kind of mount cannot be browsed")
+        }
+    }
+}
+
+/// True when at least one service mounts it read-write.
+pub fn any_writable(services: &[MountService]) -> bool {
+    services.iter().any(|s| !s.read_only)
+}
+
+/// A mount of a stack, as the UI lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Mount {
+    pub id: MountId,
+    pub kind: MountKind,
+    /// Volume name, or host path for a bind. Shown to editors only.
+    pub source: String,
+    pub services: Vec<MountService>,
+    /// True when any service mounts it read-write.
+    pub writable: bool,
+    pub state: MountState,
+    pub browsable: Browsable,
+    /// Services with a running container that mounts it.
+    pub running: Vec<String>,
+}
+
+impl Mount {
+    /// Computes `id` from `kind` and `source`, and `writable` from `services`.
+    pub fn new(
+        kind: MountKind,
+        source: String,
+        services: Vec<MountService>,
+        state: MountState,
+        browsable: Browsable,
+        running: Vec<String>,
+    ) -> Self {
+        Self {
+            id: MountId::compute(kind, &source),
+            writable: any_writable(&services),
+            kind,
+            source,
+            services,
+            state,
+            browsable,
+            running,
+        }
+    }
+}
+
+/// What the helper container mounts at `/volume`. Server-only: never serialised, never sent to
+/// the UI, and only ever derived by the server itself (R10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HelperSource {
+    Volume(String),
+    Bind(PathBuf),
+}
+
+/// How the helper mounts the source: read-only unless the op writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OpMode {
+    ReadOnly,
+    ReadWrite,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,5 +512,108 @@ mod tests {
         assert_eq!(rfc3339_utc(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(rfc3339_utc(1_792_879_349), "2026-10-24T22:02:29Z");
         assert_eq!(rfc3339_utc(-1), "1969-12-31T23:59:59Z");
+    }
+
+    // --- mounts ---
+
+    #[test]
+    fn mount_id_is_stable_and_kind_scoped() {
+        let a = MountId::compute(MountKind::Volume, "game_saves");
+        assert_eq!(a, MountId::compute(MountKind::Volume, "game_saves"));
+        assert_eq!(a.as_str().len(), 16);
+        // Pinned so a change to the scheme (which would break bookmarked URLs) is deliberate.
+        assert_eq!(a.as_str(), "f9e20beff8c6e82e");
+        assert_ne!(a, MountId::compute(MountKind::Bind, "game_saves"));
+        assert_ne!(a, MountId::compute(MountKind::Volume, "game_save"));
+        // The separator keeps kind and source from running into each other.
+        assert_ne!(
+            MountId::compute(MountKind::Bind, "x"),
+            MountId::compute(MountKind::Volume, "\0x")
+        );
+    }
+
+    #[test]
+    fn mount_id_parse() {
+        let id = MountId::compute(MountKind::Bind, "/srv/data");
+        assert_eq!(MountId::parse(id.as_str()), Ok(id.clone()));
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(serde_json::from_str::<MountId>(&json).unwrap(), id);
+        for bad in ["", "abc", "4C4C1A0A0C4A7BCA", "4c4c1a0a0c4a7bcg", "4c4c1a0a0c4a7bca0"] {
+            assert_eq!(MountId::parse(bad), Err(InvalidMountId), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn empty_kind_reads_as_bind() {
+        assert_eq!(MountKind::from_inspect(""), MountKind::Bind);
+        assert_eq!(MountKind::from_inspect("bind"), MountKind::Bind);
+        assert_eq!(MountKind::from_inspect("volume"), MountKind::Volume);
+        assert_eq!(MountKind::from_inspect("tmpfs"), MountKind::Tmpfs);
+        assert_eq!(MountKind::from_inspect("npipe"), MountKind::Other);
+        assert_eq!(MountKind::from_inspect("image"), MountKind::Other);
+        assert_eq!(
+            MountId::compute(MountKind::from_inspect(""), "/a"),
+            MountId::compute(MountKind::Bind, "/a")
+        );
+    }
+
+    #[test]
+    fn browsable_rules() {
+        let risky = BindRating::Risky("mounts /etc".into());
+        for rating in [BindRating::None, BindRating::Info, risky.clone()] {
+            assert!(browsability(MountKind::Volume, &rating).ok);
+            let tmpfs = browsability(MountKind::Tmpfs, &rating);
+            assert_eq!(tmpfs.reason.unwrap().code, NotBrowsableCode::Tmpfs);
+            let other = browsability(MountKind::Other, &rating);
+            assert_eq!(other.reason.unwrap().code, NotBrowsableCode::Other);
+        }
+        assert_eq!(browsability(MountKind::Bind, &BindRating::None), Browsable::yes());
+        assert_eq!(browsability(MountKind::Bind, &BindRating::Info), Browsable::yes());
+        assert_eq!(
+            browsability(MountKind::Bind, &risky),
+            Browsable::no(NotBrowsableCode::RiskyBind, "mounts /etc")
+        );
+    }
+
+    #[test]
+    fn browsable_json_shape() {
+        assert_eq!(serde_json::to_value(Browsable::yes()).unwrap(), serde_json::json!({"ok": true}));
+        let no = Browsable::no(NotBrowsableCode::SingleFile, "a single file");
+        assert_eq!(
+            serde_json::to_value(&no).unwrap(),
+            serde_json::json!({"ok": false, "reason": {"code": "single_file", "message": "a single file"}})
+        );
+    }
+
+    #[test]
+    fn mount_new_computes_id_and_writable() {
+        let svc = |name: &str, read_only| MountService {
+            service: name.into(),
+            destination: "/data".into(),
+            read_only,
+        };
+        let ro = Mount::new(
+            MountKind::Volume,
+            "v".into(),
+            vec![svc("a", true), svc("b", true)],
+            MountState::Ready,
+            Browsable::yes(),
+            vec![],
+        );
+        assert!(!ro.writable);
+        assert_eq!(ro.id, MountId::compute(MountKind::Volume, "v"));
+        let rw = Mount::new(
+            MountKind::Volume,
+            "v".into(),
+            vec![svc("a", true), svc("b", false)],
+            MountState::NotCreated,
+            Browsable::yes(),
+            vec!["b".into()],
+        );
+        assert!(rw.writable);
+        let json = serde_json::to_value(&rw).unwrap();
+        assert_eq!(json["state"], "not_created");
+        assert_eq!(json["kind"], "volume");
+        assert_eq!(serde_json::from_value::<Mount>(json).unwrap(), rw);
     }
 }
