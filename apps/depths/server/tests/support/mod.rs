@@ -2,6 +2,7 @@
 //! Shared harness: a fake Discord provider and the real router over a temp dir.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -349,6 +350,11 @@ pub fn app() -> App {
 }
 
 pub fn app_with(tweak: impl FnOnce(&mut AppState)) -> App {
+    app_with_env(&[], tweak)
+}
+
+/// [`app_with`], with extra (or overriding) environment settings.
+pub fn app_with_env(extra: &[(&str, &str)], tweak: impl FnOnce(&mut AppState)) -> App {
     let dir = tempfile::tempdir().unwrap();
     let stacks = dir.path().join("stacks");
     let web = dir.path().join("web");
@@ -380,6 +386,9 @@ pub fn app_with(tweak: impl FnOnce(&mut AppState)) -> App {
         dir.path().join("data").display().to_string(),
     );
     env.insert("STATIC_DIR".into(), web.display().to_string());
+    for (k, v) in extra {
+        env.insert((*k).into(), (*v).into());
+    }
     let lookup = move |k: &str| env.get(k).cloned();
     let cfg = Config::resolve(Flags::default(), &lookup).unwrap();
     cfg.prepare_data_dir().unwrap();
@@ -473,16 +482,28 @@ impl App {
     }
 
     pub async fn get(&self, path: &str, cookie: Option<&str>) -> Response<Body> {
+        self.get_from(LOOPBACK, path, cookie).await
+    }
+
+    /// [`App::get`] from peer `ip`.
+    pub async fn get_from(&self, ip: IpAddr, path: &str, cookie: Option<&str>) -> Response<Body> {
         let mut b = Request::get(path);
         if let Some(c) = cookie {
             b = b.header(header::COOKIE, c);
         }
-        self.send(b.body(Body::empty()).unwrap()).await
+        self.send(from(ip, b.body(Body::empty()).unwrap())).await
     }
 
     /// Runs the whole sign-in as `subject`; returns the session cookie pair.
     pub async fn sign_in(&self, subject: &str) -> String {
-        let r = self.get("/auth/login?provider=discord", None).await;
+        self.sign_in_from(LOOPBACK, subject).await
+    }
+
+    /// [`App::sign_in`] from peer `ip`: that network becomes the person's first if they have none.
+    pub async fn sign_in_from(&self, ip: IpAddr, subject: &str) -> String {
+        let r = self
+            .get_from(ip, "/auth/login?provider=discord", None)
+            .await;
         assert_eq!(r.status(), StatusCode::SEE_OTHER);
         let loc = Url::parse(location(&r)).unwrap();
         let state = loc
@@ -493,7 +514,8 @@ impl App {
             .into_owned();
         let login = cookie_pair(&r, "__Host-depths_login");
         let r = self
-            .get(
+            .get_from(
+                ip,
                 &format!("/auth/callback/discord?code={subject}&state={state}"),
                 Some(&login),
             )
@@ -502,6 +524,18 @@ impl App {
         assert_eq!(location(&r), "/");
         cookie_pair(&r, "__Host-depths_session")
     }
+}
+
+/// The peer of a real test socket, and of every request that names no other.
+pub const LOOPBACK: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+
+/// `req` as if it came from peer `ip` (no proxy is trusted in tests, so this is the client).
+pub fn from(ip: IpAddr, mut req: Request<Body>) -> Request<Body> {
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::new(
+            ip, 40000,
+        )));
+    req
 }
 
 pub fn location(r: &Response<Body>) -> &str {

@@ -21,21 +21,21 @@
 - [x] T008 [US1] Record at sign-in (first network atomically, audited) and throttled per request in apps/depths/server/src/{auth,networks}.rs
 - [x] T009 [US1] `gate()` after `permits` in WS dispatch and every mutating HTTP route; audit refusals; close a session's shells on an untrusted request (FR-012) in apps/depths/server/src/{ws,routes,streams}.rs
 - [x] T010 [US1] `/api/me` trust state and `needs_answer`; `POST /api/networks/answer` (never grants trust) in apps/depths/server/src/routes.rs
-- [ ] T011 [US1] Server tests: every FR-010 command refused, restricted set allowed, maturity, always-trusted, crafted direct requests; sweep rows in apps/depths/server/tests/
+- [x] T011 [US1] Server tests: every FR-010 command refused, restricted set allowed, maturity, always-trusted, crafted direct requests; sweep rows in apps/depths/server/tests/
 - [ ] T012 [US1] Home/public dialog, restricted banner, controls disabled with reason in apps/depths/web/src/features/network/
 - [ ] T013 [US1] Fake backend trust state + Playwright in apps/depths/web/tests/e2e/us5-access/network-gate.spec.ts
 
 ## Phase 4: US2 Sessions (P1)
 
 - [x] T014 [US2] `GET /api/sessions`, `DELETE /api/sessions/{id_hint}`, `POST /api/sessions/end-others`, `GET /api/networks` in apps/depths/server/src/routes.rs (any network, CSRF, audited)
-- [ ] T015 [US2] Test that an ended session's sockets close within 5 s and its next request is 401 in apps/depths/server/tests/
+- [x] T015 [US2] Test that an ended session's sockets close within 5 s and its next request is 401 in apps/depths/server/tests/
 - [ ] T016 [US2] Your sessions page (lazy) linked from the account menu, plain-text browser strings, known networks with answer change in apps/depths/web/src/features/sessions/
 - [ ] T017 [US2] vitest for formatting helpers; Playwright end-others in apps/depths/web/tests/e2e/us5-access/sessions.spec.ts
 
 ## Phase 5: US3 Admin whitelist (P2)
 
 - [x] T018 [US3] Admin endpoints for a person's sessions/networks; whitelist add/remove and forget (trusted network only; refuse a CIDR containing the requester's own untrusted network) in apps/depths/server/src/routes.rs
-- [ ] T019 [US3] Server tests for whitelist from trusted/untrusted, removal reverting to unknown in apps/depths/server/tests/
+- [x] T019 [US3] Server tests for whitelist from trusted/untrusted, removal reverting to unknown in apps/depths/server/tests/
 - [ ] T020 [US3] Users page panel: sessions, networks, whitelist form in apps/depths/web/src/features/users/
 - [ ] T021 [US3] Playwright admin whitelist in apps/depths/web/tests/e2e/us5-access/whitelist.spec.ts
 
