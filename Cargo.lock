@@ -1541,6 +1541,7 @@ dependencies = [
 name = "depths-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "container-runtime",
  "serde",
  "serde_json",

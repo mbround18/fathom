@@ -8,6 +8,7 @@ pub mod discovery;
 pub mod hash;
 pub mod host;
 pub mod name;
+pub mod network;
 pub mod plan;
 pub mod ports;
 pub mod role;

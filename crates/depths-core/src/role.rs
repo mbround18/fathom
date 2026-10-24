@@ -101,6 +101,88 @@ pub fn permits(access: &Access, stack: Option<&StackName>, action: Action) -> bo
     }
 }
 
+/// What a command or route does, as finely as the network gate needs (spec 052 R4). Finer than
+/// [`Action`]: `Lifecycle` covers both `restart` (allowed from an untrusted network) and `pull`
+/// (not).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandKind {
+    /// Lists, stack detail and masked files.
+    View,
+    /// Log follows, stats and host watches, and closing them.
+    Subscribe,
+    /// `up`, and a service's `up`.
+    Start,
+    Stop,
+    Restart,
+    /// `down`, with or without volumes or images.
+    Down,
+    Pull,
+    Update,
+    Delete,
+    RevealEnv,
+    /// Saving a stack's files.
+    Edit,
+    /// Opening a shell, and its input and resizes.
+    Shell,
+    ReadAudit,
+    ManageUsers,
+    /// Whitelisting or forgetting someone's networks.
+    ManageNetworks,
+    /// Answering "home or public" for the network in use.
+    AnswerNetwork,
+    /// Ending one's own sessions, or (admin) someone else's.
+    EndSession,
+}
+
+impl CommandKind {
+    pub const ALL: [Self; 17] = [
+        Self::View,
+        Self::Subscribe,
+        Self::Start,
+        Self::Stop,
+        Self::Restart,
+        Self::Down,
+        Self::Pull,
+        Self::Update,
+        Self::Delete,
+        Self::RevealEnv,
+        Self::Edit,
+        Self::Shell,
+        Self::ReadAudit,
+        Self::ManageUsers,
+        Self::ManageNetworks,
+        Self::AnswerNetwork,
+        Self::EndSession,
+    ];
+}
+
+/// Whether `kind` is allowed from an untrusted network: the restricted view (spec 052 FR-010).
+/// Viewing, start/stop/restart for maintenance, answering the question and ending sessions;
+/// nothing else. This is checked after [`permits`], never instead of it.
+pub fn restricted_ok(kind: CommandKind) -> bool {
+    use CommandKind as K;
+    match kind {
+        K::View
+        | K::Subscribe
+        | K::Start
+        | K::Stop
+        | K::Restart
+        | K::AnswerNetwork
+        | K::EndSession => true,
+        K::Down
+        | K::Pull
+        | K::Update
+        | K::Delete
+        | K::RevealEnv
+        | K::Edit
+        | K::Shell
+        | K::ReadAudit
+        | K::ManageUsers
+        | K::ManageNetworks => false,
+    }
+}
+
 /// Whether `access` lets its holder see anything at all; `false` drives the no-access page
 /// (FR-031).
 pub fn has_any_access(access: &Access) -> bool {
@@ -217,6 +299,36 @@ mod tests {
         assert!(!has_any_access(&user(&[])));
         assert!(has_any_access(&user(&["web"])));
         assert!(has_any_access(&admin()));
+    }
+
+    /// spec 052 FR-010: (kind, allowed from an untrusted network).
+    const RESTRICTED: [(CommandKind, bool); 17] = [
+        (CommandKind::View, true),
+        (CommandKind::Subscribe, true),
+        (CommandKind::Start, true),
+        (CommandKind::Stop, true),
+        (CommandKind::Restart, true),
+        (CommandKind::Down, false),
+        (CommandKind::Pull, false),
+        (CommandKind::Update, false),
+        (CommandKind::Delete, false),
+        (CommandKind::RevealEnv, false),
+        (CommandKind::Edit, false),
+        (CommandKind::Shell, false),
+        (CommandKind::ReadAudit, false),
+        (CommandKind::ManageUsers, false),
+        (CommandKind::ManageNetworks, false),
+        (CommandKind::AnswerNetwork, true),
+        (CommandKind::EndSession, true),
+    ];
+
+    #[test]
+    fn the_restricted_table_covers_every_kind_and_matches() {
+        let rows: Vec<CommandKind> = RESTRICTED.iter().map(|(k, _)| *k).collect();
+        assert_eq!(rows, CommandKind::ALL.to_vec());
+        for (kind, ok) in RESTRICTED {
+            assert_eq!(restricted_ok(kind), ok, "{kind:?}");
+        }
     }
 
     #[test]
