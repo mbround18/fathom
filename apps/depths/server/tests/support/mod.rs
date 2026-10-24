@@ -519,3 +519,30 @@ pub async fn text(r: Response<Body>) -> String {
     let b = r.into_body().collect().await.unwrap().to_bytes();
     String::from_utf8(b.to_vec()).unwrap()
 }
+
+/// A fake host `/proc` beside the stacks directory, for `DEPTHS_HOST_PROC`: 4 cores, 8 GiB with
+/// 2 GiB used, 1 GiB swap, load 0.50/0.25/0.10, up a day. `/proc/stat` is static, so the CPU share
+/// is `null` (no ticks pass between samples).
+pub fn fake_host_proc(cfg: &depths_server::config::Config) -> PathBuf {
+    let dir = cfg
+        .stacks_dir
+        .parent()
+        .expect("the stacks dir has a parent")
+        .join("host-proc");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, text) in [
+        (
+            "stat",
+            "cpu  100 0 100 800 0 0 0 0 0 0\ncpu0 25 0 25 200\ncpu1 25 0 25 200\ncpu2 25 0 25 200\ncpu3 25 0 25 200\nctxt 1\n",
+        ),
+        ("loadavg", "0.50 0.25 0.10 2/300 4242\n"),
+        (
+            "meminfo",
+            "MemTotal:        8388608 kB\nMemFree:         1000000 kB\nMemAvailable:    6291456 kB\nSwapTotal:       1048576 kB\nSwapFree:        1048576 kB\n",
+        ),
+        ("uptime", "86400.25 300000.00\n"),
+    ] {
+        std::fs::write(dir.join(name), text).unwrap();
+    }
+    dir
+}

@@ -1,6 +1,7 @@
 //! T066: one socket's log follows, shells and stats watch (contracts/protocol.md, "Streams").
 //!
-//! A socket holds at most [`MAX_STREAMS_PER_SOCKET`] streams, the stats watch counting as one.
+//! A socket holds at most [`MAX_STREAMS_PER_SOCKET`] streams, the stats watch and the host watch
+//! counting as one each.
 //! Every stream belongs to the socket that opened it: ids are per socket, and an id this socket
 //! does not hold is `Invalid`. Closing the socket stops all of them ([`Registry`]'s `Drop`).
 //!
@@ -10,7 +11,7 @@
 //! - a log batch that does not fit is dropped (the follow carries on);
 //! - shell output that does not fit closes the shell `failed`, since a terminal with a hole in it
 //!   is worse than a closed one;
-//! - a stats sample is skipped while the previous one is still waiting;
+//! - a stats or host sample is skipped while the previous one is still waiting;
 //! - shell input waits in a queue of [`SHELL_INPUT_QUEUE`] writes; a full queue closes the shell.
 //!
 //! Names are resolved against the inventory, never passed through: a container is found by its
@@ -60,6 +61,12 @@ pub enum Outgoing {
     },
     /// A `StatsSample`; sent only while that watch is still the socket's.
     Stats {
+        generation: u64,
+        env: EventEnvelope,
+        _credit: Credit,
+    },
+    /// A `HostSample`; sent only while that host watch is still the socket's.
+    Host {
         generation: u64,
         env: EventEnvelope,
         _credit: Credit,
@@ -153,11 +160,18 @@ struct StatsWatch {
     cancel: CancelToken,
 }
 
+/// The socket's `WatchHost`. Shares the generation counter with [`StatsWatch`].
+struct HostWatch {
+    generation: u64,
+    cancel: CancelToken,
+}
+
 /// One socket's streams. Dropping it stops every one of them.
 pub struct Registry {
     next: u64,
     open: HashMap<StreamId, Entry>,
     stats: Option<StatsWatch>,
+    host: Option<HostWatch>,
     generation: u64,
     tx: mpsc::Sender<Outgoing>,
 }
@@ -169,6 +183,7 @@ impl Registry {
             next: 0,
             open: HashMap::new(),
             stats: None,
+            host: None,
             generation: 0,
             tx,
         };
@@ -176,7 +191,7 @@ impl Registry {
     }
 
     fn in_use(&self) -> usize {
-        self.open.len() + usize::from(self.stats.is_some())
+        self.open.len() + usize::from(self.stats.is_some()) + usize::from(self.host.is_some())
     }
 
     fn has_room(&self) -> bool {
@@ -200,6 +215,13 @@ impl Registry {
             .is_some_and(|w| w.generation == generation)
     }
 
+    /// Whether `generation` is the socket's current host watch.
+    pub fn is_watching_host(&self, generation: u64) -> bool {
+        self.host
+            .as_ref()
+            .is_some_and(|w| w.generation == generation)
+    }
+
     /// Stops `stream` and forgets it; `false` when this socket does not hold it.
     pub fn close(&mut self, stream: StreamId) -> bool {
         match self.open.remove(&stream) {
@@ -217,8 +239,18 @@ impl Registry {
         }
     }
 
-    /// Closes the streams `access` no longer permits; their ids.
+    fn unwatch_host(&mut self) {
+        if let Some(w) = self.host.take() {
+            w.cancel.cancel();
+        }
+    }
+
+    /// Closes the streams `access` no longer permits; their ids. The host watch has no id: it
+    /// just stops.
     pub fn revoke(&mut self, access: &Access) -> Vec<StreamId> {
+        if !role::permits(access, None, Action::ViewHost) {
+            self.unwatch_host();
+        }
         let gone: Vec<StreamId> = self
             .open
             .iter()
@@ -240,6 +272,7 @@ impl Registry {
 impl Drop for Registry {
     fn drop(&mut self) {
         self.unwatch();
+        self.unwatch_host();
         for (_, e) in self.open.drain() {
             e.stop();
         }
@@ -972,6 +1005,121 @@ async fn stats_loop(
         let out = Outgoing::Stats {
             generation,
             env,
+            _credit: credit,
+        };
+        if tx.send(out).await.is_err() {
+            return;
+        }
+    }
+}
+
+/// How long the first host sample waits after the baseline CPU reading, so it can report a share.
+const HOST_PRIME: Duration = Duration::from_millis(250);
+
+/// `WatchHost`, already authorised: starts the socket's host watch, or keeps the one running. No
+/// reply; `HostSample` follows shortly and then every [`super::WsConfig::stats_every`].
+pub(super) fn watch_host(
+    conn: &mut Conn,
+    id: Option<RequestId>,
+    proc_dir: std::path::PathBuf,
+) -> Vec<EventEnvelope> {
+    if conn.streams.host.is_some() {
+        return Vec::new();
+    }
+    if !conn.streams.has_room() {
+        return vec![too_many(id)];
+    }
+    conn.streams.generation += 1;
+    let generation = conn.streams.generation;
+    let cancel = CancelToken::new();
+    conn.streams.host = Some(HostWatch {
+        generation,
+        cancel: cancel.clone(),
+    });
+    let app = conn.app.clone();
+    let every = app.ws.stats_every;
+    tokio::spawn(host_loop(
+        app,
+        conn.user.clone(),
+        proc_dir,
+        every,
+        generation,
+        cancel,
+        conn.streams.tx.clone(),
+    ));
+    Vec::new()
+}
+
+/// `UnwatchHost`: stops the host watch, if there is one. No reply.
+pub(super) fn unwatch_host(conn: &mut Conn) {
+    conn.streams.unwatch_host();
+}
+
+/// `(running, not running)` over every container in the inventory.
+fn container_counts(list: &StackList) -> (u32, u32) {
+    let (mut running, mut stopped) = (0u32, 0u32);
+    for (_, c) in every_container(list) {
+        if c.state == depths_protocol::RuntimeContainerState::Running {
+            running = running.saturating_add(1);
+        } else {
+            stopped = stopped.saturating_add(1);
+        }
+    }
+    (running, stopped)
+}
+
+async fn host_loop(
+    app: AppState,
+    user: String,
+    proc_dir: std::path::PathBuf,
+    every: Duration,
+    generation: u64,
+    cancel: CancelToken,
+    tx: mpsc::Sender<Outgoing>,
+) {
+    let mut probe = crate::host::HostProbe::new(proc_dir, app.cfg.stacks_dir.clone());
+    probe = match tokio::task::spawn_blocking(move || {
+        probe.prime();
+        probe
+    })
+    .await
+    {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    tokio::time::sleep(HOST_PRIME.min(every)).await;
+    let budget = Budget::new(1);
+    let mut tick = tokio::time::interval(every);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tick.tick().await;
+        if cancel.is_cancelled() || tx.is_closed() {
+            return;
+        }
+        // Re-read every tick: someone demoted from admin stops getting the host at once.
+        if !role::permits(&app.users.access(&user), None, Action::ViewHost) {
+            return;
+        }
+        let Some(credit) = budget.take(1) else {
+            continue;
+        };
+        let (running, stopped) = container_counts(current(&app).await.as_ref());
+        let at = audit::now();
+        let Ok((p, sample)) = tokio::task::spawn_blocking(move || {
+            let s = probe.sample(at, running, stopped);
+            (probe, s)
+        })
+        .await
+        else {
+            return;
+        };
+        probe = p;
+        if cancel.is_cancelled() {
+            return;
+        }
+        let out = Outgoing::Host {
+            generation,
+            env: reply(None, Event::HostSample(sample)),
             _credit: credit,
         };
         if tx.send(out).await.is_err() {

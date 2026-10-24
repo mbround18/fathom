@@ -773,6 +773,8 @@ async fn me(State(app): State<AppState>, headers: HeaderMap) -> Response {
         features: depths_protocol::Features {
             shell: app.cfg.features.shell,
             edit: app.cfg.features.edit,
+            // Admin only, like `WatchHost` itself: nobody else learns the setting.
+            host_metrics: role == depths_protocol::Role::Admin && app.cfg.host_proc.is_some(),
         },
     };
     Json(me).into_response()

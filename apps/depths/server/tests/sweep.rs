@@ -38,15 +38,19 @@ fn uid(subject: &str) -> UserId {
 struct Features {
     shell: bool,
     edit: bool,
+    /// `DEPTHS_HOST_PROC` set, to a fake `/proc`.
+    host: bool,
 }
 
 const ON: Features = Features {
     shell: true,
     edit: true,
+    host: true,
 };
 const OFF: Features = Features {
     shell: false,
     edit: false,
+    host: false,
 };
 
 /// Stacks `web` and `db` (service `app`, each with a `.env`), container `stray-x-1` outside every
@@ -57,6 +61,7 @@ fn sweep_app(f: Features) -> App {
         let mut cfg = (*s.cfg).clone();
         cfg.features.shell = f.shell;
         cfg.features.edit = f.edit;
+        cfg.host_proc = f.host.then(|| support::fake_host_proc(&cfg));
         s.cfg = Arc::new(cfg);
         let big = 1_000_000;
         s.limits = Arc::new(Limits {
@@ -267,6 +272,13 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
             }
         }
         Cmd::UnwatchStats => Silent,
+        // Admin only, and the permission is checked before the setting.
+        Cmd::WatchHost => match who {
+            Who::User => Denied(NOT_PERMITTED),
+            Who::Admin if f.host => Silent,
+            Who::Admin => Denied(FEATURE_DISABLED),
+        },
+        Cmd::UnwatchHost => Silent,
         Cmd::GetAudit { .. } => admin_or_denied(who, Reply("AuditPage")),
         Cmd::GetUsers => admin_or_denied(who, Reply("Users")),
         Cmd::PutUser { id, .. } | Cmd::RemoveUser { id } => match who {
@@ -399,6 +411,8 @@ fn samples() -> Vec<(Prep, Value)> {
         ));
     }
     v.push((Prep::None, bare("UnwatchStats")));
+    v.push((Prep::None, bare("WatchHost")));
+    v.push((Prep::None, bare("UnwatchHost")));
     v.push((Prep::None, cmd("GetAudit", json!({ "filter": {} }))));
     v.push((Prep::None, bare("GetUsers")));
     v.push((
@@ -495,7 +509,7 @@ fn declared_variants() -> BTreeSet<String> {
 #[test]
 fn every_command_has_a_sample() {
     let declared = declared_variants();
-    assert_eq!(declared.len(), 18, "{declared:?}");
+    assert_eq!(declared.len(), 20, "{declared:?}");
     let sampled: BTreeSet<String> = samples()
         .iter()
         .map(|(_, c)| c["type"].as_str().unwrap().to_owned())

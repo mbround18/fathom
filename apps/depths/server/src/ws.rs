@@ -360,6 +360,9 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                     streams::Outgoing::Stats { generation, env, _credit } => {
                         conn.streams.is_watching(generation).then_some(env)
                     }
+                    streams::Outgoing::Host { generation, env, _credit } => {
+                        conn.streams.is_watching_host(generation).then_some(env)
+                    }
                     streams::Outgoing::End { stream, reason } => conn.streams.close(stream).then(|| {
                         reply(None, Event::StreamClosed { stream_id: stream, reason })
                     }),
@@ -611,6 +614,26 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         Cmd::WatchStats { targets } => streams::watch_stats(conn, &access, id, targets).await,
         Cmd::UnwatchStats => {
             streams::unwatch_stats(conn);
+            Vec::new()
+        }
+        // Permission before the setting: someone who may not watch the host never learns whether
+        // it could be watched.
+        Cmd::WatchHost => {
+            if !role::permits(&access, None, Action::ViewHost) {
+                vec![conn.deny(id, None, "WatchHost needs view_host".into())]
+            } else if let Some(proc_dir) = app.cfg.host_proc.clone() {
+                streams::watch_host(conn, id, proc_dir)
+            } else {
+                vec![conn.deny_reason(
+                    id,
+                    None,
+                    DenyReason::FeatureDisabled,
+                    "host metrics are off (DEPTHS_HOST_PROC)".into(),
+                )]
+            }
+        }
+        Cmd::UnwatchHost => {
+            streams::unwatch_host(conn);
             Vec::new()
         }
         Cmd::CloseStream { stream_id } => vec![streams::close_stream(conn, id, stream_id)],
