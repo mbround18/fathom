@@ -215,7 +215,7 @@ worktrees and merge each green.
   - Refuse start, naming `OWNER_USER_ID`, when no owner is set and the list holds no admin.
 
   Write the tests first: owner pinning (and a renamed login not matching), the start-up refusal, pending recording, an atomic write surviving a crash between write and rename (the old file is intact), a corrupt file refusing start, the lockout guard on the owner, and an assignment to a missing stack kept.
-- [ ] T037 Write `apps/depths/server/src/app.rs` and `http.rs`: Axum router per contracts/protocol.md's HTTP table (sign-in slice done in `http.rs`: login, callback, refresh, logout, me, healthz, readyz, static SPA, JSON 404s; the full 401 route sweep waits on the stack routes).
+- [X] T037 Write `apps/depths/server/src/app.rs` and `http.rs`: Axum router per contracts/protocol.md's HTTP table (sign-in slice done in `http.rs`: login, callback, refresh, logout, me, healthz, readyz, static SPA, JSON 404s; the full 401 route sweep waits on the stack routes).
   - Use the `web-auth` session extractor and CSRF layer, with cookie `__Host-depths_session`.
   - Wire the OIDC, GitHub and Discord providers into `/auth/login`, `/auth/callback/{provider}`, `/auth/refresh` and `/auth/logout`, plus `/api/v1/me`.
   - Add `/healthz` and `/readyz`.
@@ -292,7 +292,7 @@ every signed-in person as limited to exactly their permission row. Each task bel
   - WS ping every 30 s; close after 2 missed pongs. A socket that sends no valid `Hello` within 10 s
     is closed with 4401.
   - Tests for the oversized body, the oversized frame, the binary frame and the Hello timeout.
-- [ ] T093 Headers on every response, including errors and static files:
+- [X] T093 Headers on every response, including errors and static files:
   - CSP `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
     font-src 'self'; connect-src 'self' wss://<public host>; base-uri 'none'; form-action 'self';
     frame-ancestors 'none'`. If CodeMirror or xterm needs inline styles, allow `style-src
@@ -303,7 +303,7 @@ every signed-in person as limited to exactly their permission row. Each task bel
   - `Cache-Control: no-store` on `/auth/*` and `/api/*`; `immutable` only on hashed `/assets/*`.
   - No CORS layer and no `Access-Control-*` headers. No `Server` header.
   - A test asserts the full set on a 200, a 401, a 404 and a static file.
-- [ ] T094 Sign-in and session hardening, in `web-auth` where generic and `apps/depths/server/src/http.rs`
+- [X] T094 Sign-in and session hardening, in `web-auth` where generic and `apps/depths/server/src/http.rs`
   otherwise:
   - The login `state` is single-use, expires in 10 min and is bound to a short-lived
     `__Host-depths_login` cookie set at `/auth/login`. A callback whose state is unknown, expired,
@@ -324,7 +324,7 @@ every signed-in person as limited to exactly their permission row. Each task bel
     `LoginStore::with_cookie(CookieConfig::new("__Host-depths_login"))`, audit refusals as
     `denied`, redirect only to `/`, restrict `pending` sessions to `Hello` and `GET /api/v1/me`,
     logout, and the server-level tests.
-- [ ] T095 Input confinement and error hygiene:
+- [X] T095 Input confinement and error hygiene:
   - Every stack, service and container name from the client is validated (`valid_name`, or the 048
     container-id rules) before it reaches a path or an argv. Every argv is a `Vec<String>` handed
     to the runner; nothing in `apps/depths/server` or `crates/depths-*` runs a shell. Add a test
@@ -525,7 +525,7 @@ and every attempt shows up in the audit log.
     **Remaining (Depths server):** the 15-min loop and `/auth/refresh` calling `revalidate`,
     ending the session on `Rejected`, backoff (honouring `retry_after`) and a warning on
     `Unreachable`, and the server-level tests.
-- [ ] T073 [US5] Implement `GetAudit`, `GetUsers`, `PutUser`, `RemoveUser` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader. Broadcast `UsersChanged` to admin sockets; on a removal, end the returned sessions and close their sockets.
+- [X] T073 [US5] Implement `GetAudit`, `GetUsers`, `PutUser`, `RemoveUser` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader. Broadcast `UsersChanged` to admin sockets; on a removal, end the returned sessions and close their sockets.
 - [ ] T074 [US5] Build the admin views in `apps/depths/web/src/features/{audit/{AuditLog,AuditFilters},users/UsersView}.tsx`: the audit log as a virtualised table that collapses to cards at narrow widths, with export. UsersView lists users and the pending list, sets role and stacks (missing stacks marked), adds an id by hand, and shows owners locked.
 - [ ] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, as unauthenticated, pending, a user on an assigned stack, a user on an unassigned stack, and admin, and asserts that the outcome matches the permission table in data-model.md (SC-006).
 

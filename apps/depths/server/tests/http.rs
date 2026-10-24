@@ -322,3 +322,222 @@ async fn the_ws_upgrade_needs_the_app_origin() {
         .await;
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn readyz_needs_docker_and_never_shows_its_error() {
+    let a = app();
+    let r = a.get("/readyz", None).await;
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json(r).await["status"], "ready");
+
+    let b = app();
+    *b.runtime.unavailable.lock().unwrap() = Some("permission denied on docker.sock".into());
+    let r = b.get("/readyz", None).await;
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = text(r).await;
+    assert!(body.contains("not_ready"), "{body}");
+    assert!(!body.contains("docker.sock"), "{body}");
+}
+
+#[tokio::test]
+async fn the_audit_export_is_jsonl_for_admins_only() {
+    let a = app();
+    let admin = a.sign_in(OWNER).await;
+    let pending = a.sign_in("555").await;
+
+    let r = a.get("/api/v1/audit/export", Some(&admin)).await;
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(r.headers()[header::CONTENT_TYPE], "application/x-ndjson");
+    assert!(
+        r.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .starts_with("attachment")
+    );
+    assert_eq!(r.headers()[header::CACHE_CONTROL], "no-store");
+    let body = text(r).await;
+    let lines: Vec<serde_json::Value> = body
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "{body}");
+    assert!(lines.iter().all(|l| l["action"] == "sign_in"));
+
+    // A filter narrows; a bad one is a 400.
+    let r = a
+        .get("/api/v1/audit/export?action=sign_out", Some(&admin))
+        .await;
+    assert_eq!(r.status(), StatusCode::OK);
+    assert!(text(r).await.is_empty());
+    let r = a
+        .get("/api/v1/audit/export?action=nonsense", Some(&admin))
+        .await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+
+    // Pending: refused, and the refusal is audited.
+    let r = a.get("/api/v1/audit/export", Some(&pending)).await;
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert_eq!(json(r).await["error"], "forbidden");
+    assert!(
+        a.audit_entries()
+            .iter()
+            .any(|e| e.action == depths_protocol::AuditAction::Denied && e.actor.subject == "555")
+    );
+
+    // Signed out: 401.
+    let r = a.get("/api/v1/audit/export", None).await;
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn refused_callbacks_are_audited_as_denied() {
+    let a = app();
+    // No login cookie (another browser).
+    let r = a.get("/auth/callback/discord?code=1&state=x", None).await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    // A replayed state: the first callback consumes it.
+    let r = a.get("/auth/login", None).await;
+    let state = Url::parse(location(&r))
+        .unwrap()
+        .query_pairs()
+        .find(|(k, _)| k == "state")
+        .unwrap()
+        .1
+        .into_owned();
+    let login = cookie_pair(&r, "__Host-depths_login");
+    let cb = format!("/auth/callback/discord?code=7&state={state}");
+    assert_eq!(
+        a.get(&cb, Some(&login)).await.status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        a.get(&cb, Some(&login)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let entries = a.audit_entries();
+    let denied: Vec<_> = entries
+        .iter()
+        .filter(|e| e.action == depths_protocol::AuditAction::Denied)
+        .collect();
+    assert_eq!(denied.len(), 2, "{entries:?}");
+    for e in &denied {
+        assert!(e.actor.subject.is_empty());
+        match &e.outcome {
+            depths_protocol::AuditOutcome::Denied { reason } => {
+                assert!(reason.starts_with("sign-in refused"), "{reason}")
+            }
+            o => panic!("{o:?}"),
+        }
+    }
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.action == depths_protocol::AuditAction::SignIn && e.actor.subject == "7")
+    );
+}
+
+#[tokio::test]
+async fn static_serving_refuses_traversal_dotfiles_and_odd_paths() {
+    let a = app();
+    let web = a.stacks.parent().unwrap().join("web");
+    std::fs::write(web.join(".env"), "top secret").unwrap();
+    std::fs::write(web.join("assets/.hidden"), "top secret").unwrap();
+    for p in [
+        "/.env",
+        "/assets/.hidden",
+        "/..%2fsecret.txt",
+        "/%2e%2e/secret.txt",
+        "/%2E%2E%2Fsecret.txt",
+        "/assets/%2e%2e/%2e%2e/secret.txt",
+        "//secret.txt",
+        "/assets//app-abc.js",
+        "/%5c..%5csecret.txt",
+        "/assets/..%5c..%5csecret.txt",
+        "/.git/config",
+    ] {
+        let r = a.get(p, None).await;
+        assert_eq!(r.status(), StatusCode::NOT_FOUND, "{p}");
+        assert_eq!(r.headers()[header::CONTENT_TYPE], "application/json", "{p}");
+        let body = text(r).await;
+        assert!(!body.contains("top secret"), "{p}");
+        assert_eq!(body, r#"{"error":"not_found"}"#, "{p}");
+    }
+    // A directory is never listed.
+    let r = a.get("/assets/", None).await;
+    assert!(!text(r).await.contains("app-abc.js"));
+    // The ordinary paths still work.
+    for p in ["/", "/assets/app-abc.js", "/stacks/web/"] {
+        assert_eq!(a.get(p, None).await.status(), StatusCode::OK, "{p}");
+    }
+}
+
+#[test]
+fn hostile_paths_are_recognised() {
+    use depths_server::http::path_is_hostile;
+    for p in [
+        "/",
+        "/index.html",
+        "/assets/a-1.js",
+        "/stacks/web/",
+        "/auth/callback/discord",
+    ] {
+        assert!(!path_is_hostile(p), "{p}");
+    }
+    for p in [
+        "", "a", "/..", "/./x", "/x/..", "/%2e", "/a%2fb", "/a%5Cb", "/a\\b", "//", "/a//b",
+    ] {
+        assert!(path_is_hostile(p), "{p}");
+    }
+}
+
+/// T093: the whole header set, on a 200, a 401, a 404 and a static file.
+#[tokio::test]
+async fn every_response_carries_the_full_header_set() {
+    let a = app();
+    for (path, status, cache) in [
+        ("/healthz", StatusCode::OK, "no-cache"),
+        ("/api/v1/me", StatusCode::UNAUTHORIZED, "no-store"),
+        ("/api/v1/nope", StatusCode::NOT_FOUND, "no-store"),
+        (
+            "/assets/app-abc.js",
+            StatusCode::OK,
+            "public, max-age=31536000, immutable",
+        ),
+        ("/", StatusCode::OK, "no-cache"),
+    ] {
+        let r = a.get(path, None).await;
+        assert_eq!(r.status(), status, "{path}");
+        let h = r.headers();
+        assert_eq!(
+            h[header::CONTENT_SECURITY_POLICY],
+            depths_server::headers::CSP,
+            "{path}"
+        );
+        assert_eq!(
+            h[header::STRICT_TRANSPORT_SECURITY],
+            depths_server::headers::HSTS,
+            "{path}"
+        );
+        let pp = h["permissions-policy"].to_str().unwrap();
+        assert_eq!(pp, depths_server::headers::PERMISSIONS_POLICY, "{path}");
+        for p in [
+            "camera=()",
+            "microphone=()",
+            "geolocation=()",
+            "usb=()",
+            "payment=()",
+        ] {
+            assert!(pp.contains(p), "{path}: {p}");
+        }
+        assert_eq!(h["cross-origin-opener-policy"], "same-origin", "{path}");
+        assert_eq!(h["cross-origin-resource-policy"], "same-origin", "{path}");
+        assert_eq!(h[header::X_CONTENT_TYPE_OPTIONS], "nosniff", "{path}");
+        assert_eq!(h[header::CACHE_CONTROL], cache, "{path}");
+        assert!(!h.contains_key(header::SERVER), "{path}");
+        assert!(
+            !h.keys().any(|k| k.as_str().starts_with("access-control-")),
+            "{path}"
+        );
+    }
+}

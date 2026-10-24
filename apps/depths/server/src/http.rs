@@ -7,6 +7,7 @@
 //! | GET | `/auth/callback/{provider}` | login cookie + state (auth rate limit) |
 //! | POST | `/auth/logout`, `/auth/refresh` | session + CSRF |
 //! | GET | `/api/v1/me` | session (401 lists the providers) |
+//! | GET | `/api/v1/audit/export?stack=&actor=&action=&from=&to=` | session, `read_audit` (admin) |
 //! | GET | `/api/v1/ws` | Origin, then session + Hello |
 //! | GET | `/*` | static files, SPA fallback to `index.html` |
 //!
@@ -56,6 +57,8 @@ pub const LOGIN_COOKIE: &str = "__Host-depths_login";
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
 /// Whole-request deadline (T092). The WebSocket is exempt once upgraded.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a `/readyz` docker probe is reused.
+pub const READY_PROBE_EVERY: Duration = Duration::from_secs(5);
 
 pub type Providers = Vec<(&'static str, Arc<dyn IdentityProvider>)>;
 
@@ -78,6 +81,9 @@ pub struct AppState {
     pub users_changed: broadcast::Sender<()>,
     pub sockets: Arc<SocketCounts>,
     pub ws: WsConfig,
+    /// The last `/readyz` docker probe and when it ran: at most one probe per
+    /// [`READY_PROBE_EVERY`], so an unauthenticated caller cannot make Depths spawn docker at will.
+    ready: Arc<std::sync::Mutex<Option<(Instant, bool)>>>,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -132,6 +138,7 @@ impl AppState {
             users_changed: broadcast::channel(16).0,
             sockets: Arc::new(SocketCounts::default()),
             ws: WsConfig::default(),
+            ready: Arc::default(),
             auth: AuthState {
                 sessions,
                 cookie: CookieConfig::new(SESSION_COOKIE),
@@ -186,6 +193,7 @@ pub fn router(state: AppState) -> Router {
 
     let api_limited = Router::new()
         .route("/api/v1/me", get(me))
+        .route("/api/v1/audit/export", get(audit_export))
         .route("/auth/logout", post(logout))
         .route("/auth/refresh", post(refresh))
         .route_layer(middleware::from_fn_with_state(state.clone(), limit_api));
@@ -220,6 +228,7 @@ pub fn router(state: AppState) -> Router {
             StatusCode::REQUEST_TIMEOUT,
             REQUEST_TIMEOUT,
         ))
+        .layer(middleware::from_fn(path_guard))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             client_ip_layer,
@@ -289,15 +298,156 @@ async fn healthz() -> Response {
 }
 
 async fn readyz(State(app): State<AppState>) -> Response {
-    if app.cfg.stacks_dir.is_dir() {
-        Json(json!({ "status": "ready" })).into_response()
-    } else {
+    let not_ready = |reason: &'static str| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "not_ready", "reason": "stacks directory is unavailable" })),
+            Json(json!({ "error": "not_ready", "reason": reason })),
         )
             .into_response()
+    };
+    if !app.cfg.stacks_dir.is_dir() {
+        return not_ready("stacks directory is unavailable");
     }
+    let cached = app
+        .ready
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .filter(|(at, _)| at.elapsed() < READY_PROBE_EVERY)
+        .map(|(_, ok)| ok);
+    let ok = match cached {
+        Some(ok) => ok,
+        None => {
+            let rt = app.runtime.clone();
+            let ok = matches!(
+                tokio::task::spawn_blocking(move || rt.containers_by_project()).await,
+                Ok(Ok(_))
+            );
+            if let Ok(mut g) = app.ready.lock() {
+                *g = Some((Instant::now(), ok));
+            }
+            ok
+        }
+    };
+    if ok {
+        Json(json!({ "status": "ready" })).into_response()
+    } else {
+        // Docker's own words reach only signed-in people (FR-013), never this public probe.
+        not_ready("the container runtime is unavailable")
+    }
+}
+
+/// `GET /api/v1/audit/export?stack=&actor=&action=&from=&to=`: the matching audit entries as a
+/// JSON-lines download, for people who may read the audit log (admins). Others are refused and
+/// the refusal is audited.
+async fn audit_export(
+    State(app): State<AppState>,
+    SessionUser(session): SessionUser,
+    ClientAddrExt(ip): ClientAddrExt,
+    filter: Result<Query<depths_protocol::AuditFilter>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let who = SignIn::from_identity(&session.identity);
+    let access = app.users.access(&who.id());
+    if !depths_core::role::permits(&access, None, depths_core::role::Action::ReadAudit) {
+        let _ = app.audit.record(&crate::audit::denied(
+            crate::audit::actor_of(&session.identity),
+            ip,
+            None,
+            "audit export needs read_audit",
+        ));
+        return error(StatusCode::FORBIDDEN, "forbidden");
+    }
+    let Ok(Query(filter)) = filter else {
+        return error(StatusCode::BAD_REQUEST, "invalid_filter");
+    };
+    let audit = app.audit.clone();
+    match tokio::task::spawn_blocking(move || audit.export(&filter)).await {
+        Ok(Ok(body)) => (
+            [
+                (header::CONTENT_TYPE, "application/x-ndjson"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"depths-audit.jsonl\"",
+                ),
+            ],
+            body,
+        )
+            .into_response(),
+        Ok(Err(e)) => {
+            tracing::error!(error = %e, "audit export failed");
+            error(StatusCode::INTERNAL_SERVER_ERROR, "internal")
+        }
+        Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+    }
+}
+
+/// The resolved client address as an extractor (set by [`client_ip_layer`]).
+pub struct ClientAddrExt(pub IpAddr);
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for ClientAddrExt {
+    type Rejection = std::convert::Infallible;
+    async fn from_request_parts(
+        parts: &mut http::request::Parts,
+        _: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(Self(
+            parts
+                .extensions
+                .get::<ClientAddr>()
+                .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |c| c.0),
+        ))
+    }
+}
+
+/// T095: refuses, before routing, any path a static file server could be tricked with: a
+/// segment that is (or decodes to) a dotfile or `..`, an empty segment (`//`), and any slash or
+/// backslash smuggled in percent-encoded. Answered as the plain JSON 404, so nothing tells a
+/// prober what was matched.
+pub fn path_is_hostile(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix('/') else {
+        return true;
+    };
+    if rest.contains('\\') {
+        return true;
+    }
+    let segments: Vec<&str> = rest.split('/').collect();
+    let last = segments.len() - 1;
+    segments.iter().enumerate().any(|(i, seg)| {
+        if seg.is_empty() {
+            // Only a trailing slash (or the root itself) may leave an empty segment.
+            return i != last;
+        }
+        let decoded = percent_decode(seg);
+        decoded.starts_with('.') || decoded.contains('/') || decoded.contains('\\')
+    })
+}
+
+/// `%XX` decoding, lossy: only to look at what a segment would mean.
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2]))
+        {
+            out.push(u8::try_from(h * 16 + l).unwrap_or(b'?'));
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+async fn path_guard(req: Request, next: Next) -> Response {
+    if path_is_hostile(req.uri().path()) {
+        return error(StatusCode::NOT_FOUND, "not_found");
+    }
+    next.run(req).await
 }
 
 async fn not_found() -> Response {
@@ -371,6 +521,21 @@ fn sign_in_failed(status: StatusCode, clear: HeaderValue, msg: &'static str) -> 
     r
 }
 
+/// Writes one audit entry; a failed write is logged, never shown to the caller.
+fn record(app: &AppState, e: depths_protocol::AuditEntry) {
+    if let Err(err) = app.audit.record(&e) {
+        tracing::error!(error = %err, "audit write failed");
+    }
+}
+
+fn provider_kind(id: &str) -> depths_protocol::Provider {
+    match id {
+        "github" => depths_protocol::Provider::Github,
+        "oidc" => depths_protocol::Provider::Oidc,
+        _ => depths_protocol::Provider::Discord,
+    }
+}
+
 fn category(e: &ProviderError) -> &'static str {
     match e {
         ProviderError::StateMismatch => "state mismatch",
@@ -385,6 +550,7 @@ fn category(e: &ProviderError) -> &'static str {
 async fn callback(
     State(app): State<AppState>,
     Path(provider_id): Path<String>,
+    ClientAddrExt(ip): ClientAddrExt,
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
@@ -392,12 +558,23 @@ async fn callback(
     let Some(provider) = app.provider(&provider_id).cloned() else {
         return error(StatusCode::NOT_FOUND, "unknown_provider");
     };
+    // T094: a refused callback is audited `denied`. Nobody is known yet, so the actor is the
+    // provider with an empty subject.
+    let refuse = |reason: String| {
+        let actor = depths_protocol::Actor {
+            provider: provider_kind(provider.id()),
+            subject: String::new(),
+            username: String::new(),
+        };
+        record(&app, crate::audit::denied(actor, ip, None, reason));
+    };
     let state = q.get("state").map(String::as_str).unwrap_or_default();
     // Consumed whatever happens next: a login is single-use.
     let pending = match app.logins.finish(&headers, state) {
         Ok((pending, _)) => pending,
         Err(refused) => {
             tracing::warn!(provider = %provider_id, reason = %refused, "sign-in callback refused");
+            refuse(format!("sign-in refused: {refused}"));
             return sign_in_failed(
                 StatusCode::BAD_REQUEST,
                 clear,
@@ -406,6 +583,7 @@ async fn callback(
         }
     };
     if q.contains_key("error") {
+        refuse("sign-in refused: the provider did not grant it".into());
         return sign_in_failed(
             StatusCode::UNAUTHORIZED,
             clear,
@@ -426,6 +604,7 @@ async fn callback(
             let status = if e.is_unreachable() {
                 StatusCode::BAD_GATEWAY
             } else {
+                refuse(format!("sign-in refused: {}", category(&e)));
                 StatusCode::UNAUTHORIZED
             };
             return sign_in_failed(
@@ -436,6 +615,7 @@ async fn callback(
         }
     };
     let who = SignIn::from_identity(&completed.identity);
+    let actor = crate::audit::actor_of(&completed.identity);
     let user = match app.users.sign_in(&who) {
         Ok(u) => u,
         Err(e) => {
@@ -462,6 +642,15 @@ async fn callback(
         }
     };
     tracing::info!(user = %user.id, role = ?user.role, "signed in");
+    record(
+        &app,
+        crate::audit::entry(
+            actor,
+            depths_protocol::AuditAction::SignIn,
+            ip,
+            depths_protocol::AuditOutcome::Succeeded,
+        ),
+    );
     // Only ever `/`: no return path from the request is followed.
     let mut r = Redirect::to("/").into_response();
     let h = r.headers_mut();
@@ -476,7 +665,20 @@ async fn callback(
 }
 
 /// Behind [`CsrfLayer`]: session, Origin and token are already checked.
-async fn logout(State(app): State<AppState>, SessionUser(session): SessionUser) -> Response {
+async fn logout(
+    State(app): State<AppState>,
+    ClientAddrExt(ip): ClientAddrExt,
+    SessionUser(session): SessionUser,
+) -> Response {
+    record(
+        &app,
+        crate::audit::entry(
+            crate::audit::actor_of(&session.identity),
+            depths_protocol::AuditAction::SignOut,
+            ip,
+            depths_protocol::AuditOutcome::Succeeded,
+        ),
+    );
     let end = app
         .providers
         .iter()
