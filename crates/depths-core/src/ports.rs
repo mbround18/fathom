@@ -18,7 +18,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
+pub use container_runtime::sink::{StreamEvent, StreamSink};
 use container_runtime::wire::Container;
+pub use container_runtime::wire::{StreamId, UsageSample};
 use serde::{Deserialize, Serialize};
 
 use crate::discovery::ComposeFile;
@@ -333,6 +335,17 @@ pub enum Validation {
     Invalid(Vec<ValidationIssue>),
 }
 
+/// A live terminal opened by [`ContainerRuntime::open_shell`]. Dropping it without
+/// [`ShellSession::close`] is a bug in the caller; adapters still try to end the process.
+pub trait ShellSession: Send {
+    /// Keystrokes or a paste, verbatim. An error means the shell is gone.
+    fn write(&mut self, data: &[u8]) -> Result<(), RuntimeError>;
+    /// The terminal's new size, columns then rows. Best effort.
+    fn resize(&self, cols: u16, rows: u16);
+    /// Ends the session, leaving no process behind.
+    fn close(self: Box<Self>);
+}
+
 /// The container runtime.
 pub trait ContainerRuntime: Send + Sync {
     /// One reading of every container (`docker ps -a`), grouped by compose project.
@@ -367,6 +380,43 @@ pub trait ContainerRuntime: Send + Sync {
         cancel: &CancelToken,
     ) -> Result<(), RuntimeError> {
         let _ = (on_event, cancel);
+        Err(RuntimeError::Unsupported)
+    }
+
+    /// Follows a log step ([`crate::plan::stack_logs`], [`crate::plan::container_logs`]),
+    /// sending `ContainerLogBatch`es to `sink`, until the command ends or `cancel` is set.
+    /// Blocking. `Ok` is a clean end or a cancel; `Err(Failed)` carries the runtime's own words.
+    /// Adapters bound what they buffer: a reader that falls behind loses lines (`truncated`).
+    fn follow_logs(
+        &self,
+        step: &RunStep,
+        stream_id: StreamId,
+        sink: &dyn StreamSink,
+        cancel: &CancelToken,
+    ) -> Result<(), RuntimeError> {
+        let _ = (step, stream_id, sink, cancel);
+        Err(RuntimeError::Unsupported)
+    }
+
+    /// Opens an interactive terminal running `shell` in the container `container_id` (a full
+    /// id). Output goes to `sink` as `ContainerSessionOutput`, then one `ContainerSessionClosed`.
+    /// Whether a shell may be opened at all is the caller's decision.
+    fn open_shell(
+        &self,
+        container_id: &str,
+        shell: &str,
+        size: (u16, u16),
+        stream_id: StreamId,
+        sink: Arc<dyn StreamSink>,
+    ) -> Result<Box<dyn ShellSession>, RuntimeError> {
+        let _ = (container_id, shell, size, stream_id, sink);
+        Err(RuntimeError::Unsupported)
+    }
+
+    /// One `docker stats --no-stream` reading of exactly these containers (full ids). Empty
+    /// `ids` runs nothing and returns nothing.
+    fn stats(&self, ids: &[String]) -> Result<Vec<UsageSample>, RuntimeError> {
+        let _ = ids;
         Err(RuntimeError::Unsupported)
     }
 

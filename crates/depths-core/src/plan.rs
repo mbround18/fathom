@@ -202,6 +202,63 @@ fn compose(env: &[String], args: &[&str]) -> Vec<String> {
     argv
 }
 
+/// Where a log follow starts: the last `tail` lines, or everything after `since` (RFC 3339, as
+/// the protocol validated it) when a stream is reopened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogWindow<'a> {
+    pub tail: u32,
+    pub since: Option<&'a str>,
+}
+
+impl LogWindow<'_> {
+    /// Flags shared by `docker logs` and `docker compose logs`. Timestamps always, so lines can be
+    /// placed in time; `--since=` in one argument, so the value can never read as a flag.
+    fn flags(&self) -> Vec<String> {
+        let mut v = vec![
+            "--timestamps".to_owned(),
+            "--follow".to_owned(),
+            "--tail".to_owned(),
+            self.tail.to_string(),
+        ];
+        if let Some(since) = self.since {
+            v.push(format!("--since={since}"));
+        }
+        v
+    }
+}
+
+/// Follows a stack's logs, or one service's: `docker compose [env] logs ... [service]`, run in the
+/// stack directory like every other compose command.
+pub fn stack_logs(
+    ctx: &StackContext<'_>,
+    service: Option<&ServiceName>,
+    window: LogWindow<'_>,
+) -> RunStep {
+    let env = env_files(ctx.global_env, ctx.has_env);
+    let mut argv = compose(&env, &["logs", "--no-color"]);
+    argv.extend(window.flags());
+    if let Some(s) = service {
+        argv.push(s.as_str().to_owned());
+    }
+    RunStep {
+        argv,
+        cwd: ctx.stack_dir(),
+        stdin: StepStdin::None,
+    }
+}
+
+/// Follows one container's logs by its full id: `docker logs ... <id>`, run in `stacks_root`.
+pub fn container_logs(stacks_root: &Path, container_id: &str, window: LogWindow<'_>) -> RunStep {
+    let mut argv = vec![DOCKER.to_owned(), "logs".to_owned()];
+    argv.extend(window.flags());
+    argv.push(container_id.to_owned());
+    RunStep {
+        argv,
+        cwd: stacks_root.to_path_buf(),
+        stdin: StepStdin::None,
+    }
+}
+
 /// Builds the plan for `op` on the stack in `ctx`.
 pub fn plan(ctx: &StackContext<'_>, op: &Operation) -> Plan {
     let dir = ctx.stack_dir();
@@ -677,5 +734,60 @@ mod tests {
         assert!(
             serde_json::from_str::<Operation>(r#"{"kind":"service_stop","service":"-v"}"#).is_err()
         );
+    }
+
+    #[test]
+    fn stack_logs_follow_compose_in_the_stack_directory() {
+        let stack = name();
+        let ctx = StackContext {
+            stacks_root: Path::new(ROOT),
+            stack: &stack,
+            global_env: true,
+            has_env: false,
+        };
+        let all = stack_logs(
+            &ctx,
+            None,
+            LogWindow {
+                tail: 1000,
+                since: None,
+            },
+        );
+        assert_eq!(
+            all.argv.join(" "),
+            "docker compose --env-file ../global.env logs --no-color --timestamps --follow --tail 1000"
+        );
+        assert_eq!(all.cwd, Path::new("/opt/stacks/web"));
+        assert_eq!(all.stdin, StepStdin::None);
+
+        let one = stack_logs(
+            &ctx,
+            Some(&svc("db")),
+            LogWindow {
+                tail: 10,
+                since: Some("2026-01-01T00:00:00Z"),
+            },
+        );
+        assert_eq!(
+            one.argv[one.argv.len() - 2..],
+            ["--since=2026-01-01T00:00:00Z".to_owned(), "db".to_owned()]
+        );
+    }
+
+    #[test]
+    fn container_logs_name_the_id_last() {
+        let s = container_logs(
+            Path::new(ROOT),
+            "abc123",
+            LogWindow {
+                tail: 5,
+                since: None,
+            },
+        );
+        assert_eq!(
+            s.argv.join(" "),
+            "docker logs --timestamps --follow --tail 5 abc123"
+        );
+        assert_eq!(s.cwd, Path::new(ROOT));
     }
 }
