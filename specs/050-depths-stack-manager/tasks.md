@@ -342,7 +342,7 @@ every signed-in person as limited to exactly their permission row. Each task bel
   `scripts/ci.sh`'s check job (install `cargo-deny` in the paws setup step, cached).
   Done: `cargo deny check` runs in the check job (cached in `/opt/cargo-tools`); `pnpm audit` runs
   in the ui job, the one with node. Accepted advisories, each with its reason, are in `deny.toml`.
-- [ ] T097 Container lockdown, in `apps/depths/compose.yaml` and documented for the steam compose:
+- [X] T097 Container lockdown, in `apps/depths/compose.yaml` and documented for the steam compose:
   - `depths`: non-root user, `read_only: true`, `tmpfs: /tmp`, `cap_drop: [ALL]`,
     `security_opt: [no-new-privileges:true]`, `pids_limit`, a memory limit, and no published
     host port (reached only through the tailscale sidecar or a reverse proxy).
@@ -350,6 +350,11 @@ every signed-in person as limited to exactly their permission row. Each task bel
     info, version, ping, POST; `EXEC` only when `DEPTHS_FEATURE_SHELL` is on). AUTH, SECRETS,
     SWARM, NODES, PLUGINS, SYSTEM, BUILD, COMMIT, CONFIGS, DISTRIBUTION and SESSION stay off.
   - `DEPTHS_FEATURE_SHELL` defaults off in the example and the steam deploy.
+  Done in `apps/depths/compose.yaml` and `.env.example`. One deviation: the example publishes
+  `127.0.0.1:${DEPTHS_PORT}` so a host reverse proxy can reach it; loopback is not reachable from
+  the network. The steam deploy (ansible 7ebac57) binds the same way behind its tailscale sidecar.
+  HOME is `/var/lib/depths` (the data volume), so the docker CLI's config dir stays writable under
+  `read_only`.
 - [ ] T099 (gate before deploy) An adversarial security review of `apps/depths/server`,
   `crates/web-auth` and `crates/depths-*` by a reviewer who did not write the code, against
   T090–T097, the T075 sweep and the OWASP ASVS L2 session, access-control and input sections.
