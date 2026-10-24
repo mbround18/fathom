@@ -9,7 +9,7 @@
  */
 import { ArrowLeftIcon, PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
@@ -25,8 +25,9 @@ import { OperationOutput } from './OperationOutput'
 import { PreviewDialog } from './PreviewDialog'
 import { SecurityChip } from './SecurityChip'
 import { ServiceActions, StackActions } from './StackActions'
-import type { ConsoleSource } from './StackConsole'
+import { CONSOLE_PANEL_ID, type ConsoleSource } from './StackConsole'
 import { StackNotes } from './StackRow'
+import { chipFor } from './security'
 import { editBlockedReason, elsewhereByStack, formatPorts, formatTime, maskEnv, stackNotes, stateLabel } from './model'
 import { StatusBadge } from './StatusBadge'
 import { useStacks } from './store'
@@ -70,6 +71,85 @@ function sourceOf(stack: Stack, pick: Pick): ConsoleSource {
 /** A state dot; the state is in words beside it too. */
 function Dot({ state }: { state: string }) {
   return <span aria-hidden className={`inline-block size-2 shrink-0 rounded-full ${DOT_TONE[state] ?? 'bg-muted-foreground'}`} />
+}
+
+const samePick = (a: Pick, b: Pick) => (a.kind === 'all' ? b.kind === 'all' : b.kind === 'container' && b.name === a.name)
+
+/**
+ * The console's sources as tabs: every container, then each one with its state and, when it is
+ * root or escape, a mark (the chip with its reasons is in the console header and the container
+ * row). Arrows, Home and End move between tabs; Enter or Space opens one, so arrowing past a
+ * container does not open and close its stream. Scrolls sideways inside itself when they overflow.
+ */
+function ConsoleTabs({ stack, pick, onPick }: { stack: Stack; pick: Pick; onPick: (p: Pick) => void }) {
+  const containers = stack.services.flatMap((s) => s.containers)
+  const choices: { pick: Pick; container?: Container }[] = [
+    { pick: { kind: 'all' } },
+    ...containers.map((c) => ({ pick: { kind: 'container' as const, name: c.name }, container: c })),
+  ]
+  const refs = useRef<(HTMLButtonElement | null)[]>([])
+  const at = Math.max(0, choices.findIndex((c) => samePick(c.pick, pick)))
+  const [focus, setFocus] = useState<number | null>(null)
+  const current = focus !== null && focus < choices.length ? focus : at
+
+  function onKeyDown(e: KeyboardEvent) {
+    const last = choices.length - 1
+    const to = { ArrowRight: current + 1, ArrowLeft: current - 1, Home: 0, End: last }[e.key]
+    if (to === undefined) return
+    e.preventDefault()
+    const i = to < 0 ? last : to > last ? 0 : to
+    setFocus(i)
+    refs.current[i]?.focus()
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Log source"
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setFocus(null)}
+      className="flex min-w-0 shrink-0 overflow-x-auto border-b border-border"
+    >
+      {choices.map((choice, i) => {
+        const c = choice.container
+        const selected = i === at
+        const chip = chipFor(c?.security?.level)
+        const name = c ? c.name : 'All containers'
+        return (
+          <button
+            key={c ? c.id : 'all'}
+            ref={(el) => {
+              refs.current[i] = el
+            }}
+            type="button"
+            role="tab"
+            data-action={c ? 'console-tab' : 'console-pick-all'}
+            data-console-tab={c ? c.name : 'all'}
+            aria-selected={selected}
+            aria-controls={CONSOLE_PANEL_ID}
+            tabIndex={i === current ? 0 : -1}
+            onKeyDown={onKeyDown}
+            title={c ? `${c.name}: ${stateLabel(c.state)}` : "Every container's logs, interleaved"}
+            onClick={() => {
+              setFocus(null)
+              onPick(choice.pick)
+            }}
+            className={`flex h-7 max-w-52 shrink-0 items-center gap-1.5 border-r border-border px-2 text-xs outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset ${
+              selected ? 'border-b-2 border-b-primary bg-background text-foreground' : 'text-muted-foreground'
+            }`}
+          >
+            {c && <Dot state={c.state} />}
+            <span className="truncate font-mono">{name}</span>
+            {c && <span className="sr-only">, {stateLabel(c.state)}</span>}
+            {chip && (
+              <span data-field="security-mark" data-level={chip.level} className={`shrink-0 border px-0.5 text-[0.6rem] leading-3 font-semibold uppercase ${chip.tone}`}>
+                {chip.label}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function ContainerRow({ c, picked, onPick }: { c: Container; picked: boolean; onPick: () => void }) {
@@ -369,21 +449,9 @@ export default function StackDetail({ params }: { params: Params }) {
       >
         <div data-column="console" className="flex min-w-0 flex-col gap-2 lg:min-h-0">
           <section aria-labelledby="services-title" className="flex min-w-0 shrink-0 flex-col gap-1 lg:max-h-[45%] lg:overflow-auto">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 id="services-title" className={`flex-1 ${SECTION_TITLE}`}>
-                Services
-              </h2>
-              <Button
-                variant={pick.kind === 'all' ? 'outline' : 'ghost'}
-                size="xs"
-                data-action="console-pick-all"
-                aria-pressed={pick.kind === 'all'}
-                title="Show every container's logs in the console"
-                onClick={() => onPick({ kind: 'all' })}
-              >
-                All containers
-              </Button>
-            </div>
+            <h2 id="services-title" className={SECTION_TITLE}>
+              Services
+            </h2>
             {stack.services.length === 0 ? (
               <p className="text-xs text-muted-foreground">No services.</p>
             ) : (
@@ -396,7 +464,12 @@ export default function StackDetail({ params }: { params: Params }) {
           </section>
           <div className="h-96 min-w-0 shrink-0 lg:h-auto lg:min-h-64 lg:flex-1 lg:shrink">
             <Suspense fallback={<ConsoleFallback />}>
-              <StackConsole key={stack.name} stack={stack.name} source={sourceOf(stack, pick)} />
+              <StackConsole
+                key={stack.name}
+                stack={stack.name}
+                source={sourceOf(stack, pick)}
+                tabs={<ConsoleTabs stack={stack} pick={pick} onPick={onPick} />}
+              />
             </Suspense>
           </div>
         </div>

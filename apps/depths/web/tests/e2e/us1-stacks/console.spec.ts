@@ -69,12 +69,41 @@ test('the console streams the first running container, and switches source on a 
   await expect(consoleBox(page)).toHaveAttribute('data-console-target', 'stack:web')
 })
 
+test('the console has a tab per container, kept in step with the rows, and arrows move between them', async ({ page, backend }) => {
+  seed(backend)
+  await openStack(page)
+  const tabs = page.getByRole('tablist', { name: 'Log source' }).getByRole('tab')
+  await expect(tabs).toHaveText([/All containers/, /web-app-1/, /web-app-2/, /web-db-1/])
+  const tab = (name: string) => page.locator(`[data-console-tab="${name}"]`)
+  await expect(tab('web-app-2')).toHaveAttribute('aria-selected', 'true')
+  await expect(tab('web-app-1')).toContainText('exited')
+
+  await backend.waitForCmd('OpenLogs')
+  await tab('web-db-1').click()
+  expect((await backend.waitForCmd('OpenLogs')).data.target).toEqual({ kind: 'container', container: 'web-db-1' })
+  await expect(consoleBox(page)).toHaveAttribute('data-console-target', 'web-db-1')
+  await expect(page.locator('[data-container="web-db-1"] [data-action="console-pick"]')).toHaveAttribute('aria-pressed', 'true')
+
+  // Arrows move focus only; Enter opens the focused tab. Home wraps to the first.
+  await tab('web-db-1').focus()
+  await page.keyboard.press('Home')
+  await expect(tab('all')).toBeFocused()
+  await expect(tab('web-db-1')).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('ArrowLeft')
+  await expect(tab('web-db-1')).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(tab('web-app-2')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(consoleBox(page)).toHaveAttribute('data-console-target', 'web-app-2')
+  await expect(tab('web-app-2')).toHaveAttribute('aria-selected', 'true')
+})
+
 test('with nothing running the console shows every container', async ({ page, backend }) => {
   seed(backend)
   for (const s of backend.stacks.stacks[0]?.services ?? []) for (const c of s.containers) c.state = 'exited'
   await openStack(page)
   expect((await backend.waitForCmd('OpenLogs')).data.target).toEqual({ kind: 'stack', stack: 'web' })
-  await expect(page.locator('[data-action="console-pick-all"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('[data-action="console-pick-all"]')).toHaveAttribute('aria-selected', 'true')
 })
 
 test('the console pops out into tabs, and leaving the page closes its stream', async ({ page, backend }) => {
@@ -85,7 +114,7 @@ test('the console pops out into tabs, and leaving the page closes its stream', a
   await consoleBox(page).getByRole('button', { name: 'Open the logs of web-app-2 in a tab' }).click()
   await consoleBox(page).getByRole('button', { name: 'Open a shell in web-app-2 in a tab' }).click()
   await consoleBox(page).getByRole('button', { name: 'Open the stats of web-app-2 in a tab' }).click()
-  await expect(page.getByRole('tab')).toHaveCount(3)
+  await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(3)
   expect((await backend.waitForCmd('OpenShell')).data.container).toBe('web-app-2')
   await expect.poll(() => backend.openStreams().length).toBe(3)
 

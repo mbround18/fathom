@@ -53,7 +53,7 @@ test('six streaming tabs for an hour keep the heap bounded and input under 100 m
     if (s !== 'db') await page.getByRole('link', { name: 'Stacks' }).first().click()
   }
   await page.locator('[data-container="db-app-1"]').getByRole('button', { name: 'Shell in db-app-1' }).click()
-  await expect(page.getByRole('tab')).toHaveCount(7)
+  await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(7)
   // The seven tabs, and the console of the stack on screen (each earlier page closed its own).
   await expect.poll(() => backend.openStreams().length).toBe(8)
 

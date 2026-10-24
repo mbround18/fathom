@@ -125,7 +125,7 @@ test.describe('tabs', () => {
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await container(page).getByRole('button', { name: 'Shell in web-app-1' }).click()
     await container(page).getByRole('button', { name: 'Stats for web-app-1' }).click()
-    await expect(page.getByRole('tab')).toHaveCount(3)
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(3)
 
     // Stats: the sample for the container, by its full id.
     const watch = await backend.waitForCmd('WatchStats')
@@ -181,7 +181,7 @@ test.describe('tabs', () => {
     await openStack(page)
     await page.getByRole('button', { name: 'Logs for stack web' }).click()
     await page.getByRole('button', { name: 'Stats for stack web' }).click()
-    await expect(page.getByRole('tab')).toHaveText([/web/, /web/])
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveText([/web/, /web/])
     const first = page.locator('[data-tab-id]').first()
     await expect(first).toHaveAttribute('data-tab-kind', 'logs')
     await page.getByRole('button', { name: 'Move tab left' }).focus()
@@ -254,13 +254,13 @@ test.describe('shell turned off', () => {
     await openStack(page)
     await container(page).getByRole('button', { name: 'Shell in web-app-1' }).click()
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
-    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(2)
 
     backend.me = f.me({ features: { shell: false, edit: true, host_metrics: false } })
     await page.reload()
     await expect(page.getByRole('heading', { name: 'web', level: 1 })).toBeVisible()
     await expect(container(page).getByRole('button', { name: 'Shell in web-app-1' })).toHaveCount(0)
-    await expect(page.getByRole('tab')).toHaveCount(1)
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(1)
     await expect(tab(page, 'shell')).toHaveCount(0)
   })
 })
@@ -282,7 +282,7 @@ test.describe('session expiry', () => {
     backend.me = me
     const shells = backend.received.filter((c) => c.type === 'OpenShell').length
     await page.goto('/stacks/web')
-    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(2)
     await page.getByRole('tab', { name: /Shell/ }).click()
     await expect(page.locator('[data-field="end-reason"]')).toContainText('Your session expired.')
     await expect(page.getByRole('button', { name: 'New session' })).toBeVisible()
@@ -307,7 +307,7 @@ test.describe('narrow screens', () => {
     await page.getByTestId('tabs-toggle').click()
     await expect(page.getByRole('heading', { name: 'web', level: 1 })).toBeVisible()
     await container(page).getByRole('button', { name: 'Stats for web-app-1' }).click()
-    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(2)
     await expect(page.getByRole('tab', { name: /Stats/ })).toHaveAttribute('aria-selected', 'true')
     // No sideways scroll at phone width.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -324,7 +324,7 @@ test.describe('six tabs, resized', () => {
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await container(page).getByRole('button', { name: 'Shell in web-app-1' }).click()
     await container(page).getByRole('button', { name: 'Stats for web-app-1' }).click()
-    await expect(page.getByRole('tab')).toHaveCount(6)
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(6)
 
     await page.getByRole('button', { name: 'Split: move tab to a new pane' }).click()
     await expect(page.locator('[data-pane]')).toHaveCount(2)
@@ -340,7 +340,7 @@ test.describe('six tabs, resized', () => {
     const kinds = () => page.locator('[data-tab-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-tab-kind')))
     const order = await kinds()
     await page.reload()
-    await expect(page.getByRole('tab')).toHaveCount(6)
+    await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(6)
     expect(await kinds()).toEqual(order)
     await expect(page.locator('[data-pane]')).toHaveCount(2)
     await expect.poll(async () => Math.abs((await width()) - widened)).toBeLessThan(8)
