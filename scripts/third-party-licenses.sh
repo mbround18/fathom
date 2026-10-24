@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Regenerate THIRD_PARTY_LICENSES.md: every Rust crate in Cargo.lock and every production npm
-# package of the Fathom UI in pnpm-lock.yaml, with version and licence expression. Names and licences only; the
-# full texts ship with each package.
+# Regenerate THIRD_PARTY_LICENSES.md: every Rust crate in Cargo.lock (Fathom, Depths and the shared
+# crates under crates/) and every production npm package of the two frontends, Fathom's ui/ and
+# Depths' apps/depths/web, with the shared packages/* they pull in. Version and licence expression
+# only; the full texts ship with each package.
 #
 #   scripts/third-party-licenses.sh            # writes THIRD_PARTY_LICENSES.md at the repo root
 #
-# Needs cargo and pnpm (with ui/node_modules installed: `pnpm install --frozen-lockfile`).
+# Needs cargo and pnpm (with the workspace installed: `pnpm install --frozen-lockfile` at the root).
 # Set CARGO_OFFLINE=1 to resolve the Rust side from the local registry cache only.
 set -euo pipefail
 
@@ -17,7 +18,10 @@ trap 'rm -rf "$tmp"' EXIT
 offline=()
 [ "${CARGO_OFFLINE:-0}" = "1" ] && offline=(--offline)
 (cd "$root" && cargo metadata --format-version 1 --locked "${offline[@]}") > "$tmp/cargo.json"
-(cd "$root" && pnpm --filter fathom-ui licenses list --prod --json) > "$tmp/npm.json"
+# `<pkg>...` takes each app with its workspace dependencies (packages/*); workspace packages
+# themselves are not listed, only what they depend on.
+(cd "$root" && pnpm --filter 'fathom-ui...' --filter '@companion/depths-web...' \
+  licenses list --prod --json) > "$tmp/npm.json"
 
 python3 -I - "$tmp/cargo.json" "$tmp/npm.json" > "$out" <<'PY'
 import json, sys
@@ -55,7 +59,7 @@ print(f"## Rust crates ({len(crates)})")
 print()
 table(crates)
 print()
-print(f"## npm packages, production dependencies of `ui/` ({len(packages)})")
+print(f"## npm packages, production dependencies of `ui/`, `apps/depths/web` and `packages/*` ({len(packages)})")
 print()
 table(packages)
 PY

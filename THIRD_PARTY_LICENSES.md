@@ -864,10 +864,18 @@ versions and SPDX expressions only.
 | zvariant_derive | 5.15.1 | MIT |
 | zvariant_utils | 4.2.0 | MIT |
 
-## npm packages, production dependencies of `ui/` (171)
+## npm packages, production dependencies of `ui/`, `apps/depths/web` and `packages/*` (187)
 
 | Name | Version | Licence |
 |---|---|---|
+| @codemirror/autocomplete | 6.20.4 | MIT |
+| @codemirror/commands | 6.11.1 | MIT |
+| @codemirror/lang-yaml | 6.1.3 | MIT |
+| @codemirror/language | 6.13.1 | MIT |
+| @codemirror/lint | 6.9.7 | MIT |
+| @codemirror/state | 6.7.6 | MIT |
+| @codemirror/streamparser | 6.0.0 | MIT |
+| @codemirror/view | 6.43.15 | MIT |
 | @floating-ui/core | 1.8.0 | MIT |
 | @floating-ui/dom | 1.8.0 | MIT |
 | @floating-ui/react-dom | 2.1.9 | MIT |
@@ -880,6 +888,11 @@ versions and SPDX expressions only.
 | @jridgewell/resolve-uri | 3.1.2 | MIT |
 | @jridgewell/sourcemap-codec | 1.6.0 | MIT |
 | @jridgewell/trace-mapping | 0.3.31 | MIT |
+| @lezer/common | 1.5.4 | MIT |
+| @lezer/highlight | 1.2.5 | MIT |
+| @lezer/lr | 1.4.11 | MIT |
+| @lezer/yaml | 1.0.4 | MIT |
+| @marijn/find-cluster-break | 1.0.4 | MIT |
 | @oxc-project/types | 0.155.0 | MIT |
 | @phosphor-icons/react | 2.1.10 | MIT |
 | @radix-ui/number | 1.1.3 | MIT |
@@ -974,6 +987,7 @@ versions and SPDX expressions only.
 | clsx | 2.1.1 | MIT |
 | cmdk | 1.1.1 | MIT |
 | cn | 0.5.0 | MIT |
+| crelt | 1.0.7 | MIT |
 | cytoscape | 3.34.4 | MIT |
 | d3-array | 3.2.4 | ISC |
 | d3-color | 3.1.0 | ISC |
@@ -1026,6 +1040,7 @@ versions and SPDX expressions only.
 | scheduler | 0.28.0 | MIT |
 | sonner | 2.0.8 | MIT |
 | source-map-js | 1.2.2 | BSD-3-Clause |
+| style-mod | 4.1.4 | MIT |
 | tailwindcss | 4.3.3 | MIT |
 | tapable | 2.3.3 | MIT |
 | tiny-invariant | 1.3.3 | MIT |
@@ -1037,5 +1052,6 @@ versions and SPDX expressions only.
 | use-sync-external-store | 1.7.0 | MIT |
 | victory-vendor | 37.3.6 | MIT AND ISC |
 | vite | 8.3.5 | MIT |
+| w3c-keyname | 2.2.8 | MIT |
 | yaml | 2.9.1 | ISC |
 | zustand | 5.0.15 | MIT |
