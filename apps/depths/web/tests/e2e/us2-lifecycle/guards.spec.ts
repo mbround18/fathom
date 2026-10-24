@@ -37,8 +37,7 @@ test('a second operation on a busy stack is refused, naming who runs what', asyn
   const refusal = dialog(page).locator('[data-refusal="busy"]')
   await expect(refusal).toContainText('ada (github)')
   await expect(refusal).toContainText('restart')
-  // The operation's id (the console's stream took a number from the same counter).
-  await expect(refusal).toContainText(/operation op-\d+/)
+  await expect(refusal).toContainText(`operation ${backend.heldOps()[0] ?? 'none'}`)
   await expect(dialog(page).locator('[data-confirm]')).toHaveCount(0)
   expect(backend.received.filter((c) => c.type === 'Confirm')).toHaveLength(1)
 

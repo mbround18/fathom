@@ -73,7 +73,7 @@ test.describe('tabs', () => {
     await expect(logView(page)).toContainText('GET /health 200')
     await expect(logView(page)).not.toContainText('booting')
     await dock(page).getByRole('searchbox', { name: 'Search logs' }).fill('nothing-matches')
-    await expect(page.locator('[data-pane-state="no-match"]')).toBeVisible()
+    await expect(dock(page).locator('[data-pane-state="no-match"]')).toBeVisible()
   })
 
   test('a search result shows the whole log at that line, flashed, with follow paused', async ({ page, backend }) => {
@@ -83,12 +83,12 @@ test.describe('tabs', () => {
     await openStack(page)
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
     await expect(logView(page)).toContainText('line 399')
-    await expect(page.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(dock(page).getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'true')
 
-    await page.getByRole('searchbox', { name: 'Search logs' }).fill('needle')
-    await expect(page.locator('[data-field="matches"]')).toHaveText('1 of 400')
+    await dock(page).getByRole('searchbox', { name: 'Search logs' }).fill('needle')
+    await expect(dock(page).locator('[data-field="matches"]')).toHaveText('1 of 400')
     await expect(logView(page).locator('mark')).toHaveText('needle')
-    await expect(page.getByRole('button', { name: 'Level error, 1 lines' })).toBeVisible()
+    await expect(dock(page).getByRole('button', { name: 'Level error, 1 lines' })).toBeVisible()
     await logView(page).locator('[data-action="show-in-context"]').click()
 
     await expect(logView(page)).toHaveAttribute('data-view', 'context')
@@ -97,13 +97,13 @@ test.describe('tabs', () => {
     await expect(line).toBeInViewport()
     await expect(line).toBeFocused()
     await expect(logView(page)).toContainText('line 119')
-    await expect(page.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'false')
+    await expect(dock(page).getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'false')
     // Lines arriving now do not move the view.
     backend.pushLogs([`${T(9)} after the jump`])
     await expect(logView(page)).toContainText('after the jump')
     await expect(line).toBeInViewport()
 
-    await page.getByRole('button', { name: /Back to results/ }).click()
+    await dock(page).getByRole('button', { name: /Back to results/ }).click()
     await expect(logView(page)).toHaveAttribute('data-view', 'results')
     await expect(logView(page).locator('[data-line]')).toHaveCount(1)
   })

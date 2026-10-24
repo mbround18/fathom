@@ -137,7 +137,7 @@ test('confirming streams output live; the status moves only on StacksChanged', a
   const op = page.locator('[data-operation="stop"]')
   await expect(op).toHaveAttribute('data-op-state', 'running')
   await expect(op.locator('[data-op-output]')).toContainText('Container web-app-1  Stopping')
-  backend.push({ type: 'OpOutput', data: { operation_id: 'op-2', chunk: 'Container web-app-1  Stopped\n' } })
+  backend.push({ type: 'OpOutput', data: { operation_id: backend.heldOps()[0] ?? '', chunk: 'Container web-app-1  Stopped\n' } })
   await expect(op.locator('[data-op-output]')).toContainText('Container web-app-1  Stopped')
 
   // Finished, but the status is what the server last said until it says otherwise.

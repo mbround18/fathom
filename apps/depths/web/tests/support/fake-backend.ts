@@ -461,6 +461,11 @@ export class FakeBackend {
     })
   }
 
+  /** The ids of the held operations, oldest first (ids share a counter with previews and streams). */
+  heldOps(): string[] {
+    return this.held.map((h) => h.operationId)
+  }
+
   /** Ends a held operation (`op.hold`), sending its `OpFinished`. */
   finishOp(outcome: OpOutcome = this.op.outcome, operationId?: string): void {
     const i = operationId === undefined ? 0 : this.held.findIndex((h) => h.operationId === operationId)

@@ -39,7 +39,7 @@ function me(role: Me['role']): Me {
     role,
     owner: false,
     stacks: [],
-    features: { shell: true, edit: true },
+    features: { shell: true, edit: true, host_metrics: true },
   }
 }
 

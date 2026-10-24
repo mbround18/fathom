@@ -98,7 +98,7 @@ test('the console pops out into tabs, and leaving the page closes its stream', a
 
 test('with the shell off, the console offers no shell', async ({ page, backend }) => {
   seed(backend)
-  backend.me = f.me({ features: { shell: false, edit: true } })
+  backend.me = f.me({ features: { shell: false, edit: true, host_metrics: true } })
   await openStack(page)
   await expect(consoleBox(page).locator('[data-action="console-pop-logs"]')).toBeVisible()
   await expect(consoleBox(page).locator('[data-action="console-pop-shell"]')).toHaveCount(0)
