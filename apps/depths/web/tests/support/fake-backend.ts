@@ -7,6 +7,8 @@
  * - `GET /api/v1/me` answers the scripted `Me`, or a 401 naming the configured providers.
  * - `POST /auth/logout` and `/auth/refresh` are recorded and answered; `/auth/login` is a stub page.
  * - `GET /api/v1/audit/export?…` is `audit`, filtered, as JSONL (admin only, 403 otherwise).
+ * - Spec 053: `GET /api/v1/stacks/{stack}/files/download` and `POST …/files/upload` answer from the
+ *   volume model in `files` (fake-files.ts), which also answers the file commands on the socket.
  * - Spec 052: `/api/v1/networks*`, `/api/v1/sessions*` and the admin `/api/v1/users/{id}/sessions|networks*`
  *   answer from `networks`, `sessionList`, `userSessions` and `userNetworks`. While `me.network` is
  *   untrusted, every command and route outside the restricted list is refused `untrusted_network`
@@ -49,6 +51,8 @@ import type {
   DraftFile,
   Event,
   EventEnvelope,
+  FileLimits,
+  FilesMode,
   Grant,
   Hello,
   HostSample,
@@ -74,12 +78,12 @@ import type {
   WhitelistNetwork,
 } from '../../src/protocol/generated'
 import { CloseCode, PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
+import { FakeFiles, FILE_LIMITS, fakeMount, type FileHttpReply } from './fake-files'
 
 export { expect }
+export { DIR_PAGE_SIZE, FakeFiles, FILE_LIMITS, mountId, type RefusalTarget } from './fake-files'
 
 export type CmdType = Cmd['type']
-
-const MIB = 1024 * 1024
 export type CmdOf<T extends CmdType> = Extract<Cmd, { type: T }>
 
 /** What a scripted handler returns: events to send in reply, or nothing to fall through. */
@@ -170,13 +174,25 @@ export const fixtures = {
       owner: false,
       stacks: [],
       features: { shell: true, edit: true, host_metrics: false, files: 'full' },
-      limits: { files: { editor_max: 2 * MIB, download_max: 2048 * MIB, upload_max: 1024 * MIB } },
+      limits: { files: { ...FILE_LIMITS } },
       network: { trusted: true, reason: 'first', network: '203.0.113.7/32' },
       needs_answer: false,
       proxy_warning: false,
       ...over,
     }
   },
+
+  /**
+   * 053: `me` with the volume explorer in `mode`, and `limits` over the defaults (`FILE_LIMITS`).
+   * `fixtures.filesMe('read_only', { editor_max: 1024 })`.
+   */
+  filesMe(mode: FilesMode, limits: Partial<FileLimits> = {}, over: Partial<Me> = {}): Me {
+    const base = fixtures.me(over)
+    return { ...base, features: { ...base.features, files: mode }, limits: { files: { ...FILE_LIMITS, ...limits } } }
+  },
+
+  /** 053: a ready, writable named volume `app` mounts at `/data`; `backend.files.addMount` seeds one. */
+  mount: fakeMount,
 
   /** A remembered network (spec 052), unknown and untrusted unless `over` says otherwise. */
   networkView(key: string, over: Partial<NetworkView> = {}): NetworkView {
@@ -409,6 +425,14 @@ function stackOf(cmd: Cmd): string | null {
       return cmd.data.draft.stack
     case 'OpenLogs':
       return cmd.data.target.kind === 'stack' ? cmd.data.target.stack : null
+    case 'ListMounts':
+    case 'ListDir':
+    case 'ReadFile':
+    case 'FolderSize':
+    case 'PreviewFileOp':
+    case 'ListHistory':
+    case 'ReadVersion':
+      return cmd.data.stack
     default:
       return null
   }
@@ -476,6 +500,11 @@ export class FakeBackend {
   validationErrors: Record<string, { file?: DraftFile; line: number | null; message: string }[]> = {}
   /** Close code for every new socket's `Hello`, e.g. `CloseCode.TooMany`. `null` = accept. */
   helloClose: number | null = null
+  /** 053: every stack's mounts and their files; seed with `files.addMount`, `files.write`, … */
+  readonly files: FakeFiles = new FakeFiles(
+    () => this.me,
+    () => `pv-${String(++this.seq)}`,
+  )
 
   readonly sockets: FakeSocket[] = []
   readonly http: HttpCall[] = []
@@ -503,6 +532,7 @@ export class FakeBackend {
     await page.route('**/auth/**', (r) => this.auth(r.request()).then((res) => r.fulfill(res)))
     await page.route('**/api/v1/me', (r) => r.fulfill(this.meResponse(r.request())))
     await page.route('**/api/v1/audit/export**', (r) => r.fulfill(this.exportResponse(r.request())))
+    await page.route('**/api/v1/stacks/*/files/**', (r) => r.fulfill(this.filesResponse(r.request())))
     for (const glob of ['**/api/v1/networks**', '**/api/v1/sessions**', '**/api/v1/users/**']) {
       await page.route(glob, (r) => r.fulfill(this.networkResponse(r.request())))
     }
@@ -569,9 +599,17 @@ export class FakeBackend {
     h.socket.send({ type: 'OpFinished', data: { operation_id: h.operationId, outcome } }, h.replyTo)
   }
 
-  /** Marks every outstanding preview expired, as five minutes passing would. */
+  /** Marks every outstanding preview expired, as five minutes passing would (file previews too). */
   expirePreviews(): void {
     for (const p of this.previews.values()) p.expired = true
+    this.files.expirePreviews()
+  }
+
+  /** 053: sets `me.features.files` and merges `limits` into `me.limits.files`, mid-test or before `goto`. */
+  setFiles(mode: FilesMode, limits: Partial<FileLimits> = {}): this {
+    const me = this.me ?? fixtures.me()
+    this.me = { ...me, features: { ...me.features, files: mode }, limits: { files: { ...(me.limits?.files ?? FILE_LIMITS), ...limits } } }
+    return this
   }
 
   /** Sends more log lines on every open log stream (or one, by id). */
@@ -638,9 +676,16 @@ export class FakeBackend {
       case 'PreviewOp':
         return RESTRICTED_OPS.has(cmd.data.op.kind)
       case 'Confirm': {
+        // 053 R12: listing is all the restricted view gets of files, so no file change confirms.
+        if (this.files.owns(cmd.data.preview_id)) return false
         const p = this.previews.get(cmd.data.preview_id)
         return p === undefined || RESTRICTED_OPS.has(p.preview.kind)
       }
+      case 'ReadFile':
+      case 'FolderSize':
+      case 'PreviewFileOp':
+      case 'ListHistory':
+      case 'ReadVersion':
       case 'PreviewSave':
       case 'RevealEnv':
       case 'OpenShell':
@@ -667,6 +712,48 @@ export class FakeBackend {
       status: 403,
       json: { error: 'untrusted_network', network: d.network, reason: d.reason, ...(d.matures_at ? { matures_at: d.matures_at } : {}) },
     }
+  }
+
+  /** 053: the two file routes. Gated as the socket is: session, network, then `files`' own gates. */
+  private filesResponse(req: Request) {
+    this.record(req)
+    const me = this.me
+    if (me === null) return { status: 401, json: { error: 'unauthenticated', providers: this.providers } }
+    const url = new URL(req.url())
+    const path = decodeURIComponent(url.pathname)
+    const m = /^\/api\/v1\/stacks\/([^/]+)\/files\/(download|upload)$/.exec(path)
+    const stack = m?.[1] ?? ''
+    const route = m?.[2]
+    const method = req.method()
+    if (route === undefined || (route === 'download') !== (method === 'GET') || (route === 'upload') !== (method === 'POST')) {
+      return { status: 404, json: { error: 'not_found' } }
+    }
+    if (route === 'upload' && req.headers()['x-csrf-token'] !== me.csrf_token) return { status: 403, json: { error: 'csrf' } }
+    if (!me.network.trusted) {
+      this.recordAudit({
+        action: 'network_refused',
+        stack,
+        outcome: { kind: 'denied', reason: 'untrusted_network' },
+        network: { network: me.network.network, cmd: `${method} ${path}` },
+      })
+      return { status: 403, json: { kind: 'untrusted_network' } }
+    }
+    const may = (s: string): boolean => this.mayStack(me, s)
+    const reply: FileHttpReply =
+      route === 'download'
+        ? this.files.download(stack, url.searchParams, may)
+        : this.files.upload(stack, url.searchParams, req.postDataBuffer() ?? new Uint8Array(0), may)
+    return {
+      status: reply.status,
+      ...(reply.headers ? { headers: reply.headers } : {}),
+      ...(reply.contentType ? { contentType: reply.contentType } : {}),
+      ...(reply.body ? { body: Buffer.from(reply.body) } : { json: reply.json }),
+    }
+  }
+
+  /** Whether `me` may work on `stack`: an admin, or a user it is assigned to. */
+  private mayStack(me: Me, stack: string): boolean {
+    return me.role === 'admin' || me.stacks.includes(stack)
   }
 
   /** The decision for `n` after an answer: never trusted by the answer alone (FR-006). */
@@ -916,7 +1003,7 @@ export class FakeBackend {
   private respond(cmd: Cmd, socket: FakeSocket, id: number): Event[] {
     const me = this.me ?? fixtures.me()
     const admin = me.role === 'admin'
-    const may = (stack: string): boolean => admin || me.stacks.includes(stack)
+    const may = (stack: string): boolean => this.mayStack(me, stack)
     const denied = (reason: DenyReason = 'not_permitted'): Event[] => [{ type: 'Denied', data: { reason } }]
     const find = (name: string): Stack | undefined => this.stacks.stacks.find((s) => s.name === name)
 
@@ -984,6 +1071,7 @@ export class FakeBackend {
 
       case 'Confirm': {
         // 051 FR-018: a preview with escape findings under `enforce` runs only acknowledged.
+        if (this.files.owns(cmd.data.preview_id)) return this.files.confirm(cmd.data.preview_id, may)
         const held = this.previews.get(cmd.data.preview_id)
         if (held?.preview.ack_required && !held.used && cmd.data.acknowledge_findings !== true) {
           return [{ type: 'Denied', data: { reason: 'compose_blocked', detail: 'acknowledge the findings to deploy' } }]
@@ -1108,6 +1196,16 @@ export class FakeBackend {
         })
         return [{ type: 'Users', data: this.users }]
       }
+
+      // 053: the volume explorer, answered from `files`.
+      case 'ListMounts':
+      case 'ListDir':
+      case 'ReadFile':
+      case 'FolderSize':
+      case 'PreviewFileOp':
+      case 'ListHistory':
+      case 'ReadVersion':
+        return this.files.handle(cmd, may)
 
       case 'RemoveUser': {
         if (!admin) return denied()
