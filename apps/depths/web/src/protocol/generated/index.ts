@@ -5,6 +5,7 @@ export type * from "./AnswerNetwork";
 export type * from "./AuditAction";
 export type * from "./AuditCursor";
 export type * from "./AuditEntry";
+export type * from "./AuditFile";
 export type * from "./AuditFilter";
 export type * from "./AuditNetwork";
 export type * from "./AuditOutcome";

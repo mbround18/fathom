@@ -1047,6 +1047,7 @@ fn all_events() -> Vec<Event> {
                     source_ip: "203.0.113.7".into(),
                     network: None,
                     security: None,
+                    file: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:01:00Z".into(),
@@ -1072,6 +1073,7 @@ fn all_events() -> Vec<Event> {
                     source_ip: "203.0.113.7".into(),
                     network: None,
                     security: None,
+                    file: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:02:00Z".into(),
@@ -1096,6 +1098,32 @@ fn all_events() -> Vec<Event> {
                         level: SecurityLevel::Root,
                         reasons: vec!["root_user".into()],
                         acknowledged: false,
+                    }),
+                    file: None,
+                },
+                AuditEntry {
+                    at: "2026-10-23T09:03:00Z".into(),
+                    actor: actor(),
+                    action: AuditAction::FilesRefused,
+                    stack: Some("valheim".into()),
+                    preview_id: None,
+                    operation_id: None,
+                    argv: vec![],
+                    target: None,
+                    diff_summary: None,
+                    outcome: AuditOutcome::Denied {
+                        reason: "outside_mount".into(),
+                    },
+                    source_ip: "203.0.113.7".into(),
+                    network: None,
+                    security: None,
+                    file: Some(AuditFile {
+                        service: Some("valheim".into()),
+                        mount: mount_id(),
+                        source: "valheim_saves".into(),
+                        path: rel("worlds/a.db"),
+                        bytes: None,
+                        op: Some("read".into()),
                     }),
                 },
             ],
@@ -1606,5 +1634,41 @@ fn file_cmds_refuse_bad_values() {
             { "name": "a/b", "size": 1 }
         ] }
     } } }),
+    );
+}
+
+#[test]
+fn file_audit_actions_are_dotted_and_carry_no_content() {
+    for (a, wire) in [
+        (AuditAction::FilesRead, "files.read"),
+        (AuditAction::FilesDownload, "files.download"),
+        (AuditAction::FilesUpload, "files.upload"),
+        (AuditAction::FilesSave, "files.save"),
+        (AuditAction::FilesCreate, "files.create"),
+        (AuditAction::FilesRename, "files.rename"),
+        (AuditAction::FilesDelete, "files.delete"),
+        (AuditAction::FilesRestore, "files.restore"),
+        (AuditAction::FilesRefused, "files.refused"),
+    ] {
+        assert_eq!(serde_json::to_value(a).unwrap(), json!(wire));
+    }
+    let full = AuditFile {
+        service: Some("valheim".into()),
+        mount: mount_id(),
+        source: "valheim_saves".into(),
+        path: rel("worlds/a.db"),
+        bytes: Some(12),
+        op: Some("save".into()),
+    };
+    let v = serde_json::to_value(&full).unwrap();
+    let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    // Names, a size and the op: adding a field here means deciding it cannot hold content.
+    assert_eq!(keys, ["bytes", "mount", "op", "path", "service", "source"]);
+    assert!(
+        v.as_object()
+            .unwrap()
+            .values()
+            .all(|x| !x.is_object() && !x.is_array())
     );
 }

@@ -1048,6 +1048,26 @@ pub enum AuditAction {
     SessionEnd,
     /// A command refused because the network is untrusted.
     NetworkRefused,
+    /// A file opened in the editor (spec 053). Listing is not audited.
+    #[serde(rename = "files.read")]
+    FilesRead,
+    #[serde(rename = "files.download")]
+    FilesDownload,
+    #[serde(rename = "files.upload")]
+    FilesUpload,
+    #[serde(rename = "files.save")]
+    FilesSave,
+    #[serde(rename = "files.create")]
+    FilesCreate,
+    #[serde(rename = "files.rename")]
+    FilesRename,
+    #[serde(rename = "files.delete")]
+    FilesDelete,
+    #[serde(rename = "files.restore")]
+    FilesRestore,
+    /// A file command refused, by a gate or by the helper.
+    #[serde(rename = "files.refused")]
+    FilesRefused,
 }
 
 impl From<OperationKind> for AuditAction {
@@ -1124,6 +1144,30 @@ pub struct AuditEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub security: Option<AuditSecurity>,
+    /// File entries (spec 053): where, never what.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub file: Option<AuditFile>,
+}
+
+/// The file part of an audit entry. Names and sizes only: no field can carry content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditFile {
+    /// The first service that mounts it, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub service: Option<String>,
+    pub mount: MountId,
+    /// The volume name or host path.
+    pub source: String,
+    pub path: RelPath,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub bytes: Option<u64>,
+    /// `files.refused`: the command refused (`save`, `list`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub op: Option<String>,
 }
 
 /// What an audit entry records of a container's or compose file's containment.

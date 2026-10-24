@@ -6,10 +6,18 @@
 //!   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set; the exporter reads the rest of the standard
 //!   `OTEL_*` variables itself. Without one, no exporter is built and nothing leaves the process.
 //!
+//! - Metrics go to the same endpoint, exported every 60 s; without one the instruments are no-ops.
+//!
 //! Call [`init`] before the Tokio runtime starts: the OTLP HTTP client is a blocking one.
 
+use std::sync::LazyLock;
+use std::time::Duration;
+
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::Histogram;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -21,6 +29,7 @@ pub const SERVICE_NAME: &str = "depths";
 #[derive(Debug)]
 pub struct Guard {
     provider: Option<SdkTracerProvider>,
+    meter: Option<SdkMeterProvider>,
 }
 
 impl Guard {
@@ -35,6 +44,9 @@ impl Drop for Guard {
         if let Some(p) = self.provider.take() {
             // Nothing useful can be done with a failed flush at exit.
             let _ = p.shutdown();
+        }
+        if let Some(m) = self.meter.take() {
+            let _ = m.shutdown();
         }
     }
 }
@@ -62,6 +74,11 @@ pub fn init() -> Result<Guard, String> {
         .with_current_span(false)
         .with_span_list(false)
         .with_writer(std::io::stderr);
+    let resource = || {
+        Resource::builder()
+            .with_service_name(env("OTEL_SERVICE_NAME").unwrap_or_else(|| SERVICE_NAME.to_owned()))
+            .build()
+    };
     let provider = if otlp_enabled(env) {
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
@@ -69,16 +86,24 @@ pub fn init() -> Result<Guard, String> {
             .map_err(|e| format!("cannot build the OTLP exporter (OTEL_EXPORTER_OTLP_*): {e}"))?;
         Some(
             SdkTracerProvider::builder()
-                .with_resource(
-                    Resource::builder()
-                        .with_service_name(
-                            env("OTEL_SERVICE_NAME").unwrap_or_else(|| SERVICE_NAME.to_owned()),
-                        )
-                        .build(),
-                )
+                .with_resource(resource())
                 .with_batch_exporter(exporter)
                 .build(),
         )
+    } else {
+        None
+    };
+    let meter = if otlp_enabled(env) {
+        let exporter = opentelemetry_otlp::MetricExporter::builder()
+            .with_http()
+            .build()
+            .map_err(|e| format!("cannot build the OTLP metric exporter: {e}"))?;
+        let m = SdkMeterProvider::builder()
+            .with_resource(resource())
+            .with_periodic_exporter(exporter)
+            .build();
+        opentelemetry::global::set_meter_provider(m.clone());
+        Some(m)
     } else {
         None
     };
@@ -91,7 +116,37 @@ pub fn init() -> Result<Guard, String> {
         .with(otel)
         .try_init()
         .map_err(|e| format!("cannot install the log subscriber: {e}"))?;
-    Ok(Guard { provider })
+    Ok(Guard { provider, meter })
+}
+
+/// `depths.files.helper_start_ms`: how long a volume helper took to answer `Hello` (spec 053).
+static HELPER_START_MS: LazyLock<Histogram<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter(SERVICE_NAME)
+        .u64_histogram("depths.files.helper_start_ms")
+        .with_unit("ms")
+        .with_description("Time from starting a volume helper to its Hello")
+        .build()
+});
+
+pub fn record_helper_start(took: Duration, kind: &'static str) {
+    HELPER_START_MS.record(
+        u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+        &[KeyValue::new("mount_kind", kind)],
+    );
+}
+
+/// The `files.op` span: what ran where, never the path (R15). Fill `outcome`, `bytes` and
+/// `warm` with `Span::record` once known.
+pub fn files_span(kind: &'static str, stack: &str, mount: &str) -> tracing::Span {
+    tracing::info_span!(
+        "files.op",
+        kind,
+        stack,
+        mount,
+        outcome = tracing::field::Empty,
+        bytes = tracing::field::Empty,
+        warm = tracing::field::Empty,
+    )
 }
 
 #[cfg(test)]

@@ -32,6 +32,15 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   network_forget: 'Network forgotten',
   session_end: 'Session ended',
   network_refused: 'Refused: untrusted network',
+  'files.read': 'File opened',
+  'files.download': 'File downloaded',
+  'files.upload': 'Files uploaded',
+  'files.save': 'File saved',
+  'files.create': 'File created',
+  'files.rename': 'File renamed',
+  'files.delete': 'File deleted',
+  'files.restore': 'File restored',
+  'files.refused': 'Refused: files',
 }
 
 export const ACTIONS = Object.keys(ACTION_LABEL) as AuditAction[]
@@ -56,6 +65,7 @@ function grantText(g: Grant | null): string {
 export function detailLines(e: AuditEntry): string[] {
   const out = e.argv.map(argvLine)
   if (e.diff_summary) out.push(e.diff_summary)
+  if (e.file) out.push(`${e.file.source}: ${e.file.path || '/'}`)
   if (e.target) out.push(`${e.target.id}: ${grantText(e.target.before)} → ${grantText(e.target.after)}`)
   if (e.outcome.kind === 'failed' && e.outcome.stderr_tail) out.push(e.outcome.stderr_tail)
   return out

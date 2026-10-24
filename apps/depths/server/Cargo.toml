@@ -39,8 +39,8 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "s
 tower = "0.5"
 tower-http = { version = "0.7", features = ["fs", "limit", "timeout"] }
 opentelemetry = "0.33.1"
-opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
-opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics"] }
 tracing = "0.1.44"
 tracing-opentelemetry = "0.34.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }

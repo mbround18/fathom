@@ -12,8 +12,8 @@ use audit_log::{AuditLog, AuditOptions, Cursor, Retention};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use depths_protocol::{
-    Actor, AuditAction, AuditCursor, AuditEntry, AuditFilter, AuditOutcome, OperationId, PreviewId,
-    UserChange,
+    Actor, AuditAction, AuditCursor, AuditEntry, AuditFile, AuditFilter, AuditOutcome, OperationId,
+    PreviewId, UserChange,
 };
 
 use crate::users::provider_str;
@@ -159,6 +159,7 @@ pub fn entry(actor: Actor, action: AuditAction, ip: IpAddr, outcome: AuditOutcom
         source_ip: ip.to_string(),
         network: None,
         security: None,
+        file: None,
     }
 }
 
@@ -210,6 +211,44 @@ impl OpRecord {
         e.security.clone_from(&self.security);
         e
     }
+}
+
+/// A file entry (spec 053): `files.<op>` on one path of one mount. `file` names the place and
+/// the size; nothing here takes the bytes.
+pub fn file(
+    actor: Actor,
+    ip: IpAddr,
+    action: AuditAction,
+    stack: &str,
+    file: AuditFile,
+    outcome: AuditOutcome,
+) -> AuditEntry {
+    let mut e = entry(actor, action, ip, outcome);
+    e.stack = Some(stack.to_owned());
+    e.file = Some(file);
+    e
+}
+
+/// `files.refused`: `op` refused for `reason` (a `DenyReason` or `FileRefusal` code).
+pub fn file_refused(
+    actor: Actor,
+    ip: IpAddr,
+    stack: &str,
+    op: &str,
+    mut place: AuditFile,
+    reason: impl Into<String>,
+) -> AuditEntry {
+    place.op = Some(op.to_owned());
+    file(
+        actor,
+        ip,
+        AuditAction::FilesRefused,
+        stack,
+        place,
+        AuditOutcome::Denied {
+            reason: reason.into(),
+        },
+    )
 }
 
 /// A users-registry change.
@@ -346,6 +385,35 @@ mod tests {
         assert_eq!(
             user_change(actor("1"), ip(), false, c(true, false)).action,
             AuditAction::UserRemoved
+        );
+    }
+
+    #[test]
+    fn a_file_refusal_names_the_op_and_the_reason() {
+        let place = AuditFile {
+            service: Some("valheim".into()),
+            mount: depths_protocol::MountId::compute(depths_protocol::MountKind::Volume, "saves"),
+            source: "saves".into(),
+            path: depths_protocol::RelPath::parse("worlds/a.db").unwrap(),
+            bytes: None,
+            op: None,
+        };
+        let e = file_refused(
+            actor("1"),
+            ip(),
+            "valheim",
+            "save",
+            place,
+            "changed_on_disk",
+        );
+        assert_eq!(e.action, AuditAction::FilesRefused);
+        assert_eq!(e.stack.as_deref(), Some("valheim"));
+        assert_eq!(e.file.as_ref().and_then(|f| f.op.as_deref()), Some("save"));
+        assert_eq!(
+            e.outcome,
+            AuditOutcome::Denied {
+                reason: "changed_on_disk".into()
+            }
         );
     }
 
