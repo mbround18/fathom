@@ -25,6 +25,7 @@ const ROUTES: readonly Route[] = [
   { pattern: '/stacks/:name', page: stacksPage, group: 'stacks' },
   { pattern: '/stacks/:name/edit', page: lazy(() => import('@/features/editor/EditStack')) },
   { pattern: '/new', page: lazy(() => import('@/features/stacks/CreateStack')) },
+  { pattern: '/account/sessions', page: lazy(() => import('@/features/sessions/SessionsPage')) },
   { pattern: '/admin/users', page: lazy(() => import('@/features/users/UsersView')), admin: true },
   { pattern: '/admin/audit', page: lazy(() => import('@/features/audit/AuditLog')), admin: true },
 ]
