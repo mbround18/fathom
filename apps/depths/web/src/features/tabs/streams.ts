@@ -23,7 +23,7 @@ import { useStacks } from '@/features/stacks/store'
 import type { LogTarget, RequestId, StatsTarget, StreamCloseReason, StreamId, UsageSample } from '@/protocol/generated'
 
 import type { TabSpec } from './layout'
-import { lineTime, stripAnsi } from './logtext'
+import { lineTime } from './logtext'
 import { useTabs } from './store'
 
 /** Lines asked for when a log tab first opens (and after a reload). */
@@ -33,6 +33,7 @@ const SHELL_CHUNKS = 4096
 const BACKOFF_MS = [500, 1000, 2000, 5000, 10_000] as const
 
 export interface LogLine {
+  /** The line as written, colour codes included; the log view renders it safely. */
   text: string
   /** When it was written (ms), from the line's own timestamp or the last one before it. */
   at: number | null
@@ -194,7 +195,7 @@ function appendLines(tab: string, raw: readonly string[]): void {
         lastStamp.set(tab, t)
       }
     }
-    out.push({ text: stripAnsi(r), at })
+    out.push({ text: r, at })
   }
   if (out.length === 0) return
   cur.lines.pushAll(out)
@@ -203,12 +204,11 @@ function appendLines(tab: string, raw: readonly string[]): void {
 
 /** The line is already among the retained lines written at the same instant. */
 function repeats(lines: RingBuffer<LogLine>, raw: string): boolean {
-  const text = stripAnsi(raw)
   const last = lines.at(lines.length - 1)?.at
   for (let i = lines.length - 1; i >= 0 && i >= lines.length - 200; i--) {
     const l = lines.at(i)
     if (!l || l.at !== last) break
-    if (l.text === text) return true
+    if (l.text === raw) return true
   }
   return false
 }

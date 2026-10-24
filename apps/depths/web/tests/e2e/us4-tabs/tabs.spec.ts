@@ -29,7 +29,7 @@ const logView = (page: Page) => page.getByTestId('log-view')
 test.describe('tabs', () => {
   test.beforeEach(({ backend }) => seed(backend))
 
-  test('a log tab shows the lines as plain text, colour codes and markup included literally', async ({ page, backend }) => {
+  test('a log tab shows colour as styled text, other escapes removed and markup kept literal', async ({ page, backend }) => {
     backend.logs['web-app-1']?.push(`${T(4)} <img src=x onerror="window.__pwned=1"> <b>bold</b>`)
     await openStack(page)
     await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
@@ -40,6 +40,12 @@ test.describe('tabs', () => {
     await expect(logView(page)).toContainText('ready on :8080')
     await expect(logView(page)).not.toContainText('\u001b')
     await expect(logView(page)).not.toContainText('[32m')
+    // SGR green is a styled span around the text it coloured, in a theme colour.
+    const green = logView(page).locator('[data-ansi][data-fg="2"]')
+    await expect(green).toHaveText('ready')
+    expect(await green.evaluate((el) => getComputedStyle(el).color)).not.toBe(
+      await logView(page).evaluate((el) => getComputedStyle(el).color),
+    )
     await expect(logView(page)).toContainText('<img src=x onerror="window.__pwned=1"> <b>bold</b>')
     await expect(logView(page).locator('img, b')).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined()
@@ -64,6 +70,38 @@ test.describe('tabs', () => {
     await expect(logView(page)).not.toContainText('booting')
     await page.getByRole('searchbox', { name: 'Search logs' }).fill('nothing-matches')
     await expect(page.locator('[data-pane-state="no-match"]')).toBeVisible()
+  })
+
+  test('a search result shows the whole log at that line, flashed, with follow paused', async ({ page, backend }) => {
+    backend.logs['web-app-1'] = Array.from({ length: 400 }, (_, i) =>
+      i === 120 ? `${T(1)} {"level":"error","msg":"needle in the haystack"}` : `${T(1)} line ${String(i)}`,
+    )
+    await openStack(page)
+    await container(page).getByRole('button', { name: 'Logs for web-app-1' }).click()
+    await expect(logView(page)).toContainText('line 399')
+    await expect(page.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'true')
+
+    await page.getByRole('searchbox', { name: 'Search logs' }).fill('needle')
+    await expect(page.locator('[data-field="matches"]')).toHaveText('1 of 400')
+    await expect(logView(page).locator('mark')).toHaveText('needle')
+    await expect(page.getByRole('button', { name: 'Level error, 1 lines' })).toBeVisible()
+    await logView(page).locator('[data-action="show-in-context"]').click()
+
+    await expect(logView(page)).toHaveAttribute('data-view', 'context')
+    const line = logView(page).locator('[data-line="120"]')
+    await expect(line).toHaveAttribute('data-flash', '')
+    await expect(line).toBeInViewport()
+    await expect(line).toBeFocused()
+    await expect(logView(page)).toContainText('line 119')
+    await expect(page.getByRole('button', { name: 'Follow' })).toHaveAttribute('aria-pressed', 'false')
+    // Lines arriving now do not move the view.
+    backend.pushLogs([`${T(9)} after the jump`])
+    await expect(logView(page)).toContainText('after the jump')
+    await expect(line).toBeInViewport()
+
+    await page.getByRole('button', { name: /Back to results/ }).click()
+    await expect(logView(page)).toHaveAttribute('data-view', 'results')
+    await expect(logView(page).locator('[data-line]')).toHaveCount(1)
   })
 
   test('pause freezes the view and counts what arrives; resume catches up', async ({ page, backend }) => {
