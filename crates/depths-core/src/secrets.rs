@@ -21,6 +21,9 @@ pub fn is_secret_key(key: &str) -> bool {
 /// looks secret (the text can go out as it is).
 pub fn mask_env(text: &str) -> Option<String> {
     let mut masked = false;
+    // Inside a secret's quoted multi-line value: its quote. Those lines are dropped, so the
+    // whole value reads as one [`MASK`].
+    let mut inside: Option<char> = None;
     let mut out = String::with_capacity(text.len());
     for line in text.split_inclusive('\n') {
         let (body, eol) = match line.strip_suffix('\n') {
@@ -30,18 +33,30 @@ pub fn mask_env(text: &str) -> Option<String> {
             },
             None => (line, ""),
         };
+        if let Some(q) = inside {
+            if closes(body, q) {
+                inside = None;
+            }
+            continue;
+        }
         let trimmed = body.trim_start();
         let assignment = (!trimmed.starts_with('#'))
             .then(|| body.split_once('='))
             .flatten();
         match assignment {
-            Some((lhs, _)) => {
+            Some((lhs, value)) => {
                 let key = lhs.trim().trim_start_matches("export ").trim();
                 if is_secret_key(key) {
                     masked = true;
                     out.push_str(lhs);
                     out.push('=');
                     out.push_str(MASK);
+                    let v = value.trim_start();
+                    if let Some(q @ ('"' | '\'')) = v.chars().next()
+                        && !closes(&v[1..], q)
+                    {
+                        inside = Some(q);
+                    }
                 } else {
                     out.push_str(body);
                 }
@@ -51,6 +66,19 @@ pub fn mask_env(text: &str) -> Option<String> {
         out.push_str(eol);
     }
     masked.then_some(out)
+}
+
+/// Whether `s` holds the closing `q` of a quoted value: one not escaped with a backslash.
+fn closes(s: &str, q: char) -> bool {
+    let mut escaped = false;
+    for c in s.chars() {
+        match c {
+            '\\' if !escaped => escaped = true,
+            c if c == q && !escaped => return true,
+            _ => escaped = false,
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -87,6 +115,26 @@ mod tests {
     #[test]
     fn nothing_secret_is_none() {
         assert_eq!(mask_env("PORT=1\n# TOKEN=x in a comment\n"), None);
+    }
+
+    #[test]
+    fn a_multi_line_secret_is_masked_whole() {
+        // T099 F5: Compose reads a quoted value across lines. Masking the first line only sent
+        // the body of a PEM key to everyone who can view the stack, without the audited reveal.
+        let text = "A=1\nPRIVATE_KEY=\"-----BEGIN KEY-----\nMIIEsecret\nYWJj==\n-----END KEY-----\"\nB=2\nSSH_KEY='x\ny'\nTOKEN=\"one line\"\nC=3\n";
+        let m = mask_env(text).unwrap();
+        for leak in [
+            "MIIE", "YWJj", "BEGIN", "END KEY", "x\n", "\ny'", "one line",
+        ] {
+            assert!(!m.contains(leak), "{leak:?} leaked: {m}");
+        }
+        assert_eq!(
+            m,
+            "A=1\nPRIVATE_KEY=********\nB=2\nSSH_KEY=********\nTOKEN=********\nC=3\n"
+        );
+        // An unterminated quote masks to the end: nothing after it can be told from the value.
+        let m = mask_env("API_TOKEN=\"abc\nmore\nPORT=1\n").unwrap();
+        assert_eq!(m, "API_TOKEN=********\n");
     }
 
     #[test]
