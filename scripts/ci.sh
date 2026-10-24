@@ -58,6 +58,7 @@ rust_run() {
     --cache fathom-ci-cargo-registry=/usr/local/cargo/registry \
     --cache fathom-ci-cargo-git=/usr/local/cargo/git \
     --cache fathom-ci-target=/src/target \
+    --cache fathom-ci-cargo-tools=/opt/cargo-tools \
     --step "$STUB_UI_DIST" \
     "$@"
 }
@@ -74,6 +75,12 @@ SHARED_AUTH_DEPS_CHECK="$N cargo tree -p web-auth -p audit-log --prefix none --f
 > /tmp/shared-auth-deps && if grep -E '^(kube|fathom)([- ]|\$)' /tmp/shared-auth-deps; then \
 echo 'error: web-auth/audit-log depend on kube or fathom (above).' >&2; exit 1; fi"
 
+# Spec 050 (T096): advisories, licences and sources per deny.toml. cargo-deny is installed once
+# into a cached volume; the rust image's own /usr/local/cargo/bin holds the toolchain proxies.
+CARGO_DENY="{ [ -x /opt/cargo-tools/bin/cargo-deny ] \
+|| $N cargo install --locked --root /opt/cargo-tools cargo-deny; } \
+&& $N /opt/cargo-tools/bin/cargo-deny check"
+
 job_check() {
   rust_run \
     --step "$CONTAINER_RUNTIME_DEPS" \
@@ -83,7 +90,8 @@ job_check() {
     --step "$N cargo clippy --workspace --all-targets -- -D warnings" \
     --step "$N cargo clippy -p fathom-desktop -- -D warnings" \
     --step "$N cargo fmt --check" \
-    --step "$N scripts/check-no-ldap.sh"
+    --step "$N scripts/check-no-ldap.sh" \
+    --step "$CARGO_DENY"
 }
 
 job_test() {
@@ -131,6 +139,7 @@ job_ui() {
     --step "$N pnpm test" \
     --step "$N pnpm build" \
     --step "$N pnpm e2e --workers=\"\$PLAYWRIGHT_WORKERS\"" \
+    --step "$N pnpm audit --prod --audit-level high" \
     --step "$N pnpm --filter $DEPTHS_WEB lint" \
     --step "$N pnpm --filter $DEPTHS_WEB typecheck" \
     --step "$N pnpm --filter $DEPTHS_WEB test" \

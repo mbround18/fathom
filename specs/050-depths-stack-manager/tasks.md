@@ -336,10 +336,12 @@ every signed-in person as limited to exactly their permission row. Each task bel
     backslashes) is refused. Add tests.
   - Docker stderr reaches only signed-in people permitted on that stack (FR-013), never logs at
     `info` with env values.
-- [ ] T096 Supply chain: add `deny.toml` (advisories deny, unknown registries and git sources
+- [X] T096 Supply chain: add `deny.toml` (advisories deny, unknown registries and git sources
   deny, licences allow-list matching THIRD_PARTY_LICENSES) and a `make audit` target running
   `cargo deny check` and `pnpm audit --prod --audit-level high`. Add both as steps in
   `scripts/ci.sh`'s check job (install `cargo-deny` in the paws setup step, cached).
+  Done: `cargo deny check` runs in the check job (cached in `/opt/cargo-tools`); `pnpm audit` runs
+  in the ui job, the one with node. Accepted advisories, each with its reason, are in `deny.toml`.
 - [ ] T097 Container lockdown, in `apps/depths/compose.yaml` and documented for the steam compose:
   - `depths`: non-root user, `read_only: true`, `tmpfs: /tmp`, `cap_drop: [ALL]`,
     `security_opt: [no-new-privileges:true]`, `pids_limit`, a memory limit, and no published

@@ -40,7 +40,7 @@ GC_DOCKER_KEEP ?= 40GB
 WIN_TRIPLE := x86_64-pc-windows-msvc
 HOST_OS    := $(shell uname -s)
 
-.PHONY: help build-linux build-windows build-macos windows-deps dist-clean version gc \
+.PHONY: help audit build-linux build-windows build-macos windows-deps dist-clean version gc \
         depths-dev depths-image depths-test
 
 help: ## Print this target list
@@ -129,6 +129,10 @@ depths-dev: ## Depths server on 127.0.0.1:8080 (--insecure-dev) plus vite dev on
 depths-image: gc ## Build the Depths container image (depths:dev)
 	docker build -f apps/depths/Dockerfile -t depths:dev \
 	  --build-arg RUST_VERSION=$$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml) .
+
+audit: ## Supply chain: cargo deny (deny.toml) and pnpm audit of production dependencies
+	cargo deny check
+	pnpm audit --prod --audit-level high
 
 depths-test: ## Depths and shared-crate tests: cargo (Rust side) and vitest (web)
 	cargo test $(DEPTHS_PKGS)

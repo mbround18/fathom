@@ -23,6 +23,8 @@ name = "fathom"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
+# An application, never published; cargo-deny treats path dependencies as wildcards otherwise.
+publish = false
 
 [features]
 default = ["os-keyring"]

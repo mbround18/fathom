@@ -1,0 +1,60 @@
+# cargo-deny policy (spec 050, T096). Run with `make audit`; scripts/ci.sh runs it in the check job.
+
+[graph]
+all-features = true
+
+[advisories]
+# Every RustSec advisory fails the check, unmaintained and unsound included. To accept one, add
+# its id here with the reason it does not reach us.
+unmaintained = "all"
+yanked = "deny"
+ignore = [
+  # rsa (Marvin): only the fathom desktop app, through openidconnect, and only to verify RS256
+  # signatures with public keys. The timing leak is in private-key operations. No fixed release.
+  { id = "RUSTSEC-2023-0071", reason = "fathom only; public-key verify, not affected" },
+  # unsafe-libyaml, through serde_yaml in container-runtime and fathom. Unmaintained, no known
+  # vulnerability. Depths parses compose files only from signed-in users permitted to edit, under
+  # a 16 KiB body limit. Follow-up: move container-runtime to a maintained YAML crate.
+  { id = "RUSTSEC-2024-0449", reason = "unmaintained, no vulnerability; follow-up to replace serde_yaml" },
+  # paste, through image's AV1 encoder (rav1e/pulp): fathom only, build-time macro.
+  { id = "RUSTSEC-2024-0436", reason = "fathom only; proc-macro, no runtime code" },
+  # zbus 5 internals, through keyring's Secret Service store: fathom desktop only.
+  { id = "RUSTSEC-2026-0370", reason = "fathom desktop only (keyring)" },
+  { id = "RUSTSEC-2026-0371", reason = "fathom desktop only (keyring)" },
+  { id = "RUSTSEC-2026-0372", reason = "fathom desktop only (keyring)" },
+]
+
+[licenses]
+# Matches THIRD_PARTY_LICENSES.md (scripts/third-party-licenses.sh). A new licence needs a
+# deliberate edit here.
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-1-Clause",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "NCSA",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
