@@ -477,7 +477,7 @@ layout restored and every tab live.
   - A dropped stream shows "reconnected".
   - When the session expires mid-stream, the tab says so; after signing in again the log tabs reopen and the shell tab offers a new session.
 - [X] T065 [P] [US4] Write a soak test in `apps/depths/web/tests/e2e/us4-tabs/soak.spec.ts`: the fake backend streams 6 tabs at 50 lines/s for a simulated hour, with time compressed. Assert JS heap stays bounded (ring cap) and input latency stays under 100 ms (SC-005).
-- [ ] T066 [US4] Implement `OpenLogs` (compose logs per service or `docker logs` per container, `--since` on reopen), `OpenShell`/`ShellInput`/`ShellResize` (048 `session.rs` PTY, gated by role and `DEPTHS_FEATURE_SHELL`, audited as `shell_open`), `WatchStats`/`UnwatchStats` (2 s `stats --no-stream`, only while watched) and `CloseStream` in `apps/depths/server/src/ws.rs`. Add mock-runner tests for each, including that stats stop on unwatch and on socket close.
+- [X] T066 [US4] Implement `OpenLogs` (compose logs per service or `docker logs` per container, `--since` on reopen), `OpenShell`/`ShellInput`/`ShellResize` (048 `session.rs` PTY, gated by role and `DEPTHS_FEATURE_SHELL`, audited as `shell_open`), `WatchStats`/`UnwatchStats` (2 s `stats --no-stream`, only while watched) and `CloseStream` in `apps/depths/server/src/ws.rs`. Add mock-runner tests for each, including that stats stop on unwatch and on socket close.
 - [X] T067 [US4] Build the tab system in `apps/depths/web/src/features/tabs/{TabHost,TabStrip,LogsTab,ShellTab,StatsTab}.tsx`:
   - `react-resizable-panels` at wide widths, a single pane at narrow widths.
   - Layout persisted in `localStorage` under `depths:layout:<subject>`, with every read and write wrapped so the page works without storage.
