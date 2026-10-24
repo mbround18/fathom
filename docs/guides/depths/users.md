@@ -93,6 +93,25 @@ they sign in with that account. To give them stacks, **Edit** their row afterwar
 Every change (`user_added`, `user_changed`, `user_removed`) is recorded in the audit log, on the
 **Audit** page (`/admin/audit`), which admins can also export.
 
+## Sessions and networks
+
+Everyone can see their own sessions and networks on **Your sessions** (the person icon in the top
+bar): each signed-in browser with its address, approximate location and whether its network is
+trusted, and each network with your *home* or *public* answer. You can end any other session, or
+all of them at once, from any network. See [Networks and the restricted view](security.md).
+
+Admins see the same for anyone: on the Users page, open **Sessions and networks** on their row.
+
+- **End every session** signs that person out everywhere. It works from any network.
+- **Whitelist** a network (an address or a CIDR such as `198.51.100.0/24`, with an optional
+  label) to trust it for that person at once, without the waiting period.
+- **Remove whitelist** takes the entry away; the network is then unknown again.
+  **Forget** removes a network Depths has only seen, so it counts as new next time.
+
+Whitelisting, removing and forgetting are only possible from a trusted network. From anywhere
+else the buttons are disabled and the server refuses the request. Every change is in the audit
+log (`network_whitelist_add`, `network_whitelist_remove`, `network_forget`, `session_end`).
+
 ## Where the list lives
 
 The list is `users.json` in the data directory (`/var/lib/depths` in the example compose file),

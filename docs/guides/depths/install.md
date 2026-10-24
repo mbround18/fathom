@@ -191,6 +191,11 @@ came from.
 | `--max-file-bytes` | `DEPTHS_MAX_FILE_BYTES` | `1MiB` | Largest compose or `.env` file the editor opens |
 | `--audit-rotate-bytes` | `DEPTHS_AUDIT_ROTATE_BYTES` | `64MiB` | Audit log size at which it rotates |
 | `--trusted-proxies` | `DEPTHS_TRUSTED_PROXIES` | empty | Proxies whose forwarding headers are believed (above) |
+| `--network-gate` | `DEPTHS_NETWORK_GATE` | `true` | The restricted view on untrusted networks. See [Networks and the restricted view](security.md) |
+| `--network-maturity-days` | `DEPTHS_NETWORK_MATURITY_DAYS` | `7` | Days before a *home* network is trusted; `0` never |
+| | `DEPTHS_NETWORK_V4_PREFIX`, `DEPTHS_NETWORK_V6_PREFIX` | `32`, `64` | How addresses are grouped into networks |
+| | `DEPTHS_TRUSTED_NETWORKS` | empty | CIDRs that are always trusted, such as your LAN or tailnet |
+| | `DEPTHS_GEOIP_DB` | unset | A City `.mmdb` file for approximate locations (below) |
 | `--insecure-dev` | `DEPTHS_INSECURE_DEV` | `false` | For development only: allows an `http://` public URL. Refused unless Depths listens on a loopback address |
 | | `DEPTHS_FEATURE_SHELL` | `false` | Container shells; see below |
 | | `DEPTHS_FEATURE_EDIT` | `true` | Editing compose and `.env` files. With `false`, Depths refuses to save edits |
@@ -226,6 +231,25 @@ Both default to off. If you run Depths without the proxy, the second switch does
 `DEPTHS_FEATURE_SHELL` alone decides.
 
 Even with shells on, a `user` can only open one in a container of a stack assigned to them.
+
+## Approximate locations
+
+Your sessions and the Users page can show a city and country next to each address. Depths looks
+them up in a database file on disk; it never sends addresses anywhere. Locations are for display
+only and never affect trust.
+
+1. Download the free *IP to City Lite* database in MMDB format from
+   [DB-IP](https://db-ip.com/db/download/ip-to-city-lite), for example
+   `dbip-city-lite-2026-10.mmdb.gz`, and unpack it (`gunzip`). MaxMind's GeoLite2 City file works
+   too.
+2. Put it in the data volume, or mount it read-only, and point `DEPTHS_GEOIP_DB` at it inside the
+   container, for example `DEPTHS_GEOIP_DB=/var/lib/depths/dbip-city-lite.mmdb`.
+3. Restart Depths. A missing or unreadable file is logged and locations show as *unknown*; it never
+   stops start-up.
+
+The DB-IP Lite database is licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and requires this attribution:
+[IP Geolocation by DB-IP](https://db-ip.com). Replace the file monthly to keep it current.
 
 ## Host metrics
 

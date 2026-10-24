@@ -13,7 +13,8 @@ and switch back at any time.
 |---|---|
 | [Installing Depths](install.md) | The example compose file, the socket proxy, the reverse proxy, every setting |
 | [Sign-in providers](sign-in.md) | Setting up OIDC, a GitHub OAuth App or a Discord application |
-| [People and access](users.md) | The owner, finding your id, admitting people, assigning stacks |
+| [People and access](users.md) | The owner, finding your id, admitting people, assigning stacks, sessions and whitelists |
+| [Networks and the restricted view](security.md) | Which networks are trusted, what an untrusted one can do, getting back in |
 | [Migrating from Dockge](migrating-from-dockge.md) | Pointing Depths at Dockge's directory, what differs, switching back |
 | [Tabs, logs and shells](tabs-and-shells.md) | Logs, stats and shell tabs, panes, and what happens when a connection drops |
 
