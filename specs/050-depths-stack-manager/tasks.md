@@ -362,7 +362,7 @@ last change, plus, for admins, foreign projects and standalone containers, read-
 **Independent test**: three stacks (running, partial, stopped), one invalid, one foreign project.
 Sign in and see each listed correctly. Then sign out and get redirected to sign-in.
 
-- [ ] T045 [P] [US1] Write E2E tests in `apps/depths/web/tests/e2e/us1-stacks/list.spec.ts`:
+- [X] T045 [P] [US1] Write E2E tests in `apps/depths/web/tests/e2e/us1-stacks/list.spec.ts`:
   - Sign-in redirect.
   - The list shows every status in data-model.md, and a one-shot completed service does not make the stack partial.
   - Invalid stacks show the reason and have no actions; a stack with `read_error` shows the permission error and offers no edit.
@@ -371,15 +371,15 @@ Sign in and see each listed correctly. Then sign out and get redirected to sign-
   - Foreign and standalone are shown read-only.
   - Filtering by name and status.
   - At 360 px wide there is no horizontal scroll.
-- [ ] T046 [P] [US1] Write a performance test in `apps/depths/web/tests/e2e/us1-stacks/scale.spec.ts`: the fake backend serves 200 stacks / 2,000 containers. Assert the first render is under 2 s and filter input is handled in under 100 ms (SC-004).
+- [X] T046 [P] [US1] Write a performance test in `apps/depths/web/tests/e2e/us1-stacks/scale.spec.ts`: the fake backend serves 200 stacks / 2,000 containers. Assert the first render is under 2 s and filter input is handled in under 100 ms (SC-004).
 - [ ] T047 [US1] Implement `ListStacks`/`GetStack` in `apps/depths/server/src/ws.rs` via `FsStackStore` + `containers_by_project` + `depths-core::status`, filtered to the person's assigned stacks (all for an admin; `foreign` and `standalone` empty for a user). Add a test that a user never receives an unassigned stack, and that foreign projects are those with no stack dir, or a `working_dir` outside the root, and that a project whose `working_dir` is a stack's directory but whose name differs is foreign with `elsewhere_of = <stack>`.
 - [ ] T087 [US1] Handle an unreachable runtime (FR-010) in `apps/depths/server/src/watch.rs` and `apps/depths/web/src/features/stacks/StackList.tsx`. When `docker ps` fails, send `RuntimeUnavailable{reason}` with docker's stderr verbatim, keep the last `Stacks` snapshot with `stale: true` and `as_of`, and show a banner. Clear it on the next successful inventory. Add a mock-runner test and an E2E case in `tests/e2e/us1-stacks/list.spec.ts`. Lifecycle previews are refused while the runtime is unavailable.
 - [ ] T048 [US1] Add path-identity detection in `apps/depths/server/src/watch.rs`: warn and send a banner event when a recognised stack's `com.docker.compose.project.working_dir` is under a different root (research R1). Add a test.
-- [ ] T049 [US1] Build the stack list UI in `apps/depths/web/src/features/stacks/{StackList,StackRow,StatusBadge,ForeignList}.tsx`:
+- [X] T049 [US1] Build the stack list UI in `apps/depths/web/src/features/stacks/{StackList,StackRow,StatusBadge,ForeignList}.tsx`:
   - A virtualised list using `@companion/ui` primitives.
   - Status uses both colour and text (WCAG AA).
   - Live updates from `StacksChanged`.
-- [ ] T050 [US1] Build the stack detail view in `apps/depths/web/src/features/stacks/StackDetail.tsx`:
+- [X] T050 [US1] Build the stack detail view in `apps/depths/web/src/features/stacks/StackDetail.tsx`:
   - Services and their containers, with state, image, ports, uptime and health (FR-007).
   - The compose file read-only with highlighting (lazy CodeMirror, shared with US3).
   - `.env` with secret-looking keys masked.
