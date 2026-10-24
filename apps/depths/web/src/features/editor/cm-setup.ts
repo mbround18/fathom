@@ -50,7 +50,10 @@ export const baseTheme = EditorView.theme({
   '&.cm-focused': { outline: '1px solid var(--ring)' },
 })
 
+/** The theme-token highlighting alone, for a language loaded separately (spec 053 files). */
+export const highlighting: Extension = syntaxHighlighting(highlight)
+
 /** Highlighting plus the language for `language`. */
 export function languageExtensions(language: CodeLanguage): Extension[] {
-  return [syntaxHighlighting(highlight), language === 'yaml' ? yaml() : envLanguage]
+  return [highlighting, language === 'yaml' ? yaml() : envLanguage]
 }
