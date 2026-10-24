@@ -419,6 +419,22 @@ pub trait ContainerRuntime: Send + Sync {
         Err(RuntimeError::Unsupported)
     }
 
+    /// One `docker inspect` of these containers (full ids), in one call, reduced to the fields
+    /// that decide containment. A container that is gone is left out, not an error. Empty `ids`
+    /// runs nothing.
+    fn inspect_security(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<crate::security::Inspect>, RuntimeError> {
+        let _ = ids;
+        Err(RuntimeError::Unsupported)
+    }
+
+    /// The daemon's mode, from `docker info`'s `SecurityOptions`.
+    fn daemon_mode(&self) -> Result<crate::security::DaemonMode, RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+
     /// One `docker stats --no-stream` reading of exactly these containers (full ids), stamped
     /// `at`. Empty `ids` runs nothing and returns nothing.
     fn stats(&self, ids: &[String], at: &str) -> Result<Vec<UsageSample>, RuntimeError> {

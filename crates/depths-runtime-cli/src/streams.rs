@@ -26,6 +26,7 @@ use depths_core::plan::RunStep;
 use depths_core::ports::{
     CancelToken, RuntimeError, ShellSession, StreamEvent, StreamId, StreamSink, UsageSample,
 };
+use depths_core::security::{valid_container_arg, valid_shell_path};
 
 use crate::{CliRuntime, Mapped};
 
@@ -133,7 +134,18 @@ impl CliRuntime {
         let bin = self.docker_bin.to_str().ok_or_else(|| {
             RuntimeError::Unavailable("the docker binary path is not UTF-8".into())
         })?;
+        // `docker exec -it <id> <shell>` and nothing else: never `--privileged`, `--user`,
+        // `--env` or `--workdir`, and neither value may be read as an option or a command line.
+        if !valid_container_arg(container_id) {
+            return Err(RuntimeError::Failed("refused: not a container id".into()));
+        }
+        if !valid_shell_path(shell) {
+            return Err(RuntimeError::Failed(format!(
+                "refused to run {shell:?}: a shell must be an absolute path"
+            )));
+        }
         let args = session::argv(container_id, Some(shell));
+        debug_assert_eq!(args.len(), 5, "exec argv carries no extra options");
         let session = Session::open(stream_id, bin, &args, Forward(sink))
             .map_err(|e| self.spawn_error(&e))?;
         session.resize(cols, rows);

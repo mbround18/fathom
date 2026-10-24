@@ -1568,6 +1568,7 @@ dependencies = [
  "container-runtime",
  "depths-core",
  "rustix",
+ "serde_json",
  "tempfile",
 ]
 

@@ -652,6 +652,30 @@ fn devices_reason(devices: &[&str]) -> Reason {
 // ---------------------------------------------------------------------------------------------
 // Shell policy
 
+/// A shell path a session may run: absolute, at most 256 bytes, and only `[A-Za-z0-9/._-]`
+/// with no `..` segment. No spaces, quotes or shell metacharacters, so it can never be read as
+/// anything but one program path.
+pub fn valid_shell_path(p: &str) -> bool {
+    p.len() <= 256
+        && p.starts_with('/')
+        && p.len() > 1
+        && p.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'_' | b'-'))
+        && !p.split('/').any(|s| s == "..")
+        && !p.ends_with('/')
+}
+
+/// A container id or name that is safe as one argv entry: never empty, never an option
+/// (`-...`), only `[A-Za-z0-9_.-]`, at most 256 bytes.
+pub fn valid_container_arg(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 256
+        && !id.starts_with('-')
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+}
+
 /// `DEPTHS_SHELL_POLICY`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShellPolicy {
@@ -1107,6 +1131,53 @@ mod tests {
             DaemonMode::from_security_options(&sneaky),
             DaemonMode::Rootful
         );
+    }
+
+    #[test]
+    fn shell_paths_and_container_args_are_strict() {
+        for p in [
+            "/bin/sh",
+            "/bin/bash",
+            "/usr/local/bin/fish-3.7",
+            "/bin/busybox_sh",
+        ] {
+            assert!(valid_shell_path(p), "{p}");
+        }
+        for p in [
+            "",
+            "/",
+            "sh",
+            "bin/sh",
+            "/bin/sh -c id",
+            "/bin/sh;id",
+            "/bin/$(id)",
+            "/bin/`id`",
+            "/bin/sh\n",
+            "/../bin/sh",
+            "/bin/../../sh",
+            "/bin/",
+            "/bin/sh|x",
+            "/bin/s'h",
+            "/bin/ünï",
+        ] {
+            assert!(!valid_shell_path(p), "{p:?}");
+        }
+        assert!(!valid_shell_path(&format!("/{}", "a".repeat(300))));
+        for id in ["abc123", "web-1", "stack_web_1", "a.b"] {
+            assert!(valid_container_arg(id), "{id}");
+        }
+        for id in [
+            "",
+            "-u",
+            "--privileged",
+            "--user=0",
+            "a b",
+            "a;b",
+            "a/b",
+            "a\0",
+        ] {
+            assert!(!valid_container_arg(id), "{id:?}");
+        }
     }
 
     #[test]

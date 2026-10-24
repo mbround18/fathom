@@ -26,6 +26,7 @@ use depths_core::ports::{
     RuntimeError, RuntimeSnapshot, ShellSession, StepOutcome, StreamId, StreamSink, UsageSample,
     Validation, ValidationIssue,
 };
+use depths_core::security::{DaemonMode, Inspect, valid_container_arg};
 
 mod streams;
 pub use streams::{
@@ -394,6 +395,62 @@ impl ContainerRuntime for CliRuntime {
     fn stats(&self, ids: &[String], at: &str) -> Result<Vec<UsageSample>, RuntimeError> {
         self.sample(ids, at)
     }
+
+    fn inspect_security(&self, ids: &[String]) -> Result<Vec<Inspect>, RuntimeError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(bad) = ids.iter().find(|id| !valid_container_arg(id)) {
+            return Err(RuntimeError::Failed(format!(
+                "refused to inspect {bad:?}: not a container id"
+            )));
+        }
+        let mut args = vec!["inspect", "--type", "container", "--"];
+        args.extend(ids.iter().map(String::as_str));
+        let out = Mapped(self)
+            .run(DOCKER, &args)
+            .map_err(|e| self.unavailable(e))?;
+        parse_inspect(&out.stdout, out.success, &out.stderr)
+    }
+
+    fn daemon_mode(&self) -> Result<DaemonMode, RuntimeError> {
+        let out = Mapped(self)
+            .run(DOCKER, &["info", "--format", "{{json .SecurityOptions}}"])
+            .map_err(|e| self.unavailable(e))?;
+        if !out.success {
+            return Err(RuntimeError::Unavailable(out.stderr.trim_end().to_owned()));
+        }
+        parse_security_options(&out.stdout)
+    }
+}
+
+/// `docker inspect`'s array. A missing container makes docker exit non-zero but still print the
+/// others, so the output is read whenever it parses; an error only when it does not.
+pub fn parse_inspect(
+    stdout: &str,
+    success: bool,
+    stderr: &str,
+) -> Result<Vec<Inspect>, RuntimeError> {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return if success {
+            Ok(Vec::new())
+        } else if stderr.contains("No such") {
+            // Every container named is gone.
+            Ok(Vec::new())
+        } else {
+            Err(RuntimeError::Unavailable(stderr.trim_end().to_owned()))
+        };
+    }
+    serde_json::from_str::<Vec<Inspect>>(trimmed)
+        .map_err(|e| RuntimeError::Failed(format!("docker inspect: unreadable output: {e}")))
+}
+
+/// `docker info --format '{{json .SecurityOptions}}'`: a JSON array of strings, or `null`.
+pub fn parse_security_options(stdout: &str) -> Result<DaemonMode, RuntimeError> {
+    let opts: Option<Vec<String>> = serde_json::from_str(stdout.trim())
+        .map_err(|e| RuntimeError::Failed(format!("docker info: unreadable output: {e}")))?;
+    Ok(DaemonMode::from_security_options(&opts.unwrap_or_default()))
 }
 
 /// Groups `docker ps` rows into compose projects (with the directory each was started from)
@@ -452,6 +509,69 @@ mod tests {
     use container_runtime::inventory::parse_containers_labelled;
 
     const SEP: char = '\u{1f}';
+
+    #[test]
+    fn inspect_output_is_read_even_when_one_container_is_gone() {
+        let out = r#"[{"Id":"a","Config":{"User":"0"},"HostConfig":{"Privileged":true}}]"#;
+        let got = parse_inspect(out, false, "Error: No such container: b").unwrap();
+        assert_eq!(got.len(), 1);
+        assert!(got[0].host_config.privileged);
+        assert!(
+            parse_inspect("", false, "Error: No such container: b")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(matches!(
+            parse_inspect("", false, "Cannot connect to the Docker daemon"),
+            Err(RuntimeError::Unavailable(_))
+        ));
+        assert!(matches!(
+            parse_inspect("not json", true, ""),
+            Err(RuntimeError::Failed(_))
+        ));
+    }
+
+    #[test]
+    fn security_options_give_the_daemon_mode() {
+        assert_eq!(
+            parse_security_options("[\"name=seccomp,profile=builtin\",\"name=rootless\"]\n")
+                .unwrap(),
+            DaemonMode::Rootless
+        );
+        assert_eq!(parse_security_options("null").unwrap(), DaemonMode::Rootful);
+        assert!(parse_security_options("<no value>").is_err());
+    }
+
+    #[test]
+    fn inspect_refuses_an_id_that_could_be_an_option() {
+        let rt = CliRuntime::new("/nonexistent/docker");
+        assert!(matches!(
+            rt.inspect_security(&["--format=x".into()]),
+            Err(RuntimeError::Failed(_))
+        ));
+        assert!(rt.inspect_security(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_shell_refuses_hostile_ids_and_paths_before_running_anything() {
+        struct Nobody;
+        impl StreamSink for Nobody {
+            fn emit(&self, _: depths_core::ports::StreamEvent) -> bool {
+                false
+            }
+        }
+        let rt = CliRuntime::new("/nonexistent/docker");
+        let sink: std::sync::Arc<dyn StreamSink> = std::sync::Arc::new(Nobody);
+        for (id, shell) in [
+            ("--privileged", "/bin/sh"),
+            ("abc", "/bin/sh -c id"),
+            ("abc", "sh"),
+            ("abc", "/bin/sh;id"),
+        ] {
+            let r = rt.open_shell(id, shell, (80, 24), StreamId(1), sink.clone());
+            assert!(matches!(r, Err(RuntimeError::Failed(_))), "{id} {shell}");
+        }
+    }
 
     fn row(fields: &[&str]) -> String {
         fields.join(&SEP.to_string())

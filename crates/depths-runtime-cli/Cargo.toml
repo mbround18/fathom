@@ -13,6 +13,8 @@ depths-core = { path = "../depths-core" }
 container-runtime = { path = "../container-runtime" }
 # SIGINT to a running compose process on cancel, without `unsafe`.
 rustix = { version = "1.1.5", features = ["process"] }
+# `docker inspect` and `docker info` JSON, for the containment profile.
+serde_json = "1.0.154"
 
 [dev-dependencies]
 tempfile = "3"
