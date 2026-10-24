@@ -12,6 +12,11 @@ ignore = [
   # rsa (Marvin): only the fathom desktop app, through openidconnect, and only to verify RS256
   # signatures with public keys. The timing leak is in private-key operations. No fixed release.
   { id = "RUSTSEC-2023-0071", reason = "fathom only; public-key verify, not affected" },
+  # crypto-bigint 0.5 timing branches, through openidconnect 4.0.1 -> p256/p384 -> elliptic-curve
+  # 0.13 (fathom and web-auth). Used only to verify ES256/ES384 ID-token signatures with the
+  # provider's public keys; no secret integers. No openidconnect release on elliptic-curve 0.14
+  # yet. Drop this when openidconnect moves to crypto-bigint >= 0.7.6.
+  { id = "RUSTSEC-2026-0387", reason = "public-key verify only; no fixed openidconnect release" },
   # unsafe-libyaml, through serde_yaml in container-runtime and fathom. Unmaintained, no known
   # vulnerability. Depths parses compose files only from signed-in users permitted to edit, under
   # a 16 KiB body limit. Follow-up: move container-runtime to a maintained YAML crate.
