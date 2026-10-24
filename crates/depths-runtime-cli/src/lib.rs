@@ -23,8 +23,12 @@ use container_runtime::runner::{CmdOutput, RunError, Runner};
 use depths_core::plan::{DOCKER, RunStep};
 use depths_core::ports::{
     CancelToken, ContainerRuntime, OutputChunk, OutputSink, OutputStream, ProjectContainers,
-    RuntimeError, RuntimeSnapshot, StepOutcome, Validation, ValidationIssue,
+    RuntimeError, RuntimeSnapshot, ShellSession, StepOutcome, StreamId, StreamSink, UsageSample,
+    Validation, ValidationIssue,
 };
+
+mod streams;
+pub use streams::{BACKLOG, BATCH_LINES, FLUSH_INTERVAL, LINE_CAP, WINDOW_CAP};
 
 /// The compose label naming the directory a project was started from (R1, T048).
 pub const WORKING_DIR_LABEL: &str = "com.docker.compose.project.working_dir";
@@ -362,6 +366,31 @@ impl ContainerRuntime for CliRuntime {
                 done.stderr_tail.trim_end().to_owned(),
             ))
         }
+    }
+
+    fn follow_logs(
+        &self,
+        step: &RunStep,
+        stream_id: StreamId,
+        sink: &dyn StreamSink,
+        cancel: &CancelToken,
+    ) -> Result<(), RuntimeError> {
+        self.follow(step, stream_id, sink, cancel)
+    }
+
+    fn open_shell(
+        &self,
+        container_id: &str,
+        shell: &str,
+        size: (u16, u16),
+        stream_id: StreamId,
+        sink: std::sync::Arc<dyn StreamSink>,
+    ) -> Result<Box<dyn ShellSession>, RuntimeError> {
+        self.shell(container_id, shell, size, stream_id, sink)
+    }
+
+    fn stats(&self, ids: &[String], at: &str) -> Result<Vec<UsageSample>, RuntimeError> {
+        self.sample(ids, at)
     }
 }
 

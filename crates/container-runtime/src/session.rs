@@ -78,7 +78,12 @@ impl Session {
 
     /// Forwards a keystroke or a paste. A write that fails means the shell is gone.
     pub fn write(&mut self, data: &str) -> std::io::Result<()> {
-        self.master.write_all(data.as_bytes())?;
+        self.write_bytes(data.as_bytes())
+    }
+
+    /// [`Session::write`] for raw bytes: a terminal's input need not be UTF-8.
+    pub fn write_bytes(&mut self, data: &[u8]) -> std::io::Result<()> {
+        self.master.write_all(data)?;
         self.master.flush()
     }
 

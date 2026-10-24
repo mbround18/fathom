@@ -223,3 +223,140 @@ fn a_cancelled_event_stream_ends_cleanly() {
     let res = CliRuntime::new("sleep").follow_events(&|| {}, &cancel);
     assert!(res.is_ok(), "{res:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Log follows (T066): `sh -c` plays `docker logs --follow`.
+// ---------------------------------------------------------------------------
+
+mod follow {
+    use super::*;
+    use depths_core::ports::{StreamEvent, StreamId, StreamSink};
+    use depths_runtime_cli::LINE_CAP;
+
+    #[derive(Default)]
+    struct Batches {
+        got: Mutex<Vec<(Vec<String>, bool)>>,
+        /// Answer `false` after this many batches.
+        stop_after: Option<usize>,
+    }
+
+    impl StreamSink for Batches {
+        fn emit(&self, ev: StreamEvent) -> bool {
+            let StreamEvent::ContainerLogBatch {
+                lines, truncated, ..
+            } = ev
+            else {
+                panic!("a follow sends only log batches: {ev:?}");
+            };
+            let mut got = self.got.lock().unwrap();
+            got.push((lines, truncated));
+            self.stop_after.is_none_or(|n| got.len() < n)
+        }
+    }
+
+    impl Batches {
+        fn lines(&self) -> Vec<String> {
+            self.got
+                .lock()
+                .unwrap()
+                .iter()
+                .flat_map(|(l, _)| l.clone())
+                .collect()
+        }
+    }
+
+    fn sh(script: &str) -> RunStep {
+        step(&["-c", script])
+    }
+
+    #[test]
+    fn lines_arrive_in_order_and_a_failure_carries_the_last_stderr_line() {
+        let rt = CliRuntime::new("sh");
+        let sink = Batches::default();
+        let out = rt.follow_logs(
+            &sh("echo one; echo two; echo 'no such container' >&2; exit 1"),
+            StreamId(1),
+            &sink,
+            &CancelToken::new(),
+        );
+        assert_eq!(out, Err(RuntimeError::Failed("no such container".into())));
+        let lines = sink.lines();
+        assert_eq!(&lines[..2], ["one", "two"]);
+        assert!(lines.contains(&"no such container".to_owned()));
+    }
+
+    #[test]
+    fn a_clean_end_is_ok() {
+        let rt = CliRuntime::new("sh");
+        let sink = Batches::default();
+        let out = rt.follow_logs(&sh("echo a"), StreamId(1), &sink, &CancelToken::new());
+        assert_eq!(out, Ok(()));
+        assert_eq!(sink.lines(), ["a"]);
+    }
+
+    #[test]
+    fn cancel_stops_a_follow_that_never_ends() {
+        let rt = CliRuntime::new("sh");
+        let sink = Batches::default();
+        let cancel = CancelToken::new();
+        let stopper = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            stopper.cancel();
+        });
+        let started = Instant::now();
+        let out = rt.follow_logs(
+            &sh("while true; do echo tick; sleep 0.05; done"),
+            StreamId(1),
+            &sink,
+            &cancel,
+        );
+        assert_eq!(out, Ok(()));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(sink.lines().iter().all(|l| l == "tick"));
+    }
+
+    #[test]
+    fn a_sink_with_nobody_behind_it_stops_the_follow() {
+        let rt = CliRuntime::new("sh");
+        let sink = Batches {
+            stop_after: Some(1),
+            ..Batches::default()
+        };
+        let started = Instant::now();
+        let out = rt.follow_logs(
+            &sh("while true; do echo tick; sleep 0.01; done"),
+            StreamId(1),
+            &sink,
+            &CancelToken::new(),
+        );
+        assert_eq!(out, Ok(()));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(sink.got.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_line_with_no_newline_is_split_rather_than_grown() {
+        let rt = CliRuntime::new("sh");
+        let sink = Batches::default();
+        let n = LINE_CAP * 2 + 10;
+        rt.follow_logs(
+            &sh(&format!("head -c {n} /dev/zero | tr '\\0' x")),
+            StreamId(1),
+            &sink,
+            &CancelToken::new(),
+        )
+        .unwrap();
+        let lens: Vec<usize> = sink.lines().iter().map(String::len).collect();
+        assert_eq!(lens, [LINE_CAP, LINE_CAP, 10]);
+    }
+
+    #[test]
+    fn a_follow_runs_only_docker() {
+        let rt = CliRuntime::new("sh");
+        let mut s = sh("echo a");
+        s.argv[0] = "sh".into();
+        let out = rt.follow_logs(&s, StreamId(1), &Batches::default(), &CancelToken::new());
+        assert!(matches!(out, Err(RuntimeError::Failed(_))));
+    }
+}

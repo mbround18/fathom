@@ -413,10 +413,10 @@ pub trait ContainerRuntime: Send + Sync {
         Err(RuntimeError::Unsupported)
     }
 
-    /// One `docker stats --no-stream` reading of exactly these containers (full ids). Empty
-    /// `ids` runs nothing and returns nothing.
-    fn stats(&self, ids: &[String]) -> Result<Vec<UsageSample>, RuntimeError> {
-        let _ = ids;
+    /// One `docker stats --no-stream` reading of exactly these containers (full ids), stamped
+    /// `at`. Empty `ids` runs nothing and returns nothing.
+    fn stats(&self, ids: &[String], at: &str) -> Result<Vec<UsageSample>, RuntimeError> {
+        let _ = (ids, at);
         Err(RuntimeError::Unsupported)
     }
 
