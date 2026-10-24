@@ -10,4 +10,5 @@ pub mod inventory;
 pub mod limits;
 pub mod serve;
 pub mod users;
+pub mod watch;
 pub mod ws;

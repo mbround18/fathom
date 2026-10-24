@@ -22,7 +22,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 clap = { version = "4", features = ["derive"] }
 depths-core = { path = "../../../crates/depths-core" }
 depths-protocol = { path = "../../../crates/depths-protocol" }
+depths-runtime-cli = { path = "../../../crates/depths-runtime-cli" }
+depths-stacks-fs = { path = "../../../crates/depths-stacks-fs" }
 http = "1"
+notify = { version = "8", default-features = false }
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["server", "server-auto", "http1", "service", "tokio", "server-graceful"] }
 secrecy = "0.10"
@@ -34,6 +37,7 @@ tower-http = { version = "0.7", features = ["fs", "limit", "timeout"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2.5"
+uuid = { version = "1", features = ["v4"] }
 web-auth = { path = "../../../crates/web-auth" }
 
 [dev-dependencies]
