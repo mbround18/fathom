@@ -681,7 +681,12 @@ mod browse {
     use depths_core::ports::{
         HelperChannel, HelperProcess, HelperSpec, OpMode, RuntimeError, VolumeHelper,
     };
-    use depths_protocol::{BinaryReason, MountId};
+    use std::time::Duration;
+
+    use depths_protocol::{
+        BinaryReason, FileOp, FilePreview, LineEnding, MountId, PreviewId, PreviewVoidReason,
+        VersionReason,
+    };
     use depths_runtime_cli::helper::{HELPER_IDLE, HelperPool, SystemClock};
     use http::{StatusCode, header};
 
@@ -1099,5 +1104,279 @@ mod browse {
         assert_eq!(r.status(), StatusCode::FORBIDDEN);
         let r = b.a.get(&download_uri(&b.mount, "a.txt"), None).await;
         assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // -----------------------------------------------------------------------
+    // Save (T040)
+    // -----------------------------------------------------------------------
+
+    /// Every replaced content handed to history, in order.
+    #[derive(Default)]
+    struct Kept(Mutex<Vec<Kept1>>);
+
+    /// One kept version: the file, its author, why, and the content.
+    type Kept1 = (files::FileKey, String, VersionReason, Vec<u8>);
+
+    impl files::HistorySink for Kept {
+        fn keep(&self, file: &files::FileKey, author: &str, reason: VersionReason, bytes: &[u8]) {
+            self.0
+                .lock()
+                .unwrap()
+                .push((file.clone(), author.to_owned(), reason, bytes.to_vec()));
+        }
+    }
+
+    fn save_op(b: &Browse, p: &str, text: &str, f: &depths_protocol::FileContent) -> FileOp {
+        FileOp::Save {
+            mount: b.mount.clone(),
+            path: rel(p),
+            text: text.into(),
+            base: f.fingerprint,
+            bom: f.bom,
+            eol: f.save_eol,
+        }
+    }
+
+    impl Browse {
+        fn preview(&self, w: &Who, op: FileOp) -> files::Answer<FilePreview> {
+            files::preview(&self.a.state, w, &stack(), op)
+        }
+        fn confirm(&self, w: &Who, id: PreviewId) -> files::Answer<Event> {
+            files::confirm(&self.a.state, w, id)
+        }
+        fn kept(&self) -> Arc<Kept> {
+            let kept = Arc::new(Kept::default());
+            self.a.state.files.set_history(kept.clone());
+            kept
+        }
+        fn rw_specs(&self) -> Vec<HelperSpec> {
+            self.specs()
+                .into_iter()
+                .filter(|s| s.mode == OpMode::ReadWrite)
+                .collect()
+        }
+    }
+
+    fn audited(a: &App, action: AuditAction) -> Vec<depths_protocol::AuditEntry> {
+        a.audit_entries()
+            .into_iter()
+            .filter(|e| e.action == action)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_save_previews_a_diff_and_confirm_writes_once_as_the_owner() {
+        let b = browse(&[]).await;
+        let kept = b.kept();
+        let old = std::fs::read(b.root.join("a.txt")).unwrap();
+        let f = b.read(&admin(), "a.txt").unwrap();
+        let p = b
+            .preview(&admin(), save_op(&b, "a.txt", "hello A\n", &f))
+            .unwrap();
+        let diff = p.diff.as_deref().unwrap();
+        assert!(diff.contains("-hello a"), "{diff}");
+        assert!(diff.contains("+hello A"), "{diff}");
+        assert_eq!(p.running, vec!["valheim".to_owned()]);
+        assert!(p.summary.contains("a.txt"), "{}", p.summary);
+        assert_eq!(p.stack, "valheim");
+        // Nothing is written by the preview, and no read-write helper started.
+        assert_eq!(std::fs::read(b.root.join("a.txt")).unwrap(), old);
+        assert!(b.rw_specs().is_empty());
+
+        let done = b.confirm(&admin(), p.preview_id).unwrap();
+        let Event::FileOpDone {
+            preview_id,
+            fingerprint,
+            running,
+            path,
+            ..
+        } = done
+        else {
+            panic!("{done:?}")
+        };
+        assert_eq!(preview_id, p.preview_id);
+        assert_eq!(path, rel("a.txt"));
+        assert_eq!(running, vec!["valheim".to_owned()]);
+        let on_disk = std::fs::read(b.root.join("a.txt")).unwrap();
+        assert_eq!(on_disk, b"hello A\n");
+        assert_eq!(
+            fingerprint.unwrap().sha256_hex(),
+            Fingerprint::of_content(&on_disk, 0, 0).sha256_hex()
+        );
+        let rw = b.rw_specs();
+        assert_eq!(rw.len(), 1, "one read-write helper: {rw:?}");
+        assert_eq!(rw[0].uid, b.uid);
+
+        let saves = audited(&b.a, AuditAction::FilesSave);
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0].outcome, AuditOutcome::Succeeded);
+        assert_eq!(saves[0].file.as_ref().unwrap().bytes, Some(8));
+        assert_eq!(saves[0].file.as_ref().unwrap().path, rel("a.txt"));
+
+        let got = kept.0.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0.path, rel("a.txt"));
+        assert_eq!(got[0].1, format!("discord:{OWNER}"));
+        assert_eq!(got[0].2, VersionReason::Save);
+        assert_eq!(got[0].3, old);
+
+        // A preview confirms once.
+        let again = *b.confirm(&admin(), p.preview_id).unwrap_err();
+        assert_eq!(
+            again,
+            Event::PreviewVoid {
+                reason: PreviewVoidReason::Used
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_save_over_the_socket_is_previewed_then_confirmed() {
+        let b = browse(&[]).await;
+        let f = b.read(&admin(), "sub/b.txt").unwrap();
+        let (mut s, _server, _) = ws::open(&b.a, OWNER).await;
+        let op = serde_json::to_value(save_op(&b, "sub/b.txt", "bye b", &f)).unwrap();
+        let r = ws::ask(
+            &mut s,
+            1,
+            serde_json::json!({"type": "PreviewFileOp", "data": {"stack": "valheim", "op": op}}),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "FilePreview", "{r}");
+        let id = r["event"]["data"]["preview_id"].clone();
+        let r = ws::ask(
+            &mut s,
+            2,
+            serde_json::json!({"type": "Confirm", "data": {"preview_id": id}}),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "FileOpDone", "{r}");
+        assert!(r["event"]["data"]["fingerprint"].is_string(), "{r}");
+        assert_eq!(std::fs::read(b.root.join("sub/b.txt")).unwrap(), b"bye b");
+    }
+
+    #[tokio::test]
+    async fn read_only_mode_and_a_read_only_mount_refuse_the_save() {
+        let b = browse(&[("DEPTHS_FEATURE_FILES", "read_only")]).await;
+        let f = b.read(&admin(), "a.txt").unwrap();
+        let err = *b
+            .preview(&admin(), save_op(&b, "a.txt", "x", &f))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::FeatureReadOnly));
+
+        let b = browse(&[]).await;
+        b.a.set_inspect(
+            "valheim-valheim-id",
+            serde_json::json!({"Mounts": [{
+                "Type": "volume", "Name": "valheim_saves", "Source": "/x",
+                "Destination": "/config", "RW": false,
+            }]}),
+        );
+        files::list_mounts(&b.a.state, &admin(), &stack()).unwrap();
+        let f = b.read(&admin(), "a.txt").unwrap();
+        let err = *b
+            .preview(&admin(), save_op(&b, "a.txt", "x", &f))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::ReadOnlyMount));
+        assert!(b.rw_specs().is_empty());
+        assert_eq!(reason_of(refused(&b.a).last().unwrap()), "read_only_mount");
+    }
+
+    #[tokio::test]
+    async fn crlf_and_bom_round_trip_byte_exact_when_one_line_changed() {
+        let b = browse(&[]).await;
+        let before = b"\xEF\xBB\xBFone\r\ntwo\r\nthree\r\n";
+        std::fs::write(b.root.join("w.ini"), before).unwrap();
+        let f = b.read(&admin(), "w.ini").unwrap();
+        assert!(f.bom);
+        assert_eq!(f.save_eol, LineEnding::Crlf);
+        let text = f.text.clone().unwrap().replace("two", "TWO");
+        let p = b
+            .preview(&admin(), save_op(&b, "w.ini", &text, &f))
+            .unwrap();
+        let diff = p.diff.unwrap();
+        let removed = diff
+            .lines()
+            .filter(|l| l.starts_with('-') && !l.starts_with("---"))
+            .count();
+        assert_eq!(removed, 1, "{diff}");
+        b.confirm(&admin(), p.preview_id).unwrap();
+        assert_eq!(
+            std::fs::read(b.root.join("w.ini")).unwrap(),
+            b"\xEF\xBB\xBFone\r\nTWO\r\nthree\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_save_over_a_changed_file_is_changed_on_disk() {
+        let b = browse(&[]).await;
+        let f = b.read(&admin(), "a.txt").unwrap();
+        std::fs::write(b.root.join("a.txt"), "someone else").unwrap();
+        let err = *b
+            .preview(&admin(), save_op(&b, "a.txt", "mine", &f))
+            .unwrap_err();
+        assert!(
+            matches!(err, Event::FileRefused(FileRefusal::ChangedOnDisk { .. })),
+            "{err:?}"
+        );
+
+        // Changed between the preview and the confirm: the helper's base check refuses it.
+        let f = b.read(&admin(), "a.txt").unwrap();
+        let p = b
+            .preview(&admin(), save_op(&b, "a.txt", "mine", &f))
+            .unwrap();
+        std::fs::write(b.root.join("a.txt"), "someone else again").unwrap();
+        let err = *b.confirm(&admin(), p.preview_id).unwrap_err();
+        assert!(
+            matches!(err, Event::FileRefused(FileRefusal::ChangedOnDisk { .. })),
+            "{err:?}"
+        );
+        assert_eq!(
+            std::fs::read(b.root.join("a.txt")).unwrap(),
+            b"someone else again"
+        );
+        assert!(audited(&b.a, AuditAction::FilesSave).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_preview_expires_and_belongs_to_its_session() {
+        let b = browse(&[]).await;
+        let f = b.read(&admin(), "a.txt").unwrap();
+        let old = std::fs::read(b.root.join("a.txt")).unwrap();
+
+        let p = b.preview(&admin(), save_op(&b, "a.txt", "x", &f)).unwrap();
+        let mut other = admin();
+        other.session = "another-session".into();
+        let err = *b.confirm(&other, p.preview_id).unwrap_err();
+        assert_eq!(
+            err,
+            Event::PreviewVoid {
+                reason: PreviewVoidReason::Unknown
+            }
+        );
+        assert!(!b.a.state.files.has_preview(&other.session, p.preview_id));
+        assert!(b.a.state.files.has_preview("test-session", p.preview_id));
+
+        b.a.state.files.set_preview_ttl(Duration::ZERO);
+        let p = b.preview(&admin(), save_op(&b, "a.txt", "x", &f)).unwrap();
+        let err = *b.confirm(&admin(), p.preview_id).unwrap_err();
+        assert_eq!(
+            err,
+            Event::PreviewVoid {
+                reason: PreviewVoidReason::Expired
+            }
+        );
+        assert_eq!(std::fs::read(b.root.join("a.txt")).unwrap(), old);
+        assert!(b.rw_specs().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_default_preview_lifetime_is_five_minutes() {
+        let b = browse(&[]).await;
+        let f = b.read(&admin(), "a.txt").unwrap();
+        let p = b.preview(&admin(), save_op(&b, "a.txt", "x", &f)).unwrap();
+        let at = chrono::DateTime::parse_from_rfc3339(&p.expires_at).unwrap();
+        let left = at.signed_duration_since(chrono::Utc::now()).num_seconds();
+        assert!((295..=300).contains(&left), "{left}");
     }
 }

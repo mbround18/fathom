@@ -312,11 +312,14 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
         Cmd::ListDir { stack, .. } | Cmd::ReadFile { stack, .. } => {
             gate(who, stack_place(stack), Refused("missing"))
         }
+        // The sample is a rename, which lands with US4.
+        Cmd::PreviewFileOp { stack, .. } => {
+            gate(who, stack_place(stack), Refused("helper_unavailable"))
+        }
         // Placeholders until their handlers land.
-        Cmd::FolderSize { .. }
-        | Cmd::PreviewFileOp { .. }
-        | Cmd::ListHistory { .. }
-        | Cmd::ReadVersion { .. } => Denied(FEATURE_DISABLED),
+        Cmd::FolderSize { .. } | Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => {
+            Denied(FEATURE_DISABLED)
+        }
     }
 }
 
@@ -642,6 +645,7 @@ fn observe(replies: &[Value]) -> Result<Outcome, String> {
                 },
                 "Invalid" => Invalid,
                 "FileRefused" if d["kind"] == "missing" => Refused("missing"),
+                "FileRefused" if d["kind"] == "helper_unavailable" => Refused("helper_unavailable"),
                 "PreviewVoid" if d["reason"] == "unknown" => Void,
                 "Stacks" | "StackDetail" | "EnvRevealed" | "Preview" | "OpStarted"
                 | "StreamOpened" | "StreamClosed" | "AuditPage" | "Users" | "LintResult"

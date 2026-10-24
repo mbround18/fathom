@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 use depths_core::StackName;
 use depths_core::plan::{self, StackContext};
@@ -17,14 +18,16 @@ use depths_core::role::{self, CommandKind};
 use depths_core::security::{self, Severity};
 use depths_protocol::{
     AuditAction, AuditFile, AuditOutcome, Browsable, DenyReason, EntryKind, Event, FileContent,
-    FileRefusal, Mount, MountId, MountKind, MountService, MountState, NotBrowsable,
-    NotBrowsableCode, RelPath, RuntimeContainerState, WriteBlocked,
+    FileOp, FilePreview, FileRefusal, FileVersion, Fingerprint, Mount, MountId, MountKind,
+    MountService, MountState, Name, NotBrowsable, NotBrowsableCode, PreviewId, PreviewVoidReason,
+    RelPath, RuntimeContainerState, VersionId, VersionReason, WriteBlocked,
 };
 use depths_runtime_cli::helper::{HELPER_IDLE, ImageId, OneShot, PoolError, SystemClock};
 use depths_runtime_cli::{CliRuntime, CliVolumeHelper, HelperPool};
 use depths_volumes::frame::{Frame, FrameError, FrameKind};
 use depths_volumes::mount::{BindRating, HelperSource, browsability};
 use depths_volumes::op::{Hello, HelperError, Op, Reply, StatInfo};
+use depths_volumes::text;
 
 use crate::audit;
 use crate::config::FilesMode;
@@ -43,6 +46,11 @@ pub struct Files {
     known: Mutex<HashMap<StackName, Discovered>>,
     /// Owners seen in listings, per mount, so the next op on a path runs as its owner (R5).
     owners: Mutex<HashMap<(StackName, MountId), Owners>>,
+    /// Where replaced content goes (R9).
+    history: RwLock<Arc<dyn HistorySink>>,
+    /// Unconfirmed file changes, by preview id.
+    previews: Mutex<HashMap<PreviewId, Pending>>,
+    ttl: RwLock<Duration>,
 }
 
 impl Files {
@@ -52,7 +60,33 @@ impl Files {
             pool: OnceLock::new(),
             known: Mutex::new(HashMap::new()),
             owners: Mutex::new(HashMap::new()),
+            history: RwLock::new(Arc::new(NoHistory)),
+            previews: Mutex::new(HashMap::new()),
+            ttl: RwLock::new(PREVIEW_TTL),
         }
+    }
+
+    /// Where replaced content goes from now on.
+    pub fn set_history(&self, sink: Arc<dyn HistorySink>) {
+        *self.history.write().unwrap() = sink;
+    }
+
+    pub fn history(&self) -> Arc<dyn HistorySink> {
+        self.history.read().unwrap().clone()
+    }
+
+    /// How long a file preview may be confirmed for ([`PREVIEW_TTL`] unless changed).
+    pub fn set_preview_ttl(&self, ttl: Duration) {
+        *self.ttl.write().unwrap() = ttl;
+    }
+
+    /// Whether `id` is a file preview of `session`'s, so `Confirm` comes here.
+    pub fn has_preview(&self, session: &str, id: PreviewId) -> bool {
+        self.previews
+            .lock()
+            .unwrap()
+            .get(&id)
+            .is_some_and(|p| p.session == session)
     }
 
     /// The mode in force: the configured one, unless the helper forced it off.
@@ -954,7 +988,7 @@ pub fn open_download(
         return Err(fail(unavailable(app)));
     };
     let mut chan = pool
-        .one_shot(&spec(&t, owner))
+        .one_shot(&spec(&t, owner, OpMode::ReadOnly))
         .map_err(|e| fail(start_failed(app, &t, e)))?;
     app.files.check_hello(chan.hello()).map_err(fail)?;
     let max = app.cfg.files.download_max;
@@ -1018,6 +1052,460 @@ pub fn open_download(
     })
 }
 
+// ---------------------------------------------------------------------------
+// History (R9)
+// ---------------------------------------------------------------------------
+
+/// The file a kept version belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FileKey {
+    pub stack: StackName,
+    pub mount: MountId,
+    pub path: RelPath,
+}
+
+/// Where content a change replaced goes (R9): what a save, an upload or a restore overwrote, and
+/// a deleted file. Content over `DEPTHS_FILES_HISTORY_FILE_MAX` never reaches it.
+pub trait HistorySink: Send + Sync {
+    /// Keeps `bytes` as `file`'s newest version. Best effort: a failure is logged, never fatal.
+    /// Blocking.
+    fn keep(&self, file: &FileKey, author: &str, reason: VersionReason, bytes: &[u8]);
+    /// `file`'s kept versions, newest first.
+    fn versions(&self, _file: &FileKey) -> Vec<FileVersion> {
+        Vec::new()
+    }
+    /// The content of version `id` of `file`.
+    fn version(&self, _file: &FileKey, _id: &VersionId) -> Option<Vec<u8>> {
+        None
+    }
+}
+
+/// History that keeps nothing.
+pub struct NoHistory;
+
+impl HistorySink for NoHistory {
+    fn keep(&self, _: &FileKey, _: &str, _: VersionReason, _: &[u8]) {}
+}
+
+/// The most replaced content a helper sends back after a write (its `PRIOR_MAX`).
+const PRIOR_MAX: u64 = 10 * 1024 * 1024;
+
+/// Hands content `t`'s `path` lost to history, unless there is none or it is too large to keep.
+fn keep(
+    app: &AppState,
+    who: &Who,
+    t: &Target<'_>,
+    path: &RelPath,
+    reason: VersionReason,
+    bytes: Option<Vec<u8>>,
+) {
+    let Some(bytes) = bytes else { return };
+    if bytes.len() as u64 > app.cfg.files.history_file_max {
+        return;
+    }
+    let file = FileKey {
+        stack: t.stack.clone(),
+        mount: t.mount.id.clone(),
+        path: path.clone(),
+    };
+    app.files.history().keep(&file, &who.user, reason, &bytes);
+}
+
+// ---------------------------------------------------------------------------
+// Previews and confirms (US2 to US5)
+// ---------------------------------------------------------------------------
+
+/// How long a file preview may be confirmed for, as for stack operations.
+pub const PREVIEW_TTL: Duration = crate::ops::PREVIEW_TTL;
+/// Most unconfirmed file previews held at once.
+const MAX_PREVIEWS: usize = 10_000;
+
+const PREVIEW: &str = "PreviewFileOp";
+const CONFIRM: &str = "Confirm";
+
+/// A file preview waiting for `Confirm`.
+struct Pending {
+    session: String,
+    stack: StackName,
+    change: Change,
+    expires: Instant,
+    used: bool,
+}
+
+/// What a confirmed preview does.
+#[derive(Clone)]
+enum Change {
+    Write(Write),
+}
+
+impl Change {
+    /// An upload stays after its confirm: the POSTs that follow carry its id.
+    fn is_upload(&self) -> bool {
+        false
+    }
+}
+
+/// `Save` and `Restore`: new content for `path`, over `base` (`None`: the file is gone, so it
+/// is made again).
+#[derive(Clone)]
+struct Write {
+    mount: MountId,
+    path: RelPath,
+    bytes: Vec<u8>,
+    base: Option<Fingerprint>,
+    reason: VersionReason,
+}
+
+impl Files {
+    fn bind(
+        &self,
+        who: &Who,
+        stack: &StackName,
+        change: Change,
+    ) -> Result<(PreviewId, String), FileRefusal> {
+        let ttl = *self.ttl.read().unwrap();
+        let now = Instant::now();
+        let mut previews = self.previews.lock().unwrap();
+        previews.retain(|_, p| p.expires > now && (!p.used || p.change.is_upload()));
+        if previews.len() >= MAX_PREVIEWS {
+            return Err(FileRefusal::HelperUnavailable {
+                reason: "too many unconfirmed previews; try again in a few minutes".into(),
+            });
+        }
+        let id = PreviewId(uuid::Uuid::new_v4());
+        previews.insert(
+            id,
+            Pending {
+                session: who.session.clone(),
+                stack: stack.clone(),
+                change,
+                expires: now + ttl,
+                used: false,
+            },
+        );
+        let at = (chrono::Utc::now() + chrono::Duration::from_std(ttl).unwrap_or_default())
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        Ok((id, at))
+    }
+
+    /// `session`'s preview `id`, claimed when `claim`. The checks run in the order stack
+    /// operations use: unknown (or another session's), used, expired.
+    fn take(
+        &self,
+        session: &str,
+        id: PreviewId,
+        claim: bool,
+    ) -> Result<(StackName, Change), PreviewVoidReason> {
+        let mut previews = self.previews.lock().unwrap();
+        let Some(p) = previews.get_mut(&id).filter(|p| p.session == session) else {
+            return Err(PreviewVoidReason::Unknown);
+        };
+        if p.used {
+            return Err(PreviewVoidReason::Used);
+        }
+        if p.expires <= Instant::now() {
+            previews.remove(&id);
+            return Err(PreviewVoidReason::Expired);
+        }
+        p.used |= claim;
+        Ok((p.stack.clone(), p.change.clone()))
+    }
+}
+
+/// `PreviewFileOp`: what the change would do, checked as far as it can be without writing.
+/// Nothing is written and no read-write helper starts. Blocking.
+pub fn preview(app: &AppState, who: &Who, stack: &StackName, op: FileOp) -> Answer<FilePreview> {
+    match op {
+        FileOp::Save {
+            mount,
+            path,
+            text,
+            base,
+            bom,
+            eol,
+        } => {
+            let bytes = text::encode(&text, bom, eol);
+            preview_save(app, who, stack, &mount, &path, bytes, base)
+        }
+        _ => {
+            gate(app, who, stack, CommandKind::FilesWrite, PREVIEW, None)?;
+            Err(Box::new(refuse(
+                app,
+                who,
+                stack,
+                PREVIEW,
+                None,
+                FileRefusal::HelperUnavailable {
+                    reason: "this file change is not available yet".into(),
+                },
+            )))
+        }
+    }
+}
+
+fn preview_save(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: &MountId,
+    path: &RelPath,
+    bytes: Vec<u8>,
+    base: Fingerprint,
+) -> Answer<FilePreview> {
+    let t = target(
+        app,
+        who,
+        stack,
+        mount,
+        path,
+        CommandKind::FilesWrite,
+        PREVIEW,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, PREVIEW, Some(t.at(path)), r));
+    let max = app.cfg.files.editor_max;
+    if bytes.len() as u64 > max {
+        return Err(fail(FileRefusal::TooLarge {
+            bytes: Some(bytes.len() as u64),
+        }));
+    }
+    let owner = owner_of(app, &t, path).map_err(fail)?;
+    let (current, old) = read_bytes(app, &t, path, owner, max).map_err(fail)?;
+    if current != base {
+        return Err(fail(FileRefusal::ChangedOnDisk { current }));
+    }
+    let Some(old) = old.filter(|old| text::decode(old, max).is_ok()) else {
+        return Err(fail(FileRefusal::NotText));
+    };
+    let diff = crate::diff::unified(
+        path.as_str(),
+        Some(&String::from_utf8_lossy(&old)),
+        Some(&String::from_utf8_lossy(&bytes)),
+    );
+    let summary = format!("Save {path} ({} bytes)", bytes.len());
+    let change = Change::Write(Write {
+        mount: mount.clone(),
+        path: path.clone(),
+        bytes,
+        base: Some(current),
+        reason: VersionReason::Save,
+    });
+    let mut p = bound(app, who, &t, change, summary).map_err(fail)?;
+    p.diff = Some(diff);
+    Ok(p)
+}
+
+/// Holds `change` for `Confirm` and describes it.
+fn bound(
+    app: &AppState,
+    who: &Who,
+    t: &Target<'_>,
+    change: Change,
+    summary: String,
+) -> Result<FilePreview, FileRefusal> {
+    let (preview_id, expires_at) = app.files.bind(who, t.stack, change)?;
+    Ok(FilePreview {
+        preview_id,
+        stack: t.stack.as_str().to_owned(),
+        mount: t.mount.id.clone(),
+        summary,
+        diff: None,
+        entries: None,
+        entries_capped: false,
+        uploads: Vec::new(),
+        running: t.mount.running.clone(),
+        expires_at,
+    })
+}
+
+/// `path`'s fingerprint and, when it is at most `max` bytes, its content.
+fn read_bytes(
+    app: &AppState,
+    t: &Target<'_>,
+    path: &RelPath,
+    owner: (u32, u32),
+    max: u64,
+) -> Result<(Fingerprint, Option<Vec<u8>>), FileRefusal> {
+    let read = on_helper(app, t, owner, |chan| {
+        let op = Op::Read {
+            path: path.clone(),
+            raw_name: None,
+            max,
+        };
+        match ask(chan, &op)? {
+            Ok(Reply::Content {
+                fingerprint, data, ..
+            }) => {
+                let bytes = if data { Some(drain(chan, max)?) } else { None };
+                Ok(Ok((fingerprint, bytes)))
+            }
+            Ok(_) => Err(unexpected("Read")),
+            Err(e) => Ok(Err(e)),
+        }
+    });
+    settle(app, t, path, read)
+}
+
+/// `Confirm` of a file preview: the person passes the gate again (the network may have changed),
+/// then the change is applied once. Blocking.
+pub fn confirm(app: &AppState, who: &Who, id: PreviewId) -> Answer<Event> {
+    let void = |reason| Box::new(Event::PreviewVoid { reason });
+    let (stack, _) = app.files.take(&who.session, id, false).map_err(void)?;
+    gate(app, who, &stack, CommandKind::FilesWrite, CONFIRM, None)?;
+    let (stack, change) = app.files.take(&who.session, id, true).map_err(void)?;
+    match change {
+        Change::Write(w) => write(app, who, &stack, id, w),
+    }
+}
+
+/// Writes a save's or a restore's content as the file's owner (the folder's, for a file that is
+/// gone), on a read-write helper of its own; audited `files.save` or `files.restore`.
+fn write(app: &AppState, who: &Who, stack: &StackName, id: PreviewId, w: Write) -> Answer<Event> {
+    let path = &w.path;
+    let t = target(
+        app,
+        who,
+        stack,
+        &w.mount,
+        path,
+        CommandKind::FilesWrite,
+        CONFIRM,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, CONFIRM, Some(t.at(path)), r));
+    let (op, owner) = match &w.base {
+        Some(base) => (
+            Op::Write {
+                path: path.clone(),
+                base: *base,
+                mode: None,
+            },
+            owner_of(app, &t, path).map_err(fail)?,
+        ),
+        None => {
+            let (dir, name) = split(path).map_err(fail)?;
+            let owner = owner_of(app, &t, &dir).map_err(fail)?;
+            (
+                Op::Put {
+                    dir,
+                    name,
+                    replace: None,
+                },
+                owner,
+            )
+        }
+    };
+    let written = once(app, &t, owner, |chan| send_data(chan, &op, &w.bytes));
+    let (fingerprint, prior) = settle(app, &t, path, written).map_err(fail)?;
+    let action = match w.reason {
+        VersionReason::Restore => AuditAction::FilesRestore,
+        _ => AuditAction::FilesSave,
+    };
+    audit_done(app, who, &t, path, action, w.bytes.len() as u64);
+    keep(app, who, &t, path, w.reason, prior);
+    Ok(Event::FileOpDone {
+        preview_id: id,
+        mount: t.mount.id.clone(),
+        path: w.path.clone(),
+        fingerprint: Some(fingerprint),
+        running: t.mount.running.clone(),
+    })
+}
+
+/// A change that went through, audited with its size.
+fn audit_done(
+    app: &AppState,
+    who: &Who,
+    t: &Target<'_>,
+    path: &RelPath,
+    action: AuditAction,
+    bytes: u64,
+) {
+    let mut place = place(&t.mount, path);
+    place.bytes = Some(bytes);
+    let _ = app.audit.record(&audit::file(
+        who.actor.clone(),
+        who.ip,
+        action,
+        t.stack.as_str(),
+        place,
+        AuditOutcome::Succeeded,
+    ));
+}
+
+/// A path as its folder and its name; the mount root has no name.
+fn split(path: &RelPath) -> Result<(RelPath, Name), FileRefusal> {
+    let dir = path.parent().ok_or(FileRefusal::InvalidName)?;
+    let name = path
+        .file_name()
+        .and_then(|n| Name::new(n).ok())
+        .ok_or(FileRefusal::InvalidName)?;
+    Ok((dir, name))
+}
+
+/// Runs `op` on a read-write one-shot helper for `t` as `owner`, after checking its `Hello`.
+/// Every write runs this way, so no read-write helper outlives its change.
+fn once<T>(
+    app: &AppState,
+    t: &Target<'_>,
+    owner: (u32, u32),
+    op: impl FnOnce(&mut HelperChannel) -> Result<Result<T, HelperError>, ChannelError>,
+) -> Asked<T> {
+    let Some(pool) = app.files.pool() else {
+        return Err(unavailable(app));
+    };
+    let mut chan = pool
+        .one_shot(&spec(t, owner, OpMode::ReadWrite))
+        .map_err(|e| start_failed(app, t, e))?;
+    app.files.check_hello(chan.hello())?;
+    match op(&mut chan) {
+        Ok(answer) => {
+            chan.close();
+            Ok(answer)
+        }
+        Err(e) => {
+            chan.kill();
+            tracing::warn!(error = %e, "volume helper failed");
+            Err(FileRefusal::HelperUnavailable {
+                reason: "the volume helper failed".into(),
+            })
+        }
+    }
+}
+
+/// A `Written` answer: the new fingerprint and the replaced content, if the helper sent it.
+type Wrote = Result<Result<(Fingerprint, Option<Vec<u8>>), HelperError>, ChannelError>;
+
+/// The most bytes in one Data frame the server sends.
+const DATA_CHUNK: usize = 256 * 1024;
+
+/// Sends `op` and `bytes` as Data… End, then reads what [`written`] reads.
+fn send_data(chan: &mut HelperChannel, op: &Op, bytes: &[u8]) -> Wrote {
+    chan.send(&Frame::json(FrameKind::Op, op)?)?;
+    for chunk in bytes.chunks(DATA_CHUNK) {
+        chan.send(&Frame::data(chunk.to_vec()))?;
+    }
+    chan.send(&Frame::end())?;
+    written(chan)
+}
+
+/// A `Written` reply, and the content it replaced when the helper sent it.
+fn written(chan: &mut HelperChannel) -> Wrote {
+    let frame = chan.recv()?;
+    if frame.kind == FrameKind::Error {
+        return Ok(Err(frame.parse(FrameKind::Error)?));
+    }
+    match frame.parse(FrameKind::Reply)? {
+        Reply::Written { fingerprint, prior } => {
+            let prior = if prior {
+                Some(drain(chan, PRIOR_MAX)?)
+            } else {
+                None
+            };
+            Ok(Ok((fingerprint, prior)))
+        }
+        _ => Err(unexpected("Write")),
+    }
+}
+
 /// Passes the person, finds the mount (discovering the stack's mounts when it is not known
 /// yet), then passes the mount.
 fn target<'a>(
@@ -1074,13 +1562,13 @@ fn owner_of(app: &AppState, t: &Target<'_>, path: &RelPath) -> Result<(u32, u32)
 /// What the helper answered, or why it could not answer.
 type Asked<T> = Result<Result<T, HelperError>, FileRefusal>;
 
-fn spec(t: &Target<'_>, (uid, gid): (u32, u32)) -> HelperSpec {
+fn spec(t: &Target<'_>, (uid, gid): (u32, u32), mode: OpMode) -> HelperSpec {
     HelperSpec {
         stack: t.stack.clone(),
         source: t.source.clone(),
         uid,
         gid,
-        mode: OpMode::ReadOnly,
+        mode,
     }
 }
 
@@ -1095,7 +1583,7 @@ fn on_helper<T>(
         return Err(unavailable(app));
     };
     let mut hello = Ok(());
-    let ran = pool.run(&spec(t, owner), |chan| {
+    let ran = pool.run(&spec(t, owner, OpMode::ReadOnly), |chan| {
         hello = app.files.check_hello(chan.hello());
         match hello {
             Ok(()) => op(chan).map(Some),

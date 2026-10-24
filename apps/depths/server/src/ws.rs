@@ -622,6 +622,14 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             preview_id,
             acknowledge_findings,
         } => {
+            // Spec 053: a file preview confirms through the file gate.
+            if app.files.has_preview(&conn.session, preview_id) {
+                let who = conn.who(access);
+                let app = app.clone();
+                let answer =
+                    blocking(move || files::confirm(&app, &who, preview_id).map(|e| vec![e]));
+                return answers(id, answer.await);
+            }
             // The preview was authorised when made; the network may have changed since.
             if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
                 && let Some(refused) = conn.untrusted(id, crate::ops::command_kind(k), "Confirm")
@@ -875,15 +883,26 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             answers(id, answer.await)
         }
         // Spec 053: the rest of the file handlers land with their stories.
-        Cmd::FolderSize { .. }
-        | Cmd::PreviewFileOp { .. }
-        | Cmd::ListHistory { .. }
-        | Cmd::ReadVersion { .. } => vec![conn.deny_reason(
-            id,
-            None,
-            DenyReason::FeatureDisabled,
-            "files are not available yet".into(),
-        )],
+        Cmd::PreviewFileOp { stack, op } => {
+            let Ok(stack) = depths_core::StackName::parse(stack.as_str()) else {
+                return vec![invalid(id, "not a stack name")];
+            };
+            let who = conn.who(access);
+            let app = app.clone();
+            let answer = blocking(move || {
+                let p = files::preview(&app, &who, &stack, op)?;
+                Ok(vec![Event::FilePreview(p)])
+            });
+            answers(id, answer.await)
+        }
+        Cmd::FolderSize { .. } | Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => {
+            vec![conn.deny_reason(
+                id,
+                None,
+                DenyReason::FeatureDisabled,
+                "files are not available yet".into(),
+            )]
+        }
     }
 }
 
