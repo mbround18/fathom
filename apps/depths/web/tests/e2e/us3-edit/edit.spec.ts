@@ -183,31 +183,50 @@ test('leaving with unsaved changes asks first', async ({ page, backend }) => {
   await expect(page).toHaveURL(/\/stacks\/web$/)
 })
 
-test('.env is masked until revealed, and a user on an assigned stack can reveal it', async ({ page, backend }) => {
+test('a user edits .env masked, with no reveal, and the masked text is what is sent', async ({ page, backend }) => {
   seed(backend, { has_env: true })
   backend.me = sessions.user(['web'])
   backend.env.web = 'PORT=8080\nDB_PASSWORD=hunter2\n'
   await openEditor(page)
 
-  const masked = page.locator('[data-code-view="env"]')
-  await expect(masked).toContainText('DB_PASSWORD=********')
+  const env = page.locator('[data-code-editor="env"] .cm-content')
+  await expect(env).toContainText('DB_PASSWORD=********')
   await expect(page.getByText('hunter2')).toHaveCount(0)
-  await expect(page.locator('[data-code-editor="env"]')).toHaveCount(0)
+  // Revealing is admin-only (FR-021): a user has no button for it.
+  await expect(page.locator('[data-action="reveal-env"]')).toHaveCount(0)
+  await expect(page.locator('[data-field="env-masked"]')).toContainText('keeps its real value')
 
+  // The server puts the real value back on lines still showing the mask.
+  await env.click()
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.insertText('DEBUG=1\n')
+  await saveButton(page).click()
+  const sent = await backend.waitForCmd('PreviewSave')
+  expect(sent.data.draft.env).toBe('PORT=8080\nDB_PASSWORD=********\nDEBUG=1\n')
+  expect(sent.data.draft.compose).toBe(ORIGINAL)
+  expect(backend.received.filter((c) => c.type === 'RevealEnv')).toHaveLength(0)
+})
+
+test('an admin can reveal .env, which says it is audited, and edit the real values', async ({ page, backend }) => {
+  seed(backend, { has_env: true })
+  backend.env.web = 'PORT=8080\nDB_PASSWORD=hunter2\n'
+  await openEditor(page)
+
+  const env = page.locator('[data-code-editor="env"] .cm-content')
+  await expect(env).toContainText('DB_PASSWORD=********')
+  await expect(page.locator('[data-field="reveal-audited"]')).toHaveText('Revealing is recorded in the audit log.')
   await page.locator('[data-action="reveal-env"]').click()
   const asked = await backend.waitForCmd('RevealEnv')
   expect(asked.data).toEqual({ name: 'web' })
-  const env = page.locator('[data-code-editor="env"] .cm-content')
   await expect(env).toContainText('DB_PASSWORD=hunter2')
+  await expect(page.locator('[data-action="reveal-env"]')).toHaveCount(0)
 
-  // Editing .env sends it; the compose text goes unchanged.
   await env.click()
   await page.keyboard.press('ControlOrMeta+End')
   await page.keyboard.insertText('DEBUG=1\n')
   await saveButton(page).click()
   const sent = await backend.waitForCmd('PreviewSave')
   expect(sent.data.draft.env).toBe('PORT=8080\nDB_PASSWORD=hunter2\nDEBUG=1\n')
-  expect(sent.data.draft.compose).toBe(ORIGINAL)
 })
 
 test('a refused reveal keeps .env masked', async ({ page, backend }) => {
@@ -217,5 +236,5 @@ test('a refused reveal keeps .env masked', async ({ page, backend }) => {
   await page.locator('[data-action="reveal-env"]').click()
   await backend.waitForCmd('RevealEnv')
   await expect(page.getByRole('alert').filter({ hasText: 'You are not permitted to do this.' })).toBeVisible()
-  await expect(page.locator('[data-code-editor="env"]')).toHaveCount(0)
+  await expect(page.locator('[data-code-editor="env"] .cm-content')).toContainText('DB_PASSWORD=********')
 })

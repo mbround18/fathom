@@ -8,8 +8,10 @@
  *   the server's own diff before anything is written.
  * - A save refused with `Conflict` shows the other change, writes nothing, and lets the person
  *   take theirs or keep their own on top (FR-019).
- * - `.env` with secret-looking keys stays masked and read-only until revealed (`RevealEnv`,
- *   audited; FR-021). Leaving `.env` untouched sends no `env`, so it is left as it is.
+ * - `.env` with secret-looking keys is edited masked (FR-021): a value left as `********` keeps its
+ *   real value, because the server puts it back on save. An admin can reveal the real values
+ *   first (`RevealEnv`, audited); they are masked again when the editor closes, or after
+ *   `REVEAL_TTL_MS` if `.env` is still unchanged. Leaving `.env` untouched sends no `env`.
  * - Unsaved changes ask before leaving.
  */
 import { ArrowLeftIcon, FloppyDiskIcon, RocketLaunchIcon } from '@phosphor-icons/react'
@@ -28,24 +30,24 @@ import { PreviewDialog } from '@/features/stacks/PreviewDialog'
 import { useStacks } from '@/features/stacks/store'
 
 import { problemText, serverProblems, yamlProblems } from './problems'
-import { useReveal } from './reveal-store'
+import { useCanReveal, useReveal } from './reveal-store'
 import { useUnsavedGuard } from './useUnsavedGuard'
 
 const ComposeEditor = lazy(() => import('./ComposeEditor'))
 const EnvEditor = lazy(() => import('./EnvEditor'))
-const CodeView = lazy(() => import('./CodeView'))
 
 /** How `.env` can be edited as loaded. */
 type EnvBase =
   | { mode: 'edit'; text: string }
-  | { mode: 'locked'; masked: string }
+  /** Secret-looking values masked; editable as it is, the server keeps what still shows the mask. */
+  | { mode: 'masked'; masked: string }
   | { mode: 'unavailable' }
 
 function envBase(env: EnvText | null, hasEnv: boolean): EnvBase {
   if (env === null) return hasEnv ? { mode: 'unavailable' } : { mode: 'edit', text: '' }
-  // Plain text with no secret-looking key is safe to show; anything else waits for a reveal.
+  // Plain text with no secret-looking key is safe to show; anything else is masked here too.
   if (env.kind === 'plain' && maskEnv(env.text) === env.text) return { mode: 'edit', text: env.text }
-  return { mode: 'locked', masked: env.kind === 'masked' ? env.text : maskEnv(env.text) }
+  return { mode: 'masked', masked: env.kind === 'masked' ? env.text : maskEnv(env.text) }
 }
 
 interface Base {
@@ -84,12 +86,15 @@ function Editor({ detail }: { detail: StackDetail }) {
 
   const revealed = useReveal((s) => s.env[name])
   const reveal = useReveal((s) => s.reveal)
+  const canReveal = useCanReveal()
   const flow = useOps((s) => s.flow)
   const run = useOps((s) => s.ops[name])
   const requestPreview = useOps((s) => s.requestPreview)
   const dismiss = useOps((s) => s.dismiss)
 
-  const envBaseText = base.env.mode === 'edit' ? base.env.text : revealed?.state === 'ready' ? revealed.text : null
+  const revealedText = base.env.mode === 'masked' && revealed?.state === 'ready' ? revealed.text : null
+  const envBaseText =
+    base.env.mode === 'edit' ? base.env.text : base.env.mode === 'masked' ? (revealedText ?? base.env.masked) : null
   const envText = envDraft ?? envBaseText
   const envChanged = envDraft !== null && envDraft !== envBaseText
   const dirty = compose !== base.compose || envChanged
@@ -114,6 +119,15 @@ function Editor({ detail }: { detail: StackDetail }) {
     release()
     navigate(`/stacks/${encodeURIComponent(name)}`)
   }, [run, name, release])
+
+  // Revealed text that expired while `.env` was unchanged goes back to the mask (the draft is
+  // dropped); an edited draft is kept, since throwing it away would lose the person's work.
+  const shownReveal = useRef<string | null>(null)
+  useEffect(() => {
+    const was = shownReveal.current
+    shownReveal.current = revealedText
+    if (was !== null && revealedText === null) setEnvDraft((d) => (d === null || d === was ? null : d))
+  }, [revealedText])
 
   // Leaving: drop a save flow still open for this stack, and the revealed text.
   useEffect(
@@ -190,7 +204,7 @@ function Editor({ detail }: { detail: StackDetail }) {
       {serverErrors.length + envErrors.length > 0 && (
         <div role="alert" data-field="server-errors" className="text-xs text-status-err">
           <p>The server refused the {serverErrors.length > 0 ? 'compose file' : '.env file'}. Nothing was written.</p>
-          {/* A masked .env has no editor to mark, so its errors are listed here. */}
+          {/* With no .env editor on screen, its errors are listed here. */}
           {envText === null && envErrors.length > 0 && (
             <ul data-field="env-errors" className="list-inside list-disc">
               {envErrors.map((p, i) => (
@@ -252,35 +266,43 @@ function Editor({ detail }: { detail: StackDetail }) {
             {base.env.mode === 'unavailable' ? (
               <p className="text-xs text-muted-foreground">Too large to edit here.</p>
             ) : envText !== null ? (
-              <Suspense fallback={<Loading what="editor" />}>
-                <EnvEditor value={envText} onChange={setEnvDraft} problems={envErrors} />
-              </Suspense>
-            ) : (
               <>
-                <p className="text-xs text-muted-foreground">
-                  Values of keys that look secret are masked. Reveal them to edit; revealing is recorded in the audit log.
-                </p>
-                <Suspense fallback={<Loading what="viewer" />}>
-                  <CodeView text={base.env.mode === 'locked' ? base.env.masked : ''} language="env" label=".env" />
+                {base.env.mode === 'masked' && (
+                  <div data-field="env-masked" className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                      {revealedText !== null
+                        ? 'Showing the real values. They are masked again when you leave, or after 5 minutes.'
+                        : 'Values of keys that look secret are masked. A value left as ******** keeps its real value when you save.'}
+                    </p>
+                    {canReveal && revealedText === null && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-action="reveal-env"
+                        disabled={revealed?.state === 'asking' || envChanged}
+                        title={envChanged ? 'Reveal before editing .env' : 'Revealing is recorded in the audit log'}
+                        onClick={() => reveal(name)}
+                      >
+                        {revealed?.state === 'asking' ? 'Revealing…' : 'Reveal values'}
+                      </Button>
+                    )}
+                    {revealed?.state === 'denied' && (
+                      <span role="alert" className="text-xs text-status-err">
+                        {revealed.reason === null ? 'The connection dropped. Try again.' : DENY_TEXT[revealed.reason]}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {base.env.mode === 'masked' && canReveal && revealedText === null && (
+                  <p data-field="reveal-audited" className="text-xs text-muted-foreground">
+                    Revealing is recorded in the audit log.
+                  </p>
+                )}
+                <Suspense fallback={<Loading what="editor" />}>
+                  <EnvEditor value={envText} onChange={setEnvDraft} problems={envErrors} />
                 </Suspense>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    data-action="reveal-env"
-                    disabled={revealed?.state === 'asking'}
-                    onClick={() => reveal(name)}
-                  >
-                    {revealed?.state === 'asking' ? 'Revealing…' : 'Reveal to edit'}
-                  </Button>
-                  {revealed?.state === 'denied' && (
-                    <span role="alert" className="text-xs text-status-err">
-                      {revealed.reason === null ? 'The connection dropped. Try again.' : DENY_TEXT[revealed.reason]}
-                    </span>
-                  )}
-                </div>
               </>
-            )}
+            ) : null}
           </section>
         </>
       )}

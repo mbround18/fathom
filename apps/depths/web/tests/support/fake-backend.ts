@@ -668,7 +668,8 @@ export class FakeBackend {
       }
 
       case 'RevealEnv': {
-        if (!may(cmd.data.name)) return denied()
+        // Admin-only, as the server's role table has it (FR-021).
+        if (!admin || !may(cmd.data.name)) return denied()
         return [{ type: 'EnvRevealed', data: { name: cmd.data.name, env_text: this.env[cmd.data.name] ?? '' } }]
       }
 

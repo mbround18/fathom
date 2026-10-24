@@ -70,7 +70,7 @@ test('a user on x sees x only: no other stack, no foreign group, no admin views'
   expect(backend.received.filter((c) => c.type === 'GetUsers' || c.type === 'GetAudit')).toEqual([])
 })
 
-test('a user on x can reveal .env, run actions, open a shell and edit x; admin-only ops are not offered', async ({ page, backend }) => {
+test('a user on x can run actions, open a shell and edit x masked; reveal and admin-only ops are not offered', async ({ page, backend }) => {
   seed(backend)
   backend.env = { x: 'DB_PASSWORD=hunter2\n' }
   backend.me = sessions.user(['x'], { identity: BOB })
@@ -90,9 +90,11 @@ test('a user on x can reveal .env, run actions, open a shell and edit x; admin-o
   await expect(dialog.getByRole('switch', { name: /remove named volumes/i })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
+  // Revealing .env is admin-only (FR-021): the user edits it masked, with no reveal offered.
   await page.locator('[data-action="edit"]').click()
-  await page.locator('[data-action="reveal-env"]').click()
-  await expect(page.locator('[data-code-editor="env"] .cm-content')).toContainText('DB_PASSWORD=hunter2')
+  await expect(page.locator('[data-code-editor="env"] .cm-content')).toContainText('DB_PASSWORD=********')
+  await expect(page.locator('[data-action="reveal-env"]')).toHaveCount(0)
+  await expect(page.getByText('hunter2')).toHaveCount(0)
   await expect(page.locator('[data-action="save"]')).toBeVisible()
 
   await page.goto('/new')

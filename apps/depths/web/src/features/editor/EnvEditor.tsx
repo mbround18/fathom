@@ -1,7 +1,8 @@
 /**
- * The `.env` editor (US3, T061). The page only mounts it with text that is safe to show: a file
- * with no secret-looking keys, or one the person revealed (`RevealEnv`, audited). Masked text is
- * never put in here, so it can never be saved over the real values. Import it with `React.lazy`.
+ * The `.env` editor (US3, T061). It shows text that is safe to show: the file with secret-looking
+ * values masked, or the real text an admin revealed (`RevealEnv`, audited). Saving masked text is
+ * safe: the server puts the real value back on every line still reading `KEY=********` (FR-021).
+ * Import it with `React.lazy`.
  */
 import { CodeEditor } from './CodeEditor'
 import type { Problem } from './problems'
