@@ -28,6 +28,8 @@ http = "1"
 # statvfs of the stacks directory for host metrics, without unsafe.
 rustix = { version = "1.1", features = ["fs"] }
 notify = { version = "8", default-features = false }
+# Offline geo-IP lookup (spec 052 R6): reads a local DB-IP Lite / GeoLite2 City file, never the network.
+maxminddb = "0.27"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["server", "server-auto", "http1", "service", "tokio", "server-graceful"] }
 secrecy = "0.10"

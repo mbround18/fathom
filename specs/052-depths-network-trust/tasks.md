@@ -5,7 +5,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `maxminddb` to apps/depths/server/Cargo.toml after confirming deny.toml allows its licence
+- [x] T001 Add `maxminddb` to apps/depths/server/Cargo.toml after confirming deny.toml allows its licence
 - [ ] T002 Settings in apps/depths/server/src/config.rs: `DEPTHS_NETWORK_GATE` (true), `DEPTHS_NETWORK_MATURITY_DAYS` (7), `DEPTHS_NETWORK_V4_PREFIX` (32), `DEPTHS_NETWORK_V6_PREFIX` (64), `DEPTHS_TRUSTED_NETWORKS`, `DEPTHS_GEOIP_DB`; invalid values refuse to start
 
 ## Phase 2: Foundational
