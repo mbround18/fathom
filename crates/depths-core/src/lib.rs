@@ -6,6 +6,7 @@
 
 pub mod discovery;
 pub mod hash;
+pub mod host;
 pub mod name;
 pub mod plan;
 pub mod ports;
