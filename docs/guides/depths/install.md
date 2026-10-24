@@ -204,6 +204,11 @@ came from.
 | | `DEPTHS_FEATURE_EDIT` | `true` | Editing compose and `.env` files. With `false`, Depths refuses to save edits |
 | `--shell-policy` | `DEPTHS_SHELL_POLICY` | `strict` | Who may open a shell by the container's security level: `strict` or `relaxed`. See [Containers and shells](security.md#who-may-open-a-shell) |
 | `--compose-policy` | `DEPTHS_COMPOSE_POLICY` | `warn` | Whether compose findings that let a container reach the host block deploys and saves: `warn` or `enforce`. See [Compose lint](security.md#compose-lint) |
+| | `DEPTHS_FEATURE_FILES` | `full` | The Files tab: `off`, `read_only` (browse, open, download) or `full`. See [Files in volumes](files.md) |
+| | `DEPTHS_HELPER_IMAGE` | Depths' own image | Image ID the Files tab's volume helper runs from. See [below](#files-in-volumes) |
+| | `DEPTHS_FILES_EDITOR_MAX`, `DEPTHS_FILES_DOWNLOAD_MAX`, `DEPTHS_FILES_UPLOAD_MAX` | `2MiB`, `2GiB`, `1GiB` | Largest file opened in the editor, downloaded, and uploaded (per file) |
+| | `DEPTHS_FILES_HISTORY_FILE_MAX`, `DEPTHS_FILES_HISTORY_VERSIONS`, `DEPTHS_FILES_HISTORY_TOTAL`, `DEPTHS_FILES_HISTORY_DAYS` | `10MiB`, `20`, `1GiB`, `30` | How much of each file's earlier content Depths keeps, and for how long |
+| | `DEPTHS_FILES_HELPERS` | `8` | Most volume helpers running at once |
 | `--host-proc` | `DEPTHS_HOST_PROC` | unset | A read-only mount of the host's `/proc` (the compose file uses `/host/proc`). Turns on host metrics for admins. Must be an absolute directory with a readable `stat`. Unset means off; see below |
 | | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Sends telemetry to an OpenTelemetry collector (the standard `OTEL_*` variables apply). Unset means no export |
 
@@ -239,6 +244,30 @@ Even with shells on, a `user` can only open one in a container of a stack assign
 Depths also checks the container itself when the shell is asked for: under the default
 `DEPTHS_SHELL_POLICY=strict`, nobody gets a shell in a container that can reach the host, and only
 admins in one that runs as root. See [Containers and shells](security.md#who-may-open-a-shell).
+
+## Files in volumes
+
+The Files tab needs nothing added to the example compose file: no new mount, no extra socket proxy
+switch and no change to the Depths container's lockdown. Depths starts a short-lived helper
+container for each volume you open, through the same proxy and with the permissions the proxy
+already grants (`CONTAINERS`, `POST`, `IMAGES` and `VOLUMES`). What it does need:
+
+- **Linux kernel 5.6 or newer** on the Docker host. The helper uses `openat2` to keep every path
+  inside the volume. On an older kernel, or where a seccomp profile blocks it, the tab turns itself
+  off, and admins see why.
+- **A current Docker Engine.** Nothing special beyond `docker run` with `--mount`, which every
+  supported release has. Rootless and user-namespace-remapped daemons work; the helper sees the
+  same user ids the services do.
+- **A helper image.** Depths uses its own image, which it finds by inspecting its own container
+  (through the container's `HOSTNAME`, which Docker sets to the container id). If you give the
+  Depths service a custom `hostname:`, or run it in a way that hides this, set
+  `DEPTHS_HELPER_IMAGE` to the image ID (`sha256:...`, from `docker image inspect --format
+  '{{.Id}}' <image>`) of a Depths image of the same version. A tag is not accepted: the helper
+  always runs by ID and is never pulled.
+
+Edit history is kept in the data volume under `file-history/`, so the `depths-data` backup covers
+it. See [Files in volumes](files.md) for what the tab does and its limits, and
+[Networks and the restricted view](security.md#files-in-volumes) for how it is contained.
 
 ## Approximate locations
 

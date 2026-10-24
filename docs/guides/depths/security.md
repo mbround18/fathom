@@ -34,6 +34,7 @@ decide trust.
 |---|---|
 | Viewing stacks, containers, logs and stats | Down, pull and update |
 | Viewing compose files and masked `.env` values | Revealing `.env` values |
+| Listing the folders of a stack's volumes | Opening, downloading, uploading or changing files in them |
 | Start, stop and restart (a stack or one service) | Editing and creating stacks |
 | Answering the home or public question | Deleting stacks |
 | Ending your own sessions | Container shells |
@@ -187,6 +188,53 @@ because its person is an admin ends when they stop being one.
 Shells always start as the container's own user, with no `--privileged`, and the shell path is
 checked before it is passed to `docker exec`.
 
+## Files in volumes
+
+The [Files tab](files.md) reads and writes inside the volumes a stack mounts. It is built so that
+Depths gains no standing access to the host to do it.
+
+- **A helper container per mount.** Depths starts a short-lived helper from its own image through
+  the same socket proxy it already uses, so the proxy and the Depths container need no new
+  setting. The helper mounts exactly one volume or bind source, with no network, a read-only root
+  filesystem, no capabilities, `no-new-privileges`, and memory, process and CPU limits. It is run
+  by image ID and never pulled. Depths' own lockdown is unchanged.
+- **The kernel enforces the boundary.** Every path is opened beneath the mount's root, so `..`,
+  absolute paths and links swapped between a check and the write cannot leave it. Links that point
+  outside the mount are shown and never followed. Files with more than one hard link are read-only.
+  Where the kernel cannot do this (older than 5.6), the feature turns itself off instead of falling
+  back to a weaker check.
+- **Acting as the file's owner.** The helper runs as the user and group that own the file or folder
+  it works on, with no capability to override permissions. A file its owner cannot write stays
+  unwritten.
+- **The host stays out.** A bind mount of a sensitive host path (rated **root** or **escape** by
+  the rules above: `/`, `/etc`, `/proc`, the runtime socket and the like) is listed but cannot be
+  browsed. A volume that no managed stack mounts is not reachable.
+- **Same permission as editing.** Everything in the tab needs the edit permission on that stack,
+  checked on the server for every request. Viewers get no tab.
+- **Restricted view.** Listing folders is allowed. Opening a file, downloading, uploading, saving,
+  creating, renaming, deleting and restoring are not, because configuration files often hold
+  passwords. A refused command is answered with `untrusted_network` and recorded as
+  `network_refused`.
+
+What the audit log records for it:
+
+| Entry | When |
+|---|---|
+| `files.read` | A file's content was opened |
+| `files.download` | A file or folder was downloaded, with its size |
+| `files.upload` | A file was uploaded, with its size |
+| `files.save` | A file was saved |
+| `files.create`, `files.rename`, `files.delete` | An entry was created, renamed or moved, or deleted |
+| `files.restore` | A kept version was restored |
+| `files.refused` | Anything was refused, with the reason: a role or feature setting, a mount that cannot be browsed, an attempt to leave the mount, a changed file, a system error |
+
+Each entry names who, when, the stack, service, mount, path and size. File contents are never
+written to the log.
+
+The operator can turn it down with `DEPTHS_FEATURE_FILES`: `read_only` allows only browsing,
+opening and downloading, and `off` removes the feature. If the Docker proxy refuses to create
+containers, or the kernel lacks `openat2`, it is off. See [Settings](files.md#settings).
+
 ## Compose lint
 
 Before an `up`, an update, a service start, a save or a new stack, Depths reads the compose file
@@ -237,6 +285,9 @@ userns-remapped daemons as ok.
   exec as root, or with `Privileged` set, in any container. Depths itself never asks for either,
   and the proxy is on an internal network only Depths can reach. Keep it that way, and leave exec
   off unless you use shells.
+- **Files in volumes can change what a service does.** A person who may edit a stack can edit the
+  config files and scripts in its writable volumes, and some of those are run by the service. That
+  is the same trust as editing the compose file, and the same permission gates both.
 - **Docker API access is still root on the host.** A person who can edit a compose file under
   `warn` can deploy a privileged container. `enforce` closes that for `user`s; admins are trusted
   with root by design (see [Installing Depths](install.md#read-this-first-docker-access-is-root)).
