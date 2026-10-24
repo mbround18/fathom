@@ -544,21 +544,24 @@ async fn saving_is_refused_when_editing_is_off() {
 }
 
 #[tokio::test]
-async fn the_shell_and_edit_flags_refuse_when_off() {
-    let a = app();
+async fn the_shell_is_refused_when_its_flag_is_off() {
+    let a = app_with(|s| {
+        let mut cfg = (*s.cfg).clone();
+        cfg.features.shell = false;
+        s.cfg = std::sync::Arc::new(cfg);
+    });
+    a.add_stack("web", COMPOSE, None);
+    a.set_containers(vec![container("web", "app", "running", "Up 1 hour")]);
     let (mut ws, server, _) = open(&a, OWNER).await;
-    let shell_on = a.state.cfg.features.shell;
     let r = ask(
         &mut ws,
         1,
         json!({ "type": "OpenShell", "data": { "container": "web-app-1", "cols": 80, "rows": 24 } }),
     )
     .await;
-    if shell_on {
-        assert_eq!(r["event"]["type"], "Invalid", "{r}");
-    } else {
-        assert_eq!(r["event"]["data"]["reason"], "feature_disabled", "{r}");
-    }
+    assert_eq!(r["event"]["type"], "Denied", "{r}");
+    assert_eq!(r["event"]["data"]["reason"], "feature_disabled", "{r}");
+    assert!(a.runtime.shells.lock().unwrap().is_empty());
     server.abort();
 }
 
@@ -614,7 +617,12 @@ async fn the_ninth_socket_of_a_session_closes_4429() {
     for i in 0..8u64 {
         let (mut ws, server) = connect(&a, Some(&session)).await;
         ws.send(Message::text(hello(&csrf))).await.unwrap();
-        let r = ask(&mut ws, i, json!({ "type": "UnwatchStats" })).await;
+        let r = ask(
+            &mut ws,
+            i,
+            json!({ "type": "CloseStream", "data": { "stream_id": 999 } }),
+        )
+        .await;
         assert_eq!(r["event"]["type"], "Invalid", "socket {i} is open: {r}");
         held.push((ws, server));
     }
@@ -629,7 +637,12 @@ async fn the_ninth_socket_of_a_session_closes_4429() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     let (mut ws, server) = connect(&a, Some(&session)).await;
     ws.send(Message::text(hello(&csrf))).await.unwrap();
-    let r = ask(&mut ws, 99, json!({ "type": "UnwatchStats" })).await;
+    let r = ask(
+        &mut ws,
+        99,
+        json!({ "type": "CloseStream", "data": { "stream_id": 999 } }),
+    )
+    .await;
     assert_eq!(r["event"]["type"], "Invalid");
     server.abort();
     for (_, s) in held {
@@ -642,11 +655,454 @@ async fn a_command_flood_closes_4429() {
     let a = app();
     let (mut ws, server, _) = open(&a, OWNER).await;
     for i in 0..80u64 {
-        let m = json!({ "id": i, "cmd": { "type": "UnwatchStats" } }).to_string();
+        let m = json!({ "id": i, "cmd": { "type": "CloseStream", "data": { "stream_id": 999 } } })
+            .to_string();
         if ws.send(Message::text(m)).await.is_err() {
             break;
         }
     }
     assert_eq!(close_code(&mut ws, WAIT).await, 4429);
+    server.abort();
+}
+
+// ---------------------------------------------------------------------------
+// Streams (T066): logs, shells, stats, and the per-socket cap.
+// ---------------------------------------------------------------------------
+
+/// Waits until `done` holds, polling.
+async fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !done() {
+        assert!(tokio::time::Instant::now() < deadline, "timed out: {what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+fn b64(s: &str) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(s)
+}
+
+fn unb64(v: &Value) -> String {
+    use base64::Engine as _;
+    String::from_utf8(
+        base64::engine::general_purpose::STANDARD
+            .decode(v.as_str().unwrap())
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+fn count(n: &std::sync::atomic::AtomicUsize) -> usize {
+    n.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Stacks `web` and `db` (service `app`) running, and container `stray-x-1` outside every stack.
+fn streams_app() -> App {
+    let a = app_with(|s| s.ws.stats_every = Duration::from_millis(50));
+    a.add_stack("web", COMPOSE, None);
+    a.add_stack("db", COMPOSE, None);
+    a.set_containers(vec![
+        container("web", "app", "running", "Up 1 hour"),
+        container("db", "app", "running", "Up 1 hour"),
+        container("stray", "x", "running", "Up 1 hour"),
+    ]);
+    a
+}
+
+fn stream_of(r: &Value) -> u64 {
+    assert_eq!(r["event"]["type"], "StreamOpened", "{r}");
+    r["event"]["data"]["stream_id"].as_u64().unwrap()
+}
+
+fn open_logs(target: Value) -> Value {
+    json!({ "type": "OpenLogs", "data": { "target": target, "tail": 10 } })
+}
+
+fn open_shell(container: &str) -> Value {
+    json!({ "type": "OpenShell", "data": { "container": container, "cols": 80, "rows": 24 } })
+}
+
+/// Sends `cmd` without waiting for a reply (the stream commands that have none).
+async fn tell(ws: &mut Socket, cmd: Value) {
+    ws.send(Message::text(json!({ "id": 900, "cmd": cmd }).to_string()))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn logs_stream_and_close_stops_the_follow() {
+    let a = streams_app();
+    *a.runtime.log_lines.lock().unwrap() = vec!["2026-10-23T00:00:00Z hello".into()];
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let r = ask(
+        &mut ws,
+        1,
+        json!({ "type": "OpenLogs", "data": {
+            "target": { "kind": "stack", "stack": "web", "service": "app" },
+            "tail": 1000,
+            "since": "2026-10-23T00:00:00Z",
+        } }),
+    )
+    .await;
+    let id = stream_of(&r);
+    let chunk = next_of(&mut ws, "LogChunk").await;
+    assert_eq!(chunk["event"]["data"]["stream_id"], id);
+    assert_eq!(
+        chunk["event"]["data"]["lines"],
+        json!(["2026-10-23T00:00:00Z hello"])
+    );
+    let argv = a.runtime.follows.lock().unwrap()[0].join(" ");
+    assert!(argv.starts_with("docker compose"), "{argv}");
+    assert!(
+        argv.ends_with(
+            "logs --no-color --timestamps --follow --tail 1000 --since=2026-10-23T00:00:00Z app"
+        ),
+        "{argv}"
+    );
+
+    let close = json!({ "type": "CloseStream", "data": { "stream_id": id } });
+    let r = ask(&mut ws, 2, close.clone()).await;
+    assert_eq!(r["event"]["type"], "StreamClosed", "{r}");
+    assert_eq!(r["event"]["data"]["reason"]["kind"], "closed", "{r}");
+    until("the follow stops", || {
+        count(&a.runtime.follows_stopped) == 1
+    })
+    .await;
+    let r = ask(&mut ws, 3, close).await;
+    assert_eq!(
+        r["event"]["type"], "Invalid",
+        "a closed stream is unknown: {r}"
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_follow_that_ends_closes_its_stream_after_its_lines() {
+    let a = streams_app();
+    *a.runtime.log_lines.lock().unwrap() = vec!["last words".into()];
+    a.runtime
+        .logs_end
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let r = ask(
+        &mut ws,
+        1,
+        json!({ "type": "OpenLogs", "data": {
+            "target": { "kind": "container", "container": "web-app-1" },
+            "tail": 5,
+        } }),
+    )
+    .await;
+    stream_of(&r);
+    assert_eq!(next(&mut ws).await["event"]["type"], "LogChunk");
+    let closed = next_of(&mut ws, "StreamClosed").await;
+    assert_eq!(
+        closed["event"]["data"]["reason"]["kind"], "ended",
+        "{closed}"
+    );
+    assert_eq!(
+        a.runtime.follows.lock().unwrap()[0].join(" "),
+        "docker logs --timestamps --follow --tail 5 web-app-id"
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn logs_refuse_unknown_services_and_containers_a_user_may_not_see() {
+    let a = streams_app();
+    grant(&a, "7", &["web"]);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let r = ask(
+        &mut ws,
+        1,
+        open_logs(json!({ "kind": "stack", "stack": "web", "service": "nope" })),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    let r = ask(
+        &mut ws,
+        2,
+        open_logs(json!({ "kind": "stack", "stack": "db" })),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Denied", "{r}");
+    for (i, c) in ["stray-x-1", "db-app-1", "nonexistent"].iter().enumerate() {
+        let r = ask(
+            &mut ws,
+            10 + i as u64,
+            open_logs(json!({ "kind": "container", "container": c })),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "Denied", "{c}: {r}");
+    }
+    stream_of(
+        &ask(
+            &mut ws,
+            5,
+            open_logs(json!({ "kind": "container", "container": "web-app-1" })),
+        )
+        .await,
+    );
+    assert_eq!(a.runtime.follows.lock().unwrap().len(), 1);
+    server.abort();
+
+    // An admin may follow the stray, and is told plainly when a container does not exist.
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    stream_of(
+        &ask(
+            &mut ws,
+            1,
+            open_logs(json!({ "kind": "container", "container": "stray-x-1" })),
+        )
+        .await,
+    );
+    let r = ask(
+        &mut ws,
+        2,
+        open_logs(json!({ "kind": "container", "container": "nonexistent" })),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_shell_is_refused_outside_the_users_stacks() {
+    let a = streams_app();
+    grant(&a, "7", &["web"]);
+    let (mut ws, server, _) = open(&a, "7").await;
+    for (i, c) in ["db-app-1", "stray-x-1"].iter().enumerate() {
+        let r = ask(&mut ws, i as u64, open_shell(c)).await;
+        assert_eq!(r["event"]["type"], "Denied", "{c}: {r}");
+        assert_eq!(r["event"]["data"]["reason"], "not_permitted", "{r}");
+    }
+    assert!(a.runtime.shells.lock().unwrap().is_empty());
+    assert!(
+        !a.audit_entries()
+            .iter()
+            .any(|e| e.action == depths_protocol::AuditAction::ShellOpen)
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_shell_is_audited_echoes_input_resizes_and_ends() {
+    let a = streams_app();
+    grant(&a, "7", &["web"]);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let r = ask(
+        &mut ws,
+        1,
+        json!({ "type": "OpenShell", "data": {
+            "container": "web-app-1", "shell": "bash", "cols": 80, "rows": 24,
+        } }),
+    )
+    .await;
+    let id = stream_of(&r);
+    let audited = a.audit_entries();
+    let shell = audited
+        .iter()
+        .find(|e| e.action == depths_protocol::AuditAction::ShellOpen)
+        .expect("a shell_open record before StreamOpened");
+    assert_eq!(shell.stack.as_deref(), Some("web"));
+    assert_eq!(
+        a.runtime.shells.lock().unwrap()[0],
+        ("web-app-id".to_owned(), "/bin/bash".to_owned(), (80, 24))
+    );
+
+    let input =
+        |s: &str| json!({ "type": "ShellInput", "data": { "stream_id": id, "bytes_b64": b64(s) } });
+    tell(&mut ws, input("ls\n")).await;
+    let out = next_of(&mut ws, "ShellOutput").await;
+    assert_eq!(out["event"]["data"]["stream_id"], id);
+    assert_eq!(unb64(&out["event"]["data"]["bytes_b64"]), "echo:ls\n");
+
+    tell(
+        &mut ws,
+        json!({ "type": "ShellResize", "data": { "stream_id": id, "cols": 120, "rows": 40 } }),
+    )
+    .await;
+    until("the resize", || {
+        a.runtime.shell_log.resizes.lock().unwrap().as_slice() == [(120, 40)]
+    })
+    .await;
+    let r = ask(
+        &mut ws,
+        2,
+        json!({ "type": "ShellResize", "data": { "stream_id": id, "cols": 0, "rows": 40 } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    let r = ask(
+        &mut ws,
+        3,
+        json!({ "type": "ShellInput", "data": { "stream_id": id + 100, "bytes_b64": b64("x") } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+
+    tell(&mut ws, input("exit\n")).await;
+    let closed = next_of(&mut ws, "StreamClosed").await;
+    assert_eq!(closed["event"]["data"]["stream_id"], id);
+    assert_eq!(
+        closed["event"]["data"]["reason"]["kind"], "ended",
+        "{closed}"
+    );
+    until("the session closes", || {
+        count(&a.runtime.shell_log.closed) == 1
+    })
+    .await;
+    server.abort();
+}
+
+#[tokio::test]
+async fn closing_the_socket_stops_its_shells_and_follows() {
+    let a = streams_app();
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    stream_of(&ask(&mut ws, 1, open_shell("web-app-1")).await);
+    stream_of(
+        &ask(
+            &mut ws,
+            2,
+            open_logs(json!({ "kind": "stack", "stack": "web" })),
+        )
+        .await,
+    );
+    ws.close(None).await.unwrap();
+    drop(ws);
+    until("the follow stops", || {
+        count(&a.runtime.follows_stopped) == 1
+    })
+    .await;
+    until("the shell closes", || {
+        count(&a.runtime.shell_log.closed) == 1
+    })
+    .await;
+    server.abort();
+}
+
+/// How many stats readings happen over a while, once whatever was in flight has settled.
+async fn ticks_after_settling(a: &App) -> usize {
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let before = a.runtime.stats_calls.lock().unwrap().len();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    a.runtime.stats_calls.lock().unwrap().len() - before
+}
+
+#[tokio::test]
+async fn stats_tick_with_full_ids_and_stop_on_unwatch() {
+    let a = streams_app();
+    grant(&a, "7", &["web"]);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let r = ask(
+        &mut ws,
+        1,
+        json!({ "type": "WatchStats", "data": { "targets": [{ "kind": "stack", "stack": "db" }] } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Denied", "{r}");
+
+    tell(
+        &mut ws,
+        json!({ "type": "WatchStats", "data": { "targets": [
+            { "kind": "stack", "stack": "web" },
+            { "kind": "container", "container": "web-app-1" },
+        ] } }),
+    )
+    .await;
+    let s = next_of(&mut ws, "StatsSample").await;
+    assert_eq!(
+        s["event"]["data"]["samples"][0]["container_id"],
+        "web-app-id"
+    );
+    assert_eq!(
+        a.runtime.stats_calls.lock().unwrap()[0],
+        ["web-app-id".to_owned()],
+        "one reading per container, however it was named"
+    );
+    next_of(&mut ws, "StatsSample").await;
+
+    tell(&mut ws, json!({ "type": "UnwatchStats" })).await;
+    assert_eq!(
+        ticks_after_settling(&a).await,
+        0,
+        "no readings after unwatch"
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn stats_stop_when_the_socket_closes() {
+    let a = streams_app();
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    tell(
+        &mut ws,
+        json!({ "type": "WatchStats", "data": { "targets": [
+            { "kind": "container", "container": "stray-x-1" },
+        ] } }),
+    )
+    .await;
+    let s = next_of(&mut ws, "StatsSample").await;
+    assert_eq!(
+        s["event"]["data"]["samples"][0]["container_id"],
+        "stray-x-id"
+    );
+    ws.close(None).await.unwrap();
+    drop(ws);
+    assert_eq!(ticks_after_settling(&a).await, 0, "no readings after close");
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_socket_holds_at_most_32_streams() {
+    let a = streams_app();
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let logs = open_logs(json!({ "kind": "stack", "stack": "web" }));
+    let mut ids = Vec::new();
+    for i in 0..depths_protocol::MAX_STREAMS_PER_SOCKET as u64 {
+        ids.push(stream_of(&ask(&mut ws, i + 1, logs.clone()).await));
+    }
+    let r = ask(&mut ws, 100, logs.clone()).await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    let r = ask(&mut ws, 101, open_shell("web-app-1")).await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    assert!(a.runtime.shells.lock().unwrap().is_empty());
+    assert!(
+        !a.audit_entries()
+            .iter()
+            .any(|e| e.action == depths_protocol::AuditAction::ShellOpen),
+        "a refused shell is not audited as opened"
+    );
+    // Closing one makes room again.
+    ask(
+        &mut ws,
+        102,
+        json!({ "type": "CloseStream", "data": { "stream_id": ids[0] } }),
+    )
+    .await;
+    stream_of(&ask(&mut ws, 103, logs).await);
+    server.abort();
+}
+
+#[tokio::test]
+async fn losing_a_stack_closes_its_streams() {
+    let a = streams_app();
+    grant(&a, "7", &["web"]);
+    let (mut ws, server, _) = open(&a, "7").await;
+    let logs = open_logs(json!({ "kind": "stack", "stack": "web" }));
+    let id = stream_of(&ask(&mut ws, 1, logs).await);
+    grant(&a, "7", &["db"]);
+    let _ = a.state.users_changed.send(());
+    let closed = next_of(&mut ws, "StreamClosed").await;
+    assert_eq!(closed["event"]["data"]["stream_id"], id);
+    assert_eq!(
+        closed["event"]["data"]["reason"]["kind"], "failed",
+        "{closed}"
+    );
+    until("the follow stops", || {
+        count(&a.runtime.follows_stopped) == 1
+    })
+    .await;
     server.abort();
 }

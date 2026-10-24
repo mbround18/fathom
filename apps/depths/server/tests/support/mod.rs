@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,7 +11,8 @@ use axum::body::Body;
 use depths_core::plan::RunStep;
 use depths_core::ports::{
     CancelToken, ContainerRuntime, OutputChunk, OutputSink, OutputStream, ProjectContainers,
-    RuntimeError, RuntimeSnapshot, StepOutcome, Validation,
+    RuntimeError, RuntimeSnapshot, ShellSession, StepOutcome, StreamEvent, StreamId, StreamSink,
+    UsageSample, Validation,
 };
 use depths_server::config::{Config, Flags};
 use depths_server::http::{AppState, router};
@@ -112,6 +114,66 @@ pub struct FakeRuntime {
     pub ran: Mutex<Vec<Vec<String>>>,
     /// `Some(stderr)`: every step fails with it.
     pub fail_with: Mutex<Option<String>>,
+    /// Every log follow's argv.
+    pub follows: Mutex<Vec<Vec<String>>>,
+    /// The lines every follow sends first.
+    pub log_lines: Mutex<Vec<String>>,
+    /// The follow ends after its lines instead of waiting to be stopped.
+    pub logs_end: AtomicBool,
+    /// Follows that were stopped (cancelled, or nobody listening).
+    pub follows_stopped: AtomicUsize,
+    /// Every shell opened: container id, shell, (cols, rows).
+    pub shells: Mutex<Vec<ShellOpened>>,
+    pub shell_log: Arc<ShellLog>,
+    /// Every stats reading's ids.
+    pub stats_calls: Mutex<Vec<Vec<String>>>,
+}
+
+/// A shell opened: container id, shell, (cols, rows).
+pub type ShellOpened = (String, String, (u16, u16));
+
+/// What the fake shells saw.
+#[derive(Default)]
+pub struct ShellLog {
+    pub resizes: Mutex<Vec<(u16, u16)>>,
+    pub closed: AtomicUsize,
+    pub stopped: AtomicUsize,
+}
+
+/// Echoes each write back as `echo:<bytes>`; `exit\n` ends it, as a shell would.
+pub struct FakeShell {
+    stream_id: StreamId,
+    sink: Arc<dyn StreamSink>,
+    log: Arc<ShellLog>,
+}
+
+impl ShellSession for FakeShell {
+    fn write(&mut self, data: &[u8]) -> Result<(), RuntimeError> {
+        if data == b"exit\n" {
+            self.sink.emit(StreamEvent::ContainerSessionClosed {
+                stream_id: self.stream_id,
+                error: None,
+            });
+            return Err(RuntimeError::Failed("exited".into()));
+        }
+        self.sink.emit(StreamEvent::ContainerSessionOutput {
+            stream_id: self.stream_id,
+            data: format!("echo:{}", String::from_utf8_lossy(data)),
+        });
+        Ok(())
+    }
+    fn resize(&self, cols: u16, rows: u16) {
+        self.log.resizes.lock().unwrap().push((cols, rows));
+    }
+    fn close(self: Box<Self>) {
+        self.log.closed.fetch_add(1, Ordering::SeqCst);
+    }
+    fn stopper(&self) -> Arc<dyn Fn() + Send + Sync> {
+        let log = self.log.clone();
+        Arc::new(move || {
+            log.stopped.fetch_add(1, Ordering::SeqCst);
+        })
+    }
 }
 
 impl ContainerRuntime for FakeRuntime {
@@ -153,6 +215,73 @@ impl ContainerRuntime for FakeRuntime {
             std::thread::sleep(Duration::from_millis(20));
         }
         Ok(())
+    }
+    fn follow_logs(
+        &self,
+        step: &RunStep,
+        stream_id: StreamId,
+        sink: &dyn StreamSink,
+        cancel: &CancelToken,
+    ) -> Result<(), RuntimeError> {
+        self.follows.lock().unwrap().push(step.argv.clone());
+        let lines = self.log_lines.lock().unwrap().clone();
+        if !lines.is_empty() {
+            sink.emit(StreamEvent::ContainerLogBatch {
+                stream_id,
+                lines,
+                truncated: false,
+            });
+        }
+        if self.logs_end.load(Ordering::SeqCst) {
+            return match self.fail_with.lock().unwrap().clone() {
+                Some(e) => Err(RuntimeError::Failed(e)),
+                None => Ok(()),
+            };
+        }
+        loop {
+            if cancel.is_cancelled()
+                || !sink.emit(StreamEvent::ContainerLogBatch {
+                    stream_id,
+                    lines: Vec::new(),
+                    truncated: false,
+                })
+            {
+                self.follows_stopped.fetch_add(1, Ordering::SeqCst);
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    fn open_shell(
+        &self,
+        container_id: &str,
+        shell: &str,
+        size: (u16, u16),
+        stream_id: StreamId,
+        sink: Arc<dyn StreamSink>,
+    ) -> Result<Box<dyn ShellSession>, RuntimeError> {
+        self.shells
+            .lock()
+            .unwrap()
+            .push((container_id.to_owned(), shell.to_owned(), size));
+        Ok(Box::new(FakeShell {
+            stream_id,
+            sink,
+            log: self.shell_log.clone(),
+        }))
+    }
+    fn stats(&self, ids: &[String], at: &str) -> Result<Vec<UsageSample>, RuntimeError> {
+        self.stats_calls.lock().unwrap().push(ids.to_vec());
+        Ok(ids
+            .iter()
+            .map(|id| UsageSample {
+                container_id: id.clone(),
+                at: at.to_owned(),
+                cpu_percent: Some(1.0),
+                memory_bytes: Some(1024),
+                memory_limit_bytes: None,
+            })
+            .collect())
     }
 }
 
@@ -208,6 +337,8 @@ pub fn app_with(tweak: impl FnOnce(&mut AppState)) -> App {
         ("OAUTH_CLIENT_ID", "1234"),
         ("OAUTH_CLIENT_SECRET", "s3cret"),
         ("OWNER_USER_ID", OWNER),
+        // Off by default; the stream tests need it on.
+        ("DEPTHS_FEATURE_SHELL", "true"),
     ] {
         env.insert(k.into(), v.into());
     }

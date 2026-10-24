@@ -49,6 +49,9 @@ use crate::ops::Who;
 use crate::users::{self, SignIn};
 use crate::watch::{Subscription, Update};
 
+mod streams;
+pub use streams::{MAX_COLS, MAX_ROWS, SHELL_INPUT_QUEUE, STREAM_BUDGET, STREAM_QUEUE};
+
 pub const CLOSE_GOING_AWAY: u16 = 1001;
 pub const CLOSE_UNSUPPORTED: u16 = 1003;
 pub const CLOSE_TOO_BIG: u16 = 1009;
@@ -61,6 +64,10 @@ pub const MAX_MISSED_PONGS: u32 = 2;
 const OUT_QUEUE: usize = 256;
 /// How long a closing socket waits for the client's close frame.
 const CLOSE_GRACE: Duration = Duration::from_secs(1);
+/// Shell input and resizes per socket: 100 a second, burst 400. Apart from the command limit,
+/// because key repeat alone sends 30 a second.
+pub const WS_SHELL_PER_MINUTE: u32 = 100 * 60;
+pub const WS_SHELL_BURST: u32 = 400;
 
 /// The socket's timers. Tests shorten them.
 #[derive(Debug, Clone, Copy)]
@@ -68,6 +75,8 @@ pub struct WsConfig {
     pub hello_timeout: Duration,
     pub ping_every: Duration,
     pub expiring_lead: Duration,
+    /// How often a stats watch samples.
+    pub stats_every: Duration,
 }
 
 impl Default for WsConfig {
@@ -76,6 +85,7 @@ impl Default for WsConfig {
             hello_timeout: Duration::from_secs(10),
             ping_every: Duration::from_secs(30),
             expiring_lead: Duration::from_secs(60),
+            stats_every: Duration::from_secs(2),
         }
     }
 }
@@ -159,6 +169,8 @@ struct Conn {
     out: mpsc::Sender<EventEnvelope>,
     stacks: Option<Subscription>,
     users_feed: bool,
+    /// Log follows, shells and the stats watch. Dropped with the socket, which stops them all.
+    streams: streams::Registry,
 }
 
 impl Conn {
@@ -273,6 +285,7 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
     };
 
     let (out_tx, mut out_rx) = mpsc::channel::<EventEnvelope>(OUT_QUEUE);
+    let (registry, mut stream_rx) = streams::Registry::new();
     let mut conn = Conn {
         actor: audit::actor_of(&session.identity),
         session: session.id.clone(),
@@ -281,9 +294,11 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
         out: out_tx,
         stacks: None,
         users_feed: false,
+        streams: registry,
         app: app.clone(),
     };
     let commands = RateLimiter::<()>::new(WS_COMMANDS_PER_MINUTE, WS_COMMAND_BURST, 1);
+    let keys = RateLimiter::<()>::new(WS_SHELL_PER_MINUTE, WS_SHELL_BURST, 1);
     let ping_every = app.ws.ping_every;
     let mut ping = tokio::time::interval_at(Instant::now() + ping_every, ping_every);
     let mut missed: u32 = 0;
@@ -313,7 +328,8 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                     Message::Pong(_) => { missed = 0; continue; }
                     Message::Ping(_) | Message::Close(_) => continue,
                 };
-                if commands.check(&(), std::time::Instant::now()).is_err() {
+                let limit = if streams::is_shell_traffic(text.as_str()) { &keys } else { &commands };
+                if limit.check(&(), std::time::Instant::now()).is_err() {
                     break Flow::Close(CLOSE_TOO_MANY, "rate_limited");
                 }
                 let Some(s) = app.auth.sessions.touch(&conn.session) else {
@@ -333,6 +349,24 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
             }
             Some(env) = out_rx.recv() => {
                 if !send(&mut socket, &env).await {
+                    return;
+                }
+            }
+            Some(o) = stream_rx.recv() => {
+                let env = match o {
+                    streams::Outgoing::Data { stream, env, _credit } => {
+                        conn.streams.is_open(stream).then_some(env)
+                    }
+                    streams::Outgoing::Stats { generation, env, _credit } => {
+                        conn.streams.is_watching(generation).then_some(env)
+                    }
+                    streams::Outgoing::End { stream, reason } => conn.streams.close(stream).then(|| {
+                        reply(None, Event::StreamClosed { stream_id: stream, reason })
+                    }),
+                };
+                if let Some(env) = env
+                    && !send(&mut socket, &env).await
+                {
                     return;
                 }
             }
@@ -362,7 +396,7 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                 if !role::has_any_access(&access) {
                     break Flow::Close(CLOSE_NO_ACCESS, "no_access");
                 }
-                let mut evs = Vec::new();
+                let mut evs = streams::revoke(&mut conn, &access);
                 if conn.stacks.is_some()
                     && let Some(list) = app.watch.last()
                 {
@@ -543,9 +577,14 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 )]
             }
         }
-        Cmd::OpenShell { .. } => {
+        Cmd::OpenShell {
+            container,
+            shell,
+            cols,
+            rows,
+        } => {
             if app.cfg.features.shell {
-                vec![invalid(id, "not available yet")]
+                vec![streams::open_shell(conn, &access, id, container, shell, cols, rows).await]
             } else {
                 vec![conn.deny_reason(
                     id,
@@ -555,12 +594,26 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 )]
             }
         }
-        Cmd::OpenLogs { .. }
-        | Cmd::ShellInput { .. }
-        | Cmd::ShellResize { .. }
-        | Cmd::WatchStats { .. }
-        | Cmd::UnwatchStats
-        | Cmd::CloseStream { .. } => vec![invalid(id, "not available yet")],
+        Cmd::OpenLogs {
+            target,
+            tail,
+            since,
+        } => vec![streams::open_logs(conn, &access, id, target, tail, since).await],
+        Cmd::ShellInput {
+            stream_id,
+            bytes_b64,
+        } => streams::shell_input(conn, id, stream_id, bytes_b64.as_str()),
+        Cmd::ShellResize {
+            stream_id,
+            cols,
+            rows,
+        } => streams::shell_resize(conn, id, stream_id, cols, rows),
+        Cmd::WatchStats { targets } => streams::watch_stats(conn, &access, id, targets).await,
+        Cmd::UnwatchStats => {
+            streams::unwatch_stats(conn);
+            Vec::new()
+        }
+        Cmd::CloseStream { stream_id } => vec![streams::close_stream(conn, id, stream_id)],
         Cmd::GetAudit { filter, cursor } => {
             if !role::permits(&access, None, Action::ReadAudit) {
                 return vec![conn.deny(id, None, "GetAudit needs read_audit".into())];
