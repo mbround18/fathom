@@ -17,5 +17,6 @@ and switch back at any time.
 | [Networks and the restricted view](security.md) | Which networks are trusted, what an untrusted one can do, getting back in |
 | [Migrating from Dockge](migrating-from-dockge.md) | Pointing Depths at Dockge's directory, what differs, switching back |
 | [Tabs, logs and shells](tabs-and-shells.md) | Logs, stats and shell tabs, panes, and what happens when a connection drops |
+| [Files in volumes](files.md) | Browsing a stack's volumes, editing config files, transfers, history and limits |
 
 Start with [Installing Depths](install.md), then set up one [sign-in provider](sign-in.md).
