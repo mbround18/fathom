@@ -45,7 +45,9 @@ pub enum PathError {
 ///
 /// Normalised means components joined by a single `/`, with no leading or trailing `/` and no
 /// `.` components. It serialises as a plain string and checks itself on the way in.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS,
+)]
 #[serde(try_from = "String", into = "String")]
 #[ts(type = "string")]
 pub struct RelPath(String);
@@ -120,7 +122,11 @@ impl RelPath {
     /// This path with one more component. `name` must be a single name ([`Name::new`]'s rule).
     pub fn join(&self, name: &str) -> Result<Self, PathError> {
         check_name(name.as_bytes())?;
-        let len = if self.is_root() { name.len() } else { self.0.len() + 1 + name.len() };
+        let len = if self.is_root() {
+            name.len()
+        } else {
+            self.0.len() + 1 + name.len()
+        };
         if len > MAX_PATH_BYTES {
             return Err(PathError::TooLong);
         }
@@ -344,7 +350,10 @@ mod tests {
         }
         assert_eq!(root.join(".."), Err(PathError::DotDot));
         assert_eq!(root.join("a\0"), Err(PathError::Nul));
-        assert_eq!(root.join(&"x".repeat(256)), Err(PathError::ComponentTooLong));
+        assert_eq!(
+            root.join(&"x".repeat(256)),
+            Err(PathError::ComponentTooLong)
+        );
         let long = RelPath::parse(&vec!["a"; 2048].join("/")).unwrap();
         assert_eq!(long.join("bb"), Err(PathError::TooLong));
     }
@@ -357,7 +366,10 @@ mod tests {
         assert!(serde_json::from_str::<RelPath>("\"../x\"").is_err());
         assert!(serde_json::from_str::<RelPath>("\"/etc\"").is_err());
         assert!(serde_json::from_str::<Name>("\"a/b\"").is_err());
-        assert_eq!(serde_json::from_str::<Name>("\"a.txt\"").unwrap().as_str(), "a.txt");
+        assert_eq!(
+            serde_json::from_str::<Name>("\"a.txt\"").unwrap().as_str(),
+            "a.txt"
+        );
     }
 
     #[test]
@@ -367,7 +379,10 @@ mod tests {
         assert_eq!(json, "\"Y2Fm6Q==\"");
         assert_eq!(serde_json::from_str::<RawName>(&json).unwrap(), raw);
         assert_eq!(raw.lossy(), "caf\u{fffd}");
-        assert_eq!(RawName::from_bytes(b"a/b".to_vec()), Err(PathError::NotAName));
+        assert_eq!(
+            RawName::from_bytes(b"a/b".to_vec()),
+            Err(PathError::NotAName)
+        );
         assert_eq!(RawName::from_bytes(b"..".to_vec()), Err(PathError::DotDot));
         assert_eq!(RawName::from_b64("!!"), Err(PathError::Base64));
     }

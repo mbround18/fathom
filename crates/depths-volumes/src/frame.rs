@@ -105,7 +105,10 @@ impl Frame {
         if self.kind == kind {
             Ok(())
         } else {
-            Err(FrameError::UnexpectedKind { expected: kind, got: self.kind })
+            Err(FrameError::UnexpectedKind {
+                expected: kind,
+                got: self.kind,
+            })
         }
     }
 
@@ -187,7 +190,12 @@ pub fn read_data<R: Read>(r: &mut R, max: u64) -> Result<Vec<u8>, FrameError> {
                 }
                 out.extend_from_slice(&frame.body);
             }
-            got => return Err(FrameError::UnexpectedKind { expected: FrameKind::Data, got }),
+            got => {
+                return Err(FrameError::UnexpectedKind {
+                    expected: FrameKind::Data,
+                    got,
+                });
+            }
         }
     }
 }
@@ -250,7 +258,10 @@ mod tests {
             Err(FrameError::TooLong(n)) if n == MAX_FRAME_LEN as u64 + 1
         ));
         let huge = [0xff, 0xff, 0xff, 0xff, 3];
-        assert!(matches!(read_frame(&mut huge.as_slice()), Err(FrameError::TooLong(_))));
+        assert!(matches!(
+            read_frame(&mut huge.as_slice()),
+            Err(FrameError::TooLong(_))
+        ));
     }
 
     #[test]
@@ -268,9 +279,15 @@ mod tests {
     #[test]
     fn unknown_kind_is_an_error() {
         let bytes = [0, 0, 0, 0, 6];
-        assert!(matches!(read_frame(&mut bytes.as_slice()), Err(FrameError::UnknownKind(6))));
+        assert!(matches!(
+            read_frame(&mut bytes.as_slice()),
+            Err(FrameError::UnknownKind(6))
+        ));
         let bytes = [0, 0, 0, 0, 255];
-        assert!(matches!(read_frame(&mut bytes.as_slice()), Err(FrameError::UnknownKind(255))));
+        assert!(matches!(
+            read_frame(&mut bytes.as_slice()),
+            Err(FrameError::UnknownKind(255))
+        ));
     }
 
     #[test]
@@ -280,10 +297,16 @@ mod tests {
         assert_eq!(value["a"], 1);
         assert!(matches!(
             frame.parse::<serde_json::Value>(FrameKind::Error),
-            Err(FrameError::UnexpectedKind { expected: FrameKind::Error, got: FrameKind::Reply })
+            Err(FrameError::UnexpectedKind {
+                expected: FrameKind::Error,
+                got: FrameKind::Reply
+            })
         ));
         let bad = Frame::new(FrameKind::Reply, b"not json".to_vec());
-        assert!(matches!(bad.parse::<serde_json::Value>(FrameKind::Reply), Err(FrameError::Json(_))));
+        assert!(matches!(
+            bad.parse::<serde_json::Value>(FrameKind::Reply),
+            Err(FrameError::Json(_))
+        ));
     }
 
     #[test]
@@ -292,7 +315,10 @@ mod tests {
         let mut buf = Vec::new();
         write_data(&mut buf, &content).unwrap();
         Frame::end().write_to(&mut buf).unwrap();
-        assert_eq!(read_data(&mut buf.as_slice(), content.len() as u64).unwrap(), content);
+        assert_eq!(
+            read_data(&mut buf.as_slice(), content.len() as u64).unwrap(),
+            content
+        );
         assert!(matches!(
             read_data(&mut buf.as_slice(), content.len() as u64 - 1),
             Err(FrameError::TooLong(_))
@@ -309,11 +335,17 @@ mod tests {
     fn a_data_run_must_end_with_end() {
         let mut buf = Vec::new();
         write_data(&mut buf, b"abc").unwrap();
-        assert!(matches!(read_data(&mut buf.as_slice(), 10), Err(FrameError::Truncated)));
+        assert!(matches!(
+            read_data(&mut buf.as_slice(), 10),
+            Err(FrameError::Truncated)
+        ));
         write_frame(&mut buf, FrameKind::Reply, b"{}").unwrap();
         assert!(matches!(
             read_data(&mut buf.as_slice(), 10),
-            Err(FrameError::UnexpectedKind { got: FrameKind::Reply, .. })
+            Err(FrameError::UnexpectedKind {
+                got: FrameKind::Reply,
+                ..
+            })
         ));
     }
 }

@@ -115,7 +115,9 @@ impl Entry {
 /// fold equal are ordered by their raw bytes, so the order is total.
 pub fn entry_order(a: &Entry, b: &Entry) -> Ordering {
     let dir = |e: &Entry| e.kind != EntryKind::Dir;
-    dir(a).cmp(&dir(b)).then_with(|| name_order(&a.name_bytes(), &b.name_bytes()))
+    dir(a)
+        .cmp(&dir(b))
+        .then_with(|| name_order(&a.name_bytes(), &b.name_bytes()))
 }
 
 /// Byte order with ASCII case folded, then raw bytes.
@@ -199,9 +201,12 @@ impl MountId {
 
     /// Accepts exactly 16 lower-case hex digits, as a client sends back what it was given.
     pub fn parse(raw: &str) -> Result<Self, InvalidMountId> {
-        (raw.len() == 16 && raw.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-            .then(|| Self(raw.to_owned()))
-            .ok_or(InvalidMountId)
+        (raw.len() == 16
+            && raw
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        .then(|| Self(raw.to_owned()))
+        .ok_or(InvalidMountId)
     }
 
     pub fn as_str(&self) -> &str {
@@ -312,11 +317,20 @@ pub struct Browsable {
 
 impl Browsable {
     pub fn yes() -> Self {
-        Self { ok: true, reason: None }
+        Self {
+            ok: true,
+            reason: None,
+        }
     }
 
     pub fn no(code: NotBrowsableCode, message: impl Into<String>) -> Self {
-        Self { ok: false, reason: Some(NotBrowsable { code, message: message.into() }) }
+        Self {
+            ok: false,
+            reason: Some(NotBrowsable {
+                code,
+                message: message.into(),
+            }),
+        }
     }
 }
 
@@ -337,14 +351,17 @@ pub fn browsability(kind: MountKind, rating: &BindRating) -> Browsable {
     match (kind, rating) {
         (MountKind::Volume, _) => Browsable::yes(),
         (MountKind::Bind, BindRating::None | BindRating::Info) => Browsable::yes(),
-        (MountKind::Bind, BindRating::Risky(why)) => Browsable::no(NotBrowsableCode::RiskyBind, why),
+        (MountKind::Bind, BindRating::Risky(why)) => {
+            Browsable::no(NotBrowsableCode::RiskyBind, why)
+        }
         (MountKind::Tmpfs, _) => Browsable::no(
             NotBrowsableCode::Tmpfs,
             "a tmpfs mount lives in the container's memory; there is nothing on disk to browse",
         ),
-        (MountKind::Other, _) => {
-            Browsable::no(NotBrowsableCode::Other, "this kind of mount cannot be browsed")
-        }
+        (MountKind::Other, _) => Browsable::no(
+            NotBrowsableCode::Other,
+            "this kind of mount cannot be browsed",
+        ),
     }
 }
 
@@ -447,7 +464,9 @@ mod tests {
         sort_entries(&mut list);
         assert_eq!(
             names(&list),
-            ["alpha", "Zeta", "10", "9", "_x", "a.txt", "B.txt", "b.txt", "é"]
+            [
+                "alpha", "Zeta", "10", "9", "_x", "a.txt", "B.txt", "b.txt", "é"
+            ]
         );
     }
 
@@ -455,7 +474,11 @@ mod tests {
     fn raw_names_sort_by_their_bytes() {
         let mut raw = entry("\u{fffd}", EntryKind::File);
         raw.name_b64 = Some(RawName::from_bytes(b"a\xff".to_vec()).unwrap());
-        let mut list = vec![entry("b", EntryKind::File), raw, entry("a", EntryKind::File)];
+        let mut list = vec![
+            entry("b", EntryKind::File),
+            raw,
+            entry("a", EntryKind::File),
+        ];
         sort_entries(&mut list);
         assert_eq!(names(&list), ["a", "\u{fffd}", "b"]);
     }
@@ -478,13 +501,28 @@ mod tests {
 
     #[test]
     fn shape_blocks() {
-        let inside = LinkInfo { target: "b".into(), inside: true };
-        let outside = LinkInfo { target: "/etc".into(), inside: false };
+        let inside = LinkInfo {
+            target: "b".into(),
+            inside: true,
+        };
+        let outside = LinkInfo {
+            target: "/etc".into(),
+            inside: false,
+        };
         assert_eq!(Entry::blocked_by_shape(EntryKind::File, 1, None), None);
-        assert_eq!(Entry::blocked_by_shape(EntryKind::File, 2, None), Some(WriteBlocked::HardLink));
+        assert_eq!(
+            Entry::blocked_by_shape(EntryKind::File, 2, None),
+            Some(WriteBlocked::HardLink)
+        );
         assert_eq!(Entry::blocked_by_shape(EntryKind::Dir, 3, None), None);
-        assert_eq!(Entry::blocked_by_shape(EntryKind::Special, 1, None), Some(WriteBlocked::Special));
-        assert_eq!(Entry::blocked_by_shape(EntryKind::Link, 1, Some(&inside)), None);
+        assert_eq!(
+            Entry::blocked_by_shape(EntryKind::Special, 1, None),
+            Some(WriteBlocked::Special)
+        );
+        assert_eq!(
+            Entry::blocked_by_shape(EntryKind::Link, 1, Some(&inside)),
+            None
+        );
         assert_eq!(
             Entry::blocked_by_shape(EntryKind::Link, 1, Some(&outside)),
             Some(WriteBlocked::OutsideLink)
@@ -494,7 +532,10 @@ mod tests {
     #[test]
     fn entry_json_shape() {
         let mut e = entry("a", EntryKind::Link);
-        e.link = Some(LinkInfo { target: "../x".into(), inside: false });
+        e.link = Some(LinkInfo {
+            target: "../x".into(),
+            inside: false,
+        });
         e.write_blocked = Some(WriteBlocked::OutsideLink);
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["kind"], "link");
@@ -538,7 +579,13 @@ mod tests {
         assert_eq!(MountId::parse(id.as_str()), Ok(id.clone()));
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(serde_json::from_str::<MountId>(&json).unwrap(), id);
-        for bad in ["", "abc", "4C4C1A0A0C4A7BCA", "4c4c1a0a0c4a7bcg", "4c4c1a0a0c4a7bca0"] {
+        for bad in [
+            "",
+            "abc",
+            "4C4C1A0A0C4A7BCA",
+            "4c4c1a0a0c4a7bcg",
+            "4c4c1a0a0c4a7bca0",
+        ] {
             assert_eq!(MountId::parse(bad), Err(InvalidMountId), "{bad:?}");
         }
     }
@@ -567,8 +614,14 @@ mod tests {
             let other = browsability(MountKind::Other, &rating);
             assert_eq!(other.reason.unwrap().code, NotBrowsableCode::Other);
         }
-        assert_eq!(browsability(MountKind::Bind, &BindRating::None), Browsable::yes());
-        assert_eq!(browsability(MountKind::Bind, &BindRating::Info), Browsable::yes());
+        assert_eq!(
+            browsability(MountKind::Bind, &BindRating::None),
+            Browsable::yes()
+        );
+        assert_eq!(
+            browsability(MountKind::Bind, &BindRating::Info),
+            Browsable::yes()
+        );
         assert_eq!(
             browsability(MountKind::Bind, &risky),
             Browsable::no(NotBrowsableCode::RiskyBind, "mounts /etc")
@@ -577,7 +630,10 @@ mod tests {
 
     #[test]
     fn browsable_json_shape() {
-        assert_eq!(serde_json::to_value(Browsable::yes()).unwrap(), serde_json::json!({"ok": true}));
+        assert_eq!(
+            serde_json::to_value(Browsable::yes()).unwrap(),
+            serde_json::json!({"ok": true})
+        );
         let no = Browsable::no(NotBrowsableCode::SingleFile, "a single file");
         assert_eq!(
             serde_json::to_value(&no).unwrap(),

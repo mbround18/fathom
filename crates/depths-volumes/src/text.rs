@@ -36,7 +36,12 @@ pub struct FingerprintError;
 
 impl Fingerprint {
     pub fn new(sha256: [u8; 32], size: u64, mtime_ns: i64, ino: u64) -> Self {
-        Self { sha256, size, mtime_ns, ino }
+        Self {
+            sha256,
+            size,
+            mtime_ns,
+            ino,
+        }
     }
 
     /// From a hasher fed with the content as it was streamed.
@@ -46,7 +51,12 @@ impl Fingerprint {
 
     /// From the whole content in memory; the size is its length.
     pub fn of_content(content: &[u8], mtime_ns: i64, ino: u64) -> Self {
-        Self::new(Sha256::digest(content).into(), content.len() as u64, mtime_ns, ino)
+        Self::new(
+            Sha256::digest(content).into(),
+            content.len() as u64,
+            mtime_ns,
+            ino,
+        )
     }
 
     pub fn sha256(&self) -> &[u8; 32] {
@@ -96,8 +106,8 @@ fn unhex_32(s: &str) -> Option<[u8; 32]> {
         return None;
     }
     let mut out = [0u8; 32];
-    for (i, pair) in bytes.chunks_exact(2).enumerate() {
-        out[i] = digit(pair[0])? << 4 | digit(pair[1])?;
+    for (i, [hi, lo]) in bytes.as_chunks::<2>().0.iter().enumerate() {
+        out[i] = digit(*hi)? << 4 | digit(*lo)?;
     }
     Some(out)
 }
@@ -105,13 +115,24 @@ fn unhex_32(s: &str) -> Option<[u8; 32]> {
 /// Decimal digits only, optionally with a leading `-` when `signed`: no `+`, no spaces, so each
 /// fingerprint has one spelling.
 fn plain_number(s: &str, signed: bool) -> bool {
-    let digits = if signed { s.strip_prefix('-').unwrap_or(s) } else { s };
+    let digits = if signed {
+        s.strip_prefix('-').unwrap_or(s)
+    } else {
+        s
+    };
     !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
 }
 
 impl fmt::Display for Fingerprint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "sha256:{}:{}:{}:{}", hex(&self.sha256), self.size, self.mtime_ns, self.ino)
+        write!(
+            f,
+            "sha256:{}:{}:{}:{}",
+            hex(&self.sha256),
+            self.size,
+            self.mtime_ns,
+            self.ino
+        )
     }
 }
 
@@ -262,7 +283,11 @@ pub fn detect_eol(text: &str) -> (Eol, LineEnding) {
             }
         }
     }
-    let save = if crlf > lf { LineEnding::Crlf } else { LineEnding::Lf };
+    let save = if crlf > lf {
+        LineEnding::Crlf
+    } else {
+        LineEnding::Lf
+    };
     let eol = match (crlf, lf) {
         (0, _) => Eol::Lf,
         (_, 0) => Eol::Crlf,
@@ -283,8 +308,17 @@ pub fn decode(bytes: &[u8], editor_max: u64) -> Result<Decoded, BinaryReason> {
     };
     let raw = std::str::from_utf8(body).map_err(|_| BinaryReason::NotUtf8)?;
     let (eol, save_eol) = detect_eol(raw);
-    let text = if eol == Eol::Lf { raw.to_owned() } else { raw.replace("\r\n", "\n") };
-    Ok(Decoded { text, bom, eol, save_eol })
+    let text = if eol == Eol::Lf {
+        raw.to_owned()
+    } else {
+        raw.replace("\r\n", "\n")
+    };
+    Ok(Decoded {
+        text,
+        bom,
+        eol,
+        save_eol,
+    })
 }
 
 /// The bytes a save writes: `text` (LF endings) with `eol` applied to every LF and the BOM put
@@ -370,7 +404,10 @@ mod tests {
         assert!(other_ino.same_content(&a));
         let other_mtime = Fingerprint::new(*a.sha256(), a.size(), a.mtime_ns() + 1, a.ino());
         assert_ne!(other_mtime, a);
-        assert_ne!(Fingerprint::of_content(b"hellO\n", a.mtime_ns(), a.ino()), a);
+        assert_ne!(
+            Fingerprint::of_content(b"hellO\n", a.mtime_ns(), a.ino()),
+            a
+        );
     }
 
     #[test]
@@ -421,14 +458,21 @@ mod tests {
             eol: Eol::Lf,
             save_eol: LineEnding::Lf,
             read_only: Some(WriteBlocked::HardLink),
-            owner: Owner { uid: 1000, gid: 1000, mode: 0o640 },
+            owner: Owner {
+                uid: 1000,
+                gid: 1000,
+                mode: 0o640,
+            },
         };
         let json = serde_json::to_value(&content).unwrap();
         assert_eq!(json["binary_reason"], "not_utf8");
         assert_eq!(json["read_only"], "hard_link");
         assert_eq!(json["owner"]["mode"], 0o640);
         assert!(json.get("text").is_none());
-        assert_eq!(serde_json::from_value::<FileContent>(json).unwrap(), content);
+        assert_eq!(
+            serde_json::from_value::<FileContent>(json).unwrap(),
+            content
+        );
     }
 
     // --- codec ---
@@ -466,7 +510,10 @@ mod tests {
     #[test]
     fn line_endings() {
         let d = decode(b"a\r\nb\r\n", MAX).unwrap();
-        assert_eq!((d.text.as_str(), d.eol, d.save_eol), ("a\nb\n", Eol::Crlf, LineEnding::Crlf));
+        assert_eq!(
+            (d.text.as_str(), d.eol, d.save_eol),
+            ("a\nb\n", Eol::Crlf, LineEnding::Crlf)
+        );
         let d = decode(b"a\nb", MAX).unwrap();
         assert_eq!((d.text.as_str(), d.eol), ("a\nb", Eol::Lf));
         assert_eq!(decode(b"no newline", MAX).unwrap().eol, Eol::Lf);
@@ -478,7 +525,10 @@ mod tests {
     #[test]
     fn mixed_saves_with_the_most_common_ending() {
         let d = decode(b"a\r\nb\r\nc\n", MAX).unwrap();
-        assert_eq!((d.text.as_str(), d.eol, d.save_eol), ("a\nb\nc\n", Eol::Mixed, LineEnding::Crlf));
+        assert_eq!(
+            (d.text.as_str(), d.eol, d.save_eol),
+            ("a\nb\nc\n", Eol::Mixed, LineEnding::Crlf)
+        );
         assert_eq!(encode(&d.text, d.bom, d.save_eol), b"a\r\nb\r\nc\r\n");
         let d = decode(b"a\r\nb\nc\n", MAX).unwrap();
         assert_eq!((d.eol, d.save_eol), (Eol::Mixed, LineEnding::Lf));
@@ -489,7 +539,16 @@ mod tests {
 
     #[test]
     fn trailing_newline_is_kept_as_is() {
-        for x in [&b"a"[..], b"a\n", b"a\n\n", b"a\r\n", b"a\r\n\r\n", b"\n", b"\r\n", b""] {
+        for x in [
+            &b"a"[..],
+            b"a\n",
+            b"a\n\n",
+            b"a\r\n",
+            b"a\r\n\r\n",
+            b"\n",
+            b"\r\n",
+            b"",
+        ] {
             let d = decode(x, MAX).unwrap();
             assert_eq!(encode(&d.text, d.bom, d.save_eol), x, "{x:?}");
         }
@@ -497,15 +556,25 @@ mod tests {
 
     #[test]
     fn file_content_build() {
-        let owner = Owner { uid: 1, gid: 2, mode: 0o600 };
+        let owner = Owner {
+            uid: 1,
+            gid: 2,
+            mode: 0o600,
+        };
         let bytes = b"\xEF\xBB\xBFa\r\n";
         let fp = Fingerprint::of_content(bytes, 0, 1);
         let c = FileContent::build(fp, owner, None, Some(bytes), MAX);
         assert_eq!(c.text.as_deref(), Some("a\n"));
-        assert_eq!((c.binary_reason, c.bom, c.eol, c.size), (None, true, Eol::Crlf, 6));
+        assert_eq!(
+            (c.binary_reason, c.bom, c.eol, c.size),
+            (None, true, Eol::Crlf, 6)
+        );
 
         let big = FileContent::build(fp, owner, Some(WriteBlocked::HardLink), None, MAX);
-        assert_eq!((big.text, big.binary_reason), (None, Some(BinaryReason::TooLarge)));
+        assert_eq!(
+            (big.text, big.binary_reason),
+            (None, Some(BinaryReason::TooLarge))
+        );
         assert_eq!(big.read_only, Some(WriteBlocked::HardLink));
 
         let bin = FileContent::build(fp, owner, None, Some(b"\0"), MAX);
@@ -586,7 +655,10 @@ mod tests {
             }
         }
         // The generator reaches every branch often enough to mean something.
-        assert!(identity > 1000 && mixed > 1000 && binary > 1000, "{identity} {mixed} {binary}");
+        assert!(
+            identity > 1000 && mixed > 1000 && binary > 1000,
+            "{identity} {mixed} {binary}"
+        );
     }
 
     #[test]
@@ -596,8 +668,10 @@ mod tests {
             .copied()
             .filter(|p| !matches!(*p, b"\r\n" | b"\r" | b"\x80" | b"\0"))
             .collect();
-        let crlf: Vec<&[u8]> =
-            lf.iter().map(|p| if *p == b"\n" { &b"\r\n"[..] } else { *p }).collect();
+        let crlf: Vec<&[u8]> = lf
+            .iter()
+            .map(|p| if *p == b"\n" { &b"\r\n"[..] } else { *p })
+            .collect();
         let mut rng = Rng(42);
         for _ in 0..5_000 {
             for (pieces, want) in [(&lf, Eol::Lf), (&crlf, Eol::Crlf)] {
