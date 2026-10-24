@@ -13,9 +13,9 @@ use std::thread;
 use cases::{Access, Case, Expect, SENTINEL_MARK, Tree, build_tree, cases, snapshot};
 use depths_volume_helper::resolve::Root;
 use depths_volume_helper::{EXIT_OK, serve};
-use depths_volumes::frame::{FrameKind, read_frame, write_json};
+use depths_volumes::frame::{FrameKind, read_frame, write_data, write_frame, write_json};
 use depths_volumes::mount::{EntryKind, WriteBlocked};
-use depths_volumes::op::{Hello, HelperError, Reply, parse_answer};
+use depths_volumes::op::{Hello, HelperError, Op, Reply, parse_answer};
 use depths_volumes::path::RelPath;
 use rustix::fs::{OFlags, RenameFlags};
 
@@ -315,4 +315,114 @@ fn stat_reports_kinds_and_write_blocks() {
     assert_eq!(fp.size(), 7);
     assert_eq!(fp.ino(), hashed.ino);
     assert_eq!(fp.mtime_ns(), hashed.mtime_ns);
+}
+
+/// Every name under `dir` that looks like a save's temp.
+fn save_temps(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries {
+        let entry = entry.unwrap();
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".depths-save-")
+        {
+            found.push(entry.path());
+        }
+        if entry.file_type().unwrap().is_dir() {
+            found.extend(save_temps(&entry.path()));
+        }
+    }
+    found
+}
+
+/// Runs `ops` (each with its Data… End when given) through `serve` and returns the answers;
+/// the Data… End that follow a reply are skipped.
+fn serve_ops(root: Root, ops: &[(Op, Option<&[u8]>)]) -> Vec<Result<Reply, HelperError>> {
+    let mut input = Vec::new();
+    for (op, data) in ops {
+        write_json(&mut input, FrameKind::Op, op).unwrap();
+        if let Some(data) = data {
+            write_data(&mut input, data).unwrap();
+            write_frame(&mut input, FrameKind::End, &[]).unwrap();
+        }
+    }
+    let mut output = Vec::new();
+    assert_eq!(
+        serve(root.into_fd(), Cursor::new(input), &mut output),
+        EXIT_OK
+    );
+    let mut out = Cursor::new(output);
+    let _: Hello = read_frame(&mut out)
+        .unwrap()
+        .unwrap()
+        .parse(FrameKind::Hello)
+        .unwrap();
+    let mut answers = Vec::new();
+    while let Some(frame) = read_frame(&mut out).unwrap() {
+        match frame.kind {
+            FrameKind::Reply | FrameKind::Error => answers.push(parse_answer(&frame).unwrap()),
+            FrameKind::Data | FrameKind::End => {}
+            other => panic!("unexpected {other:?} frame"),
+        }
+    }
+    answers
+}
+
+#[test]
+fn write_cases_through_serve_save_inside_or_are_refused() {
+    let mut failures = Vec::new();
+    let write_cases = cases()
+        .into_iter()
+        .filter(|c| c.access == Access::Write && c.expect != Expect::InvalidPath);
+    for case in write_cases {
+        let (_dir, tree, root) = fresh();
+        let before = snapshot(&tree.sentinels);
+        let op = case.op().unwrap();
+        let first = serve_ops(root, &[(op.clone(), Some(b"written"))]);
+        let got = match &first[0] {
+            // The table's base is arbitrary: a file inside answers with its real fingerprint,
+            // and the save is then made with it.
+            Err(HelperError::ChangedOnDisk { current }) => {
+                let Op::Write { path, .. } = op else {
+                    unreachable!()
+                };
+                let retry = Op::Write {
+                    path,
+                    base: *current,
+                    mode: None,
+                };
+                let root = Root::open(&tree.root).unwrap();
+                match &serve_ops(root, &[(retry, Some(b"written"))])[0] {
+                    Ok(Reply::Written { .. }) => Expect::Inside,
+                    other => panic!("{}: the retry got {other:?}", case.name),
+                }
+            }
+            Err(HelperError::OutsideMount) => Expect::OutsideMount,
+            Err(HelperError::WriteBlocked { reason }) => Expect::Blocked(*reason),
+            Err(HelperError::NotFound) => Expect::NotFound,
+            other => panic!("{}: unexpected answer {other:?}", case.name),
+        };
+        if got != case.expect {
+            failures.push(format!(
+                "{}: expected {:?}, got {got:?}",
+                case.name, case.expect
+            ));
+        }
+        assert_eq!(
+            snapshot(&tree.sentinels),
+            before,
+            "{}: a sentinel changed",
+            case.name
+        );
+        assert!(
+            save_temps(&tree.root).is_empty(),
+            "{}: a temp was left",
+            case.name
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

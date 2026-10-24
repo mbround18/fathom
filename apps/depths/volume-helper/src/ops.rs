@@ -2,23 +2,30 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::fs::FileExt;
 
-use depths_volumes::frame::{FrameError, FrameKind, read_frame, write_frame, write_json};
+use depths_volumes::frame::{
+    FrameError, FrameKind, read_frame, write_data, write_frame, write_json,
+};
 use depths_volumes::mount::{Entry, EntryKind, PAGE_SIZE, name_order, page_of, rfc3339_utc};
 use depths_volumes::op::{HelperError, Op, Reply, StatInfo};
 use depths_volumes::path::{RawName, RelPath};
 use depths_volumes::text::Fingerprint;
-use rustix::fs::{Dir, FileType};
+use rustix::fs::{Dir, FileType, OFlags, Statx};
 use sha2::{Digest, Sha256};
 
 use crate::resolve::{
     Root, errno_message, errno_name, kind_of, mtime_ns, os_error, owner_of, statx_at, statx_fd,
 };
+use crate::save::{Temp, sync_dir};
 
 /// Bytes read from a file per call, and the most a Data frame the helper sends carries.
 const CHUNK: usize = 256 * 1024;
+
+/// Largest replaced or deleted content sent back as `prior` frames, for history (R9; the
+/// default `DEPTHS_FILES_HISTORY_FILE_MAX`).
+pub const PRIOR_MAX: u64 = 10 * 1024 * 1024;
 
 /// Runs one op and writes its answer: a Reply frame (plus Data… End where the reply says so) or
 /// an Error frame. The op reads the Data… End that follow it from `input` itself.
@@ -43,6 +50,9 @@ pub fn handle<R: Read, W: Write>(
             raw_name,
             max,
         } => read(root, path, raw_name.as_ref(), *max, out),
+        Op::Write { path, base, mode } => {
+            with_data(input, out, |data| write(root, path, base, *mode, data))
+        }
         Op::Untar { .. } => {
             drain_data(input)?;
             answer(out, Err(HelperError::Unsupported))
@@ -66,18 +76,115 @@ fn answer<W: Write>(out: &mut W, answer: Result<Reply, HelperError>) -> Result<(
 
 /// Reads and drops Data frames up to the End frame.
 fn drain_data<R: Read>(input: &mut R) -> Result<(), FrameError> {
-    loop {
-        let frame = read_frame(input)?.ok_or(FrameError::Truncated)?;
-        match frame.kind {
-            FrameKind::End => return Ok(()),
-            FrameKind::Data => {}
-            got => {
-                return Err(FrameError::UnexpectedKind {
-                    expected: FrameKind::Data,
-                    got,
-                });
-            }
+    DataIn::new(input).finish()
+}
+
+/// The Data… End that follow an op, one frame at a time.
+struct DataIn<'a, R> {
+    input: &'a mut R,
+    ended: bool,
+}
+
+impl<'a, R: Read> DataIn<'a, R> {
+    fn new(input: &'a mut R) -> Self {
+        Self {
+            input,
+            ended: false,
         }
+    }
+
+    /// The next Data frame's bytes, `None` once End was read.
+    fn next(&mut self) -> Result<Option<Vec<u8>>, FrameError> {
+        if self.ended {
+            return Ok(None);
+        }
+        let frame = read_frame(self.input)?.ok_or(FrameError::Truncated)?;
+        match frame.kind {
+            FrameKind::End => {
+                self.ended = true;
+                Ok(None)
+            }
+            FrameKind::Data => Ok(Some(frame.body)),
+            got => Err(FrameError::UnexpectedKind {
+                expected: FrameKind::Data,
+                got,
+            }),
+        }
+    }
+
+    /// Reads what is left of the stream.
+    fn finish(&mut self) -> Result<(), FrameError> {
+        while self.next()?.is_some() {}
+        Ok(())
+    }
+}
+
+/// Why an op that reads Data… End stopped early.
+enum Stop {
+    /// Refused or failed: the rest of the stream is read and dropped, and an Error frame sent.
+    Refused(HelperError),
+    /// The stream itself broke: a protocol error, the helper exits 70.
+    Broken(FrameError),
+}
+
+impl From<HelperError> for Stop {
+    fn from(e: HelperError) -> Self {
+        Self::Refused(e)
+    }
+}
+
+impl From<FrameError> for Stop {
+    fn from(e: FrameError) -> Self {
+        Self::Broken(e)
+    }
+}
+
+/// What a save wrote, and the content it replaced when that was at most [`PRIOR_MAX`].
+struct Saved {
+    fingerprint: Fingerprint,
+    prior: Option<Vec<u8>>,
+}
+
+/// Runs a save that reads Data… End and answers `Written`, then the `prior` frames.
+fn with_data<R: Read, W: Write>(
+    input: &mut R,
+    out: &mut W,
+    save: impl FnOnce(&mut DataIn<'_, R>) -> Result<Saved, Stop>,
+) -> Result<(), FrameError> {
+    let mut data = DataIn::new(input);
+    let result = match save(&mut data) {
+        Ok(saved) => Ok(saved),
+        Err(Stop::Refused(e)) => Err(e),
+        Err(Stop::Broken(e)) => return Err(e),
+    };
+    data.finish()?;
+    match result {
+        Ok(Saved { fingerprint, prior }) => {
+            let reply = Reply::Written {
+                fingerprint,
+                prior: prior.is_some(),
+            };
+            write_json(out, FrameKind::Reply, &reply)?;
+            if let Some(prior) = prior {
+                write_data(out, &prior)?;
+                write_frame(out, FrameKind::End, &[])?;
+            }
+            Ok(())
+        }
+        Err(e) => answer(out, Err(e)),
+    }
+}
+
+/// R5: the helper runs as the owner of what it changes. Any other owner means it changed since
+/// the listing that led here.
+fn check_owner(stat: &Statx) -> Result<(), HelperError> {
+    let owner = owner_of(stat);
+    if owner.uid == rustix::process::getuid().as_raw()
+        && owner.gid == rustix::process::getgid().as_raw()
+    {
+        Ok(())
+    } else {
+        Err(HelperError::OwnerChanged)
     }
 }
 
@@ -234,6 +341,90 @@ pub fn read<W: Write>(
     Ok(())
 }
 
+/// `Write`: replaces an existing file through a temp and a rename (R6), keeping its uid, gid and
+/// mode (or setting `mode`), if it still matches `base`.
+fn write<R: Read>(
+    root: &Root,
+    path: &RelPath,
+    base: &Fingerprint,
+    mode: Option<u32>,
+    data: &mut DataIn<'_, R>,
+) -> Result<Saved, Stop> {
+    let target = root.open_write(path)?;
+    check_owner(&target.stat)?;
+    let replacing = Replacing {
+        file: target.reopen(OFlags::RDONLY)?,
+        stat: target.stat,
+        base: *base,
+    };
+    let mode = mode.unwrap_or(owner_of(&target.stat).mode);
+    save(
+        target.parent.as_fd(),
+        &target.name,
+        Some(replacing),
+        Some(mode),
+        data,
+    )
+}
+
+/// The file a save replaces: open for reading, as found, and the fingerprint it must still have.
+struct Replacing {
+    file: File,
+    stat: Statx,
+    base: Fingerprint,
+}
+
+/// Writes the Data… End into a temp in `dir`, then renames it over `name` (`replacing`) or gives
+/// it `name` when that is free. The base check is made on the replaced file's open fd right
+/// before the rename. The temp is removed on every failure.
+fn save<R: Read>(
+    dir: BorrowedFd<'_>,
+    name: &[u8],
+    replacing: Option<Replacing>,
+    mode: Option<u32>,
+    data: &mut DataIn<'_, R>,
+) -> Result<Saved, Stop> {
+    let temp = Temp::create(dir, mode)?;
+    if let Some(old) = &replacing {
+        let owner = owner_of(&old.stat);
+        temp.set_owner(owner.uid, owner.gid)?;
+    }
+    let mut hasher = Sha256::new();
+    let mut size = 0u64;
+    while let Some(chunk) = data.next()? {
+        temp.file()
+            .write_all_at(&chunk, size)
+            .map_err(|e| io_error(&e))?;
+        hasher.update(&chunk);
+        size += chunk.len() as u64;
+    }
+    let stat = statx_fd(temp.file())?;
+    let fingerprint = Fingerprint::from_hasher(hasher, size, mtime_ns(&stat), stat.stx_ino);
+    let prior = match replacing {
+        Some(old) => {
+            let (current, prior) = hash_file(&old.file, PRIOR_MAX)?;
+            if current != old.base {
+                return Err(HelperError::ChangedOnDisk { current }.into());
+            }
+            // The name must still lead to the file that was hashed.
+            let now = statx_at(dir, name)?;
+            if now.stx_ino != old.stat.stx_ino || kind_of(&now) != EntryKind::File {
+                return Err(changed_while_reading().into());
+            }
+            temp.replace(name)?;
+            prior
+        }
+        None => {
+            temp.create_new(name)?;
+            None
+        }
+    };
+    // The rename is done: a folder fsync that fails only weakens durability, and reporting the
+    // save as failed would be wrong.
+    let _ = sync_dir(dir);
+    Ok(Saved { fingerprint, prior })
+}
+
 /// Sends the first `size` bytes of `file` as Data frames, then End; an Error frame instead of
 /// End when the file cannot be read that far.
 fn stream_file<W: Write>(file: &File, size: u64, out: &mut W) -> Result<(), FrameError> {
@@ -291,7 +482,7 @@ fn changed_while_reading() -> HelperError {
     }
 }
 
-fn io_error(e: &std::io::Error) -> HelperError {
+pub(crate) fn io_error(e: &std::io::Error) -> HelperError {
     match e.raw_os_error() {
         Some(n) => {
             let errno = rustix::io::Errno::from_raw_os_error(n);

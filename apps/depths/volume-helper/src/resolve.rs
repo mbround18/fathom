@@ -32,15 +32,48 @@ fn open_beneath<P: rustix::path::Arg + Copy>(
     path: P,
     flags: OFlags,
 ) -> rustix::io::Result<OwnedFd> {
+    create_beneath(dirfd, path, flags, Mode::empty())
+}
+
+/// [`open_beneath`] with a mode, for `O_CREAT` and `O_TMPFILE`.
+fn create_beneath<P: rustix::path::Arg + Copy>(
+    dirfd: impl AsFd,
+    path: P,
+    flags: OFlags,
+    mode: Mode,
+) -> rustix::io::Result<OwnedFd> {
     let dirfd = dirfd.as_fd();
     let resolve = ResolveFlags::BENEATH | ResolveFlags::NO_MAGICLINKS;
     let mut tries = 0;
     loop {
-        match rustix::fs::openat2(dirfd, path, flags, Mode::empty(), resolve) {
+        match rustix::fs::openat2(dirfd, path, flags, mode, resolve) {
             Err(Errno::AGAIN) if tries < MAX_EAGAIN_RETRIES => tries += 1,
             other => return other,
         }
     }
+}
+
+/// Opens `path` beneath the folder fd `dir` (an fd that came from [`Root`]), with the same
+/// resolve rules as everything else: never above `dir`, no magic links. Add `O_NOFOLLOW` to
+/// refuse a final link.
+pub fn open_in(dir: impl AsFd, path: &[u8], flags: OFlags) -> Result<OwnedFd, HelperError> {
+    open_beneath(dir, path, flags | OFlags::CLOEXEC).map_err(os_error)
+}
+
+/// [`open_in`] with `mode` for the file it creates (`O_CREAT`, `O_TMPFILE`); the umask applies.
+/// The raw errno is kept, as callers tell `EEXIST` and `EOPNOTSUPP` apart.
+pub fn create_in(
+    dir: impl AsFd,
+    path: &[u8],
+    flags: OFlags,
+    mode: u32,
+) -> rustix::io::Result<OwnedFd> {
+    create_beneath(
+        dir,
+        path,
+        flags | OFlags::CLOEXEC,
+        Mode::from_raw_mode(mode),
+    )
 }
 
 /// The mount root, as an `O_PATH` directory fd. Everything is opened relative to it.
