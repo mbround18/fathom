@@ -28,7 +28,9 @@ use depths_core::ports::{
 };
 use depths_core::security::{DaemonMode, Inspect, valid_container_arg};
 
+pub mod helper;
 mod streams;
+pub use helper::{CliVolumeHelper, HelperPool};
 pub use streams::{
     BACKLOG, BATCH_BYTES, BATCH_LINES, FLUSH_INTERVAL, LINE_CAP, WINDOW_BYTES, WINDOW_CAP,
 };

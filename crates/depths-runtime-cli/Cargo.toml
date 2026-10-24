@@ -17,4 +17,6 @@ rustix = { version = "1.1.5", features = ["process"] }
 serde_json = "1.0.154"
 
 [dev-dependencies]
+# Hello frames for the helper pool's fake spawner.
+depths-volumes = { path = "../depths-volumes" }
 tempfile = "3"

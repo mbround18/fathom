@@ -7,6 +7,7 @@ docker run -i --rm --pull never --network none --read-only --cap-drop ALL
   --security-opt no-new-privileges --user <uid>:<gid>
   --memory 256m --pids-limit 32 --cpus 1 --log-driver none
   --label depths.helper=1 --label depths.helper.stack=<stack>
+  --name depths-helper-<16 hex>
   --entrypoint /usr/local/bin/depths-volume-helper
   --mount type=volume,src=<name>,dst=/volume[,readonly]      # named volume
   --mount type=bind,src=<abs host path>,dst=/volume[,readonly] # bind
@@ -21,6 +22,9 @@ docker run -i --rm --pull never --network none --read-only --cap-drop ALL
     `--mount type=volume` creates a missing volume, so only `ready` mounts reach the adapter.
 - `uid` and `gid` are numbers, never names.
 - `readonly` is set unless the op writes.
+- `<image id>` is `sha256:<64 hex>` (or the bare 64 hex), never a tag.
+- `--name` is fresh per start, so a protocol error can `docker rm -f depths-helper-<16 hex>`
+  exactly that container: `docker run -i` without `-d` never prints the id.
 
 ## Frames (stdin/stdout, `depths-volumes::frame`)
 

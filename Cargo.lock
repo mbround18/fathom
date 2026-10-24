@@ -1569,6 +1569,7 @@ version = "0.1.0"
 dependencies = [
  "container-runtime",
  "depths-core",
+ "depths-volumes",
  "rustix",
  "serde_json",
  "tempfile",
