@@ -8,7 +8,7 @@ import { autoWorkers } from '../../../ui/tests/support/workers.js'
  *
  * Run one story: `pnpm --filter @companion/depths-web e2e --project us1-stacks`.
  */
-const STORIES = ['shell', 'us1-stacks', 'us2-lifecycle', 'us3-edit', 'us4-tabs', 'us5-access'] as const
+const STORIES = ['shell', 'us1-stacks', 'us2-lifecycle', 'us3-edit', 'us4-tabs', 'us5-access', 'us6-files'] as const
 
 /** `DEPTHS_E2E_PORT` moves the preview, so several worktrees can run a story at once. */
 const PORT = Number(process.env.DEPTHS_E2E_PORT ?? 4183)
