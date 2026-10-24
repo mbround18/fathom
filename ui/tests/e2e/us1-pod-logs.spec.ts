@@ -59,6 +59,18 @@ test.describe('US1 Logs tab', () => {
     await expect(scroll).toContainText('booting…')
     await expect(scroll).toContainText('listening on :8080')
 
+    // Search narrows; a result shows the whole log at that line.
+    await insp.getByRole('searchbox', { name: 'Search logs' }).fill('listening')
+    await expect(insp.locator('[data-field="matches"]')).toHaveText('1 of 2')
+    await expect(scroll).not.toContainText('booting…')
+    await scroll.locator('[data-action="show-in-context"]').click()
+    await expect(scroll).toHaveAttribute('data-view', 'context')
+    await expect(scroll).toContainText('booting…')
+    await expect(scroll.locator('[data-line="1"]')).toHaveAttribute('data-flash', '')
+    await insp.getByRole('button', { name: /Back to results/ }).click()
+    await insp.getByRole('searchbox', { name: 'Search logs' }).fill('')
+    await expect(scroll).toHaveAttribute('data-view', 'all')
+
     // FR-006: a StreamClosed shows a distinct "stream ended" indicator, not a blank pane.
     await emit(
       page,

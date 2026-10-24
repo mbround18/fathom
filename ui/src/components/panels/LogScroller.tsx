@@ -9,13 +9,14 @@
  * going quiet. Those four are the same whether the lines came from the API server or from a
  * container on this machine, so they live here once, and each caller brings its own transport.
  *
- * The scroll surface itself is `@companion/terminal`'s `LogView`; this adds Fathom's stream
- * states, its wording, and the jump-to-latest button.
+ * The scroll surface itself is `@companion/terminal`'s `LogExplorer`: ANSI colour, a level gutter
+ * and facets, the log query language, and search results that jump to the line in context. This
+ * adds Fathom's stream states, its wording, and the jump-to-latest button.
  */
 import { ArrowClockwiseIcon, ArrowLineDownIcon, WarningIcon } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
 
-import { ErrorState, FOLLOW_THRESHOLD_PX, Loading, LogView } from '@companion/terminal'
+import { ErrorState, FOLLOW_THRESHOLD_PX, Loading, LogExplorer } from '@companion/terminal'
 import { Button } from '@companion/ui'
 import { cn } from '@companion/theme'
 
@@ -89,11 +90,11 @@ export function LogScroller({
 
   return (
     <>
-      <div className="relative min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col">
         {failedEmpty ? (
           <ErrorState title={errorTitle} detail={error ?? reason} onRetry={onRestart} />
         ) : (
-          <LogView
+          <LogExplorer
             lines={lines}
             follow={follow}
             wrap
@@ -103,6 +104,7 @@ export function LogScroller({
             placeholder={placeholder}
             data-testid={testId}
             data-stream-status={status}
+            className="min-h-0 flex-1"
           />
         )}
         {!follow && !failedEmpty && (
