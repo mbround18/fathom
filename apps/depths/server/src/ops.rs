@@ -113,6 +113,8 @@ struct Bound {
     /// What a save or create writes, exactly as previewed.
     draft: Option<StackDraft>,
     argv: Vec<Vec<String>>,
+    /// Saves and creates: what the audit entry records of the change.
+    diff_summary: Option<String>,
     /// Empty for a create: the stack must still not exist at the confirm.
     stack_hash: String,
     expires: Instant,
@@ -447,6 +449,7 @@ impl Ops {
                 plan,
                 draft: None,
                 argv,
+                diff_summary: None,
                 stack_hash,
                 expires: Instant::now() + self.ttl,
                 used: false,
@@ -658,6 +661,15 @@ impl Ops {
             ));
         }
 
+        let diff_summary = crate::diff::summary(
+            compose_file,
+            current.as_ref().map(|f| f.compose.as_str()),
+            &draft.compose,
+            current_env,
+            draft.env.as_deref(),
+            base_hash.as_ref().map(ContentHash::as_str),
+        );
+
         let containers = if deploy {
             let runtime = self.runtime.clone();
             let project = name.as_str().to_owned();
@@ -701,6 +713,7 @@ impl Ops {
                 plan,
                 draft: Some(core_draft),
                 argv,
+                diff_summary: Some(diff_summary),
                 stack_hash,
                 expires: Instant::now() + self.ttl,
                 used: false,
@@ -718,7 +731,7 @@ impl Ops {
     /// `Confirm`: claims the preview and reserves the stack. Run the returned job after sending
     /// `OpStarted`.
     pub async fn confirm(&self, who: &Who, preview_id: PreviewId) -> Result<Job, Refusal> {
-        let (stack, kind, op, plan, draft, argv, stack_hash) = {
+        let (stack, kind, op, plan, draft, argv, diff_summary, stack_hash) = {
             let mut previews = self.previews.lock().unwrap();
             let Some(b) = previews.get_mut(&preview_id) else {
                 return Err(Refusal::Void(PreviewVoidReason::Unknown));
@@ -741,6 +754,7 @@ impl Ops {
                 b.plan.clone(),
                 b.draft.clone(),
                 b.argv.clone(),
+                b.diff_summary.clone(),
                 b.stack_hash.clone(),
             )
         };
@@ -805,6 +819,7 @@ impl Ops {
                 preview_id,
                 operation_id,
                 argv,
+                diff_summary,
             },
             stack,
             plan,
@@ -1332,6 +1347,56 @@ mod tests {
         let ran = f.mock.ran.lock().unwrap().clone();
         assert_eq!(ran, vec![p.steps[0].argv.clone(), p.steps[2].argv.clone()]);
         assert_eq!(entries(&f.audit)[0].action, AuditAction::Save);
+    }
+
+    #[tokio::test]
+    async fn a_save_is_audited_with_its_diff_summary_and_no_values() {
+        // T099 F9 (FR-035): a save records what changed, `.env` reduced to its keys.
+        let f = fx(PREVIEW_TTL);
+        std::fs::write(
+            f.dir.path().join("stacks/web/.env"),
+            "DB_PASSWORD=hunter2\nGONE=1\nKEEP=same\n",
+        )
+        .unwrap();
+        let u = who("s1", "7", Role::User, &["web"]);
+        let base = hash_of(&f, "web");
+        let env = "DB_PASSWORD=correct-horse\nKEEP=same\nNEW_KEY=fresh-value\n";
+        let p = f
+            .ops
+            .preview_save(&u, &draft("web", Some(&base), CADDY, Some(env)), false)
+            .await
+            .unwrap();
+        let (out, _) = run(f.ops.confirm(&u, p.preview_id).await.unwrap()).await;
+        assert_eq!(out, OpOutcome::Succeeded);
+        let e = &entries(&f.audit)[0];
+        assert_eq!(e.action, AuditAction::Save);
+        let s = e.diff_summary.clone().expect("a save has a diff summary");
+        assert!(s.contains("compose.yaml: +1 -1 lines"), "{s}");
+        assert!(s.contains(&format!("base {base}")), "{s}");
+        assert!(s.contains("sha256 "), "{s}");
+        for key in ["NEW_KEY", "DB_PASSWORD", "GONE"] {
+            assert!(s.contains(key), "{key} missing from {s}");
+        }
+        assert!(!s.contains("KEEP"), "an unchanged key is not listed: {s}");
+        for value in ["hunter2", "correct-horse", "fresh-value", "caddy", "nginx"] {
+            assert!(!s.contains(value), "{value} leaked into {s}");
+        }
+
+        // A create has a summary too, with no base.
+        let a = who("s2", "1", Role::Admin, &[]);
+        let p = f
+            .ops
+            .preview_save(&a, &draft("fresh", None, CADDY, None), false)
+            .await
+            .unwrap();
+        run(f.ops.confirm(&a, p.preview_id).await.unwrap()).await;
+        let e = &entries(&f.audit)[0];
+        assert_eq!(e.action, AuditAction::Create);
+        let s = e.diff_summary.clone().expect("a create has a diff summary");
+        assert!(
+            s.contains("compose.yaml: +3 -0 lines") && s.contains("base none"),
+            "{s}"
+        );
     }
 
     #[tokio::test]

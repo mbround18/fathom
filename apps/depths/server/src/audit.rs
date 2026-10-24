@@ -189,6 +189,8 @@ pub struct OpRecord {
     pub preview_id: PreviewId,
     pub operation_id: OperationId,
     pub argv: Vec<Vec<String>>,
+    /// Saves and creates: [`crate::diff::summary`].
+    pub diff_summary: Option<String>,
 }
 
 impl OpRecord {
@@ -199,6 +201,7 @@ impl OpRecord {
         e.preview_id = Some(self.preview_id);
         e.operation_id = Some(self.operation_id);
         e.argv.clone_from(&self.argv);
+        e.diff_summary.clone_from(&self.diff_summary);
         e
     }
 }
