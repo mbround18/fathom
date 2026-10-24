@@ -12,9 +12,14 @@
  *   above the rows, and on each row an actions menu (**Rename or move**, **Delete**) that also
  *   opens on a right-click or Shift+F10 / the context-menu key. On a focused row F2 renames and
  *   Delete deletes. Every change goes through the server's preview and `FileOpDialog`'s confirm.
+ * - Transfers (US3, T051): a file row's menu downloads it, a folder's downloads it as a tar, and
+ *   **Download this folder** does the folder on screen, each after a size check (`transfers.ts`).
+ *   Read-only mode keeps them. **Upload files**, or files dropped on the listing, upload into the
+ *   folder on screen after a preview that names every file.
  */
 import {
   DotsThreeVerticalIcon,
+  DownloadSimpleIcon,
   FileIcon,
   FilePlusIcon,
   FolderIcon,
@@ -24,9 +29,10 @@ import {
   PencilSimpleIcon,
   ProhibitIcon,
   TrashIcon,
+  UploadSimpleIcon,
 } from '@phosphor-icons/react'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@companion/ui'
-import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { Link } from '@/app/Link'
@@ -36,9 +42,11 @@ import { formatTime } from '@/features/stacks/model'
 import type { Entry } from '@/protocol/generated'
 
 import { useFileOps } from './fileops-store'
-import { filesHref, joinPath, modeString, parentPath, pathParts } from './model'
+import { downloadHref, filesHref, joinPath, modeString, parentPath, pathParts } from './model'
 import { NameDialog, type NameAsk } from './NameDialog'
 import { entryPath, filterEntries, refusalText, relist, type FilesRefusal, type ListStatus } from './store'
+import { TransferPanel } from './TransferPanel'
+import { downloadFolder, requestUpload } from './transfers'
 
 const ESTIMATED_ROW_PX = 40
 const OVERSCAN = 10
@@ -79,6 +87,9 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
   const at = (path: string): string => filesHref(stack, { mount, path })
 
   const request = useFileOps((s) => s.request)
+  const pickRef = useRef<HTMLInputElement>(null)
+  /** Whether a row has an actions menu: downloads for files and folders, changes when allowed. */
+  const hasMenu = (e: Entry): boolean => canChange || e.kind === 'file' || e.kind === 'dir'
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [ask, setAsk] = useState<NameAsk | null>(null)
 
@@ -156,11 +167,11 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
         remove(here)
         return
       }
-      if (ev.key === 'ContextMenu' || (ev.key === 'F10' && ev.shiftKey)) {
-        ev.preventDefault()
-        setMenuFor(here.name)
-        return
-      }
+    }
+    if (here && hasMenu(here) && (ev.key === 'ContextMenu' || (ev.key === 'F10' && ev.shiftKey))) {
+      ev.preventDefault()
+      setMenuFor(here.name)
+      return
     }
     let to = -1
     if (ev.key === 'ArrowDown') {
@@ -177,9 +188,36 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
   }
 
   const parts = pathParts(dir) ?? []
+  const folderName = parts.at(-1) ?? rootLabel.split('/').filter(Boolean).at(-1) ?? 'volume'
+
+  // Files dropped on the listing upload into the folder on screen (after the same preview).
+  const [dragging, setDragging] = useState(false)
+  const drop = canChange
+    ? {
+        onDragOver: (ev: DragEvent<HTMLDivElement>) => {
+          if (!ev.dataTransfer.types.includes('Files')) return
+          ev.preventDefault()
+          setDragging(true)
+        },
+        onDragLeave: (ev: DragEvent<HTMLDivElement>) => {
+          if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) setDragging(false)
+        },
+        onDrop: (ev: DragEvent<HTMLDivElement>) => {
+          ev.preventDefault()
+          setDragging(false)
+          requestUpload(stack, mount, dir, [...ev.dataTransfer.files])
+        },
+      }
+    : {}
 
   return (
-    <div data-pane="listing" className="@container flex min-w-0 flex-col gap-1">
+    <div
+      data-pane="listing"
+      data-drop-target={canChange || undefined}
+      data-dragging={dragging || undefined}
+      {...drop}
+      className={`@container flex min-w-0 flex-col gap-1 ${dragging ? 'outline-1 outline-primary outline-dashed' : ''}`}
+    >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <nav aria-label="Folder path" className="min-w-0 flex-1">
           <ol className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs">
@@ -237,18 +275,44 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
         </span>
       </div>
 
-      {canChange && list !== 'refused' && (
+      {list !== 'refused' && (
         <div data-listing-actions className="flex min-w-0 flex-wrap items-center gap-1">
-          <Button size="sm" variant="outline" data-new="file" onClick={() => setAsk({ kind: 'create', type: 'file' })}>
-            <FilePlusIcon aria-hidden className="size-3.5" />
-            New file
-          </Button>
-          <Button size="sm" variant="outline" data-new="dir" onClick={() => setAsk({ kind: 'create', type: 'dir' })}>
-            <FolderPlusIcon aria-hidden className="size-3.5" />
-            New folder
+          {canChange && (
+            <>
+              <Button size="sm" variant="outline" data-new="file" onClick={() => setAsk({ kind: 'create', type: 'file' })}>
+                <FilePlusIcon aria-hidden className="size-3.5" />
+                New file
+              </Button>
+              <Button size="sm" variant="outline" data-new="dir" onClick={() => setAsk({ kind: 'create', type: 'dir' })}>
+                <FolderPlusIcon aria-hidden className="size-3.5" />
+                New folder
+              </Button>
+              <Button size="sm" variant="outline" data-upload-pick onClick={() => pickRef.current?.click()}>
+                <UploadSimpleIcon aria-hidden className="size-3.5" />
+                Upload files
+              </Button>
+              <input
+                ref={pickRef}
+                type="file"
+                multiple
+                hidden
+                data-upload-input
+                aria-label="Files to upload"
+                onChange={(ev) => {
+                  const files = [...(ev.target.files ?? [])]
+                  ev.target.value = ''
+                  requestUpload(stack, mount, dir, files)
+                }}
+              />
+            </>
+          )}
+          <Button size="sm" variant="outline" data-download-folder onClick={() => downloadFolder(stack, mount, dir, folderName)}>
+            <DownloadSimpleIcon aria-hidden className="size-3.5" />
+            Download this folder
           </Button>
         </div>
       )}
+      <TransferPanel stack={stack} mount={mount} />
 
       {list === 'refused' && refusal ? (
         <p role="alert" data-refusal={refusal.kind} className="border border-border p-2 text-xs break-words text-status-err">
@@ -283,7 +347,7 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
                     tabIndex={v.index === tabStop ? 0 : -1}
                     onKeyDown={onKeyDown}
                     onContextMenu={
-                      canChange
+                      hasMenu(e)
                         ? (ev) => {
                             ev.preventDefault()
                             setMenuFor(e.name)
@@ -291,9 +355,12 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
                         : undefined
                     }
                     menu={
-                      canChange ? (
+                      hasMenu(e) ? (
                         <RowMenu
                           entry={e}
+                          canChange={canChange}
+                          download={e.kind === 'file' ? downloadHref(stack, mount, path) : null}
+                          onDownloadFolder={() => downloadFolder(stack, mount, path, e.name)}
                           open={menuFor === e.name}
                           onOpenChange={(o) => setMenuFor(o ? e.name : null)}
                           onRename={() => setAsk({ kind: 'rename', from: path })}
@@ -315,6 +382,10 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
 
 interface RowMenuProps {
   entry: Entry
+  canChange: boolean
+  /** A file's download link; `null` for anything else. */
+  download: string | null
+  onDownloadFolder: () => void
   open: boolean
   onOpenChange: (open: boolean) => void
   onRename: () => void
@@ -322,7 +393,7 @@ interface RowMenuProps {
 }
 
 /** A row's actions: the ⋮ button, a right-click on the row, or Shift+F10 on its link. */
-function RowMenu({ entry: e, open, onOpenChange, onRename, onDelete }: RowMenuProps) {
+function RowMenu({ entry: e, canChange, download, onDownloadFolder, open, onOpenChange, onRename, onDelete }: RowMenuProps) {
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger
@@ -334,14 +405,32 @@ function RowMenu({ entry: e, open, onOpenChange, onRename, onDelete }: RowMenuPr
         <DotsThreeVerticalIcon aria-hidden className="size-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" data-row-menu={e.name} className="w-auto min-w-44">
-        <DropdownMenuItem data-action="rename" onSelect={onRename}>
-          <PencilSimpleIcon aria-hidden className="size-3.5" />
-          Rename or move…
-        </DropdownMenuItem>
-        <DropdownMenuItem data-action="delete" variant="destructive" onSelect={onDelete}>
-          <TrashIcon aria-hidden className="size-3.5" />
-          Delete…
-        </DropdownMenuItem>
+        {download !== null && (
+          <DropdownMenuItem data-action="download" asChild>
+            <a href={download} download={e.name}>
+              <DownloadSimpleIcon aria-hidden className="size-3.5" />
+              Download
+            </a>
+          </DropdownMenuItem>
+        )}
+        {e.kind === 'dir' && (
+          <DropdownMenuItem data-action="download" onSelect={onDownloadFolder}>
+            <DownloadSimpleIcon aria-hidden className="size-3.5" />
+            Download as .tar
+          </DropdownMenuItem>
+        )}
+        {canChange && (
+          <DropdownMenuItem data-action="rename" onSelect={onRename}>
+            <PencilSimpleIcon aria-hidden className="size-3.5" />
+            Rename or move…
+          </DropdownMenuItem>
+        )}
+        {canChange && (
+          <DropdownMenuItem data-action="delete" variant="destructive" onSelect={onDelete}>
+            <TrashIcon aria-hidden className="size-3.5" />
+            Delete…
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -64,9 +64,17 @@ type Asked =
   | { what: 'file'; req: number }
   | { what: 'fetch'; req: number; done: (r: Fetched<FileContent>) => void }
   | { what: 'history'; done: (r: Fetched<FileVersion[]>) => void }
+  | { what: 'size'; req: number; done: (r: Fetched<FolderSizeInfo>) => void }
 
 /** A one-off read's answer: the value, or why not. */
 export type Fetched<T> = { ok: true; value: T } | { ok: false; refusal: FilesRefusal | { kind: 'lost' } }
+
+/** `FolderSize`'s answer: bytes and entries under a folder, `capped` when the count stopped early. */
+export interface FolderSizeInfo {
+  bytes: number
+  entries: number
+  capped: boolean
+}
 
 const CLOSED: OpenFile = { state: 'closed' }
 
@@ -235,11 +243,16 @@ onServerEvent(({ reply_to, event }) => {
   const asked = pending.get(reply_to)
   if (!asked) return
 
-  if (asked.what === 'fetch' || asked.what === 'history') {
+  if (asked.what === 'fetch' || asked.what === 'history' || asked.what === 'size') {
     pending.delete(reply_to)
     const no: FilesRefusal | null =
       event.type === 'Denied' ? { kind: 'denied', reason: event.data.reason } : event.type === 'FileRefused' ? event.data : null
-    if (asked.what === 'fetch') {
+    if (asked.what === 'size') {
+      if (event.type === 'FolderSize' && event.data.req === asked.req) {
+        asked.done({ ok: true, value: { bytes: event.data.bytes, entries: event.data.entries, capped: event.data.capped } })
+      } else if (no) asked.done({ ok: false, refusal: no })
+      else pending.set(reply_to, asked)
+    } else if (asked.what === 'fetch') {
       if (event.type === 'FileContent' && event.data.req === asked.req) asked.done({ ok: true, value: event.data.file })
       else if (no) asked.done({ ok: false, refusal: no })
       else pending.set(reply_to, asked)
@@ -340,6 +353,16 @@ export function askHistory(mount: string, path: string): Promise<Fetched<FileVer
   return new Promise((done) => {
     const stack = useFiles.getState().stack ?? ''
     if (!send({ what: 'history', done }, { type: 'ListHistory', data: { stack, mount, path } })) done({ ok: false, refusal: { kind: 'lost' } })
+  })
+}
+
+/** How much is under `path` (T051: the pre-check before a folder download). */
+export function askFolderSize(mount: string, path: string): Promise<Fetched<FolderSizeInfo>> {
+  return new Promise((done) => {
+    reqSeq += 1
+    const req = reqSeq
+    const stack = useFiles.getState().stack ?? ''
+    if (!send({ what: 'size', req, done }, { type: 'FolderSize', data: { stack, mount, path, req } })) done({ ok: false, refusal: { kind: 'lost' } })
   })
 }
 
