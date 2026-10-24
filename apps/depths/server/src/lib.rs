@@ -8,6 +8,7 @@ pub mod headers;
 pub mod http;
 pub mod inventory;
 pub mod limits;
+pub mod ops;
 pub mod serve;
 pub mod users;
 pub mod watch;
