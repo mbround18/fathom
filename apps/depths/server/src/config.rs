@@ -64,6 +64,10 @@ pub struct Flags {
     /// [env: DEPTHS_TRUSTED_PROXIES]
     #[arg(long)]
     pub trusted_proxies: Option<String>,
+    /// The host's /proc, mounted read-only, for admin-only host metrics; unset turns them off
+    /// [env: DEPTHS_HOST_PROC]
+    #[arg(long)]
+    pub host_proc: Option<PathBuf>,
     /// Allow an http:// public URL; loopback listen only [env: DEPTHS_INSECURE_DEV]
     #[arg(long)]
     pub insecure_dev: bool,
@@ -188,6 +192,8 @@ pub struct Config {
     pub max_file_bytes: u64,
     pub audit_rotate_bytes: u64,
     pub features: Features,
+    /// The host's `/proc` (`DEPTHS_HOST_PROC`). `None` turns host metrics off.
+    pub host_proc: Option<PathBuf>,
     pub trusted_proxies: Vec<Cidr>,
     pub insecure_dev: bool,
     pub otlp_endpoint: Option<String>,
@@ -668,6 +674,35 @@ impl Config {
             edit: feature("feature_edit", "DEPTHS_FEATURE_EDIT", true)?,
         };
 
+        // Off unless asked for: the host's /proc also shows every process and its command line.
+        let host_proc = r
+            .pick(
+                "host_proc",
+                flags.host_proc.map(path_string),
+                &["DEPTHS_HOST_PROC"],
+            )
+            .map(PathBuf::from);
+        if let Some(p) = &host_proc {
+            if !p.is_absolute() {
+                return refuse(format!(
+                    "DEPTHS_HOST_PROC: `{}` must be an absolute path",
+                    p.display()
+                ));
+            }
+            if !p.is_dir() {
+                return refuse(format!(
+                    "DEPTHS_HOST_PROC: `{}` does not exist or is not a directory (mount /proc:/host/proc:ro)",
+                    p.display()
+                ));
+            }
+            if let Err(e) = std::fs::File::open(p.join("stat")) {
+                return refuse(format!(
+                    "DEPTHS_HOST_PROC: cannot read `{}`: {e}",
+                    p.join("stat").display()
+                ));
+            }
+        }
+
         let trusted_proxies = match r.pick(
             "trusted_proxies",
             flags.trusted_proxies,
@@ -705,6 +740,7 @@ impl Config {
             max_file_bytes,
             audit_rotate_bytes,
             features,
+            host_proc,
             trusted_proxies,
             insecure_dev,
             otlp_endpoint,
@@ -1079,6 +1115,58 @@ mod tests {
             .set("DEPTHS_TRUSTED_PROXIES", "10.0.0.0/33")
             .refusal();
         assert!(r.contains("DEPTHS_TRUSTED_PROXIES"), "{r}");
+    }
+
+    #[test]
+    fn host_proc_is_off_unless_set_and_must_be_a_readable_proc() {
+        let f = Fixture::deploy();
+        assert_eq!(f.resolve().unwrap().host_proc, None);
+
+        let proc_dir = f.dir.path().join("proc");
+        std::fs::create_dir(&proc_dir).unwrap();
+        let proc_str = proc_dir.to_string_lossy().into_owned();
+        let r = Fixture {
+            env: f.env.clone(),
+            dir: tempfile::tempdir().unwrap(),
+        }
+        .set("DEPTHS_HOST_PROC", &proc_str)
+        .refusal();
+        assert!(
+            r.contains("DEPTHS_HOST_PROC") && r.contains("stat"),
+            "no stat: {r}"
+        );
+
+        std::fs::write(proc_dir.join("stat"), "cpu 1 1 1 1\n").unwrap();
+        let c = Fixture {
+            env: f.env.clone(),
+            dir: tempfile::tempdir().unwrap(),
+        }
+        .set("DEPTHS_HOST_PROC", &proc_str)
+        .resolve()
+        .unwrap();
+        assert_eq!(c.host_proc, Some(proc_dir.clone()));
+        assert!(
+            c.sources
+                .contains(&("host_proc", "DEPTHS_HOST_PROC".to_owned()))
+        );
+
+        let c = f
+            .resolve_with(Flags {
+                host_proc: Some(proc_dir.clone()),
+                ..Flags::default()
+            })
+            .unwrap();
+        assert_eq!(c.host_proc, Some(proc_dir));
+        assert!(c.sources.contains(&("host_proc", "--host-proc".to_owned())));
+
+        let r = Fixture::deploy()
+            .set("DEPTHS_HOST_PROC", "host/proc")
+            .refusal();
+        assert!(r.contains("absolute"), "{r}");
+        let r = Fixture::deploy()
+            .set("DEPTHS_HOST_PROC", "/nonexistent/depths-host-proc")
+            .refusal();
+        assert!(r.contains("DEPTHS_HOST_PROC"), "{r}");
     }
 
     #[test]

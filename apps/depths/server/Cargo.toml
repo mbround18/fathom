@@ -25,6 +25,8 @@ depths-protocol = { path = "../../../crates/depths-protocol" }
 depths-runtime-cli = { path = "../../../crates/depths-runtime-cli" }
 depths-stacks-fs = { path = "../../../crates/depths-stacks-fs" }
 http = "1"
+# statvfs of the stacks directory for host metrics, without unsafe.
+rustix = { version = "1.1", features = ["fs"] }
 notify = { version = "8", default-features = false }
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["server", "server-auto", "http1", "service", "tokio", "server-graceful"] }
