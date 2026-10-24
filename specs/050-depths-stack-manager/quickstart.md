@@ -16,16 +16,21 @@ Expected: all green; generated bindings byte-identical to before the extraction.
 ## 2. Depths unit, round-trip and E2E
 
 ```bash
-cargo test -p container-runtime -p web-auth -p audit-log -p depths-core -p depths-stacks-fs -p depths-protocol -p depths
+cargo test -p container-runtime -p web-auth -p audit-log -p depths-core -p depths-stacks-fs -p depths-protocol -p depths-server
 cargo test -p depths-protocol --test export_bindings && git diff --exit-code apps/depths/web/src/protocol/generated
 pnpm --filter @companion/depths-web test                  # Vitest
 pnpm --filter @companion/depths-web exec playwright test  # all stories, fake backend
 pnpm --filter @companion/depths-web exec playwright test --project=us2-lifecycle   # one story
 ```
 
-## 3. Real daemon, local (no IdP needed)
+## 3. Real daemon, local
 
-The dev server takes a built-in fake OIDC issuer only under `--insecure-dev` on loopback.
+There is no built-in fake identity provider: the fakes live only in the server's tests. Register a
+dev OAuth app with any supported provider (Discord, GitHub or an OIDC issuer) with the redirect
+URI `http://127.0.0.1:8080/auth/callback/<provider>`, and export `OAUTH_PROVIDER`,
+`OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` (see `docs/guides/depths/sign-in.md`). `--insecure-dev`
+only allows the `http://` public URL, and only on a loopback listen. You need two accounts at the
+provider: your own (the owner) and a second one (called `dev-user` below).
 
 ```bash
 S=$(mktemp -d)/stacks; mkdir -p "$S/depths-test-web" "$S/depths-test-jobs"
@@ -38,11 +43,13 @@ services:
   init: { image: busybox, command: "true" }
   app:  { image: busybox, command: sleep 3600 }
 EOF
-cargo run -p depths -- --insecure-dev --listen 127.0.0.1:8080 --public-url http://127.0.0.1:8080 \
-  --stacks-dir "$S" --static-dir apps/depths/web/dist --owner-user-id oidc:dev-admin
+D=$(mktemp -d)
+cargo run -p depths-server -- --insecure-dev --listen 127.0.0.1:8080 --public-url http://127.0.0.1:8080 \
+  --stacks-dir "$S" --data-dir "$D" --static-dir apps/depths/web/dist \
+  --owner-user-id "<provider>:<your provider user id>"
 ```
 
-Check, signed in as the dev owner (`dev-admin` in the dev OIDC provider):
+Check, signed in as the owner:
 
 | Step | Expected |
 |---|---|
@@ -51,11 +58,11 @@ Check, signed in as the dev owner (`dev-admin` in the dev OIDC provider):
 | Edit `depths-test-web` in a terminal while its editor is open, then save in Depths | `Conflict` with the new text (FR-019). |
 | Save with a broken indent | Line-anchored error; file unchanged (`sha256sum` before/after). |
 | Open logs + shell + stats for both `app` containers in tabs, reload | Layout restored; shells reconnect as new sessions. |
-| Sign in as `dev-user` | No-access page; the owner sees `oidc:dev-user` as pending. |
+| Sign in as `dev-user` | No-access page; the owner sees `dev-user` as pending. |
 | As the owner, make `dev-user` a user on `depths-test-web` only; act as `dev-user` | Only `depths-test-web` listed, no foreign or standalone group; a forged `Confirm` for `depths-test-jobs` over the socket returns `Denied`, audited. |
 | Down both, then `docker compose ls --all` | No `depths-test-*` projects remain. |
 
-Then `rm -rf "$S"`.
+Then `rm -rf "$S" "$D"`.
 
 ## 4. Dockge round trip (SC-002)
 
