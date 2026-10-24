@@ -4,6 +4,7 @@
 //! reached only through the traits in [`ports`]; `depths-stacks-fs` and the server's runtime
 //! adapter implement them. No dependency on `kube`, `tauri` or any Fathom crate.
 
+pub mod compose_lint;
 pub mod discovery;
 pub mod hash;
 pub mod host;
@@ -13,6 +14,7 @@ pub mod plan;
 pub mod ports;
 pub mod role;
 pub mod secrets;
+pub mod security;
 pub mod status;
 
 pub use hash::ContentHash;
