@@ -476,6 +476,9 @@ pub struct Stack {
     pub modified_at: Option<String>,
     /// The I/O error when the directory or compose file cannot be read; never edited.
     pub read_error: Option<String>,
+    /// Why the stack is `invalid`: the compose file's parse error, or the directory name not
+    /// being a valid project name. `None` for a valid stack.
+    pub invalid_reason: Option<String>,
     /// Set when Depths cannot write the files, or the stack directory is a symlink.
     pub read_only_reason: Option<String>,
     /// A compose or `.env` file exceeds `DEPTHS_MAX_FILE_BYTES`: shown, not loaded for editing.

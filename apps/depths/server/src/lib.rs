@@ -6,6 +6,7 @@ pub mod client_ip;
 pub mod config;
 pub mod headers;
 pub mod http;
+pub mod inventory;
 pub mod limits;
 pub mod serve;
 pub mod users;

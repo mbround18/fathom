@@ -605,6 +605,7 @@ fn stack_summary() -> Stack {
         total_services: 2,
         modified_at: Some("2026-10-23T09:00:00Z".into()),
         read_error: None,
+        invalid_reason: None,
         read_only_reason: Some("stack directory is a symlink".into()),
         too_large: false,
     }

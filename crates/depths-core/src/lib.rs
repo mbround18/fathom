@@ -10,6 +10,7 @@ pub mod name;
 pub mod plan;
 pub mod ports;
 pub mod role;
+pub mod secrets;
 pub mod status;
 
 pub use hash::ContentHash;

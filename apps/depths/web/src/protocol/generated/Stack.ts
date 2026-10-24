@@ -28,6 +28,11 @@ modified_at: string | null,
  */
 read_error: string | null, 
 /**
+ * Why the stack is `invalid`: the compose file's parse error, or the directory name not
+ * being a valid project name. `None` for a valid stack.
+ */
+invalid_reason: string | null, 
+/**
  * Set when Depths cannot write the files, or the stack directory is a symlink.
  */
 read_only_reason: string | null, 
