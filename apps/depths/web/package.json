@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node node_modules/typescript7/bin/tsc -b && vite build",
+    "build": "node node_modules/typescript7/bin/tsc -b tsconfig.app.json tsconfig.node.json && vite build",
     "preview": "vite preview",
     "typecheck": "node node_modules/typescript7/bin/tsc -b --noEmit",
     "lint": "eslint .",
