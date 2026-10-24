@@ -24,7 +24,7 @@ import type { FileOp, FilePreview } from '@/protocol/generated'
 
 import { isSaveConflict, useFileOps, type FileOpRefusal } from './fileops-store'
 import { mayRestart } from './model'
-import { refusalText } from './store'
+import { refusalText, relist } from './store'
 
 const TITLE: Record<FileOp['kind'], string> = {
   save: 'Save file',
@@ -143,6 +143,11 @@ export function FileOpDialog() {
 
   if (!flow || isSaveConflict(flow) || lifecycleOpen) return null
   const { op, preview, phase, refusal, stack } = flow
+  // A partial change (a delete stopped part way) changed the folder: list it again on close.
+  const close = () => {
+    if (refusal?.kind === 'partial') relist()
+    dismiss()
+  }
   const busy = phase === 'previewing' || phase === 'confirming'
   const ready = phase === 'ready' && preview !== null
   const running = preview?.running ?? []
@@ -152,7 +157,7 @@ export function FileOpDialog() {
   const destructive = op.kind === 'delete'
 
   return (
-    <Dialog open onOpenChange={(o) => !o && dismiss()}>
+    <Dialog open onOpenChange={(o) => !o && close()}>
       <DialogContent data-file-op={op.kind} className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle className="font-display tracking-wider break-words">
@@ -173,7 +178,7 @@ export function FileOpDialog() {
           </p>
         )}
         <DialogFooter className="flex-wrap gap-1">
-          <Button variant="outline" onClick={dismiss}>
+          <Button variant="outline" onClick={close}>
             Cancel
           </Button>
           {canRetry && (

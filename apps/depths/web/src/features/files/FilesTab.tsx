@@ -72,6 +72,7 @@ export default function FilesTab({ stack, location }: { stack: string; location:
               filter={filter}
               onFilter={setFilter}
               openPath={open?.path ?? null}
+              canChange={mode === 'full' && info?.writable !== false}
             />
           </div>
           {open && (

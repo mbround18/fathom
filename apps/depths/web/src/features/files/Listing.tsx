@@ -8,18 +8,37 @@
  *   target and does not open, and a special file (FIFO, socket, device) is listed, inert.
  * - Keyboard: the rows are one tab stop; ArrowUp/ArrowDown/Home/End move between the rows that
  *   open, Enter opens. Rows are at least 28 px high for touch.
+ * - Changes (US4, T057), when the person may change files here: **New file** and **New folder**
+ *   above the rows, and on each row an actions menu (**Rename or move**, **Delete**) that also
+ *   opens on a right-click or Shift+F10 / the context-menu key. On a focused row F2 renames and
+ *   Delete deletes. Every change goes through the server's preview and `FileOpDialog`'s confirm.
  */
-import { FileIcon, FolderIcon, LinkSimpleIcon, MagnifyingGlassIcon, ProhibitIcon } from '@phosphor-icons/react'
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  DotsThreeVerticalIcon,
+  FileIcon,
+  FilePlusIcon,
+  FolderIcon,
+  FolderPlusIcon,
+  LinkSimpleIcon,
+  MagnifyingGlassIcon,
+  PencilSimpleIcon,
+  ProhibitIcon,
+  TrashIcon,
+} from '@phosphor-icons/react'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@companion/ui'
+import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { Link } from '@/app/Link'
+import { navigate } from '@/app/router'
 import { formatBytes } from '@/features/stacks/metrics'
 import { formatTime } from '@/features/stacks/model'
 import type { Entry } from '@/protocol/generated'
 
-import { filesHref, modeString, parentPath, pathParts } from './model'
-import { entryPath, filterEntries, refusalText, type FilesRefusal, type ListStatus } from './store'
+import { useFileOps } from './fileops-store'
+import { filesHref, joinPath, modeString, parentPath, pathParts } from './model'
+import { NameDialog, type NameAsk } from './NameDialog'
+import { entryPath, filterEntries, refusalText, relist, type FilesRefusal, type ListStatus } from './store'
 
 const ESTIMATED_ROW_PX = 40
 const OVERSCAN = 10
@@ -37,6 +56,14 @@ export interface ListingProps {
   onFilter: (filter: string) => void
   /** The open file, marked in the listing. */
   openPath: string | null
+  /** Whether the person may change files here: the files feature is full and the mount writable. */
+  canChange: boolean
+}
+
+/** Where `path` lands after `from` moved to `to`, or `null` when it was not inside `from`. */
+function moved(path: string, from: string, to: string): string | null {
+  if (path === from) return to
+  return path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : null
 }
 
 /** Whether a row opens: folders, files and links that stay inside. */
@@ -46,10 +73,41 @@ function opens(e: Entry): boolean {
 
 const count = (n: number): string => n.toLocaleString('en-US')
 
-export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, filter, onFilter, openPath }: ListingProps) {
+export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, filter, onFilter, openPath, canChange }: ListingProps) {
   const shown = useMemo(() => filterEntries(entries, filter), [entries, filter])
   const filtered = shown !== entries
   const at = (path: string): string => filesHref(stack, { mount, path })
+
+  const request = useFileOps((s) => s.request)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [ask, setAsk] = useState<NameAsk | null>(null)
+
+  const remove = (e: Entry): void => {
+    const path = entryPath(dir, e)
+    request(stack, { kind: 'delete', options: { mount, path, ...(e.name_b64 ? { raw_name: e.name_b64 } : {}) } }, () => {
+      relist()
+      if (openPath !== null && moved(openPath, path, '') !== null) navigate(at(dir))
+    })
+  }
+
+  const submitName = (value: string): void => {
+    if (!ask) return
+    setAsk(null)
+    if (ask.kind === 'create') {
+      const kind = ask.type
+      request(stack, { kind: 'create', options: { mount, parent: dir, name: value, kind } }, () => {
+        relist()
+        if (kind === 'file') navigate(at(joinPath(dir, value)))
+      })
+      return
+    }
+    const { from } = ask
+    request(stack, { kind: 'rename', options: { mount, from, to: value } }, () => {
+      relist()
+      const now = openPath === null ? null : moved(openPath, from, value)
+      if (now !== null) navigate(at(now))
+    })
+  }
 
   const scrollRef = useRef<HTMLDivElement>(null)
   // The app does not run the React Compiler; the virtualizer is read fresh every render.
@@ -86,6 +144,24 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
     const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-index]')
     if (!row) return
     const from = Number(row.dataset.index)
+    const here = shown[from]
+    if (canChange && here) {
+      if (ev.key === 'F2') {
+        ev.preventDefault()
+        setAsk({ kind: 'rename', from: entryPath(dir, here) })
+        return
+      }
+      if (ev.key === 'Delete') {
+        ev.preventDefault()
+        remove(here)
+        return
+      }
+      if (ev.key === 'ContextMenu' || (ev.key === 'F10' && ev.shiftKey)) {
+        ev.preventDefault()
+        setMenuFor(here.name)
+        return
+      }
+    }
     let to = -1
     if (ev.key === 'ArrowDown') {
       for (let i = from + 1; i < shown.length; i++) if (opens(shown[i] as Entry)) { to = i; break }
@@ -161,6 +237,19 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
         </span>
       </div>
 
+      {canChange && list !== 'refused' && (
+        <div data-listing-actions className="flex min-w-0 flex-wrap items-center gap-1">
+          <Button size="sm" variant="outline" data-new="file" onClick={() => setAsk({ kind: 'create', type: 'file' })}>
+            <FilePlusIcon aria-hidden className="size-3.5" />
+            New file
+          </Button>
+          <Button size="sm" variant="outline" data-new="dir" onClick={() => setAsk({ kind: 'create', type: 'dir' })}>
+            <FolderPlusIcon aria-hidden className="size-3.5" />
+            New folder
+          </Button>
+        </div>
+      )}
+
       {list === 'refused' && refusal ? (
         <p role="alert" data-refusal={refusal.kind} className="border border-border p-2 text-xs break-words text-status-err">
           {refusalText(refusal)}
@@ -187,14 +276,74 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
               const path = entryPath(dir, e)
               return (
                 <div key={v.key} data-index={v.index} ref={virtualizer.measureElement} role="listitem">
-                  <Row entry={e} href={at(path)} current={path === openPath} tabIndex={v.index === tabStop ? 0 : -1} onKeyDown={onKeyDown} />
+                  <Row
+                    entry={e}
+                    href={at(path)}
+                    current={path === openPath}
+                    tabIndex={v.index === tabStop ? 0 : -1}
+                    onKeyDown={onKeyDown}
+                    onContextMenu={
+                      canChange
+                        ? (ev) => {
+                            ev.preventDefault()
+                            setMenuFor(e.name)
+                          }
+                        : undefined
+                    }
+                    menu={
+                      canChange ? (
+                        <RowMenu
+                          entry={e}
+                          open={menuFor === e.name}
+                          onOpenChange={(o) => setMenuFor(o ? e.name : null)}
+                          onRename={() => setAsk({ kind: 'rename', from: path })}
+                          onDelete={() => remove(e)}
+                        />
+                      ) : null
+                    }
+                  />
                 </div>
               )
             })}
           </div>
         </div>
       )}
+      {ask && <NameDialog key={ask.kind === 'rename' ? ask.from : ask.type} ask={ask} rootLabel={rootLabel} dir={dir} onCancel={() => setAsk(null)} onSubmit={submitName} />}
     </div>
+  )
+}
+
+interface RowMenuProps {
+  entry: Entry
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onRename: () => void
+  onDelete: () => void
+}
+
+/** A row's actions: the ⋮ button, a right-click on the row, or Shift+F10 on its link. */
+function RowMenu({ entry: e, open, onOpenChange, onRename, onDelete }: RowMenuProps) {
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger
+        data-row-actions
+        aria-label={`Actions for ${e.name}`}
+        tabIndex={-1}
+        className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground outline-none hover:text-primary focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <DotsThreeVerticalIcon aria-hidden className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" data-row-menu={e.name} className="w-auto min-w-44">
+        <DropdownMenuItem data-action="rename" onSelect={onRename}>
+          <PencilSimpleIcon aria-hidden className="size-3.5" />
+          Rename or move…
+        </DropdownMenuItem>
+        <DropdownMenuItem data-action="delete" variant="destructive" onSelect={onDelete}>
+          <TrashIcon aria-hidden className="size-3.5" />
+          Delete…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -204,9 +353,12 @@ interface RowProps {
   current: boolean
   tabIndex: number
   onKeyDown: (ev: KeyboardEvent<HTMLAnchorElement>) => void
+  onContextMenu: ((ev: MouseEvent<HTMLDivElement>) => void) | undefined
+  /** The row's actions menu, when the person may change files here. */
+  menu: ReactNode
 }
 
-function Row({ entry: e, href, current, tabIndex, onKeyDown }: RowProps) {
+function Row({ entry: e, href, current, tabIndex, onKeyDown, onContextMenu, menu }: RowProps) {
   const Icon = e.kind === 'dir' ? FolderIcon : e.kind === 'link' ? LinkSimpleIcon : e.kind === 'special' ? ProhibitIcon : FileIcon
   const name = (
     <>
@@ -219,16 +371,26 @@ function Row({ entry: e, href, current, tabIndex, onKeyDown }: RowProps) {
       data-entry={e.name}
       data-kind={e.kind}
       aria-current={current ? 'true' : undefined}
+      onContextMenu={onContextMenu}
       className={`grid min-h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-border px-2 py-1 text-xs @xl:grid-cols-[minmax(0,1fr)_5rem_8.5rem_5.5rem_5.5rem] ${current ? 'bg-accent' : ''}`}
     >
       <div className="flex min-w-0 flex-col">
-        {opens(e) ? (
-          <Link to={href} data-row-link tabIndex={tabIndex} onKeyDown={onKeyDown} className="flex min-h-6 min-w-0 items-center gap-1.5 outline-none hover:text-primary focus-visible:ring-1 focus-visible:ring-ring">
-            {name}
-          </Link>
-        ) : (
-          <span className="flex min-h-6 min-w-0 items-center gap-1.5 text-muted-foreground">{name}</span>
-        )}
+        <div className="flex min-w-0 items-center gap-1">
+          {opens(e) ? (
+            <Link
+              to={href}
+              data-row-link
+              tabIndex={tabIndex}
+              onKeyDown={onKeyDown}
+              className="flex min-h-6 min-w-0 flex-1 items-center gap-1.5 outline-none hover:text-primary focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {name}
+            </Link>
+          ) : (
+            <span className="flex min-h-6 min-w-0 flex-1 items-center gap-1.5 text-muted-foreground">{name}</span>
+          )}
+          {menu}
+        </div>
         {e.kind === 'link' && e.link && (
           <span data-field="link-target" className="min-w-0 pl-5 font-mono break-all text-muted-foreground">
             → {e.link.target}
