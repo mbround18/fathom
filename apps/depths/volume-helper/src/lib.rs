@@ -39,7 +39,9 @@ pub fn serve<R: Read, W: Write>(root: OwnedFd, mut input: R, mut output: W) -> i
         match next_op(&mut input) {
             Ok(None) => return EXIT_OK,
             Ok(Some(op)) => {
-                if ops::handle(&root, &op, &mut output).is_err() || output.flush().is_err() {
+                if ops::handle(&root, &op, &mut input, &mut output).is_err()
+                    || output.flush().is_err()
+                {
                     return EXIT_PROTOCOL;
                 }
             }
@@ -55,31 +57,11 @@ pub fn serve<R: Read, W: Write>(root: OwnedFd, mut input: R, mut output: W) -> i
     }
 }
 
-/// The next op, `None` on a clean EOF. Data… End that follow an op this helper does not
-/// implement yet are drained here, so the stream stays in step.
+/// The next op, `None` on a clean EOF. The Data… End that follow `Write`, `Put` and `Untar` are
+/// read by the op itself.
 fn next_op<R: Read>(input: &mut R) -> Result<Option<Op>, FrameError> {
     let Some(frame) = read_frame(input)? else {
         return Ok(None);
     };
-    let op: Op = frame.parse(FrameKind::Op)?;
-    if op.sends_data() {
-        drain_data(input)?;
-    }
-    Ok(Some(op))
-}
-
-fn drain_data<R: Read>(input: &mut R) -> Result<(), FrameError> {
-    loop {
-        let frame = read_frame(input)?.ok_or(FrameError::Truncated)?;
-        match frame.kind {
-            FrameKind::End => return Ok(()),
-            FrameKind::Data => {}
-            got => {
-                return Err(FrameError::UnexpectedKind {
-                    expected: FrameKind::Data,
-                    got,
-                });
-            }
-        }
-    }
+    Ok(Some(frame.parse(FrameKind::Op)?))
 }

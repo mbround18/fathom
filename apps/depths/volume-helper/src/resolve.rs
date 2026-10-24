@@ -139,28 +139,51 @@ impl Root {
                 target: None,
             });
         }
-        let text = rustix::fs::readlinkat(&parent, name.as_slice(), Vec::new())
+        let (link, target) = self.link_info(&parent, &name, &path.to_bytes_with(raw))?;
+        Ok(Found {
+            stat,
+            link: Some(link),
+            target,
+        })
+    }
+
+    /// The link `name` in `parent`, whose full path beneath the root is `full`: its target text,
+    /// whether it stays inside, and the object it leads to when it does and resolves.
+    pub fn link_info(
+        &self,
+        parent: impl AsFd,
+        name: &[u8],
+        full: &[u8],
+    ) -> Result<(LinkInfo, Option<Statx>), HelperError> {
+        let text = rustix::fs::readlinkat(parent, name, Vec::new())
             .map_err(os_error)?
             .into_bytes();
-        let full = path.to_bytes_with(raw);
         let (inside, target) = if text.first() == Some(&b'/') {
             (false, None)
         } else {
-            match self.open_path(&full) {
+            match self.open_path(full) {
                 Ok(fd) => (true, Some(statx_fd(&fd)?)),
                 Err(HelperError::OutsideMount) => (false, None),
                 // Dangling, or a folder on the way is gone: still a link inside.
                 Err(_) => (true, None),
             }
         };
-        Ok(Found {
-            stat,
-            link: Some(LinkInfo {
-                target: String::from_utf8_lossy(&text).into_owned(),
-                inside,
-            }),
-            target,
-        })
+        let link = LinkInfo {
+            target: String::from_utf8_lossy(&text).into_owned(),
+            inside,
+        };
+        Ok((link, target))
+    }
+
+    /// Opens a folder beneath the root for reading its entries, following links that stay
+    /// inside.
+    pub fn open_dir_read(&self, dir: &RelPath) -> Result<OwnedFd, HelperError> {
+        open_beneath(
+            &self.fd,
+            dir.to_bytes_with(None).as_slice(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        )
+        .map_err(os_error)
     }
 
     /// Opens a regular file for reading, following links that stay inside. A folder answers
@@ -288,7 +311,19 @@ fn open_nofollow(parent: &OwnedFd, name: &[u8]) -> Result<OwnedFd, HelperError> 
     .map_err(os_error)
 }
 
-fn statx_fd(fd: impl AsFd) -> Result<Statx, HelperError> {
+/// `statx` of `name` in `dir`, a link not followed.
+pub fn statx_at(dir: impl AsFd, name: &[u8]) -> Result<Statx, HelperError> {
+    rustix::fs::statx(
+        dir,
+        name,
+        AtFlags::SYMLINK_NOFOLLOW,
+        StatxFlags::BASIC_STATS,
+    )
+    .map_err(os_error)
+}
+
+/// `statx` of an open fd.
+pub fn statx_fd(fd: impl AsFd) -> Result<Statx, HelperError> {
     rustix::fs::statx(
         fd,
         "",
