@@ -214,9 +214,9 @@ mount list and an empty Files tab. No story can start until this phase is done.
 ## Phase 8: Polish & Cross-Cutting
 
 - [ ] T064 Build and ship the helper in apps/depths/Dockerfile: compile `depths-volume-helper` statically (musl or `-C target-feature=+crt-static`) in the existing cargo-chef builder stage, `COPY` it to `/usr/local/bin/depths-volume-helper` in the runtime image; no shell added. `docker build` locally once (main session only).
-- [ ] T065 [P] User guide docs/guides/depths/files.md: opening the Files tab, editing and saving, conflicts, save and restart, transfers and limits, history and its limits, what is not browsable and why, xattrs/ACLs not kept on save, the fingerprint race window (R7), kernel ≥ 5.6 requirement, `DEPTHS_FEATURE_FILES`.
-- [ ] T066 [P] Update docs/guides/depths/security.md (helper container model, FR-020/FR-021, audit actions, restricted view rule for files) and docs/guides/depths/install.md (no new mounts or proxy flags; kernel and Docker version; `DEPTHS_HELPER_IMAGE`).
-- [ ] T067 [P] Add the 053 settings to apps/depths/.env.example and cross-reference contracts/config.md from specs/050-depths-stack-manager/contracts/config.md.
+- [X] T065 [P] User guide docs/guides/depths/files.md: opening the Files tab, editing and saving, conflicts, save and restart, transfers and limits, history and its limits, what is not browsable and why, xattrs/ACLs not kept on save, the fingerprint race window (R7), kernel ≥ 5.6 requirement, `DEPTHS_FEATURE_FILES`.
+- [X] T066 [P] Update docs/guides/depths/security.md (helper container model, FR-020/FR-021, audit actions, restricted view rule for files) and docs/guides/depths/install.md (no new mounts or proxy flags; kernel and Docker version; `DEPTHS_HELPER_IMAGE`).
+- [X] T067 [P] Add the 053 settings to apps/depths/.env.example and cross-reference contracts/config.md from specs/050-depths-stack-manager/contracts/config.md.
 - [ ] T068 [P] Feature-mode Playwright in apps/depths/web/tests/e2e/us6-files/modes.spec.ts: `off` hides the tab; `read_only` keeps browse/open/download and hides every change control; admin sees `files_reason` when forced off.
 - [ ] T069 [P] A11y pass on the explorer: keyboard-only walk through US1–US5, focus return after dialogs, `aria-live` for save results, in apps/depths/web/tests/e2e/us6-files/a11y.spec.ts.
 - [ ] T070 Run every quickstart.md section 1–3 command one at a time and fix what fails.
