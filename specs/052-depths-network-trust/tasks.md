@@ -12,7 +12,7 @@
 
 - [x] T003 `NetworkKey` grouping (IPv4-mapped normalised), `KnownNetwork`, `trust()` returning `TrustDecision` with injected `now`, table tests, in crates/depths-core/src/network.rs
 - [x] T004 `restricted_ok(kind)` table (view/subscribe, Start, Stop, Restart, AnswerNetwork, EndSession) with exhaustive test in crates/depths-core/src/role.rs
-- [ ] T005 Persisted registry `networks.json` (users.rs atomic write; ≤64 per person LRU; 180-day prune; `days` max 8; label ≤64 chars) in apps/depths/server/src/networks.rs
+- [x] T005 Persisted registry `networks.json` (users.rs atomic write; ≤64 per person LRU; 180-day prune; `days` max 8; label ≤64 chars) in apps/depths/server/src/networks.rs
 - [ ] T006 Session side table (address, browser ≤80 chars, last_recorded; removed on `Ended`) in apps/depths/server/src/session_meta.rs
 - [ ] T007 Protocol types: `TrustDecision`, `SessionView`, `NetworkView`, refusal `untrusted_network` in crates/depths-protocol/src/types.rs; regenerate bindings
 
