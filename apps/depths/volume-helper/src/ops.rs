@@ -10,7 +10,7 @@ use depths_volumes::frame::{
 };
 use depths_volumes::mount::{Entry, EntryKind, PAGE_SIZE, name_order, page_of, rfc3339_utc};
 use depths_volumes::op::{HelperError, Op, Reply, StatInfo};
-use depths_volumes::path::{RawName, RelPath};
+use depths_volumes::path::{Name, RawName, RelPath};
 use depths_volumes::text::Fingerprint;
 use rustix::fs::{Dir, FileType, OFlags, Statx};
 use sha2::{Digest, Sha256};
@@ -19,9 +19,10 @@ use crate::resolve::{
     Root, errno_message, errno_name, kind_of, mtime_ns, os_error, owner_of, statx_at, statx_fd,
 };
 use crate::save::{Temp, sync_dir};
+use crate::transfer;
 
 /// Bytes read from a file per call, and the most a Data frame the helper sends carries.
-const CHUNK: usize = 256 * 1024;
+pub(crate) const CHUNK: usize = 256 * 1024;
 
 /// Largest replaced or deleted content sent back as `prior` frames, for history (R9; the
 /// default `DEPTHS_FILES_HISTORY_FILE_MAX`).
@@ -53,6 +54,15 @@ pub fn handle<R: Read, W: Write>(
         Op::Write { path, base, mode } => {
             with_data(input, out, |data| write(root, path, base, *mode, data))
         }
+        Op::Put { dir, name, replace } => with_data(input, out, |data| {
+            put(root, dir, name, replace.as_ref(), data)
+        }),
+        Op::Size {
+            path,
+            raw_name,
+            cap,
+        } => answer(out, transfer::size(root, path, raw_name.as_ref(), *cap)),
+        Op::Tar { path, raw_name } => transfer::tar(root, path, raw_name.as_ref(), out),
         Op::Untar { .. } => {
             drain_data(input)?;
             answer(out, Err(HelperError::Unsupported))
@@ -67,7 +77,10 @@ pub fn handle<R: Read, W: Write>(
 }
 
 /// Writes a Reply or an Error frame.
-fn answer<W: Write>(out: &mut W, answer: Result<Reply, HelperError>) -> Result<(), FrameError> {
+pub(crate) fn answer<W: Write>(
+    out: &mut W,
+    answer: Result<Reply, HelperError>,
+) -> Result<(), FrameError> {
     match answer {
         Ok(reply) => write_json(out, FrameKind::Reply, &reply),
         Err(error) => write_json(out, FrameKind::Error, &error),
@@ -177,7 +190,7 @@ fn with_data<R: Read, W: Write>(
 
 /// R5: the helper runs as the owner of what it changes. Any other owner means it changed since
 /// the listing that led here.
-fn check_owner(stat: &Statx) -> Result<(), HelperError> {
+pub(crate) fn check_owner(stat: &Statx) -> Result<(), HelperError> {
     let owner = owner_of(stat);
     if owner.uid == rustix::process::getuid().as_raw()
         && owner.gid == rustix::process::getgid().as_raw()
@@ -367,6 +380,32 @@ fn write<R: Read>(
     )
 }
 
+/// `Put`: a new file `name` in `dir`, owned by the helper (the folder's owner, R5) with the
+/// default mode, refused `exists` when the name is taken. With `replace`, the existing file is
+/// replaced as `Write` does, keeping its uid, gid and mode, if it still matches.
+fn put<R: Read>(
+    root: &Root,
+    dir: &RelPath,
+    name: &Name,
+    replace: Option<&Fingerprint>,
+    data: &mut DataIn<'_, R>,
+) -> Result<Saved, Stop> {
+    if let Some(base) = replace {
+        let path = dir
+            .join(name.as_str())
+            .map_err(|_| HelperError::InvalidName)?;
+        return write(root, &path, base, None, data);
+    }
+    let parent = root.open_dir(dir)?;
+    check_owner(&statx_fd(&parent)?)?;
+    match statx_at(&parent, name.as_str().as_bytes()) {
+        Ok(_) => return Err(HelperError::Exists.into()),
+        Err(HelperError::NotFound) => {}
+        Err(e) => return Err(e.into()),
+    }
+    save(parent.as_fd(), name.as_str().as_bytes(), None, None, data)
+}
+
 /// The file a save replaces: open for reading, as found, and the fingerprint it must still have.
 struct Replacing {
     file: File,
@@ -475,7 +514,7 @@ pub(crate) fn hash_file(
     Ok((fingerprint, kept))
 }
 
-fn changed_while_reading() -> HelperError {
+pub(crate) fn changed_while_reading() -> HelperError {
     HelperError::OsError {
         errno: "EAGAIN".into(),
         message: "the file changed while it was being read".into(),

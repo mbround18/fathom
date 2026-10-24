@@ -15,8 +15,8 @@ use depths_volume_helper::resolve::Root;
 use depths_volume_helper::{EXIT_OK, serve};
 use depths_volumes::frame::{FrameKind, read_frame, write_data, write_frame, write_json};
 use depths_volumes::mount::{EntryKind, WriteBlocked};
-use depths_volumes::op::{Hello, HelperError, Op, Reply, parse_answer};
-use depths_volumes::path::RelPath;
+use depths_volumes::op::{Hello, HelperError, Op, Reply, SizeCap, parse_answer};
+use depths_volumes::path::{Name, RelPath};
 use rustix::fs::{OFlags, RenameFlags};
 
 /// What the resolver did with a case, in the table's terms.
@@ -425,4 +425,124 @@ fn write_cases_through_serve_save_inside_or_are_refused() {
         );
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Every frame `serve` sends for `ops`, joined, after Hello.
+fn serve_raw(root: &std::path::Path, ops: &[(Op, Option<&[u8]>)]) -> Vec<u8> {
+    let mut input = Vec::new();
+    for (op, data) in ops {
+        write_json(&mut input, FrameKind::Op, op).unwrap();
+        if let Some(data) = data {
+            write_data(&mut input, data).unwrap();
+            write_frame(&mut input, FrameKind::End, &[]).unwrap();
+        }
+    }
+    let mut output = Vec::new();
+    let root = Root::open(root).unwrap();
+    assert_eq!(
+        serve(root.into_fd(), Cursor::new(input), &mut output),
+        EXIT_OK
+    );
+    output
+}
+
+#[test]
+fn tar_size_and_put_on_every_folder_of_the_tree_stay_inside() {
+    let (_dir, tree, _root) = fresh();
+    let before = snapshot(&tree.sentinels);
+    let folders = [
+        "",
+        "sub",
+        "sub/deep",
+        "link_in_dir",
+        "link_out_dir",
+        "abs_proc_root",
+        "loop1",
+    ];
+    for folder in folders {
+        let path = RelPath::parse(folder).unwrap();
+        let ops = [
+            (
+                Op::Tar {
+                    path: path.clone(),
+                    raw_name: None,
+                },
+                None,
+            ),
+            (
+                Op::Size {
+                    path: path.clone(),
+                    raw_name: None,
+                    cap: SizeCap {
+                        bytes: u64::MAX,
+                        entries: u64::MAX,
+                    },
+                },
+                None,
+            ),
+            (
+                Op::Put {
+                    dir: path.clone(),
+                    name: Name::new("dropped").unwrap(),
+                    replace: None,
+                },
+                Some(b"dropped".as_slice()),
+            ),
+        ];
+        let output = serve_raw(&tree.root, &ops);
+        assert!(
+            !contains(&output, SENTINEL_MARK),
+            "{folder:?}: read a sentinel"
+        );
+        assert_eq!(
+            snapshot(&tree.sentinels),
+            before,
+            "{folder:?}: a sentinel changed"
+        );
+    }
+    let outside = tree.root.parent().unwrap().join("outside");
+    assert!(!outside.join("dropped").exists());
+    assert!(!outside.join("dir/dropped").exists());
+    assert!(tree.root.join("sub/dropped").exists());
+}
+
+#[test]
+fn a_folder_swapped_for_a_link_during_tar_and_put_never_leaves_the_root() {
+    let (_dir, tree, _root) = fresh();
+    std::fs::create_dir_all(tree.root.join("data/walk/inner")).unwrap();
+    std::fs::write(tree.root.join("data/walk/inner/x"), b"inside x").unwrap();
+    std::os::unix::fs::symlink("../../outside/dir", tree.root.join("data/walk_alt")).unwrap();
+    let outside_dir = tree.root.parent().unwrap().join("outside/dir");
+    let before = snapshot(&tree.sentinels);
+    let (stop, handle) = swapper(&tree.root.join("data"), "walk", "walk_alt");
+    for i in 0..300 {
+        let op = if i % 2 == 0 {
+            (
+                Op::Tar {
+                    path: RelPath::parse("data").unwrap(),
+                    raw_name: None,
+                },
+                None,
+            )
+        } else {
+            (
+                Op::Put {
+                    dir: RelPath::parse("data/walk/inner").unwrap(),
+                    name: Name::new(format!("p{i}")).unwrap(),
+                    replace: None,
+                },
+                Some(b"put".as_slice()),
+            )
+        };
+        let output = serve_raw(&tree.root, &[op]);
+        assert!(
+            !contains(&output, SENTINEL_MARK),
+            "round {i}: read a sentinel"
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    handle.join().unwrap();
+    assert_eq!(snapshot(&tree.sentinels), before);
+    let names: Vec<_> = std::fs::read_dir(&outside_dir).unwrap().collect();
+    assert_eq!(names.len(), 1, "only outside/dir/x");
 }

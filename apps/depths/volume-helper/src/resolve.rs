@@ -219,6 +219,19 @@ impl Root {
         .map_err(os_error)
     }
 
+    /// `path` (`raw_name`, when given, as its final component) opened `O_PATH` whatever it is,
+    /// links that stay inside followed, with its `statx`. The fd is the object found, so a later
+    /// swap of the name cannot redirect what is done through it.
+    pub fn open_any(
+        &self,
+        path: &RelPath,
+        raw: Option<&RawName>,
+    ) -> Result<(OwnedFd, Statx), HelperError> {
+        let fd = self.open_path(&path.to_bytes_with(raw))?;
+        let stat = statx_fd(&fd)?;
+        Ok((fd, stat))
+    }
+
     /// Opens a regular file for reading, following links that stay inside. A folder answers
     /// `EISDIR`; a device, FIFO or socket is refused `write_blocked { special }` and never opened.
     pub fn open_read(

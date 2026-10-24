@@ -8,6 +8,7 @@
 pub mod ops;
 pub mod resolve;
 pub mod save;
+pub mod transfer;
 
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
