@@ -245,7 +245,7 @@ worktrees and merge each green.
   - Start `docker events --format '{{json .}}'` and a `notify` watcher on the stacks root when the first session connects. Stop both when the last disconnects.
   - Debounce changes 250 ms into one re-inventory, and broadcast `StacksChanged`.
   - Add a test with the mock runner that no docker process is spawned while no session is connected (SC-008).
-- [ ] T042 Write `apps/depths/server/src/telemetry.rs` and `main.rs`:
+- [X] T042 Write `apps/depths/server/src/telemetry.rs` and `main.rs`:
   - `tracing` JSON logs.
   - An OTLP exporter only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
   - Feature flags `DEPTHS_FEATURE_SHELL`/`DEPTHS_FEATURE_EDIT` exposed in `/api/v1/me`.

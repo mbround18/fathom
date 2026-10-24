@@ -11,18 +11,29 @@ use depths_server::http::{AppState, Providers, router};
 use depths_server::users::Registry;
 use web_auth::provider::IdentityProvider;
 
-#[tokio::main]
-async fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("DEPTHS_LOG")
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_writer(std::io::stderr)
-        // Plain text into `docker logs`; colour only on a terminal.
-        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
-        .init();
-    match run().await {
+fn main() -> ExitCode {
+    // Before the runtime: the OTLP exporter's HTTP client is a blocking one.
+    let _telemetry = match depths_server::telemetry::init() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("depths: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("depths: cannot start the async runtime: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let result = rt.block_on(run());
+    // Shut the runtime down before the telemetry guard flushes.
+    drop(rt);
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("depths: {e}");

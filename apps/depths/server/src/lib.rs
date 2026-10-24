@@ -12,6 +12,7 @@ pub mod limits;
 pub mod ops;
 pub mod refresh;
 pub mod serve;
+pub mod telemetry;
 pub mod users;
 pub mod watch;
 pub mod ws;
