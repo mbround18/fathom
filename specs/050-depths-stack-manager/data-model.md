@@ -149,6 +149,7 @@ The registry is read on every command, so a change applies at that person's next
 | `down` with volumes or images (FR-016), create or delete a stack | | ✓ |
 | See foreign projects and standalone containers (FR-008) | | ✓ |
 | Read the audit log; manage users (`GetUsers`, `PutUser`, `RemoveUser`) | | ✓ |
+| Host metrics (`WatchHost`: CPU, memory, swap, disk, load, uptime; when `DEPTHS_HOST_PROC`) | | ✓ |
 
 A `user` sees nothing about stacks outside their list. A `pending` person, or a `user` with no
 stacks, signs in and sees the no-access page (FR-031).

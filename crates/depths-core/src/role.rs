@@ -58,11 +58,13 @@ pub enum Action {
     ReadAudit,
     /// `GetUsers`, `PutUser`, `RemoveUser`.
     ManageUsers,
+    /// Host metrics (`WatchHost`): CPU, memory, disk and load of the machine Depths runs on.
+    ViewHost,
 }
 
 impl Action {
     /// Every action, for tables and tests.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::View,
         Self::RevealEnv,
         Self::Lifecycle,
@@ -74,6 +76,7 @@ impl Action {
         Self::ViewForeign,
         Self::ReadAudit,
         Self::ManageUsers,
+        Self::ViewHost,
     ];
 
     /// Whether a `user` may take this action on a stack assigned to them. The rest are admin-only.
@@ -130,7 +133,7 @@ mod tests {
     }
 
     /// data-model.md's table: (action, user on an assigned stack, admin).
-    const TABLE: [(Action, bool, bool); 11] = [
+    const TABLE: [(Action, bool, bool); 12] = [
         (Action::View, true, true),
         (Action::RevealEnv, true, true),
         (Action::Lifecycle, true, true),
@@ -142,6 +145,7 @@ mod tests {
         (Action::ViewForeign, false, true),
         (Action::ReadAudit, false, true),
         (Action::ManageUsers, false, true),
+        (Action::ViewHost, false, true),
     ];
 
     #[test]
