@@ -50,6 +50,9 @@ services:
     environment:
       DOCKER_HOST: tcp://socket-proxy:2375
       DEPTHS_STACKS_DIR: ${STACKS_DIR:-/opt/stacks}
+      # Host CPU, memory, swap, load and uptime for admins, from the /proc mounted below. To turn
+      # it off, delete this line and that mount.
+      DEPTHS_HOST_PROC: /host/proc
     read_only: true
     tmpfs:
       - /tmp
@@ -65,6 +68,10 @@ services:
       # The same path on both sides, so the paths compose records in container labels match the
       # stacks Depths reads, and Dockge pointed at the same directory sees the same projects.
       - ${STACKS_DIR:-/opt/stacks}:${STACKS_DIR:-/opt/stacks}
+      # The host's /proc, read-only, for DEPTHS_HOST_PROC. Depths reads only stat, loadavg, meminfo
+      # and uptime, but the mount also lets it read every host process and its command line
+      # (arguments can hold secrets). Delete it to keep Depths out of the host's process list.
+      - /proc:/host/proc:ro
     networks:
       - docker-api
       - web

@@ -114,6 +114,8 @@ remove the `DOCKER_HOST` line. That gives Depths the whole Docker API.
   again.
 - **Locked down.** A read-only root filesystem with a tmpfs `/tmp`, all capabilities dropped,
   `no-new-privileges`, a 512-process limit and 1 GB of memory.
+- **Host metrics.** The host's `/proc` is mounted read-only at `/host/proc`, and
+  `DEPTHS_HOST_PROC` points at it. See [Host metrics](#host-metrics) for what that exposes.
 - **Loopback only.** The port is published as `127.0.0.1:${DEPTHS_PORT:-8080}:8080`, so only
   programs on the host can reach it.
 
@@ -192,6 +194,7 @@ came from.
 | `--insecure-dev` | `DEPTHS_INSECURE_DEV` | `false` | For development only: allows an `http://` public URL. Refused unless Depths listens on a loopback address |
 | | `DEPTHS_FEATURE_SHELL` | `false` | Container shells; see below |
 | | `DEPTHS_FEATURE_EDIT` | `true` | Editing compose and `.env` files. With `false`, Depths refuses to save edits |
+| `--host-proc` | `DEPTHS_HOST_PROC` | unset | A read-only mount of the host's `/proc` (the compose file uses `/host/proc`). Turns on host metrics for admins. Must be an absolute directory with a readable `stat`. Unset means off; see below |
 | | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Sends telemetry to an OpenTelemetry collector (the standard `OTEL_*` variables apply). Unset means no export |
 
 Durations take `s`, `m`, `h` or `d` (`30m`, `8h`). Sizes take `b`, `KiB`, `MiB`, `GiB`, `KB`, `MB`
@@ -223,3 +226,26 @@ Both default to off. If you run Depths without the proxy, the second switch does
 `DEPTHS_FEATURE_SHELL` alone decides.
 
 Even with shells on, a `user` can only open one in a container of a stack assigned to them.
+
+## Host metrics
+
+Admins can see the host's CPU, memory, swap, disk, load and uptime on the overview, beside the
+stack list. Everyone also sees CPU and memory for each stack they can view, which needs no extra
+setting. On a phone, admins get a one-line host summary above the stack list.
+
+Depths reads host figures from a copy of the host's `/proc`. The compose file mounts it read-only
+at `/host/proc` and sets `DEPTHS_HOST_PROC=/host/proc`. Disk space is measured for the filesystem
+that holds the stacks directory.
+
+**The trade-off.** Depths reads only `stat`, `loadavg`, `meminfo` and `uptime`. The mount, though,
+lets the Depths process read the host's whole process list, including every process's command
+line. Command lines can contain secrets, such as a password passed as an argument. If Depths were
+ever compromised, an attacker could read them. Depths already has root-equivalent access through
+Docker, so this adds little for most hosts. If you would rather not take it on:
+
+- remove the `/proc:/host/proc:ro` mount and the `DEPTHS_HOST_PROC` line from `compose.yaml`;
+- with `DEPTHS_HOST_PROC` unset, the host panel is hidden and `WatchHost` is refused;
+- per-stack figures still work, because they come from Docker.
+
+Host figures are only ever sent to admins. A `user` is refused whether the setting is on or off,
+and an admin who is demoted stops receiving them straight away.
