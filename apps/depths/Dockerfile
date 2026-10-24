@@ -24,10 +24,25 @@ COPY --from=planner /src/recipe.json recipe.json
 RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=depths-cargo-git,target=/usr/local/cargo/git \
     cargo chef cook --release -p depths-server --recipe-path recipe.json
+# The volume helper (053) is linked statically: glibc with crt-static, so this stage needs no
+# musl toolchain. `--target` keeps RUSTFLAGS off build scripts and proc macros, and puts its
+# output in target/<triple>/, apart from the server's.
+RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=depths-cargo-git,target=/usr/local/cargo/git \
+    RUSTFLAGS="-C target-feature=+crt-static" cargo chef cook --release -p depths-volume-helper \
+        --target "$(rustc -vV | sed -n 's/^host: //p')" --recipe-path recipe.json
 COPY . .
 RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=depths-cargo-git,target=/usr/local/cargo/git \
     cargo build --release -p depths-server --bin depths
+RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=depths-cargo-git,target=/usr/local/cargo/git \
+    host="$(rustc -vV | sed -n 's/^host: //p')" \
+    && RUSTFLAGS="-C target-feature=+crt-static" cargo build --release -p depths-volume-helper \
+        --bin depths-volume-helper --target "$host" \
+    && cp "target/$host/release/depths-volume-helper" /src/depths-volume-helper \
+    && if readelf -d /src/depths-volume-helper | grep -q NEEDED; then \
+        echo "depths-volume-helper is not static" >&2; exit 1; fi
 
 # ---- Web: one lockfile for the workspace; install only the Depths app and its packages
 FROM node:24-trixie-slim AS web
@@ -61,6 +76,8 @@ RUN --mount=type=cache,id=depths-apt-cache,target=/var/cache/apt,sharing=locked 
 COPY --from=cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=builder /src/target/release/depths /usr/local/bin/depths
+# Run with `--entrypoint` from this image's id (053 contracts/helper.md).
+COPY --from=builder /src/depths-volume-helper /usr/local/bin/depths-volume-helper
 COPY --from=web /src/apps/depths/web/dist /usr/share/depths/web
 ENV DEPTHS_LISTEN=0.0.0.0:8080 \
     STATIC_DIR=/usr/share/depths/web \
