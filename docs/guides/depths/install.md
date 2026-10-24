@@ -190,7 +190,7 @@ came from.
 | `--audit-rotate-bytes` | `DEPTHS_AUDIT_ROTATE_BYTES` | `64MiB` | Audit log size at which it rotates |
 | `--trusted-proxies` | `DEPTHS_TRUSTED_PROXIES` | empty | Proxies whose forwarding headers are believed (above) |
 | `--insecure-dev` | `DEPTHS_INSECURE_DEV` | `false` | For development only: allows an `http://` public URL. Refused unless Depths listens on a loopback address |
-| | `DEPTHS_FEATURE_SHELL` | `true` | Container shells. The example `.env` sets it to `false`; see below |
+| | `DEPTHS_FEATURE_SHELL` | `false` | Container shells; see below |
 | | `DEPTHS_FEATURE_EDIT` | `true` | Editing compose and `.env` files. With `false`, Depths refuses to save edits |
 | | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Sends telemetry to an OpenTelemetry collector (the standard `OTEL_*` variables apply). Unset means no export |
 
@@ -219,8 +219,7 @@ that container can reach. Shells need two switches, so neither one alone opens t
 1. `DEPTHS_FEATURE_SHELL=true`, which shows the shell button and lets Depths start a session.
 2. `DEPTHS_SOCKET_EXEC=1`, which lets the socket proxy pass exec calls through.
 
-Depths itself defaults `DEPTHS_FEATURE_SHELL` to `true`; the example `.env` sets it to `false`, and
-the proxy's exec stays closed until you open it. If you run Depths without the proxy, the second
-switch does not exist, so set `DEPTHS_FEATURE_SHELL=false` yourself if you do not want shells.
+Both default to off. If you run Depths without the proxy, the second switch does not exist, and
+`DEPTHS_FEATURE_SHELL` alone decides.
 
 Even with shells on, a `user` can only open one in a container of a stack assigned to them.
