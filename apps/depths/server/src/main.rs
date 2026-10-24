@@ -45,7 +45,8 @@ async fn run() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let providers = build_providers(&cfg).await?;
     let cfg = Arc::new(cfg);
-    let state = AppState::new(cfg.clone(), providers, Arc::new(users));
+    let runtime = Arc::new(depths_runtime_cli::CliRuntime::new(cfg.docker_bin.clone()));
+    let state = AppState::new(cfg.clone(), providers, Arc::new(users), runtime)?;
     let _sweeper = state.auth.sessions.spawn_sweeper(Duration::from_secs(60));
 
     let listener = tokio::net::TcpListener::bind(cfg.listen)

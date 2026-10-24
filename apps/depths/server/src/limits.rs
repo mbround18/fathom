@@ -126,9 +126,119 @@ impl Default for Limits {
     }
 }
 
+/// Open WebSockets per session and per IP (T090).
+pub const SOCKETS_PER_SESSION: usize = 8;
+pub const SOCKETS_PER_IP: usize = 32;
+/// Commands per socket: 20 a second, burst 50 (T090). Excess closes the socket with 4429.
+pub const WS_COMMANDS_PER_MINUTE: u32 = 20 * 60;
+pub const WS_COMMAND_BURST: u32 = 50;
+
+type Counts = (HashMap<String, usize>, HashMap<std::net::IpAddr, usize>);
+
+/// Counts open sockets. [`SocketCounts::acquire`] hands out a permit that gives its slot back
+/// when dropped, so a socket that ends in any way is no longer counted.
+#[derive(Debug, Default)]
+pub struct SocketCounts {
+    inner: Mutex<Counts>,
+}
+
+#[derive(Debug)]
+pub struct SocketPermit {
+    counts: std::sync::Arc<SocketCounts>,
+    session: String,
+    ip: std::net::IpAddr,
+}
+
+impl SocketCounts {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Counts> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A slot for one more socket of `session` from `ip`, or `None` past either cap.
+    pub fn acquire(
+        self: &std::sync::Arc<Self>,
+        session: &str,
+        ip: std::net::IpAddr,
+    ) -> Option<SocketPermit> {
+        let mut g = self.lock();
+        let s = g.0.get(session).copied().unwrap_or(0);
+        let i = g.1.get(&ip).copied().unwrap_or(0);
+        if s >= SOCKETS_PER_SESSION || i >= SOCKETS_PER_IP {
+            return None;
+        }
+        g.0.insert(session.to_owned(), s + 1);
+        g.1.insert(ip, i + 1);
+        Some(SocketPermit {
+            counts: self.clone(),
+            session: session.to_owned(),
+            ip,
+        })
+    }
+
+    pub fn for_session(&self, session: &str) -> usize {
+        self.lock().0.get(session).copied().unwrap_or(0)
+    }
+
+    pub fn for_ip(&self, ip: std::net::IpAddr) -> usize {
+        self.lock().1.get(&ip).copied().unwrap_or(0)
+    }
+}
+
+fn release<K: Hash + Eq>(m: &mut HashMap<K, usize>, k: &K) {
+    if let Some(n) = m.get_mut(k) {
+        *n -= 1;
+        if *n == 0 {
+            m.remove(k);
+        }
+    }
+}
+
+impl Drop for SocketPermit {
+    fn drop(&mut self) {
+        let mut g = self.counts.lock();
+        let (sessions, ips) = &mut *g;
+        release(sessions, &self.session);
+        release(ips, &self.ip);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sockets_are_capped_per_session_and_per_ip_and_given_back() {
+        let c = std::sync::Arc::new(SocketCounts::default());
+        let ip: std::net::IpAddr = "198.51.100.7".parse().unwrap();
+        let held: Vec<_> = (0..SOCKETS_PER_SESSION)
+            .map(|_| c.acquire("s", ip).unwrap())
+            .collect();
+        assert!(c.acquire("s", ip).is_none(), "ninth socket of one session");
+        let more: Vec<_> = (0..SOCKETS_PER_IP - SOCKETS_PER_SESSION)
+            .map(|i| c.acquire(&format!("o{i}"), ip).unwrap())
+            .collect();
+        assert!(c.acquire("other", ip).is_none(), "33rd socket from one IP");
+        assert!(
+            c.acquire("other", "198.51.100.8".parse().unwrap())
+                .is_some()
+        );
+        drop(held);
+        assert_eq!(c.for_session("s"), 0);
+        assert!(c.acquire("s", ip).is_some());
+        drop(more);
+        assert_eq!(c.for_ip(ip), 0);
+    }
+
+    #[test]
+    fn the_command_limit_is_a_burst_of_fifty_then_twenty_a_second() {
+        let l = RateLimiter::new(WS_COMMANDS_PER_MINUTE, WS_COMMAND_BURST, 1);
+        let t0 = Instant::now();
+        assert_eq!((0..100).filter(|_| l.check(&(), t0).is_ok()).count(), 50);
+        let t1 = t0 + Duration::from_secs(1);
+        assert_eq!((0..100).filter(|_| l.check(&(), t1).is_ok()).count(), 20);
+    }
 
     #[test]
     fn the_auth_limit_allows_a_burst_of_five_then_ten_a_minute() {

@@ -2,10 +2,16 @@
 //! Shared harness: a fake Discord provider and the real router over a temp dir.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::Body;
+use depths_core::plan::RunStep;
+use depths_core::ports::{
+    CancelToken, ContainerRuntime, OutputChunk, OutputSink, OutputStream, ProjectContainers,
+    RuntimeError, RuntimeSnapshot, StepOutcome, Validation,
+};
 use depths_server::config::{Config, Flags};
 use depths_server::http::{AppState, router};
 use depths_server::users::Registry;
@@ -94,12 +100,91 @@ impl IdentityProvider for FakeDiscord {
     }
 }
 
+/// A docker that answers from a snapshot the test sets, and records what it was asked to run.
+#[derive(Default)]
+pub struct FakeRuntime {
+    pub snapshot: Mutex<RuntimeSnapshot>,
+    /// `Some(stderr)`: docker is unreachable.
+    pub unavailable: Mutex<Option<String>>,
+    pub ran: Mutex<Vec<Vec<String>>>,
+    /// `Some(stderr)`: every step fails with it.
+    pub fail_with: Mutex<Option<String>>,
+}
+
+impl ContainerRuntime for FakeRuntime {
+    fn containers_by_project(&self) -> Result<RuntimeSnapshot, RuntimeError> {
+        if let Some(e) = self.unavailable.lock().unwrap().clone() {
+            return Err(RuntimeError::Unavailable(e));
+        }
+        Ok(self.snapshot.lock().unwrap().clone())
+    }
+    fn run_step(
+        &self,
+        step: &RunStep,
+        _: Option<&[u8]>,
+        sink: &dyn OutputSink,
+        _: &CancelToken,
+    ) -> Result<StepOutcome, RuntimeError> {
+        self.ran.lock().unwrap().push(step.argv.clone());
+        sink.emit(OutputChunk {
+            stream: OutputStream::Stderr,
+            text: "Container web-app-1  Started\n".into(),
+        });
+        Ok(match self.fail_with.lock().unwrap().clone() {
+            Some(stderr_tail) => StepOutcome::Failed {
+                exit_code: Some(1),
+                stderr_tail,
+            },
+            None => StepOutcome::Succeeded,
+        })
+    }
+    fn validate(&self, _: &RunStep, _: &[u8]) -> Result<Validation, RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+    fn follow_events(
+        &self,
+        _: &(dyn Fn() + Sync),
+        cancel: &CancelToken,
+    ) -> Result<(), RuntimeError> {
+        while !cancel.is_cancelled() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        Ok(())
+    }
+}
+
+/// A container of compose project `project`, service `service`.
+pub fn container(project: &str, service: &str, state: &str, status: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": format!("{project}-{service}-id"),
+        "name": format!("{project}-{service}-1"),
+        "image": "nginx",
+        "state": state,
+        "health": null,
+        "status": status,
+        "created_at": "2026-10-23 12:00:00 +0000 UTC",
+        "command": "nginx",
+        "ports": [],
+        "project": project,
+        "service": service,
+        "cluster": null,
+        "adoption": "not_adopted",
+    })
+}
+
 pub struct App {
     _dir: tempfile::TempDir,
     pub router: axum::Router,
+    pub state: AppState,
+    pub stacks: PathBuf,
+    pub runtime: Arc<FakeRuntime>,
 }
 
 pub fn app() -> App {
+    app_with(|_| {})
+}
+
+pub fn app_with(tweak: impl FnOnce(&mut AppState)) -> App {
     let dir = tempfile::tempdir().unwrap();
     let stacks = dir.path().join("stacks");
     let web = dir.path().join("web");
@@ -133,21 +218,76 @@ pub fn app() -> App {
     let cfg = Config::resolve(Flags::default(), &lookup).unwrap();
     cfg.prepare_data_dir().unwrap();
     let users = Registry::open(cfg.users_path(), cfg.owners.clone(), None).unwrap();
-    let state = AppState::new(
+    let runtime = Arc::new(FakeRuntime::default());
+    let mut state = AppState::new(
         Arc::new(cfg),
         vec![(
             "discord",
             Arc::new(FakeDiscord) as Arc<dyn IdentityProvider>,
         )],
         Arc::new(users),
-    );
+        runtime.clone(),
+    )
+    .unwrap();
+    tweak(&mut state);
     App {
         _dir: dir,
-        router: router(state),
+        router: router(state.clone()),
+        state,
+        stacks,
+        runtime,
     }
 }
 
 impl App {
+    /// Writes `<stacks>/<name>/compose.yaml` (and `.env`).
+    pub fn add_stack(&self, name: &str, compose: &str, env: Option<&str>) {
+        let d = self.stacks.join(name);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("compose.yaml"), compose).unwrap();
+        if let Some(e) = env {
+            std::fs::write(d.join(".env"), e).unwrap();
+        }
+    }
+
+    /// Sets the containers docker reports.
+    pub fn set_containers(&self, containers: Vec<serde_json::Value>) {
+        let mut snap = RuntimeSnapshot::default();
+        for c in containers {
+            let project = c["project"].as_str().unwrap().to_owned();
+            let entry = snap
+                .projects
+                .entry(project)
+                .or_insert_with(|| ProjectContainers {
+                    working_dir: None,
+                    containers: Vec::new(),
+                });
+            entry.containers.push(serde_json::from_value(c).unwrap());
+        }
+        *self.runtime.snapshot.lock().unwrap() = snap;
+    }
+
+    /// Every audit entry so far.
+    pub fn audit_entries(&self) -> Vec<depths_protocol::AuditEntry> {
+        self.state
+            .audit
+            .page(&depths_protocol::AuditFilter::default(), None)
+            .unwrap()
+            .0
+    }
+
+    /// The raw bytes of every audit file.
+    pub fn audit_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(self.state.audit.dir()).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_file() {
+                out.extend(std::fs::read(p).unwrap());
+            }
+        }
+        out
+    }
+
     pub async fn send(&self, req: Request<Body>) -> Response<Body> {
         self.router.clone().oneshot(req).await.unwrap()
     }

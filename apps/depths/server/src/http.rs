@@ -37,10 +37,18 @@ use web_auth::login::LoginStore;
 use web_auth::provider::{IdentityProvider, PendingLogin, ProviderError, Revalidation};
 use web_auth::session::{EndReason, SessionConfig, SessionError, SessionStore};
 
+use depths_core::ports::{ContainerRuntime, StackStore};
+use depths_stacks_fs::FsStackStore;
+use tokio::sync::broadcast;
+
+use crate::audit::Audit;
 use crate::client_ip::ClientIp;
 use crate::config::Config;
-use crate::limits::{Limits, RateLimiter};
+use crate::limits::{Limits, RateLimiter, SocketCounts};
+use crate::ops::Ops;
 use crate::users::{Registry, SignIn};
+use crate::watch::Watch;
+use crate::ws::WsConfig;
 
 pub const SESSION_COOKIE: &str = "__Host-depths_session";
 pub const LOGIN_COOKIE: &str = "__Host-depths_login";
@@ -61,6 +69,15 @@ pub struct AppState {
     pub users: Arc<Registry>,
     pub limits: Arc<Limits>,
     pub client_ip: Arc<ClientIp>,
+    pub store: Arc<dyn StackStore>,
+    pub runtime: Arc<dyn ContainerRuntime>,
+    pub audit: Arc<Audit>,
+    pub watch: Watch,
+    pub ops: Arc<Ops>,
+    /// Fires after every users-registry change: sockets re-read access and refresh feeds.
+    pub users_changed: broadcast::Sender<()>,
+    pub sockets: Arc<SocketCounts>,
+    pub ws: WsConfig,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -70,13 +87,51 @@ impl FromRef<AppState> for AuthState {
 }
 
 impl AppState {
-    pub fn new(cfg: Arc<Config>, providers: Providers, users: Arc<Registry>) -> Self {
+    /// Opens the stacks directory and the audit log; refuses (with what to fix) when either
+    /// cannot be opened.
+    pub fn new(
+        cfg: Arc<Config>,
+        providers: Providers,
+        users: Arc<Registry>,
+        runtime: Arc<dyn ContainerRuntime>,
+    ) -> Result<Self, String> {
         let sessions = SessionStore::new(SessionConfig {
             absolute: cfg.session_max,
             idle: cfg.session_idle,
             ..SessionConfig::default()
         });
-        Self {
+        let store: Arc<dyn StackStore> = Arc::new(
+            FsStackStore::open(&cfg.stacks_dir)
+                .map_err(|e| {
+                    format!(
+                        "cannot open the stacks directory {} (DEPTHS_STACKS_DIR): {e}",
+                        cfg.stacks_dir.display()
+                    )
+                })?
+                .with_max_file_bytes(cfg.max_file_bytes),
+        );
+        let audit_dir = cfg.data_dir.join("audit");
+        let audit = Arc::new(
+            Audit::open(audit_dir.clone(), cfg.audit_rotate_bytes).map_err(|e| {
+                format!("cannot open the audit log in {}: {e}", audit_dir.display())
+            })?,
+        );
+        let watch = Watch::new(store.clone(), runtime.clone());
+        let ops = Arc::new(Ops::new(
+            store.clone(),
+            runtime.clone(),
+            audit.clone(),
+            watch.clone(),
+        ));
+        Ok(Self {
+            store,
+            runtime,
+            audit,
+            watch,
+            ops,
+            users_changed: broadcast::channel(16).0,
+            sockets: Arc::new(SocketCounts::default()),
+            ws: WsConfig::default(),
             auth: AuthState {
                 sessions,
                 cookie: CookieConfig::new(SESSION_COOKIE),
@@ -88,7 +143,7 @@ impl AppState {
             client_ip: Arc::new(ClientIp::new(cfg.trusted_proxies.clone())),
             users,
             cfg,
-        }
+        })
     }
 
     fn provider(&self, id: &str) -> Option<&Arc<dyn IdentityProvider>> {
