@@ -1,14 +1,19 @@
 /**
  * The route table. Every page is its own chunk (`React.lazy`), so the sign-in page never loads
  * the stack views and vice versa. Add a story's routes here; patterns are `/literal/:param`.
+ *
+ * `admin` routes do not exist for anyone else: a non-admin gets the not-found page, so the URL
+ * says nothing about what is there. The server refuses their commands regardless (FR-032).
  */
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react'
 
 import { matchPath, usePath, type Params } from './router'
+import { useSession } from './session-store'
 
 interface Route {
   pattern: string
   page: LazyExoticComponent<ComponentType<{ params: Params }>>
+  admin?: boolean
 }
 
 const ROUTES: readonly Route[] = [
@@ -16,6 +21,8 @@ const ROUTES: readonly Route[] = [
   { pattern: '/stacks/:name', page: lazy(() => import('@/features/stacks/StackDetail')) },
   { pattern: '/stacks/:name/edit', page: lazy(() => import('@/features/editor/EditStack')) },
   { pattern: '/new', page: lazy(() => import('@/features/stacks/CreateStack')) },
+  { pattern: '/admin/users', page: lazy(() => import('@/features/users/UsersView')), admin: true },
+  { pattern: '/admin/audit', page: lazy(() => import('@/features/audit/AuditLog')), admin: true },
 ]
 
 const NotFound = lazy(() => import('@/pages/NotFound'))
@@ -30,7 +37,9 @@ export function PageFallback() {
 
 export function AppRoutes() {
   const path = usePath()
-  for (const { pattern, page: Page } of ROUTES) {
+  const isAdmin = useSession((s) => s.me?.role === 'admin')
+  for (const { pattern, page: Page, admin } of ROUTES) {
+    if (admin && !isAdmin) continue
     const params = matchPath(pattern, path)
     if (params)
       return (

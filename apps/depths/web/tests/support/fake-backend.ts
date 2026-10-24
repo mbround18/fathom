@@ -6,6 +6,7 @@
  *
  * - `GET /api/v1/me` answers the scripted `Me`, or a 401 naming the configured providers.
  * - `POST /auth/logout` and `/auth/refresh` are recorded and answered; `/auth/login` is a stub page.
+ * - `GET /api/v1/audit/export?…` is `audit`, filtered, as JSONL (admin only, 403 otherwise).
  * - `/api/v1/ws` is a mocked WebSocket that speaks the generated protocol: it checks `Hello`, closes
  *   with the contract's codes, and answers each `CmdEnvelope` with `EventEnvelope`s.
  *
@@ -33,6 +34,7 @@ import { test as base, expect, type Page, type Request, type WebSocketRoute } fr
 
 import type {
   AuditEntry,
+  AuditFilter,
   Cmd,
   CmdEnvelope,
   Container,
@@ -40,6 +42,7 @@ import type {
   DraftFile,
   Event,
   EventEnvelope,
+  Grant,
   Hello,
   Me,
   OperationKind,
@@ -290,6 +293,27 @@ function stepsFor(stack: string, op: StackOp): Step[] {
   }
 }
 
+function grantOf(u: User): Grant {
+  return { role: u.role, stacks: u.stacks }
+}
+
+/** The stack a command names, if any, for its audit entry. */
+function stackOf(cmd: Cmd): string | null {
+  switch (cmd.type) {
+    case 'GetStack':
+    case 'RevealEnv':
+      return cmd.data.name
+    case 'PreviewOp':
+      return cmd.data.stack
+    case 'PreviewSave':
+      return cmd.data.draft.stack
+    case 'OpenLogs':
+      return cmd.data.target.kind === 'stack' ? cmd.data.target.stack : null
+    default:
+      return null
+  }
+}
+
 /** Roles `PreviewOp` kinds need beyond an assigned stack (data-model "Operation"). */
 function adminOnly(op: StackOp): boolean {
   return op.kind === 'delete' || (op.kind === 'down' && op.options.remove_volumes)
@@ -331,7 +355,9 @@ export class FakeBackend {
   /** `StatsSample` sent once per `WatchStats`; empty = one canned sample per targeted container. */
   samples: UsageSample[] = []
   users: UserList = { users: [], pending: [] }
+  /** Oldest first, as recorded; `GetAudit` pages it newest first. */
   audit: AuditEntry[] = []
+  auditPageSize = 100
   /** Server-side compose errors `PreviewSave` returns for a stack, if any. */
   /** Per stack; an error without `file` is about the compose file. */
   validationErrors: Record<string, { file?: DraftFile; line: number | null; message: string }[]> = {}
@@ -363,6 +389,7 @@ export class FakeBackend {
     await page.route('**/api/**', (r) => r.fulfill({ status: 404, json: { error: 'not_found' } }))
     await page.route('**/auth/**', (r) => this.auth(r.request()).then((res) => r.fulfill(res)))
     await page.route('**/api/v1/me', (r) => r.fulfill(this.meResponse(r.request())))
+    await page.route('**/api/v1/audit/export**', (r) => r.fulfill(this.exportResponse(r.request())))
     await page.routeWebSocket(/\/api\/v1\/ws$/, (ws) => {
       this.accept(ws)
     })
@@ -464,6 +491,54 @@ export class FakeBackend {
     return { status: 200, json: this.me }
   }
 
+  private exportResponse(req: Request) {
+    this.record(req)
+    if (this.me === null) return { status: 401, json: { error: 'unauthenticated', providers: this.providers } }
+    if (this.me.role !== 'admin') return { status: 403, json: { error: 'forbidden' } }
+    const q = new URL(req.url()).searchParams
+    const f: AuditFilter = {}
+    for (const k of ['stack', 'actor', 'action', 'from', 'to'] as const) {
+      const v = q.get(k)
+      if (v !== null) (f as Record<string, string>)[k] = v
+    }
+    const body = this.auditMatching(f).map((e) => JSON.stringify(e) + '\n').join('')
+    return {
+      status: 200,
+      contentType: 'application/x-ndjson',
+      headers: { 'content-disposition': 'attachment; filename="depths-audit.jsonl"' },
+      body,
+    }
+  }
+
+  /** `audit` narrowed by a filter, as `GetAudit` and the export both read it. */
+  auditMatching(f: AuditFilter): AuditEntry[] {
+    return this.audit.filter(
+      (e) =>
+        (f.stack === undefined || e.stack === f.stack) &&
+        (f.actor === undefined || `${e.actor.provider}:${e.actor.subject}` === f.actor) &&
+        (f.action === undefined || e.action === f.action) &&
+        (f.from === undefined || e.at >= f.from) &&
+        (f.to === undefined || e.at <= f.to),
+    )
+  }
+
+  /** Appends an entry for the signed-in person, as the server records each attempt (FR-035). */
+  private recordAudit(over: Partial<AuditEntry> & Pick<AuditEntry, 'action' | 'outcome'>): void {
+    const who = this.me?.identity ?? fixtures.me().identity
+    this.audit.push({
+      at: NOW,
+      actor: { provider: who.provider, subject: who.subject, username: who.username },
+      stack: null,
+      preview_id: null,
+      operation_id: null,
+      argv: [],
+      target: null,
+      diff_summary: null,
+      source_ip: '127.0.0.1',
+      ...over,
+    })
+  }
+
   private auth(req: Request) {
     this.record(req)
     const path = new URL(req.url()).pathname
@@ -546,6 +621,10 @@ export class FakeBackend {
     const ctx: HandlerContext = { backend: this, socket, id }
     const scripted = this.handlers.get(cmd.type)?.(cmd, ctx)
     const events = scripted ?? this.respond(cmd, socket, id)
+    // Every refusal is audited, with the stack it named (DenyReason: "Audited.").
+    for (const e of events) {
+      if (e.type === 'Denied') this.recordAudit({ action: 'denied', stack: stackOf(cmd), outcome: { kind: 'denied', reason: e.data.reason } })
+    }
     for (const e of events) socket.send(e, id)
   }
 
@@ -677,16 +756,12 @@ export class FakeBackend {
 
       case 'GetAudit': {
         if (!admin) return denied()
-        const f = cmd.data.filter
-        const entries = this.audit.filter(
-          (e) =>
-            (f.stack === undefined || e.stack === f.stack) &&
-            (f.actor === undefined || `${e.actor.provider}:${e.actor.subject}` === f.actor) &&
-            (f.action === undefined || e.action === f.action) &&
-            (f.from === undefined || e.at >= f.from) &&
-            (f.to === undefined || e.at <= f.to),
-        )
-        return [{ type: 'AuditPage', data: { entries, next_cursor: null } }]
+        // Newest first, `auditPageSize` at a time; the cursor is the offset, opaque to the UI.
+        const all = this.auditMatching(cmd.data.filter).slice().reverse()
+        const start = cmd.data.cursor === undefined ? 0 : Number(cmd.data.cursor)
+        const entries = all.slice(start, start + this.auditPageSize)
+        const end = start + entries.length
+        return [{ type: 'AuditPage', data: { entries, next_cursor: end < all.length ? String(end) : null } }]
       }
 
       case 'GetUsers':
@@ -707,6 +782,12 @@ export class FakeBackend {
           users: [...this.users.users.filter((u) => u.id !== next.id), next],
           pending: this.users.pending.filter((u) => u.id !== next.id),
         }, socket)
+        const before = existing && existing.role !== 'pending' ? grantOf(existing) : null
+        this.recordAudit({
+          action: before ? 'user_changed' : 'user_added',
+          target: { id: next.id, before, after: grantOf(next) },
+          outcome: { kind: 'succeeded' },
+        })
         return [{ type: 'Users', data: this.users }]
       }
 
@@ -718,6 +799,11 @@ export class FakeBackend {
           users: this.users.users.filter((x) => x.id !== cmd.data.id),
           pending: this.users.pending.filter((x) => x.id !== cmd.data.id),
         }, socket)
+        this.recordAudit({
+          action: 'user_removed',
+          target: { id: cmd.data.id, before: u ? grantOf(u) : null, after: null },
+          outcome: { kind: 'succeeded' },
+        })
         return [{ type: 'Users', data: this.users }]
       }
     }

@@ -496,7 +496,7 @@ shows as pending. The owner makes A a user on stack X. A's next command works on
 other stack, foreign project or loose container. Removing X from A ends A's session. Every change
 and every attempt shows up in the audit log.
 
-- [ ] T069 [P] [US5] Write E2E tests in `apps/depths/web/tests/e2e/us5-access/users.spec.ts`:
+- [X] T069 [P] [US5] Write E2E tests in `apps/depths/web/tests/e2e/us5-access/users.spec.ts`:
   - A pending person gets the no-access page (FR-031) and appears in the admin's pending list.
   - A user on X sees X only: no other stack, no foreign or standalone group, no audit or users view.
   - A user on X can reveal `.env`, run lifecycle actions, open a shell and save on X; `down` with volumes, create and delete are not offered.
@@ -504,7 +504,7 @@ and every attempt shows up in the audit log.
   - An admin's change to a user's stacks applies at the user's next command without signing in again; removing their last stack ends the session (FR-033).
   - The owner cannot be demoted or removed; an admin can pre-add an id that has never signed in.
   - A stack assigned but missing on disk shows as missing in the users view.
-- [ ] T070 [P] [US5] Write E2E tests in `apps/depths/web/tests/e2e/us5-access/audit.spec.ts`:
+- [X] T070 [P] [US5] Write E2E tests in `apps/depths/web/tests/e2e/us5-access/audit.spec.ts`:
   - Every mutation kind, plus denied and failed attempts, appears with actor, time, stack, argv or diff summary, and outcome (FR-035).
   - Filter by stack, actor, action and time.
   - Export downloads JSONL.
@@ -534,7 +534,7 @@ and every attempt shows up in the audit log.
     ending the session on `Rejected`, backoff (honouring `retry_after`) and a warning on
     `Unreachable`, and the server-level tests.
 - [X] T073 [US5] Implement `GetAudit`, `GetUsers`, `PutUser`, `RemoveUser` and `GET /api/v1/audit/export` (admin only) in `apps/depths/server/src/{ws,http}.rs`, with cursor paging over `audit-log`'s reader. Broadcast `UsersChanged` to admin sockets; on a removal, end the returned sessions and close their sockets.
-- [ ] T074 [US5] Build the admin views in `apps/depths/web/src/features/{audit/{AuditLog,AuditFilters},users/UsersView}.tsx`: the audit log as a virtualised table that collapses to cards at narrow widths, with export. UsersView lists users and the pending list, sets role and stacks (missing stacks marked), adds an id by hand, and shows owners locked.
+- [X] T074 [US5] Build the admin views in `apps/depths/web/src/features/{audit/{AuditLog,AuditFilters},users/UsersView}.tsx`: the audit log as a virtualised table that collapses to cards at narrow widths, with export. UsersView lists users and the pending list, sets role and stacks (missing stacks marked), adds an id by hand, and shows owners locked.
 - [ ] T075 [US5] Write a security sweep in `apps/depths/server/tests/sweep.rs`. It walks every route in the router and every protocol command, as unauthenticated, pending, a user on an assigned stack, a user on an unassigned stack, and admin, and asserts that the outcome matches the permission table in data-model.md (SC-006).
 
 ---

@@ -1,4 +1,4 @@
-import { MoonIcon, RowsIcon, SignOutIcon, SunIcon } from '@phosphor-icons/react'
+import { ClipboardTextIcon, MoonIcon, RowsIcon, SignOutIcon, SunIcon, UsersIcon } from '@phosphor-icons/react'
 import { BrandMark } from '@companion/theme'
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@companion/ui'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
@@ -8,6 +8,7 @@ import { useTabs } from '@/features/tabs/store'
 import { useWide } from '@/features/tabs/useWide'
 
 import { Link } from './Link'
+import { usePath } from './router'
 import { useSession } from './session-store'
 import { useTheme } from './theme-store'
 
@@ -18,6 +19,21 @@ const CONNECTION_LABEL = {
   reconnecting: 'Reconnecting',
   closed: 'Disconnected',
 } as const
+
+function AdminLink({ to, label, icon }: { to: string; label: string; icon: ReactNode }) {
+  const current = usePath().startsWith(to)
+  return (
+    <Link
+      to={to}
+      aria-label={label}
+      aria-current={current ? 'page' : undefined}
+      className="inline-flex h-7 items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground aria-[current=page]:text-primary"
+    >
+      {icon}
+      <span className="hidden sm:inline">{label}</span>
+    </Link>
+  )
+}
 
 function Dock() {
   return (
@@ -61,6 +77,12 @@ export function Shell({ children }: { children: ReactNode }) {
         <Link to="/" aria-label="Stacks" className="flex items-center">
           <BrandMark name={BRAND_NAME} glyph={BRAND_GLYPH} className="text-sm" />
         </Link>
+        {me?.role === 'admin' && (
+          <nav aria-label="Admin" className="flex items-center gap-0.5">
+            <AdminLink to="/admin/users" label="Users" icon={<UsersIcon aria-hidden className="size-3.5" />} />
+            <AdminLink to="/admin/audit" label="Audit" icon={<ClipboardTextIcon aria-hidden className="size-3.5" />} />
+          </nav>
+        )}
         <span className="flex-1" />
         {connection !== 'open' && (
           <span
