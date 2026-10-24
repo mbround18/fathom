@@ -10,6 +10,8 @@ publish = false
 # onto its domain.
 [dependencies]
 container-runtime = { path = "../container-runtime" }
+# The 053 file types (mounts, entries, paths, fingerprints): wire types, no I/O.
+depths-volumes = { path = "../depths-volumes" }
 serde = { version = "1.0.229", features = ["derive"] }
 # Same features as Fathom's and container-runtime's, so the re-exported wire types export alike.
 ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }

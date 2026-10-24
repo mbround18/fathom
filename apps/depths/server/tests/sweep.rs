@@ -305,6 +305,14 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
             Who::Admin if str_of(id) == format!("discord:{OWNER}") => Denied("owner"),
             Who::Admin => Reply("Users"),
         },
+        // Spec 053: placeholder until the file handlers land (T033 replaces these rows).
+        Cmd::ListMounts { .. }
+        | Cmd::ListDir { .. }
+        | Cmd::ReadFile { .. }
+        | Cmd::FolderSize { .. }
+        | Cmd::PreviewFileOp { .. }
+        | Cmd::ListHistory { .. }
+        | Cmd::ReadVersion { .. } => Denied(FEATURE_DISABLED),
     }
 }
 
@@ -463,6 +471,42 @@ fn samples() -> Vec<(Prep, Value)> {
         Prep::None,
         cmd("RemoveUser", json!({ "id": format!("discord:{OWNER}") })),
     ));
+    let mount = "dd4b12a5169c0658";
+    let file = json!({ "stack": "web", "mount": mount, "path": "a.cfg", "req": 1 });
+    v.push((Prep::None, cmd("ListMounts", json!({ "stack": "web" }))));
+    v.push((
+        Prep::None,
+        cmd(
+            "ListDir",
+            json!({ "stack": "web", "mount": mount, "path": "", "req": 1 }),
+        ),
+    ));
+    v.push((Prep::None, cmd("ReadFile", file.clone())));
+    v.push((Prep::None, cmd("FolderSize", file)));
+    v.push((
+        Prep::None,
+        cmd(
+            "PreviewFileOp",
+            json!({ "stack": "web", "op": { "kind": "rename", "options": {
+                "mount": mount, "from": "a.cfg", "to": "b.cfg"
+            } } }),
+        ),
+    ));
+    v.push((
+        Prep::None,
+        cmd(
+            "ListHistory",
+            json!({ "stack": "web", "mount": mount, "path": "a.cfg" }),
+        ),
+    ));
+    v.push((
+        Prep::None,
+        cmd(
+            "ReadVersion",
+            json!({ "stack": "web", "mount": mount, "path": "a.cfg", "req": 1,
+                "version": format!("{}-1", "b".repeat(64)) }),
+        ),
+    ));
     for scope in [Scope::Mine, Scope::Theirs] {
         v.push((
             Prep::Preview(scope),
@@ -535,7 +579,7 @@ fn declared_variants() -> BTreeSet<String> {
 #[test]
 fn every_command_has_a_sample() {
     let declared = declared_variants();
-    assert_eq!(declared.len(), 21, "{declared:?}");
+    assert_eq!(declared.len(), 28, "{declared:?}");
     let sampled: BTreeSet<String> = samples()
         .iter()
         .map(|(_, c)| c["type"].as_str().unwrap().to_owned())

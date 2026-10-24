@@ -1353,3 +1353,227 @@ pub struct AuditNetwork {
     #[ts(optional)]
     pub answer: Option<NetworkAnswer>,
 }
+
+// ---------------------------------------------------------------------------
+// Files (spec 053)
+// ---------------------------------------------------------------------------
+
+pub use depths_volumes::mount::{
+    Browsable, Entry, EntryKind, LinkInfo, Mount, MountId, MountKind, MountService, MountState,
+    NotBrowsable, NotBrowsableCode, Owner, WriteBlocked,
+};
+pub use depths_volumes::path::{Name, RawName, RelPath};
+pub use depths_volumes::text::{BinaryReason, Eol, FileContent, Fingerprint, LineEnding};
+
+/// Most files in one `Upload` preview.
+pub const MAX_UPLOAD_FILES: usize = 1000;
+/// Longest history version id accepted.
+pub const MAX_VERSION_ID_BYTES: usize = 96;
+
+checked_string!(
+    /// A history version: the blob's sha256 hex, `-`, and a sequence number. Opaque: pass back
+    /// the server's `FileVersion::id`.
+    VersionId,
+    "version id",
+    |v| {
+        bounded(v, MAX_VERSION_ID_BYTES)?;
+        let (blob, seq) = v.split_once('-').ok_or("missing sequence")?;
+        if blob.len() != 64 || !blob.bytes().all(is_lower_hex) {
+            return Err("not 64 hex digits");
+        }
+        if seq.is_empty() || !seq.bytes().all(|b| b.is_ascii_digit()) {
+            return Err("bad sequence");
+        }
+        Ok(())
+    }
+);
+
+/// What `Create` makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum CreateKind {
+    File,
+    Dir,
+}
+
+/// One file of an `Upload` preview, as the browser sees it before sending.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct UploadFile {
+    pub name: Name,
+    pub size: u64,
+}
+
+/// A change to a mount's files, previewed with `PreviewFileOp` and applied by `Confirm`
+/// (constitution I). The mount is always one the server listed; a rename cannot cross mounts.
+///
+/// Tagged like [`StackOp`]: `{ "kind": "save", "options": { ... } }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    content = "options",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum FileOp {
+    /// `text` is LF text from the editor; the server re-applies `bom` and `eol`. `base` is the
+    /// fingerprint `ReadFile` returned: a different file on disk is `changed_on_disk`.
+    Save {
+        mount: MountId,
+        path: RelPath,
+        text: String,
+        base: Fingerprint,
+        bom: bool,
+        eol: LineEnding,
+    },
+    Create {
+        mount: MountId,
+        parent: RelPath,
+        name: Name,
+        kind: CreateKind,
+    },
+    Rename {
+        mount: MountId,
+        from: RelPath,
+        to: RelPath,
+    },
+    /// A folder is deleted with everything in it. `raw_name` addresses a last component that is
+    /// not UTF-8 (`path` is then its parent).
+    Delete {
+        mount: MountId,
+        path: RelPath,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        raw_name: Option<RawName>,
+    },
+    Restore {
+        mount: MountId,
+        path: RelPath,
+        version: VersionId,
+    },
+    /// The bytes follow over HTTP, one POST per file carrying the confirmed preview's id.
+    Upload {
+        mount: MountId,
+        dir: RelPath,
+        #[serde(deserialize_with = "at_most::<_, _, MAX_UPLOAD_FILES>")]
+        files: Vec<UploadFile>,
+    },
+}
+
+/// One file an `Upload` preview would write: `exists` names a file it would replace, with the
+/// fingerprint the POST must still find.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct UploadTarget {
+    pub name: Name,
+    pub size: u64,
+    pub exists: bool,
+    pub fingerprint: Option<Fingerprint>,
+}
+
+/// What a file change would do. `Confirm` with `preview_id` applies it; it expires at
+/// `expires_at` or when the session ends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct FilePreview {
+    pub preview_id: PreviewId,
+    pub stack: String,
+    pub mount: MountId,
+    /// One line: what changes, where.
+    pub summary: String,
+    /// Unified diff, for `Save` and `Restore`.
+    pub diff: Option<String>,
+    /// `Delete` of a folder: how many entries go with it, counted up to a cap.
+    pub entries: Option<u64>,
+    /// The count stopped at the cap ("10,000+").
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub entries_capped: bool,
+    /// `Upload`: every file, and whether it replaces one.
+    #[serde(default)]
+    #[ts(as = "Option<Vec<UploadTarget>>", optional)]
+    pub uploads: Vec<UploadTarget>,
+    /// Services with a running container that mounts this mount (FR-010).
+    pub running: Vec<String>,
+    pub expires_at: String,
+}
+
+/// Why a version was kept: the operation that replaced its content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum VersionReason {
+    Save,
+    Upload,
+    Delete,
+    Restore,
+}
+
+/// A kept earlier version of a file (FR-015).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct FileVersion {
+    pub id: VersionId,
+    pub at: String,
+    /// The user id of whoever replaced it.
+    pub author: String,
+    pub size: u64,
+    pub reason: VersionReason,
+}
+
+/// A file command refused for a reason of its own. Role, trust and a feature that is off are
+/// `Denied` (`not_permitted`, `untrusted_network`, `feature_disabled`), as for every other command.
+/// Audited as `files.refused`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FileRefusal {
+    /// `DEPTHS_FEATURE_FILES=read_only`: nothing may change.
+    FeatureReadOnly,
+    /// The helper cannot run on this server; the reason is shown to admins.
+    HelperUnavailable {
+        reason: String,
+    },
+    /// tmpfs, a root or escape bind, or a single-file bind.
+    NotBrowsable {
+        reason: NotBrowsable,
+    },
+    /// Every service mounts it read-only.
+    ReadOnlyMount,
+    /// A named volume that does not exist yet (before the first deploy).
+    NotCreated,
+    /// The volume or path is gone.
+    Missing,
+    /// The path leaves the mount (a link out, or a magic link).
+    OutsideMount,
+    WriteBlocked {
+        reason: WriteBlocked,
+    },
+    /// The file changed since it was read; `current` is what is there now.
+    ChangedOnDisk {
+        current: Fingerprint,
+    },
+    /// The owner changed since the listing; reload.
+    OwnerChanged,
+    /// Over the editor, download or upload limit.
+    TooLarge {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        bytes: Option<u64>,
+    },
+    NotText,
+    Exists,
+    NotFound,
+    InvalidName,
+    /// A rename between folders with different owners: no single uid can do it.
+    MixedOwners,
+    /// An upload without a confirmed preview, or a name or size the preview did not name.
+    NotConfirmed,
+    /// A folder delete stopped part way: what was removed, and the system error verbatim.
+    Partial {
+        removed: u64,
+        failed_at: String,
+        errno: String,
+        message: String,
+    },
+    /// The system error verbatim (`EACCES`, `ENOSPC`, ...).
+    OsError {
+        errno: String,
+        message: String,
+    },
+}

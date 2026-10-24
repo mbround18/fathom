@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::types::{
-    Actor, AuditEntry, ComposeWarning, DenyReason, EnvText, HostSample, OpOutcome, OperationId,
-    OperationKind, Preview, PreviewVoidReason, RequestId, StackDetail, StackList,
-    StreamCloseReason, UserList, ValidationError,
+    Actor, AuditEntry, ComposeWarning, DenyReason, Entry, EnvText, FileContent, FilePreview,
+    FileRefusal, FileVersion, Fingerprint, HostSample, Mount, MountId, OpOutcome, OperationId,
+    OperationKind, Preview, PreviewId, PreviewVoidReason, RelPath, RequestId, StackDetail,
+    StackList, StreamCloseReason, UserList, ValidationError, VersionId,
 };
 use crate::wire::{StreamId, UsageSample};
 
@@ -122,6 +123,58 @@ pub enum Event {
     },
     Users(UserList),
     UsersChanged(UserList),
+
+    // Files (spec 053)
+    Mounts {
+        stack: String,
+        mounts: Vec<Mount>,
+    },
+    /// One page of a folder, folders first then by name. `last` on the final page.
+    DirPage {
+        req: u32,
+        mount: MountId,
+        path: RelPath,
+        entries: Vec<Entry>,
+        page: u32,
+        last: bool,
+    },
+    /// A file, or a kept version of it (`version`, always read-only).
+    FileContent {
+        req: u32,
+        mount: MountId,
+        path: RelPath,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        version: Option<VersionId>,
+        file: FileContent,
+    },
+    FolderSize {
+        req: u32,
+        bytes: u64,
+        entries: u64,
+        /// The count stopped at the download limit.
+        capped: bool,
+    },
+    FilePreview(FilePreview),
+    /// A confirmed file change was applied. `fingerprint` is the written file's, for the editor's
+    /// next save; `running` the services that may need a restart to see it (FR-010).
+    FileOpDone {
+        preview_id: PreviewId,
+        mount: MountId,
+        path: RelPath,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        fingerprint: Option<Fingerprint>,
+        running: Vec<String>,
+    },
+    /// Kept versions of a file, newest first.
+    History {
+        mount: MountId,
+        path: RelPath,
+        versions: Vec<FileVersion>,
+    },
+    /// A file command refused for a reason of its own. Audited.
+    FileRefused(FileRefusal),
 
     // Session
     /// Sent 60 s before the session expires; refresh via `POST /auth/refresh`.

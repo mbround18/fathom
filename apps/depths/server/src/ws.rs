@@ -807,6 +807,19 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             let r = app.users.remove(&target);
             vec![user_changed(conn, id, &target, r)]
         }
+        // Spec 053: the file handlers land with the helper pool.
+        Cmd::ListMounts { .. }
+        | Cmd::ListDir { .. }
+        | Cmd::ReadFile { .. }
+        | Cmd::FolderSize { .. }
+        | Cmd::PreviewFileOp { .. }
+        | Cmd::ListHistory { .. }
+        | Cmd::ReadVersion { .. } => vec![conn.deny_reason(
+            id,
+            None,
+            DenyReason::FeatureDisabled,
+            "files are not available yet".into(),
+        )],
     }
 }
 

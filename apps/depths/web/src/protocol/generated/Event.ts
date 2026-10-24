@@ -3,13 +3,23 @@ import type { Actor } from "./Actor";
 import type { AuditEntry } from "./AuditEntry";
 import type { ComposeWarning } from "./ComposeWarning";
 import type { DenyReason } from "./DenyReason";
+import type { Entry } from "./Entry";
 import type { EnvText } from "./EnvText";
+import type { FileContent } from "./FileContent";
+import type { FilePreview } from "./FilePreview";
+import type { FileRefusal } from "./FileRefusal";
+import type { FileVersion } from "./FileVersion";
+import type { Fingerprint } from "./Fingerprint";
 import type { HostSample } from "./HostSample";
+import type { Mount } from "./Mount";
+import type { MountId } from "./MountId";
 import type { OpOutcome } from "./OpOutcome";
 import type { OperationId } from "./OperationId";
 import type { OperationKind } from "./OperationKind";
 import type { Preview } from "./Preview";
+import type { PreviewId } from "./PreviewId";
 import type { PreviewVoidReason } from "./PreviewVoidReason";
+import type { RelPath } from "./RelPath";
 import type { StackDetail } from "./StackDetail";
 import type { StackList } from "./StackList";
 import type { StreamCloseReason } from "./StreamCloseReason";
@@ -17,6 +27,7 @@ import type { StreamId } from "./StreamId";
 import type { UsageSample } from "./UsageSample";
 import type { UserList } from "./UserList";
 import type { ValidationError } from "./ValidationError";
+import type { VersionId } from "./VersionId";
 
 /**
  * Events. Adjacently tagged like [`crate::Cmd`].
@@ -26,4 +37,8 @@ export type Event = { "type": "Stacks", "data": StackList } | { "type": "StacksC
  * A human sentence on why, when the reason alone does not say (a container's security
  * findings, the compose policy).
  */
-detail?: string, } } | { "type": "Busy", "data": { stack: string, operation_id: OperationId, kind: OperationKind, actor: Actor, } } | { "type": "Invalid", "data": { reason: string, } } | { "type": "StreamOpened", "data": { stream_id: StreamId, } } | { "type": "LogChunk", "data": { stream_id: StreamId, lines: Array<string>, } } | { "type": "ShellOutput", "data": { stream_id: StreamId, bytes_b64: string, } } | { "type": "StreamClosed", "data": { stream_id: StreamId, reason: StreamCloseReason, } } | { "type": "StatsSample", "data": { samples: Array<UsageSample>, } } | { "type": "HostSample", "data": HostSample } | { "type": "AuditPage", "data": { entries: Array<AuditEntry>, next_cursor: string | null, } } | { "type": "Users", "data": UserList } | { "type": "UsersChanged", "data": UserList } | { "type": "SessionExpiring", "data": { at: string, } };
+detail?: string, } } | { "type": "Busy", "data": { stack: string, operation_id: OperationId, kind: OperationKind, actor: Actor, } } | { "type": "Invalid", "data": { reason: string, } } | { "type": "StreamOpened", "data": { stream_id: StreamId, } } | { "type": "LogChunk", "data": { stream_id: StreamId, lines: Array<string>, } } | { "type": "ShellOutput", "data": { stream_id: StreamId, bytes_b64: string, } } | { "type": "StreamClosed", "data": { stream_id: StreamId, reason: StreamCloseReason, } } | { "type": "StatsSample", "data": { samples: Array<UsageSample>, } } | { "type": "HostSample", "data": HostSample } | { "type": "AuditPage", "data": { entries: Array<AuditEntry>, next_cursor: string | null, } } | { "type": "Users", "data": UserList } | { "type": "UsersChanged", "data": UserList } | { "type": "Mounts", "data": { stack: string, mounts: Array<Mount>, } } | { "type": "DirPage", "data": { req: number, mount: MountId, path: RelPath, entries: Array<Entry>, page: number, last: boolean, } } | { "type": "FileContent", "data": { req: number, mount: MountId, path: RelPath, version?: VersionId, file: FileContent, } } | { "type": "FolderSize", "data": { req: number, bytes: number, entries: number, 
+/**
+ * The count stopped at the download limit.
+ */
+capped: boolean, } } | { "type": "FilePreview", "data": FilePreview } | { "type": "FileOpDone", "data": { preview_id: PreviewId, mount: MountId, path: RelPath, fingerprint?: Fingerprint, running: Array<string>, } } | { "type": "History", "data": { mount: MountId, path: RelPath, versions: Array<FileVersion>, } } | { "type": "FileRefused", "data": FileRefusal } | { "type": "SessionExpiring", "data": { at: string, } };

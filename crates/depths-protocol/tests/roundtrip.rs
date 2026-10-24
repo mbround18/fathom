@@ -44,6 +44,22 @@ fn operation_id() -> OperationId {
     OperationId(Uuid::from_u128(2))
 }
 
+fn mount_id() -> MountId {
+    MountId::compute(MountKind::Volume, "valheim_saves")
+}
+
+fn rel(path: &str) -> RelPath {
+    RelPath::parse(path).unwrap()
+}
+
+fn fingerprint() -> Fingerprint {
+    Fingerprint::of_content(b"port = 2456\n", 1_700_000_000_000_000_000, 42)
+}
+
+fn version_id() -> VersionId {
+    VersionId::new(format!("{}-3", "b".repeat(64))).unwrap()
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -220,6 +236,94 @@ fn all_cmds() -> Vec<Cmd> {
         Cmd::RemoveUser {
             id: UserId::new("github:583231").unwrap(),
         },
+        Cmd::ListMounts {
+            stack: stack("valheim"),
+        },
+        Cmd::ListDir {
+            stack: stack("valheim"),
+            mount: mount_id(),
+            path: RelPath::root(),
+            req: 1,
+        },
+        Cmd::ReadFile {
+            stack: stack("valheim"),
+            mount: mount_id(),
+            path: rel("config/server.cfg"),
+            req: 2,
+        },
+        Cmd::FolderSize {
+            stack: stack("valheim"),
+            mount: mount_id(),
+            path: rel("worlds"),
+            req: 3,
+        },
+        Cmd::PreviewFileOp {
+            stack: stack("valheim"),
+            op: FileOp::Save {
+                mount: mount_id(),
+                path: rel("config/server.cfg"),
+                text: "port = 2457\n".into(),
+                base: fingerprint(),
+                bom: false,
+                eol: LineEnding::Crlf,
+            },
+        },
+        Cmd::PreviewFileOp {
+            stack: stack("valheim"),
+            op: FileOp::Create {
+                mount: mount_id(),
+                parent: rel("config"),
+                name: Name::new("admins.txt").unwrap(),
+                kind: CreateKind::File,
+            },
+        },
+        Cmd::PreviewFileOp {
+            stack: stack("valheim"),
+            op: FileOp::Rename {
+                mount: mount_id(),
+                from: rel("config/a.cfg"),
+                to: rel("config/b.cfg"),
+            },
+        },
+        Cmd::PreviewFileOp {
+            stack: stack("valheim"),
+            op: FileOp::Delete {
+                mount: mount_id(),
+                path: rel("worlds"),
+                raw_name: Some(RawName::from_bytes(b"old\xff".to_vec()).unwrap()),
+            },
+        },
+        Cmd::PreviewFileOp {
+            stack: stack("valheim"),
+            op: FileOp::Restore {
+                mount: mount_id(),
+                path: rel("config/server.cfg"),
+                version: version_id(),
+            },
+        },
+        Cmd::PreviewFileOp {
+            stack: stack("valheim"),
+            op: FileOp::Upload {
+                mount: mount_id(),
+                dir: rel("worlds"),
+                files: vec![UploadFile {
+                    name: Name::new("Dedicated.db").unwrap(),
+                    size: 1024,
+                }],
+            },
+        },
+        Cmd::ListHistory {
+            stack: stack("valheim"),
+            mount: mount_id(),
+            path: rel("config/server.cfg"),
+        },
+        Cmd::ReadVersion {
+            stack: stack("valheim"),
+            mount: mount_id(),
+            path: rel("config/server.cfg"),
+            version: version_id(),
+            req: 4,
+        },
     ]
 }
 
@@ -247,10 +351,18 @@ fn cmd_covered(cmd: &Cmd) -> &'static str {
         Cmd::GetUsers => "GetUsers",
         Cmd::PutUser { .. } => "PutUser",
         Cmd::RemoveUser { .. } => "RemoveUser",
+        Cmd::ListMounts { .. } => "ListMounts",
+        Cmd::ListDir { .. } => "ListDir",
+        Cmd::ReadFile { .. } => "ReadFile",
+        Cmd::FolderSize { .. } => "FolderSize",
+        Cmd::PreviewFileOp { .. } => "PreviewFileOp",
+        Cmd::ListHistory { .. } => "ListHistory",
+        Cmd::ReadVersion { .. } => "ReadVersion",
     }
 }
 
-const CMD_VARIANTS: usize = 21;
+const CMD_VARIANTS: usize = 28;
+const FILE_OP_VARIANTS: usize = 6;
 const STACK_OP_VARIANTS: usize = 10;
 
 #[test]
@@ -272,6 +384,16 @@ fn every_cmd_roundtrips_in_an_envelope() {
     ops.sort();
     ops.dedup();
     assert_eq!(ops.len(), STACK_OP_VARIANTS);
+
+    let mut file_ops: Vec<_> = cmds
+        .iter()
+        .filter_map(|c| match c {
+            Cmd::PreviewFileOp { op, .. } => Some(std::mem::discriminant(op)),
+            _ => None,
+        })
+        .collect();
+    file_ops.dedup();
+    assert_eq!(file_ops.len(), FILE_OP_VARIANTS);
 
     for (i, cmd) in cmds.into_iter().enumerate() {
         roundtrip(&CmdEnvelope {
@@ -984,6 +1106,115 @@ fn all_events() -> Vec<Event> {
         Event::SessionExpiring {
             at: "2026-10-23T17:00:00Z".into(),
         },
+        Event::Mounts {
+            stack: "valheim".into(),
+            mounts: vec![
+                Mount::new(
+                    MountKind::Volume,
+                    "valheim_saves".into(),
+                    vec![MountService {
+                        service: "server".into(),
+                        destination: "/config".into(),
+                        read_only: false,
+                    }],
+                    MountState::Ready,
+                    Browsable::yes(),
+                    vec!["server".into()],
+                ),
+                Mount::new(
+                    MountKind::Tmpfs,
+                    String::new(),
+                    vec![],
+                    MountState::Ready,
+                    Browsable::no(NotBrowsableCode::Tmpfs, "tmpfs lives in memory"),
+                    vec![],
+                ),
+            ],
+        },
+        Event::DirPage {
+            req: 1,
+            mount: mount_id(),
+            path: RelPath::root(),
+            entries: vec![Entry {
+                name: "old\u{fffd}".into(),
+                name_b64: Some(RawName::from_bytes(b"old\xff".to_vec()).unwrap()),
+                kind: EntryKind::Link,
+                link: Some(LinkInfo {
+                    target: "/etc/passwd".into(),
+                    inside: false,
+                }),
+                size: 0,
+                mtime: "2026-10-23T12:00:00Z".into(),
+                uid: 1000,
+                gid: 1000,
+                mode: 0o644,
+                nlink: 1,
+                write_blocked: Some(WriteBlocked::OutsideLink),
+            }],
+            page: 0,
+            last: true,
+        },
+        Event::FileContent {
+            req: 2,
+            mount: mount_id(),
+            path: rel("config/server.cfg"),
+            version: Some(version_id()),
+            file: FileContent::build(
+                fingerprint(),
+                Owner {
+                    uid: 1000,
+                    gid: 1000,
+                    mode: 0o644,
+                },
+                None,
+                Some(b"port = 2456\n"),
+                1 << 20,
+            ),
+        },
+        Event::FolderSize {
+            req: 3,
+            bytes: 1 << 30,
+            entries: 812,
+            capped: false,
+        },
+        Event::FilePreview(FilePreview {
+            preview_id: preview_id(),
+            stack: "valheim".into(),
+            mount: mount_id(),
+            summary: "Upload 1 file to worlds".into(),
+            diff: None,
+            entries: Some(10_000),
+            entries_capped: true,
+            uploads: vec![UploadTarget {
+                name: Name::new("Dedicated.db").unwrap(),
+                size: 1024,
+                exists: true,
+                fingerprint: Some(fingerprint()),
+            }],
+            running: vec!["server".into()],
+            expires_at: "2026-10-23T12:05:00Z".into(),
+        }),
+        Event::FileOpDone {
+            preview_id: preview_id(),
+            mount: mount_id(),
+            path: rel("config/server.cfg"),
+            fingerprint: Some(fingerprint()),
+            running: vec!["server".into()],
+        },
+        Event::History {
+            mount: mount_id(),
+            path: rel("config/server.cfg"),
+            versions: vec![FileVersion {
+                id: version_id(),
+                at: "2026-10-23T11:00:00Z".into(),
+                author: "oidc:abc".into(),
+                size: 12,
+                reason: VersionReason::Save,
+            }],
+        },
+        Event::FileRefused(FileRefusal::ChangedOnDisk {
+            current: fingerprint(),
+        }),
     ]
 }
 
@@ -1016,10 +1247,18 @@ fn event_covered(event: &Event) -> &'static str {
         Event::Users(_) => "Users",
         Event::UsersChanged(_) => "UsersChanged",
         Event::SessionExpiring { .. } => "SessionExpiring",
+        Event::Mounts { .. } => "Mounts",
+        Event::DirPage { .. } => "DirPage",
+        Event::FileContent { .. } => "FileContent",
+        Event::FolderSize { .. } => "FolderSize",
+        Event::FilePreview(_) => "FilePreview",
+        Event::FileOpDone { .. } => "FileOpDone",
+        Event::History { .. } => "History",
+        Event::FileRefused(_) => "FileRefused",
     }
 }
 
-const EVENT_VARIANTS: usize = 26;
+const EVENT_VARIANTS: usize = 34;
 
 #[test]
 fn every_event_roundtrips_in_an_envelope() {
@@ -1185,5 +1424,163 @@ fn security_wire_shapes_are_pinned() {
     assert_eq!(
         serde_json::to_value(StreamCloseReason::ContainerRecreated).unwrap(),
         json!({ "kind": "container_recreated" })
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Files (spec 053)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_file_refusal_roundtrips() {
+    for refusal in [
+        FileRefusal::FeatureReadOnly,
+        FileRefusal::HelperUnavailable {
+            reason: "no docker".into(),
+        },
+        FileRefusal::NotBrowsable {
+            reason: NotBrowsable {
+                code: NotBrowsableCode::RiskyBind,
+                message: "/etc".into(),
+            },
+        },
+        FileRefusal::ReadOnlyMount,
+        FileRefusal::NotCreated,
+        FileRefusal::Missing,
+        FileRefusal::OutsideMount,
+        FileRefusal::WriteBlocked {
+            reason: WriteBlocked::HardLink,
+        },
+        FileRefusal::ChangedOnDisk {
+            current: fingerprint(),
+        },
+        FileRefusal::OwnerChanged,
+        FileRefusal::TooLarge { bytes: Some(9) },
+        FileRefusal::TooLarge { bytes: None },
+        FileRefusal::NotText,
+        FileRefusal::Exists,
+        FileRefusal::NotFound,
+        FileRefusal::InvalidName,
+        FileRefusal::MixedOwners,
+        FileRefusal::NotConfirmed,
+        FileRefusal::Partial {
+            removed: 3,
+            failed_at: "worlds/locked".into(),
+            errno: "EACCES".into(),
+            message: "Permission denied".into(),
+        },
+        FileRefusal::OsError {
+            errno: "ENOSPC".into(),
+            message: "No space left on device".into(),
+        },
+    ] {
+        roundtrip(&Event::FileRefused(refusal));
+    }
+}
+
+#[test]
+fn file_wire_shape_is_pinned() {
+    let mount = mount_id();
+    assert_eq!(
+        serde_json::to_value(Cmd::ListDir {
+            stack: stack("valheim"),
+            mount: mount.clone(),
+            path: RelPath::root(),
+            req: 7,
+        })
+        .unwrap(),
+        json!({ "type": "ListDir", "data": {
+            "stack": "valheim", "mount": mount.as_str(), "path": "", "req": 7
+        } })
+    );
+    assert_eq!(
+        serde_json::to_value(Cmd::PreviewFileOp {
+            stack: stack("valheim"),
+            op: FileOp::Rename {
+                mount: mount.clone(),
+                from: rel("a.cfg"),
+                to: rel("b.cfg"),
+            },
+        })
+        .unwrap(),
+        json!({ "type": "PreviewFileOp", "data": { "stack": "valheim", "op": {
+            "kind": "rename", "options": { "mount": mount.as_str(), "from": "a.cfg", "to": "b.cfg" }
+        } } })
+    );
+    assert_eq!(
+        serde_json::to_value(Event::FileRefused(FileRefusal::OsError {
+            errno: "EACCES".into(),
+            message: "Permission denied".into(),
+        }))
+        .unwrap(),
+        json!({ "type": "FileRefused", "data": {
+            "kind": "os_error", "errno": "EACCES", "message": "Permission denied"
+        } })
+    );
+    assert_eq!(
+        serde_json::to_value(Event::FileRefused(FileRefusal::Exists)).unwrap(),
+        json!({ "type": "FileRefused", "data": { "kind": "exists" } })
+    );
+}
+
+#[test]
+fn file_cmds_refuse_bad_values() {
+    let mount = mount_id();
+    let list_dir = |path: Value, mount: Value| {
+        json!({ "type": "ListDir", "data": {
+            "stack": "valheim", "mount": mount, "path": path, "req": 1
+        } })
+    };
+    accepts::<Cmd>(list_dir(json!("config"), json!(mount.as_str())));
+    for path in ["/etc", "../x", "a/../../b", "a\u{0}b"] {
+        rejects::<Cmd>(list_dir(json!(path), json!(mount.as_str())));
+    }
+    // Empty and `.` components are normalised away, not refused.
+    let Cmd::ListDir { path, .. } =
+        serde_json::from_value(list_dir(json!("a/./b//"), json!(mount.as_str()))).unwrap()
+    else {
+        unreachable!()
+    };
+    assert_eq!(path.as_str(), "a/b");
+    rejects::<Cmd>(list_dir(json!("config"), json!("not a mount id")));
+    rejects::<Cmd>(json!({ "type": "ListDir", "data": {
+        "stack": "valheim", "mount": mount.as_str(), "path": "", "req": 1, "extra": true
+    } }));
+
+    let read_version = |version: &str| {
+        json!({ "type": "ReadVersion", "data": {
+            "stack": "valheim", "mount": mount.as_str(), "path": "a", "version": version, "req": 1
+        } })
+    };
+    accepts::<Cmd>(read_version(version_id().as_str()));
+    for version in [
+        String::new(),
+        "b".repeat(64),
+        format!("{}-", "b".repeat(64)),
+        format!("{}-x", "b".repeat(64)),
+        format!("{}-1", "B".repeat(64)),
+        format!("{}-1", "b".repeat(63)),
+        format!("{}-{}", "b".repeat(64), "1".repeat(40)),
+    ] {
+        rejects::<Cmd>(read_version(&version));
+    }
+
+    let upload = |files: usize| {
+        let files: Vec<_> = (0..files)
+            .map(|i| json!({ "name": format!("f{i}"), "size": 1 }))
+            .collect();
+        json!({ "type": "PreviewFileOp", "data": { "stack": "valheim", "op": {
+            "kind": "upload", "options": { "mount": mount.as_str(), "dir": "", "files": files }
+        } } })
+    };
+    accepts::<Cmd>(upload(MAX_UPLOAD_FILES));
+    rejects::<Cmd>(upload(MAX_UPLOAD_FILES + 1));
+    // A file name is one component.
+    rejects::<Cmd>(
+        json!({ "type": "PreviewFileOp", "data": { "stack": "valheim", "op": {
+        "kind": "upload", "options": { "mount": mount.as_str(), "dir": "", "files": [
+            { "name": "a/b", "size": 1 }
+        ] }
+    } } }),
     );
 }

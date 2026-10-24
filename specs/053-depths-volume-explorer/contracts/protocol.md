@@ -8,24 +8,34 @@ Bindings are regenerated with `cargo test -p depths-protocol --test export_bindi
 | Cmd | Fields | Reply events | Gate (R12) |
 |---|---|---|---|
 | `ListMounts` | `stack` | `Mounts { stack, mounts: [Mount] }` | edit; allowed when restricted |
-| `ListDir` | `stack, mount, path, req` | `DirPage { req, path, entries, page, last }`, sent 1..n times | edit; allowed when restricted |
-| `ReadFile` | `stack, mount, path, req` | `FileContent { req, ... }` | edit; not when restricted; audited `files.read` |
+| `ListDir` | `stack, mount, path, req` | `DirPage { req, mount, path, entries, page, last }`, sent 1..n times | edit; allowed when restricted |
+| `ReadFile` | `stack, mount, path, req` | `FileContent { req, mount, path, file }` | edit; not when restricted; audited `files.read` |
 | `FolderSize` | `stack, mount, path, req` | `FolderSize { req, bytes, entries, capped }` | edit; not when restricted |
-| `PreviewFileOp` | `stack, op: FileOp` | `FilePreview { preview, stack, op_summary, diff?, entries?, running }` | edit + mode `full`; not when restricted |
-| `Confirm` | `preview` (existing) | `FileOpDone { preview, path, fingerprint?, running }` or `Refused` | as for the preview |
-| `ListHistory` | `stack, mount, path` | `History { versions: [FileVersion] }` | edit; not when restricted |
-| `ReadVersion` | `stack, mount, path, version, req` | `FileContent` (read-only) | edit; not when restricted |
+| `PreviewFileOp` | `stack, op: FileOp` | `FilePreview { preview_id, stack, mount, summary, diff?, entries?, entries_capped?, uploads?, running, expires_at }` | edit + mode `full`; not when restricted |
+| `Confirm` | `preview_id` (existing) | `FileOpDone { preview_id, mount, path, fingerprint?, running }` or `FileRefused` | as for the preview |
+| `ListHistory` | `stack, mount, path` | `History { mount, path, versions: [FileVersion] }` | edit; not when restricted |
+| `ReadVersion` | `stack, mount, path, version, req` | `FileContent { ..., version }` (read-only) | edit; not when restricted |
 
 `req` is a client-chosen u32. Replies to a superseded `req` are dropped by the UI (constitution V).
 A preview expires after 5 minutes, or when the session ends.
 
-## Refusal kinds (added to the existing `Refused { kind, message }`)
+`FileOp` is tagged like `StackOp`: `{ "kind": "save" | "create" | "rename" | "delete" | "restore" |
+"upload", "options": { ... } }`. Paths are `RelPath` strings (`""` is the mount root; empty and
+`.` components are normalised away; absolute, `..` and NUL are refused at parse). `mount` is the
+`MountId` from `Mounts`.
 
-`feature_off`, `feature_read_only`, `not_browsable`, `read_only_mount`, `outside_mount`,
-`not_created`, `missing`, `not_confirmed`, `mixed_owners`, `partial` (`removed`, `failed_at`, `errno`, `message`),
-`write_blocked` (`hard_link`/`special`/`outside_link`), `changed_on_disk` (with `current`
-fingerprint), `owner_changed`, `too_large`, `not_text`, `os_error` (`errno` name and the message,
-verbatim), `helper_unavailable` (reason), `untrusted_network` (existing), `denied` (existing).
+## Refusals
+
+Role, trust and a feature that is off use the existing `Denied { reason, detail? }`:
+`not_permitted`, `untrusted_network`, `feature_disabled` (mode `off`).
+
+Everything file-specific is the new event `FileRefused`, internally tagged by `kind` and audited
+as `files.refused`: `feature_read_only`, `helper_unavailable` (`reason`), `not_browsable`
+(`reason: { code, message }`), `read_only_mount`, `not_created`, `missing`, `outside_mount`,
+`write_blocked` (`reason`: `hard_link`/`read_only_mount`/`special`/`outside_link`),
+`changed_on_disk` (`current` fingerprint), `owner_changed`, `too_large` (`bytes?`), `not_text`,
+`exists`, `not_found`, `invalid_name`, `mixed_owners`, `not_confirmed`, `partial` (`removed`,
+`failed_at`, `errno`, `message`), `os_error` (`errno` name and the message, verbatim).
 
 ## `/api/me`
 

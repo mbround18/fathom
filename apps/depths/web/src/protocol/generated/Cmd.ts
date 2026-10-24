@@ -2,10 +2,13 @@
 import type { AuditCursor } from "./AuditCursor";
 import type { AuditFilter } from "./AuditFilter";
 import type { ContainerRef } from "./ContainerRef";
+import type { FileOp } from "./FileOp";
 import type { LogTail } from "./LogTail";
 import type { LogTarget } from "./LogTarget";
+import type { MountId } from "./MountId";
 import type { OperationId } from "./OperationId";
 import type { PreviewId } from "./PreviewId";
+import type { RelPath } from "./RelPath";
 import type { Role } from "./Role";
 import type { Shell } from "./Shell";
 import type { ShellBytes } from "./ShellBytes";
@@ -16,6 +19,7 @@ import type { StatsTarget } from "./StatsTarget";
 import type { StreamId } from "./StreamId";
 import type { Timestamp } from "./Timestamp";
 import type { UserId } from "./UserId";
+import type { VersionId } from "./VersionId";
 
 /**
  * Commands. Results arrive as events.
@@ -28,4 +32,4 @@ export type Cmd = { "type": "ListStacks" } | { "type": "GetStack", "data": { nam
  * "Deploy anyway": an admin acknowledging a preview's `ack_required` (051 FR-018).
  * Audited. Ignored for a preview that does not require it.
  */
-acknowledge_findings?: boolean, } } | { "type": "LintCompose", "data": { stack: StackName, compose_text: string, } } | { "type": "Cancel", "data": { operation_id: OperationId, } } | { "type": "OpenLogs", "data": { target: LogTarget, tail: LogTail, since?: Timestamp, } } | { "type": "OpenShell", "data": { container: ContainerRef, shell?: Shell, cols: number, rows: number, } } | { "type": "ShellInput", "data": { stream_id: StreamId, bytes_b64: ShellBytes, } } | { "type": "ShellResize", "data": { stream_id: StreamId, cols: number, rows: number, } } | { "type": "WatchStats", "data": { targets: Array<StatsTarget>, } } | { "type": "UnwatchStats" } | { "type": "WatchHost" } | { "type": "UnwatchHost" } | { "type": "CloseStream", "data": { stream_id: StreamId, } } | { "type": "GetAudit", "data": { filter: AuditFilter, cursor?: AuditCursor, } } | { "type": "GetUsers" } | { "type": "PutUser", "data": { id: UserId, role: Role, stacks: Array<StackName>, } } | { "type": "RemoveUser", "data": { id: UserId, } };
+acknowledge_findings?: boolean, } } | { "type": "LintCompose", "data": { stack: StackName, compose_text: string, } } | { "type": "Cancel", "data": { operation_id: OperationId, } } | { "type": "OpenLogs", "data": { target: LogTarget, tail: LogTail, since?: Timestamp, } } | { "type": "OpenShell", "data": { container: ContainerRef, shell?: Shell, cols: number, rows: number, } } | { "type": "ShellInput", "data": { stream_id: StreamId, bytes_b64: ShellBytes, } } | { "type": "ShellResize", "data": { stream_id: StreamId, cols: number, rows: number, } } | { "type": "WatchStats", "data": { targets: Array<StatsTarget>, } } | { "type": "UnwatchStats" } | { "type": "WatchHost" } | { "type": "UnwatchHost" } | { "type": "CloseStream", "data": { stream_id: StreamId, } } | { "type": "GetAudit", "data": { filter: AuditFilter, cursor?: AuditCursor, } } | { "type": "GetUsers" } | { "type": "PutUser", "data": { id: UserId, role: Role, stacks: Array<StackName>, } } | { "type": "RemoveUser", "data": { id: UserId, } } | { "type": "ListMounts", "data": { stack: StackName, } } | { "type": "ListDir", "data": { stack: StackName, mount: MountId, path: RelPath, req: number, } } | { "type": "ReadFile", "data": { stack: StackName, mount: MountId, path: RelPath, req: number, } } | { "type": "FolderSize", "data": { stack: StackName, mount: MountId, path: RelPath, req: number, } } | { "type": "PreviewFileOp", "data": { stack: StackName, op: FileOp, } } | { "type": "ListHistory", "data": { stack: StackName, mount: MountId, path: RelPath, } } | { "type": "ReadVersion", "data": { stack: StackName, mount: MountId, path: RelPath, version: VersionId, req: number, } };

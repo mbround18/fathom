@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::types::{
-    AuditCursor, AuditFilter, ContainerRef, CsrfToken, LogTail, LogTarget, MAX_STATS_TARGETS,
-    MAX_USER_STACKS, OperationId, PreviewId, RequestId, Role, Shell, ShellBytes, StackDraft,
-    StackName, StackOp, StatsTarget, Timestamp, UserId, at_most,
+    AuditCursor, AuditFilter, ContainerRef, CsrfToken, FileOp, LogTail, LogTarget,
+    MAX_STATS_TARGETS, MAX_USER_STACKS, MountId, OperationId, PreviewId, RelPath, RequestId, Role,
+    Shell, ShellBytes, StackDraft, StackName, StackOp, StatsTarget, Timestamp, UserId, VersionId,
+    at_most,
 };
 use crate::wire::StreamId;
 
@@ -143,5 +144,52 @@ pub enum Cmd {
     /// `Users` (audited `user_removed`). `Denied` for an owner. Admin.
     RemoveUser {
         id: UserId,
+    },
+
+    // Files (spec 053). Each needs edit permission on the stack; refusals are `Denied` or
+    // `FileRefused`. `req` is the client's own number, echoed so it can drop superseded replies.
+    /// `Mounts`. Allowed in the restricted view.
+    ListMounts {
+        stack: StackName,
+    },
+    /// `DirPage`, once per page of 5,000. Allowed in the restricted view.
+    ListDir {
+        stack: StackName,
+        mount: MountId,
+        path: RelPath,
+        req: u32,
+    },
+    /// `FileContent`. Audited `files.read`.
+    ReadFile {
+        stack: StackName,
+        mount: MountId,
+        path: RelPath,
+        req: u32,
+    },
+    /// `FolderSize`, counted up to the download limit.
+    FolderSize {
+        stack: StackName,
+        mount: MountId,
+        path: RelPath,
+        req: u32,
+    },
+    /// `FilePreview`; then `Confirm` gives `FileOpDone`. Only when `features.files` is `full`.
+    PreviewFileOp {
+        stack: StackName,
+        op: FileOp,
+    },
+    /// `History`.
+    ListHistory {
+        stack: StackName,
+        mount: MountId,
+        path: RelPath,
+    },
+    /// `FileContent` of a kept version, read-only.
+    ReadVersion {
+        stack: StackName,
+        mount: MountId,
+        path: RelPath,
+        version: VersionId,
+        req: u32,
     },
 }

@@ -173,7 +173,7 @@
   4. **Mount**: browsable, and writable for writes.
 - Every refusal is audited, including the ones the helper returns (`outside_mount`,
   `write_blocked`, `owner_changed`, `changed_on_disk`, `os_error`, `partial`): the server maps each
-  to a `Refused` and one `files.refused` entry. `/api/me` carries `features.files` (`off`, `read_only` or `full`).
+  to a `FileRefused` (or `Denied` for role, trust and feature off) and one `files.refused` entry. `/api/me` carries `features.files` (`off`, `read_only` or `full`).
   The Files tab shows only when that is not `off` and the person may edit the stack, the same
   per-stack check the Edit button uses. Viewers never see it.
 
