@@ -57,7 +57,16 @@ async fn run() -> Result<(), String> {
     let providers = build_providers(&cfg).await?;
     let cfg = Arc::new(cfg);
     let runtime = Arc::new(depths_runtime_cli::CliRuntime::new(cfg.docker_bin.clone()));
+    let cli = (*runtime).clone();
     let state = AppState::new(cfg.clone(), providers, Arc::new(users), runtime)?;
+    // 053 R2: the helper image is found (and old helpers swept) before the first request.
+    let (files_state, hostname) = (state.clone(), std::env::var("HOSTNAME").ok());
+    tokio::task::spawn_blocking(move || {
+        depths_server::files::start(&files_state, cli, hostname.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let _reaper = depths_server::files::spawn_reaper(state.clone());
     let _sweeper = state.auth.sessions.spawn_sweeper(Duration::from_secs(60));
     let _refresher = Arc::new(depths_server::refresh::Refresher::default()).spawn(state.clone());
 

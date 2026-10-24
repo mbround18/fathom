@@ -158,6 +158,21 @@ async fn me_reports_the_files_mode_and_limits() {
 }
 
 #[tokio::test]
+async fn me_reports_files_off_with_its_reason_to_admins_only() {
+    // 053 T019: a helper that cannot run here turns the feature off; admins see why.
+    let a = app();
+    a.state.files.force_off(depths_server::files::NO_IMAGE);
+    let admin = a.sign_in(OWNER).await;
+    let me = json(a.get("/api/v1/me", Some(&admin)).await).await;
+    assert_eq!(me["features"]["files"], "off", "{me}");
+    assert_eq!(me["features"]["files_reason"], "no helper image", "{me}");
+    let other = a.sign_in("555").await;
+    let me = json(a.get("/api/v1/me", Some(&other)).await).await;
+    assert_eq!(me["features"]["files"], "off", "{me}");
+    assert!(me["features"].get("files_reason").is_none(), "{me}");
+}
+
+#[tokio::test]
 async fn sign_ins_nobody_admitted_cannot_lock_the_admins_out() {
     // T099 F1: anyone with a Discord account can sign in and hold a pending session. Enough of
     // them fill the global session cap; the owner must still get in, by evicting one of them.

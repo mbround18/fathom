@@ -607,3 +607,57 @@ fn mounts_reads_the_stacks_containers_and_remembers_the_sources() {
     assert_eq!(&known, m);
     assert_eq!(src, HelperSource::Volume("valheim_saves".into()));
 }
+
+// ---------------------------------------------------------------------------
+// The helper image and openat2 (T019)
+// ---------------------------------------------------------------------------
+
+const IMAGE: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+#[test]
+fn the_configured_image_wins_and_must_be_an_id() {
+    let a = app();
+    let id = files::helper_image(Some(IMAGE), Some("ignored"), &*a.runtime).unwrap();
+    assert_eq!(id.as_str(), IMAGE);
+    let err = files::helper_image(Some("depths:latest"), None, &*a.runtime).unwrap_err();
+    assert!(err.starts_with(files::NO_IMAGE), "{err}");
+}
+
+#[test]
+fn without_one_the_image_is_this_containers_own() {
+    let a = app();
+    // `HOSTNAME` in a container is its short id; the daemon resolves it.
+    a.set_inspect("abc123", serde_json::json!({"Image": IMAGE}));
+    let id = files::helper_image(None, Some("abc123"), &*a.runtime).unwrap();
+    assert_eq!(id.as_str(), IMAGE);
+}
+
+#[test]
+fn no_image_anywhere_is_no_helper_image() {
+    let a = app();
+    for hostname in [None, Some(""), Some("not-a-container")] {
+        let err = files::helper_image(None, hostname, &*a.runtime).unwrap_err();
+        assert_eq!(err, files::NO_IMAGE, "{hostname:?}");
+    }
+    // A container whose image is a name, not an id, is no use either.
+    a.set_inspect("named", serde_json::json!({"Image": "depths:latest"}));
+    let err = files::helper_image(None, Some("named"), &*a.runtime).unwrap_err();
+    assert_eq!(err, files::NO_IMAGE);
+}
+
+#[test]
+fn a_helper_without_openat2_turns_the_feature_off() {
+    let a = app();
+    let hello = |openat2| depths_volumes::op::Hello {
+        proto: 1,
+        openat2,
+        uid: 1000,
+        gid: 1000,
+    };
+    assert!(a.state.files.check_hello(&hello(true)).is_ok());
+    assert_eq!(a.state.files.mode(), FilesMode::Full);
+    let refusal = a.state.files.check_hello(&hello(false)).unwrap_err();
+    assert_eq!(files::refusal_code(&refusal), "helper_unavailable");
+    assert_eq!(a.state.files.mode(), FilesMode::Off);
+    assert_eq!(a.state.files.reason().as_deref(), Some(files::NO_OPENAT2));
+}

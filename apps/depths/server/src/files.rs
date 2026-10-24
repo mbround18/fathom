@@ -10,16 +10,17 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use depths_core::StackName;
 use depths_core::plan::{self, StackContext};
-use depths_core::ports::{RuntimeError, VolumeHelper};
+use depths_core::ports::{ContainerRuntime, RuntimeError, VolumeHelper};
 use depths_core::role::{self, CommandKind};
 use depths_core::security::{self, Severity};
 use depths_protocol::{
     AuditFile, Browsable, DenyReason, Event, FileRefusal, Mount, MountId, MountKind, MountService,
     MountState, NotBrowsable, NotBrowsableCode, RelPath, RuntimeContainerState,
 };
-use depths_runtime_cli::HelperPool;
+use depths_runtime_cli::helper::{HELPER_IDLE, ImageId, SystemClock};
+use depths_runtime_cli::{CliRuntime, CliVolumeHelper, HelperPool};
 use depths_volumes::mount::{BindRating, HelperSource, browsability};
-use depths_volumes::op::HelperError;
+use depths_volumes::op::{Hello, HelperError};
 
 use crate::audit;
 use crate::config::FilesMode;
@@ -74,6 +75,18 @@ impl Files {
         self.pool.get().map(|(h, _)| h)
     }
 
+    /// Checks a helper's first frame: without `openat2` no path can be resolved safely, so the
+    /// feature goes off for this run.
+    pub fn check_hello(&self, hello: &Hello) -> Result<(), FileRefusal> {
+        if hello.openat2 {
+            return Ok(());
+        }
+        self.force_off(NO_OPENAT2);
+        Err(FileRefusal::HelperUnavailable {
+            reason: NO_OPENAT2.into(),
+        })
+    }
+
     pub fn remember(&self, stack: &StackName, found: Discovered) {
         self.known.lock().unwrap().insert(stack.clone(), found);
     }
@@ -84,6 +97,75 @@ impl Files {
         let (m, src) = known.get(stack)?.get(id)?;
         Some((m.clone(), src.clone()))
     }
+}
+
+// ---------------------------------------------------------------------------
+// The helper image (R2)
+// ---------------------------------------------------------------------------
+
+/// Why the feature is off when no image can run the helper.
+pub const NO_IMAGE: &str = "no helper image";
+/// Why the feature is off when the helper cannot use `openat2`.
+pub const NO_OPENAT2: &str = "kernel older than 5.6 or seccomp blocks openat2";
+
+/// The image the helper runs, by id only: `DEPTHS_HELPER_IMAGE`, else the image of the
+/// container this server runs in (`HOSTNAME` is its id). Blocking.
+pub fn helper_image(
+    configured: Option<&str>,
+    hostname: Option<&str>,
+    runtime: &dyn ContainerRuntime,
+) -> Result<ImageId, String> {
+    if let Some(raw) = configured {
+        return ImageId::parse(raw)
+            .map_err(|_| format!("{NO_IMAGE}: DEPTHS_HELPER_IMAGE is not an image id"));
+    }
+    let host = hostname.filter(|h| !h.is_empty()).ok_or(NO_IMAGE)?;
+    let found = runtime
+        .inspect_security(&[host.to_owned()])
+        .map_err(|_| NO_IMAGE.to_owned())?;
+    found
+        .iter()
+        .find(|i| !i.id.is_empty() && i.id.starts_with(host))
+        .and_then(|i| ImageId::parse(&i.image).ok())
+        .ok_or_else(|| NO_IMAGE.to_owned())
+}
+
+/// Sets the explorer up at start (blocking): finds the helper image, sweeps helpers a previous
+/// run left behind and installs the pool. With no image, the feature is off for this run.
+pub fn start(app: &AppState, cli: CliRuntime, hostname: Option<&str>) {
+    if app.files.mode() == FilesMode::Off {
+        return;
+    }
+    let image = match helper_image(app.cfg.files.helper_image.as_deref(), hostname, &cli) {
+        Ok(image) => image,
+        Err(why) => return app.files.force_off(why),
+    };
+    let helper: Arc<dyn VolumeHelper> = Arc::new(CliVolumeHelper::new(cli, image));
+    match helper.sweep() {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(removed = n, "removed volume helpers left by a previous run"),
+        Err(e) => tracing::warn!(error = ?e, "cannot sweep old volume helpers"),
+    }
+    let pool = HelperPool::new(
+        helper.clone(),
+        Arc::new(SystemClock),
+        app.cfg.files.helpers as usize,
+        HELPER_IDLE,
+    );
+    app.files.install(helper, pool);
+}
+
+/// Ticks the pool so idle helpers close even when nobody browses.
+pub fn spawn_reaper(app: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(HELPER_IDLE / 3);
+        loop {
+            tick.tick().await;
+            if let Some(pool) = app.files.pool().cloned() {
+                let _ = tokio::task::spawn_blocking(move || pool.reap()).await;
+            }
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -841,13 +841,18 @@ async fn me(
                 .then(|| app.watch.daemon())
                 .flatten()
                 .map(crate::security::daemon),
-            files: match app.cfg.features.files {
-                crate::config::FilesMode::Off => depths_protocol::FilesMode::Off,
-                crate::config::FilesMode::ReadOnly => depths_protocol::FilesMode::ReadOnly,
-                crate::config::FilesMode::Full => depths_protocol::FilesMode::Full,
+            // 053 R2: `off` when the helper cannot run here; why is for admins only.
+            files: match (app.files.reason(), app.cfg.features.files) {
+                (Some(_), _) | (None, crate::config::FilesMode::Off) => {
+                    depths_protocol::FilesMode::Off
+                }
+                (None, crate::config::FilesMode::ReadOnly) => depths_protocol::FilesMode::ReadOnly,
+                (None, crate::config::FilesMode::Full) => depths_protocol::FilesMode::Full,
             },
-            // Set once the helper pool probes the image and `openat2` (T024).
-            files_reason: None,
+            files_reason: app
+                .files
+                .reason()
+                .filter(|_| role == depths_protocol::Role::Admin),
         },
         network: crate::trust::wire(&decision),
         needs_answer: decision.needs_answer(),
