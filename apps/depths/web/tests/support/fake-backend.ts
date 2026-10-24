@@ -44,6 +44,7 @@ import type {
   CmdEnvelope,
   ComposeWarning,
   Container,
+  ContainerSecurity,
   DenyReason,
   DraftFile,
   Event,
@@ -467,6 +468,8 @@ export class FakeBackend {
   /** Per stack; an error without `file` is about the compose file. */
   /** 051: what `LintCompose` answers for a stack; unset, a tiny stand-in lint runs. */
   lint: Record<string, ComposeWarning[]> = {}
+  /** 051 `DEPTHS_COMPOSE_POLICY`: under `enforce`, escape findings block a user and need an admin's acknowledgement. */
+  composePolicy: 'warn' | 'enforce' = 'warn'
   validationErrors: Record<string, { file?: DraftFile; line: number | null; message: string }[]> = {}
   /** Close code for every new socket's `Hello`, e.g. `CloseCode.TooMany`. `null` = accept. */
   helloClose: number | null = null
@@ -937,7 +940,10 @@ export class FakeBackend {
         if (!s.valid_name) return [{ type: 'Invalid', data: { reason: 'not a valid compose project name' } }]
         const busy = this.busy(stack)
         if (busy) return busy
-        return [{ type: 'Preview', data: this.makePreview(s, op.kind, stepsFor(stack, op), null, isDestructive(op)) }]
+        const findings = ['up', 'update', 'service_up'].includes(op.kind) ? (this.lint[stack] ?? []) : []
+        const blocked = this.blocked(findings, admin)
+        if (blocked) return blocked
+        return [{ type: 'Preview', data: this.withFindings(this.makePreview(s, op.kind, stepsFor(stack, op), null, isDestructive(op)), findings) }]
       }
 
       case 'PreviewSave': {
@@ -967,11 +973,20 @@ export class FakeBackend {
           ...(deploy ? stepsFor(draft.stack, { kind: 'up' }) : []),
         ]
         const diff = naiveDiff('compose.yaml', current?.compose_text ?? '', draft.compose)
-        return [{ type: 'Preview', data: this.makePreview(target, creating ? 'create' : 'save', steps, diff, false) }]
+        const findings = this.lint[draft.stack] ?? fakeLint(draft.compose)
+        const blocked = this.blocked(findings, admin)
+        if (blocked) return blocked
+        return [{ type: 'Preview', data: this.withFindings(this.makePreview(target, creating ? 'create' : 'save', steps, diff, false), findings) }]
       }
 
-      case 'Confirm':
+      case 'Confirm': {
+        // 051 FR-018: a preview with escape findings under `enforce` runs only acknowledged.
+        const held = this.previews.get(cmd.data.preview_id)
+        if (held?.preview.ack_required && !held.used && cmd.data.acknowledge_findings !== true) {
+          return [{ type: 'Denied', data: { reason: 'compose_blocked', detail: 'acknowledge the findings to deploy' } }]
+        }
         return this.confirm(cmd.data.preview_id, socket, id)
+      }
 
       case 'LintCompose': {
         const { stack, compose_text } = cmd.data
@@ -1001,6 +1016,12 @@ export class FakeBackend {
       case 'OpenShell': {
         if (!me.features.shell) return denied('feature_disabled')
         if (!admin && !this.containerIn(cmd.data.container, me)) return denied()
+        // 051 FR-008: the container's rating, as the server's fresh inspect would find it.
+        const rule = this.securityOf(cmd.data.container)?.shell
+        if (rule === 'refused') return [{ type: 'Denied', data: { reason: 'shell_escape', detail: 'it can reach the host' } }]
+        if (rule === 'admin_only' && !admin) {
+          return [{ type: 'Denied', data: { reason: 'shell_root_admin_only', detail: 'it runs as root on the host' } }]
+        }
         const streamId = this.openStream(socket, 'shell')
         return [
           { type: 'StreamOpened', data: { stream_id: streamId } },
@@ -1118,6 +1139,26 @@ export class FakeBackend {
     return this.stacks.stacks.find((s) => s.name === stack)?.services.flatMap((v) => v.containers) ?? []
   }
 
+  /** 051: a container's rating, from the stacks' fixtures. */
+  private securityOf(ref: string): ContainerSecurity | undefined {
+    return this.stacks.stacks
+      .flatMap((st) => st.services.flatMap((v) => v.containers))
+      .find((c) => c.id === ref || c.name === ref)?.security
+  }
+  /** 051 FR-018: escape findings under `enforce` refuse a user outright. */
+  private blocked(findings: ComposeWarning[], admin: boolean): Event[] | null {
+    if (this.composePolicy !== 'enforce' || admin) return null
+    const escapes = findings.filter((w) => w.severity === 'escape')
+    if (escapes.length === 0) return null
+    const detail = escapes.map((w) => `${w.service}: ${w.message}`).join('; ')
+    return [{ type: 'Denied', data: { reason: 'compose_blocked', detail } }]
+  }
+  /** 051 FR-016: a preview carries its findings; escape ones under `enforce` need an acknowledgement. */
+  private withFindings(preview: Preview, findings: ComposeWarning[]): Preview {
+    preview.warnings = findings
+    preview.ack_required = this.composePolicy === 'enforce' && findings.some((w) => w.severity === 'escape')
+    return preview
+  }
   private containerIn(ref: string, me: Me): boolean {
     return me.stacks.some((st) => this.containersOf(st).some((c) => c.id === ref || c.name === ref))
   }
