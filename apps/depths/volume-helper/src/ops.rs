@@ -19,7 +19,7 @@ use crate::resolve::{
     Root, errno_message, errno_name, kind_of, mtime_ns, os_error, owner_of, statx_at, statx_fd,
 };
 use crate::save::{Temp, sync_dir};
-use crate::transfer;
+use crate::{manage, transfer};
 
 /// Bytes read from a file per call, and the most a Data frame the helper sends carries.
 pub(crate) const CHUNK: usize = 256 * 1024;
@@ -63,14 +63,15 @@ pub fn handle<R: Read, W: Write>(
             cap,
         } => answer(out, transfer::size(root, path, raw_name.as_ref(), *cap)),
         Op::Tar { path, raw_name } => transfer::tar(root, path, raw_name.as_ref(), out),
+        Op::Create { parent, name, kind } => answer(out, manage::create(root, parent, name, *kind)),
+        Op::Rename { from, to } => answer(out, manage::rename(root, from, to)),
+        Op::Delete {
+            path,
+            raw_name,
+            recursive,
+        } => manage::delete(root, path, raw_name.as_ref(), *recursive, out),
         Op::Untar { .. } => {
             drain_data(input)?;
-            answer(out, Err(HelperError::Unsupported))
-        }
-        _ => {
-            if op.sends_data() {
-                drain_data(input)?;
-            }
             answer(out, Err(HelperError::Unsupported))
         }
     }

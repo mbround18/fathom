@@ -5,6 +5,7 @@
 //! [`serve`] is the whole protocol loop. It touches no globals, environment or stdio of its own,
 //! so the server's tests can run it on a thread over pipes against a temp root.
 
+pub mod manage;
 pub mod ops;
 pub mod resolve;
 pub mod save;

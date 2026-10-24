@@ -15,8 +15,8 @@ use depths_volume_helper::resolve::Root;
 use depths_volume_helper::{EXIT_OK, serve};
 use depths_volumes::frame::{FrameKind, read_frame, write_data, write_frame, write_json};
 use depths_volumes::mount::{EntryKind, WriteBlocked};
-use depths_volumes::op::{Hello, HelperError, Op, Reply, SizeCap, parse_answer};
-use depths_volumes::path::{Name, RelPath};
+use depths_volumes::op::{CreateKind, Hello, HelperError, Op, Reply, SizeCap, parse_answer};
+use depths_volumes::path::{Name, RawName, RelPath};
 use rustix::fs::{OFlags, RenameFlags};
 
 /// What the resolver did with a case, in the table's terms.
@@ -545,4 +545,221 @@ fn a_folder_swapped_for_a_link_during_tar_and_put_never_leaves_the_root() {
     assert_eq!(snapshot(&tree.sentinels), before);
     let names: Vec<_> = std::fs::read_dir(&outside_dir).unwrap().collect();
     assert_eq!(names.len(), 1, "only outside/dir/x");
+}
+
+/// The names under `dir`, recursively, links not followed.
+fn listing(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in std::fs::read_dir(&d).unwrap() {
+            let path = entry.unwrap().path();
+            if path.symlink_metadata().unwrap().is_dir() {
+                stack.push(path.clone());
+            }
+            out.push(path);
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn create_rename_and_delete_through_every_link_of_the_tree_stay_inside() {
+    let (dir, tree, _root) = fresh();
+    let outside = dir.path().join("outside");
+    let before = snapshot(&tree.sentinels);
+    let outside_before = listing(&outside);
+    let through = [
+        "link_out_dir",
+        "link_out_dir/dir",
+        "link_out_dir/secret.txt",
+        "link_out_dir/dir/x",
+        "sub/deep/link_out_far",
+        "link_out_deep",
+        "chain_out1",
+        "link_proc",
+        "abs_out",
+        "abs_etc",
+        "abs_proc_root",
+        "abs_proc_root/etc",
+        "loop1",
+        "hard_out",
+        "fifo",
+        "sock",
+    ];
+    for (i, path) in through.iter().enumerate() {
+        let path = RelPath::parse(path).unwrap();
+        let moved = RelPath::parse(&format!("sub/moved{i}")).unwrap();
+        let ops = [
+            (
+                Op::Create {
+                    parent: path.clone(),
+                    name: Name::new(format!("c{i}")).unwrap(),
+                    kind: CreateKind::File,
+                },
+                None,
+            ),
+            (
+                Op::Create {
+                    parent: path.clone(),
+                    name: Name::new(format!("d{i}")).unwrap(),
+                    kind: CreateKind::Dir,
+                },
+                None,
+            ),
+            (
+                Op::Rename {
+                    from: RelPath::parse("sub/b.txt").unwrap(),
+                    to: path.join(&format!("r{i}")).unwrap(),
+                },
+                None,
+            ),
+            (
+                Op::Rename {
+                    from: path.clone(),
+                    to: moved.clone(),
+                },
+                None,
+            ),
+            (
+                Op::Rename {
+                    from: moved,
+                    to: path.clone(),
+                },
+                None,
+            ),
+        ];
+        let output = serve_raw(&tree.root, &ops);
+        assert!(!contains(&output, SENTINEL_MARK), "{path}: read a sentinel");
+        assert_eq!(
+            snapshot(&tree.sentinels),
+            before,
+            "{path}: a sentinel changed"
+        );
+        assert_eq!(listing(&outside), outside_before, "{path}: outside changed");
+    }
+    // Then a recursive delete of each, and last of everything in the root.
+    let mut ops: Vec<(Op, Option<&[u8]>)> = through
+        .iter()
+        .map(|path| {
+            (
+                Op::Delete {
+                    path: RelPath::parse(path).unwrap(),
+                    raw_name: None,
+                    recursive: true,
+                },
+                None,
+            )
+        })
+        .collect();
+    for entry in std::fs::read_dir(&tree.root).unwrap() {
+        let name = entry.unwrap().file_name();
+        ops.push((
+            Op::Delete {
+                path: RelPath::root(),
+                raw_name: Some(RawName::from_bytes(name.as_encoded_bytes()).unwrap()),
+                recursive: true,
+            },
+            None,
+        ));
+    }
+    let output = serve_raw(&tree.root, &ops);
+    assert!(
+        !contains(&output, SENTINEL_MARK),
+        "a delete read a sentinel"
+    );
+    assert_eq!(snapshot(&tree.sentinels), before);
+    assert_eq!(listing(&outside), outside_before);
+    assert!(
+        std::fs::read_dir(&tree.root).unwrap().next().is_none(),
+        "the root was emptied"
+    );
+    assert!(std::path::Path::new("/etc/passwd").exists());
+}
+
+/// Like [`swapper`], but keeps going while a name is missing (a delete removed it).
+fn loose_swapper(
+    dir: &std::path::Path,
+    a: &str,
+    b: &str,
+) -> (Arc<AtomicBool>, thread::JoinHandle<()>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let dir: OwnedFd = rustix::fs::open(
+        dir,
+        OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .unwrap();
+    let (a, b) = (a.to_owned(), b.to_owned());
+    let flag = stop.clone();
+    let handle = thread::spawn(move || {
+        while !flag.load(Ordering::Relaxed) {
+            let swapped = rustix::fs::renameat_with(
+                &dir,
+                a.as_str(),
+                &dir,
+                b.as_str(),
+                RenameFlags::EXCHANGE,
+            );
+            if swapped.is_err() {
+                thread::yield_now();
+            }
+        }
+    });
+    (stop, handle)
+}
+
+#[test]
+fn a_folder_swapped_for_a_link_during_a_recursive_delete_touches_nothing_outside() {
+    let (dir, tree, _root) = fresh();
+    let outside = dir.path().join("outside");
+    let before = snapshot(&tree.sentinels);
+    let outside_before = listing(&outside);
+    let walk = tree.root.join("data/walk");
+    let (inner, alt) = (walk.join("inner"), walk.join("inner_alt"));
+    let mut deleted = 0;
+    for round in 0..200 {
+        // Built while nothing swaps, so the test itself never writes through the link.
+        std::fs::create_dir_all(&inner).unwrap();
+        for f in 0..40 {
+            std::fs::write(inner.join(format!("f{f}")), b"inside").unwrap();
+        }
+        std::os::unix::fs::symlink("../../../outside/dir", &alt).unwrap();
+        let (stop, handle) = loose_swapper(&walk, "inner", "inner_alt");
+        let ops = [(
+            Op::Delete {
+                path: RelPath::parse("data/walk").unwrap(),
+                raw_name: None,
+                recursive: true,
+            },
+            None,
+        )];
+        let answers = serve_ops(Root::open(&tree.root).unwrap(), &ops);
+        stop.store(true, Ordering::Relaxed);
+        handle.join().unwrap();
+        if matches!(answers[0], Ok(Reply::Deleted { .. })) {
+            deleted += 1;
+        }
+        assert_eq!(
+            snapshot(&tree.sentinels),
+            before,
+            "round {round}: a sentinel changed"
+        );
+        assert_eq!(
+            listing(&outside),
+            outside_before,
+            "round {round}: outside changed"
+        );
+        // Clear what is left with the swapper stopped, never following the link.
+        for left in [&inner, &alt] {
+            match left.symlink_metadata() {
+                Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(left).unwrap(),
+                Ok(_) => std::fs::remove_file(left).unwrap(),
+                Err(_) => {}
+            }
+        }
+    }
+    assert!(deleted > 0, "no round finished its delete");
+    assert_eq!(snapshot(&tree.sentinels), before);
 }
