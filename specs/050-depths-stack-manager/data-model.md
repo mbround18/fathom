@@ -173,6 +173,27 @@ Appended by `audit-log` as one JSON line.
 Never contains `.env` values or file contents: saves record hashes before/after and a diff summary (files and lines changed, with lines in `.env` reduced to their keys; FR-021, FR-035). Rotation by size into
 `audit-log.<n>.jsonl`; entries are never rewritten or removed by Depths (FR-036).
 
+## ContainerSecurity (051)
+
+Derived, never stored. `depths_core::security::profile(inspect, daemon)` over the containment
+fields of `docker inspect` (`Config.User`, `HostConfig.{Privileged, CapAdd, PidMode, IpcMode,
+UsernsMode, NetworkMode, UTSMode, Devices, SecurityOpt}`, `Mounts`) and the daemon's mode
+(`docker info` `SecurityOptions`: `rootless`, `name=userns`, else rootful).
+
+| Field | Type |
+|---|---|
+| level | `ok \| root \| escape`, the worst reason's severity (info counts as ok) |
+| reasons | `[{code, severity, message}]`, worst first |
+| shell | `per_role \| admin_only \| refused` = `shell_rule(level, DEPTHS_SHELL_POLICY)` |
+
+The server caches profiles by full container id (one batched `docker inspect` for ids it has not
+seen; ids that leave `ps` are forgotten; a failed inspect leaves them unrated and is retried) and
+reads the daemon mode once. The shell gate does not use the cache: it re-inspects at open.
+`Stack.security` is the worst rated container.
+
+AuditEntry gains `security: {level, reasons, acknowledged} | none` (shell opens and refusals,
+compose-policy denials, linted operations).
+
 ## Tab (web only)
 
 `{id, kind: logs|shell|stats, target: {stack, service?, container}, pinned}`; layout

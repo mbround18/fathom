@@ -84,3 +84,124 @@ again if you want it trusted only for you.
 Networks are kept in `networks.json` in the data directory, next to `users.json`, written the same
 way (a new file renamed over the old one, mode 0600). Do not edit it by hand. Deleting it makes
 everyone's next network their *first* network again.
+
+# Containers and shells
+
+Depths rates every container in your stacks by how far a process inside it is from the host, and
+uses that rating to decide who may open a shell in it. Stacks should run **rootless**: a container
+that runs as root on a daemon that runs as root is root on the host the moment something breaks
+out of it.
+
+## The three levels
+
+| Level | Shown as | What it means |
+|---|---|---|
+| ok | nothing | Not root on the host, and nothing below that reaches it |
+| root | amber **root** chip | The container runs as uid 0 (or declares no user) on a rootful daemon, and nothing worse |
+| escape | red **escape** chip | The container can reach the host: a shell in it is a shell on the host |
+
+A container is **escape** when any of these is true:
+
+- it runs `privileged`;
+- it mounts the container runtime's socket (`docker.sock`, `containerd.sock`, rootless ones under
+  `/run/user/<uid>` included), **even read-only**: read-only stops writes to the socket file, not
+  API calls through it;
+- it mounts the host's `/`, or `/proc`, `/sys`, `/dev`, `/boot`, `/root`, `/var/lib/docker`,
+  `/var/lib/containerd` or the kernel modules **writable** (or `/etc`, `/home`, `/run` or
+  `/var/run` themselves, writable);
+- it adds `SYS_ADMIN`, `SYS_MODULE`, `SYS_RAWIO`, `DAC_READ_SEARCH` or `BPF` (or `ALL`);
+- it shares the host's pid, ipc or user namespace, or is given host devices;
+- it runs as root with seccomp or AppArmor turned off (`unconfined`).
+
+The host's `/` or `/etc` mounted **read-only** is rated **root**, not escape: it shows the
+host's files (user names, configuration) but cannot change them. Other sensitive paths mounted
+read-only are informational. So are other added capabilities (`NET_ADMIN` among them) and the
+host's network, which widen what a container can do on the network without handing it the host.
+
+Root on a **rootless** or **userns-remapped** daemon is rated ok: uid 0 inside maps to an
+unprivileged user outside. The chip's tooltip (hover it, focus it with the keyboard, or tap it on
+a phone) lists every reason, worst first. A stack in the list shows the worst level of its
+containers.
+
+Admins see a notice on the overview when the daemon itself runs as root, linking here.
+
+## Who may open a shell
+
+The server checks the container **at the moment you ask for a shell**, with a fresh
+`docker inspect`, not the rating the page last showed. If that inspect fails, the shell is
+refused (`shell_unverifiable`): Depths never opens a shell into a container it could not check.
+Your role and stack assignments are checked first, as always; the level only ever narrows them.
+
+`DEPTHS_SHELL_POLICY` decides the rest:
+
+| Container | `strict` (default) | `relaxed` |
+|---|---|---|
+| ok | as your role allows | as your role allows |
+| root | admins only | as your role allows |
+| escape | **nobody** | admins only |
+| could not be checked | nobody | nobody |
+
+Every shell opened, and every shell refused, is recorded in the audit log with the container's
+level and reasons. A shell ends when its container is removed or recreated (a redeploy makes a
+new container under the same name, and the shell does not follow it), and a shell open only
+because its person is an admin ends when they stop being one.
+
+Shells always start as the container's own user, with no `--privileged`, and the shell path is
+checked before it is passed to `docker exec`.
+
+## Compose lint
+
+Before an `up`, an update, a service start, a save or a new stack, Depths reads the compose file
+and lists what weakens containment, with the same levels and reasons as above, each with its
+service and line. The editor shows the same findings as you type. The file is read as written:
+`${VAR}` is judged at its worst, and `extends` and `include` are not followed.
+
+Depths never changes your file. `DEPTHS_COMPOSE_POLICY` decides whether findings block:
+
+| Policy | root findings | escape findings |
+|---|---|---|
+| `warn` (default) | shown | shown, and recorded in the audit log with the operation |
+| `enforce` | shown | a `user` is refused (`compose_blocked`); an admin must tick *Deploy it anyway*, recorded as acknowledged in the audit log |
+
+Stop, restart, down and pull do not deploy the file, so they are not linted.
+
+## Running stacks rootless
+
+In order of preference:
+
+1. **Rootless Docker.** The whole daemon runs as an ordinary user, so root in any container is
+   that user on the host. See Docker's
+   [rootless mode](https://docs.docker.com/engine/security/rootless/) guide. Point Depths'
+   socket proxy at the rootless socket (`$XDG_RUNTIME_DIR/docker.sock`).
+2. **userns-remap.** The daemon stays root, but containers' uid 0 maps to a range of unprivileged
+   uids. Set `"userns-remap": "default"` in `/etc/docker/daemon.json` and restart the daemon; see
+   Docker's [user namespace](https://docs.docker.com/engine/security/userns-remap/) guide.
+   Existing volumes may need their ownership changed.
+3. **A `user:` in each service**, which works on any daemon:
+
+   ```yaml
+   services:
+     app:
+       image: nginx:1.29
+       user: "1000:1000"
+   ```
+
+   Many images also publish a non-root variant (`nginx-unprivileged`, `-rootless` tags). Give the
+   user ownership of anything the service writes to.
+
+Depths reads the daemon's mode from `docker info` and rates root containers on rootless and
+userns-remapped daemons as ok.
+
+## What this does not cover
+
+- **The socket proxy does not filter exec.** With `DEPTHS_SOCKET_EXEC=1`, the proxy lets exec
+  calls through whatever their body asks for: a client that reaches the proxy directly could
+  exec as root, or with `Privileged` set, in any container. Depths itself never asks for either,
+  and the proxy is on an internal network only Depths can reach. Keep it that way, and leave exec
+  off unless you use shells.
+- **Docker API access is still root on the host.** A person who can edit a compose file under
+  `warn` can deploy a privileged container. `enforce` closes that for `user`s; admins are trusted
+  with root by design (see [Installing Depths](install.md#read-this-first-docker-access-is-root)).
+- **Ratings are read from `docker inspect`**, cached by container id for display and re-read
+  for every shell. A container changed behind Depths' back is caught at the next shell request,
+  not before.

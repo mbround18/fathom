@@ -57,6 +57,37 @@ the tab shows "reconnected".
 5. Each `Confirm`, denial, shell open and env reveal writes one audit entry before the event is
    sent.
 
+## Container security (051)
+
+Ratings, refusals and lint added by spec 051. Every field is additive and optional on the wire.
+
+| Type | Shape |
+|---|---|
+| `SecurityLevel` | `ok \| root \| escape` |
+| `SecuritySeverity` | `info \| root \| escape` |
+| `SecurityReason` | `{code, severity, message}`; codes are snake_case (`privileged`, `runtime_socket`, `host_root_mount`, `sensitive_mount`, `sensitive_mount_read_only`, `dangerous_capability`, `added_capability`, `host_pid`, `host_ipc`, `host_userns`, `host_network`, `host_uts`, `unconfined`, `devices`, `root_user`, `root_remapped`, `no_user`, `interpolated`) |
+| `ShellRule` | `per_role \| admin_only \| refused`: the policy applied to the level, past the role check |
+| `ContainerSecurity` | `{level, reasons (worst first), shell: ShellRule}` on each `StackContainer.security`; absent when not yet inspected |
+| `Stack.security` | the worst container level; absent when none is rated |
+| `ComposeWarning` | `{service, code, severity, message, line}`; `line` 1-based or `null` |
+| `Preview.warnings`, `Preview.ack_required` | findings for Up/Update/ServiceUp/Save/Create; `ack_required` only under `enforce` with an escape finding (admins only reach it) |
+| `Features.shell_policy`, `Features.compose_policy` | `strict \| relaxed`, `warn \| enforce` |
+| `Features.daemon` | `rootless \| userns \| rootful`, admins only; absent for anyone else or when unread |
+| `AuditEntry.security` | `{level, reasons ("service:code" for lint), acknowledged}` on shell opens, shell refusals, denials and linted operations |
+
+Commands and events:
+
+| Command | Who | Answer |
+|---|---|---|
+| `LintCompose{stack, compose_text}` | admin (any name, so a new stack can be linted), or a `user` for an assigned stack | `LintResult{stack, findings: ComposeWarning[]}`. Never writes |
+| `Confirm{preview_id, acknowledge_findings?}` | as previewed | An `ack_required` preview without `acknowledge_findings: true` from an admin is `Denied{compose_blocked, detail}` and **stays usable**; with it, the run is audited `acknowledged: true` |
+| `OpenShell{…}` | as before, then the container gate | After the role check, a fresh `docker inspect` of that one container and the pure `shell_decision(policy, level, admin)`. `Denied{shell_escape \| shell_root_admin_only \| shell_unverifiable, detail}`; an inspect error or no match is `shell_unverifiable` (fail closed) |
+
+`Denied` gains an optional `detail` (one sentence: the reasons, or the blocking findings).
+`StreamClosed.reason` gains `container_recreated` and `container_removed` (051 FR-014): a shell
+ends when its container id leaves the inventory or its name comes back under a new id. An
+admin-only shell (root under `strict`) is closed `failed` when its person stops being an admin.
+
 ## HTTP endpoints
 
 | Method + path | Auth | Purpose |

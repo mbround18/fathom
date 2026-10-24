@@ -18,6 +18,9 @@ So:
 - Only give the `user` role, and only assign stacks, to people you would trust with what those
   stacks can do. A user who can edit a stack's compose file can change what it mounts.
 - Put Depths behind https, and never publish its port on a public interface.
+- Run your stacks rootless where you can. Depths flags containers that run as root, or that can
+  reach the host, and keeps shells out of them; see
+  [Containers and shells](security.md#containers-and-shells).
 
 ## 1. Get the image
 
@@ -199,6 +202,8 @@ came from.
 | `--insecure-dev` | `DEPTHS_INSECURE_DEV` | `false` | For development only: allows an `http://` public URL. Refused unless Depths listens on a loopback address |
 | | `DEPTHS_FEATURE_SHELL` | `false` | Container shells; see below |
 | | `DEPTHS_FEATURE_EDIT` | `true` | Editing compose and `.env` files. With `false`, Depths refuses to save edits |
+| `--shell-policy` | `DEPTHS_SHELL_POLICY` | `strict` | Who may open a shell by the container's security level: `strict` or `relaxed`. See [Containers and shells](security.md#who-may-open-a-shell) |
+| `--compose-policy` | `DEPTHS_COMPOSE_POLICY` | `warn` | Whether compose findings that let a container reach the host block deploys and saves: `warn` or `enforce`. See [Compose lint](security.md#compose-lint) |
 | `--host-proc` | `DEPTHS_HOST_PROC` | unset | A read-only mount of the host's `/proc` (the compose file uses `/host/proc`). Turns on host metrics for admins. Must be an absolute directory with a readable `stat`. Unset means off; see below |
 | | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Sends telemetry to an OpenTelemetry collector (the standard `OTEL_*` variables apply). Unset means no export |
 
@@ -231,6 +236,9 @@ Both default to off. If you run Depths without the proxy, the second switch does
 `DEPTHS_FEATURE_SHELL` alone decides.
 
 Even with shells on, a `user` can only open one in a container of a stack assigned to them.
+Depths also checks the container itself when the shell is asked for: under the default
+`DEPTHS_SHELL_POLICY=strict`, nobody gets a shell in a container that can reach the host, and only
+admins in one that runs as root. See [Containers and shells](security.md#who-may-open-a-shell).
 
 ## Approximate locations
 

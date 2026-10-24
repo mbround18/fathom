@@ -20,6 +20,8 @@ start with a message naming the setting.
 | `--max-file-bytes` | `DEPTHS_MAX_FILE_BYTES` | `1MiB` | Largest compose or `.env` file the editor loads. |
 | `--audit-rotate-bytes` | `DEPTHS_AUDIT_ROTATE_BYTES` | `64MiB` | Rotation size. |
 | — | `DEPTHS_FEATURE_SHELL`, `DEPTHS_FEATURE_EDIT` | `false`, `true` | Runtime flags (R12). The shell is off unless turned on (least privilege); turning it on also needs `DEPTHS_SOCKET_EXEC=1` on the socket proxy. |
+| `--shell-policy` | `DEPTHS_SHELL_POLICY` | `strict` | 051 FR-007: `strict` (escape: nobody; root: admins) or `relaxed` (escape: admins; root: per role). Any other value refuses to start. |
+| `--compose-policy` | `DEPTHS_COMPOSE_POLICY` | `warn` | 051 FR-017: `warn` (findings shown and audited) or `enforce` (escape findings refuse a `user`'s Up/Update/ServiceUp/Save/Create; an admin's preview is `ack_required`). Any other value refuses to start. |
 | `--host-proc` | `DEPTHS_HOST_PROC` | unset = off | The host's `/proc`, mounted read-only (e.g. `/proc:/host/proc:ro` → `/host/proc`). Turns on admin-only host metrics (`WatchHost`): CPU, load, memory, swap, uptime, and disk of the stacks directory. Must be an absolute directory with a readable `stat`, or Depths refuses to start. Exposes the host's process list and command lines to the Depths process. |
 | — | `OTEL_EXPORTER_OTLP_ENDPOINT` (+ standard `OTEL_*`) | unset = off | Telemetry export. |
 | `--network-gate`, `--network-maturity-days` | `DEPTHS_NETWORK_GATE`, `DEPTHS_NETWORK_MATURITY_DAYS`, `DEPTHS_NETWORK_V4_PREFIX`, `DEPTHS_NETWORK_V6_PREFIX`, `DEPTHS_TRUSTED_NETWORKS`, `DEPTHS_GEOIP_DB` | `true`, `7`, `32`, `64`, empty, unset | Network trust and the restricted view: see spec 052 `contracts/config.md`. |
