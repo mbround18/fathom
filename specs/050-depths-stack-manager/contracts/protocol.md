@@ -28,6 +28,7 @@ version handling mirror Fathom's `BackendCmdEnvelope` / `BackendEventEnvelope`.
 | `OpenShell{container, shell?, cols, rows}` | user (assigned stack), flag on | `StreamOpened`, `ShellOutput{stream_id, bytes_b64}`*, `StreamClosed` |
 | `ShellInput{stream_id, bytes_b64}` / `ShellResize{stream_id, cols, rows}` | owner of stream | none |
 | `WatchStats{targets}` / `UnwatchStats` | user (assigned stack) | `StatsSample{samples}` every 2 s while watched |
+| `WatchHost` / `UnwatchHost` | admin (`view_host`), and `DEPTHS_HOST_PROC` set | `HostSample{at, cpu_percent, cpu_cores, load{one, five, fifteen}, memory{total_bytes, available_bytes, used_bytes}, swap{total_bytes, free_bytes, used_bytes}, uptime_secs, disk{total_bytes, used_bytes, free_bytes}, containers_running, containers_stopped}` every 2 s while watched. Any figure the server cannot read is `null`. A non-admin gets `Denied{not_permitted}` whatever the config; an admin with the setting unset gets `Denied{feature_disabled}`. The watch takes one stream slot and ends when the person stops being an admin. |
 | `CloseStream{stream_id}` | owner | `StreamClosed` |
 | `GetAudit{filter{stack?, actor?, action?, from?, to?}, cursor?}` | admin | `AuditPage{entries, next_cursor?}` |
 | `GetUsers` | admin | `Users{users, pending}`, then live `UsersChanged{users, pending}` |
@@ -66,7 +67,7 @@ the tab shows "reconnected".
 | `GET /auth/callback/{provider}` | none | Completes sign-in, sets cookie, redirects to `/`. |
 | `POST /auth/refresh` | session + CSRF header | Revalidates the provider token (OIDC refresh, Discord refresh token, GitHub `GET /user`); a rejected token ends the session. |
 | `POST /auth/logout` | session + CSRF header | Ends session; RP-initiated logout URL for OIDC. |
-| `GET /api/v1/me` | session | `{identity, csrf_token, role: user\|admin\|pending, owner, stacks, features}`; `pending` drives the no-access page. |
+| `GET /api/v1/me` | session | `{identity, csrf_token, role: user\|admin\|pending, owner, stacks, features{shell, edit, host_metrics}}`; `host_metrics` is true only for an admin when `DEPTHS_HOST_PROC` is set; `pending` drives the no-access page. |
 | `GET /api/v1/audit/export?…` | session (admin) | Filtered JSONL download. |
 | `GET /*` | none | Static files from `--static-dir`, SPA fallback to `index.html`. |
 

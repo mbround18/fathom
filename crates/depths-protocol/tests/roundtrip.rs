@@ -183,6 +183,8 @@ fn all_cmds() -> Vec<Cmd> {
             ],
         },
         Cmd::UnwatchStats,
+        Cmd::WatchHost,
+        Cmd::UnwatchHost,
         Cmd::CloseStream {
             stream_id: StreamId(3),
         },
@@ -228,6 +230,8 @@ fn cmd_covered(cmd: &Cmd) -> &'static str {
         Cmd::ShellResize { .. } => "ShellResize",
         Cmd::WatchStats { .. } => "WatchStats",
         Cmd::UnwatchStats => "UnwatchStats",
+        Cmd::WatchHost => "WatchHost",
+        Cmd::UnwatchHost => "UnwatchHost",
         Cmd::CloseStream { .. } => "CloseStream",
         Cmd::GetAudit { .. } => "GetAudit",
         Cmd::GetUsers => "GetUsers",
@@ -236,7 +240,7 @@ fn cmd_covered(cmd: &Cmd) -> &'static str {
     }
 }
 
-const CMD_VARIANTS: usize = 18;
+const CMD_VARIANTS: usize = 20;
 const STACK_OP_VARIANTS: usize = 10;
 
 #[test]
@@ -812,6 +816,46 @@ fn all_events() -> Vec<Event> {
                 memory_limit_bytes: None,
             }],
         },
+        Event::HostSample(HostSample {
+            at: "2026-10-23T09:00:02Z".into(),
+            cpu_percent: Some(7.5),
+            cpu_cores: Some(32),
+            load: Some(HostLoad {
+                one: 1.5,
+                five: 1.25,
+                fifteen: 0.5,
+            }),
+            memory: Some(HostMemory {
+                total_bytes: 32 << 30,
+                available_bytes: 20 << 30,
+                used_bytes: 12 << 30,
+            }),
+            swap: None,
+            uptime_secs: Some(86_400),
+            disk: Some(HostDisk {
+                total_bytes: 1 << 40,
+                used_bytes: 1 << 39,
+                free_bytes: 1 << 38,
+            }),
+            containers_running: 3,
+            containers_stopped: 1,
+        }),
+        Event::HostSample(HostSample {
+            at: "2026-10-23T09:00:04Z".into(),
+            cpu_percent: None,
+            cpu_cores: None,
+            load: None,
+            memory: None,
+            swap: Some(HostSwap {
+                total_bytes: 8 << 30,
+                free_bytes: 8 << 30,
+                used_bytes: 0,
+            }),
+            uptime_secs: None,
+            disk: None,
+            containers_running: 0,
+            containers_stopped: 0,
+        }),
         Event::AuditPage {
             entries: vec![
                 AuditEntry {
@@ -902,6 +946,7 @@ fn event_covered(event: &Event) -> &'static str {
         Event::ShellOutput { .. } => "ShellOutput",
         Event::StreamClosed { .. } => "StreamClosed",
         Event::StatsSample { .. } => "StatsSample",
+        Event::HostSample(_) => "HostSample",
         Event::AuditPage { .. } => "AuditPage",
         Event::Users(_) => "Users",
         Event::UsersChanged(_) => "UsersChanged",
@@ -909,7 +954,7 @@ fn event_covered(event: &Event) -> &'static str {
     }
 }
 
-const EVENT_VARIANTS: usize = 24;
+const EVENT_VARIANTS: usize = 25;
 
 #[test]
 fn every_event_roundtrips_in_an_envelope() {
@@ -998,6 +1043,7 @@ fn me_roundtrips() {
         features: Features {
             shell: false,
             edit: true,
+            host_metrics: false,
         },
     });
 }

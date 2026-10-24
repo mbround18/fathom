@@ -6,6 +6,9 @@ export const PROTOCOL_VERSION = 1 as const;
 /** Most open streams (log follows, shells and the stats watch) on one socket. */
 export const MAX_STREAMS_PER_SOCKET = 32 as const;
 
+/** Most targets in one `WatchStats`. */
+export const MAX_STATS_TARGETS = 64 as const;
+
 /** WebSocket close codes. */
 export const CloseCode = {
   Unauthenticated: 4401,

@@ -398,6 +398,9 @@ pub struct UserList {
 pub struct Features {
     pub shell: bool,
     pub edit: bool,
+    /// `WatchHost` is available: the server reads the host's `/proc` (`DEPTHS_HOST_PROC`) and
+    /// this person is an admin. Always `false` for anyone else.
+    pub host_metrics: bool,
 }
 
 /// The signed-in person as the UI shows them. No tokens.
@@ -906,4 +909,70 @@ pub struct AuditFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub to: Option<Timestamp>,
+}
+
+// ---------------------------------------------------------------------------
+// Host metrics
+// ---------------------------------------------------------------------------
+
+/// One host metrics tick (`WatchHost`, admin only). Every figure is `None` when the server could
+/// not read it, rather than a misleading zero.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct HostSample {
+    /// RFC 3339.
+    pub at: String,
+    /// Busy share of all CPUs since the previous tick, 0 to 100.
+    pub cpu_percent: Option<f32>,
+    /// Logical CPUs.
+    pub cpu_cores: Option<u32>,
+    pub load: Option<HostLoad>,
+    pub memory: Option<HostMemory>,
+    pub swap: Option<HostSwap>,
+    #[ts(type = "number | null")]
+    pub uptime_secs: Option<u64>,
+    /// The filesystem holding the stacks directory.
+    pub disk: Option<HostDisk>,
+    /// From the stack inventory: every container Docker reports, running or not.
+    pub containers_running: u32,
+    pub containers_stopped: u32,
+}
+
+/// Load average over 1, 5 and 15 minutes.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+pub struct HostLoad {
+    pub one: f32,
+    pub five: f32,
+    pub fifteen: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct HostMemory {
+    #[ts(type = "number")]
+    pub total_bytes: u64,
+    #[ts(type = "number")]
+    pub available_bytes: u64,
+    /// `total - available`.
+    #[ts(type = "number")]
+    pub used_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct HostSwap {
+    #[ts(type = "number")]
+    pub total_bytes: u64,
+    #[ts(type = "number")]
+    pub free_bytes: u64,
+    #[ts(type = "number")]
+    pub used_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct HostDisk {
+    #[ts(type = "number")]
+    pub total_bytes: u64,
+    #[ts(type = "number")]
+    pub used_bytes: u64,
+    /// Free to an unprivileged writer (`f_bavail`).
+    #[ts(type = "number")]
+    pub free_bytes: u64,
 }

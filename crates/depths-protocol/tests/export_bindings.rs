@@ -9,7 +9,8 @@
 //! such field (request and stream ids, byte counts) stays below 2^53 in practice.
 
 use depths_protocol::{
-    CloseCode, CmdEnvelope, EventEnvelope, Hello, MAX_STREAMS_PER_SOCKET, Me, PROTOCOL_VERSION,
+    CloseCode, CmdEnvelope, EventEnvelope, Hello, MAX_STATS_TARGETS, MAX_STREAMS_PER_SOCKET, Me,
+    PROTOCOL_VERSION,
 };
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -51,6 +52,11 @@ fn export_typescript_bindings() {
     writeln!(
         constants,
         "/** Most open streams (log follows, shells and the stats watch) on one socket. */\nexport const MAX_STREAMS_PER_SOCKET = {MAX_STREAMS_PER_SOCKET} as const;\n"
+    )
+    .unwrap();
+    writeln!(
+        constants,
+        "/** Most targets in one `WatchStats`. */\nexport const MAX_STATS_TARGETS = {MAX_STATS_TARGETS} as const;\n"
     )
     .unwrap();
     constants.push_str("/** WebSocket close codes. */\nexport const CloseCode = {\n");

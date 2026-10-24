@@ -3,4 +3,9 @@
 /**
  * Runtime feature flags (R12), as `GET /api/v1/me` reports them.
  */
-export type Features = { shell: boolean, edit: boolean, };
+export type Features = { shell: boolean, edit: boolean, 
+/**
+ * `WatchHost` is available: the server reads the host's `/proc` (`DEPTHS_HOST_PROC`) and
+ * this person is an admin. Always `false` for anyone else.
+ */
+host_metrics: boolean, };

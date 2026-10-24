@@ -104,6 +104,10 @@ pub enum Cmd {
         targets: Vec<StatsTarget>,
     },
     UnwatchStats,
+    /// `HostSample` every 2 s while watched. Admin, and only when `features.host_metrics`. One
+    /// watch per socket; a second `WatchHost` keeps the first.
+    WatchHost,
+    UnwatchHost,
     /// `StreamClosed`.
     CloseStream {
         stream_id: StreamId,

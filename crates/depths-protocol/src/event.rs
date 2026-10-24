@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::types::{
-    Actor, AuditEntry, DenyReason, EnvText, OpOutcome, OperationId, OperationKind, Preview,
-    PreviewVoidReason, RequestId, StackDetail, StackList, StreamCloseReason, UserList,
+    Actor, AuditEntry, DenyReason, EnvText, HostSample, OpOutcome, OperationId, OperationKind,
+    Preview, PreviewVoidReason, RequestId, StackDetail, StackList, StreamCloseReason, UserList,
     ValidationError,
 };
 use crate::wire::{StreamId, UsageSample};
@@ -102,6 +102,8 @@ pub enum Event {
     StatsSample {
         samples: Vec<UsageSample>,
     },
+    /// Host metrics, while `WatchHost` is on.
+    HostSample(HostSample),
 
     // Admin
     AuditPage {
