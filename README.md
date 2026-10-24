@@ -1,12 +1,27 @@
-# Fathom
+# Fathom and Depths
 
-> A fast, operator-first Kubernetes dashboard — built for people who live in the terminal but want a real UI.
+> Orchestration companions for people who run their own infrastructure: fast, dense UIs that show you
+> what is really there and confirm every change.
 
 ![CI](https://github.com/mbround18/fathom/actions/workflows/ci.yml/badge.svg)
 
+This repository holds two apps that share a look, a set of libraries and a way of working. Each one
+manages a different kind of host. Both read your real state rather than a copy of it, preview what a
+change will do before doing it, and record who did what.
+
+| App | For | Runs as | Get it |
+|---|---|---|---|
+| **[Fathom](#fathom)** | Kubernetes clusters | A desktop app (Linux), or hosted in a cluster for a team | [Install Fathom](#installing-fathom) · [Guides](docs/guides/README.md#fathom) |
+| **[Depths](#depths)** | Docker and Docker Compose hosts | One container beside the stacks it manages | [Install Depths](docs/guides/depths/install.md) · [Guides](docs/guides/depths/README.md) |
+
+Use Fathom when your workloads run on Kubernetes. Use Depths for a machine that runs Compose stacks,
+for example one you manage with Dockge today.
+
 ---
 
-## What it is
+## Fathom
+
+### What it is
 
 Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri](https://tauri.app) + React UI. It gives platform engineers and operators a dense, responsive UI for navigating and managing Kubernetes clusters — without the sluggishness of web-based tools or the context-switching of raw `kubectl`.
 
@@ -24,7 +39,7 @@ Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri]
 
 ---
 
-## Screenshots
+### Screenshots
 
 ![Pods in a namespace, one open in the inspector](docs/guides/images/wide-inspector.png)
 
@@ -32,13 +47,13 @@ Fathom is a desktop Kubernetes dashboard built with a Rust backend and a [Tauri]
 |---|---|---|
 | ![Applications](docs/guides/images/wide-applications-drilldown.png) | ![Logs](docs/guides/images/wide-logs.png) | ![Phone](docs/guides/images/phone-list.png) |
 
-New to Fathom? Start with the [user guides](docs/guides/README.md).
+New to Fathom? Start with the [Fathom guides](docs/guides/README.md#fathom).
 
 ---
 
-## Installation
+### Installing Fathom
 
-### Pre-built bundles
+#### Pre-built bundles
 
 Download the latest release from the [Releases page](https://github.com/mbround18/fathom/releases).
 Assets, as the Tauri bundler names them (Linux x86_64 is the validated MVP target):
@@ -61,7 +76,7 @@ gh attestation verify Fathom_<version>_x64-setup.exe --repo mbround18/fathom
 macOS (`.dmg`) bundles, Authenticode signing and notarization are planned for after the MVP;
 aarch64 Linux packages wait until someone has tested them.
 
-### Build from source
+#### Build from source
 
 Prerequisites:
 
@@ -92,7 +107,7 @@ built this way are **unsigned** — signing and notarization are post-MVP.
 Third-party licences are listed in `THIRD_PARTY_LICENSES.md`.
 
 
-### Hosted server mode (in-cluster, browser)
+#### Hosted server mode (in-cluster, browser)
 
 Fathom also runs as a web service inside a cluster: people sign in through your OIDC provider
 (Keycloak, Rauthy, Dex, Entra ID, Okta...) and every Kubernetes request is made as the signed-in
@@ -110,7 +125,7 @@ managed clusters, ingress/WebSocket notes and the audit log.
 
 ---
 
-## Requirements
+### Requirements
 
 - A `~/.kube/config` (or `KUBECONFIG` env var) pointing to a reachable cluster
 - Kubernetes 1.25+
@@ -118,15 +133,15 @@ managed clusters, ingress/WebSocket notes and the audit log.
 
 ---
 
-## Features
+### Features
 
-### Navigation
+#### Navigation
 
 - Left-hand tree navigation: Overview · Nodes · Workloads · Network · Storage · Config · Access Control · Events
 - Global namespace filter (top bar) — filters all views simultaneously
 - Clickable cross-links between resources (pod → workload, namespace label → filter)
 
-### Workloads
+#### Workloads
 
 | Resource | List | Details | Scale | Restart | Delete | Metrics |
 |---|---|---|---|---|---|---|
@@ -138,22 +153,22 @@ managed clusters, ingress/WebSocket notes and the audit log.
 | Jobs | ✅ | ✅ | — | — | ✅ | — |
 | CronJobs | ✅ | ✅ | — | — | ✅ | — |
 
-### Network
+#### Network
 
 - Services, Endpoints, Ingresses, IngressClasses, NetworkPolicies
 - **Port Forwards**: create, list, stop, persist across sessions
 
-### Storage
+#### Storage
 
 - PersistentVolumes, PersistentVolumeClaims, StorageClasses
 - Disk usage via Longhorn or Prometheus integration
 
-### Config & Access Control
+#### Config & Access Control
 
 - ConfigMaps, Secrets (value masking), ResourceQuotas, LimitRanges
 - Roles, RoleBindings, ClusterRoles, ClusterRoleBindings
 
-### Observability
+#### Observability
 
 - **Cluster Events**: real-time warning and normal events
 - **Pod Logs**: real-time streaming, container selection, pause/resume
@@ -162,9 +177,9 @@ managed clusters, ingress/WebSocket notes and the audit log.
   - Pod CPU/memory (per-container breakdown)
   - Workload aggregate CPU/memory
 
-### Integrations
+#### Integrations
 
-#### Prometheus
+##### Prometheus
 
 Fathom auto-discovers Prometheus in your cluster or can be configured manually:
 
@@ -177,7 +192,7 @@ Integrations → Metrics → Prometheus
 
 With Prometheus configured, workload details panels show CPU/memory graphs with real data.
 
-#### Grafana
+##### Grafana
 
 Link Fathom to your Grafana instance for dashboard deep-links:
 
@@ -187,7 +202,7 @@ Integrations → Grafana
   API Key:  <your API key>
 ```
 
-#### MCP (Model Context Protocol)
+##### MCP (Model Context Protocol)
 
 Fathom ships a stdio MCP server (`src/backend/mcp/`) for same-machine AI agents such as Claude
 Code or Claude Desktop. It is **off by default** and has no network listener; enable it from the
@@ -204,70 +219,59 @@ the UI. The MCP server is experimental in 0.1.0.
 
 ---
 
-## Configuration
+### Configuration
 
 Fathom keeps its configuration under `~/.fathom/` (per-context settings, fleet metadata, the
 local mutation audit log). Secrets such as Grafana API keys live in the OS keyring, not on disk.
 
 ---
 
-## Development
+## Depths
 
-Commands run from the repo root (full detail in `specs/001-tauri-shadcn-frontend/quickstart.md`).
+Depths manages the Docker Compose stacks on one host from a browser. It reads a directory of stacks
+(one sub-directory per stack, the layout Dockge uses), shows what is running, and lets the people
+you admit start, stop, update and edit their stacks, follow logs, watch stats and open shells, in
+tabs side by side.
 
-```bash
-pnpm -C ui install
-cargo test -p fathom export_bindings   # generates ui/src/protocol/generated/
+- **Sign in with OIDC, GitHub or Discord.** No shared password and no anonymous mode. New people
+  wait until an admin lets them in, and a user only sees the stacks assigned to them.
+- **Preview, then act.** Every change shows the exact `docker compose` command first, and lands in
+  an audit log with who ran it and from where.
+- **Compatible with Dockge.** Point it at Dockge's stacks directory and try it side by side; it
+  saves files exactly as typed and never touches Dockge's own data.
+- **One container**, behind a Docker socket proxy and your reverse proxy.
 
-# Run
-pnpm -C ui tauri dev                   # full app: Vite HMR + Rust backend
-pnpm -C ui dev:fake                    # browser only, fake transport (no cluster needed)
-cargo run -p fathom-desktop -- --only-mcp   # headless MCP server
+<!-- T086: replace with Depths screenshots in docs/guides/images/. -->
+_Depths screenshots are on the way._
 
-# Test
-pnpm -C ui lint && pnpm -C ui typecheck
-pnpm -C ui test                        # Vitest
-pnpm -C ui e2e                         # Playwright: chromium + webkit x phone..ultra
-cargo test --workspace                 # backend, serde round-trips, bindings drift
+### Installing Depths
 
-# Rust checks
-cargo check
-cargo clippy
-cargo fmt
+There is no published image yet; build it from this repository, then run the example compose file:
 
-# CI, exactly as GitHub runs it (containers via paws + Docker)
-scripts/ci.sh                          # all jobs; or: scripts/ci.sh check|test|ui
+```sh
+make depths-image                      # builds depths:dev
+cp apps/depths/.env.example .env       # next to a copy of apps/depths/compose.yaml
+docker compose up -d
 ```
 
-`scripts/ci.sh` is the only thing `.github/workflows/ci.yml` runs, so a green local run is a green
-CI run. It needs [`paws`](https://github.com/mbround18/paws) with `paws run`
-(`cargo install --locked --git https://github.com/mbround18/paws --branch feat/fathom-local-ci paws-cli`
-until that is released) and Docker. It builds from your working tree minus everything `.gitignore`d,
-so uncommitted edits are tested but local `target/` and `node_modules/` are not. It is sized for a
-shared workstation: `CARGO_BUILD_JOBS=4`, `PLAYWRIGHT_WORKERS=2`, niced, and the `ui` job refuses to
-start with less than 8GB of memory available (`CI_MIN_FREE_GB`). Build caches live in the dagger
-engine's `fathom-ci-*` cache volumes.
-
-Performance checks: `scripts/measure-idle-cpu.sh` (SC-005) and `scripts/measure-startup.sh` (SC-003).
-
-### Architecture
-
-The `fathom` library crate in `src/` is the backend: every Kubernetes call, integration and the
-MCP server run there on a tokio runtime, behind a typed command/event protocol (`src/protocol/`,
-exported to TypeScript as `ui/src/protocol/generated/`). `ui/src-tauri` is the Tauri v2 desktop
-shell that hosts the React + TypeScript UI in `ui/` and bridges it to the backend. `server/`
-(`fathom-server`) serves the same UI and backend as an in-cluster web app with OIDC sign-in, and
-`daemon/` (`fathom-daemon`) is the optional in-cluster aggregator for topology, metrics and event
-snapshots. Everything the UI shows comes through the protocol, so the shells are thin.
+Docker access is root on the host, so read [Installing Depths](docs/guides/depths/install.md)
+before you run it: it covers the socket proxy, the reverse proxy and every setting. Then set up a
+[sign-in provider](docs/guides/depths/sign-in.md) and [let people in](docs/guides/depths/users.md).
+Coming from Dockge? See [Migrating from Dockge](docs/guides/depths/migrating-from-dockge.md).
 
 ---
 
-## Contributing
+## Guides
 
-PRs welcome. Please run `cargo fmt` and `cargo clippy` before submitting.
+Everything a user needs to learn is in [docs/guides](docs/guides/README.md): the
+[Fathom guides](docs/guides/README.md#fathom) and the [Depths guides](docs/guides/depths/README.md).
 
----
+## Development
+
+Building, testing, the workspace layout and the release process are in
+[CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome.
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE). Third-party licences are listed in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
