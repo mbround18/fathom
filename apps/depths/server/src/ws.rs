@@ -918,13 +918,45 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             });
             answers(id, answer.await)
         }
-        Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => {
-            vec![conn.deny_reason(
-                id,
-                None,
-                DenyReason::FeatureDisabled,
-                "files are not available yet".into(),
-            )]
+        Cmd::ListHistory { stack, mount, path } => {
+            let Ok(stack) = depths_core::StackName::parse(stack.as_str()) else {
+                return vec![invalid(id, "not a stack name")];
+            };
+            let who = conn.who(access);
+            let app = app.clone();
+            let answer = blocking(move || {
+                let versions = files::list_history(&app, &who, &stack, &mount, &path)?;
+                Ok(vec![Event::History {
+                    mount,
+                    path,
+                    versions,
+                }])
+            });
+            answers(id, answer.await)
+        }
+        Cmd::ReadVersion {
+            stack,
+            mount,
+            path,
+            version,
+            req,
+        } => {
+            let Ok(stack) = depths_core::StackName::parse(stack.as_str()) else {
+                return vec![invalid(id, "not a stack name")];
+            };
+            let who = conn.who(access);
+            let app = app.clone();
+            let answer = blocking(move || {
+                let file = files::read_version(&app, &who, &stack, &mount, &path, &version)?;
+                Ok(vec![Event::FileContent {
+                    req,
+                    mount,
+                    path,
+                    version: Some(version),
+                    file,
+                }])
+            });
+            answers(id, answer.await)
         }
     }
 }

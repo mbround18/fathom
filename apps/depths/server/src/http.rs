@@ -138,6 +138,24 @@ impl AppState {
             watch.clone(),
         ));
         ops.set_compose_policy(cfg.compose_policy);
+        let files = Arc::new(crate::files::Files::new(cfg.features.files));
+        let history_dir = cfg.data_dir.join("file-history");
+        let history = crate::file_history::FileHistory::open(
+            &history_dir,
+            depths_volumes::history::Limits {
+                versions_per_file: cfg.files.history_versions as usize,
+                max_age_secs: i64::from(cfg.files.history_days) * 86_400,
+                total_bytes: cfg.files.history_total,
+                file_max: cfg.files.history_file_max,
+            },
+        )
+        .map_err(|e| {
+            format!(
+                "cannot open the file history in {}: {e}",
+                history_dir.display()
+            )
+        })?;
+        files.set_history(Arc::new(history));
         Ok(Self {
             store,
             runtime,
@@ -148,7 +166,7 @@ impl AppState {
             sockets: Arc::new(SocketCounts::default()),
             ws: WsConfig::default(),
             trust,
-            files: Arc::new(crate::files::Files::new(cfg.features.files)),
+            files,
             ready: Arc::default(),
             auth: AuthState {
                 sessions,

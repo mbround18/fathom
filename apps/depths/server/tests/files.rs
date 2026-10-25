@@ -1586,4 +1586,438 @@ mod browse {
         assert!(r["event"]["data"]["fingerprint"].is_null(), "{r}");
         assert!(b.root.join("a2.txt").exists());
     }
+
+    // -----------------------------------------------------------------------
+    // History and restore (T059)
+    // -----------------------------------------------------------------------
+
+    fn history_of(b: &Browse, p: &str) -> Vec<depths_protocol::FileVersion> {
+        files::list_history(&b.a.state, &admin(), &stack(), &b.mount, &rel(p)).unwrap()
+    }
+
+    fn version_of(
+        b: &Browse,
+        p: &str,
+        id: &depths_protocol::VersionId,
+    ) -> files::Answer<depths_protocol::FileContent> {
+        files::read_version(&b.a.state, &admin(), &stack(), &b.mount, &rel(p), id)
+    }
+
+    /// Saves `text` over `p` through preview and confirm.
+    fn save(b: &Browse, p: &str, text: &str) {
+        let f = b.read(&admin(), p).unwrap();
+        let pv = b.preview(&admin(), save_op(b, p, text, &f)).unwrap();
+        b.confirm(&admin(), pv.preview_id).unwrap();
+    }
+
+    fn restore_op(b: &Browse, p: &str, id: &depths_protocol::VersionId) -> FileOp {
+        FileOp::Restore {
+            mount: b.mount.clone(),
+            path: rel(p),
+            version: id.clone(),
+        }
+    }
+
+    #[tokio::test]
+    async fn three_saves_are_three_versions_newest_first() {
+        let b = browse(&[]).await;
+        let first = std::fs::read(b.root.join("a.txt")).unwrap();
+        save(&b, "a.txt", "one\n");
+        save(&b, "a.txt", "two\n");
+        save(&b, "a.txt", "three\n");
+        let v = history_of(&b, "a.txt");
+        assert_eq!(v.len(), 3, "{v:?}");
+        for x in &v {
+            assert_eq!(x.author, format!("discord:{OWNER}"));
+            assert_eq!(x.reason, VersionReason::Save);
+        }
+        // Newest first: the last save replaced "two".
+        let text = |i: usize| version_of(&b, "a.txt", &v[i].id).unwrap().text.unwrap();
+        assert_eq!(text(0), "two\n");
+        assert_eq!(text(1), "one\n");
+        assert_eq!(text(2), String::from_utf8(first.clone()).unwrap());
+        assert_eq!(v[2].size, first.len() as u64);
+        assert!(v[0].at.ends_with('Z'), "{}", v[0].at);
+        // Another file has none.
+        assert!(history_of(&b, "sub/b.txt").is_empty());
+    }
+
+    #[tokio::test]
+    async fn history_and_a_version_over_the_socket() {
+        let b = browse(&[]).await;
+        save(&b, "a.txt", "one\n");
+        let (mut s, _server, _) = ws::open(&b.a, OWNER).await;
+        let r = ws::ask(
+            &mut s,
+            1,
+            serde_json::json!({"type": "ListHistory", "data": {
+                "stack": "valheim", "mount": b.mount, "path": "a.txt"}}),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "History", "{r}");
+        assert_eq!(r["event"]["data"]["path"], "a.txt");
+        let versions = r["event"]["data"]["versions"].as_array().unwrap().clone();
+        assert_eq!(versions.len(), 1, "{r}");
+        assert_eq!(versions[0]["reason"], "save");
+        let id = versions[0]["id"].clone();
+        let r = ws::ask(
+            &mut s,
+            2,
+            serde_json::json!({"type": "ReadVersion", "data": {
+                "stack": "valheim", "mount": b.mount, "path": "a.txt", "version": id, "req": 7}}),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "FileContent", "{r}");
+        assert_eq!(r["event"]["data"]["version"], id);
+        assert_eq!(r["event"]["data"]["req"], 7);
+        assert_eq!(r["event"]["data"]["file"]["text"], "hello a");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_version_is_not_found() {
+        let b = browse(&[]).await;
+        let id = depths_protocol::VersionId::new(format!("{}-1", "c".repeat(64))).unwrap();
+        let err = *version_of(&b, "a.txt", &id).unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::NotFound));
+        let err = *b
+            .preview(&admin(), restore_op(&b, "a.txt", &id))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::NotFound));
+    }
+
+    #[tokio::test]
+    async fn upload_and_delete_keep_their_reasons() {
+        let b = browse(&[]).await;
+        let name = Name::new("a.txt").unwrap();
+        let p = b
+            .preview(
+                &admin(),
+                FileOp::Upload {
+                    mount: b.mount.clone(),
+                    dir: rel(""),
+                    files: vec![depths_protocol::UploadFile {
+                        name: name.clone(),
+                        size: 3,
+                    }],
+                },
+            )
+            .unwrap();
+        b.confirm(&admin(), p.preview_id).unwrap();
+        let mut body = vec![Ok(b"new".to_vec())].into_iter();
+        files::upload(
+            &b.a.state,
+            &admin(),
+            &stack(),
+            p.preview_id,
+            &name,
+            3,
+            &mut || body.next(),
+        )
+        .unwrap();
+        let p = b.preview(&admin(), delete_op(&b, "a.txt")).unwrap();
+        b.confirm(&admin(), p.preview_id).unwrap();
+        let v = history_of(&b, "a.txt");
+        let reasons: Vec<_> = v.iter().map(|x| x.reason).collect();
+        assert_eq!(reasons, vec![VersionReason::Delete, VersionReason::Upload]);
+        let text = |i: usize| version_of(&b, "a.txt", &v[i].id).unwrap().text.unwrap();
+        assert_eq!(text(0), "new");
+        assert_eq!(text(1), "hello a");
+    }
+
+    #[tokio::test]
+    async fn a_restore_previews_a_diff_writes_the_version_and_is_kept_itself() {
+        let b = browse(&[]).await;
+        save(&b, "a.txt", "changed\n");
+        let v = history_of(&b, "a.txt");
+        let p = b
+            .preview(&admin(), restore_op(&b, "a.txt", &v[0].id))
+            .unwrap();
+        let diff = p.diff.as_deref().unwrap();
+        assert!(diff.contains("-changed"), "{diff}");
+        assert!(diff.contains("+hello a"), "{diff}");
+        assert!(p.summary.contains("a.txt"), "{}", p.summary);
+        assert_eq!(std::fs::read(b.root.join("a.txt")).unwrap(), b"changed\n");
+
+        let done = b.confirm(&admin(), p.preview_id).unwrap();
+        assert!(
+            matches!(
+                done,
+                Event::FileOpDone {
+                    fingerprint: Some(_),
+                    ..
+                }
+            ),
+            "{done:?}"
+        );
+        assert_eq!(std::fs::read(b.root.join("a.txt")).unwrap(), b"hello a");
+        let restores = audited(&b.a, AuditAction::FilesRestore);
+        assert_eq!(restores.len(), 1);
+        assert_eq!(restores[0].outcome, AuditOutcome::Succeeded);
+        assert!(audited(&b.a, AuditAction::FilesSave).len() == 1);
+
+        let v = history_of(&b, "a.txt");
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert_eq!(v[0].reason, VersionReason::Restore);
+        assert_eq!(
+            version_of(&b, "a.txt", &v[0].id).unwrap().text.unwrap(),
+            "changed\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restore_over_a_changed_file_is_changed_on_disk() {
+        let b = browse(&[]).await;
+        save(&b, "a.txt", "changed\n");
+        let v = history_of(&b, "a.txt");
+        let p = b
+            .preview(&admin(), restore_op(&b, "a.txt", &v[0].id))
+            .unwrap();
+        std::fs::write(b.root.join("a.txt"), b"behind your back\n").unwrap();
+        let err = *b.confirm(&admin(), p.preview_id).unwrap_err();
+        assert!(
+            matches!(err, Event::FileRefused(FileRefusal::ChangedOnDisk { .. })),
+            "{err:?}"
+        );
+        assert_eq!(
+            std::fs::read(b.root.join("a.txt")).unwrap(),
+            b"behind your back\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_deleted_file_is_restored_into_its_folder() {
+        let b = browse(&[]).await;
+        let p = b
+            .preview(&admin(), delete_op(&b, "sub/deep/c.txt"))
+            .unwrap();
+        b.confirm(&admin(), p.preview_id).unwrap();
+        let v = history_of(&b, "sub/deep/c.txt");
+        assert_eq!(v.len(), 1);
+        let p = b
+            .preview(&admin(), restore_op(&b, "sub/deep/c.txt", &v[0].id))
+            .unwrap();
+        b.confirm(&admin(), p.preview_id).unwrap();
+        assert_eq!(
+            std::fs::read(b.root.join("sub/deep/c.txt")).unwrap(),
+            b"hello c"
+        );
+        assert_eq!(audited(&b.a, AuditAction::FilesRestore).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn read_only_mode_may_read_history_but_not_restore() {
+        let b = browse(&[("DEPTHS_FEATURE_FILES", "read_only")]).await;
+        let id = depths_protocol::VersionId::new(format!("{}-1", "c".repeat(64))).unwrap();
+        assert!(history_of(&b, "a.txt").is_empty());
+        let err = *b
+            .preview(&admin(), restore_op(&b, "a.txt", &id))
+            .unwrap_err();
+        assert_eq!(err, Event::FileRefused(FileRefusal::FeatureReadOnly));
+    }
+
+    #[tokio::test]
+    async fn each_write_prunes_to_the_configured_count() {
+        let b = browse(&[("DEPTHS_FILES_HISTORY_VERSIONS", "2")]).await;
+        save(&b, "a.txt", "one\n");
+        save(&b, "a.txt", "two\n");
+        save(&b, "a.txt", "three\n");
+        let v = history_of(&b, "a.txt");
+        assert_eq!(v.len(), 2, "{v:?}");
+        let text = |i: usize| version_of(&b, "a.txt", &v[i].id).unwrap().text.unwrap();
+        assert_eq!(text(0), "two\n");
+        assert_eq!(text(1), "one\n");
+    }
+}
+
+/// The store on its own (T059, T061).
+mod store {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use depths_core::StackName;
+    use depths_protocol::{MountId, RelPath, VersionReason};
+    use depths_server::file_history::FileHistory;
+    use depths_server::files::{FileKey, HistorySink};
+    use depths_volumes::history::Limits;
+
+    const DAY: i64 = 86_400;
+    const T0: i64 = 1_800_000_000;
+
+    fn key(p: &str) -> FileKey {
+        FileKey {
+            stack: StackName::parse("valheim").unwrap(),
+            mount: MountId::parse(&"a".repeat(16)).unwrap(),
+            path: RelPath::parse(p).unwrap(),
+        }
+    }
+
+    fn open(dir: &Path, limits: Limits, now: i64) -> FileHistory {
+        FileHistory::open_with_clock(dir, limits, Arc::new(move || now)).unwrap()
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn versions_are_newest_first_with_their_content() {
+        let d = tempfile::tempdir().unwrap();
+        let h = open(d.path(), Limits::default(), T0);
+        h.keep(&key("a"), "discord:1", VersionReason::Save, b"one");
+        h.keep(&key("a"), "discord:2", VersionReason::Upload, b"two");
+        let v = h.versions(&key("a"));
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].author, "discord:2");
+        assert_eq!(v[0].reason, VersionReason::Upload);
+        assert_eq!(v[0].size, 3);
+        assert_eq!(h.version(&key("a"), &v[0].id).unwrap(), b"two");
+        assert_eq!(h.version(&key("a"), &v[1].id).unwrap(), b"one");
+        assert_ne!(v[0].id, v[1].id);
+        // The id is not another file's.
+        assert_eq!(h.version(&key("b"), &v[0].id), None);
+        // Reopening reads the same store.
+        let h = open(d.path(), Limits::default(), T0);
+        assert_eq!(h.versions(&key("a")), v);
+    }
+
+    #[test]
+    fn the_layout_is_blobs_and_one_json_per_file_private_to_the_server() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let d = tempfile::tempdir().unwrap();
+        let h = open(d.path(), Limits::default(), T0);
+        h.keep(&key("a"), "u", VersionReason::Save, b"same");
+        h.keep(&key("b"), "u", VersionReason::Save, b"same");
+        // One blob for the same content, one JSON per file.
+        assert_eq!(names(&d.path().join("blobs")).len(), 1);
+        let files = names(&d.path().join("files"));
+        assert_eq!(files.len(), 2);
+        assert!(
+            files
+                .iter()
+                .all(|f| f.len() == 64 + 5 && f.ends_with(".json"))
+        );
+        for sub in ["blobs", "files"] {
+            let mode = std::fs::metadata(d.path().join(sub))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o700, "{sub}");
+        }
+        let blob = d
+            .path()
+            .join("blobs")
+            .join(&names(&d.path().join("blobs"))[0]);
+        let mode = std::fs::metadata(blob).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn content_over_the_file_max_is_not_kept() {
+        let d = tempfile::tempdir().unwrap();
+        let limits = Limits {
+            file_max: 3,
+            ..Limits::default()
+        };
+        let h = open(d.path(), limits, T0);
+        h.keep(&key("a"), "u", VersionReason::Save, b"four");
+        assert!(h.versions(&key("a")).is_empty());
+    }
+
+    #[test]
+    fn each_write_prunes_and_removes_unreferenced_blobs() {
+        let d = tempfile::tempdir().unwrap();
+        let limits = Limits {
+            versions_per_file: 2,
+            ..Limits::default()
+        };
+        let h = open(d.path(), limits, T0);
+        h.keep(&key("a"), "u", VersionReason::Save, b"one");
+        h.keep(&key("a"), "u", VersionReason::Save, b"two");
+        h.keep(&key("a"), "u", VersionReason::Save, b"three");
+        let v = h.versions(&key("a"));
+        assert_eq!(v.len(), 2);
+        assert_eq!(h.version(&key("a"), &v[1].id).unwrap(), b"two");
+        // "one" is gone with its blob.
+        assert_eq!(names(&d.path().join("blobs")).len(), 2);
+    }
+
+    #[test]
+    fn a_blob_two_versions_share_stays_until_both_are_gone() {
+        let d = tempfile::tempdir().unwrap();
+        let limits = Limits {
+            versions_per_file: 1,
+            ..Limits::default()
+        };
+        let h = open(d.path(), limits, T0);
+        h.keep(&key("a"), "u", VersionReason::Save, b"shared");
+        h.keep(&key("b"), "u", VersionReason::Save, b"shared");
+        h.keep(&key("a"), "u", VersionReason::Save, b"other");
+        assert_eq!(names(&d.path().join("blobs")).len(), 2);
+        h.keep(&key("b"), "u", VersionReason::Save, b"other");
+        assert_eq!(names(&d.path().join("blobs")).len(), 1);
+    }
+
+    #[test]
+    fn opening_prunes_by_age_and_total() {
+        let d = tempfile::tempdir().unwrap();
+        let h = open(d.path(), Limits::default(), T0);
+        h.keep(&key("old"), "u", VersionReason::Save, b"old");
+        let h2 = open(d.path(), Limits::default(), T0 + 20 * DAY);
+        h2.keep(&key("new"), "u", VersionReason::Save, b"new");
+        drop((h, h2));
+        // Thirty-one days after the first: only the newer is left.
+        let h = open(d.path(), Limits::default(), T0 + 31 * DAY);
+        assert!(h.versions(&key("old")).is_empty());
+        assert_eq!(h.versions(&key("new")).len(), 1);
+        assert_eq!(names(&d.path().join("blobs")).len(), 1);
+        assert_eq!(names(&d.path().join("files")).len(), 1);
+        // A total of 2 bytes keeps nothing of 3.
+        let limits = Limits {
+            total_bytes: 2,
+            ..Limits::default()
+        };
+        let h = open(d.path(), limits, T0 + 31 * DAY);
+        assert!(h.versions(&key("new")).is_empty());
+        assert!(names(&d.path().join("blobs")).is_empty());
+    }
+
+    #[test]
+    fn a_crash_between_blob_and_json_leaves_a_consistent_store() {
+        let d = tempfile::tempdir().unwrap();
+        let h = open(d.path(), Limits::default(), T0);
+        h.keep(&key("a"), "u", VersionReason::Save, b"kept");
+        let before = h.versions(&key("a"));
+        drop(h);
+        // A blob written with no JSON naming it, and the temp files of an interrupted write.
+        let orphan = "d".repeat(64);
+        std::fs::write(d.path().join("blobs").join(&orphan), b"orphan").unwrap();
+        std::fs::write(d.path().join("blobs").join(".x.tmp"), b"half").unwrap();
+        std::fs::write(d.path().join("files").join(".y.tmp"), b"{half").unwrap();
+        let h = open(d.path(), Limits::default(), T0);
+        assert_eq!(h.versions(&key("a")), before);
+        assert_eq!(h.version(&key("a"), &before[0].id).unwrap(), b"kept");
+        assert_eq!(names(&d.path().join("blobs")).len(), 1);
+        assert_eq!(names(&d.path().join("files")).len(), 1);
+        // A version whose blob vanished is dropped, not served.
+        let blob = names(&d.path().join("blobs")).remove(0);
+        std::fs::remove_file(d.path().join("blobs").join(blob)).unwrap();
+        let h = open(d.path(), Limits::default(), T0);
+        assert!(h.versions(&key("a")).is_empty());
+    }
+
+    #[test]
+    fn a_blob_that_does_not_match_its_hash_is_not_served() {
+        let d = tempfile::tempdir().unwrap();
+        let h = open(d.path(), Limits::default(), T0);
+        h.keep(&key("a"), "u", VersionReason::Save, b"kept");
+        let v = h.versions(&key("a"));
+        let blob = names(&d.path().join("blobs")).remove(0);
+        std::fs::write(d.path().join("blobs").join(blob), b"tampered").unwrap();
+        assert_eq!(h.version(&key("a"), &v[0].id), None);
+    }
 }

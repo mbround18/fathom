@@ -5,6 +5,7 @@ pub mod audit;
 pub mod client_ip;
 pub mod config;
 pub mod diff;
+pub mod file_history;
 pub mod files;
 pub mod geoip;
 pub mod headers;

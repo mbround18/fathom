@@ -1199,12 +1199,74 @@ fn keep(
     if bytes.len() as u64 > app.cfg.files.history_file_max {
         return;
     }
-    let file = FileKey {
+    app.files
+        .history()
+        .keep(&key(t, path), &who.user, reason, &bytes);
+}
+
+fn key(t: &Target<'_>, path: &RelPath) -> FileKey {
+    FileKey {
         stack: t.stack.clone(),
         mount: t.mount.id.clone(),
         path: path.clone(),
+    }
+}
+
+/// `ListHistory`: `path`'s kept versions, newest first. History is the server's own, so no
+/// helper runs, but the mount must still pass the gate.
+pub fn list_history(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: &MountId,
+    path: &RelPath,
+) -> Answer<Vec<FileVersion>> {
+    let t = target(
+        app,
+        who,
+        stack,
+        mount,
+        path,
+        CommandKind::FilesRead,
+        "ListHistory",
+    )?;
+    Ok(app.files.history().versions(&key(&t, path)))
+}
+
+/// `ReadVersion`: kept version `id` of `path`, decoded as `ReadFile` decodes a file; `not_found`
+/// when there is no such version. Its owner is the file's as last seen.
+pub fn read_version(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: &MountId,
+    path: &RelPath,
+    id: &VersionId,
+) -> Answer<FileContent> {
+    const CMD: &str = "ReadVersion";
+    let t = target(app, who, stack, mount, path, CommandKind::FilesRead, CMD)?;
+    let Some(bytes) = app.files.history().version(&key(&t, path), id) else {
+        return Err(Box::new(refuse(
+            app,
+            who,
+            stack,
+            CMD,
+            Some(t.at(path)),
+            FileRefusal::NotFound,
+        )));
     };
-    app.files.history().keep(&file, &who.user, reason, &bytes);
+    let (uid, gid) = app.files.owner(stack, mount, path).unwrap_or(NOBODY);
+    let owner = depths_volumes::mount::Owner { uid, gid, mode: 0 };
+    let max = app.cfg.files.editor_max;
+    let content = (bytes.len() as u64 <= max).then_some(bytes.as_slice());
+    let read_only = (!t.mount.writable).then_some(WriteBlocked::ReadOnlyMount);
+    Ok(FileContent::build(
+        Fingerprint::of_content(&bytes, 0, 0),
+        owner,
+        read_only,
+        content,
+        max,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1412,19 +1474,11 @@ pub fn preview(app: &AppState, who: &Who, stack: &StackName, op: FileOp) -> Answ
             raw_name,
         } => preview_delete(app, who, stack, mount, path, raw_name),
         FileOp::Upload { mount, dir, files } => preview_upload(app, who, stack, mount, dir, files),
-        FileOp::Restore { .. } => {
-            gate(app, who, stack, CommandKind::FilesWrite, PREVIEW, None)?;
-            Err(Box::new(refuse(
-                app,
-                who,
-                stack,
-                PREVIEW,
-                None,
-                FileRefusal::HelperUnavailable {
-                    reason: "this file change is not available yet".into(),
-                },
-            )))
-        }
+        FileOp::Restore {
+            mount,
+            path,
+            version,
+        } => preview_restore(app, who, stack, mount, path, version),
     }
 }
 
@@ -1476,6 +1530,82 @@ fn preview_save(
     });
     let mut p = bound(app, who, &t, change, summary).map_err(fail)?;
     p.diff = Some(diff);
+    Ok(p)
+}
+
+/// `Restore` preview: kept version `version` over what `path` holds now (a diff when both are
+/// text), or into its folder when the file is gone. The confirm writes it through the save's
+/// path with `base` the current fingerprint, so a file changed since is `changed_on_disk`.
+fn preview_restore(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: MountId,
+    path: RelPath,
+    version: VersionId,
+) -> Answer<FilePreview> {
+    let t = target(
+        app,
+        who,
+        stack,
+        &mount,
+        &path,
+        CommandKind::FilesWrite,
+        PREVIEW,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, PREVIEW, Some(t.at(&path)), r));
+    let history = app.files.history();
+    let file = key(&t, &path);
+    let kept = history
+        .versions(&file)
+        .into_iter()
+        .find(|v| v.id == version);
+    let (Some(kept), Some(bytes)) = (kept, history.version(&file, &version)) else {
+        return Err(fail(FileRefusal::NotFound));
+    };
+    let (dir, _) = split(&path).map_err(fail)?;
+    let dir_owner = owner_of(app, &t, &dir).map_err(fail)?;
+    let max = app.cfg.files.editor_max;
+    let (base, old) = match look(app, &t, &path, None, dir_owner).map_err(fail)? {
+        None => (None, None),
+        Some(info) if info.kind == EntryKind::File => {
+            let owner = owner_of(app, &t, &path).map_err(fail)?;
+            let (current, old) = read_bytes(app, &t, &path, owner, max).map_err(fail)?;
+            (Some(current), old)
+        }
+        Some(_) => return Err(fail(FileRefusal::Exists)),
+    };
+    let text_of = |b: &[u8]| {
+        text::decode(b, max)
+            .is_ok()
+            .then(|| String::from_utf8_lossy(b).into_owned())
+    };
+    let diff = match (text_of(&bytes), &old, base) {
+        (Some(new), Some(old), _) => {
+            text_of(old).map(|old| crate::diff::unified(path.as_str(), Some(&old), Some(&new)))
+        }
+        (Some(new), None, None) => Some(crate::diff::unified(path.as_str(), None, Some(&new))),
+        _ => None,
+    };
+    let summary = format!(
+        "Restore {path} to its version of {} ({} bytes){}",
+        kept.at,
+        bytes.len(),
+        if base.is_none() {
+            ", which is gone now"
+        } else {
+            ""
+        }
+    );
+    let change = Change::Write(Write {
+        mount,
+        path: path.clone(),
+        bytes,
+        base,
+        reason: VersionReason::Restore,
+    });
+    let mut p = bound(app, who, &t, change, summary).map_err(fail)?;
+    p.diff = diff;
     Ok(p)
 }
 

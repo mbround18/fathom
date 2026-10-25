@@ -312,9 +312,9 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
         Cmd::ListDir { stack, .. }
         | Cmd::ReadFile { stack, .. }
         | Cmd::FolderSize { stack, .. }
+        | Cmd::ListHistory { stack, .. }
+        | Cmd::ReadVersion { stack, .. }
         | Cmd::PreviewFileOp { stack, .. } => gate(who, stack_place(stack), Refused("missing")),
-        // Placeholders until their handlers land.
-        Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => Denied(FEATURE_DISABLED),
     }
 }
 
