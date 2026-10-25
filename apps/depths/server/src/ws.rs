@@ -895,7 +895,30 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             });
             answers(id, answer.await)
         }
-        Cmd::FolderSize { .. } | Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => {
+        Cmd::FolderSize {
+            stack,
+            mount,
+            path,
+            req,
+        } => {
+            let Ok(stack) = depths_core::StackName::parse(stack.as_str()) else {
+                return vec![invalid(id, "not a stack name")];
+            };
+            let who = conn.who(access);
+            let app = app.clone();
+            let answer = blocking(move || {
+                let (bytes, entries, capped) =
+                    files::folder_size(&app, &who, &stack, &mount, &path)?;
+                Ok(vec![Event::FolderSize {
+                    req,
+                    bytes,
+                    entries,
+                    capped,
+                }])
+            });
+            answers(id, answer.await)
+        }
+        Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => {
             vec![conn.deny_reason(
                 id,
                 None,

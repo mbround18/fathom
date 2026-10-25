@@ -28,6 +28,7 @@ use web_auth::provider::{
 };
 use web_auth::session::{Identity, Provider, Session, Tokens};
 
+pub mod volumes;
 pub mod ws;
 
 pub const ORIGIN: &str = "https://depth.boop.ninja";

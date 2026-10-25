@@ -8,6 +8,8 @@
 //! | POST | `/auth/logout`, `/auth/refresh` | session + CSRF |
 //! | GET | `/api/v1/me` | session (401 lists the providers) |
 //! | GET | `/api/v1/audit/export?stack=&actor=&action=&from=&to=` | session, `read_audit` (admin) |
+//! | GET | `/api/v1/stacks/{stack}/files/download?mount=&path=` | session, as `ReadFile` |
+//! | POST | `/api/v1/stacks/{stack}/files/upload?preview=&name=` | session + CSRF, a confirmed preview |
 //! | GET | `/api/v1/ws` | Origin, then session + Hello |
 //! | GET | `/*` | static files, SPA fallback to `index.html` |
 //!
@@ -210,6 +212,15 @@ pub fn router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), observe))
         .route_layer(middleware::from_fn_with_state(state.clone(), limit_api));
 
+    // The one route with a body above MAX_BODY_BYTES, and no whole-request deadline: an upload
+    // takes as long as the file does. `upload` bounds the body by its preview.
+    let upload_max = usize::try_from(state.cfg.files.upload_max).unwrap_or(usize::MAX);
+    let uploads = Router::new()
+        .route("/api/v1/stacks/{stack}/files/upload", post(upload))
+        .route_layer(middleware::from_fn_with_state(state.clone(), observe))
+        .route_layer(middleware::from_fn_with_state(state.clone(), limit_api))
+        .layer(DefaultBodyLimit::max(upload_max));
+
     let ws = Router::new()
         .route("/api/v1/ws", get(crate::ws::upgrade))
         .route_layer(middleware::from_fn_with_state(state.clone(), observe))
@@ -234,13 +245,14 @@ pub fn router(state: AppState) -> Router {
         .nest_service("/assets", assets)
         .fallback_service(spa)
         .method_not_allowed_fallback(method_not_allowed)
-        .layer(CsrfLayer::new(state.auth.clone(), state.cfg.origin.clone()))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             REQUEST_TIMEOUT,
         ))
+        .merge(uploads)
+        .layer(CsrfLayer::new(state.auth.clone(), state.cfg.origin.clone()))
         .layer(middleware::from_fn(path_guard))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -432,9 +444,9 @@ struct DownloadQuery {
     path: depths_protocol::RelPath,
 }
 
-/// `GET /api/v1/stacks/{stack}/files/download?mount=&path=` (spec 053): one file, streamed from a
-/// helper of its own as it reads, never buffered whole. Gated as `ReadFile` is; audited
-/// `files.download` with the size. A folder is refused until folder downloads land (T050).
+/// `GET /api/v1/stacks/{stack}/files/download?mount=&path=` (spec 053): one file, or a folder as
+/// `<folder>.tar`, streamed from a helper of its own as it reads, never buffered whole. Gated as
+/// `ReadFile` is; audited `files.download` with the size.
 async fn download(
     State(app): State<AppState>,
     SessionUser(session): SessionUser,
@@ -445,14 +457,7 @@ async fn download(
     let (Ok(stack), Ok(Query(q))) = (depths_core::StackName::parse(&stack), query) else {
         return error(StatusCode::BAD_REQUEST, "invalid_request");
     };
-    let sign_in = SignIn::from_identity(&session.identity);
-    let who = crate::ops::Who {
-        session: session.id.clone(),
-        user: sign_in.id(),
-        access: app.users.access(&sign_in.id()),
-        actor: crate::audit::actor_of(&session.identity),
-        ip,
-    };
+    let who = who_of(&app, &session, ip);
     let a = app.clone();
     let opened = tokio::task::spawn_blocking(move || {
         crate::files::open_download(&a, &who, &stack, &q.mount, &q.path)
@@ -460,29 +465,105 @@ async fn download(
     .await;
     let d = match opened {
         Ok(Ok(d)) => d,
-        Ok(Err(crate::files::NoDownload::Folder)) => {
-            return error(StatusCode::BAD_REQUEST, "folder");
-        }
-        Ok(Err(crate::files::NoDownload::Refused(event))) => return refused(&event),
+        Ok(Err(event)) => return refused(&event),
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
     };
-    let (size, name) = (d.size, d.name.clone());
+    let (size, name, content_type) = (d.size, d.name.clone(), d.content_type);
     // Two frames in flight: the helper reads only as fast as the client takes them.
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(2);
     tokio::task::spawn_blocking(move || pump(d.chan, &tx));
     let body =
         axum::body::Body::from_stream(futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx)));
-    (
+    let mut r = (
         [
-            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
-            (header::CONTENT_LENGTH, size.to_string()),
+            (header::CONTENT_TYPE, content_type.to_owned()),
             (header::CACHE_CONTROL, "no-store".to_owned()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
             (header::CONTENT_DISPOSITION, attachment(&name)),
         ],
         body,
     )
-        .into_response()
+        .into_response();
+    if let Some(size) = size {
+        r.headers_mut().insert(header::CONTENT_LENGTH, size.into());
+    }
+    r
+}
+
+/// Who a file request comes from, as the socket's commands see them.
+fn who_of(app: &AppState, session: &web_auth::session::Session, ip: IpAddr) -> crate::ops::Who {
+    let sign_in = SignIn::from_identity(&session.identity);
+    crate::ops::Who {
+        session: session.id.clone(),
+        user: sign_in.id(),
+        access: app.users.access(&sign_in.id()),
+        actor: crate::audit::actor_of(&session.identity),
+        ip,
+    }
+}
+
+#[derive(Deserialize)]
+struct UploadQuery {
+    preview: depths_protocol::PreviewId,
+    name: depths_protocol::Name,
+}
+
+/// `POST /api/v1/stacks/{stack}/files/upload?preview=&name=` (spec 053): one file of a confirmed
+/// `Upload` preview, as a raw body of the size it was previewed with, streamed to a helper of
+/// its own as it arrives. 201 `{fingerprint}`; each name is accepted once.
+async fn upload(
+    State(app): State<AppState>,
+    SessionUser(session): SessionUser,
+    ClientAddrExt(ip): ClientAddrExt,
+    Path(stack): Path<String>,
+    query: Result<Query<UploadQuery>, axum::extract::rejection::QueryRejection>,
+    req: Request,
+) -> Response {
+    use axum::body::HttpBody as _;
+    let Ok(stack) = depths_core::StackName::parse(&stack) else {
+        return error(StatusCode::BAD_REQUEST, "invalid_request");
+    };
+    let Ok(Query(q)) = query else {
+        return error(StatusCode::BAD_REQUEST, "invalid_name");
+    };
+    let len = req
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
+        .or_else(|| req.body().size_hint().exact());
+    let Some(len) = len else {
+        return error(StatusCode::LENGTH_REQUIRED, "length_required");
+    };
+    let who = who_of(&app, &session, ip);
+    // Two chunks in flight: the client sends only as fast as the helper writes.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::files::Chunk>(2);
+    let a = app.clone();
+    let written = tokio::task::spawn_blocking(move || {
+        let mut next = || rx.blocking_recv();
+        crate::files::upload(&a, &who, &stack, q.preview, &q.name, len, &mut next)
+    });
+    let mut body = req.into_body().into_data_stream();
+    let feed = async {
+        use futures_util::StreamExt as _;
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.map(|b| b.to_vec()).map_err(|_| ());
+            let end = chunk.is_err();
+            if tx.send(chunk).await.is_err() || end {
+                break;
+            }
+        }
+        drop(tx);
+    };
+    let ((), written) = tokio::join!(feed, written);
+    match written {
+        Ok(Ok(fingerprint)) => (
+            StatusCode::CREATED,
+            Json(json!({ "fingerprint": fingerprint })),
+        )
+            .into_response(),
+        Ok(Err(event)) => refused(&event),
+        Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+    }
 }
 
 /// Feeds a download's Data frames to the response until End, then closes the helper. A client
@@ -539,29 +620,43 @@ fn attachment(name: &str) -> String {
     format!("attachment; filename=\"{plain}\"; filename*=UTF-8''{exact}")
 }
 
-/// A file refusal as an HTTP error: the refusal's code, with the status it means.
+/// A file refusal as an HTTP error: `{"error": kind, "kind": kind}` with the status it means,
+/// and `bytes` for `too_large`. A gate denial is 403 with the denial's kind.
 fn refused(event: &depths_protocol::Event) -> Response {
-    use depths_protocol::{DenyReason, Event, FileRefusal};
-    let (status, code) = match event {
-        Event::Denied { reason, .. } => match reason {
-            DenyReason::FeatureDisabled => (StatusCode::NOT_FOUND, "feature_disabled"),
-            DenyReason::UntrustedNetwork => (StatusCode::FORBIDDEN, "untrusted_network"),
-            _ => (StatusCode::FORBIDDEN, "forbidden"),
-        },
-        Event::FileRefused(r) => match r {
-            FileRefusal::TooLarge { .. } => (StatusCode::PAYLOAD_TOO_LARGE, "too_large"),
-            FileRefusal::Missing | FileRefusal::NotFound | FileRefusal::NotCreated => {
-                (StatusCode::NOT_FOUND, "not_found")
-            }
-            FileRefusal::OutsideMount => (StatusCode::FORBIDDEN, "outside_mount"),
-            FileRefusal::HelperUnavailable { .. } => {
-                (StatusCode::SERVICE_UNAVAILABLE, "helper_unavailable")
-            }
-            _ => (StatusCode::CONFLICT, "refused"),
-        },
-        _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+    use depths_protocol::{Event, FileRefusal};
+    let (status, kind, bytes) = match event {
+        Event::Denied { reason, .. } => {
+            let kind = serde_json::to_value(reason)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_else(|| "forbidden".to_owned());
+            (StatusCode::FORBIDDEN, kind, None)
+        }
+        Event::FileRefused(r) => {
+            let (status, bytes) = match r {
+                FileRefusal::TooLarge { bytes } => (StatusCode::PAYLOAD_TOO_LARGE, *bytes),
+                FileRefusal::Missing | FileRefusal::NotFound | FileRefusal::NotCreated => {
+                    (StatusCode::NOT_FOUND, None)
+                }
+                FileRefusal::NotConfirmed
+                | FileRefusal::OutsideMount
+                | FileRefusal::FeatureReadOnly
+                | FileRefusal::ReadOnlyMount
+                | FileRefusal::NotBrowsable { .. }
+                | FileRefusal::WriteBlocked { .. } => (StatusCode::FORBIDDEN, None),
+                FileRefusal::InvalidName => (StatusCode::BAD_REQUEST, None),
+                FileRefusal::HelperUnavailable { .. } => (StatusCode::SERVICE_UNAVAILABLE, None),
+                _ => (StatusCode::CONFLICT, None),
+            };
+            (status, crate::files::refusal_code(r), bytes)
+        }
+        _ => return error(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
     };
-    error(status, code)
+    let mut body = json!({ "error": kind, "kind": kind });
+    if let Some(bytes) = bytes {
+        body["bytes"] = bytes.into();
+    }
+    (status, Json(body)).into_response()
 }
 
 /// The resolved client address as an extractor (set by [`client_ip_layer`]).

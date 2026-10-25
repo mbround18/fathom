@@ -672,68 +672,23 @@ mod cases;
 mod browse {
     use super::*;
 
-    use std::collections::HashMap;
     use std::os::unix::fs::MetadataExt;
     use std::sync::{Arc, Mutex};
-    use std::thread::JoinHandle;
 
     use axum::body::Body;
-    use depths_core::ports::{
-        HelperChannel, HelperProcess, HelperSpec, OpMode, RuntimeError, VolumeHelper,
-    };
+    use depths_core::ports::{HelperSpec, OpMode};
     use std::time::Duration;
 
     use depths_protocol::{
         BinaryReason, CreateKind, FileOp, FilePreview, LineEnding, MountId, Name, PreviewId,
         PreviewVoidReason, VersionReason,
     };
-    use depths_runtime_cli::helper::{HELPER_IDLE, HelperPool, SystemClock};
     use http::{StatusCode, header};
 
     use super::cases::{Access, Expect, build_tree, cases, snapshot};
     use super::support::ws;
 
-    /// Runs the real helper's `serve` on a thread over pipes, rooted at the folder its source
-    /// maps to, and records every spec it was started with.
-    #[derive(Default)]
-    struct FakeVolumeHelper {
-        roots: HashMap<String, PathBuf>,
-        specs: Mutex<Vec<HelperSpec>>,
-    }
-
-    struct Thread(Option<JoinHandle<i32>>);
-
-    impl HelperProcess for Thread {
-        fn close(mut self: Box<Self>) {
-            if let Some(t) = self.0.take() {
-                let _ = t.join();
-            }
-        }
-        fn kill(self: Box<Self>) {}
-    }
-
-    impl VolumeHelper for FakeVolumeHelper {
-        fn start(&self, spec: &HelperSpec) -> Result<HelperChannel, RuntimeError> {
-            self.specs.lock().unwrap().push(spec.clone());
-            let dir = match &spec.source {
-                HelperSource::Volume(name) => self.roots.get(name).cloned(),
-                HelperSource::Bind(path) => Some(path.clone()),
-            }
-            .ok_or(RuntimeError::Unsupported)?;
-            let root: std::os::fd::OwnedFd = std::fs::File::open(dir).unwrap().into();
-            let (in_r, in_w) = std::io::pipe().unwrap();
-            let (out_r, out_w) = std::io::pipe().unwrap();
-            let t = std::thread::spawn(move || depths_volume_helper::serve(root, in_r, out_w));
-            Ok(
-                HelperChannel::open(Box::new(out_r), Box::new(in_w), Box::new(Thread(Some(t))))
-                    .unwrap(),
-            )
-        }
-
-        fn volume_exists(&self, name: &str) -> Result<bool, RuntimeError> {
-            Ok(self.roots.contains_key(name))
-        }
-    }
+    use super::support::volumes::{self, FakeVolumeHelper};
 
     struct Browse {
         a: App,
@@ -767,25 +722,7 @@ mod browse {
         std::fs::write(tree.root.join("bin.dat"), b"\x00\x01\x02binary").unwrap();
         let a = app_with_env(env, |_| {});
         a.sign_in(OWNER).await;
-        let helper = Arc::new(FakeVolumeHelper {
-            roots: HashMap::from([("valheim_saves".to_owned(), tree.root.clone())]),
-            ..Default::default()
-        });
-        let pool = HelperPool::new(helper.clone(), Arc::new(SystemClock), 8, HELPER_IDLE);
-        a.state.files.install(helper.clone(), pool);
-        a.set_containers(vec![support::container(
-            "valheim",
-            "valheim",
-            "running",
-            "Up 1 hour",
-        )]);
-        a.set_inspect(
-            "valheim-valheim-id",
-            serde_json::json!({"Mounts": [{
-                "Type": "volume", "Name": "valheim_saves", "Source": "/x",
-                "Destination": "/config", "RW": true,
-            }]}),
-        );
+        let (helper, _) = volumes::install(&a, tree.root.clone());
         let mounts = files::list_mounts(&a.state, &admin(), &stack()).unwrap();
         assert_eq!(mounts.len(), 1);
         assert_eq!(mounts[0].state, MountState::Ready);
@@ -1096,8 +1033,6 @@ mod browse {
             b.a.get(&download_uri(&b.mount, "big.txt"), Some(&cookie))
                 .await;
         assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
-        let r = b.a.get(&download_uri(&b.mount, "sub"), Some(&cookie)).await;
-        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
         let r =
             b.a.get(&download_uri(&b.mount, "link_out"), Some(&cookie))
                 .await;

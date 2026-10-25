@@ -677,3 +677,511 @@ async fn the_refresh_loop_ends_rejected_sessions_and_backs_off_when_unreachable(
     assert_eq!(p.deferred, 1);
     assert_eq!(r.next_check(&id(&unreachable)), Some(t2 + BACKOFF_MIN * 2));
 }
+
+// ---------------------------------------------------------------------------
+// Spec 053 US3: folder downloads and confirmed uploads (T047)
+// ---------------------------------------------------------------------------
+
+mod transfer {
+    use super::*;
+
+    use std::net::IpAddr;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    use depths_protocol::{AuditAction, AuditOutcome, MountId, VersionReason};
+    use depths_server::files::{FileKey, HistorySink};
+    use http_body_util::BodyExt as _;
+    use serde_json::{Value, json};
+    use support::volumes::{self, FakeVolumeHelper};
+    use support::ws::{self, Socket};
+
+    const CAFE: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 9));
+
+    struct Vol {
+        a: App,
+        helper: Arc<FakeVolumeHelper>,
+        root: PathBuf,
+        mount: MountId,
+        _dir: tempfile::TempDir,
+    }
+
+    /// `valheim` mounting a volume with `a.txt`, `sub/b.txt` and `sub/deep/c.txt`.
+    fn vol(env: &[(&str, &str)]) -> Vol {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vol");
+        std::fs::create_dir_all(root.join("sub/deep")).unwrap();
+        std::fs::write(root.join("a.txt"), b"hello a").unwrap();
+        std::fs::write(root.join("sub/b.txt"), b"hello b").unwrap();
+        std::fs::write(root.join("sub/deep/c.txt"), b"hello c").unwrap();
+        let a = app_with_env(env, |_| {});
+        let (helper, mount) = volumes::install(&a, root.clone());
+        Vol {
+            a,
+            helper,
+            root,
+            mount,
+            _dir: dir,
+        }
+    }
+
+    /// The owner's socket and session cookie, and the session's CSRF token.
+    struct Owner {
+        s: Socket,
+        _server: tokio::task::JoinHandle<()>,
+        cookie: String,
+        csrf: String,
+        next: u64,
+    }
+
+    async fn owner(v: &Vol) -> Owner {
+        let (s, server, cookie) = ws::open(&v.a, OWNER).await;
+        let csrf = ws::csrf_of(&v.a, &cookie).await;
+        Owner {
+            s,
+            _server: server,
+            cookie,
+            csrf,
+            next: 1,
+        }
+    }
+
+    impl Owner {
+        async fn ask(&mut self, cmd: Value) -> Value {
+            self.next += 1;
+            ws::ask(&mut self.s, self.next, cmd).await["event"].clone()
+        }
+
+        /// `PreviewFileOp{Upload}` of `files` into `dir`.
+        async fn preview(&mut self, v: &Vol, dir: &str, files: &[(&str, u64)]) -> Value {
+            let files: Vec<Value> = files
+                .iter()
+                .map(|(name, size)| json!({"name": name, "size": size}))
+                .collect();
+            self.ask(
+                json!({"type": "PreviewFileOp", "data": {"stack": "valheim", "op": {
+                    "kind": "upload",
+                    "options": {"mount": v.mount, "dir": dir, "files": files},
+                }}}),
+            )
+            .await
+        }
+
+        async fn confirm(&mut self, preview: &Value) -> Value {
+            let id = preview["data"]["preview_id"].clone();
+            self.ask(json!({"type": "Confirm", "data": {"preview_id": id}}))
+                .await
+        }
+
+        /// A previewed and confirmed upload of `files` into `dir`; its preview id.
+        async fn confirmed(&mut self, v: &Vol, dir: &str, files: &[(&str, u64)]) -> String {
+            let p = self.preview(v, dir, files).await;
+            assert_eq!(p["type"], "FilePreview", "{p}");
+            let done = self.confirm(&p).await;
+            assert_eq!(done["type"], "FileOpDone", "{done}");
+            p["data"]["preview_id"].as_str().unwrap().to_owned()
+        }
+
+        fn post(&self, preview: &str, name: &str, body: Vec<u8>) -> Request<Body> {
+            Request::post(upload_uri(preview, name))
+                .header(header::COOKIE, &self.cookie)
+                .header(header::ORIGIN, ORIGIN)
+                .header("x-csrf-token", &self.csrf)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .header(header::CONTENT_LENGTH, body.len())
+                .body(Body::from(body))
+                .unwrap()
+        }
+
+        async fn upload(&self, v: &Vol, preview: &str, name: &str, body: &[u8]) -> Response {
+            v.a.send(self.post(preview, name, body.to_vec())).await
+        }
+    }
+
+    type Response = http::Response<Body>;
+
+    fn upload_uri(preview: &str, name: &str) -> String {
+        let q: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("preview", preview)
+            .append_pair("name", name)
+            .finish();
+        format!("/api/v1/stacks/valheim/files/upload?{q}")
+    }
+
+    fn download_uri(mount: &MountId, path: &str) -> String {
+        let q: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("mount", mount.as_str())
+            .append_pair("path", path)
+            .finish();
+        format!("/api/v1/stacks/valheim/files/download?{q}")
+    }
+
+    async fn bytes(r: Response) -> Vec<u8> {
+        r.into_body().collect().await.unwrap().to_bytes().to_vec()
+    }
+
+    fn audited(a: &App, action: AuditAction) -> Vec<depths_protocol::AuditEntry> {
+        a.audit_entries()
+            .into_iter()
+            .filter(|e| e.action == action)
+            .collect()
+    }
+
+    fn rw_starts(v: &Vol) -> usize {
+        v.helper
+            .specs()
+            .iter()
+            .filter(|s| s.mode == depths_core::ports::OpMode::ReadWrite)
+            .count()
+    }
+
+    fn contains(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[tokio::test]
+    async fn an_upload_preview_names_the_folder_and_every_file_and_marks_replacements() {
+        let v = vol(&[]);
+        let mut o = owner(&v).await;
+        let p = o.preview(&v, "sub", &[("b.txt", 3), ("new.bin", 4)]).await;
+        assert_eq!(p["type"], "FilePreview", "{p}");
+        let summary = p["data"]["summary"].as_str().unwrap();
+        for word in ["sub", "b.txt", "new.bin"] {
+            assert!(summary.contains(word), "{summary}");
+        }
+        let uploads = p["data"]["uploads"].as_array().unwrap();
+        assert_eq!(uploads.len(), 2, "{p}");
+        assert_eq!(uploads[0]["name"], "b.txt");
+        assert_eq!(uploads[0]["size"], 3);
+        assert_eq!(uploads[0]["exists"], true);
+        let fp = uploads[0]["fingerprint"].as_str().unwrap();
+        assert!(fp.starts_with("sha256:") && fp.contains(":7:"), "{fp}");
+        assert_eq!(uploads[1]["name"], "new.bin");
+        assert_eq!(uploads[1]["exists"], false);
+        assert!(uploads[1]["fingerprint"].is_null(), "{p}");
+        assert_eq!(rw_starts(&v), 0, "a preview writes nothing");
+
+        // A name twice, a folder's name, or a file above upload_max is refused at the preview.
+        let p = o.preview(&v, "", &[("x", 1), ("x", 2)]).await;
+        assert_eq!(p["data"]["kind"], "invalid_name", "{p}");
+        let p = o.preview(&v, "", &[("sub", 1)]).await;
+        assert_eq!(p["data"]["kind"], "exists", "{p}");
+    }
+
+    #[tokio::test]
+    async fn an_upload_preview_expires_like_any_other() {
+        let v = vol(&[]);
+        let mut o = owner(&v).await;
+        v.a.state
+            .files
+            .set_preview_ttl(std::time::Duration::from_millis(200));
+        let p = o.preview(&v, "", &[("late.txt", 2)]).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let r = o.confirm(&p).await;
+        assert_eq!(r["type"], "PreviewVoid", "{r}");
+        assert_eq!(r["data"]["reason"], "expired", "{r}");
+
+        let id = o.confirmed(&v, "", &[("late.txt", 2)]).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let r = o.upload(&v, &id, "late.txt", b"hi").await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json(r).await["kind"], "not_confirmed");
+        assert!(!v.root.join("late.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_post_needs_a_confirmed_preview_covering_its_name_and_size() {
+        let v = vol(&[]);
+        let mut o = owner(&v).await;
+        let p = o
+            .preview(&v, "sub", &[("one.txt", 3), ("two.txt", 5)])
+            .await;
+        let id = p["data"]["preview_id"].as_str().unwrap().to_owned();
+
+        // Not confirmed yet.
+        let r = o.upload(&v, &id, "one.txt", b"one").await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json(r).await["kind"], "not_confirmed");
+        assert_eq!(o.confirm(&p).await["type"], "FileOpDone");
+
+        // A name the preview did not cover, a size it did not, an unknown preview.
+        for (preview, name, body) in [
+            (id.as_str(), "three.txt", &b"333"[..]),
+            (id.as_str(), "one.txt", &b"four"[..]),
+            (
+                "00000000-0000-4000-8000-000000000000",
+                "one.txt",
+                &b"one"[..],
+            ),
+        ] {
+            let r = o.upload(&v, preview, name, body).await;
+            assert_eq!(r.status(), StatusCode::FORBIDDEN, "{name}");
+            let j = json(r).await;
+            assert_eq!(j["kind"], "not_confirmed", "{j}");
+            assert_eq!(j["error"], "not_confirmed", "{j}");
+        }
+        assert_eq!(rw_starts(&v), 0);
+
+        let r = o.upload(&v, &id, "one.txt", b"one").await;
+        assert_eq!(r.status(), StatusCode::CREATED);
+        let fp = json(r).await["fingerprint"].as_str().unwrap().to_owned();
+        assert!(fp.starts_with("sha256:") && fp.contains(":3:"), "{fp}");
+        assert_eq!(std::fs::read(v.root.join("sub/one.txt")).unwrap(), b"one");
+
+        // Each name once.
+        let r = o.upload(&v, &id, "one.txt", b"one").await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        let r = o.upload(&v, &id, "two.txt", b"two!!").await;
+        assert_eq!(r.status(), StatusCode::CREATED);
+
+        let ups = audited(&v.a, AuditAction::FilesUpload);
+        assert_eq!(ups.len(), 2, "{ups:?}");
+        assert!(ups.iter().all(|e| e.outcome == AuditOutcome::Succeeded));
+        let mut sizes: Vec<_> = ups.iter().map(|e| e.file.as_ref().unwrap().bytes).collect();
+        sizes.sort();
+        assert_eq!(sizes, [Some(3), Some(5)]);
+        let refused = audited(&v.a, AuditAction::FilesRefused);
+        assert!(refused.len() >= 4, "{refused:?}");
+    }
+
+    #[tokio::test]
+    async fn an_upload_needs_the_csrf_header_and_the_origin() {
+        let v = vol(&[]);
+        let mut o = owner(&v).await;
+        let id = o.confirmed(&v, "", &[("c.txt", 1)]).await;
+        let mut no_token = o.post(&id, "c.txt", b"c".to_vec());
+        no_token.headers_mut().remove("x-csrf-token");
+        assert_eq!(v.a.send(no_token).await.status(), StatusCode::FORBIDDEN);
+        let mut elsewhere = o.post(&id, "c.txt", b"c".to_vec());
+        elsewhere.headers_mut().insert(
+            header::ORIGIN,
+            http::HeaderValue::from_static("https://evil.example"),
+        );
+        assert_eq!(v.a.send(elsewhere).await.status(), StatusCode::FORBIDDEN);
+        assert!(!v.root.join("c.txt").exists());
+        // The name is still unclaimed.
+        let r = o.upload(&v, &id, "c.txt", b"c").await;
+        assert_eq!(r.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn an_upload_that_lost_a_race_is_409_and_audited_as_failed() {
+        let v = vol(&[]);
+        let mut o = owner(&v).await;
+        let id = o.confirmed(&v, "", &[("new.txt", 3), ("a.txt", 3)]).await;
+        // Someone made new.txt, and changed a.txt, after the preview.
+        std::fs::write(v.root.join("new.txt"), b"theirs").unwrap();
+        std::fs::write(v.root.join("a.txt"), b"changed a").unwrap();
+
+        let r = o.upload(&v, &id, "new.txt", b"new").await;
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(json(r).await["kind"], "exists");
+        let r = o.upload(&v, &id, "a.txt", b"new").await;
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(json(r).await["kind"], "changed_on_disk");
+        assert_eq!(std::fs::read(v.root.join("new.txt")).unwrap(), b"theirs");
+        assert_eq!(std::fs::read(v.root.join("a.txt")).unwrap(), b"changed a");
+
+        let ups = audited(&v.a, AuditAction::FilesUpload);
+        assert_eq!(ups.len(), 2, "{ups:?}");
+        for e in &ups {
+            assert!(
+                matches!(e.outcome, AuditOutcome::Failed { .. }),
+                "{:?}",
+                e.outcome
+            );
+            assert_eq!(e.file.as_ref().unwrap().bytes, Some(3));
+        }
+    }
+
+    #[derive(Default)]
+    struct Kept(Mutex<Vec<(FileKey, VersionReason, Vec<u8>)>>);
+
+    impl HistorySink for Kept {
+        fn keep(&self, file: &FileKey, _: &str, reason: VersionReason, bytes: &[u8]) {
+            self.0
+                .lock()
+                .unwrap()
+                .push((file.clone(), reason, bytes.to_vec()));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_upload_that_replaces_a_file_keeps_what_it_replaced() {
+        let v = vol(&[]);
+        let kept = Arc::new(Kept::default());
+        v.a.state.files.set_history(kept.clone());
+        let mut o = owner(&v).await;
+        let id = o.confirmed(&v, "sub", &[("b.txt", 5)]).await;
+        let r = o.upload(&v, &id, "b.txt", b"fresh").await;
+        assert_eq!(r.status(), StatusCode::CREATED);
+        assert_eq!(std::fs::read(v.root.join("sub/b.txt")).unwrap(), b"fresh");
+        let kept = kept.0.lock().unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].0.path.as_str(), "sub/b.txt");
+        assert_eq!(kept[0].1, VersionReason::Upload);
+        assert_eq!(kept[0].2, b"hello b");
+    }
+
+    #[tokio::test]
+    async fn upload_max_limits_the_upload_route_while_other_routes_keep_theirs() {
+        let v = vol(&[("DEPTHS_FILES_UPLOAD_MAX", "32768")]);
+        let mut o = owner(&v).await;
+        let p = o.preview(&v, "", &[("huge.bin", 32_769)]).await;
+        assert_eq!(p["data"]["kind"], "too_large", "{p}");
+
+        // 20 KiB is above MAX_BODY_BYTES and under upload_max.
+        let big = vec![7u8; 20 * 1024];
+        let id = o.confirmed(&v, "", &[("big.bin", big.len() as u64)]).await;
+        let r = o.upload(&v, &id, "big.bin", &big).await;
+        assert_eq!(r.status(), StatusCode::CREATED);
+        assert_eq!(std::fs::read(v.root.join("big.bin")).unwrap(), big);
+
+        let r = o.upload(&v, &id, "big.bin", &vec![7u8; 40_000]).await;
+        assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        let r =
+            v.a.send(
+                Request::post("/auth/refresh")
+                    .header(header::COOKIE, &o.cookie)
+                    .header(header::ORIGIN, ORIGIN)
+                    .header("x-csrf-token", &o.csrf)
+                    .header(header::CONTENT_LENGTH, big.len())
+                    .body(Body::from(big.clone()))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn a_folder_downloads_as_a_tar_named_after_it() {
+        let v = vol(&[]);
+        let cookie = v.a.sign_in(OWNER).await;
+        let r = v.a.get(&download_uri(&v.mount, "sub"), Some(&cookie)).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let h = r.headers().clone();
+        assert_eq!(h[header::CONTENT_TYPE], "application/x-tar");
+        assert_eq!(h[header::CACHE_CONTROL], "no-store");
+        assert_eq!(h["x-content-type-options"], "nosniff");
+        let disposition = h[header::CONTENT_DISPOSITION].to_str().unwrap();
+        assert!(disposition.starts_with("attachment;"), "{disposition}");
+        assert!(
+            disposition.contains("filename=\"sub.tar\""),
+            "{disposition}"
+        );
+        let tar = bytes(r).await;
+        assert_eq!(tar.len() % 512, 0, "a whole archive");
+        assert!(contains(&tar, b"sub/b.txt"));
+        assert!(contains(&tar, b"sub/deep/c.txt"));
+        assert!(contains(&tar, b"hello c"));
+
+        let downloads = audited(&v.a, AuditAction::FilesDownload);
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(downloads[0].file.as_ref().unwrap().bytes, Some(14));
+
+        // The mount root is named after the mount.
+        let r = v.a.get(&download_uri(&v.mount, ""), Some(&cookie)).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let disposition = r.headers()[header::CONTENT_DISPOSITION].to_str().unwrap();
+        assert!(
+            disposition.contains(&format!("\"{}.tar\"", volumes::VOLUME)),
+            "{disposition}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_download_above_download_max_is_413_with_its_size_and_audited() {
+        let v = vol(&[("DEPTHS_FILES_DOWNLOAD_MAX", "10")]);
+        let cookie = v.a.sign_in(OWNER).await;
+        std::fs::write(v.root.join("big.txt"), "x".repeat(11)).unwrap();
+        let r =
+            v.a.get(&download_uri(&v.mount, "big.txt"), Some(&cookie))
+                .await;
+        assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let j = json(r).await;
+        assert_eq!(j["kind"], "too_large", "{j}");
+        assert_eq!(j["bytes"], 11, "{j}");
+        let r = v.a.get(&download_uri(&v.mount, "sub"), Some(&cookie)).await;
+        assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let j = json(r).await;
+        assert_eq!(j["kind"], "too_large", "{j}");
+        assert!(j["bytes"].as_u64().unwrap() > 10, "{j}");
+
+        let downloads = audited(&v.a, AuditAction::FilesDownload);
+        assert_eq!(downloads.len(), 2, "{downloads:?}");
+        for e in &downloads {
+            assert!(
+                matches!(e.outcome, AuditOutcome::Failed { .. }),
+                "{:?}",
+                e.outcome
+            );
+            assert!(e.file.as_ref().unwrap().bytes.unwrap() > 10);
+        }
+    }
+
+    #[tokio::test]
+    async fn downloads_are_403_with_a_kind_for_no_access_a_restricted_network_and_files_off() {
+        let v = vol(&[]);
+        let owner = v.a.sign_in(OWNER).await;
+        let uri = download_uri(&v.mount, "a.txt");
+
+        let r = v.a.get_from(CAFE, &uri, Some(&owner)).await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json(r).await["kind"], "untrusted_network");
+
+        // Signed in with access to another stack only.
+        let other = v.a.sign_in("4242").await;
+        ws::grant(&v.a, "4242", &["minecraft"]);
+        let r = v.a.get(&uri, Some(&other)).await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json(r).await["kind"], "not_permitted");
+
+        let off = vol(&[("DEPTHS_FEATURE_FILES", "off")]);
+        let cookie = off.a.sign_in(OWNER).await;
+        let r = off
+            .a
+            .get(&download_uri(&off.mount, "a.txt"), Some(&cookie))
+            .await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json(r).await["kind"], "feature_disabled");
+    }
+
+    /// The resident set, from `/proc/self/statm`.
+    fn rss() -> u64 {
+        let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
+        let pages: u64 = statm.split_whitespace().nth(1).unwrap().parse().unwrap();
+        pages * 4096
+    }
+
+    /// SC-006: a 1 GiB download streams through at most 64 MiB of memory.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "slow: set DEPTHS_SLOW_TESTS=1 and run with --ignored"]
+    async fn a_one_gib_download_streams_in_bounded_memory() {
+        if std::env::var("DEPTHS_SLOW_TESTS").as_deref() != Ok("1") {
+            eprintln!("skipped: DEPTHS_SLOW_TESTS is not 1");
+            return;
+        }
+        const GIB: u64 = 1 << 30;
+        let v = vol(&[("DEPTHS_FILES_DOWNLOAD_MAX", "2GiB")]);
+        let f = std::fs::File::create(v.root.join("huge.bin")).unwrap();
+        f.set_len(GIB).unwrap();
+        let cookie = v.a.sign_in(OWNER).await;
+        let before = rss();
+        let r =
+            v.a.get(&download_uri(&v.mount, "huge.bin"), Some(&cookie))
+                .await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let mut body = r.into_body();
+        let (mut got, mut peak) = (0u64, before);
+        while let Some(frame) = body.frame().await {
+            if let Ok(data) = frame.unwrap().into_data() {
+                got += data.len() as u64;
+                peak = peak.max(rss());
+            }
+        }
+        assert_eq!(got, GIB);
+        let grew = peak.saturating_sub(before);
+        assert!(grew <= 64 << 20, "RSS grew by {} MiB", grew >> 20);
+    }
+}

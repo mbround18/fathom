@@ -311,11 +311,10 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
         Cmd::ListMounts { stack } => gate(who, stack_place(stack), Reply("Mounts")),
         Cmd::ListDir { stack, .. }
         | Cmd::ReadFile { stack, .. }
+        | Cmd::FolderSize { stack, .. }
         | Cmd::PreviewFileOp { stack, .. } => gate(who, stack_place(stack), Refused("missing")),
         // Placeholders until their handlers land.
-        Cmd::FolderSize { .. } | Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => {
-            Denied(FEATURE_DISABLED)
-        }
+        Cmd::ListHistory { .. } | Cmd::ReadVersion { .. } => Denied(FEATURE_DISABLED),
     }
 }
 
@@ -1164,6 +1163,11 @@ const ROUTES: &[Route] = &[
     },
     Route {
         kind: "post",
+        path: "/api/v1/stacks/{stack}/files/upload",
+        probe: "/api/v1/stacks/web/files/upload?preview=00000000-0000-4000-8000-000000000000&name=a.cfg",
+    },
+    Route {
+        kind: "post",
         path: "/auth/logout",
         probe: "/auth/logout",
     },
@@ -1234,6 +1238,11 @@ fn http_expected(route: &Route, v: Visitor) -> u16 {
             Visitor::SignedOut => 401,
             Visitor::Pending => 403,
             Visitor::User | Visitor::Admin => 404,
+        },
+        // No preview was confirmed: `not_confirmed`.
+        "/api/v1/stacks/{stack}/files/upload" => match v {
+            Visitor::SignedOut => 401,
+            Visitor::Pending | Visitor::User | Visitor::Admin => 403,
         },
         // A plain GET is not an upgrade; who you are is checked after the Hello.
         "/api/v1/ws" => 426,

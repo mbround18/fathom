@@ -20,8 +20,8 @@ use depths_protocol::{
     AuditAction, AuditFile, AuditOutcome, Browsable, CreateKind, DenyReason, EntryKind, Event,
     FileContent, FileOp, FilePreview, FileRefusal, FileVersion, Fingerprint, Mount, MountId,
     MountKind, MountService, MountState, Name, NotBrowsable, NotBrowsableCode, PreviewId,
-    PreviewVoidReason, RawName, RelPath, RuntimeContainerState, VersionId, VersionReason,
-    WriteBlocked,
+    PreviewVoidReason, RawName, RelPath, RuntimeContainerState, UploadFile, UploadTarget,
+    VersionId, VersionReason, WriteBlocked,
 };
 use depths_runtime_cli::helper::{HELPER_IDLE, ImageId, OneShot, PoolError, SystemClock};
 use depths_runtime_cli::{CliRuntime, CliVolumeHelper, HelperPool};
@@ -955,53 +955,75 @@ pub fn read_file(
     Ok(file)
 }
 
-/// A download on a helper of its own: the size and name, and the helper with the file's bytes
-/// waiting as Data… End.
+/// A download on a helper of its own: the helper with the bytes waiting as Data… End, what to
+/// call them, and their size (`None` for a folder's tar, which is made as it streams).
 pub struct Download {
     pub chan: OneShot,
-    pub size: u64,
+    pub size: Option<u64>,
     pub name: String,
+    pub content_type: &'static str,
 }
 
-/// Why a download did not start, for the HTTP status.
-pub enum NoDownload {
-    /// Refused and audited, as a WS command would be.
-    Refused(Box<Event>),
-    /// A folder: downloads of folders arrive with uploads (T050).
-    Folder,
-}
-
-/// Opens `path` for download, as its owner, on a one-shot helper; audited `files.download` with
-/// the size. Blocking.
+/// Opens `path` for download, as its owner, on a one-shot helper: a file as it is, a folder as a
+/// tar of everything in it. Audited `files.download` with the size; a download that failed once
+/// the mount was found is audited `files.download` failed. Blocking.
 pub fn open_download(
     app: &AppState,
     who: &Who,
     stack: &StackName,
     mount: &MountId,
     path: &RelPath,
-) -> Result<Download, NoDownload> {
+) -> Answer<Download> {
     const CMD: &str = "download";
-    let t = target(app, who, stack, mount, path, CommandKind::FilesRead, CMD)
-        .map_err(NoDownload::Refused)?;
-    let fail = |r: FileRefusal| {
-        NoDownload::Refused(Box::new(refuse(app, who, stack, CMD, Some(t.at(path)), r)))
+    let t = target(app, who, stack, mount, path, CommandKind::FilesRead, CMD)?;
+    let refused = |r: FileRefusal| Box::new(refuse(app, who, stack, CMD, Some(t.at(path)), r));
+    let owner = owner_of(app, &t, path).map_err(refused)?;
+    let fail = |r: FileRefusal, bytes: Option<u64>| {
+        failed(app, who, &t, path, AuditAction::FilesDownload, bytes, &r);
+        Box::new(Event::FileRefused(r))
     };
-    let owner = owner_of(app, &t, path).map_err(fail)?;
     let Some(pool) = app.files.pool() else {
-        return Err(fail(unavailable(app)));
+        return Err(fail(unavailable(app), None));
     };
     let mut chan = pool
         .one_shot(&spec(&t, owner, OpMode::ReadOnly))
-        .map_err(|e| fail(start_failed(app, &t, e)))?;
-    app.files.check_hello(chan.hello()).map_err(fail)?;
+        .map_err(|e| fail(start_failed(app, &t, e), None))?;
+    app.files
+        .check_hello(chan.hello())
+        .map_err(|r| fail(r, None))?;
     let max = app.cfg.files.download_max;
+    // The size, whether the bytes follow, and whether they are a folder's tar.
     let opened = (|| {
         let info = match recheck(&mut chan, path, owner)? {
             Ok(info) => info,
             Err(e) => return Ok(Err(e)),
         };
         if info.kind == EntryKind::Dir {
-            return Ok(Ok(None));
+            let size = Op::Size {
+                path: path.clone(),
+                raw_name: None,
+                cap: SizeCap {
+                    bytes: max,
+                    entries: u64::MAX,
+                },
+            };
+            let bytes = match ask(&mut chan, &size)? {
+                Ok(Reply::Size { bytes, capped, .. }) if capped || bytes > max => {
+                    return Ok(Ok((bytes.max(max.saturating_add(1)), false, true)));
+                }
+                Ok(Reply::Size { bytes, .. }) => bytes,
+                Ok(_) => return Err(unexpected("Size")),
+                Err(e) => return Ok(Err(e)),
+            };
+            let tar = Op::Tar {
+                path: path.clone(),
+                raw_name: None,
+            };
+            return match ask(&mut chan, &tar)? {
+                Ok(Reply::Tar) => Ok(Ok((bytes, true, true))),
+                Ok(_) => Err(unexpected("Tar")),
+                Err(e) => Ok(Err(e)),
+            };
         }
         let op = Op::Read {
             path: path.clone(),
@@ -1011,48 +1033,119 @@ pub fn open_download(
         match ask(&mut chan, &op)? {
             Ok(Reply::Content {
                 fingerprint, data, ..
-            }) => Ok(Ok(Some((fingerprint.size(), data)))),
+            }) => Ok(Ok((fingerprint.size(), data, false))),
             Ok(_) => Err(unexpected("Read")),
             Err(e) => Ok(Err(e)),
         }
     })();
-    let (size, data) = match opened {
-        Ok(Ok(Some(opened))) => opened,
-        Ok(Ok(None)) => {
-            chan.close();
-            return Err(NoDownload::Folder);
-        }
+    let (size, data, folder) = match opened {
+        Ok(Ok(opened)) => opened,
         Ok(Err(e)) => {
             chan.close();
-            return Err(fail(helper_refusal(app, &t, path, e)));
+            return Err(fail(helper_refusal(app, &t, path, e), None));
         }
         Err(e) => {
             chan.kill();
             tracing::warn!(error = %e, "volume helper failed");
-            return Err(fail(FileRefusal::HelperUnavailable {
+            let r = FileRefusal::HelperUnavailable {
                 reason: "the volume helper failed".into(),
-            }));
+            };
+            return Err(fail(r, None));
         }
     };
     if !data {
         chan.close();
-        return Err(fail(FileRefusal::TooLarge { bytes: Some(size) }));
+        return Err(fail(
+            FileRefusal::TooLarge { bytes: Some(size) },
+            Some(size),
+        ));
     }
+    audit_done(app, who, &t, path, AuditAction::FilesDownload, Some(size));
+    if !folder {
+        return Ok(Download {
+            chan,
+            size: Some(size),
+            name: path.file_name().unwrap_or("download").to_owned(),
+            content_type: "application/octet-stream",
+        });
+    }
+    let base = match path.file_name() {
+        Some(name) => name,
+        None => t
+            .mount
+            .source
+            .rsplit('/')
+            .find(|part| !part.is_empty())
+            .unwrap_or("mount"),
+    };
+    Ok(Download {
+        chan,
+        size: None,
+        name: format!("{base}.tar"),
+        content_type: "application/x-tar",
+    })
+}
+
+/// `FolderSize`: the bytes and entries beneath `path`, walked as its owner and counted up to the
+/// download limit. Blocking.
+pub fn folder_size(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: &MountId,
+    path: &RelPath,
+) -> Answer<(u64, u64, bool)> {
+    const CMD: &str = "FolderSize";
+    let t = target(app, who, stack, mount, path, CommandKind::FilesRead, CMD)?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, CMD, Some(t.at(path)), r));
+    let owner = owner_of(app, &t, path).map_err(fail)?;
+    let max = app.cfg.files.download_max;
+    let asked = on_helper(app, &t, owner, |chan| {
+        let op = Op::Size {
+            path: path.clone(),
+            raw_name: None,
+            cap: SizeCap {
+                bytes: max,
+                entries: u64::MAX,
+            },
+        };
+        match ask(chan, &op)? {
+            Ok(Reply::Size {
+                bytes,
+                entries,
+                capped,
+            }) => Ok(Ok((bytes, entries, capped))),
+            Ok(_) => Err(unexpected("Size")),
+            Err(e) => Ok(Err(e)),
+        }
+    });
+    settle(app, &t, path, asked).map_err(fail)
+}
+
+/// A transfer that failed once its mount was found: audited as the transfer, failed, with the
+/// size it would have moved.
+fn failed(
+    app: &AppState,
+    who: &Who,
+    t: &Target<'_>,
+    path: &RelPath,
+    action: AuditAction,
+    bytes: Option<u64>,
+    r: &FileRefusal,
+) {
     let mut place = place(&t.mount, path);
-    place.bytes = Some(size);
+    place.bytes = bytes;
     let _ = app.audit.record(&audit::file(
         who.actor.clone(),
         who.ip,
-        AuditAction::FilesDownload,
-        stack.as_str(),
+        action,
+        t.stack.as_str(),
         place,
-        AuditOutcome::Succeeded,
+        AuditOutcome::Failed {
+            exit_code: None,
+            stderr_tail: refusal_code(r),
+        },
     ));
-    Ok(Download {
-        chan,
-        size,
-        name: path.file_name().unwrap_or("download").to_owned(),
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1160,13 +1253,36 @@ enum Change {
         folder: bool,
         size: Option<u64>,
     },
+    /// Files into folder `dir`: the bytes follow as one POST per file once it is confirmed.
+    Upload {
+        mount: MountId,
+        dir: RelPath,
+        slots: Vec<Slot>,
+    },
+}
+
+/// One file of a confirmed upload: the size its POST must carry, the fingerprint of the file it
+/// replaces, and whether its POST came.
+#[derive(Clone)]
+struct Slot {
+    name: Name,
+    size: u64,
+    replace: Option<Fingerprint>,
+    accepted: bool,
 }
 
 impl Change {
     /// An upload stays after its confirm: the POSTs that follow carry its id.
     fn is_upload(&self) -> bool {
-        false
+        matches!(self, Self::Upload { .. })
     }
+}
+
+/// What a claimed upload POST writes: where, and over which file.
+struct Claimed {
+    mount: MountId,
+    dir: RelPath,
+    replace: Option<Fingerprint>,
 }
 
 /// `Save` and `Restore`: new content for `path`, over `base` (`None`: the file is gone, so it
@@ -1234,6 +1350,38 @@ impl Files {
         p.used |= claim;
         Ok((p.stack.clone(), p.change.clone()))
     }
+
+    /// Claims file `name` of `session`'s confirmed upload `id` into `stack`, once, for a body of
+    /// `size` bytes. `None` for anything else: not confirmed, expired, another file or size.
+    fn claim_upload(
+        &self,
+        session: &str,
+        id: PreviewId,
+        stack: &StackName,
+        name: &Name,
+        size: u64,
+    ) -> Option<Claimed> {
+        let mut previews = self.previews.lock().unwrap();
+        let p = previews
+            .get_mut(&id)
+            .filter(|p| p.session == session && p.used && &p.stack == stack)?;
+        if p.expires <= Instant::now() {
+            previews.remove(&id);
+            return None;
+        }
+        let Change::Upload { mount, dir, slots } = &mut p.change else {
+            return None;
+        };
+        let slot = slots
+            .iter_mut()
+            .find(|s| &s.name == name && !s.accepted && s.size == size)?;
+        slot.accepted = true;
+        Some(Claimed {
+            mount: mount.clone(),
+            dir: dir.clone(),
+            replace: slot.replace,
+        })
+    }
 }
 
 /// `PreviewFileOp`: what the change would do, checked as far as it can be without writing.
@@ -1263,7 +1411,8 @@ pub fn preview(app: &AppState, who: &Who, stack: &StackName, op: FileOp) -> Answ
             path,
             raw_name,
         } => preview_delete(app, who, stack, mount, path, raw_name),
-        _ => {
+        FileOp::Upload { mount, dir, files } => preview_upload(app, who, stack, mount, dir, files),
+        FileOp::Restore { .. } => {
             gate(app, who, stack, CommandKind::FilesWrite, PREVIEW, None)?;
             Err(Box::new(refuse(
                 app,
@@ -1404,6 +1553,19 @@ pub fn confirm(app: &AppState, who: &Who, id: PreviewId) -> Answer<Event> {
             folder,
             size,
         } => delete(app, who, &stack, id, &mount, &path, raw_name, folder, size),
+        Change::Upload { mount, dir, .. } => {
+            // Nothing is written yet: each file's POST writes it.
+            let t = target(
+                app,
+                who,
+                &stack,
+                &mount,
+                &dir,
+                CommandKind::FilesWrite,
+                CONFIRM,
+            )?;
+            Ok(done(id, &t, dir, None))
+        }
     }
 }
 
@@ -1611,6 +1773,192 @@ fn preview_delete(
     Ok(p)
 }
 
+// ---------------------------------------------------------------------------
+// Uploads (US3)
+// ---------------------------------------------------------------------------
+
+/// `Upload` preview: every file, each checked against what is in `dir` now; a file it would
+/// replace is named with the fingerprint its POST must still find. Nothing is written.
+fn preview_upload(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    mount: MountId,
+    dir: RelPath,
+    files: Vec<UploadFile>,
+) -> Answer<FilePreview> {
+    let t = target(
+        app,
+        who,
+        stack,
+        &mount,
+        &dir,
+        CommandKind::FilesWrite,
+        PREVIEW,
+    )?;
+    let fail = |r: FileRefusal| Box::new(refuse(app, who, stack, PREVIEW, Some(t.at(&dir)), r));
+    let mut names = std::collections::HashSet::new();
+    if files.is_empty() || !files.iter().all(|f| names.insert(f.name.as_str())) {
+        return Err(fail(FileRefusal::InvalidName));
+    }
+    let max = app.cfg.files.upload_max;
+    if let Some(big) = files.iter().find(|f| f.size > max) {
+        return Err(fail(FileRefusal::TooLarge {
+            bytes: Some(big.size),
+        }));
+    }
+    let owner = owner_of(app, &t, &dir).map_err(fail)?;
+    let mut uploads = Vec::with_capacity(files.len());
+    let mut slots = Vec::with_capacity(files.len());
+    for f in files {
+        let path = joined(app, who, &t, &dir, &f.name, PREVIEW)?;
+        let fail =
+            |r: FileRefusal| Box::new(refuse(app, who, stack, PREVIEW, Some(t.at(&path)), r));
+        let fingerprint = match look_as(app, &t, &path, None, owner, true).map_err(fail)? {
+            None => None,
+            Some(info) if info.kind == EntryKind::File => {
+                let Some(fp) = info.fingerprint else {
+                    return Err(fail(FileRefusal::HelperUnavailable {
+                        reason: "the volume helper sent no fingerprint".into(),
+                    }));
+                };
+                Some(fp)
+            }
+            Some(_) => return Err(fail(FileRefusal::Exists)),
+        };
+        uploads.push(UploadTarget {
+            name: f.name.clone(),
+            size: f.size,
+            exists: fingerprint.is_some(),
+            fingerprint,
+        });
+        slots.push(Slot {
+            name: f.name,
+            size: f.size,
+            replace: fingerprint,
+            accepted: false,
+        });
+    }
+    let listed: Vec<String> = uploads
+        .iter()
+        .map(|u| {
+            if u.exists {
+                format!("{} (replaces)", u.name.as_str())
+            } else {
+                u.name.as_str().to_owned()
+            }
+        })
+        .collect();
+    let into = if dir.is_root() {
+        "the mount root".to_owned()
+    } else {
+        dir.to_string()
+    };
+    let n = uploads.len();
+    let summary = format!(
+        "Upload {n} file{} to {into}: {}",
+        if n == 1 { "" } else { "s" },
+        listed.join(", ")
+    );
+    let change = Change::Upload {
+        mount,
+        dir: dir.clone(),
+        slots,
+    };
+    let mut p = bound(app, who, &t, change, summary).map_err(fail)?;
+    p.uploads = uploads;
+    Ok(p)
+}
+
+/// One chunk of an upload's body as the client sends it; `Err` when the client broke off.
+pub type Chunk = Result<Vec<u8>, ()>;
+
+/// One upload POST: file `name` of confirmed upload `id`, `len` bytes read from `next` as they
+/// arrive and written by a read-write helper of its own as the file's owner (the folder's, for a
+/// new file). Each file of the preview is accepted once, with the size it was previewed with.
+/// Audited `files.upload` with the size, failed too once its mount was found; a replaced file's
+/// content goes to history. Blocking.
+pub fn upload(
+    app: &AppState,
+    who: &Who,
+    stack: &StackName,
+    id: PreviewId,
+    name: &Name,
+    len: u64,
+    next: &mut dyn FnMut() -> Option<Chunk>,
+) -> Answer<Fingerprint> {
+    const CMD: &str = "upload";
+    gate(app, who, stack, CommandKind::FilesWrite, CMD, None)?;
+    let early = |r: FileRefusal| Box::new(refuse(app, who, stack, CMD, None, r));
+    if len > app.cfg.files.upload_max {
+        return Err(early(FileRefusal::TooLarge { bytes: Some(len) }));
+    }
+    let Some(c) = app.files.claim_upload(&who.session, id, stack, name, len) else {
+        return Err(early(FileRefusal::NotConfirmed));
+    };
+    let t = target(
+        app,
+        who,
+        stack,
+        &c.mount,
+        &c.dir,
+        CommandKind::FilesWrite,
+        CMD,
+    )?;
+    let path = joined(app, who, &t, &c.dir, name, CMD)?;
+    let fail = |r: FileRefusal| {
+        failed(app, who, &t, &path, AuditAction::FilesUpload, Some(len), &r);
+        Box::new(Event::FileRefused(r))
+    };
+    let owner = match c.replace {
+        Some(_) => owner_of(app, &t, &path),
+        None => owner_of(app, &t, &c.dir),
+    }
+    .map_err(fail)?;
+    let op = Op::Put {
+        dir: c.dir.clone(),
+        name: name.clone(),
+        replace: c.replace,
+    };
+    let written = once(app, &t, owner, |chan| stream_data(chan, &op, len, next));
+    let (fingerprint, prior) = settle(app, &t, &path, written).map_err(fail)?;
+    audit_done(app, who, &t, &path, AuditAction::FilesUpload, Some(len));
+    keep(app, who, &t, &path, VersionReason::Upload, prior);
+    Ok(fingerprint)
+}
+
+/// Sends `op`, then the body from `next` as Data… End, then reads what [`written`] reads. A body
+/// that is not exactly `len` bytes, or that broke off, breaks the channel, so the helper is
+/// killed and nothing is written.
+fn stream_data(
+    chan: &mut HelperChannel,
+    op: &Op,
+    len: u64,
+    next: &mut dyn FnMut() -> Option<Chunk>,
+) -> Wrote {
+    chan.send(&Frame::json(FrameKind::Op, op)?)?;
+    let mut sent = 0u64;
+    while let Some(chunk) = next() {
+        let chunk = chunk.map_err(|()| broken("the upload broke off"))?;
+        sent += chunk.len() as u64;
+        if sent > len {
+            return Err(broken("the upload is longer than its preview"));
+        }
+        for part in chunk.chunks(DATA_CHUNK) {
+            chan.send(&Frame::data(part.to_vec()))?;
+        }
+    }
+    if sent != len {
+        return Err(broken("the upload is shorter than its preview"));
+    }
+    chan.send(&Frame::end())?;
+    written(chan)
+}
+
+fn broken(what: &str) -> ChannelError {
+    ChannelError::Protocol(FrameError::Io(std::io::Error::other(what.to_owned())))
+}
+
 /// `name` in `parent`, or `invalid_name` (audited) when they do not make a path.
 fn joined(
     app: &AppState,
@@ -1688,11 +2036,23 @@ fn look(
     raw: Option<&RawName>,
     owner: (u32, u32),
 ) -> Result<Option<StatInfo>, FileRefusal> {
+    look_as(app, t, path, raw, owner, false)
+}
+
+/// [`look`], with a regular file's fingerprint when `hash`.
+fn look_as(
+    app: &AppState,
+    t: &Target<'_>,
+    path: &RelPath,
+    raw: Option<&RawName>,
+    owner: (u32, u32),
+    hash: bool,
+) -> Result<Option<StatInfo>, FileRefusal> {
     let asked = on_helper(app, t, owner, |chan| {
         let op = Op::Stat {
             path: path.clone(),
             raw_name: raw.cloned(),
-            hash: false,
+            hash,
         };
         match ask(chan, &op)? {
             Ok(Reply::Stat(info)) => Ok(Ok(Some(info))),
