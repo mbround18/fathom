@@ -28,17 +28,17 @@ import {
 } from 'react'
 
 import { useReload } from '@/components/shell/use-reload'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import {
   connectionProblemCopy,
   kubeconfigIssueCopy,
   pickCopy,
   reloadOutcome,
 } from '@/lib/first-run'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { SECTION } from '@/protocol/commands'
 import { useStore } from '@/store'
-import { CircuitTrace } from '@/theme/CircuitTrace'
+import { CircuitTrace } from '@companion/theme'
 
 import type { SetupState } from './setup-state'
 import { SetupSignIn } from './SetupSignIn'

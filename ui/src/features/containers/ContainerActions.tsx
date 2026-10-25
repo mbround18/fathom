@@ -11,7 +11,7 @@
  * operator did not need to see. Kill stays available whenever the container is up: it is the verb
  * for a container that is ignoring Stop, which is the case this feature was asked for.
  */
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { Container, LifecycleAction } from '@/protocol/types'
 import { useStore } from '@/store'
 

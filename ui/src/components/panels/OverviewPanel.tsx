@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { StatusBadge } from '@/components/StatusBadge'
 import { FirstRunState } from '@/components/shell/FirstRunState'
-import { Disconnected, Empty } from '@/components/shell/PaneStates'
+import { Disconnected, Empty } from '@companion/terminal'
 import { useFirstRun } from '@/lib/use-first-run'
 import { SECTION } from '@/protocol/commands'
 import type { NodeSummary, PodSummary, WorkloadSummary } from '@/protocol/types'

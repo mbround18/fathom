@@ -9,13 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@companion/ui'
 import type { ManifestObjectRef } from '@/protocol/types'
 import { useStore } from '@/store'
 

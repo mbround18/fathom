@@ -1,24 +1,25 @@
 //! Hosted audit log (spec 031, T048/T050): one append-only JSONL file shared by every user's
 //! backend, each entry attributed to the signed-in user who made the change.
 //!
+//! A wrapper (spec 050, T019) over the shared [`audit_log::AuditLog`], which does the writing,
+//! reading, permissions and retention:
+//!
 //! - `<state_dir>/audit/audit-log.jsonl`, directory `0700`, file `0600` (Unix).
 //! - One writer mutex for the whole process: every [`UserBackend`](crate::tenant::UserBackend)
 //!   holds a clone of the same [`HostedAuditSink`], so concurrent appends never interleave.
 //! - Every entry is mirrored to `tracing` (target `fathom::audit`) so a log shipper keeps a
 //!   copy outside the pod even with an `emptyDir` state directory.
-//! - Retention: once the file holds more than twice the configured bound it is compacted to
-//!   the newest `retention` entries (write to a temp file, then rename).
+//! - Retention: [`Retention::CompactAfter`]`(retention)`: once the file holds more than twice
+//!   the configured bound it is compacted to the newest `retention` entries.
 //! - Corruption tolerance: unparseable lines (e.g. a torn write after a crash) are skipped on
 //!   read, and an append after a torn line starts on a fresh line.
 //! - Read path: an ordinary user sees only entries whose `actor.sub` is their own; members of
 //!   `audit_viewer_groups` see every entry. There is no edit or delete operation.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use audit_log::{AuditLog, AuditOptions, Retention};
 use fathom::backend::access::Identity;
 use fathom::backend::audit_log::AuditSink;
 use fathom::protocol::{AuditActionSummary, AuditActor, AuditLogEntry, AuditOutcome};
@@ -27,15 +28,12 @@ use fathom::protocol::{AuditActionSummary, AuditActor, AuditLogEntry, AuditOutco
 pub const DEFAULT_AUDIT_RETENTION: usize = 10_000;
 
 /// File name under `<state_dir>/audit/`.
-pub const AUDIT_FILE: &str = "audit-log.jsonl";
+pub const AUDIT_FILE: &str = audit_log::AUDIT_FILE;
 
 /// The shared, attributed audit sink of a hosted server process.
 pub struct HostedAuditSink {
-    path: PathBuf,
-    retention: usize,
+    log: AuditLog<AuditLogEntry>,
     viewer_groups: Vec<String>,
-    /// Single writer; also serializes reads against compaction. Holds the line count.
-    lines: Mutex<Option<usize>>,
 }
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -50,25 +48,28 @@ fn next_id() -> String {
 impl HostedAuditSink {
     /// The sink for a server whose state directory is `state_dir`.
     pub fn new(state_dir: &Path, retention: usize, viewer_groups: Vec<String>) -> Self {
-        Self::at(
-            state_dir.join("audit").join(AUDIT_FILE),
-            retention,
-            viewer_groups,
-        )
+        Self::in_dir(state_dir.join("audit"), retention, viewer_groups)
     }
 
-    /// The sink writing exactly `path` (tests).
+    /// The sink writing exactly `path` (tests). Its file name must be [`AUDIT_FILE`].
     pub fn at(path: PathBuf, retention: usize, viewer_groups: Vec<String>) -> Self {
+        debug_assert_eq!(path.file_name().and_then(|n| n.to_str()), Some(AUDIT_FILE));
+        let dir = path.parent().map(Path::to_owned).unwrap_or_default();
+        Self::in_dir(dir, retention, viewer_groups)
+    }
+
+    fn in_dir(dir: PathBuf, retention: usize, viewer_groups: Vec<String>) -> Self {
         Self {
-            path,
-            retention: retention.max(1),
+            log: AuditLog::new(AuditOptions {
+                dir,
+                retention: Retention::CompactAfter(retention),
+            }),
             viewer_groups,
-            lines: Mutex::new(None),
         }
     }
 
     pub fn path(&self) -> &Path {
-        &self.path
+        self.log.path()
     }
 
     /// Whether `viewer` may see every user's entries.
@@ -81,31 +82,15 @@ impl HostedAuditSink {
 
     /// Append one entry. Errors are returned for tests; [`AuditSink::record`] only logs them.
     pub fn append(&self, entry: &AuditLogEntry) -> std::io::Result<()> {
-        let mut line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
-        line.push('\n');
-        let mut lines = self.lines.lock().unwrap_or_else(|e| e.into_inner());
-        let mut file = self.open_append()?;
-        if needs_leading_newline(&mut file)? {
-            line.insert(0, '\n');
-        }
-        // One write of the whole line on an `O_APPEND` descriptor.
-        file.write_all(line.as_bytes())?;
-        file.flush()?;
-        let count = match *lines {
-            Some(n) => n + 1,
-            None => count_lines(&self.path)?,
-        };
-        *lines = Some(count);
-        if count > self.retention.saturating_mul(2) {
-            *lines = Some(self.compact()?);
-        }
-        Ok(())
+        self.log.append(entry)
     }
 
     /// Every readable entry, oldest first. Unparseable lines are skipped.
     pub fn read_all(&self) -> Vec<AuditLogEntry> {
-        let _guard = self.lines.lock().unwrap_or_else(|e| e.into_inner());
-        read_entries(&self.path)
+        self.log.all().unwrap_or_else(|e| {
+            tracing::warn!("failed to read hosted audit log: {e}");
+            Vec::new()
+        })
     }
 
     /// The entries `viewer` may see (T050). No viewer means no hosted user: nothing.
@@ -121,106 +106,6 @@ impl HostedAuditSink {
             .filter(|e| e.actor.as_ref().is_some_and(|a| a.sub == viewer.sub))
             .collect()
     }
-
-    fn open_append(&self) -> std::io::Result<File> {
-        if let Some(dir) = self.path.parent() {
-            create_private_dir(dir)?;
-        }
-        let mut opts = OpenOptions::new();
-        opts.create(true).append(true).read(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        opts.open(&self.path)
-    }
-
-    /// Keep the newest `retention` entries. Caller holds the writer mutex.
-    fn compact(&self) -> std::io::Result<usize> {
-        let entries = read_entries(&self.path);
-        let keep = &entries[entries.len().saturating_sub(self.retention)..];
-        let tmp = self.path.with_extension("jsonl.tmp");
-        {
-            let mut opts = OpenOptions::new();
-            opts.create(true).write(true).truncate(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                opts.mode(0o600);
-            }
-            let mut f = opts.open(&tmp)?;
-            for e in keep {
-                let mut line = serde_json::to_string(e).map_err(std::io::Error::other)?;
-                line.push('\n');
-                f.write_all(line.as_bytes())?;
-            }
-            f.sync_all()?;
-        }
-        fs::rename(&tmp, &self.path)?;
-        Ok(keep.len())
-    }
-}
-
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-    }
-    #[cfg(not(unix))]
-    {
-        fs::create_dir_all(dir)
-    }
-}
-
-/// True when the file is non-empty and does not end in `\n` (a torn previous write).
-fn needs_leading_newline(file: &mut File) -> std::io::Result<bool> {
-    let len = file.metadata()?.len();
-    if len == 0 {
-        return Ok(false);
-    }
-    file.seek(SeekFrom::Start(len - 1))?;
-    let mut last = [0u8; 1];
-    file.read_exact(&mut last)?;
-    Ok(last[0] != b'\n')
-}
-
-fn count_lines(path: &Path) -> std::io::Result<usize> {
-    let f = File::open(path)?;
-    Ok(BufReader::new(f)
-        .split(b'\n')
-        .filter(|l| l.as_ref().is_ok_and(|l| !l.is_empty()))
-        .count())
-}
-
-fn read_entries(path: &Path) -> Vec<AuditLogEntry> {
-    let Ok(f) = File::open(path) else {
-        return Vec::new();
-    };
-    let mut skipped = 0usize;
-    let entries: Vec<AuditLogEntry> = BufReader::new(f)
-        .split(b'\n')
-        .filter_map(Result::ok)
-        .filter(|l| !l.iter().all(u8::is_ascii_whitespace))
-        .filter_map(|l| match serde_json::from_slice(&l) {
-            Ok(e) => Some(e),
-            Err(_) => {
-                skipped += 1;
-                None
-            }
-        })
-        .collect();
-    if skipped > 0 {
-        tracing::warn!(
-            "audit log {}: skipped {skipped} unreadable line(s)",
-            path.display()
-        );
-    }
-    entries
 }
 
 impl AuditSink for HostedAuditSink {
@@ -279,6 +164,7 @@ impl AuditSink for HostedAuditSink {
 mod tests {
     use super::*;
     use fathom::protocol::AuditActionKind;
+    use std::fs;
     use std::sync::Arc;
 
     fn tmp(name: &str) -> PathBuf {

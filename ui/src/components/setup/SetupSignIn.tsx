@@ -5,7 +5,7 @@
  */
 import { ArrowRightIcon, SignInIcon } from '@phosphor-icons/react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { SignInSettings } from '@/features/identity/SignInSettings'
 import { useStore } from '@/store'
 

@@ -1,0 +1,244 @@
+/*
+ * Neon-noir terminal theme tokens (contracts/theme.md, research R8).
+ *
+ * Variants:
+ *   :root                          light "blueprint" (navy ink on pale paper)
+ *   .dark                          neon-noir, the default (abyssal navy + neon)
+ *   [data-accent="cyan"|"magenta"] accent swap; cyan is the default
+ *
+ * Values are OKLCH equivalents of the hex design intent in the contract. Only lightness may be
+ * tuned to pass tests/unit/contrast.test.ts (SC-008); hue stays fixed. Tuned values carry a
+ * comment with the original intent.
+ *
+ * Derived tokens (--primary, --ring, --glow, ...) reference --accent-neon, so an accent swap only
+ * has to redefine the two neon tokens.
+ */
+
+/* ------------------------------------------------------------------ light / blueprint */
+:root {
+  color-scheme: light;
+
+  --background: oklch(95.88% 0.0138 272.69); /* #eef1fb */
+  --foreground: oklch(19.12% 0.0637 272.24); /* #0b1030 */
+  --card: oklch(100% 0 0); /* #ffffff */
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+
+  --muted: oklch(92.5% 0.02 272.69);
+  --muted-foreground: oklch(45.92% 0.0717 272.36); /* #4a5580 */
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--muted);
+  --accent-foreground: var(--foreground);
+
+  --accent-neon: oklch(48.43% 0.0874 218.72); /* #006a80 teal ink */
+  --accent-2: oklch(48.1% 0.1995 340.59); /* #a0107f magenta ink */
+
+  --primary: var(--accent-neon);
+  --primary-foreground: oklch(100% 0 0); /* #ffffff */
+  --ring: var(--accent-neon);
+
+  --border: oklch(19.12% 0.0637 272.24); /* #0b1030 */
+  --control-border: var(--border); /* already opaque here: 14.86:1 on --muted, its worst surface */
+  --input: var(--control-border);
+
+  --destructive: oklch(47.97% 0.1923 18.46); /* #b00030 */
+  --status-ok: oklch(51.28% 0.11 163.56); /* #007a55 */
+  --status-warn: oklch(50.78% 0.108 73.3); /* #8a5a00 */
+  --status-err: oklch(47.97% 0.1923 18.46); /* #b00030 */
+
+  --chart-1: var(--accent-neon);
+  --chart-2: var(--accent-2);
+  --chart-3: oklch(49% 0.2104 284); /* #5a3fd0 violet ink */
+  --chart-4: oklch(51.28% 0.11 163.56); /* #007a55 mint ink */
+  --chart-5: oklch(50.78% 0.108 73.3); /* #8a5a00 amber ink */
+
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+
+  --radius: 0;
+
+  --glow: none;
+  --scanline-opacity: 0;
+  --grain-opacity: 0.03;
+
+  /* Density defaults (phone-first); useWidthClass() overrides per width class. */
+  --row-height: 44px;
+  --touch-target: 44px;
+  --font-size-base: 15px;
+
+  /* Log colour (ANSI SGR): the 16 named colours, each AA text on background and card. In the
+     light theme "white" reads as a dark grey, as light terminal themes do. RGB colours from a
+     log are clamped to the lightness band below so they stay readable. */
+  --ansi-black: #1f2433;
+  --ansi-red: #b00030;
+  --ansi-green: #1d6b2a;
+  --ansi-yellow: #7a5200;
+  --ansi-blue: #1f4fbf;
+  --ansi-magenta: #8f2a9e;
+  --ansi-cyan: #00677a;
+  --ansi-white: #4a5580;
+  --ansi-bright-black: #4f5670;
+  --ansi-bright-red: #c0123c;
+  --ansi-bright-green: #24722f;
+  --ansi-bright-yellow: #845a00;
+  --ansi-bright-blue: #2d5cd0;
+  --ansi-bright-magenta: #9d34ad;
+  --ansi-bright-cyan: #006f84;
+  --ansi-bright-white: #0b1030;
+  --ansi-l-min: 0;
+  --ansi-l-max: 0.5;
+}
+
+:root:not(.dark)[data-accent='magenta'] {
+  --accent-neon: oklch(48.1% 0.1995 340.59); /* #a0107f */
+  --accent-2: oklch(48.43% 0.0874 218.72); /* #006a80 */
+}
+
+/* ------------------------------------------------------------------ dark / neon-noir */
+.dark {
+  color-scheme: dark;
+
+  --background: oklch(15.45% 0.0329 270.1); /* #070b1a abyssal navy */
+  --foreground: oklch(95.29% 0.0354 216.55); /* #d6f6ff ice */
+  --card: oklch(19% 0.0455 270.14); /* #0c1228 */
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+
+  --muted: oklch(23.5% 0.05 270.14);
+  --muted-foreground: oklch(69.52% 0.0695 267.64); /* #8a9cc9 */
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--muted);
+  --accent-foreground: var(--foreground);
+
+  --accent-neon: oklch(88.02% 0.1385 202.41); /* #3ef2ff neon cyan */
+  --accent-2: oklch(69.08% 0.2823 338.07); /* #ff2bd6 hot magenta */
+
+  --primary: var(--accent-neon);
+  --primary-foreground: var(--background); /* #070b1a: inverse video */
+  --ring: var(--accent-neon);
+
+  /* Intent #8b6cff @ 55% (L 63.61%) composites to only 2.36:1 on navy. SC-008 tuning: L raised to
+     74% at the same hue; chroma is the in-gamut maximum at that lightness (what browsers render). */
+  --border: oklch(74% 0.1431 288.73 / 55%);
+
+  /* Decorative seams may use --border and may thin it further with an alpha modifier. A boundary
+     that is the only thing identifying a control may not: Tailwind's /NN multiplies with the 55%
+     above, so border-border/60 renders at 1.90:1 against --card, under the 3:1 SC 1.4.11 floor.
+     This token is opaque so a modifier cannot thin it, at the quietest lightness that still clears
+     3:1 on every dark surface: 3.85:1 on --card, 4.42:1 on --background, 3.78:1 on --muted. */
+  --control-border: oklch(58% 0.1122 288.73); /* #786eb8 */
+  --input: var(--control-border);
+
+  --destructive: oklch(67.85% 0.2131 14.72); /* #ff4d6d */
+  --status-ok: oklch(88.82% 0.1869 160.56); /* #39ffb0 */
+  --status-warn: oklch(87.89% 0.1617 90.94); /* #ffd23f */
+  --status-err: oklch(67.85% 0.2131 14.72); /* #ff4d6d */
+
+  --chart-1: oklch(88.02% 0.1385 202.41); /* cyan */
+  --chart-2: oklch(69.08% 0.2823 338.07); /* magenta */
+  --chart-3: oklch(63.61% 0.2091 288.73); /* violet #8b6cff */
+  --chart-4: oklch(88.82% 0.1869 160.56); /* mint #39ffb0 */
+  --chart-5: oklch(87.89% 0.1617 90.94); /* amber #ffd23f */
+
+  --glow: 0 0 6px color-mix(in oklch, var(--accent-neon) 55%, transparent);
+  --scanline-opacity: 0.05;
+  --grain-opacity: 0.06;
+
+  /* Log colour (ANSI SGR) for the dark theme; "black" reads as a dim grey. */
+  --ansi-black: #7d869e;
+  --ansi-red: #ff5c7a;
+  --ansi-green: #4ade80;
+  --ansi-yellow: #facc15;
+  --ansi-blue: #6ea8ff;
+  --ansi-magenta: #e879f9;
+  --ansi-cyan: #22d3ee;
+  --ansi-white: #c8d3e6;
+  --ansi-bright-black: #9aa3b8;
+  --ansi-bright-red: #ff8095;
+  --ansi-bright-green: #86efac;
+  --ansi-bright-yellow: #fde047;
+  --ansi-bright-blue: #93c5fd;
+  --ansi-bright-magenta: #f0abfc;
+  --ansi-bright-cyan: #67e8f9;
+  --ansi-bright-white: #ffffff;
+  --ansi-l-min: 0.7;
+  --ansi-l-max: 1;
+}
+
+.dark[data-accent='magenta'] {
+  --accent-neon: oklch(69.08% 0.2823 338.07); /* #ff2bd6 */
+  --accent-2: oklch(88.02% 0.1385 202.41); /* #3ef2ff */
+}
+
+/* ------------------------------------------------------------------ Tailwind v4 mapping */
+@theme inline {
+  --font-mono:
+    'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --font-sans:
+    'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --font-display: 'Chakra Petch', 'JetBrains Mono', ui-monospace, monospace;
+  --font-heading: var(--font-display);
+  --font-brand: 'Yuji Boku', 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-control-border: var(--control-border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-accent-neon: var(--accent-neon);
+  --color-accent-2: var(--accent-2);
+  --color-status-ok: var(--status-ok);
+  --color-status-warn: var(--status-warn);
+  --color-status-err: var(--status-err);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius);
+
+  --shadow-glow: var(--glow);
+  --text-shadow-glow: var(--glow);
+}

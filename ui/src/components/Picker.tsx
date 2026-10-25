@@ -12,15 +12,13 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from '@/components/ui/command'
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { cn } from '@/lib/utils'
+} from '@companion/ui'
+import { cn } from '@companion/theme'
 
 export const SEARCH_THRESHOLD = 10
 

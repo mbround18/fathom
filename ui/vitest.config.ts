@@ -28,7 +28,8 @@ export default defineConfig({
     pool: 'forks',
     ...(WORKERS === undefined ? {} : { maxWorkers: WORKERS }),
     setupFiles: ['./tests/unit/setup.ts'],
-    include: ['tests/unit/**/*.test.{ts,tsx}'],
+    // The theme package's contrast suite guards Fathom's own class names too (it scans ui/src).
+    include: ['tests/unit/**/*.test.{ts,tsx}', '../packages/theme/tests/**/*.test.{ts,tsx}'],
     css: false,
     restoreMocks: true,
   },

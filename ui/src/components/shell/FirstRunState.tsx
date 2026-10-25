@@ -17,7 +17,7 @@ import {
   PlugsIcon,
   PlusIcon,
 } from '@phosphor-icons/react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import {
   connectionProblemCopy,
   kubeconfigIssueCopy,
@@ -29,7 +29,7 @@ import {
 import { SECTION } from '@/protocol/commands'
 import { useStore } from '@/store'
 
-import { StateFrame } from './PaneStates'
+import { StateFrame } from '@companion/terminal'
 import { useReload } from './use-reload'
 
 /** More than this many contexts are left to the header's context picker. */

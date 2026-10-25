@@ -6,7 +6,7 @@
 import type { Icon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 export interface SummaryTile {
   label: string

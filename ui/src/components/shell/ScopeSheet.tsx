@@ -6,13 +6,7 @@ import { CaretDownIcon } from '@phosphor-icons/react'
 
 import { ContextPicker } from '@/components/ContextPicker'
 import { NamespacePicker } from '@/components/NamespacePicker'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@companion/ui'
 import { useStore } from '@/store'
 
 export function ScopeChip() {

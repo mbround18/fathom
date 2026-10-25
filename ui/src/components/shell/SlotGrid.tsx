@@ -2,9 +2,16 @@ import { Fragment, useCallback, useEffect, useState } from 'react'
 import { type Layout, type LayoutChangedMeta, useGroupRef } from 'react-resizable-panels'
 import { useShallow } from 'zustand/react/shallow'
 
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
-import { ScrollFade } from '@/components/ui/scroll-fade'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  ScrollFade,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@companion/ui'
 import { dockTabs } from '@/layout/defaults'
 import type { LayoutProfile } from '@/protocol/types'
 import { useStore } from '@/store'

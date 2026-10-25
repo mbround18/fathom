@@ -1,7 +1,7 @@
 import { SpinnerIcon, WarningIcon } from '@phosphor-icons/react'
 import { Popover } from 'radix-ui'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useStore, type ConnectionStatus } from '@/store'
 
 const STATUS: Record<ConnectionStatus, { label: string; dot: string }> = {

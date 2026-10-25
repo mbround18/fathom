@@ -10,7 +10,7 @@ import { useId, useState, type KeyboardEvent } from 'react'
 
 import { XIcon } from '@phosphor-icons/react'
 
-import { Input } from '@/components/ui/input'
+import { Input } from '@companion/ui'
 
 import { parseTokens } from './roleYaml'
 

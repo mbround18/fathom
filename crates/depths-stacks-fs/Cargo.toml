@@ -1,0 +1,15 @@
+[package]
+name = "depths-stacks-fs"
+version = "0.1.0"
+description = "Depths stacks-root adapter: Dockge-compatible directory layout on disk"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+depths-core = { path = "../depths-core" }
+# openat/renameat/mkdirat relative to directory fds, with O_NOFOLLOW (FR-005).
+rustix = { version = "1.1.5", features = ["fs"] }
+
+[dev-dependencies]
+tempfile = "3"

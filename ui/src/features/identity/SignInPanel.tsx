@@ -1,6 +1,6 @@
 /** 033 US1: sign-in controls for one issuer: browser / device-code, progress, cancel, sign out. */
 import { useStore } from '@/store'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { OidcIssuerConfig } from '@/protocol/types'
 
 import { isSignedIn } from './state'

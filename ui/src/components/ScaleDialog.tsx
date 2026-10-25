@@ -16,10 +16,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
+  Button,
+  Input,
+} from '@companion/ui'
+import { cn } from '@companion/theme'
 
 import { itemName, MAX_REPLICAS, parseReplicas, type ConfirmItem } from './action-utils'
 

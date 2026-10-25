@@ -2,7 +2,7 @@
  * for `Live`; `Reconnecting` marks last-known values stale; failures show the verbatim error and
  * never a stale number as live. */
 import type { FederationConnectionState, FederationContextRollup } from '@/protocol/types'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 const STATE_LABEL: Record<FederationConnectionState, string> = {
   Pending: 'Connecting',

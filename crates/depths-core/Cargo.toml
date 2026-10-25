@@ -1,0 +1,23 @@
+[package]
+name = "depths-core"
+version = "0.1.0"
+description = "Depths domain: stacks, status, roles and operation planning, with no I/O"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# The 048 wire types (`Container`) that stack status is derived from. No I/O happens here.
+container-runtime = { path = "../container-runtime" }
+serde = { version = "1.0.229", features = ["derive"] }
+# The `services` of a compose file, for status and the service list.
+serde_yaml = "0.9"
+# `content_hash`.
+sha2 = "0.11"
+# Network trust times and UTC days (spec 052). No clock: callers pass `now`.
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+# The volume helper's frames, mount source and op mode (spec 053), for the `VolumeHelper` port.
+depths-volumes = { path = "../depths-volumes" }
+
+[dev-dependencies]
+serde_json = "1.0.154"

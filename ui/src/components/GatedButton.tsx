@@ -6,8 +6,7 @@
  */
 import type { ComponentProps } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@companion/ui'
 import { deniedTitle, type MutationAccess } from '@/hooks/useMutationAccess'
 
 type GatedButtonProps = ComponentProps<typeof Button> & {

@@ -1,0 +1,24 @@
+[package]
+name = "depths-protocol"
+version = "0.1.0"
+description = "Depths versioned command/event protocol, defined in Rust with generated TypeScript"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Wire-only: no dependency on depths-core, web-auth or any app crate. The server maps these types
+# onto its domain.
+[dependencies]
+container-runtime = { path = "../container-runtime" }
+# The 053 file types (mounts, entries, paths, fingerprints): wire types, no I/O.
+depths-volumes = { path = "../depths-volumes" }
+serde = { version = "1.0.229", features = ["derive"] }
+# Same features as Fathom's and container-runtime's, so the re-exported wire types export alike.
+ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
+# Preview and operation ids: a command carrying anything but a UUID fails to parse.
+uuid = { version = "1", features = ["serde"] }
+# `since`/`from`/`to` in commands must be RFC 3339.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+serde_json = "1.0.154"

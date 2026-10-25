@@ -7,7 +7,7 @@
 import { useEffect } from 'react'
 
 import { MetricsChart, type ChartPoint } from '@/components/MetricsChart'
-import { MetricsUnavailable } from '@/components/shell/PaneStates'
+import { MetricsUnavailable } from '@companion/terminal'
 import { useNodeMetrics, useNodeMetricsPolling } from '@/features/metrics/nodePolling'
 import {
   fmtBytes,

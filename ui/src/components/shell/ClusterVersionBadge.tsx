@@ -4,7 +4,7 @@
  * kubelet version differs from the control plane (skew).
  */
 import { useStore } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 type Tone = 'ok' | 'skew' | 'unknown'
 

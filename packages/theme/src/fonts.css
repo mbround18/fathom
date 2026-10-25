@@ -1,0 +1,11 @@
+/*
+ * The mono and display faces (see fonts.ts), self-hosted from @fontsource. Import this from the
+ * app's entry module (`import '@companion/theme/fonts.css'`), not from its Tailwind entry, so the
+ * bundler emits the font files. It is a stylesheet rather than side-effect imports in fonts.ts so
+ * that importing the package's JS (`cn`, `applyTheme`) never drags CSS into a non-bundler
+ * consumer such as a Playwright spec.
+ */
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/600.css';
+@import '@fontsource/chakra-petch/600.css';
+@import '@fontsource/chakra-petch/700.css';

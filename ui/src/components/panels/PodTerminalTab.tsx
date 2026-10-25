@@ -10,7 +10,7 @@
 import { PlugsIcon, ShieldWarningIcon, WarningIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { useCapability } from '@/lib/capabilities'
 import type { PodDetails } from '@/protocol/types'
 import type { ObjectRef } from '@/resources'
@@ -18,7 +18,7 @@ import { detailKey, execAccessKey, useStore } from '@/store'
 
 import { ConfirmDialog } from '../ConfirmDialog'
 import { Picker } from '../Picker'
-import { Loading } from '../shell/PaneStates'
+import { Loading } from '@companion/terminal'
 import { TerminalView, type TerminalPhase } from './TerminalView'
 
 /** 024-pod-exec-terminal: pre-session gate; `open` means confirmed, session may start. */

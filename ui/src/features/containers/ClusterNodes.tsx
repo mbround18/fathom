@@ -11,7 +11,7 @@
  * node someone stopped outside Fathom would otherwise leave the row claiming a cluster that
  * cannot answer (FR-032).
  */
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { SECTION } from '@/protocol/commands'
 import type { Container } from '@/protocol/types'
 import { useStore } from '@/store'

@@ -1,0 +1,62 @@
+[package]
+name = "depths-server"
+version = "0.1.0"
+description = "Depths: self-hosted Docker Compose stack manager (Axum + Tower)"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "depths_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "depths"
+path = "src/main.rs"
+
+[dependencies]
+audit-log = { path = "../../../crates/audit-log" }
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive"] }
+depths-core = { path = "../../../crates/depths-core" }
+depths-protocol = { path = "../../../crates/depths-protocol" }
+depths-runtime-cli = { path = "../../../crates/depths-runtime-cli" }
+depths-stacks-fs = { path = "../../../crates/depths-stacks-fs" }
+depths-volumes = { path = "../../../crates/depths-volumes" }
+http = "1"
+# statvfs of the stacks directory for host metrics, without unsafe.
+rustix = { version = "1.1", features = ["fs"] }
+notify = { version = "8", default-features = false }
+# Offline geo-IP lookup (spec 052 R6): reads a local DB-IP Lite / GeoLite2 City file, never the network.
+maxminddb = "0.27"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["server", "server-auto", "http1", "service", "tokio", "server-graceful"] }
+secrecy = "0.10"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync"] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["fs", "limit", "timeout"] }
+opentelemetry = "0.33.1"
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics"] }
+futures-util = "0.3"
+tracing = "0.1.44"
+tracing-opentelemetry = "0.34.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+url = "2.5"
+uuid = { version = "1", features = ["v4"] }
+web-auth = { path = "../../../crates/web-auth" }
+
+[dev-dependencies]
+# The fake volume helper runs the real `serve` over pipes (spec 053 T030).
+depths-volume-helper = { path = "../volume-helper" }
+async-trait = "0.1"
+http-body-util = "0.1"
+tempfile = "3"
+tokio = { version = "1.54.1", features = ["full", "test-util"] }
+tokio-tungstenite = "0.30"
+tower = { version = "0.5", features = ["util"] }

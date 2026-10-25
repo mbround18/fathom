@@ -38,7 +38,7 @@ import { RoleBindingEditLauncher } from '@/components/rbac/RoleBindingEditLaunch
 import { RoleCreateLauncher } from '@/components/rbac/RoleCreateLauncher'
 import { RoleEditLauncher } from '@/components/rbac/RoleEditLauncher'
 import { ResourceTable } from '@/components/ResourceTable'
-import { Input } from '@/components/ui/input'
+import { Input } from '@companion/ui'
 import { SECTION } from '@/protocol/commands'
 import type {
   ClusterRoleBindingDetails,
@@ -50,7 +50,7 @@ import { descriptorFor } from '@/resources'
 import { NamespaceAccessView } from '@/resources/namespaceAccess'
 import { OidcConfigView } from '@/resources/oidcConfig'
 import { SignInSettings } from '@/features/identity/SignInSettings'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { useFirstRun } from '@/lib/use-first-run'
 import {
   deniedKey,
@@ -75,7 +75,7 @@ import {
   NoLongerExists,
   NotPermitted,
   StateFrame,
-} from './PaneStates'
+} from '@companion/terminal'
 
 interface PaneHostProps {
   paneId: PaneId

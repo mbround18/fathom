@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import {
   beginRefresh,
   displayedReport,
@@ -39,7 +39,7 @@ import {
 } from '@/store'
 
 import { FirstRunState } from '../shell/FirstRunState'
-import { Disconnected, Empty } from '../shell/PaneStates'
+import { Disconnected, Empty } from '@companion/terminal'
 
 const REFRESH_SECTIONS = [
   SECTIONS.pods,

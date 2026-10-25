@@ -21,7 +21,7 @@ import { useStore, type PaneId } from '@/store'
 
 import { TopologyCanvas } from '../topology/TopologyCanvas'
 import { FirstRunState } from '../shell/FirstRunState'
-import { Disconnected } from '../shell/PaneStates'
+import { Disconnected } from '@companion/terminal'
 
 const SECTIONS = [applications, helm, nodes, deployments, statefulsets, daemonsets].map(
   (d) => d.section,

@@ -6,14 +6,14 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet'
+  Toaster,
+} from '@companion/ui'
 import { ActionDialogHost } from '@/components/ActionDialogHost'
 import { SetupDetourBar, SetupScreen } from '@/components/setup/SetupScreen'
 import { useSetupState } from '@/components/setup/use-setup-state'
 import { NavTree } from '@/components/NavTree'
 import { KubeconfigExportDialogHost } from '@/features/manifest-export/KubeconfigExportDialog'
 import { ManifestExportDialogHost } from '@/features/manifest-export/ManifestExportDialog'
-import { Toaster } from '@/components/ui/sonner'
 import { useWidthClass } from '@/layout/use-width-class'
 import { useStore } from '@/store'
 
@@ -77,6 +77,7 @@ export function AppShell() {
   const navOpen = useStore((s) => s.layout.navOpen)
   const setNavOpen = useStore((s) => s.setNavOpen)
   const isHosted = useStore((s) => s.hosted.mode === 'hosted')
+  const themeMode = useStore((s) => s.ui.theme.mode)
   const narrow = widthClass === 'phone' || widthClass === 'tablet'
   const setup = useSetupState()
   const detour = useSetupDetour(setup !== undefined)
@@ -138,6 +139,7 @@ export function AppShell() {
       {/* Narrow: toasts drop below the 44px top bar; error toasts stay until dismissed and must
           never cover the context/namespace pickers. */}
       <Toaster
+        theme={themeMode}
         position={narrow ? 'top-center' : 'bottom-right'}
         {...(narrow && { offset: { top: TOAST_TOP }, mobileOffset: { top: TOAST_TOP } })}
       />

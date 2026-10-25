@@ -3,7 +3,7 @@
  * of Cluster settings. Desktop only: hosted mode has no local machine to create them on.
  */
 import { KindClusterPanel } from '@/components/panels/KindClusterPanel'
-import { Empty } from '@/components/shell/PaneStates'
+import { Empty } from '@companion/terminal'
 import { useStore } from '@/store'
 
 export function LocalClustersPanel() {

@@ -1,0 +1,53 @@
+/**
+ * Line-anchored problems for the editors (FR-017): the client's own YAML parse errors, checked
+ * on every keystroke, plus the server's compose validation errors (`ValidationFailed`) from the
+ * last save attempt. A YAML error disables saving; the server has the last word on compose.
+ */
+import { parseAllDocuments } from 'yaml'
+
+import type { ValidationError } from '@/protocol/generated'
+
+export interface Problem {
+  /** 1-based; `null` when the source gives no line. */
+  line: number | null
+  message: string
+  /** `json`, `toml`, `xml` and `ini` come from the volume explorer's parse checks (spec 053). */
+  source: 'yaml' | 'server' | 'json' | 'toml' | 'xml' | 'ini'
+  /** An error unless set; the explorer's parse checks only warn, and saving stays possible. */
+  severity?: 'error' | 'warning'
+}
+
+/** How the list under an editor names where a problem came from. */
+export const PROBLEM_SOURCE_LABEL: Readonly<Record<Problem['source'], string>> = {
+  yaml: 'YAML',
+  server: 'Compose',
+  json: 'JSON',
+  toml: 'TOML',
+  xml: 'XML',
+  ini: 'INI',
+}
+
+/** YAML syntax errors in `text`, at most one per line. Empty when it parses. */
+export function yamlProblems(text: string): Problem[] {
+  const out: Problem[] = []
+  const seen = new Set<number | null>()
+  for (const doc of parseAllDocuments(text, { prettyErrors: true })) {
+    for (const e of doc.errors) {
+      const line = e.linePos?.[0].line ?? null
+      if (seen.has(line)) continue
+      seen.add(line)
+      // `prettyErrors` appends a source excerpt after the first line; the editor shows the line.
+      out.push({ line, message: e.message.split('\n')[0] ?? e.message, source: 'yaml' })
+    }
+  }
+  return out
+}
+
+/** The server's errors for one of the draft's files, so each editor marks only its own. */
+export function serverProblems(errors: readonly ValidationError[], file: ValidationError['file']): Problem[] {
+  return errors.filter((e) => e.file === file).map((e) => ({ line: e.line, message: e.message, source: 'server' as const }))
+}
+
+export function problemText(p: Problem): string {
+  return p.line === null ? p.message : `Line ${String(p.line)}: ${p.message}`
+}

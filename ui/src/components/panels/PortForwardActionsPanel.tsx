@@ -10,13 +10,12 @@
  */
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button, Input } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
-import { Input } from '@/components/ui/input'
 import type { ContainerPort, RelatedResourceRef, ServicePort } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
 
-import { Empty } from '../shell/PaneStates'
+import { Empty } from '@companion/terminal'
 import type { ForwardTarget } from './PortForwardStartDialog'
 import { PortForwardStartDialog } from './PortForwardStartDialog'
 

@@ -6,11 +6,10 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useRef, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { useStore } from '@/store'
 
-import { Disconnected } from '../../components/shell/PaneStates'
+import { Disconnected } from '@companion/terminal'
 import { isFathomAdmin, isSignedIn } from '../identity/state'
 
 const ROW_HEIGHT = 32

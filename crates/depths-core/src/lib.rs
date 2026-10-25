@@ -1,0 +1,21 @@
+//! `depths-core`: Depths domain: stacks, status, roles and operation planning, with no I/O (spec 050).
+//!
+//! Everything here is a pure function of its inputs. The filesystem and the container runtime are
+//! reached only through the traits in [`ports`]; `depths-stacks-fs` and the server's runtime
+//! adapter implement them. No dependency on `kube`, `tauri` or any Fathom crate.
+
+pub mod compose_lint;
+pub mod discovery;
+pub mod hash;
+pub mod host;
+pub mod name;
+pub mod network;
+pub mod plan;
+pub mod ports;
+pub mod role;
+pub mod secrets;
+pub mod security;
+pub mod status;
+
+pub use hash::ContentHash;
+pub use name::{InvalidName, ServiceName, StackName, valid_name, valid_service_name};

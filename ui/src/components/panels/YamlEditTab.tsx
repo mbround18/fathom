@@ -14,14 +14,13 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
+import { Button, Textarea } from '@companion/ui'
 import { capabilityForSection, Gated } from '@/lib/capabilities'
-import { Textarea } from '@/components/ui/textarea'
 import type { ObjectRef } from '@/resources'
 import { detailKey, useStore } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
-import { YamlDiffView } from './YamlDiffView'
+import { YamlDiffView } from '@companion/terminal'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 

@@ -17,8 +17,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import type { ClusterSettings, MetricsSource } from '@/protocol/types'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
@@ -26,7 +25,7 @@ import { waitForCommandResult } from '@/store/actions'
 import { useFirstRun } from '@/lib/use-first-run'
 
 import { FirstRunState } from '../shell/FirstRunState'
-import { Disconnected, Empty, Loading } from '../shell/PaneStates'
+import { Disconnected, Empty, Loading } from '@companion/terminal'
 
 import { DaemonSwitch } from '@/features/daemon/DaemonSwitch'
 import { SECTION } from '@/protocol/commands'

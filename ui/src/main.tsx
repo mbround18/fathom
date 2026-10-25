@@ -1,14 +1,17 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import '@/theme/fonts'
+import '@companion/theme/fonts.css'
 import './index.css'
 
+import { applyTheme, loadFonts } from '@companion/theme'
+
+import { BRAND_FONT } from '@/brand'
 import { useStore } from '@/store'
-import { applyTheme } from '@/theme/apply'
 
 import App from './App'
 
+loadFonts(BRAND_FONT)
 applyTheme(useStore.getState().ui.theme)
 useStore.subscribe((state, prev) => {
   if (state.ui.theme !== prev.ui.theme) applyTheme(state.ui.theme)

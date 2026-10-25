@@ -11,14 +11,14 @@ import { ArrowDownIcon, ArrowUpIcon } from '@phosphor-icons/react'
 import { useEffect, useMemo } from 'react'
 
 import { StatusBadge } from '@/components/StatusBadge'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { RelatedResourceRef } from '@/protocol/types'
 import { relatedObjectRef } from '@/resources/related'
 import type { ObjectRef } from '@/resources'
 import { detailKey, useStore } from '@/store'
 import { splitRelated, type Neighbour } from '@/topology/resource-topology'
 
-import { Empty, Loading } from '../shell/PaneStates'
+import { Empty, Loading } from '@companion/terminal'
 
 interface RelatedPayload {
   kind: string

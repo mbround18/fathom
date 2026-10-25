@@ -9,11 +9,10 @@
 import { useId, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
+import { Button, Input } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
-import { Input } from '@/components/ui/input'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
-import { YamlDiffView } from '@/components/panels/YamlDiffView'
+import { YamlDiffView } from '@companion/terminal'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import type { HelmReleaseDetails } from '@/protocol/types'

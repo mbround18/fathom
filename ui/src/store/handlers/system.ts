@@ -35,7 +35,7 @@ import {
   useStore,
   withoutKey,
 } from '../index'
-import { RingBuffer } from '../ring-buffer'
+import { RingBuffer } from '@companion/terminal'
 import {
   applyDaemonBatch,
   applyDaemonMetrics,

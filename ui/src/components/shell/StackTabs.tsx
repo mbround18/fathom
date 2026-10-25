@@ -1,7 +1,7 @@
 import { DotsThreeIcon, type Icon } from '@phosphor-icons/react'
 
-import { ScrollFade } from '@/components/ui/scroll-fade'
-import { cn } from '@/lib/utils'
+import { ScrollFade } from '@companion/ui'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 import { useActiveTab, type StackTab } from './stack-tabs'

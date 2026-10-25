@@ -20,7 +20,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { PROVIDER_LABEL } from '@/features/ai-assist/labels'
 import type { AiSlice } from '@/features/ai-assist/types'
 import { useStore } from '@/store'

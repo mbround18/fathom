@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 import type { SectionKey, WorkloadVulnSummary } from '@/protocol/types'
 import { useStore } from '@/store'
 
-import { Empty, MetricsUnavailable } from '../shell/PaneStates'
+import { Empty, MetricsUnavailable } from '@companion/terminal'
 
 const KIND_SECTION: Record<string, SectionKey> = {
   Deployment: 'workloads/deployments',

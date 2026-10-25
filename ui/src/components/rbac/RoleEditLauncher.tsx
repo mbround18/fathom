@@ -4,9 +4,8 @@
  */
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button, Sheet, SheetContent, SheetHeader, SheetTitle } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import type { ClusterRoleDetails, RoleDetails } from '@/protocol/types'
 
 import { RoleForm } from './RoleForm'

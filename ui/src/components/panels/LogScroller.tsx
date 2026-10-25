@@ -8,17 +8,19 @@
  * when earlier lines were dropped, and that it tells you when the stream stopped instead of just
  * going quiet. Those four are the same whether the lines came from the API server or from a
  * container on this machine, so they live here once, and each caller brings its own transport.
+ *
+ * The scroll surface itself is `@companion/terminal`'s `LogExplorer`: ANSI colour, a level gutter
+ * and facets, the log query language, and search results that jump to the line in context. This
+ * adds Fathom's stream states, its wording, and the jump-to-latest button.
  */
 import { ArrowClockwiseIcon, ArrowLineDownIcon, WarningIcon } from '@phosphor-icons/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { ErrorState, FOLLOW_THRESHOLD_PX, Loading, LogExplorer } from '@companion/terminal'
+import { Button } from '@companion/ui'
+import { cn } from '@companion/theme'
 
-import { ErrorState, Loading } from '../shell/PaneStates'
-
-/** How close to the bottom (px) still counts as "at the bottom" for auto-follow. */
-export const FOLLOW_THRESHOLD_PX = 24
+export { FOLLOW_THRESHOLD_PX }
 
 export type LogStreamStatus = 'starting' | 'streaming' | 'closed' | 'error'
 
@@ -34,7 +36,7 @@ export interface LogScrollerProps {
    * (FR-034), so it gets its own sentence rather than being rounded to zero.
    */
   dropped?: boolean
-  /** Bumped by the store on every append. Auto-follow keys on it. */
+  /** Bumped by the store on every append. */
   rev: number
   status: LogStreamStatus
   /** The backend's own words for a failure. */
@@ -50,11 +52,17 @@ export interface LogScrollerProps {
   testId?: string
 }
 
+/** Fathom's wording for the dropped-lines marker. */
+function droppedText(n: number | true): string {
+  return n === true
+    ? '… earlier lines were truncated; the runtime did not say how many'
+    : `… ${String(n)} earlier line${n === 1 ? '' : 's'} truncated`
+}
+
 export function LogScroller({
   lines,
   truncated,
   dropped = false,
-  rev,
   status,
   error,
   reason,
@@ -64,76 +72,40 @@ export function LogScroller({
   testId = 'pod-logs-scroll',
 }: LogScrollerProps) {
   const [follow, setFollow] = useState(true)
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll to the newest line whenever it changes, unless the operator scrolled up.
-  useEffect(() => {
-    if (!follow) return
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [follow, rev])
-
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX
-    setFollow(atBottom)
-  }, [])
-
-  const jumpToLatest = useCallback(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-    setFollow(true)
-  }, [])
+  const jumpToLatest = useCallback(() => setFollow(true), [])
 
   const failedEmpty = status === 'error' && lines.length === 0
+  const placeholder =
+    status === 'starting' ? (
+      <Loading rows={6} label={startingLabel} />
+    ) : lines.length === 0 ? (
+      <p
+        role="status"
+        data-pane-state="logs-empty"
+        className="font-sans text-xs text-muted-foreground"
+      >
+        {status === 'streaming' ? 'No log output yet.' : 'No log output.'}
+      </p>
+    ) : undefined
 
   return (
     <>
-      <div className="relative min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col">
         {failedEmpty ? (
           <ErrorState title={errorTitle} detail={error ?? reason} onRetry={onRestart} />
         ) : (
-          <div
-            ref={scrollRef}
-            onScroll={onScroll}
+          <LogExplorer
+            lines={lines}
+            follow={follow}
+            wrap
+            onFollowChange={setFollow}
+            dropped={truncated > 0 ? truncated : dropped}
+            droppedText={droppedText}
+            placeholder={placeholder}
             data-testid={testId}
             data-stream-status={status}
-            className="h-full min-w-0 overflow-y-auto bg-background/40 p-2 font-mono text-xs leading-relaxed"
-          >
-            {status === 'starting' ? (
-              <Loading rows={6} label={startingLabel} />
-            ) : lines.length === 0 ? (
-              <p
-                role="status"
-                data-pane-state="logs-empty"
-                className="font-sans text-xs text-muted-foreground"
-              >
-                {status === 'streaming' ? 'No log output yet.' : 'No log output.'}
-              </p>
-            ) : (
-              <>
-                {truncated > 0 ? (
-                  <p className="mb-1 text-xs text-muted-foreground">
-                    … {truncated} earlier line{truncated === 1 ? '' : 's'} truncated
-                  </p>
-                ) : (
-                  dropped && (
-                    <p
-                      data-pane-state="logs-truncated"
-                      className="mb-1 text-xs text-muted-foreground"
-                    >
-                      … earlier lines were truncated; the runtime did not say how many
-                    </p>
-                  )
-                )}
-                <pre className="min-w-0 break-words whitespace-pre-wrap text-foreground/90">
-                  {lines.join('\n')}
-                </pre>
-              </>
-            )}
-          </div>
+            className="min-h-0 flex-1"
+          />
         )}
         {!follow && !failedEmpty && (
           <Button

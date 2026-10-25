@@ -6,9 +6,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { YamlDiffView } from '@/components/panels/YamlDiffView'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { YamlDiffView } from '@companion/terminal'
+import { Button, Input } from '@companion/ui'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import { CreateRoleOption } from '@/components/rbac/CreateRoleOption'

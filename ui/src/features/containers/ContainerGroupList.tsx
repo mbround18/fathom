@@ -14,7 +14,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMemo, useRef } from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import type { Container, Project } from '@/protocol/types'
 
 import { ClusterLinkBadge } from './ClusterLinkBadge'

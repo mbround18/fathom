@@ -15,9 +15,7 @@ import { CheckCircleIcon, CopyIcon, DownloadSimpleIcon, QuestionIcon } from '@ph
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Badge, Button, Input } from '@companion/ui'
 import { useStore } from '@/store'
 
 import { buildAuthenticationConfiguration, prefillFromIssuer } from './oidcAuthConfig'

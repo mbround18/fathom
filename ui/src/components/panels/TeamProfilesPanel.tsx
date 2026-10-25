@@ -13,13 +13,12 @@ import { useEffect, useState } from 'react'
 
 import { isSignedIn } from '@/features/identity/state'
 import { filterProfiles } from '@/features/teams/filter'
-import { Button } from '@/components/ui/button'
+import { Button, Input } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
-import { Input } from '@/components/ui/input'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 
-import { Disconnected, Empty } from '../shell/PaneStates'
+import { Disconnected, Empty } from '@companion/terminal'
 
 export function TeamProfilesPanel() {
   const request = useStore((s) => s.request)

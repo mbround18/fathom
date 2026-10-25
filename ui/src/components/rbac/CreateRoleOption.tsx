@@ -4,7 +4,7 @@
  * `onCreated`, then comes back with the new role as its `roleRef`; nothing is created until the
  * operator applies each form. Gated like 042's "New Role" launcher.
  */
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
 
 import type { RoleKind } from './roleYaml'

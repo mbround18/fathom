@@ -1,6 +1,6 @@
 /**
  * Promo brand assets: the same neon-noir palette and self-hosted fonts as the app
- * (src/theme/tokens.css, src/theme/fonts.ts), base64-inlined so the brochure HTML/PDF renders
+ * (packages/theme/src/tokens.css, packages/theme/src/fonts.ts), base64-inlined so the brochure HTML/PDF renders
  * identically with no network access. Palette values are copied by hand from tokens.css — if that
  * file's `.dark` block changes, update PALETTE to match (a Vitest check pins the copy below).
  */
@@ -14,7 +14,7 @@ function fontDataUrl(spec: string): string {
   return `data:font/woff2;base64,${bytes.toString('base64')}`
 }
 
-/** `.dark` neon-noir tokens (src/theme/tokens.css), hex form for broad PDF-renderer support. */
+/** `.dark` neon-noir tokens (packages/theme/src/tokens.css), hex form for broad PDF-renderer support. */
 export const PALETTE = {
   background: '#070b1a',
   card: '#0c1228',
@@ -29,7 +29,7 @@ export const PALETTE = {
 } as const
 
 /**
- * `:root` "blueprint" tokens (src/theme/tokens.css) — the real light theme Fathom ships,
+ * `:root` "blueprint" tokens (packages/theme/src/tokens.css) — the real light theme Fathom ships,
  * navy ink on pale paper. Used for content pages so dark neon-noir screenshots pop.
  */
 export const PALETTE_LIGHT = {
@@ -57,7 +57,7 @@ export const FONTS = {
   monoBold: fontDataUrl('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2'),
 } as const
 
-/** 尋 (hiro): the traditional unit for a fathom (src/theme/BrandMark.tsx). */
+/** 尋 (hiro): the traditional unit for a fathom (ui/src/brand.ts). */
 export const BRAND_GLYPH = '尋'
 
 export const FONT_FACE_CSS = `

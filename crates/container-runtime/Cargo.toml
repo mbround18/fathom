@@ -1,0 +1,35 @@
+[package]
+name = "container-runtime"
+version = "0.1.0"
+description = "Docker and Compose runtime shared by the suite: CLI runner, argv previews, streams and wire types"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+# Test doubles (scripted processes, mock runners, a channel sink) for consumers' tests.
+test-util = []
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+# Same features as Fathom's: the bindings it generates from these types must not change.
+ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
+# `spawn_blocking` for the log follow's pump; `time` for the probe's timeout.
+tokio = { version = "1.54.1", features = ["rt", "time"] }
+# `docker stats --format json` rows.
+serde_json = "1.0.154"
+# Whether a definition file parses as a Compose mapping.
+serde_yaml = "0.9"
+# The adoption store's errors and its "could not read the record" warning.
+anyhow = "1.0.104"
+tracing = "0.1.44"
+# The as-of stamp on a stats sample.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(unix)'.dependencies]
+# The pseudo-terminal behind an interactive session.
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1.54.1", features = ["rt", "macros", "time", "test-util"] }

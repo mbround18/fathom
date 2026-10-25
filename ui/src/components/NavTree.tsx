@@ -10,7 +10,7 @@ import { CaretRightIcon } from '@phosphor-icons/react'
 import { useEffect, useMemo } from 'react'
 
 import type { SectionKey } from '@/protocol/types'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { descriptorFor } from '@/resources'
 import { integrationInstalled, NOT_INSTALLED_HINT } from '@/resources/integrationStatus'
 import {

@@ -1,0 +1,20 @@
+[package]
+name = "depths-volumes"
+version = "0.1.0"
+description = "Depths volume explorer core: mounts, paths, the helper frame protocol, text and history rules, with no I/O"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Agnostic: no async runtime and no filesystem access. Shared by the server and the volume helper,
+# so the path rules and the frame codec exist once.
+[dependencies]
+# Raw (non-UTF-8) file names on the wire.
+base64 = "0.22"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# Content fingerprints and mount ids.
+sha2 = "0.11"
+thiserror = "2"
+# Same features as depths-protocol's, so the re-exported wire types export alike.
+ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }

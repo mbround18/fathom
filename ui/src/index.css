@@ -1,8 +1,13 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
-@import './theme/tokens.css';
-@import './theme/effects.css';
+@import '@companion/theme/tokens.css';
+@import '@companion/theme/effects.css';
+
+/* Tailwind only auto-scans this app; the shared packages' class names live outside it. */
+@source '../../packages/theme/src';
+@source '../../packages/terminal/src';
+@source '../../packages/ui/src';
 
 @custom-variant dark (&:where(.dark, .dark *));
 

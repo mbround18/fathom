@@ -17,8 +17,8 @@
 import { ArrowsClockwiseIcon, LockSimpleIcon, PlugsIcon, WarningIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 
-import { Loading, StateFrame } from '@/components/shell/PaneStates'
-import { Button } from '@/components/ui/button'
+import { Loading, StateFrame } from '@companion/terminal'
+import { Button } from '@companion/ui'
 import type { KindRuntimeKind } from '@/protocol/types'
 import { useStore } from '@/store'
 

@@ -21,9 +21,7 @@
 import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { useId, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
+import { Button, Checkbox, Input } from '@companion/ui'
 import type { ObjectClass, OperationRequest, PublishedPort } from '@/protocol/types'
 import { useStore } from '@/store'
 

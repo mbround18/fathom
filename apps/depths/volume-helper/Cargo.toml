@@ -1,0 +1,28 @@
+[package]
+name = "depths-volume-helper"
+version = "0.1.0"
+description = "Depths volume helper: runs in a locked-down container, sees one mount at /volume, speaks frames on stdin/stdout"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "depths-volume-helper"
+path = "src/main.rs"
+
+# Kept tiny on purpose: no async runtime, no network crates. It is the only code that opens
+# volume paths (spec 053 R1, R3).
+[dependencies]
+depths-volumes = { path = "../../../crates/depths-volumes" }
+# openat2, statx, renameat without unsafe; getuid/getgid for Hello.
+rustix = { version = "1.1.5", features = ["fs", "process"] }
+# Folder downloads (uncompressed tar on stdout).
+tar = "0.4"
+sha2 = "0.11"
+serde_json = "1.0.154"
+
+[dev-dependencies]
+tempfile = "3"

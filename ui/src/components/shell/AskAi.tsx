@@ -12,15 +12,15 @@ import { useEffect } from 'react'
 import { AgentPanel } from '@/components/panels/agent-ops/AgentPanel'
 import { AuthSetup } from '@/components/panels/agent-ops/AuthSetup'
 import { useAskAiContext } from '@/components/panels/agent-ops/askAiContext'
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet'
-import { cn } from '@/lib/utils'
+} from '@companion/ui'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 /** True once the operator has chosen an assistant backend (anything but "disabled"). */

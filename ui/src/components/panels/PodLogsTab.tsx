@@ -16,7 +16,7 @@ import { waitForCommandResult } from '@/store/actions'
 
 import { LogScroller } from './LogScroller'
 import { Picker } from '../Picker'
-import { ErrorState } from '../shell/PaneStates'
+import { ErrorState } from '@companion/terminal'
 
 /** This view's live stream: the (single) log stream tagged with its owner. */
 function ownedStream(streams: StoreState['streams'], owner: string): LogStreamState | undefined {

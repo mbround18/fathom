@@ -11,8 +11,7 @@
  */
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { RoleCreateLauncher } from '@/components/rbac/RoleCreateLauncher'
 import type { NamespaceAccessEntry, NamespaceAccessResolved } from '@/protocol/types'
 import { useStore } from '@/store'

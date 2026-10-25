@@ -5,13 +5,12 @@
  */
 import { useEffect, useMemo } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import type { AuditActionKind, AuditLogEntry } from '@/protocol/types'
 import { useStore } from '@/store'
 import { applyAuditFilter, hasActors, isDefaultFilter } from '@/store/auditLogFilter'
 
-import { Empty } from '../shell/PaneStates'
+import { Empty } from '@companion/terminal'
 
 const ACTION_LABELS: Record<AuditActionKind, string> = {
   yamlApply: 'Apply YAML',

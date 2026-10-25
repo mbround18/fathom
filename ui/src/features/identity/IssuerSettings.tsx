@@ -11,7 +11,7 @@
  */
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { OidcIssuerConfig } from '@/protocol/types'
 import { useStore } from '@/store'
 

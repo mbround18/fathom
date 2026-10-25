@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { SignOutIcon, UserIcon } from '@phosphor-icons/react'
 
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@companion/ui'
 import type { PublicIdentity } from '@/protocol/generated/PublicIdentity'
 
 /** Identity display + sign-out. `onSignOut` performs the CSRF-protected logout and navigation. */

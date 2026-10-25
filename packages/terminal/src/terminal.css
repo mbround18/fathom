@@ -1,0 +1,5 @@
+/*
+ * xterm.js's own stylesheet. Import it from the app's entry module
+ * (`import '@companion/terminal/terminal.css'`); the package's JS imports no CSS.
+ */
+@import '@xterm/xterm/css/xterm.css';

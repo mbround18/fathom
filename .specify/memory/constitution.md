@@ -2,14 +2,30 @@
 
 <!--
 Sync Impact Report
-- Version change: 1.0.0 -> 1.1.0 (MINOR: platform section materially expanded)
-- Modified sections: Supported Platforms & Expected Outcomes ("Not supported yet" no longer
-  excludes a browser-hosted web build; new "Hosted server (Linux container)" tier added)
-- Principles: none added, removed or redefined
-- Templates requiring updates: none (plan/spec/tasks templates carry no web-build reference)
-- Affected specs: specs/031-hosted-server-mode (T001 gate satisfied)
+- Version change: 1.1.0 -> 1.2.0 (MINOR: scope extended to the companion suite, guidance
+  materially expanded, new platform tier)
+- Modified sections:
+  - New "Scope" preamble: the principles bind every app in the orchestration companion suite
+    (Fathom, Depths) and the shared crates and packages they use.
+  - Principle II "One Contract, Backend Owns the Cluster" -> "One Contract Per App, Backend Owns
+    the Runtime": each app owns one versioned, Rust-defined contract; shared domains define wire
+    types once in a shared crate that each app's contract re-exports. Fathom's rules are unchanged.
+  - Principle VI: Depths' on-disk state (stacks root, audit log) added to the data covered.
+  - Supported Platforms: new "Depths server (Linux container)" tier.
+  - Stack: CodeMirror 6, `notify` and the optional OpenTelemetry exporter added; Axum + Tower
+    named for the servers.
+- Principles: none removed; II generalised compatibly (every existing MUST still holds for Fathom)
+- Templates requiring updates: none (plan/spec/tasks templates carry no protocol path or app name)
+- Affected specs: specs/050-depths-stack-manager (T001 gate satisfied)
 - Follow-up TODOs: none
 -->
+
+## Scope
+
+The orchestration companion suite is Fathom (Kubernetes) and Depths (Docker hosts), plus the
+shared crates in `crates/` and packages in `packages/`. The principles below apply to every app
+in the suite. Where a rule names Kubernetes, kubeconfig or `~/.fathom/`, read the equivalent for
+the app in question (for Depths: the Docker host, the stacks root and its data directory).
 
 ## Core Principles
 
@@ -28,16 +44,19 @@ visible and to act on it only when the operator explicitly asks.
 **Rationale**: A dashboard that mutates clusters silently is worse than `kubectl`. Trust depends
 on showing what's happening before and after acting.
 
-### II. One Contract, Backend Owns the Cluster
+### II. One Contract Per App, Backend Owns the Runtime
 
-- All Kubernetes access, persistence, and long-running work (watches, log streams, port forwards,
-  metrics, the MCP server) MUST live in the Rust backend.
-- The UI MUST talk to the backend only through the versioned command/event protocol in
-  `src/protocol/`. UI code MUST NOT call the backend's internals or read or write
-  `~/.fathom/` directly.
+- All cluster or Docker access, persistence, and long-running work (watches, log streams, port
+  forwards, metrics, compose operations, the MCP server) MUST live in the app's Rust backend.
+- Each app owns one versioned command/event protocol (Fathom: `src/protocol/`; Depths:
+  `crates/depths-protocol`). Its UI MUST talk to its backend only through that protocol. UI code
+  MUST NOT call the backend's internals or read or write the app's on-disk state directly.
 - The protocol MUST be defined once, in Rust. Any other client (the TypeScript UI, or future mobile
   shells) MUST use types generated from it. A breaking change on one side MUST fail the build
   or tests, not show up at runtime.
+- A domain shared by several apps (for example, container runtime types) MUST define its wire
+  types once, in a shared crate that each app's protocol re-exports. Moving a type into a shared
+  crate MUST NOT change the generated bindings of an existing app.
 - Protocol changes that break existing clients MUST bump the protocol version.
 
 **Rationale**: A single contract lets the UI technology change (egui → Tauri → mobile) without
@@ -99,6 +118,9 @@ CPU while idle does not get kept installed.
   display them, or shown in the UI unless the user explicitly reveals them.
 - The UI and the MCP server MUST respect the same kubeconfig context and RBAC as the user. Fathom
   never escalates privileges.
+- Depths treats the stacks root as the only source of truth for stacks: it writes compose and
+  `.env` files byte for byte, never rewrites files it was not asked to change, and keeps the
+  layout readable by Dockge. Its audit log is append-only.
 
 **Rationale**: An operator's saved forwards and integrations are their workflow. Losing them on
 upgrade costs more trust than any feature earns.
@@ -132,12 +154,20 @@ protocol to browsers behind OIDC sign-in. It is a shell over the one backend (Pr
 authenticate to the cluster as the signed-in user, and MUST NOT expose desktop-only features
 (kind provisioning, kubeconfig switching, stdio MCP). It does not change the desktop Tier 1 table.
 
+**Depths server (Linux container).** Depths runs as a Linux container (amd64, arm64) on a Docker
+host and serves its UI to browsers. Sign-in (OIDC or GitHub) is required; there is no anonymous
+mode. Access to the Docker socket is root-equivalent on the host, and the docs MUST say so
+plainly. Running behind a Docker socket proxy MUST be supported and is the documented default.
+Multi-host agents are out of scope until a later amendment.
+
 **Not supported yet.** Mobile (iOS/Android) is out of scope. The architecture MUST stay
 mobile-ready (Principles II and IV), but no mobile outcome is promised.
 
-**Stack.** The backend is Rust (edition 2024) with tokio and kube-rs. The desktop shell is
-Tauri v2, and the frontend is pnpm, React, TypeScript (strict), Vite, shadcn/ui, and Tailwind,
-tested with Vitest and Playwright. Replacing a stack component requires an amendment or a plan
+**Stack.** The backends are Rust (edition 2024) with tokio; Fathom uses kube-rs, and the servers
+use Axum and Tower. Depths watches files with `notify`, and telemetry uses an optional
+OpenTelemetry exporter (off unless configured). The desktop shell is Tauri v2, and the frontends
+are a pnpm workspace of React, TypeScript (strict), Vite, shadcn/ui, and Tailwind, with
+CodeMirror 6 for editing, tested with Vitest and Playwright. Replacing a stack component requires an amendment or a plan
 that justifies it under Complexity Tracking.
 
 ## Development Workflow & Quality Gates
@@ -176,4 +206,4 @@ a version bump, and an update to every affected spec or plan.
   CRITICAL.
 - Reviewers MUST reject changes that violate a MUST without a recorded justification.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-09-23
+**Version**: 1.2.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-10-23

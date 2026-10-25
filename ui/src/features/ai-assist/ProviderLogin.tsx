@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { openExternalLink } from '@/lib/open-external'
 import type { LoginFlow, Provider, ProviderStatus } from '@/protocol/types'
 import { useStore } from '@/store'

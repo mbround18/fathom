@@ -10,9 +10,8 @@
  */
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button, Sheet, SheetContent, SheetHeader, SheetTitle } from '@companion/ui'
 import { Gated, useCapability } from '@/lib/capabilities'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useStore } from '@/store'
 
 import { RoleBindingForm, type RoleBindingKind } from './RoleBindingForm'

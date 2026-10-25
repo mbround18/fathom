@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { statusTone, type Tone } from '@/resources/search'
 
 const TONE: Record<Tone, string> = {

@@ -1,9 +1,9 @@
 import { ExportIcon } from '@phosphor-icons/react'
 import { useMemo } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { useKubeconfigExport } from '@/features/manifest-export/dialog-stores'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import { transportKind } from '@/protocol/transport'
 import { useStore } from '@/store'
 

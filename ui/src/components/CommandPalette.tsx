@@ -15,7 +15,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from '@/components/ui/command'
+} from '@companion/ui'
 import {
   buildNamespaceCandidates,
   buildResourceCandidates,

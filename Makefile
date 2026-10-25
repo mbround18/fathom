@@ -33,12 +33,15 @@ export CARGO_BUILD_JOBS
 # gc runs before every build: target/ and the BuildKit cache grow without bound
 # otherwise. It never fails a build.
 GC_DAYS        ?= 14
+# A day of feature/profile churn once left 130G in target/ with nothing older than GC_DAYS.
+GC_CARGO_MAX   ?= 60GB
 GC_DOCKER_KEEP ?= 40GB
 
 WIN_TRIPLE := x86_64-pc-windows-msvc
 HOST_OS    := $(shell uname -s)
 
-.PHONY: help build-linux build-windows build-macos windows-deps dist-clean version gc
+.PHONY: help audit build-linux build-windows build-macos windows-deps dist-clean version gc \
+        depths-dev depths-image depths-test
 
 help: ## Print this target list
 	@echo "Fathom $(VERSION) — artifacts go to ./$(DIST)"
@@ -50,6 +53,7 @@ help: ## Print this target list
 	@echo "  DIST=<dir>              stage somewhere other than ./dist"
 	@echo "  CARGO_BUILD_JOBS=<n>    cargo parallelism (default $(CARGO_BUILD_JOBS))"
 	@echo "  GC_DAYS=<n>             gc: sweep cargo output unused for n days (default $(GC_DAYS))"
+	@echo "  GC_CARGO_MAX=<size>     gc: then cap target/, oldest first (default $(GC_CARGO_MAX))"
 	@echo "  GC_DOCKER_KEEP=<size>   gc: cap the Docker build cache (default $(GC_DOCKER_KEEP))"
 
 .DEFAULT_GOAL := help
@@ -97,9 +101,10 @@ windows-deps: ## Install the Windows cross toolchain (rustup target + cargo-xwin
 	rustup target add $(WIN_TRIPLE)
 	cargo install --locked cargo-xwin
 
-gc: ## Sweep cargo output unused for GC_DAYS days; cap the Docker build cache at GC_DOCKER_KEEP
+gc: ## Sweep cargo output unused for GC_DAYS days, cap target/ at GC_CARGO_MAX; cap the Docker build cache at GC_DOCKER_KEEP
 	@if command -v cargo-sweep >/dev/null 2>&1; then \
 	  cargo sweep --time $(GC_DAYS) || echo "gc: cargo sweep failed; continuing"; \
+	  cargo sweep --maxsize $(GC_CARGO_MAX) || echo "gc: cargo sweep --maxsize failed; continuing"; \
 	else \
 	  echo "gc: cargo-sweep not installed, skipping (cargo install cargo-sweep --locked)"; \
 	fi
@@ -108,6 +113,30 @@ gc: ## Sweep cargo output unused for GC_DAYS days; cap the Docker build cache at
 	else \
 	  echo "gc: Docker daemon not running, skipping build-cache prune"; \
 	fi
+
+# ---- Depths (spec 050) ---------------------------------------------------------------------
+DEPTHS_WEB := apps/depths/web
+DEPTHS_PKGS := -p container-runtime -p web-auth -p audit-log -p depths-core \
+               -p depths-stacks-fs -p depths-protocol -p depths-server
+
+depths-dev: ## Depths server on 127.0.0.1:8080 (--insecure-dev) plus vite dev on :5174
+	@trap 'kill 0' EXIT; \
+	DEPTHS_LISTEN=127.0.0.1:8080 DEPTHS_PUBLIC_URL=http://127.0.0.1:5174 DEPTHS_INSECURE_DEV=true \
+	  STATIC_DIR=$(DEPTHS_WEB)/dist cargo run -p depths-server & \
+	pnpm --filter @companion/depths-web dev & \
+	wait
+
+depths-image: gc ## Build the Depths container image (depths:dev)
+	docker build -f apps/depths/Dockerfile -t depths:dev \
+	  --build-arg RUST_VERSION=$$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml) .
+
+audit: ## Supply chain: cargo deny (deny.toml) and pnpm audit of production dependencies
+	cargo deny check
+	pnpm audit --prod --audit-level high
+
+depths-test: ## Depths and shared-crate tests: cargo (Rust side) and vitest (web)
+	cargo test $(DEPTHS_PKGS)
+	pnpm --filter @companion/depths-web test
 
 dist-clean: ## Empty ./dist
 	rm -rf $(DIST)

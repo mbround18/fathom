@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { MetricsUnavailable } from '@/components/shell/PaneStates'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { MetricsUnavailable } from '@companion/terminal'
+import { Button, Input } from '@companion/ui'
 import { PrometheusForm } from '@/features/metrics/PrometheusForm'
 import { prometheusStatusWord } from '@/features/metrics/prometheusStatusText'
 import {

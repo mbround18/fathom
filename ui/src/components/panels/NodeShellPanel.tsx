@@ -11,12 +11,11 @@ import { ShieldWarningIcon, StopIcon, TerminalWindowIcon, TrashIcon } from '@pho
 import { useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import type { NodeDetails, OrphanedNodeShellPod } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
 
-import { Loading } from '../shell/PaneStates'
+import { Loading } from '@companion/terminal'
 import { isWindowsNode, phaseView, summarizeAccess, WINDOWS_REASON } from './nodeShellView'
 import { TerminalView, type TerminalPhase } from './TerminalView'
 

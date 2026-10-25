@@ -18,10 +18,9 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button, Input } from '@companion/ui'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { YamlDiffView } from '@/components/panels/YamlDiffView'
+import { YamlDiffView } from '@companion/terminal'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import { RBAC_GROUP, useMutationAccess } from '@/hooks/useMutationAccess'

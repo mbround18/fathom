@@ -1,5 +1,15 @@
 [workspace]
-members = [".", "daemon", "pipeline", "ui/src-tauri", "tools/devbridge", "server"]
+members = [
+    ".",
+    "daemon",
+    "pipeline",
+    "ui/src-tauri",
+    "tools/devbridge",
+    "server",
+    "crates/*",
+    "apps/depths/server",
+    "apps/depths/volume-helper",
+]
 resolver = "3"
 
 # Release bundles: thin LTO and one codegen unit for size/speed, symbols stripped. `panic` stays
@@ -14,6 +24,8 @@ name = "fathom"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
+# An application, never published; cargo-deny treats path dependencies as wildcards otherwise.
+publish = false
 
 [features]
 default = ["os-keyring"]
@@ -27,6 +39,8 @@ name = "fake-exec-plugin"
 path = "tests/support/fake_plugin.rs"
 
 [dependencies]
+# 050: the Docker/Compose runtime, shared with Depths.
+container-runtime = { path = "crates/container-runtime" }
 
 # Rust -> TypeScript protocol bindings (ui/src/protocol/generated/)
 ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
@@ -123,6 +137,9 @@ wiremock = "0.6"
 # re-export: rsa 0.9 is on digest 0.10, and sha2 0.11 moved to digest 0.11.
 rsa = { version = "0.9", features = ["sha2"] }
 rand08 = { package = "rand", version = "0.8" }
+
+# 050: the shared runtime's test doubles (scripted processes, mock runners).
+container-runtime = { path = "crates/container-runtime", features = ["test-util"] }
 
 
 [lints.clippy]

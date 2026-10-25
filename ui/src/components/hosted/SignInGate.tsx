@@ -1,4 +1,4 @@
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { HostedPanel } from './HostedPanel'
 
 /** Shown while unauthenticated (or before the redirect to the identity provider lands). */

@@ -29,8 +29,8 @@ APT+=,libgtk-3-dev,libwebkit2gtk-4.1-dev,libxdo-dev,libayatana-appindicator3-dev
 # rust-toolchain.toml.
 RUST_VERSION=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
 
-# --workdir ui so corepack resolves pnpm from ui/package.json's packageManager (from the repo
-# root it picks the latest pnpm and the version check fails).
+# --workdir ui for `pnpm tauri`; corepack resolves pnpm from packageManager (pinned in both the
+# workspace root and ui/package.json), and the install uses the root pnpm-lock.yaml.
 exec "$PAWS" run --image "rust:${RUST_VERSION}-trixie" --workdir ui \
   --apt "$APT" \
   --setup "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y --no-install-recommends nodejs && corepack enable" \

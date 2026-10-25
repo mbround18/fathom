@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { Input } from '@/components/ui/input'
+import { Input } from '@companion/ui'
 import { useStore } from '@/store'
 
 const DEBOUNCE_MS = 300

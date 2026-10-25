@@ -38,6 +38,9 @@ test.describe('Containers scene accessibility', () => {
   test('a group, a row and their verbs are all reachable by keyboard', async ({ page }) => {
     await open(page, 'containers-adopted')
     await openContainers(page)
+    // Tab only once the group is there: at ultra-plus the scene's panes are still mounting when
+    // navigation returns, and Tab walks past the place the group has not been rendered into yet.
+    await expect(page.getByTestId('containers-group-shop')).toBeVisible()
 
     // The group's own control first: Enter on it is what selection by keyboard means.
     expect(await tabTo(page, 'containers-group-shop')).toBe(true)

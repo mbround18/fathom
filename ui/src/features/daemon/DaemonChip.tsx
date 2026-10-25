@@ -7,16 +7,16 @@ import { CopyIcon, HardDrivesIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
+} from '@companion/ui'
+import { cn } from '@companion/theme'
 import { useStore } from '@/store'
 
 import { DaemonSwitch } from './DaemonSwitch'

@@ -14,16 +14,16 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import { cn } from 'cn'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
+  Button,
+  Input,
   Sheet,
   SheetContent,
   SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet'
+} from '@companion/ui'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
 import { RoleAssignmentDialog } from '@/features/roles/RoleAssignmentDialog'
 import type {

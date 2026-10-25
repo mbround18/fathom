@@ -5,8 +5,8 @@
 import type { ReactNode } from 'react'
 
 import { InspectorMetrics, METRICS_KINDS } from '@/components/InspectorMetrics'
-import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
+import { Skeleton } from '@companion/ui'
+import { cn } from '@companion/theme'
 import type { RelatedResourceRef } from '@/protocol/types'
 import type { AnyDescriptor, DetailBlock } from '@/resources'
 import type { ListRow } from '@/store'

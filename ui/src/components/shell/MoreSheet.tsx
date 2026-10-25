@@ -4,13 +4,7 @@
  */
 import { ListBulletsIcon, SquaresFourIcon } from '@phosphor-icons/react'
 
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@companion/ui'
 import { useStore } from '@/store'
 
 import { ALL_TOOL_TABS, useVisibleToolTabs } from './stack-tabs'

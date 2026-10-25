@@ -43,13 +43,13 @@ import { actionTarget, promptAction } from '@/components/action-utils'
 import { isExportable } from '@/features/manifest-export/kinds'
 import { isAllowedNow } from '@/lib/capabilities'
 import { computeVisibleColumns } from '@/layout/column-budget'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 import type { AnyDescriptor, ColumnDef } from '@/resources'
 import { mostRelevantRow } from '@/resources/relevance'
 import { compileQuery } from '@/resources/search'
 import { useStore, type ListRow, type PaneState } from '@/store'
 
-import { Empty } from './shell/PaneStates'
+import { Empty } from '@companion/terminal'
 
 const features = tableFeatures({
   rowSortingFeature,

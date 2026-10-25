@@ -1,14 +1,14 @@
 import { DotsSixVerticalIcon } from '@phosphor-icons/react'
 import type { DragEvent } from 'react'
 
-import { Button } from '@/components/ui/button'
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@companion/ui'
 import type { PaneId } from '@/store'
 
 import { listSlotTargets, swapListPanes } from './pane-actions'

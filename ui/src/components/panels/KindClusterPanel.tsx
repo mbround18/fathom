@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import { ClusterNodes } from '@/features/containers/ClusterNodes'
 import { useBackingContainers } from '@/features/containers/useBackingContainers'
 import { exportFilename } from '@/features/manifest-export/clean'

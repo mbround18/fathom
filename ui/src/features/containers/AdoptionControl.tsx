@@ -17,7 +17,7 @@
  */
 import { LockSimpleOpenIcon, LockSimpleIcon } from '@phosphor-icons/react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@companion/ui'
 import type { Container, Project } from '@/protocol/types'
 import { useStore } from '@/store'
 

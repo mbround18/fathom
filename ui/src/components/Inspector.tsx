@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ScrollFade, Tabs, TabsContent, TabsList, TabsTrigger } from '@companion/ui'
 import { SECTION } from '@/protocol/commands'
 import type {
   HelmReleaseDetails,
@@ -27,10 +27,9 @@ import {
   type PaneId,
   type PaneState,
 } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
 import { DetailSections } from './DetailSections'
-import { ScrollFade } from '@/components/ui/scroll-fade'
 import { AgentPanel } from './panels/agent-ops/AgentPanel'
 import { AGENT_OPS_KINDS } from './panels/agent-ops/kinds'
 import { HelmReleaseActionsPanel } from './panels/HelmReleaseActionsPanel'
@@ -44,7 +43,7 @@ import { PodLogsTab } from './panels/PodLogsTab'
 import { PodTerminalTab } from './panels/PodTerminalTab'
 import { YamlEditTab } from './panels/YamlEditTab'
 import { InspectorYamlExportBar } from '@/features/manifest-export/InspectorYamlExportBar'
-import { Empty, Loading, NoLongerExists } from './shell/PaneStates'
+import { Empty, Loading, NoLongerExists } from '@companion/terminal'
 import { TopologyTab } from './inspector/TopologyTab'
 import { RESOLVER_KINDS } from '@/topology/resource-topology'
 

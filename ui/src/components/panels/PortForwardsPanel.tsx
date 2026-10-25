@@ -11,14 +11,13 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StatusBadge } from '@/components/StatusBadge'
-import { Button } from '@/components/ui/button'
+import { Button, Checkbox } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
-import { Checkbox } from '@/components/ui/checkbox'
 import { SECTION } from '@/protocol/commands'
 import type { PortForward } from '@/protocol/types'
 import { listKey, useStore } from '@/store'
 
-import { Empty } from '../shell/PaneStates'
+import { Empty } from '@companion/terminal'
 import type { ForwardTarget } from './PortForwardStartDialog'
 import { PortForwardStartDialog } from './PortForwardStartDialog'
 

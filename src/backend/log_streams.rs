@@ -45,6 +45,39 @@ impl StreamSink {
     }
 }
 
+/// The shared container runtime's log follows and sessions write here (spec 050 T008). Its
+/// events are the container subset of Fathom's own, so each maps 1:1 onto the same variant.
+impl container_runtime::sink::StreamSink for StreamSink {
+    fn emit(&self, ev: container_runtime::sink::StreamEvent) -> bool {
+        // The inherent `emit`: Fathom's event channel never reports a gone listener.
+        StreamSink::emit(self, ev.into());
+        true
+    }
+}
+
+impl From<container_runtime::sink::StreamEvent> for StreamEvent {
+    fn from(ev: container_runtime::sink::StreamEvent) -> Self {
+        use container_runtime::sink::StreamEvent as Crate;
+        match ev {
+            Crate::ContainerLogBatch {
+                stream_id,
+                lines,
+                truncated,
+            } => Self::ContainerLogBatch {
+                stream_id,
+                lines,
+                truncated,
+            },
+            Crate::ContainerSessionOutput { stream_id, data } => {
+                Self::ContainerSessionOutput { stream_id, data }
+            }
+            Crate::ContainerSessionClosed { stream_id, error } => {
+                Self::ContainerSessionClosed { stream_id, error }
+            }
+        }
+    }
+}
+
 /// Emits the stream's `StreamClosed` when dropped, unless silenced. Dropped without an
 /// outcome (the task was aborted) it reports `"stopped"`.
 pub(super) struct CloseGuard {
@@ -240,6 +273,38 @@ mod tests {
             .filter(|e| e.0 == id && e.1 == "closed")
             .map(|e| e.2.clone())
             .collect()
+    }
+
+    /// The shared crate's events arrive on Fathom's channel as the same variant, under the
+    /// stream's own correlation, exactly as when Fathom produced them itself.
+    #[test]
+    fn a_crate_event_arrives_as_fathoms_own() {
+        use container_runtime::sink::StreamEvent as Crate;
+        let (tx, rx) = unbounded();
+        let s = sink(5, &tx);
+        let delivered = container_runtime::sink::StreamSink::emit(
+            &s,
+            Crate::ContainerLogBatch {
+                stream_id: StreamId(5),
+                lines: vec!["hello".into()],
+                truncated: true,
+            },
+        );
+        assert!(delivered);
+        let env = rx.try_recv().expect("one envelope");
+        assert_eq!(env.correlation, Correlation::Stream(StreamId(5)));
+        let BackendEvent::Stream(StreamEvent::ContainerLogBatch {
+            stream_id,
+            lines,
+            truncated,
+        }) = env.event
+        else {
+            panic!("not a log batch: {:?}", env.event);
+        };
+        assert_eq!(
+            (stream_id, lines, truncated),
+            (StreamId(5), vec!["hello".to_owned()], true)
+        );
     }
 
     #[tokio::test]

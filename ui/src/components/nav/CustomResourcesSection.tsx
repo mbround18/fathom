@@ -8,15 +8,15 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@companion/ui'
 import { SECTION } from '@/protocol/commands'
 import type { CrdCatalogEntry, CrdInstanceDetails, KubernetesEvent } from '@/protocol/types'
 import { formatAge } from '@/resources/format'
 import { jsonToYaml } from '@/resources/yaml'
 import { detailKey, listKey, useStore, type CrdInstancesState, type DetailState } from '@/store'
-import { cn } from '@/lib/utils'
+import { cn } from '@companion/theme'
 
-import { Empty, ErrorState, Loading } from '../shell/PaneStates'
+import { Empty, ErrorState, Loading } from '@companion/terminal'
 
 function catalogKey(e: Pick<CrdCatalogEntry, 'group' | 'kind'>): string {
   return `${e.group}/${e.kind}`
