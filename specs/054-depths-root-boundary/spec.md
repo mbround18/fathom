@@ -79,23 +79,23 @@ stack asking for a second device is refused.
 
 ### User Story 3 - The volume helper can only touch the files it was given (Priority: P2)
 
-When someone browses or edits files in a volume, Depths starts a short-lived helper container that
-runs as root so it can read and write files of any owner. That helper now comes from its own image that
-contains nothing but the helper program, has no network, keeps only the privileges needed to read,
-write and set ownership of files, cannot gain more, cannot write outside the mounts it was given, and
-is bounded in processes and memory.
+When someone browses or edits files in a volume, Depths starts a short-lived helper container with
+that volume mounted, running as the owner of the files it acts on (which may be root). That helper now
+comes from its own image that contains nothing but the helper program. It keeps the restrictions of
+spec 053: no network, no added privileges and no way to gain any, nothing writable outside the mount
+it was given, and bounded processes and memory.
 
-**Why this priority**: The helper is the one container Depths deliberately runs as root with users' data
-mounted. Today it starts from the full Depths image, which carries a shell, a download tool and the
+**Why this priority**: The helper is the one container Depths deliberately runs with users' data
+mounted, often as root. Today it starts from the full Depths image, which carries a shell, a download tool and the
 runtime client.
 
 **Independent Test**: Start a helper as Depths does and confirm from outside that it has no network, no
-shell or other programs in its filesystem, only the listed privileges, a read-only root filesystem,
+shell or other programs in its filesystem, no capabilities, a read-only root filesystem,
 no way to gain privileges, and the process and memory limits; run the spec 053 file tests against it.
 
 **Acceptance Scenarios**:
 
-1. **Given** a helper started for a volume, **When** its configuration is inspected, **Then** it has no network, only the file-ownership privileges, a read-only root filesystem, the no-new-privileges flag and the process and memory limits.
+1. **Given** a helper started for a volume, **When** its configuration is inspected, **Then** it has no network, no capabilities, a read-only root filesystem, the no-new-privileges flag and the process and memory limits.
 2. **Given** the helper image, **When** its contents are listed, **Then** it holds only the helper program (and the minimum the program needs to run).
 3. **Given** the guard of User Story 1, **When** Depths starts a helper, **Then** the guard allows it without an exception, because the helper asks for nothing escape-level.
 4. **Given** every spec 053 operation (list, read, save, upload, download, create, rename, delete, history), **When** it is run with the new helper, **Then** it behaves as before.
@@ -186,7 +186,7 @@ window does not ask again; confirm a cancelled confirmation leaves nothing chang
 **Volume helper**
 
 - **FR-011**: The volume helper MUST run from its own image that contains only the helper program and what it strictly needs to run, built and released together with the server, and identified to the server by content identity, not by a movable name.
-- **FR-012**: Every helper container MUST run with no network, all privileges dropped except those needed to read, write and set ownership of files of any owner, a read-only root filesystem, the no-new-privileges protection, and limits on processes and memory.
+- **FR-012**: Every helper container MUST run with no network, every capability dropped (it runs as the owner of the files it acts on, so it needs none), a read-only root filesystem, the no-new-privileges protection, and limits on processes and memory.
 - **FR-013**: The server MUST refuse to start a helper from any image other than the one it was built with, and MUST NOT fall back to the main image.
 - **FR-014**: All spec 053 file operations MUST keep their behaviour and tests with the new helper.
 
