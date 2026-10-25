@@ -16,8 +16,10 @@
  *   **Download this folder** does the folder on screen, each after a size check (`transfers.ts`).
  *   Read-only mode keeps them. **Upload files**, or files dropped on the listing, upload into the
  *   folder on screen after a preview that names every file.
+ * - **Deleted files** (US5, T063) offers back the files deleted here, through their history.
  */
 import {
+  ClockCounterClockwiseIcon,
   DotsThreeVerticalIcon,
   DownloadSimpleIcon,
   FileIcon,
@@ -42,6 +44,8 @@ import { formatTime } from '@/features/stacks/model'
 import type { Entry } from '@/protocol/generated'
 
 import { useFileOps } from './fileops-store'
+import { noteDeleted } from './deleted'
+import { DeletedFiles } from './HistoryPanel'
 import { downloadHref, filesHref, joinPath, modeString, parentPath, pathParts } from './model'
 import { NameDialog, type NameAsk } from './NameDialog'
 import { entryPath, filterEntries, refusalText, relist, type FilesRefusal, type ListStatus } from './store'
@@ -92,10 +96,15 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
   const hasMenu = (e: Entry): boolean => canChange || e.kind === 'file' || e.kind === 'dir'
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [ask, setAsk] = useState<NameAsk | null>(null)
+  // The folder whose deleted files are showing, so the panel closes on another folder.
+  const [deletedOf, setDeletedOf] = useState<string | null>(null)
+  const showDeleted = deletedOf === `${mount}/${dir}`
 
   const remove = (e: Entry): void => {
     const path = entryPath(dir, e)
     request(stack, { kind: 'delete', options: { mount, path, ...(e.name_b64 ? { raw_name: e.name_b64 } : {}) } }, () => {
+      // A file's content is kept as a version; a folder's is not.
+      if (e.kind === 'file') noteDeleted(stack, mount, path)
       relist()
       if (openPath !== null && moved(openPath, path, '') !== null) navigate(at(dir))
     })
@@ -304,6 +313,16 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
                   requestUpload(stack, mount, dir, files)
                 }}
               />
+              <Button
+                size="sm"
+                variant="outline"
+                data-deleted-toggle
+                aria-expanded={showDeleted}
+                onClick={() => setDeletedOf(showDeleted ? null : `${mount}/${dir}`)}
+              >
+                <ClockCounterClockwiseIcon aria-hidden className="size-3.5" />
+                Deleted files
+              </Button>
             </>
           )}
           <Button size="sm" variant="outline" data-download-folder onClick={() => downloadFolder(stack, mount, dir, folderName)}>
@@ -311,6 +330,19 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
             Download this folder
           </Button>
         </div>
+      )}
+      {canChange && showDeleted && (
+        <DeletedFiles
+          stack={stack}
+          mount={mount}
+          dir={dir}
+          canRestore={canChange}
+          onRestored={(path) => {
+            setDeletedOf(null)
+            relist()
+            navigate(at(path))
+          }}
+        />
       )}
       <TransferPanel stack={stack} mount={mount} />
 

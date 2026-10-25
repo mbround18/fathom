@@ -446,6 +446,12 @@ export class FakeFiles {
     parent.children.delete(name)
   }
 
+  /** Keeps `content` as the newest version of `path`, as a save, upload, delete or restore would. */
+  keepVersion(stack: string, mount: string, path: string, content: string, reason: VersionReason = 'save'): FileVersion {
+    this.keep(stack, mount, path, bytes(content), reason)
+    return this.history(stack, mount, path)[0] as FileVersion
+  }
+
   // --- Reading back ---------------------------------------------------------------------------
 
   /** A file's content as text (`null` when it is not there). */

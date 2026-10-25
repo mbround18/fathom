@@ -13,8 +13,10 @@
  * reload (the edit is lost) or to compare the edit with the file as it is now and save over it.
  * Parse problems (JSON, YAML, TOML, XML, INI) are marked on their lines as warnings; saving with
  * any asks once more. Leaving with unsaved changes asks to confirm.
+ *
+ * History (US5, T063): **History** in the header lists the file's kept versions (`HistoryPanel`).
  */
-import { ArrowLeftIcon, DownloadSimpleIcon, FloppyDiskIcon, WarningIcon } from '@phosphor-icons/react'
+import { ArrowLeftIcon, ClockCounterClockwiseIcon, DownloadSimpleIcon, FloppyDiskIcon, WarningIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
 import { useMemo, useState } from 'react'
 
@@ -28,6 +30,7 @@ import type { FileContent, Mount, WriteBlocked } from '@/protocol/generated'
 
 import { lineDiff } from './diff'
 import { isSaveConflict, useFileOps } from './fileops-store'
+import { HistoryPanel } from './HistoryPanel'
 import { guessLanguage } from './lang'
 import { parseProblems } from './lint'
 import { downloadHref, filesHref, modeString, parentPath, pathParts, type FilesMode } from './model'
@@ -72,6 +75,8 @@ export function FileEditor({ stack, mount, mountInfo, rootLabel, file, mode }: F
   const binary = content?.binary_reason ?? null
   // Kept outside the keyed text view, which starts afresh after every save.
   const [savedPath, setSavedPath] = useState<string | null>(null)
+  // The file whose history is showing, so it closes when another file opens.
+  const [historyOf, setHistoryOf] = useState<string | null>(null)
 
   return (
     <div data-pane="file" data-path={file.path} data-binary={binary ?? undefined} className="flex min-w-0 flex-col gap-1">
@@ -90,7 +95,26 @@ export function FileEditor({ stack, mount, mountInfo, rootLabel, file, mode }: F
             {content.owner.uid}:{content.owner.gid} <span className="font-mono">{modeString(content.owner.mode)}</span>
           </span>
         )}
+        <span className="flex-1" />
+        {content && (
+          <Button size="sm" variant="ghost" data-history-toggle aria-expanded={historyOf === file.path} onClick={() => setHistoryOf(historyOf === file.path ? null : file.path)}>
+            <ClockCounterClockwiseIcon aria-hidden className="size-3.5" />
+            History
+          </Button>
+        )}
       </header>
+      {content && historyOf === file.path && (
+        <HistoryPanel
+          stack={stack}
+          mount={mount}
+          path={file.path}
+          canRestore={mode === 'full' && mountInfo?.writable !== false}
+          onRestored={() => {
+            reopen()
+            relist()
+          }}
+        />
+      )}
 
       {file.state === 'loading' ? (
         <p role="status" data-pane-state="loading" className="text-xs text-muted-foreground">
