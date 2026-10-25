@@ -8,6 +8,13 @@
 
 **Input**: User description: "Harden Depths so a compromised Depths is no longer root on the host (Tier 1 from the hardening review): (1) a policy-enforcing Docker API proxy outside Depths' trust boundary that inspects container-create/update bodies and refuses privileged, host PID/net/IPC/userns, cap_add, devices, and host binds outside the stacks dir and named volumes — the same rules as the 051 compose lint, with an explicit admin-acknowledged exception path; (2) the volume helper runs from its own minimal scratch image containing only the static helper binary, with network none, all caps dropped except the few it needs, read-only rootfs, no-new-privileges, pids and memory limits; (3) passkeys (WebAuthn) as a second factor required for admins, plus step-up re-verification before risky actions (open a shell, deploy a stack the lint flagged or acknowledge an override, write/upload/delete files, change users/roles)."
 
+## Clarifications
+
+### Session 2026-10-25
+
+- Q: How is a runtime-guard exception granted? → A: Only by the operator editing the guard's own settings on the host and restarting it; Depths shows exceptions read-only and cannot grant them.
+- Q: Are non-administrators held to step-up? → A: Yes. Every role must register a passkey before its first risky action and confirm it within the freshness window.
+
 ## Context
 
 Today anyone who controls the Depths server controls the container runtime, and the runtime is root on
@@ -64,7 +71,7 @@ stack asking for a second device is refused.
 
 1. **Given** an exception for stack `media`, service `app`, device `/dev/dri`, **When** `media` is deployed, **Then** `app` starts with that device and the guard logs that the exception was used.
 2. **Given** that exception, **When** stack `other` asks for `/dev/dri`, **Then** it is refused.
-3. **Given** a request to grant an exception, **When** it comes only from the Depths server with no proof from outside it, **Then** no exception is created. [NEEDS CLARIFICATION: how is an exception granted? A: the operator edits the guard's own settings on the host and restarts it; B: an administrator approves it in Depths with their passkey and the guard checks that approval itself; C: both]
+3. **Given** a request to grant an exception, **When** it comes only from the Depths server with no proof from outside it, **Then** no exception is created: exceptions exist only in the guard's own settings on the host, which the operator edits and then restarts the guard.
 4. **Given** a stack with exceptions, **When** its page is shown, **Then** each exception is listed with what it allows and since when.
 5. **Given** the privileged flag or a mount of the runtime socket, **When** an exception is requested for it, **Then** it cannot be granted; these are never allowed.
 
@@ -142,7 +149,7 @@ window does not ask again; confirm a cancelled confirmation leaves nothing chang
 2. **Given** a confirmation within the window, **When** they save a file, **Then** it is not asked again.
 3. **Given** a risky action, **When** the confirmation is cancelled or fails, **Then** nothing is changed, and the attempt is audited.
 4. **Given** the preview/confirm flow of spec 050, **When** a risky action is confirmed, **Then** the passkey confirmation is part of the confirm step, not a separate screen before the preview.
-5. **Given** a person without a passkey who is not an administrator, **When** they try a risky action, **Then** [NEEDS CLARIFICATION: are non-administrators held to step-up too? A: yes, they must register a passkey before any risky action; B: no, step-up applies only to administrators; C: only for shells and file writes]
+5. **Given** a person without a passkey who is not an administrator, **When** they try a risky action, **Then** they are asked to register a passkey first, and the action proceeds only after registration and confirmation; step-up applies to every role.
 
 ---
 
@@ -172,7 +179,7 @@ window does not ask again; confirm a cancelled confirmation leaves nothing chang
 - **FR-005**: The guard MUST judge every form a request can use to ask for the same reach (short and long mount forms, volume driver options that bind a host path, container updates, execs that ask for privilege or another user, image builds that ask for elevated build rights), and refuse if any form is escape-level.
 - **FR-006**: Every refusal MUST return a reason that names the rule and the offending setting, and MUST be recorded in the guard's own log with the time, the request kind and the reason. Allowed requests that used an exception MUST also be recorded.
 - **FR-007**: Depths MUST translate guard refusals into its usual refusal display, next to the stack and service concerned, and MUST audit them in its own log as well.
-- **FR-008**: Exceptions MUST name one stack, one service and one setting each (a device path, a host root, a capability), MUST NOT be grantable for the privileged flag or a runtime socket, and MUST be grantable only by a path that a compromised Depths server cannot use on its own. [Mechanism: see User Story 2, scenario 3.]
+- **FR-008**: Exceptions MUST name one stack, one service and one setting each (a device path, a host root, a capability), MUST NOT be grantable for the privileged flag or a runtime socket, and MUST be grantable only by a path that a compromised Depths server cannot use on its own: the operator edits the guard's settings on the host and restarts the guard. Depths MUST have no way to create, change or remove an exception.
 - **FR-009**: Depths MUST show a stack's exceptions on its page, read-only.
 - **FR-010**: The example compose file and install guide MUST place the guard between Depths and the runtime by default, with no route from Depths to the runtime that bypasses it.
 
@@ -187,7 +194,7 @@ window does not ask again; confirm a cancelled confirmation leaves nothing chang
 
 - **FR-015**: Depths MUST support registering passkeys (security keys and platform authenticators) per person, listing them by name and date, adding more, and removing one as long as one remains.
 - **FR-016**: A session MUST NOT count as an administrator session until the person has confirmed with a passkey in that session; an administrator with no passkey MUST be required to register one before any administrator action.
-- **FR-017**: The actions in User Story 5 (open a shell; save or deploy a stack with escape-level lint findings; acknowledge an override; write, upload, rename or delete files in a volume; restore a file version; change users, roles or network whitelists) MUST require a passkey confirmation no older than the freshness window, 5 minutes by default and configurable by the operator.
+- **FR-017**: The actions in User Story 5 (open a shell; save or deploy a stack with escape-level lint findings; acknowledge an override; write, upload, rename or delete files in a volume; restore a file version; change users, roles or network whitelists) MUST require a passkey confirmation no older than the freshness window, 5 minutes by default and configurable by the operator, for every role; a person without a passkey MUST register one before their first risky action.
 - **FR-018**: Passkey confirmations MUST be bound to Depths' public address, to the session and to a single-use challenge, and MUST be rejected when replayed or used from another site.
 - **FR-019**: The passkey confirmation for a risky action MUST be part of the existing confirm step, and a failed or cancelled confirmation MUST change nothing.
 - **FR-020**: Every passkey registration, removal, confirmation, failure and recovery MUST be audited.

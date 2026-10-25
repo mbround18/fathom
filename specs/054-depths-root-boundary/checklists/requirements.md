@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,7 +31,7 @@
 
 ## Notes
 
-- Two clarifications open: how a runtime-guard exception is granted (US2 scenario 3, FR-008), and
-  whether non-administrators are held to step-up (US5 scenario 5).
+- Clarifications resolved 2026-10-25: exceptions are granted only in the guard's host-side settings
+  (FR-008); step-up applies to every role (FR-017).
 - "Passkey" and "container runtime" are named because the user asked for them; no protocol, library
   or product is chosen.
