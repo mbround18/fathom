@@ -23,6 +23,8 @@ never written to the log.
 
 ## Opening the Files tab
 
+![The Files tab: a volume's folder with sizes, owners and permissions](img/files-listing.png)
+
 Open a stack and choose **Files**. Depths lists every mount of every service in the stack:
 
 - the **source**: a volume's name, or the host folder of a bind mount;
@@ -72,6 +74,13 @@ Open a text file and it appears in the editor with line numbers, highlighting ch
 name or content (INI and CFG, JSON, YAML, TOML, XML, properties, shell scripts, Lua and plain
 text), search and replace, undo and redo, and soft wrap. Everything works from the keyboard.
 
+![A file open in the editor beside its folder](img/files-editor.png)
+
+On a phone the folder and the file take the whole width in turn:
+
+| ![Folder on a phone](img/files-phone-listing.png) | ![File on a phone](img/files-phone-editor.png) |
+| --- | --- |
+
 A file opens in the editor when it is valid UTF-8 text and no bigger than the editor limit (2 MiB
 by default). Anything else, a binary file or a text file over the limit, shows its size and type and
 offers a download instead.
@@ -94,6 +103,8 @@ of a file's format.
 
 Choose **Save**. Depths first shows what will change, the way it does for a compose file, and writes
 nothing until you confirm.
+
+![The save preview: the change as a diff, with the running service named](img/files-save-preview.png)
 
 A save is all or nothing: the file holds either its old content or the new one, never a mix, even
 if the disk fills up half way. Depths writes a new file next to the old one and swaps it in, so the
@@ -170,6 +181,8 @@ mount, and delete files and folders. Moving between mounts is not offered.
   and the system's error, so nothing is hidden.
 
 ## History
+
+![A file's history: kept versions, newest first, each with Compare and Restore](img/files-history.png)
 
 Before Depths overwrites, replaces or deletes a file, it keeps the previous content, with the time
 and who did it. Open a file's **History** to see the kept versions, newest first. You can compare

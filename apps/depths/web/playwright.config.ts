@@ -26,11 +26,16 @@ export default defineConfig({
     baseURL: ORIGIN,
     trace: 'retain-on-failure',
   },
-  projects: STORIES.map((story) => ({
+  projects: STORIES.map((story): { name: string; testDir: string; use: object } => ({
     name: story,
     testDir: `./tests/e2e/${story}`,
     use: { ...devices['Desktop Chrome'] },
-  })),
+  })).concat(
+    // Screenshots for the guides (tests/promo), only when asked for: never part of the suite.
+    process.env.DEPTHS_PROMO === '1'
+      ? [{ name: 'promo', testDir: './tests/promo', use: { ...devices['Desktop Chrome'] } }]
+      : [],
+  ),
   webServer: {
     // The production bundle, as the server ships it: the fake backend intercepts its requests, so
     // the app has no fake mode. Built rather than served by the dev server, as in ui/.
