@@ -34,7 +34,7 @@ import {
   UploadSimpleIcon,
 } from '@phosphor-icons/react'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@companion/ui'
-import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type DragEvent, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { Link } from '@/app/Link'
@@ -158,6 +158,12 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
       else if (left > 0) requestAnimationFrame(() => tryFocus(left - 1))
     }
     tryFocus(5)
+  }
+
+  // The tab stop follows focus, however it got there (a click, a dialog handing focus back).
+  const onRowFocus = (ev: FocusEvent<HTMLAnchorElement>): void => {
+    const i = Number(ev.currentTarget.closest<HTMLElement>('[data-index]')?.dataset.index)
+    if (Number.isInteger(i) && i !== active) setActive(i)
   }
 
   const onKeyDown = (ev: KeyboardEvent<HTMLAnchorElement>): void => {
@@ -378,6 +384,7 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
                     current={path === openPath}
                     tabIndex={v.index === tabStop ? 0 : -1}
                     onKeyDown={onKeyDown}
+                    onFocus={onRowFocus}
                     onContextMenu={
                       hasMenu(e)
                         ? (ev) => {
@@ -424,19 +431,35 @@ interface RowMenuProps {
   onDelete: () => void
 }
 
-/** A row's actions: the ⋮ button, a right-click on the row, or Shift+F10 on its link. */
+/**
+ * A row's actions: the ⋮ button, a right-click on the row, or Shift+F10 on its link. A row that does
+ * not open has no link, so its ⋮ button is its tab stop instead; on a row that does, focus goes back
+ * to the link when the menu closes.
+ */
 function RowMenu({ entry: e, canChange, download, onDownloadFolder, open, onOpenChange, onRename, onDelete }: RowMenuProps) {
+  const triggerRef = useRef<HTMLButtonElement>(null)
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger
+        ref={triggerRef}
         data-row-actions
         aria-label={`Actions for ${e.name}`}
-        tabIndex={-1}
+        tabIndex={opens(e) ? -1 : 0}
         className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground outline-none hover:text-primary focus-visible:ring-1 focus-visible:ring-ring"
       >
         <DotsThreeVerticalIcon aria-hidden className="size-3.5" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" data-row-menu={e.name} className="w-auto min-w-44">
+      <DropdownMenuContent
+        align="end"
+        data-row-menu={e.name}
+        className="w-auto min-w-44"
+        onCloseAutoFocus={(ev) => {
+          const link = triggerRef.current?.closest('[data-entry]')?.querySelector<HTMLElement>('a[data-row-link]')
+          if (!link) return
+          ev.preventDefault()
+          link.focus()
+        }}
+      >
         {download !== null && (
           <DropdownMenuItem data-action="download" asChild>
             <a href={download} download={e.name}>
@@ -474,12 +497,13 @@ interface RowProps {
   current: boolean
   tabIndex: number
   onKeyDown: (ev: KeyboardEvent<HTMLAnchorElement>) => void
+  onFocus: (ev: FocusEvent<HTMLAnchorElement>) => void
   onContextMenu: ((ev: MouseEvent<HTMLDivElement>) => void) | undefined
   /** The row's actions menu, when the person may change files here. */
   menu: ReactNode
 }
 
-function Row({ entry: e, href, current, tabIndex, onKeyDown, onContextMenu, menu }: RowProps) {
+function Row({ entry: e, href, current, tabIndex, onKeyDown, onFocus, onContextMenu, menu }: RowProps) {
   const Icon = e.kind === 'dir' ? FolderIcon : e.kind === 'link' ? LinkSimpleIcon : e.kind === 'special' ? ProhibitIcon : FileIcon
   const name = (
     <>
@@ -503,6 +527,7 @@ function Row({ entry: e, href, current, tabIndex, onKeyDown, onContextMenu, menu
               data-row-link
               tabIndex={tabIndex}
               onKeyDown={onKeyDown}
+              onFocus={onFocus}
               className="flex min-h-6 min-w-0 flex-1 items-center gap-1.5 outline-none hover:text-primary focus-visible:ring-1 focus-visible:ring-ring"
             >
               {name}

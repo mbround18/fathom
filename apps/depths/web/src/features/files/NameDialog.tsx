@@ -8,8 +8,9 @@
  * offered (the server refuses one regardless).
  */
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input } from '@companion/ui'
-import { useState, type SyntheticEvent } from 'react'
+import { useRef, useState, type SyntheticEvent } from 'react'
 
+import { noteOpener, returnFocus, type Opener } from './focus-return'
 import { pathParts } from './model'
 
 export type NameAsk = { kind: 'create'; type: 'file' | 'dir' } | { kind: 'rename'; from: string }
@@ -43,6 +44,7 @@ function problem(ask: NameAsk, value: string): string | null {
 export function NameDialog({ ask, rootLabel, dir, onCancel, onSubmit }: NameDialogProps) {
   const [value, setValue] = useState(ask.kind === 'rename' ? ask.from : '')
   const [tried, setTried] = useState(false)
+  const opener = useRef<Opener | null>(null)
   const why = problem(ask, value)
   const title = ask.kind === 'rename' ? 'Rename or move' : ask.type === 'dir' ? 'New folder' : 'New file'
   const label = ask.kind === 'rename' ? 'New path' : 'Name'
@@ -57,7 +59,17 @@ export function NameDialog({ ask, rootLabel, dir, onCancel, onSubmit }: NameDial
 
   return (
     <Dialog open onOpenChange={(o) => !o && onCancel()}>
-      <DialogContent data-name-dialog={ask.kind === 'rename' ? 'rename' : ask.type} className="sm:max-w-lg">
+      <DialogContent
+        data-name-dialog={ask.kind === 'rename' ? 'rename' : ask.type}
+        className="sm:max-w-lg"
+        onOpenAutoFocus={() => {
+          opener.current = noteOpener()
+        }}
+        onCloseAutoFocus={(ev) => {
+          ev.preventDefault()
+          returnFocus(opener.current)
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="font-display tracking-wider">{title}</DialogTitle>
           <DialogDescription>

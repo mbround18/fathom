@@ -23,6 +23,7 @@ import { DiffText } from '@/features/stacks/PreviewDialog'
 import type { FileOp, FilePreview } from '@/protocol/generated'
 
 import { isSaveConflict, useFileOps, type FileOpRefusal } from './fileops-store'
+import { noteOpener, returnFocus, type Opener } from './focus-return'
 import { mayRestart } from './model'
 import { refusalText, relist } from './store'
 
@@ -134,6 +135,7 @@ export function FileOpDialog() {
 
   // "Stop first": the lifecycle dialog takes over, and this one previews again when it closes.
   const stopping = useRef(false)
+  const opener = useRef<Opener | null>(null)
   useEffect(() => {
     if (!lifecycleOpen && stopping.current) {
       stopping.current = false
@@ -158,7 +160,18 @@ export function FileOpDialog() {
 
   return (
     <Dialog open onOpenChange={(o) => !o && close()}>
-      <DialogContent data-file-op={op.kind} className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined}>
+      <DialogContent
+        data-file-op={op.kind}
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+        aria-describedby={undefined}
+        onOpenAutoFocus={() => {
+          opener.current = noteOpener()
+        }}
+        onCloseAutoFocus={(ev) => {
+          ev.preventDefault()
+          returnFocus(opener.current)
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="font-display tracking-wider break-words">
             {TITLE[op.kind]} in {stack}
