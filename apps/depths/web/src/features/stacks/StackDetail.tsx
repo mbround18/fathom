@@ -18,7 +18,7 @@ import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import { useCanReveal, useReveal } from '@/features/editor/reveal-store'
-import { filesHref, parseFilesRest, showFilesTab, type FilesLocation } from '@/features/files/model'
+import { filesHref, filesReason, parseFilesRest, showFilesTab, type FilesLocation } from '@/features/files/model'
 import { useUntrusted } from '@/features/network/model'
 import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
 import type { StackContainer as Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
@@ -442,6 +442,8 @@ export default function StackDetail({ params }: { params: Params }) {
   const filesRest = params['*']
   const inFiles = filesRest !== undefined
   const filesShown = useSession((s) => showFilesTab(s.me))
+  // Admins only: why the server forced files off (no helper image, no `openat2`).
+  const filesOffWhy = useSession((s) => filesReason(s.me))
   const entry = useStacks((s) => s.details[name])
   const list = useStacks((s) => s.list)
   const openDetail = useStacks((s) => s.openDetail)
@@ -517,6 +519,11 @@ export default function StackDetail({ params }: { params: Params }) {
           <OpenStats target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
         </div>
         {filesShown && <StackViews stack={stack.name} files={inFiles} />}
+        {!filesShown && filesOffWhy !== null && (
+          <p role="note" data-files-reason className="text-xs break-words text-muted-foreground">
+            Files are off on this server: {filesOffWhy}
+          </p>
+        )}
       </header>
 
       <div className="min-w-0 shrink-0">
