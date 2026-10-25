@@ -223,7 +223,7 @@ mount list and an empty Files tab. No story can start until this phase is done.
 - [X] T071 Run `scripts/hygiene.sh` and remove anything this work left dangling.
 - [X] T072 Main session only: one full `scripts/ci.sh` on the combined branch.
 - [X] T073 Main session only, opt-in: write and run apps/depths/server/tests/files_docker.rs (`DEPTHS_IT_DOCKER=1`, `DEPTHS_HELPER_IMAGE=depths:dev`) per quickstart.md §4: scratch volume `depths-it-<random>` and bind dir with files `1000:1000 0640`; list, save (still `1000:1000 0640`), tar download, upload, `../`, absolute link, link swap; clean up by name.
-- [ ] T074 Brochure/marketing screenshots of the Files tab, last.
+- [X] T074 Brochure/marketing screenshots of the Files tab, last.
 
 ---
 
