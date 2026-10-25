@@ -12,9 +12,9 @@ cargo test -p depths-guard           # proxy against a fake upstream: refusals n
 cargo test -p depths-server --test passkeys   # soft passkey: enrol, verify, replay/origin rejection,
                                               # copied-cookie cannot act (SC-005), step-up window, recovery
 cargo test -p depths-protocol        # round trips for new variants; ts-rs bindings regenerated
-pnpm --filter @fathom/depths-web test
-pnpm --filter @fathom/depths-web exec playwright test --project us7-passkeys   # virtual authenticator
-pnpm --filter @fathom/depths-web exec playwright test --project us8-guard      # refusal display, exceptions list
+pnpm --filter @companion/depths-web test
+pnpm --filter @companion/depths-web exec playwright test --project us7-passkeys   # virtual authenticator
+pnpm --filter @companion/depths-web exec playwright test --project us8-guard      # refusal display, exceptions list
 ```
 
 ## 2. Guard against a real daemon (opt-in)
