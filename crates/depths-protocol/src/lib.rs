@@ -24,7 +24,7 @@ pub use event::{Event, EventEnvelope};
 pub use types::*;
 
 /// The protocol version a client states in [`Hello::protocol_version`].
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// WebSocket close codes (same as Fathom hosted).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

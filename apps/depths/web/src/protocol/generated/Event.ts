@@ -10,12 +10,17 @@ import type { FilePreview } from "./FilePreview";
 import type { FileRefusal } from "./FileRefusal";
 import type { FileVersion } from "./FileVersion";
 import type { Fingerprint } from "./Fingerprint";
+import type { GuardException } from "./GuardException";
+import type { GuardRefusal } from "./GuardRefusal";
 import type { HostSample } from "./HostSample";
 import type { Mount } from "./Mount";
 import type { MountId } from "./MountId";
 import type { OpOutcome } from "./OpOutcome";
 import type { OperationId } from "./OperationId";
 import type { OperationKind } from "./OperationKind";
+import type { PasskeyInfo } from "./PasskeyInfo";
+import type { PasskeyRefusedReason } from "./PasskeyRefusedReason";
+import type { PasskeyRequest } from "./PasskeyRequest";
 import type { Preview } from "./Preview";
 import type { PreviewId } from "./PreviewId";
 import type { PreviewVoidReason } from "./PreviewVoidReason";
@@ -27,18 +32,23 @@ import type { StreamId } from "./StreamId";
 import type { UsageSample } from "./UsageSample";
 import type { UserList } from "./UserList";
 import type { ValidationError } from "./ValidationError";
+import type { Verification } from "./Verification";
 import type { VersionId } from "./VersionId";
 
 /**
  * Events. Adjacently tagged like [`crate::Cmd`].
  */
-export type Event = { "type": "Stacks", "data": StackList } | { "type": "StacksChanged", "data": StackList } | { "type": "RuntimeUnavailable", "data": { reason: string, } } | { "type": "StackDetail", "data": StackDetail } | { "type": "EnvRevealed", "data": { name: string, env_text: string, } } | { "type": "Preview", "data": Preview } | { "type": "ValidationFailed", "data": { errors: Array<ValidationError>, } } | { "type": "Conflict", "data": { current_text: string, current_env: EnvText | null, current_hash: string, } } | { "type": "PreviewVoid", "data": { reason: PreviewVoidReason, } } | { "type": "LintResult", "data": { stack: string, findings: Array<ComposeWarning>, } } | { "type": "OpStarted", "data": { operation_id: OperationId, } } | { "type": "OpOutput", "data": { operation_id: OperationId, chunk: string, } } | { "type": "OpFinished", "data": { operation_id: OperationId, outcome: OpOutcome, } } | { "type": "Denied", "data": { reason: DenyReason, 
+export type Event = { "type": "Stacks", "data": StackList } | { "type": "StacksChanged", "data": StackList } | { "type": "RuntimeUnavailable", "data": { reason: string, } } | { "type": "StackDetail", "data": StackDetail } | { "type": "EnvRevealed", "data": { name: string, env_text: string, } } | { "type": "Preview", "data": Preview } | { "type": "ValidationFailed", "data": { errors: Array<ValidationError>, } } | { "type": "Conflict", "data": { current_text: string, current_env: EnvText | null, current_hash: string, } } | { "type": "PreviewVoid", "data": { reason: PreviewVoidReason, } } | { "type": "LintResult", "data": { stack: string, findings: Array<ComposeWarning>, } } | { "type": "OpStarted", "data": { operation_id: OperationId, } } | { "type": "OpOutput", "data": { operation_id: OperationId, chunk: string, } } | { "type": "OpFinished", "data": { operation_id: OperationId, outcome: OpOutcome, 
+/**
+ * 054: the runtime guard refused a request of this operation.
+ */
+guard?: GuardRefusal, } } | { "type": "Denied", "data": { reason: DenyReason, 
 /**
  * A human sentence on why, when the reason alone does not say (a container's security
  * findings, the compose policy).
  */
-detail?: string, } } | { "type": "Busy", "data": { stack: string, operation_id: OperationId, kind: OperationKind, actor: Actor, } } | { "type": "Invalid", "data": { reason: string, } } | { "type": "StreamOpened", "data": { stream_id: StreamId, } } | { "type": "LogChunk", "data": { stream_id: StreamId, lines: Array<string>, } } | { "type": "ShellOutput", "data": { stream_id: StreamId, bytes_b64: string, } } | { "type": "StreamClosed", "data": { stream_id: StreamId, reason: StreamCloseReason, } } | { "type": "StatsSample", "data": { samples: Array<UsageSample>, } } | { "type": "HostSample", "data": HostSample } | { "type": "AuditPage", "data": { entries: Array<AuditEntry>, next_cursor: string | null, } } | { "type": "Users", "data": UserList } | { "type": "UsersChanged", "data": UserList } | { "type": "Mounts", "data": { stack: string, mounts: Array<Mount>, } } | { "type": "DirPage", "data": { req: number, mount: MountId, path: RelPath, entries: Array<Entry>, page: number, last: boolean, } } | { "type": "FileContent", "data": { req: number, mount: MountId, path: RelPath, version?: VersionId, file: FileContent, } } | { "type": "FolderSize", "data": { req: number, bytes: number, entries: number, 
+detail?: string, } } | { "type": "Busy", "data": { stack: string, operation_id: OperationId, kind: OperationKind, actor: Actor, } } | { "type": "Invalid", "data": { reason: string, } } | { "type": "StepUpRequired", "data": { request: PasskeyRequest, } } | { "type": "PasskeyEnrolmentRequired" } | { "type": "PasskeyRefused", "data": { reason: PasskeyRefusedReason, } } | { "type": "RuntimeGuardUnreachable" } | { "type": "StreamOpened", "data": { stream_id: StreamId, } } | { "type": "LogChunk", "data": { stream_id: StreamId, lines: Array<string>, } } | { "type": "ShellOutput", "data": { stream_id: StreamId, bytes_b64: string, } } | { "type": "StreamClosed", "data": { stream_id: StreamId, reason: StreamCloseReason, } } | { "type": "StatsSample", "data": { samples: Array<UsageSample>, } } | { "type": "HostSample", "data": HostSample } | { "type": "AuditPage", "data": { entries: Array<AuditEntry>, next_cursor: string | null, } } | { "type": "Users", "data": UserList } | { "type": "UsersChanged", "data": UserList } | { "type": "Mounts", "data": { stack: string, mounts: Array<Mount>, } } | { "type": "DirPage", "data": { req: number, mount: MountId, path: RelPath, entries: Array<Entry>, page: number, last: boolean, } } | { "type": "FileContent", "data": { req: number, mount: MountId, path: RelPath, version?: VersionId, file: FileContent, } } | { "type": "FolderSize", "data": { req: number, bytes: number, entries: number, 
 /**
  * The count stopped at the download limit.
  */
-capped: boolean, } } | { "type": "FilePreview", "data": FilePreview } | { "type": "FileOpDone", "data": { preview_id: PreviewId, mount: MountId, path: RelPath, fingerprint?: Fingerprint, running: Array<string>, } } | { "type": "History", "data": { mount: MountId, path: RelPath, versions: Array<FileVersion>, } } | { "type": "FileRefused", "data": FileRefusal } | { "type": "SessionExpiring", "data": { at: string, } };
+capped: boolean, } } | { "type": "FilePreview", "data": FilePreview } | { "type": "FileOpDone", "data": { preview_id: PreviewId, mount: MountId, path: RelPath, fingerprint?: Fingerprint, running: Array<string>, } } | { "type": "History", "data": { mount: MountId, path: RelPath, versions: Array<FileVersion>, } } | { "type": "FileRefused", "data": FileRefusal } | { "type": "PasskeyChallenge", "data": PasskeyRequest } | { "type": "PasskeyRegistered", "data": PasskeyInfo } | { "type": "Passkeys", "data": { items: Array<PasskeyInfo>, } } | { "type": "Verification", "data": Verification } | { "type": "GuardExceptions", "data": { stack: string, items: Array<GuardException>, } } | { "type": "SessionExpiring", "data": { at: string, } };

@@ -4,7 +4,9 @@ import type { AuditAction } from "./AuditAction";
 import type { AuditFile } from "./AuditFile";
 import type { AuditNetwork } from "./AuditNetwork";
 import type { AuditOutcome } from "./AuditOutcome";
+import type { AuditPasskey } from "./AuditPasskey";
 import type { AuditSecurity } from "./AuditSecurity";
+import type { GuardRefusal } from "./GuardRefusal";
 import type { OperationId } from "./OperationId";
 import type { PreviewId } from "./PreviewId";
 import type { UserChange } from "./UserChange";
@@ -40,4 +42,12 @@ security?: AuditSecurity,
 /**
  * File entries (spec 053): where, never what.
  */
-file?: AuditFile, };
+file?: AuditFile, 
+/**
+ * `guard_refused`: the guard's rule and setting (spec 054).
+ */
+guard?: GuardRefusal, 
+/**
+ * Passkey entries (spec 054).
+ */
+passkey?: AuditPasskey, };

@@ -5,7 +5,9 @@ use ts_rs::TS;
 
 use crate::types::{
     Actor, AuditEntry, ComposeWarning, DenyReason, Entry, EnvText, FileContent, FilePreview,
-    FileRefusal, FileVersion, Fingerprint, HostSample, Mount, MountId, OpOutcome, OperationId,
+    FileRefusal, FileVersion, Fingerprint, GuardException, GuardRefusal, HostSample, Mount,
+    MountId, OpOutcome, OperationId, PasskeyInfo, PasskeyRefusedReason, PasskeyRequest,
+    Verification,
     OperationKind, Preview, PreviewId, PreviewVoidReason, RelPath, RequestId, StackDetail,
     StackList, StreamCloseReason, UserList, ValidationError, VersionId,
 };
@@ -69,6 +71,10 @@ pub enum Event {
     OpFinished {
         operation_id: OperationId,
         outcome: OpOutcome,
+        /// 054: the runtime guard refused a request of this operation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        guard: Option<GuardRefusal>,
     },
 
     // Refusals
@@ -93,6 +99,20 @@ pub enum Event {
     Invalid {
         reason: String,
     },
+
+    /// 054: this command needs a fresh passkey check. Answer `request` and send the command
+    /// again with `assertion`. Audited `step_up_required`.
+    StepUpRequired {
+        request: PasskeyRequest,
+    },
+    /// 054: register a passkey first.
+    PasskeyEnrolmentRequired,
+    /// 054: a passkey answer, recovery code or removal was refused. Audited.
+    PasskeyRefused {
+        reason: PasskeyRefusedReason,
+    },
+    /// 054: the runtime guard is not answering, so nothing can reach the runtime.
+    RuntimeGuardUnreachable,
 
     // Streams
     StreamOpened {
@@ -175,6 +195,18 @@ pub enum Event {
     },
     /// A file command refused for a reason of its own. Audited.
     FileRefused(FileRefusal),
+
+    // Passkeys and the runtime guard (spec 054)
+    PasskeyChallenge(PasskeyRequest),
+    PasskeyRegistered(PasskeyInfo),
+    Passkeys {
+        items: Vec<PasskeyInfo>,
+    },
+    Verification(Verification),
+    GuardExceptions {
+        stack: String,
+        items: Vec<GuardException>,
+    },
 
     // Session
     /// Sent 60 s before the session expires; refresh via `POST /auth/refresh`.

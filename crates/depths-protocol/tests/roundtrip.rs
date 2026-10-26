@@ -60,6 +60,89 @@ fn version_id() -> VersionId {
     VersionId::new(format!("{}-3", "b".repeat(64))).unwrap()
 }
 
+fn b64url(value: &str) -> B64Url {
+    B64Url::new(value).unwrap()
+}
+
+fn ceremony_id() -> CeremonyId {
+    CeremonyId(Uuid::from_u128(7))
+}
+
+fn passkey_request() -> PasskeyRequest {
+    PasskeyRequest {
+        ceremony: ceremony_id(),
+        options: json!({
+            "rp": { "name": "Fathom" },
+            "user": { "id": "dXNlcg", "name": "user@example.com", "displayName": "User" },
+            "challenge": "AQIDBA==",
+            "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }],
+        }),
+    }
+}
+
+fn passkey_assertion() -> PasskeyAssertion {
+    PasskeyAssertion {
+        ceremony: ceremony_id(),
+        credential: AssertionCredential {
+            id: b64url("Zm9v"),
+            raw_id: b64url("YmFy"),
+            response: AssertionResponse {
+                authenticator_data: b64url("YXV0aA"),
+                client_data_json: b64url("Y2xpZW50"),
+                signature: b64url("c2ln"),
+                user_handle: None,
+            },
+            kind: PublicKeyType::PublicKey,
+            extensions: PasskeyExtensions::default(),
+        },
+    }
+}
+
+fn passkey_response() -> PasskeyResponse {
+    PasskeyResponse {
+        ceremony: ceremony_id(),
+        credential: PasskeyCredential::Attestation(AttestationCredential {
+            id: b64url("aWQ"),
+            raw_id: b64url("cmF3"),
+            response: AttestationResponse {
+                attestation_object: b64url("YXR0ZXN0"),
+                client_data_json: b64url("Y2xpZW50"),
+                transports: vec![PasskeyTransport::new("usb").unwrap()],
+            },
+            kind: PublicKeyType::PublicKey,
+            extensions: PasskeyExtensions::default(),
+        }),
+    }
+}
+
+fn guard_refusal() -> GuardRefusal {
+    GuardRefusal {
+        rule: "privileged".into(),
+        setting: "HostConfig.Privileged=true".into(),
+        service: Some("web".into()),
+    }
+}
+
+fn passkey_info() -> PasskeyInfo {
+    PasskeyInfo {
+        id: "passkey-id".into(),
+        name: "Laptop".into(),
+        created: "2026-10-23T09:00:00Z".into(),
+        last_used: Some("2026-10-23T10:00:00Z".into()),
+    }
+}
+
+fn verification() -> Verification {
+    Verification {
+        verified: true,
+        at: Some("2026-10-23T09:10:00Z".into()),
+        window_secs: 300,
+        enrolled: true,
+        required: true,
+        recovering: false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -141,10 +224,12 @@ fn all_cmds() -> Vec<Cmd> {
         Cmd::Confirm {
             preview_id: preview_id(),
             acknowledge_findings: false,
+            assertion: None,
         },
         Cmd::Confirm {
             preview_id: preview_id(),
             acknowledge_findings: true,
+            assertion: Some(passkey_assertion()),
         },
         Cmd::LintCompose {
             stack: stack("web"),
@@ -181,12 +266,34 @@ fn all_cmds() -> Vec<Cmd> {
             shell: Some(Shell::Bash),
             cols: 120,
             rows: 40,
+            assertion: None,
         },
         Cmd::OpenShell {
             container: ContainerRef::new("web-app-1").unwrap(),
             shell: None,
             cols: 80,
             rows: 24,
+            assertion: Some(passkey_assertion()),
+        },
+        Cmd::GetVerification,
+        Cmd::PasskeyBegin {
+            purpose: PasskeyPurpose::Verify,
+        },
+        Cmd::PasskeyBegin {
+            purpose: PasskeyPurpose::Register {
+                name: PasskeyName::new("Laptop").unwrap(),
+            },
+        },
+        Cmd::PasskeyFinish(passkey_response()),
+        Cmd::ListPasskeys,
+        Cmd::PreviewPasskeyRemove {
+            id: B64Url::new("Y2hlY2s").unwrap(),
+        },
+        Cmd::RecoverPasskeys {
+            code: RecoveryCode::new("AbCd1234Ef").unwrap(),
+        },
+        Cmd::GetGuardExceptions {
+            stack: stack("web"),
         },
         Cmd::ShellInput {
             stream_id: StreamId(3),
@@ -358,10 +465,17 @@ fn cmd_covered(cmd: &Cmd) -> &'static str {
         Cmd::PreviewFileOp { .. } => "PreviewFileOp",
         Cmd::ListHistory { .. } => "ListHistory",
         Cmd::ReadVersion { .. } => "ReadVersion",
+        Cmd::GetVerification => "GetVerification",
+        Cmd::PasskeyBegin { .. } => "PasskeyBegin",
+        Cmd::PasskeyFinish(_) => "PasskeyFinish",
+        Cmd::ListPasskeys => "ListPasskeys",
+        Cmd::PreviewPasskeyRemove { .. } => "PreviewPasskeyRemove",
+        Cmd::RecoverPasskeys { .. } => "RecoverPasskeys",
+        Cmd::GetGuardExceptions { .. } => "GetGuardExceptions",
     }
 }
 
-const CMD_VARIANTS: usize = 28;
+const CMD_VARIANTS: usize = 35;
 const FILE_OP_VARIANTS: usize = 6;
 const STACK_OP_VARIANTS: usize = 10;
 
@@ -434,6 +548,7 @@ fn cmd_wire_shape_is_pinned() {
         serde_json::to_value(Cmd::Confirm {
             preview_id: preview_id(),
             acknowledge_findings: false,
+            assertion: None,
         })
         .unwrap(),
         json!({ "type": "Confirm", "data": { "preview_id": "00000000-0000-0000-0000-000000000001" } })
@@ -443,6 +558,7 @@ fn cmd_wire_shape_is_pinned() {
         serde_json::to_value(Cmd::Confirm {
             preview_id: preview_id(),
             acknowledge_findings: true,
+            assertion: None,
         })
         .unwrap(),
         json!({ "type": "Confirm", "data": {
@@ -894,6 +1010,7 @@ fn all_events() -> Vec<Event> {
             expires_at: "2026-10-23T09:05:00Z".into(),
             warnings: vec![warning()],
             ack_required: true,
+            step_up: Some(passkey_request()),
         }),
         Event::ValidationFailed {
             errors: vec![
@@ -934,14 +1051,17 @@ fn all_events() -> Vec<Event> {
                 exit_code: Some(1),
                 stderr: "no such service: ap\n".into(),
             },
+            guard: Some(guard_refusal()),
         },
         Event::OpFinished {
             operation_id: operation_id(),
             outcome: OpOutcome::Succeeded,
+            guard: None,
         },
         Event::OpFinished {
             operation_id: operation_id(),
             outcome: OpOutcome::Cancelled,
+            guard: None,
         },
         Event::Denied {
             reason: DenyReason::NotPermitted,
@@ -1048,6 +1168,11 @@ fn all_events() -> Vec<Event> {
                     network: None,
                     security: None,
                     file: None,
+                    guard: Some(guard_refusal()),
+                    passkey: Some(AuditPasskey {
+                        cmd: Some("Confirm".into()),
+                        ..AuditPasskey::default()
+                    }),
                 },
                 AuditEntry {
                     at: "2026-10-23T09:01:00Z".into(),
@@ -1074,6 +1199,8 @@ fn all_events() -> Vec<Event> {
                     network: None,
                     security: None,
                     file: None,
+                    guard: None,
+                    passkey: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:02:00Z".into(),
@@ -1100,6 +1227,8 @@ fn all_events() -> Vec<Event> {
                         acknowledged: false,
                     }),
                     file: None,
+                    guard: None,
+                    passkey: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:03:00Z".into(),
@@ -1124,6 +1253,11 @@ fn all_events() -> Vec<Event> {
                         path: rel("worlds/a.db"),
                         bytes: None,
                         op: Some("read".into()),
+                    }),
+                    guard: Some(guard_refusal()),
+                    passkey: Some(AuditPasskey {
+                        reason: Some(PasskeyRefusedReason::Cancelled),
+                        ..AuditPasskey::default()
                     }),
                 },
             ],
@@ -1240,9 +1374,35 @@ fn all_events() -> Vec<Event> {
                 reason: VersionReason::Save,
             }],
         },
-        Event::FileRefused(FileRefusal::ChangedOnDisk {
-            current: fingerprint(),
-        }),
+        Event::FileRefused(FileRefusal::Guard(guard_refusal())),
+        Event::StepUpRequired {
+            request: passkey_request(),
+        },
+        Event::PasskeyEnrolmentRequired,
+        Event::PasskeyRefused {
+            reason: PasskeyRefusedReason::Cancelled,
+        },
+        Event::RuntimeGuardUnreachable,
+        Event::PasskeyChallenge(passkey_request()),
+        Event::PasskeyRegistered(passkey_info()),
+        Event::Passkeys {
+            items: vec![passkey_info()],
+        },
+        Event::Verification(verification()),
+        Event::GuardExceptions {
+            stack: "web".into(),
+            items: vec![GuardException {
+                service: "web".into(),
+                image: Some("app:latest".into()),
+                grants: vec![GuardGrant {
+                    kind: GuardGrantKind::Cap,
+                    value: "NET_ADMIN".into(),
+                    read_only: Some(false),
+                }],
+                note: Some("test rule".into()),
+                granted: Some("2026-10-23T09:00:00Z".into()),
+            }],
+        },
     ]
 }
 
@@ -1283,10 +1443,19 @@ fn event_covered(event: &Event) -> &'static str {
         Event::FileOpDone { .. } => "FileOpDone",
         Event::History { .. } => "History",
         Event::FileRefused(_) => "FileRefused",
+        Event::StepUpRequired { .. } => "StepUpRequired",
+        Event::PasskeyEnrolmentRequired => "PasskeyEnrolmentRequired",
+        Event::PasskeyRefused { .. } => "PasskeyRefused",
+        Event::RuntimeGuardUnreachable => "RuntimeGuardUnreachable",
+        Event::PasskeyChallenge(_) => "PasskeyChallenge",
+        Event::PasskeyRegistered(_) => "PasskeyRegistered",
+        Event::Passkeys { .. } => "Passkeys",
+        Event::Verification(_) => "Verification",
+        Event::GuardExceptions { .. } => "GuardExceptions",
     }
 }
 
-const EVENT_VARIANTS: usize = 34;
+const EVENT_VARIANTS: usize = 43;
 
 #[test]
 fn every_event_roundtrips_in_an_envelope() {

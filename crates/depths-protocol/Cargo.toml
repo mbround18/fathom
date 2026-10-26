@@ -19,6 +19,8 @@ ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
 uuid = { version = "1", features = ["serde"] }
 # `since`/`from`/`to` in commands must be RFC 3339.
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+# 054: WebAuthn options the server generates, passed to the browser as JSON.
+serde_json = "1.0.154"
 
 [dev-dependencies]
 serde_json = "1.0.154"

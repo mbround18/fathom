@@ -871,6 +871,10 @@ pub struct Preview {
     #[serde(default)]
     #[ts(as = "Option<bool>", optional)]
     pub ack_required: bool,
+    /// 054: confirming needs a fresh passkey check; answer this with `Confirm.assertion`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub step_up: Option<PasskeyRequest>,
 }
 
 /// Which file of a draft a validation error is about.
@@ -1068,6 +1072,19 @@ pub enum AuditAction {
     /// A file command refused, by a gate or by the helper.
     #[serde(rename = "files.refused")]
     FilesRefused,
+    /// The runtime guard refused a request Depths sent (spec 054). `guard` says what.
+    GuardRefused,
+    PasskeyRegistered,
+    PasskeyRemoved,
+    /// A passkey check passed (sign-in verification or step-up).
+    PasskeyVerified,
+    PasskeyFailed,
+    /// A risky command was refused until a fresh passkey check.
+    StepUpRequired,
+    /// A recovery code was made on the host (`depths passkey-recovery`).
+    PasskeyRecoveryIssued,
+    /// A recovery code was used: the person's passkeys were removed.
+    PasskeyRecovered,
 }
 
 impl From<OperationKind> for AuditAction {
@@ -1148,6 +1165,14 @@ pub struct AuditEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub file: Option<AuditFile>,
+    /// `guard_refused`: the guard's rule and setting (spec 054).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub guard: Option<GuardRefusal>,
+    /// Passkey entries (spec 054).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub passkey: Option<AuditPasskey>,
 }
 
 /// The file part of an audit entry. Names and sizes only: no field can carry content.
@@ -1659,5 +1684,346 @@ pub enum FileRefusal {
     OsError {
         errno: String,
         message: String,
-    },
+    },    /// 054: the runtime guard refused to start the helper.
+    Guard(GuardRefusal),
+}
+
+// ---------------------------------------------------------------------------
+// Passkeys and the runtime guard (spec 054)
+// ---------------------------------------------------------------------------
+
+/// Longest base64url field of a WebAuthn credential accepted (an attestation object with a
+/// certificate chain stays well under this).
+pub const MAX_WEBAUTHN_B64_BYTES: usize = 16 * 1024;
+/// Longest passkey name, in characters.
+pub const MAX_PASSKEY_NAME_CHARS: usize = 64;
+/// Longest WebAuthn transport hint accepted.
+const MAX_TRANSPORT_BYTES: usize = 32;
+/// Most transport hints on one credential.
+const MAX_TRANSPORTS: usize = 8;
+
+checked_string!(
+    /// Binary data as unpadded base64url, as WebAuthn's JSON forms carry it.
+    B64Url,
+    "base64url",
+    |v| {
+        bounded(v, MAX_WEBAUTHN_B64_BYTES)?;
+        if v
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            Ok(())
+        } else {
+            Err("not unpadded base64url")
+        }
+    }
+);
+
+checked_string!(
+    /// A person's name for one of their passkeys: 1–64 characters, no surrounding spaces, no
+    /// control characters.
+    PasskeyName,
+    "passkey name",
+    |v| {
+        let chars = v.chars().count();
+        if chars == 0 {
+            return Err("empty");
+        }
+        if chars > MAX_PASSKEY_NAME_CHARS {
+            return Err("too long");
+        }
+        if v.trim() != v {
+            return Err("surrounding spaces");
+        }
+        if v.chars().any(char::is_control) {
+            return Err("control character");
+        }
+        Ok(())
+    }
+);
+
+checked_string!(
+    /// A one-time recovery code made on the host (`depths passkey-recovery`): 10 to 32 ASCII
+    /// letters and digits.
+    RecoveryCode,
+    "recovery code",
+    |v| {
+        if !(10..=32).contains(&v.len()) {
+            return Err("wrong length");
+        }
+        if v.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            Ok(())
+        } else {
+            Err("not letters and digits")
+        }
+    }
+);
+
+checked_string!(
+    /// A WebAuthn transport hint (`usb`, `nfc`, `internal`, `hybrid`, ...). Hints only: nothing
+    /// is decided on them.
+    PasskeyTransport,
+    "transport",
+    |v| {
+        bounded(v, MAX_TRANSPORT_BYTES)?;
+        if v.bytes().all(|b| b.is_ascii_lowercase() || b == b'-') {
+            Ok(())
+        } else {
+            Err("not a transport name")
+        }
+    }
+);
+
+/// One passkey ceremony (registration or assertion). Single-use, bound to the session and its
+/// purpose, and void after two minutes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct CeremonyId(#[ts(type = "string")] pub Uuid);
+
+/// What a passkey ceremony is for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PasskeyPurpose {
+    /// Add a passkey. The first one needs no prior check; later ones need a fresh one.
+    Register { name: PasskeyName },
+    /// Prove it is you: verifies the session (admins and owners) and refreshes the step-up window.
+    Verify,
+}
+
+/// A ceremony the browser must answer with `navigator.credentials.create` (registration) or
+/// `.get` (assertion). `options` is the server's `publicKey` options in WebAuthn's JSON form
+/// (binary fields base64url), generated by the server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PasskeyRequest {
+    pub ceremony: CeremonyId,
+    #[ts(type = "unknown")]
+    pub options: serde_json::Value,
+}
+
+/// `response` of a registration (`AuthenticatorAttestationResponse`), binary fields base64url.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttestationResponse {
+    pub attestation_object: B64Url,
+    #[serde(rename = "clientDataJSON")]
+    #[ts(rename = "clientDataJSON")]
+    pub client_data_json: B64Url,
+    #[serde(default, deserialize_with = "at_most::<_, _, MAX_TRANSPORTS>")]
+    pub transports: Vec<PasskeyTransport>,
+}
+
+/// `response` of an assertion (`AuthenticatorAssertionResponse`), binary fields base64url.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssertionResponse {
+    pub authenticator_data: B64Url,
+    #[serde(rename = "clientDataJSON")]
+    #[ts(rename = "clientDataJSON")]
+    pub client_data_json: B64Url,
+    pub signature: B64Url,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub user_handle: Option<B64Url>,
+}
+
+/// The client extension results the server asks for. Nothing else is carried.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PasskeyExtensions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cred_props: Option<CredProps>,
+}
+
+/// The `credProps` extension result.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct CredProps {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rk: Option<bool>,
+}
+
+/// A `PublicKeyCredential` from `navigator.credentials.create`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttestationCredential {
+    pub id: B64Url,
+    pub raw_id: B64Url,
+    pub response: AttestationResponse,
+    /// Always `public-key`.
+    #[serde(rename = "type")]
+    #[ts(rename = "type")]
+    pub kind: PublicKeyType,
+    #[serde(default)]
+    #[ts(as = "Option<PasskeyExtensions>", optional)]
+    pub extensions: PasskeyExtensions,
+}
+
+/// A `PublicKeyCredential` from `navigator.credentials.get`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssertionCredential {
+    pub id: B64Url,
+    pub raw_id: B64Url,
+    pub response: AssertionResponse,
+    #[serde(rename = "type")]
+    #[ts(rename = "type")]
+    pub kind: PublicKeyType,
+    #[serde(default)]
+    #[ts(as = "Option<PasskeyExtensions>", optional)]
+    pub extensions: PasskeyExtensions,
+}
+
+/// The only WebAuthn credential type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum PublicKeyType {
+    #[serde(rename = "public-key")]
+    PublicKey,
+}
+
+/// A browser's answer to a [`PasskeyRequest`], told apart by its `response` fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum PasskeyCredential {
+    Attestation(AttestationCredential),
+    Assertion(AssertionCredential),
+}
+
+/// The answer to a ceremony.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PasskeyResponse {
+    pub ceremony: CeremonyId,
+    pub credential: PasskeyCredential,
+}
+
+/// A fresh check carried on `Confirm` or `OpenShell` (step-up).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PasskeyAssertion {
+    pub ceremony: CeremonyId,
+    pub credential: AssertionCredential,
+}
+
+/// One of the person's own passkeys. The credential itself never leaves the server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PasskeyInfo {
+    /// The credential id, base64url.
+    pub id: String,
+    pub name: String,
+    /// RFC 3339 UTC.
+    pub created: String,
+    pub last_used: Option<String>,
+}
+
+/// Where this session stands on passkeys.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Verification {
+    /// This session proved it is the person (admins and owners need it for admin access).
+    pub verified: bool,
+    /// When it last did, RFC 3339 UTC.
+    pub at: Option<String>,
+    /// How long a check covers risky actions, in seconds.
+    pub window_secs: u32,
+    /// The person has at least one passkey.
+    pub enrolled: bool,
+    /// The person must verify before admin actions (admins and owners).
+    pub required: bool,
+    /// A recovery code was accepted: the next registration needs no prior check.
+    #[serde(default)]
+    pub recovering: bool,
+}
+
+/// Why a passkey answer was refused. Audited as `passkey_failed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PasskeyRefusedReason {
+    /// The authenticator's counter went backwards, or the ceremony was already used.
+    Replayed,
+    /// The answer was made for another site.
+    WrongOrigin,
+    /// Not one of this person's passkeys.
+    UnknownCredential,
+    /// The ceremony is unknown, for another session or purpose, or older than two minutes.
+    Expired,
+    /// The person dismissed the browser prompt.
+    Cancelled,
+    /// The recovery code is wrong, used or older than 15 minutes.
+    RecoveryInvalid,
+    /// The answer did not verify for another reason (bad signature, malformed data).
+    Invalid,
+    /// Removing it would leave the person without a passkey.
+    LastPasskey,
+}
+
+/// A request the runtime guard refused, as it worded it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GuardRefusal {
+    /// The guard's stable rule name (`privileged`, `sensitive_path`, ...).
+    pub rule: String,
+    /// The field and value judged, e.g. `HostConfig.Privileged=true`.
+    pub setting: String,
+    /// The compose service it was for, when the request said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub service: Option<String>,
+}
+
+/// What an exception grants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardGrantKind {
+    Device,
+    Bind,
+    Cap,
+    Namespace,
+}
+
+/// One setting an exception lets through.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GuardGrant {
+    pub kind: GuardGrantKind,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub read_only: Option<bool>,
+}
+
+/// An exception granted on the host, in the guard's `guard.toml`. Read-only in Depths.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GuardException {
+    pub service: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub image: Option<String>,
+    pub grants: Vec<GuardGrant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub note: Option<String>,
+    /// The date it was granted, as the host wrote it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub granted: Option<String>,
+}
+
+/// The passkey part of an audit entry. Names and reasons only: no field can carry a credential,
+/// a challenge or a recovery code.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditPasskey {
+    /// `passkey_registered` / `passkey_removed`: the passkey's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    /// `passkey_failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reason: Option<PasskeyRefusedReason>,
+    /// `step_up_required` / `passkey_verified`: the command it was for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cmd: Option<String>,
+    /// Whose passkeys, when not the actor's own (`passkey_recovery_issued`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub person: Option<String>,
 }

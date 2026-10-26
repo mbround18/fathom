@@ -10,7 +10,8 @@ use ts_rs::TS;
 
 use crate::types::{
     AuditCursor, AuditFilter, ContainerRef, CsrfToken, FileOp, LogTail, LogTarget,
-    MAX_STATS_TARGETS, MAX_USER_STACKS, MountId, OperationId, PreviewId, RelPath, RequestId, Role,
+    MAX_STATS_TARGETS, MAX_USER_STACKS, MountId, OperationId, PasskeyAssertion, PasskeyPurpose,
+    PasskeyResponse, PreviewId, RecoveryCode, RelPath, RequestId, Role,
     Shell, ShellBytes, StackDraft, StackName, StackOp, StatsTarget, Timestamp, UserId, VersionId,
     at_most,
 };
@@ -71,6 +72,10 @@ pub enum Cmd {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(as = "Option<bool>", optional)]
         acknowledge_findings: bool,
+        /// 054: a fresh passkey check, answering the preview's `step_up`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        assertion: Option<PasskeyAssertion>,
     },
     /// `LintResult`: the compose lint of an editor's text (051 FR-016). Nothing is written.
     LintCompose {
@@ -97,6 +102,10 @@ pub enum Cmd {
         shell: Option<Shell>,
         cols: u16,
         rows: u16,
+        /// 054: a fresh passkey check, answering `StepUpRequired`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        assertion: Option<PasskeyAssertion>,
     },
     /// No reply. Owner of the stream only.
     ShellInput {
@@ -191,5 +200,30 @@ pub enum Cmd {
         path: RelPath,
         version: VersionId,
         req: u32,
+    },
+
+    // Passkeys and the runtime guard (spec 054).
+    /// `Verification`. Also pushed after sign-in and after any change.
+    GetVerification,
+    /// `PasskeyChallenge`, answered with `PasskeyFinish`.
+    PasskeyBegin {
+        purpose: PasskeyPurpose,
+    },
+    /// `PasskeyRegistered` (then `Verification`), `Verification`, or `PasskeyRefused`.
+    PasskeyFinish(PasskeyResponse),
+    /// `Passkeys`: the person's own.
+    ListPasskeys,
+    /// `Preview` (with `step_up` when stale); `Confirm` removes it. `PasskeyRefused
+    /// {last_passkey}` for the last one.
+    PreviewPasskeyRemove {
+        id: crate::types::B64Url,
+    },
+    /// `Verification` (with `recovering`), or `PasskeyRefused {recovery_invalid}`.
+    RecoverPasskeys {
+        code: RecoveryCode,
+    },
+    /// `GuardExceptions`: the host's exceptions for this stack, read-only.
+    GetGuardExceptions {
+        stack: StackName,
     },
 }
