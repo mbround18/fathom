@@ -13,6 +13,9 @@ pub mod ports;
 pub mod rollback;
 pub mod run;
 
+/// Re-exported so wire crates use the same `Uuid` without their own dependency.
+pub use uuid;
+
 pub use domain::{
     ApiTokenId, AuditEventId, GrantId, HostId, InstanceRole, Origin, ParseError, ProjectId, RunId,
     Slug, TeamId, TeamRole, UserId, WorkspaceId,
