@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use keel_server::config::{self, AuditCommand, Cli, Command, Flags};
-use keel_server::{audit, db};
+use keel_server::{audit, db, seal};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -98,8 +98,18 @@ async fn audit_verify(flags: &Flags) -> ExitCode {
     }
 }
 
-fn keygen(_flags: &Flags) -> ExitCode {
-    refuse("keygen is not implemented yet")
+fn keygen(flags: &Flags) -> ExitCode {
+    let path = match config::master_key_file(flags, &config::process_env) {
+        Ok(p) => p,
+        Err(e) => return refuse(&e.to_string()),
+    };
+    match seal::keygen(&path) {
+        Ok(()) => {
+            println!("keel: wrote a new master key to {}", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => refuse(&e.to_string()),
+    }
 }
 
 async fn serve(_flags: Flags) -> ExitCode {
