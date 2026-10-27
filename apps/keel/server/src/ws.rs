@@ -15,6 +15,7 @@
 //! [`crate::serve::AppState::epoch_changed`], is checked straight away. Binary frames close
 //! `1003`; a message over [`MAX_MESSAGE_BYTES`] ends the socket.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use axum::extract::State;
@@ -22,7 +23,7 @@ use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use keel_protocol::{CmdEnvelope, Event, EventEnvelope, Hello, PROTOCOL_VERSION};
+use keel_protocol::{Cmd, CmdEnvelope, Event, EventEnvelope, Hello, PROTOCOL_VERSION};
 use tokio::sync::broadcast::error::RecvError;
 use web_auth::session::{EndReason, Session};
 
@@ -127,6 +128,10 @@ async fn run(app: AppState, session: Option<Session>, mut socket: WebSocket) {
     let mut ended = app.auth.sessions.subscribe_ended();
     let mut epochs = app.revocations.subscribe();
     let mut pushed = app.repos.events.subscribe();
+    // Run output (US2): subscribed before any `SubscribeRun`, so nothing between the history a
+    // subscription replays and the live stream is lost. `subs` holds, per run, the last seq sent.
+    let mut live = app.runs.live();
+    let mut subs: HashMap<uuid::Uuid, u64> = HashMap::new();
 
     let first = tokio::time::timeout(HELLO_TIMEOUT, socket.recv()).await;
     let Ok(Some(Ok(Message::Text(text)))) = first else {
@@ -175,12 +180,26 @@ async fn run(app: AppState, session: Option<Session>, mut socket: WebSocket) {
                         }
                         continue;
                     };
+                    if let Cmd::UnsubscribeRun { run } = &env.cmd {
+                        subs.remove(run);
+                    }
                     let req = Request {
                         caller: &caller,
                         session: Some(&session.id),
                         channel: Channel::Socket,
                     };
                     for out in dispatch::dispatch(&app, &req, env).await {
+                        match &out.event {
+                            Event::RunSubscribed { run, seq } => {
+                                subs.insert(*run, *seq);
+                            }
+                            Event::RunEvent { run, seq, .. } | Event::RunLog { run, seq, .. } => {
+                                if let Some(last) = subs.get_mut(run) {
+                                    *last = (*last).max(*seq);
+                                }
+                            }
+                            _ => {}
+                        }
                         if !send(&mut socket, &out).await {
                             return;
                         }
@@ -236,6 +255,45 @@ async fn run(app: AppState, session: Option<Session>, mut socket: WebSocket) {
                 },
                 // Missed pushes: the page re-reads on its next command.
                 Err(RecvError::Lagged(_) | RecvError::Closed) => {}
+            },
+            // Run output (US2), for the runs this socket subscribed to. View was checked when it
+            // subscribed.
+            l = live.recv() => match l {
+                Ok((run, event)) => {
+                    let seq = match &event {
+                        Event::RunEvent { seq, .. } | Event::RunLog { seq, .. } => *seq,
+                        _ => continue,
+                    };
+                    let Some(last) = subs.get_mut(&run) else { continue };
+                    if seq <= *last {
+                        continue;
+                    }
+                    *last = seq;
+                    if !send(&mut socket, &EventEnvelope::push(event)).await {
+                        return;
+                    }
+                }
+                // Missed output: replay each subscription from the database, which holds a
+                // gap-free prefix of everything broadcast.
+                Err(RecvError::Lagged(_)) => {
+                    let runs: Vec<(uuid::Uuid, u64)> = subs.iter().map(|(r, s)| (*r, *s)).collect();
+                    for (run, after) in runs {
+                        let Ok(events) = crate::queue::history(&app, run, after).await else {
+                            continue;
+                        };
+                        for event in events {
+                            if let Event::RunEvent { seq, .. } | Event::RunLog { seq, .. } = &event
+                                && let Some(last) = subs.get_mut(&run)
+                            {
+                                *last = (*last).max(*seq);
+                            }
+                            if !send(&mut socket, &EventEnvelope::push(event)).await {
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(RecvError::Closed) => {}
             },
         }
     }

@@ -148,6 +148,18 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::ListUsers
         | Cmd::PreviewUserRole { .. }
         | Cmd::PreviewUserRemove { .. } => Ok(()),
+        // Runs (US2): each handler checks the workspace capability.
+        Cmd::ListRuns { .. }
+        | Cmd::GetRun { .. }
+        | Cmd::SubscribeRun { .. }
+        | Cmd::UnsubscribeRun { .. }
+        | Cmd::PreviewRunStart { .. }
+        | Cmd::PreviewCancel { .. }
+        | Cmd::ListJobs { .. }
+        | Cmd::ListPolicies { .. }
+        | Cmd::PreviewPolicyUpsert(_)
+        | Cmd::PreviewPolicyRemove { .. }
+        | Cmd::ExplainPolicy { .. } => Ok(()),
     }
 }
 
@@ -338,6 +350,18 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::ListApiTokens
         | Cmd::PreviewApiTokenCreate { .. }
         | Cmd::PreviewApiTokenRevoke { .. }) => crate::governance::handle(app, req, other).await,
+        // Runs (US2).
+        other @ (Cmd::ListRuns { .. }
+        | Cmd::GetRun { .. }
+        | Cmd::SubscribeRun { .. }
+        | Cmd::UnsubscribeRun { .. }
+        | Cmd::PreviewRunStart { .. }
+        | Cmd::PreviewCancel { .. }
+        | Cmd::ListJobs { .. }
+        | Cmd::ListPolicies { .. }
+        | Cmd::PreviewPolicyUpsert(_)
+        | Cmd::PreviewPolicyRemove { .. }
+        | Cmd::ExplainPolicy { .. }) => crate::runs::handle(app, req, other).await,
     };
     events
         .into_iter()

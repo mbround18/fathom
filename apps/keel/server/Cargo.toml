@@ -66,6 +66,8 @@ web-passkeys = { path = "../../../crates/web-passkeys" }
 webauthn-rs = "0.5.5"
 
 [dev-dependencies]
+# The fake runner for the run tests (no real ansible).
+keel-exec = { path = "../../../crates/keel-exec", features = ["fake"] }
 http-body-util = "0.1"
 tempfile = "3"
 tokio = { version = "1.54.1", features = ["full", "test-util"] }

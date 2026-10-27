@@ -136,6 +136,8 @@ pub struct AppState {
     pub revocations: broadcast::Sender<Uuid>,
     /// The only accepted `Origin`.
     pub origin: Arc<str>,
+    /// Runs (US2): connected runners, dispatch and run output.
+    pub runs: crate::queue::Runs,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -159,6 +161,7 @@ impl AppState {
         let origin: Arc<str> = cfg.origin().into();
         let (revocations, _) = broadcast::channel(256);
         let passkeys = Arc::new(Passkeys::new(&cfg, db.clone(), clock.clone()));
+        let cfg_log_cap = cfg.run_log_cap;
         Self {
             previews: Arc::new(Previews::new(clock.clone())),
             logins: Arc::new(LoginStore::new(LOGIN_TTL, LOGIN_CAP).with_cookie(cookies.login)),
@@ -174,6 +177,10 @@ impl AppState {
             clock,
             revocations,
             origin,
+            runs: crate::queue::Runs::new(crate::queue::RunSettings {
+                log_cap: cfg_log_cap,
+                ..crate::queue::RunSettings::default()
+            }),
         }
     }
 

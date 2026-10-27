@@ -365,7 +365,7 @@ pub enum Trigger {
 }
 
 impl Trigger {
-    fn actor(&self) -> Actor {
+    pub(crate) fn actor(&self) -> Actor {
         match self {
             Trigger::Create(a) | Trigger::Manual(a) => a.clone(),
             Trigger::Delivery { receiver, .. } => Actor::Receiver(*receiver),
@@ -546,6 +546,22 @@ pub async fn sync_binding(
                 inventories_changed,
             },
         );
+        // Runs (US2): a move with a valid manifest starts the jobs whose paths it touched. The
+        // first sync has nothing to compare with and starts none.
+        if let (Ok(_), Some(prev)) = (&fetched.manifest, row.last_commit.as_deref()) {
+            crate::runs::on_push(
+                app,
+                crate::runs::Push {
+                    binding,
+                    workspace: row.workspace,
+                    previous: prev,
+                    head: &commit,
+                    trigger: &trigger,
+                    signed_mode: row.signed_mode,
+                },
+            )
+            .await;
+        }
     }
     Ok(Synced {
         binding,
