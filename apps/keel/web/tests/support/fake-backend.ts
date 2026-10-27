@@ -56,6 +56,7 @@ import type {
   Verification,
 } from '../../src/protocol/wire'
 import { PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
+import { FakeRepos } from './fake-repos'
 
 export { expect }
 
@@ -164,6 +165,8 @@ export class FakeBackend {
   csrf = 'fake-csrf-token_0123456789'
   /** Passkeys registered through the fake, oldest first. */
   passkeys: PasskeyInfo[] = []
+  /** Bindings, receivers, deliveries and credentials (US1): ./fake-repos.ts. */
+  readonly repos = new FakeRepos()
   /** Close code for every new socket's `Hello`, e.g. `Close.Outdated`. `null` = accept. */
   helloClose: number | null = null
 
@@ -433,6 +436,9 @@ export class FakeBackend {
         const id = this.previews.get(preview_id)
         this.previews.delete(preview_id)
         if (id === undefined) {
+          // Not a passkey preview: the bindings and receivers model may hold it.
+          const repos = this.repos.respond(cmd)
+          if (repos) return repos
           return [{ type: 'OpError', data: { code: 'preview_void', message: 'That preview is no longer valid. Start again.' } }]
         }
         if (!this.passkeys.some((p) => p.id === id)) return [{ type: 'PasskeyRefused', data: { reason: 'unknown_credential' } }]
@@ -456,7 +462,9 @@ export class FakeBackend {
         ]
       }
       default: {
-        // Every command has an answer today; one added to the protocol later lands here.
+        const repos = this.repos.respond(cmd)
+        if (repos) return repos
+        // Every other command has an answer today; one added to the protocol later lands here.
         const type: string = (cmd as { type: string }).type
         return [{ type: 'OpError', data: { code: 'unsupported', message: `the fake has no answer for ${type}` } }]
       }
