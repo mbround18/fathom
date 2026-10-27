@@ -39,8 +39,8 @@ moved from files to tables.
 **api_tokens**: `id`, `name`, `owner_user_id`, `workspace_id`, `actions text[]`, `hash`,
 `expires_at`, `last_used_at?`, `revoked_at?`.
 - `actions` may only name commands on the token allow-list (`keel_protocol::TOKEN_ACTIONS`),
-  checked at creation and on every request. A new command is refused to tokens until listed;
-  passkey and token management never are.
+  checked at creation and on every request. Tokens are read-only: the list holds reads, a write
+  joins it only by a deliberate choice, and passkey and token management never do.
 - A token acts as its owner, narrowed to `actions` in one workspace, for the public API (R14).
 - Audited.
 

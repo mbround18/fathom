@@ -883,7 +883,7 @@ async fn api_tokens_are_shown_once_stored_hashed_scoped_and_revocable() {
         matches!(&events[0], Event::OpError { code, .. } if code == "action_not_allowed"),
         "{events:?}"
     );
-    // ...nor one naming a command that is not on the token allow-list.
+    // ...nor one that writes: tokens are read-only.
     let events = h
         .cmd(
             &bob,
@@ -892,7 +892,7 @@ async fn api_tokens_are_shown_once_stored_hashed_scoped_and_revocable() {
                 workspace: ws,
                 actions: TokenActions(vec![
                     ActionName::new("list_workspaces").unwrap(),
-                    ActionName::new("not_a_command").unwrap(),
+                    ActionName::new("preview_grant_add").unwrap(),
                 ]),
                 expires_in_days: 7,
             },
@@ -911,7 +911,7 @@ async fn api_tokens_are_shown_once_stored_hashed_scoped_and_revocable() {
                 workspace: ws,
                 actions: TokenActions(vec![
                     ActionName::new("list_workspaces").unwrap(),
-                    ActionName::new("preview_grant_add").unwrap(),
+                    ActionName::new("list_users").unwrap(),
                 ]),
                 expires_in_days: 7,
             },
@@ -954,7 +954,7 @@ async fn api_tokens_are_shown_once_stored_hashed_scoped_and_revocable() {
     );
     let (_, events) = h.bearer(&secret, Cmd::ListTeams).await;
     assert_eq!(events, [denied("list_teams", "token_scope")]);
-    // In scope by name, but bob is only an operator there.
+    // A write is refused even though bob could ask for it in a session.
     let (_, events) = h
         .bearer(
             &secret,
@@ -966,7 +966,7 @@ async fn api_tokens_are_shown_once_stored_hashed_scoped_and_revocable() {
             },
         )
         .await;
-    assert_eq!(events, [denied("preview_grant_add", "no_grant")]);
+    assert_eq!(events, [denied("preview_grant_add", "token_scope")]);
 
     // Revoked: the token stops working.
     h.apply(&bob, Cmd::PreviewApiTokenRevoke { token: token.id })
@@ -995,16 +995,7 @@ async fn an_owner_token_is_narrowed_to_its_workspace() {
             Cmd::PreviewApiTokenCreate {
                 name: Label::new("ops").unwrap(),
                 workspace: ws,
-                actions: TokenActions(
-                    [
-                        "list_workspaces",
-                        "preview_workspace_update",
-                        "preview_workspace_create",
-                    ]
-                    .into_iter()
-                    .map(|a| ActionName::new(a).unwrap())
-                    .collect(),
-                ),
+                actions: TokenActions(vec![ActionName::new("list_workspaces").unwrap()]),
                 expires_in_days: 1,
             },
         )
@@ -1015,35 +1006,18 @@ async fn an_owner_token_is_narrowed_to_its_workspace() {
     let secret = secret.0.clone();
     let (_, events) = h.bearer(&secret, Cmd::ListWorkspaces).await;
     assert!(matches!(&events[0], Event::Workspaces { items } if items.len() == 1));
-    let (_, events) = h
-        .bearer(
-            &secret,
-            Cmd::PreviewWorkspaceUpdate {
-                workspace: other,
-                name: Label::new("x").unwrap(),
-            },
-        )
-        .await;
-    assert_eq!(events, [denied("preview_workspace_update", "token_scope")]);
-    let (_, events) = h
-        .bearer(
-            &secret,
-            Cmd::PreviewWorkspaceCreate {
-                slug: Slug::new("new").unwrap(),
-                name: Label::new("New").unwrap(),
-            },
-        )
-        .await;
-    assert_eq!(events, [denied("preview_workspace_create", "token_scope")]);
-    let (_, events) = h
-        .bearer(
-            &secret,
-            Cmd::PreviewWorkspaceUpdate {
-                workspace: ws,
-                name: Label::new("Infrastructure").unwrap(),
-            },
-        )
-        .await;
-    assert!(matches!(&events[0], Event::Preview(_)), "{events:?}");
+    // An owner's token still cannot write, in its workspace or elsewhere.
+    for workspace in [ws, other] {
+        let (_, events) = h
+            .bearer(
+                &secret,
+                Cmd::PreviewWorkspaceUpdate {
+                    workspace,
+                    name: Label::new("x").unwrap(),
+                },
+            )
+            .await;
+        assert_eq!(events, [denied("preview_workspace_update", "token_scope")]);
+    }
     h.db.drop().await;
 }

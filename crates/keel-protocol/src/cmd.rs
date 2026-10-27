@@ -160,27 +160,15 @@ pub enum Cmd {
     },
 }
 
-/// The commands an API token may be scoped to, by [`Cmd::name`]. Anything else, including any
-/// command added later, is refused to tokens until it is listed here. Passkey and token
-/// management stay off it: they belong to a person at a browser.
+/// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
+/// else, including any command added later, is refused to tokens until it is listed here. A
+/// write belongs here only by a deliberate choice; passkey and token management never do.
 pub const TOKEN_ACTIONS: &[&str] = &[
     "get_me",
-    "confirm",
     // Governance (US6)
     "list_workspaces",
-    "preview_workspace_create",
-    "preview_workspace_update",
-    "preview_workspace_archive",
-    "preview_project_create",
     "list_teams",
-    "preview_team_create",
-    "preview_team_member_add",
-    "preview_team_member_remove",
-    "preview_grant_add",
-    "preview_grant_remove",
     "list_users",
-    "preview_user_role",
-    "preview_user_remove",
 ];
 
 impl Cmd {
