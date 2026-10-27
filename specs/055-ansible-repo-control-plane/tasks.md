@@ -338,7 +338,7 @@ one, see invalid content refused before use, and see lineage on each revision.
 
 ### Implementation
 
-- [ ] T056 [US4] Migration `0003_inventory.sql`: `inventories` (`source` `repo | managed`, name
+- [X] T056 [US4] Migration `0004_inventory.sql`: `inventories` (`source` `repo | managed`, name
   unique per workspace), `inventory_revisions` (immutable, no `UPDATE` grant; `seq` per
   inventory; `restored_from?`; `imported_from?`), `inventory_hosts`.
 - [ ] T057 [US4] Parser and validator in crates/keel-core/src/inventory.rs. Pass T053.
@@ -385,7 +385,7 @@ running and terminal states, per-host outcomes and failure context are visible.
 
 ### Implementation
 
-- [ ] T065 [US2] Migration `0004_runs.sql`: `approval_policies` (with the catch-all inserted on
+- [ ] T065 [US2] Migration `0005_runs.sql`: `approval_policies` (with the catch-all inserted on
   workspace creation), `runs` (`kind` `normal | rollback | baseline`; `trigger` `delivery | poll |
   manual | api | workflow`; `state`; `state_reason`), `run_hosts` (`state` `queued | sent |
   running | succeeded | failed | refused | lost | cancelled`; `refusal` enum as data-model.md),
