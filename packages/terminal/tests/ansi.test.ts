@@ -78,7 +78,7 @@ describe('parseAnsi: text', () => {
     for (let i = 0; i < 3_000; i++) {
       let s = ''
       const len = rand(40)
-      for (let j = 0; j < len; j++) s += alphabet[rand(alphabet.length)]
+      for (let j = 0; j < len; j++) s += alphabet[rand(alphabet.length)] ?? ''
       expect(parseAnsi(s).text, JSON.stringify(s)).toBe(referenceStrip(s))
       expect(stripAnsi(s)).toBe(referenceStrip(s))
     }

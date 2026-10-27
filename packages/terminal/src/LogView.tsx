@@ -261,7 +261,8 @@ export function LogView({
     const reveal = () => {
       const el = scrollRef.current?.querySelector<HTMLElement>(`[data-line="${String(focus.line)}"]`)
       if (!el) return false
-      el.scrollIntoView?.({ block: 'center' })
+      // jsdom has no scrollIntoView.
+      if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' })
       el.focus({ preventScroll: true })
       return true
     }

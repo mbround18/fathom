@@ -73,7 +73,7 @@ function tokenize(input: string): { token: string; quoted: boolean; negate: bool
         i = close < 0 ? n : close + 1
         continue
       }
-      token += input[i]
+      token += input.charAt(i)
       i++
     }
     out.push({ token, quoted: false, negate })

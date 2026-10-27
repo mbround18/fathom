@@ -28,9 +28,9 @@ export function ScrollFade({ className, children, ...props }: React.ComponentPro
     if (el.firstElementChild) ro.observe(el.firstElementChild)
     const mo = new MutationObserver(() => {
       measure()
-      el.querySelector<HTMLElement>(
-        '[aria-selected="true"],[aria-pressed="true"],[data-active]',
-      )?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+      const active = el.querySelector<HTMLElement>('[aria-selected="true"],[aria-pressed="true"],[data-active]')
+      // jsdom has no scrollIntoView.
+      if (active && typeof active.scrollIntoView === 'function') active.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     })
     mo.observe(el, { subtree: true, attributes: true, attributeFilter: ['aria-selected', 'aria-pressed', 'data-active'] })
     return () => {

@@ -2,7 +2,7 @@
  * A parsed line as React nodes: styled spans for its ANSI runs, `<mark>` for search hits. Only
  * text children and computed inline styles; nothing from the log is ever markup.
  */
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { ansiCss, type AnsiRun } from './ansi'
 import { lowerOf, type ParsedLine } from './log-parse'
@@ -69,7 +69,7 @@ export function renderLineText(line: ParsedLine, highlights: readonly string[]):
           data-fg={s.fg ?? undefined}
           data-bg={s.bg ?? undefined}
           data-bold={s.bold ? '' : undefined}
-          style={ansiCss(s) as CSSProperties}
+          style={ansiCss(s)}
         >
           {parts}
         </span>,

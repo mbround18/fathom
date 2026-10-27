@@ -242,7 +242,6 @@ export const sharedLineCache = new LineCache()
  * bidi overrides, which could still reorder or hide what is read; those are escaped here.
  */
 export function prettyJson(value: unknown): string {
-  // eslint-disable-next-line no-control-regex -- escaping controls is the point
   return JSON.stringify(value, null, 2).replace(/[\u007f-\u009f‪-‮⁦-⁩]/g, (c) =>
     `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
   )

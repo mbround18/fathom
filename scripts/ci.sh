@@ -168,6 +168,8 @@ job_ui() {
     --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" \
     --step "$N pnpm lint" \
     --step "$N pnpm typecheck" \
+    --step "$N pnpm -w run lint:packages" \
+    --step "$N pnpm -w run typecheck:packages" \
     --step "$N pnpm test" \
     --step "$N pnpm build" \
     --step "$N pnpm e2e --workers=\"\$PLAYWRIGHT_WORKERS\"" \
