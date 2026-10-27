@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use keel_core::uuid::Uuid;
+
+use crate::binding::{BindingInfo, CredentialInfo, DeliveryInfo, JobSummary, ReceiverInfo};
 use crate::passkey::{PasskeyInfo, PasskeyRefusedReason, PasskeyRequest, Verification};
 use crate::types::{Me, Preview, PreviewId, RequestId};
 // Governance (US6)
@@ -24,6 +27,32 @@ pub struct EventEnvelope {
 pub enum Event {
     /// Reply to `GetMe`.
     Me(Me),
+    // Bindings and receivers (US1)
+    /// Reply to `ListBindings`.
+    Bindings { items: Vec<BindingInfo> },
+    /// Reply to `GetBinding`, and the result of a confirmed binding change.
+    Binding {
+        binding: BindingInfo,
+        jobs: Vec<JobSummary>,
+    },
+    /// A sync moved the binding's head (reply to `SyncBinding`, or pushed after a delivery).
+    BindingSynced {
+        #[ts(type = "string")]
+        binding: Uuid,
+        commit: String,
+        jobs_changed: bool,
+        inventories_changed: bool,
+    },
+    /// Reply to `ListReceivers`.
+    Receivers { items: Vec<ReceiverInfo> },
+    /// The receiver's URL and secret, shown once after create or rotate. Never sent again.
+    ReceiverSecret { url: String, secret: String },
+    /// Reply to `ListDeliveries`.
+    Deliveries { items: Vec<DeliveryInfo> },
+    /// A receiver recorded a delivery (pushed).
+    DeliveryReceived { delivery: DeliveryInfo },
+    /// Reply to `ListCredentials`.
+    Credentials { items: Vec<CredentialInfo> },
     /// A two-step mutation awaiting `Confirm`.
     Preview(Preview),
     /// The preview was carried out. Any result the command has follows as its own event.

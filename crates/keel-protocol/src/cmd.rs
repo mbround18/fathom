@@ -6,12 +6,17 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use keel_core::uuid::Uuid;
+
+use crate::binding::{
+    BindingSpec, BindingUpdate, CredentialKind, DeliveryDecision, Instant, ObjectName,
+    ReceiverProvider, SecretValue,
+};
 use crate::passkey::{PasskeyAssertion, PasskeyPurpose, PasskeyResponse, RecoveryCode};
 use crate::types::{B64Url, ClientName, CsrfToken, PreviewId, RequestId};
 // Governance (US6)
 use crate::governance::{GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
-use keel_core::uuid::Uuid;
 
 /// The first frame on a WebSocket. A wrong `csrf_token` closes with 4403; a missing or expired
 /// session with 4401; another `protocol_version` with 4400.
@@ -40,6 +45,148 @@ pub struct CmdEnvelope {
 pub enum Cmd {
     /// `Me`.
     GetMe,
+    // Bindings and receivers (US1)
+    /// `Bindings`: the workspace's repository bindings.
+    ListBindings {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Binding`: one binding with its jobs.
+    GetBinding {
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Preview` after a test fetch (with signed mode, it lists unsigned recent commits).
+    /// `Confirm` replies `Binding`.
+    PreviewBindingCreate(BindingSpec),
+    /// `Preview`; `Confirm` replies `Binding`.
+    PreviewBindingUpdate(BindingUpdate),
+    /// `Preview`; turning signed mode off needs step-up. `Confirm` replies `Binding`.
+    PreviewSignedMode {
+        #[ts(type = "string")]
+        binding: Uuid,
+        on: bool,
+    },
+    /// `Preview` listing the queued and pending runs it cancels (`binding_disabled`).
+    PreviewBindingDisable {
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Preview`; `Confirm` replies `Binding`.
+    PreviewBindingEnable {
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Preview`; `Confirm` removes the binding, its receiver links and its mirror.
+    PreviewBindingRemove {
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// Fetch now. Replies `BindingSynced`, or `OpError`.
+    SyncBinding {
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Receivers`.
+    ListReceivers {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (step-up); `Confirm` replies `ReceiverSecret` once.
+    PreviewReceiverCreate {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        name: ObjectName,
+        provider: ReceiverProvider,
+    },
+    /// `Preview` (step-up); `Confirm` replies `ReceiverSecret` once. The previous secret keeps
+    /// verifying for `previous_valid_for` seconds (default 24 h).
+    PreviewReceiverRotate {
+        #[ts(type = "string")]
+        receiver: Uuid,
+        #[serde(default)]
+        previous_valid_for: Option<u32>,
+    },
+    /// `Preview`; `Confirm` replies `Receivers`.
+    PreviewReceiverDisable {
+        #[ts(type = "string")]
+        receiver: Uuid,
+    },
+    /// `Preview`; `Confirm` replies `Receivers`.
+    PreviewReceiverRemove {
+        #[ts(type = "string")]
+        receiver: Uuid,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Receivers`.
+    PreviewReceiverBind {
+        #[ts(type = "string")]
+        receiver: Uuid,
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Preview`; `Confirm` replies `Receivers`.
+    PreviewReceiverUnbind {
+        #[ts(type = "string")]
+        receiver: Uuid,
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Deliveries`, newest first (at most 200).
+    ListDeliveries {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        receiver: Option<Uuid>,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        binding: Option<Uuid>,
+        #[serde(default)]
+        decision: Option<DeliveryDecision>,
+        #[serde(default)]
+        from: Option<Instant>,
+        #[serde(default)]
+        to: Option<Instant>,
+    },
+    /// `Credentials`: names, kinds, fingerprints and grants. Never values.
+    ListCredentials {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Credentials`.
+    PreviewCredentialCreate {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        name: ObjectName,
+        kind: CredentialKind,
+        value: SecretValue,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Credentials`.
+    PreviewCredentialRotate {
+        #[ts(type = "string")]
+        credential: Uuid,
+        value: SecretValue,
+    },
+    /// `Preview` (step-up). Empty `profiles`: every profile. `Confirm` replies `Credentials`.
+    PreviewCredentialGrant {
+        #[ts(type = "string")]
+        credential: Uuid,
+        #[ts(type = "string")]
+        binding: Uuid,
+        profiles: Vec<ObjectName>,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Credentials`.
+    PreviewCredentialRevoke {
+        #[ts(type = "string")]
+        credential: Uuid,
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Preview`, or `OpError {credential_in_use}` while a pending or queued run needs it.
+    PreviewCredentialRemove {
+        #[ts(type = "string")]
+        credential: Uuid,
+    },
     /// Carry out a `Preview`. `step_up` is required when the preview said so and the session has
     /// not verified within the step-up window. Replies `Confirmed` plus the command's own result.
     Confirm {
@@ -177,6 +324,30 @@ impl Cmd {
     pub const fn name(&self) -> &'static str {
         match self {
             Cmd::GetMe => "get_me",
+            // Bindings and receivers (US1)
+            Cmd::ListBindings { .. } => "list_bindings",
+            Cmd::GetBinding { .. } => "get_binding",
+            Cmd::PreviewBindingCreate(_) => "preview_binding_create",
+            Cmd::PreviewBindingUpdate(_) => "preview_binding_update",
+            Cmd::PreviewSignedMode { .. } => "preview_signed_mode",
+            Cmd::PreviewBindingDisable { .. } => "preview_binding_disable",
+            Cmd::PreviewBindingEnable { .. } => "preview_binding_enable",
+            Cmd::PreviewBindingRemove { .. } => "preview_binding_remove",
+            Cmd::SyncBinding { .. } => "sync_binding",
+            Cmd::ListReceivers { .. } => "list_receivers",
+            Cmd::PreviewReceiverCreate { .. } => "preview_receiver_create",
+            Cmd::PreviewReceiverRotate { .. } => "preview_receiver_rotate",
+            Cmd::PreviewReceiverDisable { .. } => "preview_receiver_disable",
+            Cmd::PreviewReceiverRemove { .. } => "preview_receiver_remove",
+            Cmd::PreviewReceiverBind { .. } => "preview_receiver_bind",
+            Cmd::PreviewReceiverUnbind { .. } => "preview_receiver_unbind",
+            Cmd::ListDeliveries { .. } => "list_deliveries",
+            Cmd::ListCredentials { .. } => "list_credentials",
+            Cmd::PreviewCredentialCreate { .. } => "preview_credential_create",
+            Cmd::PreviewCredentialRotate { .. } => "preview_credential_rotate",
+            Cmd::PreviewCredentialGrant { .. } => "preview_credential_grant",
+            Cmd::PreviewCredentialRevoke { .. } => "preview_credential_revoke",
+            Cmd::PreviewCredentialRemove { .. } => "preview_credential_remove",
             Cmd::Confirm { .. } => "confirm",
             Cmd::GetVerification => "get_verification",
             Cmd::PasskeyBegin { .. } => "passkey_begin",
@@ -211,6 +382,30 @@ impl Cmd {
     pub const fn is_streaming(&self) -> bool {
         match self {
             Cmd::GetMe
+            // Bindings and receivers (US1)
+            | Cmd::ListBindings { .. }
+            | Cmd::GetBinding { .. }
+            | Cmd::PreviewBindingCreate(_)
+            | Cmd::PreviewBindingUpdate(_)
+            | Cmd::PreviewSignedMode { .. }
+            | Cmd::PreviewBindingDisable { .. }
+            | Cmd::PreviewBindingEnable { .. }
+            | Cmd::PreviewBindingRemove { .. }
+            | Cmd::SyncBinding { .. }
+            | Cmd::ListReceivers { .. }
+            | Cmd::PreviewReceiverCreate { .. }
+            | Cmd::PreviewReceiverRotate { .. }
+            | Cmd::PreviewReceiverDisable { .. }
+            | Cmd::PreviewReceiverRemove { .. }
+            | Cmd::PreviewReceiverBind { .. }
+            | Cmd::PreviewReceiverUnbind { .. }
+            | Cmd::ListDeliveries { .. }
+            | Cmd::ListCredentials { .. }
+            | Cmd::PreviewCredentialCreate { .. }
+            | Cmd::PreviewCredentialRotate { .. }
+            | Cmd::PreviewCredentialGrant { .. }
+            | Cmd::PreviewCredentialRevoke { .. }
+            | Cmd::PreviewCredentialRemove { .. }
             | Cmd::Confirm { .. }
             | Cmd::GetVerification
             | Cmd::PasskeyBegin { .. }

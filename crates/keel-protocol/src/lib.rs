@@ -3,11 +3,18 @@
 //! Spec 055 (Keel). Wire-only types; `tests/export_bindings.rs` writes the TypeScript bindings to
 //! `apps/keel/web/src/protocol/generated/`, and `tests/roundtrip.rs` round-trips every variant.
 
+pub mod binding;
 pub mod cmd;
 pub mod event;
 pub mod passkey;
 pub mod types;
 
+pub use binding::{
+    ActiveStatus, BindingInfo, BindingSpec, BindingUpdate, BranchName, CredentialGrantInfo,
+    CredentialInfo, CredentialKind, DeliveryDecision, DeliveryInfo, DeliveryRefusal, Instant,
+    JobSummary, KnownHost, ManifestProblem, ObjectName, ReceiverInfo, ReceiverProvider, RepoUrl,
+    SecretValue, SyncState, Transport,
+};
 pub use cmd::{Cmd, CmdEnvelope, Hello, TOKEN_ACTIONS};
 pub use event::{Event, EventEnvelope};
 pub use passkey::{
