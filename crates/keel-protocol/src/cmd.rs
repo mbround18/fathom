@@ -312,6 +312,12 @@ pub enum Cmd {
 /// write belongs here only by a deliberate choice; passkey and token management never do.
 pub const TOKEN_ACTIONS: &[&str] = &[
     "get_me",
+    // Bindings and receivers (US1)
+    "list_bindings",
+    "get_binding",
+    "list_receivers",
+    "list_deliveries",
+    "list_credentials",
     // Governance (US6)
     "list_workspaces",
     "list_teams",

@@ -4,8 +4,11 @@
 mod common;
 mod repos;
 
+use axum::body::Body;
+use axum::http::{Request, StatusCode, header};
 use keel_protocol::{
-    ActiveStatus, BindingUpdate, BranchName, Cmd, CredentialKind, Event, ObjectName, SecretValue,
+    ActionName, ActiveStatus, BindingUpdate, BranchName, Cmd, CmdEnvelope, CredentialKind, Event,
+    EventEnvelope, Label, ObjectName, RequestId, SecretValue, TokenActions,
 };
 use repos::{Harness, Source, bind, manifest, op_error, preview, sign_in};
 
@@ -307,5 +310,53 @@ async fn a_credential_a_binding_fetches_with_cannot_be_removed() {
         .cmd(Cmd::PreviewCredentialRemove { credential: cred })
         .await;
     assert_eq!(op_error(&out), "credential_in_use");
+    h.finish().await;
+}
+
+#[tokio::test]
+async fn a_token_may_list_bindings_but_never_sync_them() {
+    let Some(h) = Harness::new("token_lists_bindings").await else {
+        return;
+    };
+    let src = Source::new(&manifest(&[]));
+    let id = bind(&h, &src).await;
+    let token = |actions: &[&str]| Cmd::PreviewApiTokenCreate {
+        name: Label::new("ci").expect("label"),
+        workspace: h.workspace,
+        actions: TokenActions(
+            actions
+                .iter()
+                .map(|a| ActionName::new(*a).expect("action"))
+                .collect(),
+        ),
+        expires_in_days: 7,
+    };
+    // Syncing writes, so a token may not name it.
+    let out = h.cmd(token(&["list_bindings", "sync_binding"])).await;
+    assert_eq!(op_error(&out), "action_not_allowed");
+
+    let (_, out) = h.confirm(token(&["list_bindings"])).await;
+    let secret = match out.as_slice() {
+        [_, Event::ApiTokenCreated { secret, .. }, ..] => secret.0.clone(),
+        other => panic!("token: {other:?}"),
+    };
+    let body = serde_json::to_vec(&CmdEnvelope {
+        id: RequestId(1),
+        cmd: Cmd::ListBindings {
+            workspace: h.workspace,
+        },
+    })
+    .expect("json");
+    let req = Request::post("/api/v1/cmd")
+        .header(header::AUTHORIZATION, format!("Bearer {secret}"))
+        .body(Body::from(body))
+        .expect("req");
+    let (status, body) = h.call(req).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let envs: Vec<EventEnvelope> = serde_json::from_slice(&body).expect("events");
+    assert!(
+        matches!(envs.as_slice(), [e] if matches!(&e.event, Event::Bindings { items } if items.len() == 1 && items[0].id == id)),
+        "{envs:?}"
+    );
     h.finish().await;
 }
