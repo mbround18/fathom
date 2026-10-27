@@ -28,6 +28,14 @@ pub use types::{
     TeamRole,
 };
 
+// Inventories (US4)
+pub mod inventory;
+pub use inventory::{
+    InventoryChange, InventoryChangeKind, InventoryHostInfo, InventoryInfo, InventoryProblem,
+    InventoryRevisionInfo, InventoryRevisionSummary, InventorySource, InventoryStatus,
+    InventoryText, MAX_INVENTORY_TEXT_BYTES, RevisionStatus,
+};
+
 // Governance (US6)
 pub mod governance;
 pub use governance::{

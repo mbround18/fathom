@@ -8,6 +8,11 @@ use keel_core::uuid::Uuid;
 use crate::binding::{BindingInfo, CredentialInfo, DeliveryInfo, JobSummary, ReceiverInfo};
 use crate::passkey::{PasskeyInfo, PasskeyRefusedReason, PasskeyRequest, Verification};
 use crate::types::{Me, Preview, PreviewId, RequestId};
+// Inventories (US4)
+use crate::inventory::{
+    InventoryChange, InventoryHostInfo, InventoryInfo, InventoryProblem, InventoryRevisionInfo,
+    InventoryRevisionSummary,
+};
 // Governance (US6)
 use crate::governance::{ApiTokenInfo, TeamInfo, TokenSecret, UserInfo, WorkspaceInfo};
 
@@ -53,6 +58,31 @@ pub enum Event {
     DeliveryReceived { delivery: DeliveryInfo },
     /// Reply to `ListCredentials`.
     Credentials { items: Vec<CredentialInfo> },
+    // Inventories (US4)
+    /// Reply to `ListInventories`, and after a deprecation.
+    Inventories { items: Vec<InventoryInfo> },
+    /// Reply to `GetInventoryRevision`, and the result of a confirmed create, edit or restore.
+    /// `history` is every revision, newest first.
+    InventoryRevision {
+        inventory: InventoryInfo,
+        revision: InventoryRevisionInfo,
+        history: Vec<InventoryRevisionSummary>,
+    },
+    /// Reply to `DiffInventory`.
+    InventoryDiff {
+        #[ts(type = "string")]
+        inventory: Uuid,
+        from: u32,
+        to: u32,
+        changes: Vec<InventoryChange>,
+    },
+    /// Reply to `ValidateInventory`.
+    InventoryValidation {
+        content_hash: String,
+        hosts: Vec<InventoryHostInfo>,
+        errors: Vec<InventoryProblem>,
+        warnings: Vec<InventoryProblem>,
+    },
     /// A two-step mutation awaiting `Confirm`.
     Preview(Preview),
     /// The preview was carried out. Any result the command has follows as its own event.

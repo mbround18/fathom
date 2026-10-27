@@ -15,7 +15,7 @@ use crate::identity::{self, Caller};
 use crate::passkeys;
 use crate::preview::Confirmation;
 use crate::serve::AppState;
-use crate::{bindings, credentials, receivers};
+use crate::{bindings, credentials, inventory, receivers};
 
 /// What a confirmed preview runs: it gets the app and the caller as of the `Confirm`, and
 /// returns the command's own result events (after `Confirmed`).
@@ -96,7 +96,16 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewCredentialRotate { .. }
         | Cmd::PreviewCredentialGrant { .. }
         | Cmd::PreviewCredentialRevoke { .. }
-        | Cmd::PreviewCredentialRemove { .. } => Ok(()),
+        | Cmd::PreviewCredentialRemove { .. }
+        // Inventories (US4): the same, per inventory or workspace.
+        | Cmd::ListInventories { .. }
+        | Cmd::GetInventoryRevision { .. }
+        | Cmd::DiffInventory { .. }
+        | Cmd::PreviewInventoryCreate { .. }
+        | Cmd::PreviewInventoryEdit { .. }
+        | Cmd::PreviewInventoryRestore { .. }
+        | Cmd::PreviewInventoryDeprecate { .. }
+        | Cmd::ValidateInventory { .. } => Ok(()),
         // Passkeys belong to a person at a browser: a session, never a token.
         Cmd::GetVerification
         | Cmd::PasskeyBegin { .. }
@@ -238,6 +247,37 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         Cmd::PreviewCredentialRemove { credential } => {
             credentials::preview_remove(app, req, credential).await
         }
+        Cmd::ListInventories { workspace } => inventory::list(app, req, workspace).await,
+        Cmd::GetInventoryRevision { inventory, seq } => {
+            inventory::get_revision(app, req, inventory, seq).await
+        }
+        Cmd::DiffInventory {
+            inventory,
+            from,
+            to,
+        } => inventory::diff(app, req, inventory, from, to).await,
+        Cmd::PreviewInventoryCreate {
+            workspace,
+            name,
+            content,
+            var_schema,
+        } => inventory::preview_create(app, req, workspace, name, content, var_schema).await,
+        Cmd::PreviewInventoryEdit {
+            inventory,
+            base_seq,
+            content,
+        } => inventory::preview_edit(app, req, inventory, base_seq, content).await,
+        Cmd::PreviewInventoryRestore { inventory, seq } => {
+            inventory::preview_restore(app, req, inventory, seq).await
+        }
+        Cmd::PreviewInventoryDeprecate { inventory } => {
+            inventory::preview_deprecate(app, req, inventory).await
+        }
+        Cmd::ValidateInventory {
+            workspace,
+            content,
+            inventory,
+        } => inventory::validate(app, req, workspace, content, inventory).await,
         Cmd::Confirm {
             preview_id,
             step_up,

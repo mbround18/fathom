@@ -14,6 +14,8 @@ use crate::binding::{
 };
 use crate::passkey::{PasskeyAssertion, PasskeyPurpose, PasskeyResponse, RecoveryCode};
 use crate::types::{B64Url, ClientName, CsrfToken, PreviewId, RequestId};
+// Inventories (US4)
+use crate::inventory::InventoryText;
 // Governance (US6)
 use crate::governance::{GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
@@ -187,6 +189,67 @@ pub enum Cmd {
         #[ts(type = "string")]
         credential: Uuid,
     },
+    // Inventories (US4)
+    /// `Inventories`.
+    ListInventories {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `InventoryRevision`: revision `seq` (the newest when absent), with the history.
+    GetInventoryRevision {
+        #[ts(type = "string")]
+        inventory: Uuid,
+        #[serde(default)]
+        seq: Option<u32>,
+    },
+    /// `InventoryDiff` from revision `from` to revision `to`.
+    DiffInventory {
+        #[ts(type = "string")]
+        inventory: Uuid,
+        from: u32,
+        to: u32,
+    },
+    /// `Preview` of a new managed inventory, or `OpError {inventory_invalid}`. `var_schema` is a
+    /// JSON Schema (as JSON text) for each host's vars. Repository inventories come from the
+    /// manifest. `Confirm` replies `InventoryRevision`.
+    PreviewInventoryCreate {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        name: ObjectName,
+        content: InventoryText,
+        #[serde(default)]
+        var_schema: Option<InventoryText>,
+    },
+    /// `Preview` of a new revision of a managed inventory. `OpError {stale_base}` unless
+    /// `base_seq` is the newest; `{inventory_invalid}` when the content fails validation;
+    /// `{no_change}` when it equals the newest. `Confirm` replies `InventoryRevision`.
+    PreviewInventoryEdit {
+        #[ts(type = "string")]
+        inventory: Uuid,
+        base_seq: u32,
+        content: InventoryText,
+    },
+    /// `Preview` of a new revision equal to revision `seq`. `Confirm` replies `InventoryRevision`.
+    PreviewInventoryRestore {
+        #[ts(type = "string")]
+        inventory: Uuid,
+        seq: u32,
+    },
+    /// `Preview`; a deprecated inventory accepts no new runs. `Confirm` replies `Inventories`.
+    PreviewInventoryDeprecate {
+        #[ts(type = "string")]
+        inventory: Uuid,
+    },
+    /// `InventoryValidation`: a dry run that stores nothing. With `inventory`, its var schema
+    /// applies.
+    ValidateInventory {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        content: InventoryText,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        inventory: Option<Uuid>,
+    },
     /// Carry out a `Preview`. `step_up` is required when the preview said so and the session has
     /// not verified within the step-up window. Replies `Confirmed` plus the command's own result.
     Confirm {
@@ -318,6 +381,11 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     "list_receivers",
     "list_deliveries",
     "list_credentials",
+    // Inventories (US4)
+    "list_inventories",
+    "get_inventory_revision",
+    "diff_inventory",
+    "validate_inventory",
     // Governance (US6)
     "list_workspaces",
     "list_teams",
@@ -354,6 +422,15 @@ impl Cmd {
             Cmd::PreviewCredentialGrant { .. } => "preview_credential_grant",
             Cmd::PreviewCredentialRevoke { .. } => "preview_credential_revoke",
             Cmd::PreviewCredentialRemove { .. } => "preview_credential_remove",
+            // Inventories (US4)
+            Cmd::ListInventories { .. } => "list_inventories",
+            Cmd::GetInventoryRevision { .. } => "get_inventory_revision",
+            Cmd::DiffInventory { .. } => "diff_inventory",
+            Cmd::PreviewInventoryCreate { .. } => "preview_inventory_create",
+            Cmd::PreviewInventoryEdit { .. } => "preview_inventory_edit",
+            Cmd::PreviewInventoryRestore { .. } => "preview_inventory_restore",
+            Cmd::PreviewInventoryDeprecate { .. } => "preview_inventory_deprecate",
+            Cmd::ValidateInventory { .. } => "validate_inventory",
             Cmd::Confirm { .. } => "confirm",
             Cmd::GetVerification => "get_verification",
             Cmd::PasskeyBegin { .. } => "passkey_begin",
@@ -412,6 +489,15 @@ impl Cmd {
             | Cmd::PreviewCredentialGrant { .. }
             | Cmd::PreviewCredentialRevoke { .. }
             | Cmd::PreviewCredentialRemove { .. }
+            // Inventories (US4)
+            | Cmd::ListInventories { .. }
+            | Cmd::GetInventoryRevision { .. }
+            | Cmd::DiffInventory { .. }
+            | Cmd::PreviewInventoryCreate { .. }
+            | Cmd::PreviewInventoryEdit { .. }
+            | Cmd::PreviewInventoryRestore { .. }
+            | Cmd::PreviewInventoryDeprecate { .. }
+            | Cmd::ValidateInventory { .. }
             | Cmd::Confirm { .. }
             | Cmd::GetVerification
             | Cmd::PasskeyBegin { .. }
