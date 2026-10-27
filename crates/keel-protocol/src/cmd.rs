@@ -8,6 +8,10 @@ use ts_rs::TS;
 
 use crate::passkey::{PasskeyAssertion, PasskeyPurpose, PasskeyResponse, RecoveryCode};
 use crate::types::{B64Url, ClientName, CsrfToken, PreviewId, RequestId};
+// Governance (US6)
+use crate::governance::{GrantProfiles, Label, Slug, TokenActions};
+use crate::types::{InstanceRole, TeamRole};
+use keel_core::uuid::Uuid;
 
 /// The first frame on a WebSocket. A wrong `csrf_token` closes with 4403; a missing or expired
 /// session with 4401; another `protocol_version` with 4400.
@@ -60,6 +64,100 @@ pub enum Cmd {
     /// `Verification` (with `recovering`), or `PasskeyRefused {recovery_invalid}`. Removes every
     /// passkey and ends the person's other sessions.
     RecoverPasskeys { code: RecoveryCode },
+
+    // Governance (US6). Instance-wide commands are for instance owners and admins, sessions
+    // only; workspace-scoped ones need `ws_admin` there. Confirms reply the updated list.
+    /// `Workspaces`: every workspace for instance admins, otherwise the ones the caller holds a
+    /// grant on (a token: its own).
+    ListWorkspaces,
+    /// `Preview`. Instance admins.
+    PreviewWorkspaceCreate { slug: Slug, name: Label },
+    /// `Preview`: rename. `ws_admin` on the workspace.
+    PreviewWorkspaceUpdate {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        name: Label,
+    },
+    /// `Preview` naming everyone who loses access. Instance admins; narrowing.
+    PreviewWorkspaceArchive {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview`. `ws_admin` on the workspace.
+    PreviewProjectCreate {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        slug: Slug,
+        name: Label,
+    },
+    /// `Teams`: every team for instance admins, otherwise the caller's own teams and those
+    /// granted on workspaces the caller administers.
+    ListTeams,
+    /// `Preview`. Instance admins.
+    PreviewTeamCreate { name: Label },
+    /// `Preview` naming the user and what they gain. Instance admins.
+    PreviewTeamMemberAdd {
+        #[ts(type = "string")]
+        team: Uuid,
+        #[ts(type = "string")]
+        user: Uuid,
+    },
+    /// `Preview`. Instance admins; narrowing.
+    PreviewTeamMemberRemove {
+        #[ts(type = "string")]
+        team: Uuid,
+        #[ts(type = "string")]
+        user: Uuid,
+    },
+    /// `Preview` (step-up) listing the team's members. `ws_admin` on the workspace. Empty
+    /// `profiles` grants the whole workspace.
+    PreviewGrantAdd {
+        #[ts(type = "string")]
+        team: Uuid,
+        #[ts(type = "string")]
+        workspace: Uuid,
+        role: TeamRole,
+        #[serde(default)]
+        profiles: GrantProfiles,
+    },
+    /// `Preview` listing the team's members. `ws_admin` on the grant's workspace; narrowing.
+    PreviewGrantRemove {
+        #[ts(type = "string")]
+        grant: Uuid,
+    },
+    /// `Users`. Instance admins.
+    ListUsers,
+    /// `Preview` (step-up). Instance admins; only an owner makes or unmakes an owner. The last
+    /// owner cannot be demoted.
+    PreviewUserRole {
+        #[ts(type = "string")]
+        user: Uuid,
+        role: InstanceRole,
+    },
+    /// `Preview` (step-up): disables the user, ends their sessions, drops their memberships and
+    /// revokes their tokens. Instance admins; only an owner removes an owner; never the last
+    /// owner, never oneself.
+    PreviewUserRemove {
+        #[ts(type = "string")]
+        user: Uuid,
+    },
+    /// `ApiTokens`: the caller's own. Sessions only.
+    ListApiTokens,
+    /// `Preview` (step-up); `Confirm` replies `ApiTokenCreated` with the secret, once. The token
+    /// acts as the caller, narrowed to `workspace` and `actions`. Sessions only.
+    PreviewApiTokenCreate {
+        name: Label,
+        #[ts(type = "string")]
+        workspace: Uuid,
+        actions: TokenActions,
+        /// 1 to 366.
+        expires_in_days: u16,
+    },
+    /// `Preview`. The token's owner, or an instance admin. Sessions only.
+    PreviewApiTokenRevoke {
+        #[ts(type = "string")]
+        token: Uuid,
+    },
 }
 
 impl Cmd {
@@ -75,6 +173,24 @@ impl Cmd {
             Cmd::ListPasskeys => "list_passkeys",
             Cmd::PreviewPasskeyRemove { .. } => "preview_passkey_remove",
             Cmd::RecoverPasskeys { .. } => "recover_passkeys",
+            // Governance (US6)
+            Cmd::ListWorkspaces => "list_workspaces",
+            Cmd::PreviewWorkspaceCreate { .. } => "preview_workspace_create",
+            Cmd::PreviewWorkspaceUpdate { .. } => "preview_workspace_update",
+            Cmd::PreviewWorkspaceArchive { .. } => "preview_workspace_archive",
+            Cmd::PreviewProjectCreate { .. } => "preview_project_create",
+            Cmd::ListTeams => "list_teams",
+            Cmd::PreviewTeamCreate { .. } => "preview_team_create",
+            Cmd::PreviewTeamMemberAdd { .. } => "preview_team_member_add",
+            Cmd::PreviewTeamMemberRemove { .. } => "preview_team_member_remove",
+            Cmd::PreviewGrantAdd { .. } => "preview_grant_add",
+            Cmd::PreviewGrantRemove { .. } => "preview_grant_remove",
+            Cmd::ListUsers => "list_users",
+            Cmd::PreviewUserRole { .. } => "preview_user_role",
+            Cmd::PreviewUserRemove { .. } => "preview_user_remove",
+            Cmd::ListApiTokens => "list_api_tokens",
+            Cmd::PreviewApiTokenCreate { .. } => "preview_api_token_create",
+            Cmd::PreviewApiTokenRevoke { .. } => "preview_api_token_revoke",
         }
     }
 
@@ -91,6 +207,24 @@ impl Cmd {
             | Cmd::ListPasskeys
             | Cmd::PreviewPasskeyRemove { .. }
             | Cmd::RecoverPasskeys { .. } => false,
+            // Governance (US6)
+            Cmd::ListWorkspaces
+            | Cmd::PreviewWorkspaceCreate { .. }
+            | Cmd::PreviewWorkspaceUpdate { .. }
+            | Cmd::PreviewWorkspaceArchive { .. }
+            | Cmd::PreviewProjectCreate { .. }
+            | Cmd::ListTeams
+            | Cmd::PreviewTeamCreate { .. }
+            | Cmd::PreviewTeamMemberAdd { .. }
+            | Cmd::PreviewTeamMemberRemove { .. }
+            | Cmd::PreviewGrantAdd { .. }
+            | Cmd::PreviewGrantRemove { .. }
+            | Cmd::ListUsers
+            | Cmd::PreviewUserRole { .. }
+            | Cmd::PreviewUserRemove { .. }
+            | Cmd::ListApiTokens
+            | Cmd::PreviewApiTokenCreate { .. }
+            | Cmd::PreviewApiTokenRevoke { .. } => false,
         }
     }
 }

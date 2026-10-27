@@ -410,3 +410,273 @@ fn passkey_events_round_trip_as_in_depths() {
         );
     }
 }
+
+// Governance (US6), spec 055 T032.
+
+fn id(n: u128) -> Uuid {
+    Uuid::from_u128(n)
+}
+
+fn slug(s: &str) -> Slug {
+    Slug::new(s).unwrap()
+}
+
+fn label(s: &str) -> Label {
+    Label::new(s).unwrap()
+}
+
+#[test]
+fn governance_commands_round_trip_with_their_wire_names() {
+    let cases: Vec<(Cmd, serde_json::Value, &str)> = vec![
+        (
+            Cmd::ListWorkspaces,
+            json!({"type": "ListWorkspaces"}),
+            "list_workspaces",
+        ),
+        (
+            Cmd::PreviewWorkspaceCreate {
+                slug: slug("infra"),
+                name: label("Infra"),
+            },
+            json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "infra", "name": "Infra"}}),
+            "preview_workspace_create",
+        ),
+        (
+            Cmd::PreviewWorkspaceUpdate {
+                workspace: id(2),
+                name: label("Infrastructure"),
+            },
+            json!({"type": "PreviewWorkspaceUpdate", "data": {
+                "workspace": id(2), "name": "Infrastructure"
+            }}),
+            "preview_workspace_update",
+        ),
+        (
+            Cmd::PreviewWorkspaceArchive { workspace: id(2) },
+            json!({"type": "PreviewWorkspaceArchive", "data": {"workspace": id(2)}}),
+            "preview_workspace_archive",
+        ),
+        (
+            Cmd::PreviewProjectCreate {
+                workspace: id(2),
+                slug: slug("edge"),
+                name: label("Edge"),
+            },
+            json!({"type": "PreviewProjectCreate", "data": {
+                "workspace": id(2), "slug": "edge", "name": "Edge"
+            }}),
+            "preview_project_create",
+        ),
+        (Cmd::ListTeams, json!({"type": "ListTeams"}), "list_teams"),
+        (
+            Cmd::PreviewTeamCreate { name: label("SRE") },
+            json!({"type": "PreviewTeamCreate", "data": {"name": "SRE"}}),
+            "preview_team_create",
+        ),
+        (
+            Cmd::PreviewTeamMemberAdd {
+                team: id(3),
+                user: id(1),
+            },
+            json!({"type": "PreviewTeamMemberAdd", "data": {"team": id(3), "user": id(1)}}),
+            "preview_team_member_add",
+        ),
+        (
+            Cmd::PreviewTeamMemberRemove {
+                team: id(3),
+                user: id(1),
+            },
+            json!({"type": "PreviewTeamMemberRemove", "data": {"team": id(3), "user": id(1)}}),
+            "preview_team_member_remove",
+        ),
+        (
+            Cmd::PreviewGrantAdd {
+                team: id(3),
+                workspace: id(2),
+                role: TeamRole::Operator,
+                profiles: GrantProfiles(vec![ProfileName::new("web").unwrap()]),
+            },
+            json!({"type": "PreviewGrantAdd", "data": {
+                "team": id(3), "workspace": id(2), "role": "operator", "profiles": ["web"]
+            }}),
+            "preview_grant_add",
+        ),
+        (
+            Cmd::PreviewGrantRemove { grant: id(4) },
+            json!({"type": "PreviewGrantRemove", "data": {"grant": id(4)}}),
+            "preview_grant_remove",
+        ),
+        (Cmd::ListUsers, json!({"type": "ListUsers"}), "list_users"),
+        (
+            Cmd::PreviewUserRole {
+                user: id(1),
+                role: InstanceRole::Admin,
+            },
+            json!({"type": "PreviewUserRole", "data": {"user": id(1), "role": "admin"}}),
+            "preview_user_role",
+        ),
+        (
+            Cmd::PreviewUserRemove { user: id(1) },
+            json!({"type": "PreviewUserRemove", "data": {"user": id(1)}}),
+            "preview_user_remove",
+        ),
+        (
+            Cmd::ListApiTokens,
+            json!({"type": "ListApiTokens"}),
+            "list_api_tokens",
+        ),
+        (
+            Cmd::PreviewApiTokenCreate {
+                name: label("ci"),
+                workspace: id(2),
+                actions: TokenActions(vec![ActionName::new("list_workspaces").unwrap()]),
+                expires_in_days: 30,
+            },
+            json!({"type": "PreviewApiTokenCreate", "data": {
+                "name": "ci", "workspace": id(2), "actions": ["list_workspaces"],
+                "expires_in_days": 30
+            }}),
+            "preview_api_token_create",
+        ),
+        (
+            Cmd::PreviewApiTokenRevoke { token: id(5) },
+            json!({"type": "PreviewApiTokenRevoke", "data": {"token": id(5)}}),
+            "preview_api_token_revoke",
+        ),
+    ];
+    for (cmd, wire, name) in cases {
+        assert_eq!(round_trip(&cmd), wire);
+        assert_eq!(cmd.name(), name);
+        assert!(!cmd.is_streaming(), "{name}");
+        round_trip(&CmdEnvelope {
+            id: RequestId(9),
+            cmd,
+        });
+    }
+}
+
+#[test]
+fn grant_profiles_default_to_the_whole_workspace() {
+    let cmd: Cmd = serde_json::from_value(json!({"type": "PreviewGrantAdd", "data": {
+        "team": id(3), "workspace": id(2), "role": "viewer"
+    }}))
+    .unwrap();
+    assert!(matches!(cmd, Cmd::PreviewGrantAdd { ref profiles, .. } if profiles.0.is_empty()));
+}
+
+#[test]
+fn governance_commands_refuse_bad_names_and_lists() {
+    let too_many: Vec<String> = (0..33).map(|i| format!("p{i}")).collect();
+    let bad = [
+        json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "Infra", "name": "Infra"}}),
+        json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "-infra", "name": "Infra"}}),
+        json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "infra", "name": ""}}),
+        json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "infra", "name": " x"}}),
+        json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "infra", "name": "a\u{7}"}}),
+        json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "infra", "name": "x".repeat(65)}}),
+        json!({"type": "PreviewWorkspaceCreate", "data": {"slug": "infra", "name": "x", "extra": 1}}),
+        json!({"type": "PreviewTeamMemberAdd", "data": {"team": "not-a-uuid", "user": id(1)}}),
+        json!({"type": "PreviewGrantAdd", "data": {
+            "team": id(3), "workspace": id(2), "role": "root", "profiles": []
+        }}),
+        json!({"type": "PreviewGrantAdd", "data": {
+            "team": id(3), "workspace": id(2), "role": "viewer", "profiles": ["Web"]
+        }}),
+        json!({"type": "PreviewGrantAdd", "data": {
+            "team": id(3), "workspace": id(2), "role": "viewer", "profiles": ["web", "web"]
+        }}),
+        json!({"type": "PreviewGrantAdd", "data": {
+            "team": id(3), "workspace": id(2), "role": "viewer", "profiles": too_many
+        }}),
+        json!({"type": "PreviewUserRole", "data": {"user": id(1), "role": "root"}}),
+        json!({"type": "PreviewApiTokenCreate", "data": {
+            "name": "ci", "workspace": id(2), "actions": ["GetMe"], "expires_in_days": 1
+        }}),
+        json!({"type": "PreviewApiTokenCreate", "data": {
+            "name": "ci", "workspace": id(2), "actions": [], "expires_in_days": -1
+        }}),
+    ];
+    for v in bad {
+        assert!(serde_json::from_value::<Cmd>(v.clone()).is_err(), "{v}");
+    }
+    assert!(Label::new("x".repeat(64)).is_ok());
+}
+
+#[test]
+fn governance_events_round_trip() {
+    let ws = WorkspaceInfo {
+        id: id(2),
+        slug: "infra".into(),
+        name: "Infra".into(),
+        created: "2026-10-27T12:00:00Z".into(),
+        archived: false,
+        projects: vec![ProjectInfo {
+            id: id(6),
+            slug: "edge".into(),
+            name: "Edge".into(),
+        }],
+    };
+    let v = round_trip(&Event::Workspaces { items: vec![ws] });
+    assert_eq!(
+        v,
+        json!({"type": "Workspaces", "data": {"items": [{
+            "id": id(2), "slug": "infra", "name": "Infra", "created": "2026-10-27T12:00:00Z",
+            "archived": false, "projects": [{"id": id(6), "slug": "edge", "name": "Edge"}]
+        }]}})
+    );
+
+    let team = TeamInfo {
+        id: id(3),
+        name: "SRE".into(),
+        members: vec![TeamMemberInfo {
+            user: id(1),
+            display_name: "Ada".into(),
+        }],
+        grants: vec![GrantInfo {
+            id: id(4),
+            workspace: id(2),
+            workspace_slug: "infra".into(),
+            role: TeamRole::Approver,
+            profiles: vec![],
+        }],
+    };
+    let v = round_trip(&Event::Teams { items: vec![team] });
+    assert_eq!(v["data"]["items"][0]["grants"][0]["role"], "approver");
+    assert_eq!(v["data"]["items"][0]["members"][0]["display_name"], "Ada");
+
+    let v = round_trip(&Event::Users {
+        items: vec![UserInfo {
+            id: id(1),
+            display_name: "Ada".into(),
+            email: None,
+            instance_role: InstanceRole::Owner,
+            disabled: false,
+            teams: vec!["SRE".into()],
+            created: "2026-10-27T12:00:00Z".into(),
+        }],
+    });
+    assert_eq!(v["data"]["items"][0]["instance_role"], "owner");
+
+    let token = ApiTokenInfo {
+        id: id(5),
+        name: "ci".into(),
+        owner: id(1),
+        workspace: id(2),
+        workspace_slug: "infra".into(),
+        actions: vec!["list_workspaces".into()],
+        expires_at: "2026-11-27T12:00:00Z".into(),
+        last_used_at: None,
+        revoked: false,
+    };
+    let v = round_trip(&Event::ApiTokens {
+        items: vec![token.clone()],
+    });
+    assert_eq!(v["data"]["items"][0]["workspace_slug"], "infra");
+    let created = Event::ApiTokenCreated {
+        token,
+        secret: TokenSecret("kt_secret".into()),
+    };
+    let v = round_trip(&created);
+    assert_eq!(v["data"]["secret"], "kt_secret");
+    assert!(!format!("{created:?}").contains("kt_secret"));
+}

@@ -21,5 +21,13 @@ pub use types::{
     TeamRole,
 };
 
+// Governance (US6)
+pub mod governance;
+pub use governance::{
+    ActionName, ApiTokenInfo, GrantInfo, GrantProfiles, Label, MAX_GRANT_PROFILES, MAX_LABEL_CHARS,
+    MAX_TOKEN_ACTIONS, MAX_TOKEN_DAYS, ProfileName, ProjectInfo, Slug, TeamInfo, TeamMemberInfo,
+    TokenActions, TokenSecret, UserInfo, WorkspaceInfo,
+};
+
 /// The version a client states in `Hello.protocol_version`.
 pub const PROTOCOL_VERSION: u32 = 1;

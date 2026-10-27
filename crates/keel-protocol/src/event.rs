@@ -5,6 +5,8 @@ use ts_rs::TS;
 
 use crate::passkey::{PasskeyInfo, PasskeyRefusedReason, PasskeyRequest, Verification};
 use crate::types::{Me, Preview, PreviewId, RequestId};
+// Governance (US6)
+use crate::governance::{ApiTokenInfo, TeamInfo, TokenSecret, UserInfo, WorkspaceInfo};
 
 /// Every frame the server sends, and each element of `POST /api/v1/cmd`'s reply array.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -46,6 +48,21 @@ pub enum Event {
     PasskeyEnrolmentRequired,
     /// A passkey answer, recovery code or removal was refused. Audited.
     PasskeyRefused { reason: PasskeyRefusedReason },
+
+    // Governance (US6)
+    /// Reply to `ListWorkspaces`, and after a workspace or project change.
+    Workspaces { items: Vec<WorkspaceInfo> },
+    /// Reply to `ListTeams`, and after a team, member or grant change.
+    Teams { items: Vec<TeamInfo> },
+    /// Reply to `ListUsers`, and after a role change or removal.
+    Users { items: Vec<UserInfo> },
+    /// Reply to `ListApiTokens`, and after a token is created or revoked.
+    ApiTokens { items: Vec<ApiTokenInfo> },
+    /// A token was created. `secret` is shown this once; Keel keeps only its hash.
+    ApiTokenCreated {
+        token: ApiTokenInfo,
+        secret: TokenSecret,
+    },
 }
 
 impl EventEnvelope {
