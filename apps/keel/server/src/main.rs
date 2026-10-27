@@ -9,13 +9,25 @@
 //! start-up error).
 
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
-use keel_server::config::{self, AuditCommand, Cli, Command, Flags};
-use keel_server::{audit, db, seal};
+use keel_core::ports::SystemClock;
+use keel_server::config::{self, AuditCommand, Cli, Command, Config, Flags};
+use keel_server::{audit, db, seal, serve, telemetry};
+use tokio::net::TcpListener;
+
+/// Serving pool size.
+const DB_POOL: u32 = 16;
+/// How often expired in-memory sessions are swept.
+const SESSION_SWEEP: Duration = Duration::from_secs(60);
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if cli.command.is_none() {
+        return serve_main(cli.flags);
+    }
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -33,7 +45,7 @@ async fn run(cli: Cli) -> ExitCode {
             command: AuditCommand::Verify,
         }) => audit_verify(&cli.flags).await,
         Some(Command::Keygen) => keygen(&cli.flags),
-        None => serve(cli.flags).await,
+        None => refuse("internal: serve runs outside this runtime"),
     }
 }
 
@@ -112,6 +124,72 @@ fn keygen(flags: &Flags) -> ExitCode {
     }
 }
 
-async fn serve(_flags: Flags) -> ExitCode {
-    refuse("serving is not implemented yet")
+/// Resolves the configuration and starts telemetry before the runtime (the OTLP client is a
+/// blocking one), then serves. The runtime is dropped before the telemetry guard, so the final
+/// flush is not cut short.
+fn serve_main(flags: Flags) -> ExitCode {
+    let cfg = match Config::resolve(flags, &config::process_env) {
+        Ok(c) => c,
+        Err(e) => return refuse(&e.to_string()),
+    };
+    let guard = match telemetry::init(cfg.otel_endpoint.as_deref()) {
+        Ok(g) => g,
+        Err(e) => return refuse(&e),
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => return refuse(&format!("cannot start the async runtime: {e}")),
+    };
+    let code = runtime.block_on(serve(cfg, guard.exporting()));
+    drop(runtime);
+    drop(guard);
+    code
+}
+
+async fn serve(cfg: Config, exporting: bool) -> ExitCode {
+    // Fail closed: no master key, no server (contracts/config.md).
+    if let Err(e) = seal::MasterKey::load(&cfg.master_key_file) {
+        return refuse(&format!("master key: {e}"));
+    }
+    let opts = match db::options(&cfg.database_url) {
+        Ok(o) => o,
+        Err(e) => return refuse(&e),
+    };
+    if let Err(e) = db::migrate(opts.clone()).await {
+        return refuse(&e);
+    }
+    let pool = match db::connect(opts, DB_POOL).await {
+        Ok(p) => p,
+        Err(e) => return refuse(&e),
+    };
+    let providers = match serve::build_providers(&cfg).await {
+        Ok(p) => p,
+        Err(e) => return refuse(&e),
+    };
+    let listener = match TcpListener::bind(cfg.listen).await {
+        Ok(l) => l,
+        Err(e) => return refuse(&format!("cannot listen on {}: {e}", cfg.listen)),
+    };
+    tracing::info!(
+        listen = %cfg.listen,
+        public_url = %cfg.public_url,
+        providers = ?cfg.provider_ids(),
+        static_dir = %cfg.static_dir.display(),
+        insecure_dev = cfg.insecure_dev,
+        otel = exporting,
+        sources = ?cfg.sources,
+        "keel serving"
+    );
+    let app = serve::AppState::new(Arc::new(cfg), providers, pool, Arc::new(SystemClock));
+    let sweeper = app.auth.sessions.spawn_sweeper(SESSION_SWEEP);
+    let result = serve::serve(listener, serve::router(app.clone())).await;
+    sweeper.abort();
+    app.db.close().await;
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => refuse(&format!("server failed: {e}")),
+    }
 }
