@@ -2,8 +2,8 @@
 //!
 //! Spec 055 (Keel). Phase 1 scaffolding: modules are filled by later phases, tests first.
 
-pub mod mirror;
-pub mod pin;
 pub mod ancestry;
-pub mod pack;
 pub mod diff;
+pub mod mirror;
+pub mod pack;
+pub mod pin;
