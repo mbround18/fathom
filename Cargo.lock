@@ -5677,6 +5677,7 @@ dependencies = [
  "russh",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -5686,8 +5687,10 @@ dependencies = [
 name = "keel-git"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "gix",
  "keel-core",
+ "sha1 0.11.0",
  "tempfile",
  "thiserror 2.0.21",
  "uuid",

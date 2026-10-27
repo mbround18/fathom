@@ -16,7 +16,10 @@ gix = { version = "0.90.0", default-features = false, features = [
     "blocking-network-client",
     "blocking-http-transport-reqwest-rust-tls",
 ] }
+# Packs for host runners: zlib objects and the SHA-1 trailer (both already in the lockfile).
+flate2 = "1.1.10"
 keel-core = { path = "../keel-core" }
+sha1 = "0.11"
 thiserror = "2"
 uuid = { version = "1.28.0", features = ["v7"] }
 
