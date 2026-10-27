@@ -14,6 +14,12 @@
  *   codes (4401 no session or a bad Hello, 4403 CSRF mismatch, 4400 another protocol version), then
  *   answers each `CmdEnvelope` with `EventEnvelope`s. `GetMe` and the passkey commands have default
  *   answers; `on(type, handler)` replaces one, and `replay(envelopes)` sends scripted envelopes as is.
+ * - Passkeys behave as the server's (T028): `PreviewPasskeyRemove` always previews with `step_up`
+ *   (`unknown_credential` for an id that is not the person's, `last_passkey` for the last one);
+ *   `Confirm` re-checks both, takes the `step_up` assertion (or, without one, needs the session's
+ *   check to be fresh: `OpError step_up_required`, or `PasskeyEnrolmentRequired` with no
+ *   passkeys), then answers `Confirmed` and `Passkeys`. Registering another passkey needs a fresh
+ *   check too. "Fresh" here is `me.verification.verified`; the fake reads no clock.
  *
  * Usage, in a spec:
  *
@@ -141,6 +147,11 @@ export const fixtures = {
   }),
 }
 
+const stepUpRequired: Event = {
+  type: 'OpError',
+  data: { code: 'step_up_required', message: 'Confirm it’s you with a passkey first.' },
+}
+
 /** The relying party the canned options name; matches the preview's origin. */
 const RP_ID = 'localhost'
 
@@ -166,6 +177,8 @@ export class FakeBackend {
   private readonly awaited = new WeakSet<Cmd>()
   /** Open ceremonies by id, with what they were for. */
   private readonly ceremonies = new Map<string, { kind: 'register' | 'verify'; name: string }>()
+  /** Open removal previews by id, with the passkey each removes. */
+  private readonly previews = new Map<string, string>()
   private seq = 0
 
   /** Installs the fake on `page`. Call before `page.goto`. */
@@ -342,6 +355,9 @@ export class FakeBackend {
       case 'GetMe':
         return [{ type: 'Me', data: me }]
       case 'PasskeyBegin': {
+        if (cmd.data.purpose.kind === 'register' && this.passkeys.length > 0 && !me.verification.verified) {
+          return [stepUpRequired]
+        }
         const ceremony = `cer-${String(++this.seq)}`
         const { purpose } = cmd.data
         this.ceremonies.set(ceremony, purpose.kind === 'register' ? { kind: 'register', name: purpose.name } : { kind: 'verify', name: '' })
@@ -392,8 +408,58 @@ export class FakeBackend {
       }
       case 'ListPasskeys':
         return [{ type: 'Passkeys', data: { items: this.passkeys } }]
-      default:
-        return [{ type: 'OpError', data: { code: 'unsupported', message: `the fake has no answer for ${cmd.type}` } }]
+      case 'PreviewPasskeyRemove': {
+        const target = this.passkeys.find((p) => p.id === cmd.data.id)
+        if (!target) return [{ type: 'PasskeyRefused', data: { reason: 'unknown_credential' } }]
+        if (this.passkeys.length === 1) return [{ type: 'PasskeyRefused', data: { reason: 'last_passkey' } }]
+        const preview_id = `pv-${String(++this.seq)}`
+        this.previews.set(preview_id, target.id)
+        return [
+          {
+            type: 'Preview',
+            data: {
+              preview_id,
+              action: 'passkey_remove',
+              summary: `Remove the passkey “${target.name}”`,
+              affected: [target.name],
+              step_up: true,
+              expires_at: '2026-10-27T12:05:00Z',
+            },
+          },
+        ]
+      }
+      case 'Confirm': {
+        const { preview_id, step_up } = cmd.data
+        const id = this.previews.get(preview_id)
+        this.previews.delete(preview_id)
+        if (id === undefined) {
+          return [{ type: 'OpError', data: { code: 'preview_void', message: 'That preview is no longer valid. Start again.' } }]
+        }
+        if (!this.passkeys.some((p) => p.id === id)) return [{ type: 'PasskeyRefused', data: { reason: 'unknown_credential' } }]
+        if (this.passkeys.length === 1) return [{ type: 'PasskeyRefused', data: { reason: 'last_passkey' } }]
+        if (step_up) {
+          const c = this.ceremonies.get(step_up.ceremony)
+          this.ceremonies.delete(step_up.ceremony)
+          if (c?.kind !== 'verify') return [{ type: 'PasskeyRefused', data: { reason: 'expired' } }]
+          if (!this.passkeys.some((p) => p.id === step_up.credential.id)) {
+            return [{ type: 'PasskeyRefused', data: { reason: 'unknown_credential' } }]
+          }
+          this.me = { ...me, verification: { ...me.verification, verified: true, at: '2026-10-27T12:00:00Z' } }
+        } else if (!me.verification.verified) {
+          return [this.passkeys.length === 0 ? { type: 'PasskeyEnrolmentRequired' } : stepUpRequired]
+        }
+        // The person's epoch moves: the server revokes their other sessions; this one stays.
+        this.passkeys = this.passkeys.filter((p) => p.id !== id)
+        return [
+          { type: 'Confirmed', data: { preview_id } },
+          { type: 'Passkeys', data: { items: this.passkeys } },
+        ]
+      }
+      default: {
+        // Every command has an answer today; one added to the protocol later lands here.
+        const type: string = (cmd as { type: string }).type
+        return [{ type: 'OpError', data: { code: 'unsupported', message: `the fake has no answer for ${type}` } }]
+      }
     }
   }
 }

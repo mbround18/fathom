@@ -5,21 +5,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, fixtures, test } from '../../support/fake-backend'
-
-async function virtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page)
-  await cdp.send('WebAuthn.enable')
-  await cdp.send('WebAuthn.addVirtualAuthenticator', {
-    options: {
-      protocol: 'ctap2',
-      transport: 'internal',
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  })
-}
+import { virtualAuthenticator } from '../../support/webauthn'
 
 async function accountMenu(page: Page, item: string): Promise<void> {
   await page.getByRole('button', { name: 'Account' }).click()
