@@ -2,20 +2,19 @@
 
 <!--
 Sync Impact Report
-- Version change: 1.2.0 -> 1.3.0 (MINOR: scope extended to Keel, new platform tier, stack
-  additions)
+- Version change: 1.3.0 -> 1.4.0 (MINOR: Keel platform guidance materially changed; new host
+  runner tier)
 - Modified sections:
-  - Scope: Keel (Ansible from source control) joins Fathom and Depths.
-  - Principle II: Keel's protocol crate `crates/keel-protocol` named. Its public API reuses the
-    same protocol over HTTP; receivers and runners are separate documented contracts.
-  - Principle VI: Keel's data added: insert-only hash-chained audit, immutable inventory
-    revisions, imports that never overwrite, credentials never leave sealed storage.
-  - Supported Platforms: new "Keel server (Linux container)" tier, with a separate runner
-    service.
-  - Stack: PostgreSQL through sqlx (Keel), and ansible-core in the Keel runner image only.
-- Principles: none removed or redefined; every existing MUST still holds for Fathom and Depths.
+  - Supported Platforms: "Keel server (Linux container)" no longer includes runners; new
+    "Keel host runner (Debian, systemd)" tier. Runners live on the managed hosts, run Ansible
+    only against their own host, split into an unprivileged network half and an executor that
+    runs as the automation account and re-verifies every job. Signed mode MUST be enforced by the
+    host, not only by the server.
+  - Stack: ansible-core moves from "the Keel runner image" to a root-owned venv on managed hosts,
+    used only by the executor.
+- Principles: none removed or redefined.
 - Templates requiring updates: none (plan/spec/tasks templates carry no app name)
-- Affected specs: specs/055-ansible-repo-control-plane (plan's scope gate satisfied)
+- Affected specs: specs/055-ansible-repo-control-plane (plan's scope and platform rows cite 1.4.0)
 - Follow-up TODOs: none
 -->
 
@@ -165,18 +164,27 @@ mode. Access to the Docker socket is root-equivalent on the host, and the docs M
 plainly. Running behind a Docker socket proxy MUST be supported and is the documented default.
 Multi-host agents are out of scope until a later amendment.
 
-**Keel server (Linux container).** Keel runs as Linux containers (amd64, arm64) through compose:
-the server, a PostgreSQL database and one or more runners. Sign-in is required; there is no
-anonymous mode. Playbooks MUST run only in the separate runner service, which holds no database
-credentials and no master key, so a playbook cannot read Keel's stored secrets. The docs MUST say
-plainly that a runner has the reach of the credentials granted to the jobs it runs.
+**Keel server (Linux container).** Keel's server and its PostgreSQL database run as Linux
+containers (amd64, arm64) through compose. Sign-in is required; there is no anonymous mode. The
+server MUST NOT execute playbooks or repository code, and MUST NOT hold SSH keys that reach
+managed hosts.
+
+**Keel host runner (Debian, systemd).** Playbooks MUST run only on the managed hosts, each host
+against itself, through a runner installed by the operator's own base profile. The runner's
+network-facing process MUST be unprivileged; jobs run as the automation account in a separate
+executor that verifies each job itself against trust material pinned on the host (trusted
+signers, approver passkeys, allowed profiles, its own ledger of applied revisions). When signed
+mode is on, the host MUST refuse work that a trusted signer or a pinned approver did not
+authorize, whatever the server says. Hosts connect outbound only, over SSH with Keel acting as
+certificate authority. The docs MUST say plainly that a job using privilege escalation is root
+on its host, and that without signed mode the server is trusted for what hosts run.
 
 **Not supported yet.** Mobile (iOS/Android) is out of scope. The architecture MUST stay
 mobile-ready (Principles II and IV), but no mobile outcome is promised.
 
 **Stack.** The backends are Rust (edition 2024) with tokio; Fathom uses kube-rs, and the servers
-use Axum and Tower. Keel stores its state in PostgreSQL through sqlx, and its runner image adds
-Python and ansible-core, used only as a subprocess there. Depths watches files with `notify`, and telemetry uses an optional
+use Axum and Tower. Keel stores its state in PostgreSQL through sqlx; on managed hosts its runner uses
+Python and ansible-core from a root-owned, hash-pinned venv, only as a subprocess of the executor. Depths watches files with `notify`, and telemetry uses an optional
 OpenTelemetry exporter (off unless configured). The desktop shell is Tauri v2, and the frontends
 are a pnpm workspace of React, TypeScript (strict), Vite, shadcn/ui, and Tailwind, with
 CodeMirror 6 for editing, tested with Vitest and Playwright. Replacing a stack component requires an amendment or a plan
@@ -218,4 +226,4 @@ a version bump, and an update to every affected spec or plan.
   CRITICAL.
 - Reviewers MUST reject changes that violate a MUST without a recorded justification.
 
-**Version**: 1.3.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-10-27
+**Version**: 1.4.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-10-27
