@@ -1,0 +1,22 @@
+{
+  "name": "@companion/branding",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Shared brand identities and UI color palettes for the UwU Squad suite: Fathom, Depths, Keel, Ballast, and the portal",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "node node_modules/typescript7/bin/tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@companion/theme": "workspace:*",
+    "@fontsource/yuji-boku": "^5.3.1"
+  },
+  "devDependencies": {
+    "typescript7": "npm:typescript@^7.0.2"
+  }
+}

@@ -27,6 +27,7 @@
     "test:driver": "node --experimental-strip-types --test tests/driver/*.test.ts"
   },
   "dependencies": {
+    "@companion/branding": "workspace:*",
     "@companion/theme": "workspace:*",
     "@companion/terminal": "workspace:*",
     "@companion/ui": "workspace:*",

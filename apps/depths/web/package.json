@@ -24,6 +24,7 @@
     "@codemirror/lint": "^6.9.7",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
+    "@companion/branding": "workspace:*",
     "@companion/terminal": "workspace:*",
     "@companion/theme": "workspace:*",
     "@companion/ui": "workspace:*",
