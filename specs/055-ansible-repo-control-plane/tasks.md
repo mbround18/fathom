@@ -192,14 +192,14 @@ Preview/Confirm and the web shell that every story uses.
 - [X] T027 The Preview/Confirm framework in apps/keel/server/src/preview.rs: previews stored
   in memory per session with a 5-minute TTL, `step_up` required flag, passkey step-up within
   `--step-up-window`. Pass T015.
-- [ ] T028 Session and passkey commands (`GetMe`, the passkey commands as in 054) in
+- [X] T028 Session and passkey commands (`GetMe`, the passkey commands as in 054) in
   crates/keel-protocol and apps/keel/server/src/passkeys.rs.
 - [X] T029 [P] Static web serving from `--static-dir` (never embedded) and OpenTelemetry setup
   in apps/keel/server/src/telemetry.rs, off unless `--otel-endpoint` is set.
-- [ ] T030 [P] Web shell in apps/keel/web/src: app frame, sign-in redirect, protocol client over
+- [X] T030 [P] Web shell in apps/keel/web/src: app frame, sign-in redirect, protocol client over
   the socket, passkey enrol and step-up dialogs, `Revoked` handling, and navigation for bindings,
   receivers, inventory, runs, reviews, hosts, teams, audit, migration (empty pages).
-- [ ] T031 [P] Fake backend in apps/keel/web/tests/support/fake-backend.ts replaying scripted
+- [X] T031 [P] Fake backend in apps/keel/web/tests/support/fake-backend.ts replaying scripted
   `EventEnvelope`s, following apps/depths/web/tests/support/fake-backend.ts; make the `shell`
   Playwright project pass.
 
