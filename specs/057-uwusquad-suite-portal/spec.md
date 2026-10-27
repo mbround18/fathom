@@ -122,6 +122,23 @@ An operator can install and run Fathom, Depths, Keel, or Ballast on its own, wit
 4. **Given** a binding with suite origin, **When** a product administrator tries to edit it in the product, **Then** the edit is refused with a pointer to the portal.
 5. **Given** an administrator leaving the suite, **When** they preview the change, **Then** they see every identity that would lose access and can convert chosen suite bindings to local bindings before confirming.
 
+---
+
+### User Story 8 - Meet Mio, the suite's guide (Priority: P3)
+
+A first-time visitor to `uwusquad.dev` meets Mio, the suite mascot, who walks them through what each product does using real screens from the software. She gives the suite a warm, memorable face on marketing and onboarding surfaces, and she never shows up where an operator is making a risky decision.
+
+**Why this priority**: A mascot makes the suite recognizable and approachable, and gives the marketing tone a home. That helps adoption, but the suite works without her.
+
+**Independent Test**: Walk the home page, the four product pages, onboarding, and the support page and confirm Mio appears with each product's showcase scene next to a real screenshot. Then walk approval, denial, step-up, error, and audit screens in every product and confirm she appears on none of them.
+
+**Acceptance Scenarios**:
+
+1. **Given** the suite home page, **When** a visitor lands, **Then** Mio's hero scene shows her charting a route through the four product marks next to a current portal screenshot.
+2. **Given** a product page, **When** it renders, **Then** Mio's showcase scene for that product sits beside a real screenshot of that product from the current release.
+3. **Given** any approval, denial, step-up, error, or audit view, **When** it renders, **Then** Mio is absent and the copy is sober.
+4. **Given** a screen reader, **When** a Mio illustration is meaningful, **Then** its alt text describes what the scene shows about the product; **When** it is decorative, **Then** it is hidden from assistive technology.
+
 ### Edge Cases
 
 - A user has valid access in one app but revoked access in another product scope.
@@ -143,6 +160,40 @@ An operator can install and run Fathom, Depths, Keel, or Ballast on its own, wit
 - A product on an older release receives a bundle with grant kinds it does not understand: it ignores those grants (grants nothing for them) and reports the version gap to administrators.
 - A workflow step asks Depths for an action that requires passkey step-up (spec 054): the step pauses until the actor confirms in Depths; the portal cannot satisfy or skip step-up.
 - A product is enrolled in a portal, then restored from a backup taken before enrollment: it comes up standalone and must be re-enrolled.
+- A product's UI changes and a Mio showcase scene still frames an old screenshot: the scene is flagged stale in the release check until the screenshot is refreshed.
+- A visitor finds the mascot unprofessional for their organization: portal and product UI work identically with mascot art hidden, and administrators can turn it off for their portal.
+
+## Suite Mascot: Mio (澪)
+
+**Name**: Mio, written 澪. The character means a *mio-tsukushi* channel: the marked path ships follow through shallow water to reach harbor. That is the portal's job, a safe channel between Fathom, Depths, Keel, and Ballast. The name is short, friendly, and easy to say in English and Japanese.
+
+**Who she is**: a young-adult harbor pilot who guides ships through the channel at night. She is calm, competent, and quietly cheerful: she knows these waters, and she checks the soundings before she says "all clear". Her playful side shows on marketing surfaces; on the job she is precise. Her personality mirrors FR-023's tone split: playful where it is safe to be, sober where it matters.
+
+**Look** (from the suite's neon-noir palette in `packages/branding`):
+
+- Hair: deep navy fading to tide cyan (`accentNeon` #3ef2ff) at the tips, worn in a low side tail tied with a magenta (`accent2` #ff2bd6) cord like a mooring line.
+- Outfit: a navy pilot's coat (`card` #0c1228) with cyan piping and a high collar, over a sailor-style collar with a magenta neckerchief. Practical boots and gloves; nothing that reads as a costume or as revealing.
+- Hairpin: four small brush-stroke charms showing the product marks 尋 淵 舵 衡, in the suite's Yuji Boku brush style. This is how she carries the whole suite with her.
+- Emblem: 澪 in brush script on her coat's shoulder patch.
+- Prop: a pilot's lantern that glows status green (`statusOk` #39ffb0) when a route is clear.
+- Light theme (`BLUEPRINT_LIGHT`): the same design drawn as blueprint linework on pale paper.
+
+**Showcase scenes** (each pairs the illustration with a real, current screenshot of the product):
+
+| Surface | Scene | What it shows about the software |
+|---|---|---|
+| Home hero | Mio at a chart table tracing a lit channel past 尋, 淵, 舵 and 衡 buoys | The four products and cross-app workflows as one route |
+| Fathom | Dropping a sounding line beside a glowing cluster map | Measuring and seeing into Kubernetes clusters |
+| Depths | Holding her lantern over a still, deep pool with containers resting below | Calm, guarded control of Docker/Compose hosts |
+| Keel | At the helm, steering by a chart drawn from a git log | Ansible runs driven from source control |
+| Ballast | Trimming a ship with a balance beam, sealed crates in the hold | IaC state kept level and secrets kept sealed |
+| Workflows | Plotting waypoints that light up one at a time, one waypoint showing a dashed return line | Ordered steps, approvals, and rollback |
+| Standalone vs suite | Four ships sailing on their own, then the same ships following her channel | Every product works alone; joining is optional |
+| Onboarding | Waving from the pilot boat with "Let's chart your first route" | Starting the first cross-app workflow |
+| Support | Sharing tea with the crew on the dock | Free, open core sustained by donations, with no pressure |
+| Empty states (marketing/onboarding only) | Lantern down, waiting at the dock | Nothing here yet, plus the next step |
+
+**Expression set**: neutral, happy, focused (checking a chart), waving, and thinking. She has no sad, scolding, or begging expressions: donation and error copy never leans on guilt.
 
 ## Standalone and Suite Mode *(mandatory)*
 
@@ -229,6 +280,18 @@ Every product (Fathom, Depths, Keel, Ballast) is complete on its own. Suite mode
 - **FR-048**: Each product MUST run on its own origin and keep its own session cookies. `uwusquad.dev/<product>` routes are product information pages, not product runtime origins.
 - **FR-049**: An event transport (for example NATS JetStream) MAY be required by the portal and by enrolled products for sync, but MUST NOT be required by a standalone product.
 
+#### Suite mascot
+
+- **FR-050**: The suite MUST have one mascot, Mio (澪), defined by a character sheet covering name, story, palette references, outfit, hairpin product charms, emblem, prop, light and dark variants, and the expression set.
+- **FR-051**: Mio MUST appear on the suite home page, each product page, onboarding, the workflows page, and the support page, using the showcase scene defined for that surface.
+- **FR-052**: Every showcase scene MUST pair Mio with a real screenshot of the shipping software from the current release. Scenes MUST NOT depict features the software does not have.
+- **FR-053**: Mio MUST NOT appear on operational or security-critical UX: approvals, denials, step-up prompts, error and incident views, audit views, or any in-product screen that changes infrastructure.
+- **FR-054**: Mio MUST NOT be used to pressure donations or to scold: no sad, begging, or guilt-framed art or copy.
+- **FR-055**: Mio MUST be depicted as an adult and in a non-sexualized way on every surface, and her design MUST be original artwork, not derived from an existing character.
+- **FR-056**: Mio illustrations MUST have alt text describing what the scene shows about the product when meaningful, and MUST be hidden from assistive technology when decorative.
+- **FR-057**: Portal administrators MUST be able to hide mascot art in their portal without losing any function or content.
+- **FR-058**: Mascot art MUST ship as shared branding assets alongside the product marks, with one canonical source per scene and expression, so every surface shows the same version.
+
 ### Key Entities *(include if feature involves data)*
 
 - **Suite User**: Identity with role assignments, team memberships, and access scopes.
@@ -250,6 +313,8 @@ Every product (Fathom, Depths, Keel, Ballast) is complete on its own. Suite mode
 - **Binding Origin**: Marker on every role binding (`local` or `suite`) that decides who may edit it and what survives leaving the suite.
 - **Identity Suspension**: Suite-issued block on an identity that overrides local grants in every enrolled product.
 - **Scope Mapping**: Per-product translation from suite scopes to native product scopes.
+- **Mascot Character Sheet**: Canonical definition of Mio: name, story, visual design, palette references, expressions, usage rules, and forbidden surfaces.
+- **Showcase Scene**: A Mio illustration bound to one surface and one product, paired with a screenshot reference and the release it was taken from.
 
 ## Success Criteria *(mandatory)*
 
@@ -272,6 +337,9 @@ Every product (Fathom, Depths, Keel, Ballast) is complete on its own. Suite mode
 - **SC-015**: With the portal unreachable, enrolled products keep 100% of local-origin access working, and suite-origin grants stop granting access within the bundle max age plus one minute.
 - **SC-016**: With the portal reachable, revocations and suspensions take effect in every enrolled product within one minute.
 - **SC-017**: Leaving the suite preserves 100% of local bindings and local audit history.
+- **SC-018**: 0 occurrences of mascot art on approval, denial, step-up, error, incident, or audit surfaces in release checks.
+- **SC-019**: 100% of showcase scenes reference a screenshot from the current release at publish time.
+- **SC-020**: At least 70% of first-time evaluators recall the mascot's name or role after viewing the home page and one product page.
 
 ## Assumptions
 
