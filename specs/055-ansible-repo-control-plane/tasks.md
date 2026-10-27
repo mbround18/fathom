@@ -174,7 +174,7 @@ Preview/Confirm and the web shell that every story uses.
 - [ ] T022 Implement apps/keel/server/src/audit.rs: `audit::record(tx, actor, action, workspace,
   target, decision, reason, context)` inside the caller's transaction, computing the chain; the
   `keel audit verify` subcommand. Pass T013.
-- [ ] T023 Implement crates/web-passkeys: registration and authentication ceremonies, a
+- [X] T023 Implement crates/web-passkeys: registration and authentication ceremonies, a
   `PasskeyStore` trait (Keel's sqlx adapter lives in apps/keel/server/src/passkeys.rs), recovery
   codes, and pure `verify_assertion(credential_public_key, alg, authenticator_data,
   client_data_json, signature, expected_challenge, origin, rp_id) -> Result<(), VerifyError>`
@@ -510,16 +510,16 @@ that each host verifies against keys pinned on the host; a hash-chained ledger o
 
 ### Tests
 
-- [ ] T089 [P] [US8] `keel-trust` test vectors in crates/keel-trust/tests/vectors/ with expected
+- [X] T089 [P] [US8] `keel-trust` test vectors in crates/keel-trust/tests/vectors/ with expected
   verdicts, one directory each: signed (OpenPGP), signed (SSH), unsigned tip, unsigned commit
   under a signed merge, unknown key, expired PGP subkey, revoked key, downgrade, re-apply of the
   base, baseline, override for another host, wrong origin, UV missing, expired approval, quorum
   short, replay, broken ledger chain. A generator script in crates/keel-trust/tests/gen/ builds
   the repositories deterministically.
-- [ ] T090 [P] [US8] Challenge test in crates/keel-trust/src/challenge.rs: the JCS encoding of
+- [X] T090 [P] [US8] Challenge test in crates/keel-trust/src/challenge.rs: the JCS encoding of
   `{v:"keel-override-v1", kind, workspace, binding, run, job, base, target, hosts (sorted,
   deduplicated), expires_at (RFC 3339 UTC, seconds)}` matches fixed bytes and its SHA-256.
-- [ ] T091 [P] [US8] Ledger tests in crates/keel-trust/src/ledger.rs: `hash = SHA-256(prev ‖
+- [X] T091 [P] [US8] Ledger tests in crates/keel-trust/src/ledger.rs: `hash = SHA-256(prev ‖
   JCS(line without hash))`, first `prev` 32 zero bytes; the base is the `target` of the latest
   `end` with `succeeded` or `failed`; a `run` with an existing `start` is `replay`; a broken
   chain is `ledger_corrupt`.
@@ -539,13 +539,13 @@ that each host verifies against keys pinned on the host; a hash-chained ledger o
 
 ### Implementation
 
-- [ ] T096 [US8] Commit range check in crates/keel-trust/src/commit_check.rs per
+- [X] T096 [US8] Commit range check in crates/keel-trust/src/commit_check.rs per
   contracts/signed-mode.md: complete object graph or `pack_incomplete`; descendant check or
   `downgrade`; walk every commit in `base..target` including merges; OpenPGP via `pgp` over the
   commit without the signature header (key or subkey in `signers`, signing-capable, not expired
   or revoked at committer time); SSH signatures with namespace `git`; `base = none` always
   `needs_override`. The committer name and email are never used. Pass the commit vectors of T089.
-- [ ] T097 [US8] Challenge, override verification (via `web_passkeys::verify_assertion`, quorum
+- [X] T097 [US8] Challenge, override verification (via `web_passkeys::verify_assertion`, quorum
   `max(policy.override_quorum, quorum from Assign)`, `now < expires_at <= now +
   max_override_age`, host's `inventory_name` in `hosts`) and the ledger in
   crates/keel-trust/src/. Pass T090, T091 and the remaining vectors.
