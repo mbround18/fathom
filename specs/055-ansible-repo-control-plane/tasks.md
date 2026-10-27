@@ -256,61 +256,61 @@ audited.
 
 ### Tests
 
-- [ ] T039 [P] [US1] Receiver signature and refusal table in apps/keel/server/tests/hooks.rs, one
+- [X] T039 [P] [US1] Receiver signature and refusal table in apps/keel/server/tests/hooks.rs, one
   row per provider of contracts/receivers.md (`github`, `gitlab`, `forgejo` with both header
   spellings, `generic`) and one row per check in order: `404 unknown_receiver`,
   `404 receiver_disabled`, `401 bad_signature`, `200 duplicate`, `202 ref_not_branch`,
   `403 no_matching_binding`, `403 binding_disabled`, `202 accepted`. Include the previous secret
   accepted until `previous_expires_at` and refused after; a body over 1 MiB refused; the response
   never echoes the payload.
-- [ ] T040 [P] [US1] gix tests in crates/keel-git/tests/mirror.rs against local bare repositories:
+- [X] T040 [P] [US1] gix tests in crates/keel-git/tests/mirror.rs against local bare repositories:
   fetch into `<data_dir>/mirrors/<binding id>.git`, no hooks run, `refs/keel/runs/<id>` pins
   survive a force-push and `gc`, ancestry classifies `synced`, `duplicate`, `stale` and
   `history_rewritten`.
-- [ ] T041 [P] [US1] Manifest validation tests in crates/keel-core/src/manifest.rs, one per rule
+- [X] T041 [P] [US1] Manifest validation tests in crates/keel-core/src/manifest.rs, one per rule
   of contracts/repo-manifest.md: `version: 1` required, unknown keys refused, `..`/absolute paths
   and escaping symlinks refused, `playbook` must exist, `profiles` non-empty and declared, `limit`
   parses, signed mode requires a repository inventory, ungranted credentials make the job
   `blocked (credential_unavailable)`, `vars` keys like `ansible_*password*`,
   `ansible_ssh_private_key*`, `ansible_become_pass*` refused; an invalid manifest leaves the
   previous job set active with `manifest_invalid`.
-- [ ] T042 [P] [US1] Round-trip tests for the binding, receiver and delivery commands and the
+- [X] T042 [P] [US1] Round-trip tests for the binding, receiver and delivery commands and the
   `DeliveryReceived` and `BindingSynced` events.
-- [ ] T043 [P] [US1] Playwright apps/keel/web/tests/e2e/us1/: create a binding (preview shows the
+- [X] T043 [P] [US1] Playwright apps/keel/web/tests/e2e/us1/: create a binding (preview shows the
   test fetch), create a receiver (secret shown once), bind them, and see deliveries with their
   decisions.
 
 ### Implementation
 
-- [ ] T044 [US1] Migration `0002_bindings.sql`: `repo_bindings` (unique on (`url`, `branch`,
+- [X] T044 [US1] Migration `0003_bindings.sql`: `repo_bindings` (unique on (`url`, `branch`,
   `project_id`); `signed_mode bool` default false; `override_quorum int` default 1; `status`
   `active | disabled`), `receivers` (`secret_current`, `secret_previous?` sealed),
   `receiver_bindings`, `deliveries` (unique on (`receiver_id`, `provider_delivery_id`); `decision`
   `accepted | refused`; `refusal` and `sync_state` enums exactly as data-model.md), `credentials`
   and `credential_grants` (`profiles text[]`), `jobs`, `profiles`.
-- [ ] T045 [US1] `GitSource` gix adapter in crates/keel-git/src/mirror.rs and pin.rs: HTTPS with a
+- [X] T045 [US1] `GitSource` gix adapter in crates/keel-git/src/mirror.rs and pin.rs: HTTPS with a
   token, SSH with a deploy key and the binding's pinned `known_host` (`StrictHostKeyChecking=yes`),
   pins, ancestry. Pass T040.
-- [ ] T046 [US1] Manifest parser and validator in crates/keel-core/src/manifest.rs. Pass T041.
-- [ ] T047 [US1] Credentials in apps/keel/server/src/credentials.rs: kinds `vault_password | env |
+- [X] T046 [US1] Manifest parser and validator in crates/keel-core/src/manifest.rs. Pass T041.
+- [X] T047 [US1] Credentials in apps/keel/server/src/credentials.rs: kinds `vault_password | env |
   secret_vars | git_https_token | git_ssh_key`; sealed at rest; `fingerprint` (SHA-256 of the
   plaintext, truncated); values never returned; create, rotate and grant need step-up;
   `PreviewCredentialRemove` refused while a pending or queued run needs it.
-- [ ] T048 [US1] Binding commands in apps/keel/server/src/bindings.rs: `PreviewBindingCreate`
+- [X] T048 [US1] Binding commands in apps/keel/server/src/bindings.rs: `PreviewBindingCreate`
   (test fetch; with signed mode, report which recent commits are unsigned), `PreviewBindingUpdate`,
   `PreviewBindingDisable` (lists the runs it will cancel; cancels queued and pending runs with
   `binding_disabled`), `PreviewBindingRemove`, `SyncBinding`, polling for bindings with
   `poll_interval` only (no timers otherwise).
-- [ ] T049 [US1] Receiver commands in apps/keel/server/src/receivers.rs: create (secret returned
+- [X] T049 [US1] Receiver commands in apps/keel/server/src/receivers.rs: create (secret returned
   once as `ReceiverSecret { url, secret }`), rotate with `previous_valid_for` (default 24 h),
   disable, remove, bind, unbind, `ListDeliveries`. Creation and rotation need step-up.
-- [ ] T050 [US1] `POST /hooks/{id}` in apps/keel/server/src/hooks.rs, with the checks in the order
+- [X] T050 [US1] `POST /hooks/{id}` in apps/keel/server/src/hooks.rs, with the checks in the order
   of contracts/receivers.md, rate limits per receiver and source IP, then an async fetch. Pass
   T039.
-- [ ] T051 [US1] Sync in apps/keel/server/src/sync.rs: fetch, classify, read `.keel/jobs.yaml` at
+- [X] T051 [US1] Sync in apps/keel/server/src/sync.rs: fetch, classify, read `.keel/jobs.yaml` at
   the fetched head (never the payload's commit), upsert `jobs` and `profiles`, revise `repo`
   inventories (stub until US4), emit `BindingSynced`.
-- [ ] T052 [P] [US1] Web pages apps/keel/web/src/features/bindings/ and receivers/.
+- [X] T052 [P] [US1] Web pages apps/keel/web/src/features/bindings/ and receivers/.
 
 **Checkpoint**: US1 scenarios in quickstart.md §2 pass; Playwright `us1` passes.
 
