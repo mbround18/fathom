@@ -51,7 +51,8 @@ export const REFUSED_MESSAGES: Record<PasskeyRefusedReason, string> = {
 }
 
 const NO_AUTHENTICATOR = 'This browser cannot use passkeys.'
-const OFFLINE = 'Keel is not connected. Wait for it to reconnect, then try again.'
+export const ENROLMENT_REQUIRED = 'Register a passkey first.'
+export const OFFLINE = 'Keel is not connected. Wait for it to reconnect, then try again.'
 
 export interface PasskeyState {
   dialog: PasskeyDialog | null
@@ -99,11 +100,17 @@ function ask(cmd: Parameters<typeof sendCmd>[0]): Promise<Event> {
   return new Promise((resolve) => waiting.set(id, resolve))
 }
 
+/** The message for an event that refused a passkey command (or one the command did not expect). */
+export function refusalMessage(event: Event): string {
+  if (event.type === 'PasskeyRefused') return REFUSED_MESSAGES[event.data.reason]
+  if (event.type === 'PasskeyEnrolmentRequired') return ENROLMENT_REQUIRED
+  if (event.type === 'OpError') return event.data.message
+  if (event.type === 'Denied') return event.data.reason
+  return `Unexpected answer from the server (${event.type}).`
+}
+
 function refusal(event: Event): Refused {
-  if (event.type === 'PasskeyRefused') return new Refused(REFUSED_MESSAGES[event.data.reason])
-  if (event.type === 'OpError') return new Refused(event.data.message)
-  if (event.type === 'Denied') return new Refused(event.data.reason)
-  return new Refused(`Unexpected answer from the server (${event.type}).`)
+  return new Refused(refusalMessage(event))
 }
 
 /** Begin a ceremony and run the authenticator on its challenge. */

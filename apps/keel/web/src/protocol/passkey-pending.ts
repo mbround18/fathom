@@ -86,6 +86,11 @@ export type PasskeyCmd =
   | { type: 'PasskeyBegin'; data: { purpose: PasskeyPurpose } }
   | { type: 'PasskeyFinish'; data: PasskeyResponse }
   | { type: 'ListPasskeys' }
+  /**
+   * `Preview` (with `step_up` when the session's check is stale); the generated `Confirm` removes
+   * it (`Confirmed`). `PasskeyRefused {last_passkey}` for the person's last passkey.
+   */
+  | { type: 'PreviewPasskeyRemove'; data: { id: B64Url } }
 
 /** The passkey events, as Depths' `Event` has them. */
 export type PasskeyEvent =
