@@ -65,4 +65,6 @@ web-passkeys = { path = "../../../crates/web-passkeys" }
 http-body-util = "0.1"
 tempfile = "3"
 tokio = { version = "1.54.1", features = ["full", "test-util"] }
+# A WebSocket client for the /api/v1/ws tests (the same one the Depths server tests use).
+tokio-tungstenite = "0.30"
 tower = { version = "0.5", features = ["util"] }
