@@ -1,4 +1,11 @@
-import { CaretDownIcon, FingerprintIcon, KeyIcon, SignOutIcon, UserCircleIcon } from '@phosphor-icons/react'
+import {
+  CaretDownIcon,
+  FingerprintIcon,
+  KeyIcon,
+  ListIcon,
+  SignOutIcon,
+  UserCircleIcon,
+} from '@phosphor-icons/react'
 import { BrandMark } from '@companion/theme'
 import {
   Button,
@@ -15,8 +22,8 @@ import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
 import { usePasskeys } from '@/features/passkeys/store'
 
 import { Link } from './Link'
-import { HOME, SECTIONS } from './nav'
-import { usePath } from './router'
+import { ACCOUNT_PASSKEYS, HOME, SECTIONS } from './nav'
+import { navigate, usePath } from './router'
 import { useSession } from './session-store'
 
 const PasskeyDialogs = lazy(() => import('@/features/passkeys/PasskeyDialogs'))
@@ -72,6 +79,10 @@ function AccountMenu() {
       <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuLabel className="truncate text-xs">{me.email ?? me.display_name}</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate(ACCOUNT_PASSKEYS)}>
+          <ListIcon aria-hidden className="size-3.5" />
+          Passkeys
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => openEnrol(false)}>
           <KeyIcon aria-hidden className="size-3.5" />
           Register a passkey

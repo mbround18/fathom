@@ -33,5 +33,8 @@ export const SECTIONS: readonly Section[] = [
   { path: '/migration', label: 'Migration', icon: ArrowsLeftRightIcon },
 ]
 
+/** Account → Passkeys: the person's own passkeys. Reached from the account menu, not the sections. */
+export const ACCOUNT_PASSKEYS = '/account/passkeys'
+
 /** Where `/` goes. */
 export const HOME = '/runs'

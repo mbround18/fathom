@@ -5,7 +5,7 @@
  */
 import { lazy, Suspense, useEffect, type ComponentType, type LazyExoticComponent } from 'react'
 
-import { HOME } from './nav'
+import { ACCOUNT_PASSKEYS, HOME } from './nav'
 import { matchPath, navigate, usePath, type Params } from './router'
 
 interface Route {
@@ -23,6 +23,7 @@ const ROUTES: readonly Route[] = [
   { pattern: '/teams', page: lazy(() => import('@/features/teams/TeamsPage')) },
   { pattern: '/audit', page: lazy(() => import('@/features/audit/AuditPage')) },
   { pattern: '/migration', page: lazy(() => import('@/features/migration/MigrationPage')) },
+  { pattern: ACCOUNT_PASSKEYS, page: lazy(() => import('@/features/passkeys/PasskeysPage')) },
 ]
 
 const NotFound = lazy(() => import('@/pages/NotFound'))
