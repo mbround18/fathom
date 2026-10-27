@@ -66,7 +66,10 @@ pub enum CaError {
     #[error("an encrypted CA key cannot be used")]
     Encrypted,
     #[error("the {have} CA cannot issue {want} certificates")]
-    WrongKind { have: &'static str, want: &'static str },
+    WrongKind {
+        have: &'static str,
+        want: &'static str,
+    },
     #[error("invalid certificate request: {0}")]
     Request(&'static str),
 }
@@ -79,7 +82,10 @@ pub struct SshCa {
 
 impl fmt::Debug for SshCa {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SshCa").field("kind", &self.kind).field("fingerprint", &self.fingerprint()).finish()
+        f.debug_struct("SshCa")
+            .field("kind", &self.kind)
+            .field("fingerprint", &self.fingerprint())
+            .finish()
     }
 }
 
@@ -109,7 +115,9 @@ pub struct HostCertRequest<'a> {
 }
 
 fn unix(t: SystemTime) -> Result<u64, CaError> {
-    t.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).map_err(|_| CaError::Request("time before 1970"))
+    t.duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|_| CaError::Request("time before 1970"))
 }
 
 fn require_ed25519(key: &KeyData) -> Result<(), CaError> {
@@ -143,7 +151,9 @@ impl SshCa {
 
     /// The OpenSSH private key, for sealing. Never log it.
     pub fn to_openssh(&self) -> Result<SecretString, CaError> {
-        Ok(SecretString::from(self.key.to_openssh(LineEnding::LF)?.as_str()))
+        Ok(SecretString::from(
+            self.key.to_openssh(LineEnding::LF)?.as_str(),
+        ))
     }
 
     pub fn kind(&self) -> CaKind {
@@ -179,7 +189,10 @@ impl SshCa {
         if self.kind == want {
             Ok(())
         } else {
-            Err(CaError::WrongKind { have: self.kind.as_str(), want: want.as_str() })
+            Err(CaError::WrongKind {
+                have: self.kind.as_str(),
+                want: want.as_str(),
+            })
         }
     }
 
@@ -189,18 +202,29 @@ impl SshCa {
         self.require(CaKind::Runner)?;
         require_ed25519(req.public_key)?;
         if req.runner_id.is_empty() || req.inventory_name.is_empty() {
-            return Err(CaError::Request("runner id and inventory name are required"));
+            return Err(CaError::Request(
+                "runner id and inventory name are required",
+            ));
         }
         if req.ttl.is_zero() {
             return Err(CaError::Request("ttl must be positive"));
         }
         let allowed: BTreeSet<&str> = req.allowed_profiles.iter().map(String::as_str).collect();
-        let profiles: BTreeSet<&str> =
-            req.assigned_profiles.iter().map(String::as_str).filter(|p| allowed.contains(p)).collect();
+        let profiles: BTreeSet<&str> = req
+            .assigned_profiles
+            .iter()
+            .map(String::as_str)
+            .filter(|p| allowed.contains(p))
+            .collect();
 
         let now = unix(req.now)?;
         let mut rng = rand::rng();
-        let mut b = Builder::new_with_random_nonce(&mut rng, req.public_key.clone(), now, now + req.ttl.as_secs())?;
+        let mut b = Builder::new_with_random_nonce(
+            &mut rng,
+            req.public_key.clone(),
+            now,
+            now + req.ttl.as_secs(),
+        )?;
         b.serial(new_serial(&mut rng))?;
         b.cert_type(CertType::User)?;
         b.key_id(format!("{RUNNER_KEY_ID_PREFIX}{}", req.runner_id))?;
@@ -216,12 +240,19 @@ impl SshCa {
         self.require(CaKind::Host)?;
         require_ed25519(req.public_key)?;
         let Some(first) = req.host_names.first() else {
-            return Err(CaError::Request("a host certificate needs at least one name"));
+            return Err(CaError::Request(
+                "a host certificate needs at least one name",
+            ));
         };
         let now = unix(req.now)?;
         let mut rng = rand::rng();
         let after = now.saturating_sub(HOST_CERT_BACKDATE.as_secs());
-        let mut b = Builder::new_with_random_nonce(&mut rng, req.public_key.clone(), after, now + req.ttl.as_secs())?;
+        let mut b = Builder::new_with_random_nonce(
+            &mut rng,
+            req.public_key.clone(),
+            after,
+            now + req.ttl.as_secs(),
+        )?;
         b.serial(new_serial(&mut rng))?;
         b.cert_type(CertType::Host)?;
         b.key_id(format!("{HOST_KEY_ID_PREFIX}{first}"))?;
@@ -252,11 +283,17 @@ pub struct TrustedCa {
 
 impl TrustedCa {
     pub fn active(key: KeyData) -> Self {
-        TrustedCa { key, not_after: None }
+        TrustedCa {
+            key,
+            not_after: None,
+        }
     }
 
     pub fn retiring(key: KeyData, not_after: u64) -> Self {
-        TrustedCa { key, not_after: Some(not_after) }
+        TrustedCa {
+            key,
+            not_after: Some(not_after),
+        }
     }
 
     fn trusted_at(&self, now: u64) -> bool {
@@ -332,7 +369,8 @@ fn check_common(
         return Err(CertRefusal::Expired);
     }
     let fp = ca.key.fingerprint(HashAlg::Sha256);
-    cert.validate_at(now, [&fp]).map_err(|_| CertRefusal::BadSignature)?;
+    cert.validate_at(now, [&fp])
+        .map_err(|_| CertRefusal::BadSignature)?;
     if !cert.critical_options().is_empty() {
         return Err(CertRefusal::CriticalOptions);
     }
@@ -351,7 +389,11 @@ impl RunnerCertVerifier {
         RunnerCertVerifier { cas, krl }
     }
 
-    pub fn verify(&self, cert: &Certificate, now: SystemTime) -> Result<RunnerIdentity, CertRefusal> {
+    pub fn verify(
+        &self,
+        cert: &Certificate,
+        now: SystemTime,
+    ) -> Result<RunnerIdentity, CertRefusal> {
         let now = unix(now).map_err(|_| CertRefusal::NotYetValid)?;
         check_common(&self.cas, cert, CertType::User, now)?;
         if !cert.extensions().is_empty() {
@@ -366,11 +408,17 @@ impl RunnerCertVerifier {
         let mut host = None;
         let mut profiles = Vec::new();
         for p in cert.valid_principals() {
-            if let Some(name) = p.strip_prefix(HOST_PRINCIPAL_PREFIX).filter(|n| !n.is_empty()) {
+            if let Some(name) = p
+                .strip_prefix(HOST_PRINCIPAL_PREFIX)
+                .filter(|n| !n.is_empty())
+            {
                 if host.replace(name).is_some() {
                     return Err(CertRefusal::BadPrincipals);
                 }
-            } else if let Some(profile) = p.strip_prefix(PROFILE_PRINCIPAL_PREFIX).filter(|n| !n.is_empty()) {
+            } else if let Some(profile) = p
+                .strip_prefix(PROFILE_PRINCIPAL_PREFIX)
+                .filter(|n| !n.is_empty())
+            {
                 profiles.push(profile.to_owned());
             } else {
                 return Err(CertRefusal::BadPrincipals);
@@ -403,7 +451,10 @@ pub struct HostCertVerifier {
 
 impl HostCertVerifier {
     pub fn new(cas: Vec<TrustedCa>, host_name: impl Into<String>) -> Self {
-        HostCertVerifier { cas, host_name: host_name.into() }
+        HostCertVerifier {
+            cas,
+            host_name: host_name.into(),
+        }
     }
 
     pub fn verify(&self, cert: &Certificate, now: SystemTime) -> Result<(), CertRefusal> {

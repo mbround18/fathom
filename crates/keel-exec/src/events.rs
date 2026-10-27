@@ -50,11 +50,22 @@ pub enum HostStatus {
 /// One parsed `keel_events` line.
 #[derive(Debug, Clone, PartialEq)]
 pub enum KeelEvent {
-    PlaybookStart { playbook: String },
-    PlayStart { play: String },
-    TaskStart { task: String, task_id: String, action: String, handler: bool },
+    PlaybookStart {
+        playbook: String,
+    },
+    PlayStart {
+        play: String,
+    },
+    TaskStart {
+        task: String,
+        task_id: String,
+        action: String,
+        handler: bool,
+    },
     HostResult(HostResult),
-    Stats { stats: BTreeMap<String, HostStats> },
+    Stats {
+        stats: BTreeMap<String, HostStats>,
+    },
 }
 
 /// A per-host task result.
@@ -180,11 +191,20 @@ impl HostResult {
     }
 }
 
-fn str_field(obj: &serde_json::Map<String, Value>, name: &'static str) -> Result<String, EventError> {
-    obj.get(name).and_then(Value::as_str).map(str::to_owned).ok_or(EventError::Field(name))
+fn str_field(
+    obj: &serde_json::Map<String, Value>,
+    name: &'static str,
+) -> Result<String, EventError> {
+    obj.get(name)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or(EventError::Field(name))
 }
 
-fn bool_field(obj: &serde_json::Map<String, Value>, name: &'static str) -> Result<bool, EventError> {
+fn bool_field(
+    obj: &serde_json::Map<String, Value>,
+    name: &'static str,
+) -> Result<bool, EventError> {
     match obj.get(name) {
         None => Ok(false),
         Some(Value::Bool(b)) => Ok(*b),
@@ -227,8 +247,12 @@ pub fn parse_line(line: &str) -> Result<KeelEvent, EventError> {
     }
     let kind = str_field(&obj, "event")?;
     match kind.as_str() {
-        "playbook_start" => Ok(KeelEvent::PlaybookStart { playbook: str_field(&obj, "playbook")? }),
-        "play_start" => Ok(KeelEvent::PlayStart { play: str_field(&obj, "play")? }),
+        "playbook_start" => Ok(KeelEvent::PlaybookStart {
+            playbook: str_field(&obj, "playbook")?,
+        }),
+        "play_start" => Ok(KeelEvent::PlayStart {
+            play: str_field(&obj, "play")?,
+        }),
         "task_start" => Ok(KeelEvent::TaskStart {
             task: str_field(&obj, "task")?,
             task_id: str_field(&obj, "task_id")?,
@@ -236,12 +260,16 @@ pub fn parse_line(line: &str) -> Result<KeelEvent, EventError> {
             handler: bool_field(&obj, "handler")?,
         }),
         "stats" => {
-            let stats = obj.get("stats").cloned().ok_or(EventError::Field("stats"))?;
+            let stats = obj
+                .get("stats")
+                .cloned()
+                .ok_or(EventError::Field("stats"))?;
             let stats = serde_json::from_value(stats).map_err(|_| EventError::Field("stats"))?;
             Ok(KeelEvent::Stats { stats })
         }
         other => {
-            let status = HostStatus::from_kind(other).ok_or_else(|| EventError::UnknownKind(other.into()))?;
+            let status = HostStatus::from_kind(other)
+                .ok_or_else(|| EventError::UnknownKind(other.into()))?;
             let result = match obj.get("result") {
                 Some(v @ Value::Object(_)) => enforce_censoring(v.clone()),
                 None | Some(Value::Null) => Value::Object(Default::default()),
@@ -279,9 +307,25 @@ mod tests {
 
     #[test]
     fn playbook_play_and_task_starts() {
-        assert_eq!(parse_line(PLAYBOOK_START).unwrap(), KeelEvent::PlaybookStart { playbook: "site.yml".into() });
-        assert_eq!(parse_line(PLAY_START).unwrap(), KeelEvent::PlayStart { play: "Base hosts".into() });
-        let KeelEvent::TaskStart { task, task_id, action, handler } = parse_line(TASK_START).unwrap() else {
+        assert_eq!(
+            parse_line(PLAYBOOK_START).unwrap(),
+            KeelEvent::PlaybookStart {
+                playbook: "site.yml".into()
+            }
+        );
+        assert_eq!(
+            parse_line(PLAY_START).unwrap(),
+            KeelEvent::PlayStart {
+                play: "Base hosts".into()
+            }
+        );
+        let KeelEvent::TaskStart {
+            task,
+            task_id,
+            action,
+            handler,
+        } = parse_line(TASK_START).unwrap()
+        else {
             panic!("task_start")
         };
         assert_eq!(task, "Install packages");
@@ -302,14 +346,18 @@ mod tests {
             let ev = parse_line(&format!("{line}\n")).unwrap();
             assert_eq!(ev.kind(), status.as_str());
             assert_eq!(ev.host(), Some(host));
-            let KeelEvent::HostResult(r) = ev else { panic!("host result") };
+            let KeelEvent::HostResult(r) = ev else {
+                panic!("host result")
+            };
             assert_eq!(r.status, status);
         }
     }
 
     #[test]
     fn first_failure_carries_task_module_message_and_rc() {
-        let KeelEvent::HostResult(r) = parse_line(FAILED).unwrap() else { panic!() };
+        let KeelEvent::HostResult(r) = parse_line(FAILED).unwrap() else {
+            panic!()
+        };
         assert_eq!(
             r.first_failure(),
             Some(FirstFailure {
@@ -319,39 +367,68 @@ mod tests {
                 rc: Some(3),
             })
         );
-        let KeelEvent::HostResult(r) = parse_line(UNREACHABLE).unwrap() else { panic!() };
-        assert_eq!(r.first_failure().unwrap().message, "Failed to connect to the host via ssh");
-        let KeelEvent::HostResult(r) = parse_line(FAILED_IGNORED).unwrap() else { panic!() };
+        let KeelEvent::HostResult(r) = parse_line(UNREACHABLE).unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            r.first_failure().unwrap().message,
+            "Failed to connect to the host via ssh"
+        );
+        let KeelEvent::HostResult(r) = parse_line(FAILED_IGNORED).unwrap() else {
+            panic!()
+        };
         assert!(r.ignore_errors);
-        assert_eq!(r.first_failure(), None, "ignored failures are not the first failure");
-        let KeelEvent::HostResult(r) = parse_line(OK).unwrap() else { panic!() };
+        assert_eq!(
+            r.first_failure(),
+            None,
+            "ignored failures are not the first failure"
+        );
+        let KeelEvent::HostResult(r) = parse_line(OK).unwrap() else {
+            panic!()
+        };
         assert_eq!(r.first_failure(), None);
     }
 
     #[test]
     fn stats_summary() {
-        let KeelEvent::Stats { stats } = parse_line(STATS).unwrap() else { panic!("stats") };
+        let KeelEvent::Stats { stats } = parse_line(STATS).unwrap() else {
+            panic!("stats")
+        };
         assert_eq!(stats.len(), 2);
         assert_eq!(
             stats["web-1"],
-            HostStats { ok: 4, changed: 2, failures: 1, unreachable: 0, skipped: 1, rescued: 0, ignored: 1 }
+            HostStats {
+                ok: 4,
+                changed: 2,
+                failures: 1,
+                unreachable: 0,
+                skipped: 1,
+                rescued: 0,
+                ignored: 1
+            }
         );
         assert_eq!(stats["db-1"].unreachable, 1);
     }
 
     #[test]
     fn censored_results_stay_censored() {
-        let KeelEvent::HostResult(r) = parse_line(CENSORED).unwrap() else { panic!() };
+        let KeelEvent::HostResult(r) = parse_line(CENSORED).unwrap() else {
+            panic!()
+        };
         assert!(r.is_censored());
         assert_eq!(r.result.as_object().unwrap().len(), 2);
 
         // A callback that leaked fields next to `censored`, or only flagged `_ansible_no_log`,
         // still yields a censored result.
         let leaky = r#"{"v": 1, "event": "ok", "host": "h", "task": "t", "task_id": "i", "action": "a", "result": {"censored": "hidden", "password": "hunter2", "changed": false}}"#;
-        let KeelEvent::HostResult(r) = parse_line(leaky).unwrap() else { panic!() };
+        let KeelEvent::HostResult(r) = parse_line(leaky).unwrap() else {
+            panic!()
+        };
         assert!(!r.result.to_string().contains("hunter2"));
         let flagged = r#"{"v": 1, "event": "failed", "host": "h", "task": "t", "task_id": "i", "action": "a", "result": {"_ansible_no_log": true, "msg": "token=hunter2"}}"#;
-        let KeelEvent::HostResult(r) = parse_line(flagged).unwrap() else { panic!() };
+        let KeelEvent::HostResult(r) = parse_line(flagged).unwrap() else {
+            panic!()
+        };
         assert!(r.is_censored());
         assert!(!r.result.to_string().contains("hunter2"));
         assert!(!r.first_failure().unwrap().message.contains("hunter2"));
@@ -359,21 +436,35 @@ mod tests {
 
     #[test]
     fn malformed_lines_are_refused() {
-        assert!(matches!(parse_line("PLAY [all] ****"), Err(EventError::NotJson(_))));
+        assert!(matches!(
+            parse_line("PLAY [all] ****"),
+            Err(EventError::NotJson(_))
+        ));
         assert!(matches!(parse_line("[1,2]"), Err(EventError::NotJson(_))));
-        assert_eq!(parse_line(r#"{"event": "ok"}"#), Err(EventError::Version(None)));
-        assert_eq!(parse_line(r#"{"v": 2, "event": "ok"}"#), Err(EventError::Version(Some(2))));
+        assert_eq!(
+            parse_line(r#"{"event": "ok"}"#),
+            Err(EventError::Version(None))
+        );
+        assert_eq!(
+            parse_line(r#"{"v": 2, "event": "ok"}"#),
+            Err(EventError::Version(Some(2)))
+        );
         assert_eq!(
             parse_line(r#"{"v": 1, "event": "runner_on_async_poll"}"#),
             Err(EventError::UnknownKind("runner_on_async_poll".into()))
         );
-        assert_eq!(parse_line(r#"{"v": 1, "event": "ok", "task": "t"}"#), Err(EventError::Field("host")));
+        assert_eq!(
+            parse_line(r#"{"v": 1, "event": "ok", "task": "t"}"#),
+            Err(EventError::Field("host"))
+        );
         assert_eq!(
             parse_line(r#"{"v": 1, "event": "stats", "stats": {"h": {"ok": "many"}}}"#),
             Err(EventError::Field("stats"))
         );
         assert_eq!(
-            parse_line(r#"{"v": 1, "event": "ok", "host": "h", "task": "t", "task_id": "i", "action": "a", "result": "x"}"#),
+            parse_line(
+                r#"{"v": 1, "event": "ok", "host": "h", "task": "t", "task_id": "i", "action": "a", "result": "x"}"#
+            ),
             Err(EventError::Field("result"))
         );
     }

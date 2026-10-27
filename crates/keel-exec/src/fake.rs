@@ -65,12 +65,21 @@ impl Script {
 
     /// A run that is refused before it starts.
     pub fn refuse(reason: Refusal, detail: impl Into<String>) -> Self {
-        Script { outcome: Outcome::Refuse { reason, detail: detail.into() }, ..Script::finish(0) }
+        Script {
+            outcome: Outcome::Refuse {
+                reason,
+                detail: detail.into(),
+            },
+            ..Script::finish(0)
+        }
     }
 
     /// A run that starts and never finishes on its own.
     pub fn hang() -> Self {
-        Script { outcome: Outcome::Hang, ..Script::finish(0) }
+        Script {
+            outcome: Outcome::Hang,
+            ..Script::finish(0)
+        }
     }
 
     pub fn event(mut self, line: impl Into<String>) -> Self {
@@ -173,7 +182,11 @@ impl FakeRunner {
     }
 
     /// Run the session on `stream` until it closes, reporting received frames on `seen`.
-    pub async fn run<S>(self, mut stream: S, seen: mpsc::UnboundedSender<Frame>) -> Result<(), CodecError>
+    pub async fn run<S>(
+        self,
+        mut stream: S,
+        seen: mpsc::UnboundedSender<Frame>,
+    ) -> Result<(), CodecError>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -185,9 +198,20 @@ impl FakeRunner {
             // The receiver may be gone when the test does not care; that is fine.
             let _ = seen.send(frame.clone());
             match frame {
-                Frame::Ping if self.answer_pings => codec::write_frame(&mut stream, &Frame::Pong).await?,
-                Frame::Assign { run_id, job, pack_size, .. } => {
-                    let script = self.scripts.get(&job).unwrap_or(&self.default_script).clone();
+                Frame::Ping if self.answer_pings => {
+                    codec::write_frame(&mut stream, &Frame::Pong).await?
+                }
+                Frame::Assign {
+                    run_id,
+                    job,
+                    pack_size,
+                    ..
+                } => {
+                    let script = self
+                        .scripts
+                        .get(&job)
+                        .unwrap_or(&self.default_script)
+                        .clone();
                     let pending = Pending { run_id, script };
                     if pack_size == 0 {
                         play(&mut stream, pending, &mut hanging).await?;
@@ -195,7 +219,9 @@ impl FakeRunner {
                         awaiting_pack = Some(pending);
                     }
                 }
-                Frame::Pack { run_id, last: true, .. } => {
+                Frame::Pack {
+                    run_id, last: true, ..
+                } => {
                     if let Some(p) = awaiting_pack.take_if(|p| p.run_id == run_id) {
                         play(&mut stream, p, &mut hanging).await?;
                     }
@@ -219,19 +245,46 @@ impl FakeRunner {
     }
 }
 
-async fn play<S>(stream: &mut S, p: Pending, hanging: &mut HashSet<String>) -> Result<(), CodecError>
+async fn play<S>(
+    stream: &mut S,
+    p: Pending,
+    hanging: &mut HashSet<String>,
+) -> Result<(), CodecError>
 where
     S: AsyncWrite + Unpin,
 {
     let Pending { run_id, script } = p;
     if let Outcome::Refuse { reason, detail } = script.outcome {
-        return codec::write_frame(stream, &Frame::Refused { run_id, reason, detail }).await;
+        return codec::write_frame(
+            stream,
+            &Frame::Refused {
+                run_id,
+                reason,
+                detail,
+            },
+        )
+        .await;
     }
-    codec::write_frame(stream, &Frame::Started { run_id: run_id.clone() }).await?;
+    codec::write_frame(
+        stream,
+        &Frame::Started {
+            run_id: run_id.clone(),
+        },
+    )
+    .await?;
     for (seq, step) in (1u64..).zip(script.steps) {
         let frame = match step {
-            Step::Event(json) => Frame::Event { run_id: run_id.clone(), seq, json },
-            Step::Log(stream, bytes) => Frame::Log { run_id: run_id.clone(), seq, stream, bytes },
+            Step::Event(json) => Frame::Event {
+                run_id: run_id.clone(),
+                seq,
+                json,
+            },
+            Step::Log(stream, bytes) => Frame::Log {
+                run_id: run_id.clone(),
+                seq,
+                stream,
+                bytes,
+            },
         };
         codec::write_frame(stream, &frame).await?;
     }

@@ -29,7 +29,10 @@ pub enum CodecError {
 pub fn encode_body(frame: &Frame) -> Result<Vec<u8>, CodecError> {
     let body = serde_json::to_vec(frame)?;
     if body.len() > MAX_FRAME_LEN {
-        return Err(CodecError::TooLarge { len: body.len(), max: MAX_FRAME_LEN });
+        return Err(CodecError::TooLarge {
+            len: body.len(),
+            max: MAX_FRAME_LEN,
+        });
     }
     Ok(body)
 }
@@ -37,7 +40,10 @@ pub fn encode_body(frame: &Frame) -> Result<Vec<u8>, CodecError> {
 /// Parse a frame body (no prefix). Unknown frames and fields are errors.
 pub fn decode_body(body: &[u8]) -> Result<Frame, CodecError> {
     if body.len() > MAX_FRAME_LEN {
-        return Err(CodecError::TooLarge { len: body.len(), max: MAX_FRAME_LEN });
+        return Err(CodecError::TooLarge {
+            len: body.len(),
+            max: MAX_FRAME_LEN,
+        });
     }
     Ok(serde_json::from_slice(body)?)
 }
@@ -53,7 +59,10 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, CodecError> {
 }
 
 /// Write one frame and flush.
-pub async fn write_frame<W: AsyncWrite + Unpin>(w: &mut W, frame: &Frame) -> Result<(), CodecError> {
+pub async fn write_frame<W: AsyncWrite + Unpin>(
+    w: &mut W,
+    frame: &Frame,
+) -> Result<(), CodecError> {
     let wire = encode(frame)?;
     w.write_all(&wire).await?;
     w.flush().await?;
@@ -68,13 +77,20 @@ pub async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<Option<Frame>
     while got < prefix.len() {
         let n = r.read(&mut prefix[got..]).await?;
         if n == 0 {
-            return if got == 0 { Ok(None) } else { Err(CodecError::Truncated) };
+            return if got == 0 {
+                Ok(None)
+            } else {
+                Err(CodecError::Truncated)
+            };
         }
         got += n;
     }
     let len = u32::from_be_bytes(prefix) as usize;
     if len > MAX_FRAME_LEN {
-        return Err(CodecError::TooLarge { len, max: MAX_FRAME_LEN });
+        return Err(CodecError::TooLarge {
+            len,
+            max: MAX_FRAME_LEN,
+        });
     }
     let mut body = Vec::new();
     let read = r.take(len as u64).read_to_end(&mut body).await?;

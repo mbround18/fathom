@@ -2,13 +2,13 @@
 //!
 //! Spec 055 (Keel). Phase 1 scaffolding: modules are filled by later phases, tests first.
 
-pub mod frames;
-pub mod codec;
 pub mod ca;
-pub mod krl;
-pub mod server_config;
 pub mod client_config;
-pub mod pack_builder;
+pub mod codec;
 pub mod events;
 #[cfg(feature = "fake")]
 pub mod fake;
+pub mod frames;
+pub mod krl;
+pub mod pack_builder;
+pub mod server_config;

@@ -182,7 +182,10 @@ pub enum Frame {
         require_signed: bool,
     },
     /// S → R. `cert` is the OpenSSH one-line certificate.
-    Enrolled { host_id: String, cert: String },
+    Enrolled {
+        host_id: String,
+        cert: String,
+    },
 
     // ---- keel-runner-v1 ----
     /// R → S, first frame of a runner session.
@@ -200,7 +203,9 @@ pub enum Frame {
     /// Either side may start a renewal; the server answers with `Cert`.
     RenewCert {},
     /// S → R. `cert` is the OpenSSH one-line certificate.
-    Cert { cert: String },
+    Cert {
+        cert: String,
+    },
     /// S → R. An OpenSSH KRL (see `krl`).
     Krl {
         #[serde(with = "b64")]
@@ -224,15 +229,31 @@ pub enum Frame {
         sha256: Option<String>,
     },
     /// S → R. Values are redacted in `Debug`.
-    Secrets { run_id: String, items: Vec<SecretItem> },
+    Secrets {
+        run_id: String,
+        items: Vec<SecretItem>,
+    },
     /// S → R.
-    Approvals { run_id: String, items: Vec<Approval> },
+    Approvals {
+        run_id: String,
+        items: Vec<Approval>,
+    },
     /// R → S.
-    Started { run_id: String },
+    Started {
+        run_id: String,
+    },
     /// R → S.
-    Refused { run_id: String, reason: Refusal, detail: String },
+    Refused {
+        run_id: String,
+        reason: Refusal,
+        detail: String,
+    },
     /// R → S. `json` is one `keel_events` line, verbatim (see `events`).
-    Event { run_id: String, seq: u64, json: String },
+    Event {
+        run_id: String,
+        seq: u64,
+        json: String,
+    },
     /// R → S.
     Log {
         run_id: String,
@@ -242,7 +263,9 @@ pub enum Frame {
         bytes: Vec<u8>,
     },
     /// S → R.
-    Cancel { run_id: String },
+    Cancel {
+        run_id: String,
+    },
     /// R → S. `stats` is Ansible's per-host summary; `ledger_line` the executor's appended line.
     Finished {
         run_id: String,
@@ -257,7 +280,10 @@ pub enum Frame {
     /// Network side → executor: report the ledger head and per-job bases (for `Hello`).
     ReadLedger,
     /// Executor → network side: the answer to `ReadLedger`.
-    Ledger { ledger_head: Option<String>, bases: Vec<Base> },
+    Ledger {
+        ledger_head: Option<String>,
+        bases: Vec<Base>,
+    },
 }
 
 impl Frame {
@@ -358,7 +384,12 @@ impl fmt::Debug for Frame {
         }
         let mut d = f.debug_struct(self.name());
         match self {
-            Frame::Enroll { token, inventory_name, allowed_profiles, require_signed } => d
+            Frame::Enroll {
+                token,
+                inventory_name,
+                allowed_profiles,
+                require_signed,
+            } => d
                 .field("token", token)
                 .field("inventory_name", inventory_name)
                 .field("allowed_profiles", allowed_profiles)
@@ -387,14 +418,26 @@ impl fmt::Debug for Frame {
             Frame::RenewCert {} | Frame::Ping | Frame::Pong | Frame::ReadLedger => &mut d,
             Frame::Cert { cert } => d.field("cert", cert),
             Frame::Krl { bytes } => d.field("bytes", &Len(bytes.len())),
-            Frame::Assign { run_id, job, base, target, deadline, pack_size } => d
+            Frame::Assign {
+                run_id,
+                job,
+                base,
+                target,
+                deadline,
+                pack_size,
+            } => d
                 .field("run_id", run_id)
                 .field("job", job)
                 .field("base", base)
                 .field("target", target)
                 .field("deadline", deadline)
                 .field("pack_size", pack_size),
-            Frame::Pack { run_id, chunk, last, sha256 } => d
+            Frame::Pack {
+                run_id,
+                chunk,
+                last,
+                sha256,
+            } => d
                 .field("run_id", run_id)
                 .field("chunk", &Len(chunk.len()))
                 .field("last", last)
@@ -402,18 +445,34 @@ impl fmt::Debug for Frame {
             Frame::Secrets { run_id, items } => d.field("run_id", run_id).field("items", items),
             Frame::Approvals { run_id, items } => d.field("run_id", run_id).field("items", items),
             Frame::Started { run_id } | Frame::Cancel { run_id } => d.field("run_id", run_id),
-            Frame::Refused { run_id, reason, detail } => {
-                d.field("run_id", run_id).field("reason", reason).field("detail", detail)
-            }
-            Frame::Event { run_id, seq, json } => {
-                d.field("run_id", run_id).field("seq", seq).field("json", &Len(json.len()))
-            }
-            Frame::Log { run_id, seq, stream, bytes } => d
+            Frame::Refused {
+                run_id,
+                reason,
+                detail,
+            } => d
+                .field("run_id", run_id)
+                .field("reason", reason)
+                .field("detail", detail),
+            Frame::Event { run_id, seq, json } => d
+                .field("run_id", run_id)
+                .field("seq", seq)
+                .field("json", &Len(json.len())),
+            Frame::Log {
+                run_id,
+                seq,
+                stream,
+                bytes,
+            } => d
                 .field("run_id", run_id)
                 .field("seq", seq)
                 .field("stream", stream)
                 .field("bytes", &Len(bytes.len())),
-            Frame::Finished { run_id, exit_code, stats, ledger_line } => d
+            Frame::Finished {
+                run_id,
+                exit_code,
+                stats,
+                ledger_line,
+            } => d
                 .field("run_id", run_id)
                 .field("exit_code", exit_code)
                 .field("stats", stats)
@@ -438,6 +497,8 @@ mod b64 {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
         let s = <std::borrow::Cow<'de, str>>::deserialize(d)?;
-        STANDARD.decode(s.as_bytes()).map_err(serde::de::Error::custom)
+        STANDARD
+            .decode(s.as_bytes())
+            .map_err(serde::de::Error::custom)
     }
 }

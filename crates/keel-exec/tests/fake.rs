@@ -24,7 +24,11 @@ async fn next(s: &mut DuplexStream) -> Frame {
 
 #[tokio::test]
 async fn hello_then_a_scripted_run() {
-    let stats = HostStats { ok: 2, changed: 1, ..Default::default() };
+    let stats = HostStats {
+        ok: 2,
+        changed: 1,
+        ..Default::default()
+    };
     let fake = FakeRunner::new("h-1").script(
         "site",
         Script::finish(0)
@@ -35,22 +39,62 @@ async fn hello_then_a_scripted_run() {
     );
     let (mut s, mut handle) = fake.spawn();
 
-    let Frame::Hello { host_id, .. } = next(&mut s).await else { panic!("Hello first") };
+    let Frame::Hello { host_id, .. } = next(&mut s).await else {
+        panic!("Hello first")
+    };
     assert_eq!(host_id, "h-1");
 
-    write_frame(&mut s, &assign("r-1", "site", 3)).await.unwrap();
-    write_frame(&mut s, &Frame::Pack { run_id: "r-1".into(), chunk: vec![1, 2], last: false, sha256: None })
+    write_frame(&mut s, &assign("r-1", "site", 3))
         .await
         .unwrap();
-    write_frame(&mut s, &Frame::Pack { run_id: "r-1".into(), chunk: vec![3], last: true, sha256: Some("x".into()) })
-        .await
-        .unwrap();
+    write_frame(
+        &mut s,
+        &Frame::Pack {
+            run_id: "r-1".into(),
+            chunk: vec![1, 2],
+            last: false,
+            sha256: None,
+        },
+    )
+    .await
+    .unwrap();
+    write_frame(
+        &mut s,
+        &Frame::Pack {
+            run_id: "r-1".into(),
+            chunk: vec![3],
+            last: true,
+            sha256: Some("x".into()),
+        },
+    )
+    .await
+    .unwrap();
 
-    assert_eq!(next(&mut s).await, Frame::Started { run_id: "r-1".into() });
-    let Frame::Event { seq: 1, json, .. } = next(&mut s).await else { panic!("event") };
+    assert_eq!(
+        next(&mut s).await,
+        Frame::Started {
+            run_id: "r-1".into()
+        }
+    );
+    let Frame::Event { seq: 1, json, .. } = next(&mut s).await else {
+        panic!("event")
+    };
     assert!(json.contains("playbook_start"));
-    let Frame::Log { seq: 2, stream: LogStream::Stdout, .. } = next(&mut s).await else { panic!("log") };
-    let Frame::Finished { exit_code: 0, stats: got, ledger_line, .. } = next(&mut s).await else {
+    let Frame::Log {
+        seq: 2,
+        stream: LogStream::Stdout,
+        ..
+    } = next(&mut s).await
+    else {
+        panic!("log")
+    };
+    let Frame::Finished {
+        exit_code: 0,
+        stats: got,
+        ledger_line,
+        ..
+    } = next(&mut s).await
+    else {
         panic!("finished")
     };
     assert_eq!(got["web-1"], stats);
@@ -73,21 +117,54 @@ async fn refusal_hang_cancel_and_pings() {
     let (mut s, _handle) = fake.spawn();
     let _hello = next(&mut s).await;
 
-    write_frame(&mut s, &assign("r-1", "signed", 0)).await.unwrap();
-    let Frame::Refused { reason: Refusal::Unsigned, .. } = next(&mut s).await else { panic!("refused") };
+    write_frame(&mut s, &assign("r-1", "signed", 0))
+        .await
+        .unwrap();
+    let Frame::Refused {
+        reason: Refusal::Unsigned,
+        ..
+    } = next(&mut s).await
+    else {
+        panic!("refused")
+    };
 
-    write_frame(&mut s, &assign("r-2", "slow", 0)).await.unwrap();
-    assert_eq!(next(&mut s).await, Frame::Started { run_id: "r-2".into() });
+    write_frame(&mut s, &assign("r-2", "slow", 0))
+        .await
+        .unwrap();
+    assert_eq!(
+        next(&mut s).await,
+        Frame::Started {
+            run_id: "r-2".into()
+        }
+    );
     write_frame(&mut s, &Frame::Ping).await.unwrap();
     assert_eq!(next(&mut s).await, Frame::Pong);
-    write_frame(&mut s, &Frame::Cancel { run_id: "r-2".into() }).await.unwrap();
-    let Frame::Finished { exit_code, .. } = next(&mut s).await else { panic!("finished") };
+    write_frame(
+        &mut s,
+        &Frame::Cancel {
+            run_id: "r-2".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let Frame::Finished { exit_code, .. } = next(&mut s).await else {
+        panic!("finished")
+    };
     assert_eq!(exit_code, CANCELLED_EXIT_CODE);
 
     // Unscripted jobs finish with 0.
-    write_frame(&mut s, &assign("r-3", "other", 0)).await.unwrap();
-    assert_eq!(next(&mut s).await, Frame::Started { run_id: "r-3".into() });
-    let Frame::Finished { exit_code: 0, .. } = next(&mut s).await else { panic!("finished") };
+    write_frame(&mut s, &assign("r-3", "other", 0))
+        .await
+        .unwrap();
+    assert_eq!(
+        next(&mut s).await,
+        Frame::Started {
+            run_id: "r-3".into()
+        }
+    );
+    let Frame::Finished { exit_code: 0, .. } = next(&mut s).await else {
+        panic!("finished")
+    };
 }
 
 #[tokio::test]

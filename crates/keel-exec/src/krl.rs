@@ -59,13 +59,21 @@ struct CaRevocations {
 impl CaRevocations {
     fn serial_revoked(&self, serial: u64) -> bool {
         self.serials.contains(&serial)
-            || self.ranges.iter().any(|&(lo, hi)| (lo..=hi).contains(&serial))
-            || self.bitmaps.iter().any(|(offset, bits)| bitmap_has(*offset, bits, serial))
+            || self
+                .ranges
+                .iter()
+                .any(|&(lo, hi)| (lo..=hi).contains(&serial))
+            || self
+                .bitmaps
+                .iter()
+                .any(|(offset, bits)| bitmap_has(*offset, bits, serial))
     }
 }
 
 fn bitmap_has(offset: u64, bits: &[u8], serial: u64) -> bool {
-    let Some(i) = serial.checked_sub(offset) else { return false };
+    let Some(i) = serial.checked_sub(offset) else {
+        return false;
+    };
     let byte = i / 8;
     if byte >= bits.len() as u64 {
         return false;
@@ -97,7 +105,11 @@ fn blob(key: &KeyData) -> Vec<u8> {
 
 impl Krl {
     pub fn new(version: u64, generated_date: u64) -> Self {
-        Krl { version, generated_date, ..Krl::default() }
+        Krl {
+            version,
+            generated_date,
+            ..Krl::default()
+        }
     }
 
     fn ca(&mut self, ca: &KeyData) -> &mut CaRevocations {
@@ -145,7 +157,9 @@ impl Krl {
         }
         let ca_blob = blob(cert.signature_key());
         for scope in [Some(ca_blob.as_slice()), Some(&[][..])] {
-            let Some(rev) = scope.and_then(|b| self.certs.get(b)) else { continue };
+            let Some(rev) = scope.and_then(|b| self.certs.get(b)) else {
+                continue;
+            };
             if rev.key_ids.contains(cert.key_id()) {
                 return true;
             }
@@ -205,7 +219,10 @@ impl Krl {
             w.push(SECTION_CERTIFICATES);
             put_string(&mut w, &s);
         }
-        for (kind, set) in [(SECTION_EXPLICIT_KEY, &self.keys), (SECTION_FINGERPRINT_SHA256, &self.sha256)] {
+        for (kind, set) in [
+            (SECTION_EXPLICIT_KEY, &self.keys),
+            (SECTION_FINGERPRINT_SHA256, &self.sha256),
+        ] {
             if set.is_empty() {
                 continue;
             }
@@ -233,7 +250,8 @@ impl Krl {
         let mut krl = Krl::new(r.u64()?, r.u64()?);
         let _flags = r.u64()?;
         let _reserved = r.string()?;
-        krl.comment = String::from_utf8(r.string()?.to_vec()).map_err(|_| KrlError::Malformed("comment"))?;
+        krl.comment =
+            String::from_utf8(r.string()?.to_vec()).map_err(|_| KrlError::Malformed("comment"))?;
 
         while !r.0.is_empty() {
             let kind = r.u8()?;
@@ -287,7 +305,9 @@ impl Krl {
                         }
                     }
                 }
-                SECTION_FINGERPRINT_SHA1 | SECTION_SIGNATURE => return Err(KrlError::UnsupportedSection(kind)),
+                SECTION_FINGERPRINT_SHA1 | SECTION_SIGNATURE => {
+                    return Err(KrlError::UnsupportedSection(kind));
+                }
                 other => return Err(KrlError::UnsupportedSection(other)),
             }
         }
@@ -325,11 +345,15 @@ impl<'a> Reader<'a> {
     }
 
     fn u32(&mut self) -> Result<u32, KrlError> {
-        Ok(u32::from_be_bytes(self.take(4)?.try_into().expect("4 bytes")))
+        Ok(u32::from_be_bytes(
+            self.take(4)?.try_into().expect("4 bytes"),
+        ))
     }
 
     fn u64(&mut self) -> Result<u64, KrlError> {
-        Ok(u64::from_be_bytes(self.take(8)?.try_into().expect("8 bytes")))
+        Ok(u64::from_be_bytes(
+            self.take(8)?.try_into().expect("8 bytes"),
+        ))
     }
 
     fn string(&mut self) -> Result<&'a [u8], KrlError> {
@@ -338,7 +362,11 @@ impl<'a> Reader<'a> {
     }
 
     fn end(&self) -> Result<(), KrlError> {
-        if self.0.is_empty() { Ok(()) } else { Err(KrlError::Malformed("trailing bytes")) }
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            Err(KrlError::Malformed("trailing bytes"))
+        }
     }
 }
 
@@ -364,7 +392,10 @@ mod tests {
         let mut signed = krl.to_bytes();
         signed.push(SECTION_SIGNATURE);
         signed.extend_from_slice(&[0, 0, 0, 0]);
-        assert_eq!(Krl::from_bytes(&signed), Err(KrlError::UnsupportedSection(SECTION_SIGNATURE)));
+        assert_eq!(
+            Krl::from_bytes(&signed),
+            Err(KrlError::UnsupportedSection(SECTION_SIGNATURE))
+        );
         let mut cut = krl.to_bytes();
         cut.extend_from_slice(&[SECTION_EXPLICIT_KEY, 0, 0, 0, 9, 1]);
         assert_eq!(Krl::from_bytes(&cut), Err(KrlError::Truncated));

@@ -7,8 +7,8 @@ use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use keel_exec::ca::{
-    CaError, CaKind, CertRefusal, HostCertRequest, HostCertVerifier, RunnerCertRequest, RunnerCertVerifier, SshCa,
-    TrustedCa,
+    CaError, CaKind, CertRefusal, HostCertRequest, HostCertVerifier, RunnerCertRequest,
+    RunnerCertVerifier, SshCa, TrustedCa,
 };
 use keel_exec::krl::Krl;
 use russh::keys::ssh_key::certificate::{Builder, CertType};
@@ -57,17 +57,28 @@ fn runner_certificates_have_the_contract_shape() {
     assert_eq!(cert.key_id(), "runner:r-42");
     // host:<name>, then profile:<p> for assigned ∩ allowed (db is not allowed, monitoring not
     // assigned).
-    assert_eq!(cert.valid_principals(), ["host:web-1", "profile:base", "profile:web"]);
+    assert_eq!(
+        cert.valid_principals(),
+        ["host:web-1", "profile:base", "profile:web"]
+    );
     assert_ne!(cert.serial(), 0);
     assert_eq!(cert.valid_after(), unix(t0()));
     assert_eq!(cert.valid_before(), unix(t0()) + DAY.as_secs());
-    assert!(cert.extensions().is_empty(), "no extensions: no pty, no forwarding, no agent");
+    assert!(
+        cert.extensions().is_empty(),
+        "no extensions: no pty, no forwarding, no agent"
+    );
     assert!(cert.critical_options().is_empty());
     assert_eq!(cert.public_key(), runner.public_key().key_data());
     assert_eq!(cert.signature_key(), ca.key_data());
 
-    let verifier = RunnerCertVerifier::new(vec![TrustedCa::active(ca.key_data().clone())], Krl::default());
-    let id = verifier.verify(&cert, t0() + Duration::from_secs(60)).unwrap();
+    let verifier = RunnerCertVerifier::new(
+        vec![TrustedCa::active(ca.key_data().clone())],
+        Krl::default(),
+    );
+    let id = verifier
+        .verify(&cert, t0() + Duration::from_secs(60))
+        .unwrap();
     assert_eq!(id.runner_id, "r-42");
     assert_eq!(id.inventory_name, "web-1");
     assert_eq!(id.profiles, ["base", "web"]);
@@ -79,7 +90,9 @@ fn runner_certificates_have_the_contract_shape() {
 fn serials_are_unique() {
     let ca = SshCa::generate(CaKind::Runner).unwrap();
     let runner = key();
-    let serials: HashSet<u64> = (0..500).map(|_| runner_cert(&ca, &runner, t0()).serial()).collect();
+    let serials: HashSet<u64> = (0..500)
+        .map(|_| runner_cert(&ca, &runner, t0()).serial())
+        .collect();
     assert_eq!(serials.len(), 500);
 }
 
@@ -87,8 +100,14 @@ fn serials_are_unique() {
 fn validity_follows_the_ttl() {
     let ca = SshCa::generate(CaKind::Runner).unwrap();
     let cert = runner_cert(&ca, &key(), t0());
-    let v = RunnerCertVerifier::new(vec![TrustedCa::active(ca.key_data().clone())], Krl::default());
-    assert_eq!(v.verify(&cert, t0() - Duration::from_secs(1)), Err(CertRefusal::NotYetValid));
+    let v = RunnerCertVerifier::new(
+        vec![TrustedCa::active(ca.key_data().clone())],
+        Krl::default(),
+    );
+    assert_eq!(
+        v.verify(&cert, t0() - Duration::from_secs(1)),
+        Err(CertRefusal::NotYetValid)
+    );
     assert!(v.verify(&cert, t0() + DAY - Duration::from_secs(1)).is_ok());
     assert_eq!(v.verify(&cert, t0() + DAY), Err(CertRefusal::Expired));
 }
@@ -98,12 +117,23 @@ fn certificates_of_the_wrong_kind_or_ca_are_refused() {
     let runner_ca = SshCa::generate(CaKind::Runner).unwrap();
     let host_ca = SshCa::generate(CaKind::Host).unwrap();
     let k = key();
-    let v = RunnerCertVerifier::new(vec![TrustedCa::active(runner_ca.key_data().clone())], Krl::default());
+    let v = RunnerCertVerifier::new(
+        vec![TrustedCa::active(runner_ca.key_data().clone())],
+        Krl::default(),
+    );
 
     // A CA refuses to issue the other kind.
     let names = strings(&["keel.example"]);
-    let host_req = HostCertRequest { host_names: &names, public_key: k.public_key().key_data(), ttl: DAY, now: t0() };
-    assert!(matches!(runner_ca.issue_host_cert(&host_req), Err(CaError::WrongKind { .. })));
+    let host_req = HostCertRequest {
+        host_names: &names,
+        public_key: k.public_key().key_data(),
+        ttl: DAY,
+        now: t0(),
+    };
+    assert!(matches!(
+        runner_ca.issue_host_cert(&host_req),
+        Err(CaError::WrongKind { .. })
+    ));
     assert!(matches!(
         host_ca.issue_runner_cert(&RunnerCertRequest {
             runner_id: "r",
@@ -119,17 +149,25 @@ fn certificates_of_the_wrong_kind_or_ca_are_refused() {
 
     // A host certificate is not a runner certificate.
     let host_cert = host_ca.issue_host_cert(&host_req).unwrap();
-    let v_host = RunnerCertVerifier::new(vec![TrustedCa::active(host_ca.key_data().clone())], Krl::default());
+    let v_host = RunnerCertVerifier::new(
+        vec![TrustedCa::active(host_ca.key_data().clone())],
+        Krl::default(),
+    );
     assert_eq!(v_host.verify(&host_cert, t0()), Err(CertRefusal::WrongType));
 
     // Untrusted CA.
     let other = SshCa::generate(CaKind::Runner).unwrap();
-    assert_eq!(v.verify(&runner_cert(&other, &k, t0()), t0()), Err(CertRefusal::UntrustedCa));
+    assert_eq!(
+        v.verify(&runner_cert(&other, &k, t0()), t0()),
+        Err(CertRefusal::UntrustedCa)
+    );
 
     // Non-Ed25519 subject keys are refused at issue.
     let ecdsa = PrivateKey::random(
         &mut rand::rng(),
-        Algorithm::Ecdsa { curve: russh::keys::EcdsaCurve::NistP256 },
+        Algorithm::Ecdsa {
+            curve: russh::keys::EcdsaCurve::NistP256,
+        },
     )
     .unwrap();
     assert!(matches!(
@@ -151,7 +189,10 @@ fn certificates_of_the_wrong_kind_or_ca_are_refused() {
 fn foreign_shaped_certificates_are_refused() {
     let ca = SshCa::generate(CaKind::Runner).unwrap();
     let ca_key = PrivateKey::from_openssh(ca.to_openssh().unwrap().expose()).unwrap();
-    let v = RunnerCertVerifier::new(vec![TrustedCa::active(ca.key_data().clone())], Krl::default());
+    let v = RunnerCertVerifier::new(
+        vec![TrustedCa::active(ca.key_data().clone())],
+        Krl::default(),
+    );
     let subject = key();
     let now = unix(t0());
 
@@ -193,7 +234,10 @@ fn foreign_shaped_certificates_are_refused() {
         b.key_id("runner:r").unwrap();
         b.all_principals_valid().unwrap();
     });
-    assert_eq!(v.verify(&any_principal, t0()), Err(CertRefusal::BadPrincipals));
+    assert_eq!(
+        v.verify(&any_principal, t0()),
+        Err(CertRefusal::BadPrincipals)
+    );
 
     let two_hosts = build(&|b| {
         b.key_id("runner:r").unwrap();
@@ -239,11 +283,19 @@ fn a_revoked_serial_in_the_krl_is_refused() {
 
     // Ranges and key ids.
     let mut krl = Krl::new(3, 0);
-    krl.revoke_serial_range(ca.key_data(), fine.serial().saturating_sub(1), fine.serial().saturating_add(1));
+    krl.revoke_serial_range(
+        ca.key_data(),
+        fine.serial().saturating_sub(1),
+        fine.serial().saturating_add(1),
+    );
     assert!(krl.is_certificate_revoked(&fine));
     let mut krl = Krl::new(4, 0);
     krl.revoke_key_id(ca.key_data(), "runner:r-42");
-    assert!(Krl::from_bytes(&krl.to_bytes()).unwrap().is_certificate_revoked(&fine));
+    assert!(
+        Krl::from_bytes(&krl.to_bytes())
+            .unwrap()
+            .is_certificate_revoked(&fine)
+    );
 }
 
 #[test]
@@ -262,7 +314,10 @@ fn a_retiring_ca_stays_trusted_until_its_certificates_expire() {
         ],
         Krl::default(),
     );
-    assert!(v.verify(&old_cert, rotated).is_ok(), "old certificates keep working after rotation");
+    assert!(
+        v.verify(&old_cert, rotated).is_ok(),
+        "old certificates keep working after rotation"
+    );
     assert!(v.verify(&new_cert, rotated).is_ok());
 
     // A certificate the old CA signed with a longer validity is not trusted past the
@@ -304,21 +359,35 @@ fn host_certificates_and_the_runner_side_check() {
     assert!(cert.valid_after() < unix(t0()), "backdated for clock skew");
 
     let trusted = vec![TrustedCa::active(host_ca.key_data().clone())];
-    assert!(HostCertVerifier::new(trusted.clone(), "keel.example").verify(&cert, t0()).is_ok());
+    assert!(
+        HostCertVerifier::new(trusted.clone(), "keel.example")
+            .verify(&cert, t0())
+            .is_ok()
+    );
     assert_eq!(
         HostCertVerifier::new(trusted, "evil.example").verify(&cert, t0()),
         Err(CertRefusal::BadPrincipals)
     );
     let other = SshCa::generate(CaKind::Host).unwrap();
     assert_eq!(
-        HostCertVerifier::new(vec![TrustedCa::active(other.key_data().clone())], "keel.example").verify(&cert, t0()),
+        HostCertVerifier::new(
+            vec![TrustedCa::active(other.key_data().clone())],
+            "keel.example"
+        )
+        .verify(&cert, t0()),
         Err(CertRefusal::UntrustedCa)
     );
 
     let line = host_ca.cert_authority_line("*");
-    assert!(line.starts_with("@cert-authority * ssh-ed25519 AAAA"), "{line}");
+    assert!(
+        line.starts_with("@cert-authority * ssh-ed25519 AAAA"),
+        "{line}"
+    );
     assert!(host_ca.fingerprint().starts_with("SHA256:"));
-    assert!(!format!("{host_ca:?}").contains("PRIVATE"), "Debug never shows the key");
+    assert!(
+        !format!("{host_ca:?}").contains("PRIVATE"),
+        "Debug never shows the key"
+    );
 }
 
 #[test]
@@ -333,7 +402,11 @@ fn ca_keys_round_trip_through_openssh_pem() {
 // ---- ssh-keygen cross-checks ----
 
 fn ssh_keygen(args: &[&str], dir: &Path) -> Option<std::process::Output> {
-    match Command::new("ssh-keygen").args(args).current_dir(dir).output() {
+    match Command::new("ssh-keygen")
+        .args(args)
+        .current_dir(dir)
+        .output()
+    {
         Ok(out) => Some(out),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!("skipping: ssh-keygen is not installed");
@@ -357,14 +430,26 @@ fn ssh_keygen_reads_our_certificates_and_krl() {
     write_cert(dir.path(), "revoked-cert.pub", &revoked);
     write_cert(dir.path(), "fine-cert.pub", &fine);
 
-    let Some(out) = ssh_keygen(&["-L", "-f", "revoked-cert.pub"], dir.path()) else { return };
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let Some(out) = ssh_keygen(&["-L", "-f", "revoked-cert.pub"], dir.path()) else {
+        return;
+    };
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let shown = String::from_utf8_lossy(&out.stdout);
     assert!(shown.contains("Key ID: \"runner:r-42\""), "{shown}");
-    assert!(shown.contains(&format!("Serial: {}", revoked.serial())), "{shown}");
+    assert!(
+        shown.contains(&format!("Serial: {}", revoked.serial())),
+        "{shown}"
+    );
     assert!(shown.contains("Critical Options: (none)"), "{shown}");
     assert!(shown.contains("Extensions: (none)"), "{shown}");
-    assert!(shown.contains("host:web-1") && shown.contains("profile:web"), "{shown}");
+    assert!(
+        shown.contains("host:web-1") && shown.contains("profile:web"),
+        "{shown}"
+    );
 
     let mut krl = Krl::new(1, 0);
     krl.revoke_serial(ca.key_data(), revoked.serial());
@@ -373,10 +458,12 @@ fn ssh_keygen_reads_our_certificates_and_krl() {
     std::fs::write(dir.path().join("keel.krl"), krl.to_bytes()).unwrap();
 
     let out = ssh_keygen(&["-Q", "-f", "keel.krl", "revoked-cert.pub"], dir.path()).unwrap();
-    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    let text =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success() && text.contains("REVOKED"), "{text}");
     let out = ssh_keygen(&["-Q", "-f", "keel.krl", "fine-cert.pub"], dir.path()).unwrap();
-    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    let text =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{text}");
 }
 
@@ -397,19 +484,36 @@ fn we_read_krls_written_by_ssh_keygen() {
         spec.push_str(&format!("serial: {s}\n"));
     }
     spec.push_str("id: runner:stolen\n");
-    spec.push_str(&format!("key: {}\n", bare.public_key().to_openssh().unwrap()));
+    spec.push_str(&format!(
+        "key: {}\n",
+        bare.public_key().to_openssh().unwrap()
+    ));
     // `hash:` takes a SHA256 fingerprint and yields a FINGERPRINT_SHA256 section.
     spec.push_str(&format!("hash: {hashed_fp}\n"));
     std::fs::write(dir.path().join("spec"), spec).unwrap();
 
-    let Some(out) = ssh_keygen(&["-k", "-f", "theirs.krl", "-s", "ca.pub", "spec"], dir.path()) else { return };
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let Some(out) = ssh_keygen(
+        &["-k", "-f", "theirs.krl", "-s", "ca.pub", "spec"],
+        dir.path(),
+    ) else {
+        return;
+    };
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let krl = Krl::from_bytes(&std::fs::read(dir.path().join("theirs.krl")).unwrap()).unwrap();
 
     let ca_key = PrivateKey::from_openssh(ca.to_openssh().unwrap().expose()).unwrap();
     let cert = |serial: u64, id: &str| {
-        let mut b = Builder::new_with_random_nonce(&mut rand::rng(), key().public_key().key_data().clone(), 0, u64::MAX)
-            .unwrap();
+        let mut b = Builder::new_with_random_nonce(
+            &mut rand::rng(),
+            key().public_key().key_data().clone(),
+            0,
+            u64::MAX,
+        )
+        .unwrap();
         b.serial(serial).unwrap();
         b.cert_type(CertType::User).unwrap();
         b.key_id(id).unwrap();
@@ -417,10 +521,16 @@ fn we_read_krls_written_by_ssh_keygen() {
         b.sign(&ca_key).unwrap()
     };
     for s in [7, 1000, 1500, 2000, 5000, 5003, 5198] {
-        assert!(krl.is_certificate_revoked(&cert(s, "runner:x")), "serial {s}");
+        assert!(
+            krl.is_certificate_revoked(&cert(s, "runner:x")),
+            "serial {s}"
+        );
     }
     for s in [6, 8, 999, 2001, 5001, 5002, 5199, 9999] {
-        assert!(!krl.is_certificate_revoked(&cert(s, "runner:x")), "serial {s}");
+        assert!(
+            !krl.is_certificate_revoked(&cert(s, "runner:x")),
+            "serial {s}"
+        );
     }
     assert!(krl.is_certificate_revoked(&cert(42, "runner:stolen")));
     assert!(krl.is_key_revoked(bare.public_key().key_data()));
@@ -431,5 +541,9 @@ fn we_read_krls_written_by_ssh_keygen() {
     std::fs::write(dir.path().join("ours.krl"), krl.to_bytes()).unwrap();
     write_cert(dir.path(), "c.pub", &cert(1500, "runner:x"));
     let out = ssh_keygen(&["-Q", "-f", "ours.krl", "c.pub"], dir.path()).unwrap();
-    assert!(!out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    assert!(
+        !out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
 }
