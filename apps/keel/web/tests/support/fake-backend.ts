@@ -56,6 +56,7 @@ import type {
   Verification,
 } from '../../src/protocol/wire'
 import { PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
+import { FakeInventories } from './fake-inventories'
 import { FakeRepos } from './fake-repos'
 
 export { expect }
@@ -167,6 +168,8 @@ export class FakeBackend {
   passkeys: PasskeyInfo[] = []
   /** Bindings, receivers, deliveries and credentials (US1): ./fake-repos.ts. */
   readonly repos = new FakeRepos()
+  /** Inventories and their revisions (US4): ./fake-inventories.ts. */
+  readonly inventories = new FakeInventories()
   /** Close code for every new socket's `Hello`, e.g. `Close.Outdated`. `null` = accept. */
   helloClose: number | null = null
 
@@ -436,7 +439,9 @@ export class FakeBackend {
         const id = this.previews.get(preview_id)
         this.previews.delete(preview_id)
         if (id === undefined) {
-          // Not a passkey preview: the bindings and receivers model may hold it.
+          // Not a passkey preview: the inventories, or the bindings and receivers model, may hold it.
+          const inventories = this.inventories.respond(cmd)
+          if (inventories) return inventories
           const repos = this.repos.respond(cmd)
           if (repos) return repos
           return [{ type: 'OpError', data: { code: 'preview_void', message: 'That preview is no longer valid. Start again.' } }]
@@ -462,8 +467,8 @@ export class FakeBackend {
         ]
       }
       default: {
-        const repos = this.repos.respond(cmd)
-        if (repos) return repos
+        const answer = this.repos.respond(cmd) ?? this.inventories.respond(cmd)
+        if (answer) return answer
         // Every other command has an answer today; one added to the protocol later lands here.
         const type: string = (cmd as { type: string }).type
         return [{ type: 'OpError', data: { code: 'unsupported', message: `the fake has no answer for ${type}` } }]
