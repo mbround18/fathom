@@ -1,0 +1,8 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["playwright.config.ts", "tests/support", "tests/e2e"]
+}

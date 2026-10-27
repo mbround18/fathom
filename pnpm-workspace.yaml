@@ -3,3 +3,4 @@ packages:
   - ui
   - packages/*
   - apps/depths/web
+  - apps/keel/web
