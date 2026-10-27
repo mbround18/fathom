@@ -218,27 +218,27 @@ change a role, and confirm enforcement updates immediately (open sockets get `Re
 
 ### Tests
 
-- [ ] T032 [P] [US6] Round-trip tests for the workspace, team, grant and user commands of
+- [X] T032 [P] [US6] Round-trip tests for the workspace, team, grant and user commands of
   contracts/protocol.md in crates/keel-protocol/tests/roundtrip.rs.
-- [ ] T033 [P] [US6] Server tests in apps/keel/server/tests/governance.rs: an operator in team A
+- [X] T033 [P] [US6] Server tests in apps/keel/server/tests/governance.rs: an operator in team A
   acting on team B's workspace is `Denied` and audited (SC-006); removing a user's grant
   increments `authz_epoch` in the same transaction and closes their socket with `Revoked`;
   removing the last owner is refused.
-- [ ] T034 [P] [US6] Playwright apps/keel/web/tests/e2e/us6/: create a workspace and team, add a
+- [X] T034 [P] [US6] Playwright apps/keel/web/tests/e2e/us6/: create a workspace and team, add a
   member and a grant, see the preview list affected users, and see a `Denied` refusal verbatim.
 
 ### Implementation
 
-- [ ] T035 [US6] Workspace, project, team, member, grant and user commands in
+- [X] T035 [US6] Workspace, project, team, member, grant and user commands in
   crates/keel-protocol/src/cmd.rs and event.rs: `ListWorkspaces`,
   `PreviewWorkspaceCreate/Update/Archive`, `ListTeams`, `PreviewTeamCreate`,
   `PreviewTeamMember{Add,Remove}`, `PreviewGrant{Add,Remove}` (with `profiles`), `ListUsers`,
   `PreviewUserRole`, `PreviewUserRemove`.
-- [ ] T036 [US6] Handlers in apps/keel/server/src/governance.rs: every narrowing change increments
+- [X] T036 [US6] Handlers in apps/keel/server/src/governance.rs: every narrowing change increments
   `authz_epoch`; role changes need step-up; every change audited in its transaction.
-- [ ] T037 [US6] API tokens in apps/keel/server/src/api.rs: create (shown once, stored hashed),
+- [X] T037 [US6] API tokens in apps/keel/server/src/api.rs: create (shown once, stored hashed),
   scoped to one workspace and `actions`, acting as the owner narrowed; revoke; audited.
-- [ ] T038 [P] [US6] Web pages apps/keel/web/src/features/teams/ and users/: lists in the Depths
+- [X] T038 [P] [US6] Web pages apps/keel/web/src/features/teams/ and users/: lists in the Depths
   dense list pattern, mobile-first; grant editor with an optional profile multi-select.
 
 **Checkpoint**: US6 tests and Playwright `us6` pass.
