@@ -8,6 +8,7 @@
 //! | POST | `/auth/logout` | sign-out, behind the CSRF layer |
 //! | GET | `/api/v1/ws` | the WebSocket (`ws.rs`) |
 //! | POST | `/api/v1/cmd` | one command over HTTP (`api.rs`) |
+//! | POST | `/hooks/{id}` | a source-control webhook delivery (`hooks.rs`), 1 MiB cap |
 //! | GET | `/*` | static files from `--static-dir`, SPA fallback to `index.html` |
 //!
 //! The web build is served from disk, never embedded in the binary. Unknown `/api` and `/auth`
@@ -129,6 +130,8 @@ pub struct AppState {
     /// Passkey ceremonies; also the step-up verifier.
     pub passkeys: Arc<Passkeys>,
     pub step_up: Arc<dyn StepUpVerifier>,
+    /// Bindings, receivers and credentials: the master key, pushed events, the poller.
+    pub repos: crate::sync::Repos,
     /// A user's `authz_epoch` changed (or they were disabled): sockets of that user re-check.
     pub revocations: broadcast::Sender<Uuid>,
     /// The only accepted `Origin`.
@@ -161,6 +164,7 @@ impl AppState {
             logins: Arc::new(LoginStore::new(LOGIN_TTL, LOGIN_CAP).with_cookie(cookies.login)),
             providers: Arc::new(providers),
             step_up: passkeys.clone(),
+            repos: crate::sync::Repos::default(),
             passkeys,
             cfg,
             auth,
@@ -171,6 +175,21 @@ impl AppState {
             revocations,
             origin,
         }
+    }
+
+    /// Seals and opens credentials and receiver secrets with `key`. Without one they fail
+    /// closed.
+    #[must_use]
+    pub fn with_master_key(mut self, key: crate::seal::MasterKey) -> Self {
+        self.repos.master_key = Some(Arc::new(key));
+        self
+    }
+
+    /// Lets bindings fetch local paths and `file://` URLs. Tests only.
+    #[must_use]
+    pub fn allowing_local_repos(mut self) -> Self {
+        self.repos.allow_local = true;
+        self
     }
 
     /// The provider registered as `id`.
@@ -229,6 +248,10 @@ pub fn router(app: AppState) -> Router {
         .route("/auth/logout", post(crate::signin::logout).layer(csrf))
         .route("/api/v1/ws", get(crate::ws::upgrade))
         .route("/api/v1/cmd", post(crate::api::cmd))
+        .route(
+            "/hooks/{id}",
+            post(crate::hooks::receive).layer(DefaultBodyLimit::max(crate::hooks::MAX_BODY_BYTES)),
+        )
         .route("/api", any(not_found))
         .route("/api/{*rest}", any(not_found))
         .route("/auth", any(not_found))

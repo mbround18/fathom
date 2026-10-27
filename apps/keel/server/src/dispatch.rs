@@ -15,6 +15,7 @@ use crate::identity::{self, Caller};
 use crate::passkeys;
 use crate::preview::Confirmation;
 use crate::serve::AppState;
+use crate::{bindings, credentials, receivers};
 
 /// What a confirmed preview runs: it gets the app and the caller as of the `Confirm`, and
 /// returns the command's own result events (after `Confirmed`).
@@ -71,6 +72,31 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         // Everyone signed in may read themselves. A `Confirm` was authorized when its preview
         // was made, and the operation re-checks what it needs when it runs.
         Cmd::GetMe | Cmd::Confirm { .. } => Ok(()),
+        // Bindings and receivers (US1): each checks its capability on the object's workspace,
+        // which needs the database, so the check runs in the handler.
+        Cmd::ListBindings { .. }
+        | Cmd::GetBinding { .. }
+        | Cmd::PreviewBindingCreate(_)
+        | Cmd::PreviewBindingUpdate(_)
+        | Cmd::PreviewSignedMode { .. }
+        | Cmd::PreviewBindingDisable { .. }
+        | Cmd::PreviewBindingEnable { .. }
+        | Cmd::PreviewBindingRemove { .. }
+        | Cmd::SyncBinding { .. }
+        | Cmd::ListReceivers { .. }
+        | Cmd::PreviewReceiverCreate { .. }
+        | Cmd::PreviewReceiverRotate { .. }
+        | Cmd::PreviewReceiverDisable { .. }
+        | Cmd::PreviewReceiverRemove { .. }
+        | Cmd::PreviewReceiverBind { .. }
+        | Cmd::PreviewReceiverUnbind { .. }
+        | Cmd::ListDeliveries { .. }
+        | Cmd::ListCredentials { .. }
+        | Cmd::PreviewCredentialCreate { .. }
+        | Cmd::PreviewCredentialRotate { .. }
+        | Cmd::PreviewCredentialGrant { .. }
+        | Cmd::PreviewCredentialRevoke { .. }
+        | Cmd::PreviewCredentialRemove { .. } => Ok(()),
         // Passkeys belong to a person at a browser: a session, never a token.
         Cmd::GetVerification
         | Cmd::PasskeyBegin { .. }
@@ -140,6 +166,77 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
                     vec![internal()]
                 }
             }
+        }
+        // Bindings and receivers (US1)
+        Cmd::ListBindings { workspace } => bindings::list(app, req, workspace).await,
+        Cmd::GetBinding { binding } => bindings::get(app, req, binding).await,
+        Cmd::PreviewBindingCreate(spec) => bindings::preview_create(app, req, spec).await,
+        Cmd::PreviewBindingUpdate(upd) => bindings::preview_update(app, req, upd).await,
+        Cmd::PreviewSignedMode { binding, on } => {
+            bindings::preview_signed_mode(app, req, binding, on).await
+        }
+        Cmd::PreviewBindingDisable { binding } => {
+            bindings::preview_status(app, req, binding, false).await
+        }
+        Cmd::PreviewBindingEnable { binding } => {
+            bindings::preview_status(app, req, binding, true).await
+        }
+        Cmd::PreviewBindingRemove { binding } => bindings::preview_remove(app, req, binding).await,
+        Cmd::SyncBinding { binding } => bindings::sync_now(app, req, binding).await,
+        Cmd::ListReceivers { workspace } => receivers::list(app, req, workspace).await,
+        Cmd::PreviewReceiverCreate {
+            workspace,
+            name,
+            provider,
+        } => receivers::preview_create(app, req, workspace, name, provider).await,
+        Cmd::PreviewReceiverRotate {
+            receiver,
+            previous_valid_for,
+        } => receivers::preview_rotate(app, req, receiver, previous_valid_for).await,
+        Cmd::PreviewReceiverDisable { receiver } => {
+            receivers::preview_disable(app, req, receiver).await
+        }
+        Cmd::PreviewReceiverRemove { receiver } => {
+            receivers::preview_remove(app, req, receiver).await
+        }
+        Cmd::PreviewReceiverBind { receiver, binding } => {
+            receivers::preview_bind(app, req, receiver, binding).await
+        }
+        Cmd::PreviewReceiverUnbind { receiver, binding } => {
+            receivers::preview_unbind(app, req, receiver, binding).await
+        }
+        Cmd::ListDeliveries {
+            workspace,
+            receiver,
+            binding,
+            decision,
+            from,
+            to,
+        } => {
+            receivers::list_deliveries(app, req, workspace, receiver, binding, decision, from, to)
+                .await
+        }
+        Cmd::ListCredentials { workspace } => credentials::list(app, req, workspace).await,
+        Cmd::PreviewCredentialCreate {
+            workspace,
+            name,
+            kind,
+            value,
+        } => credentials::preview_create(app, req, workspace, name, kind, value).await,
+        Cmd::PreviewCredentialRotate { credential, value } => {
+            credentials::preview_rotate(app, req, credential, value).await
+        }
+        Cmd::PreviewCredentialGrant {
+            credential,
+            binding,
+            profiles,
+        } => credentials::preview_grant(app, req, credential, binding, profiles).await,
+        Cmd::PreviewCredentialRevoke {
+            credential,
+            binding,
+        } => credentials::preview_revoke(app, req, credential, binding).await,
+        Cmd::PreviewCredentialRemove { credential } => {
+            credentials::preview_remove(app, req, credential).await
         }
         Cmd::Confirm {
             preview_id,

@@ -3,7 +3,9 @@
 
 pub mod api;
 pub mod audit;
+pub mod bindings;
 pub mod config;
+pub mod credentials;
 pub mod db;
 pub mod dispatch;
 pub mod hooks;
@@ -11,6 +13,7 @@ pub mod identity;
 pub mod passkeys;
 pub mod preview;
 pub mod queue;
+pub mod receivers;
 pub mod runner_listener;
 pub mod seal;
 pub mod serve;

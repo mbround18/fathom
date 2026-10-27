@@ -15,7 +15,7 @@ use std::time::Duration;
 use clap::Parser;
 use keel_core::ports::SystemClock;
 use keel_server::config::{self, AuditCommand, Cli, Command, Config, Flags};
-use keel_server::{audit, db, seal, serve, telemetry};
+use keel_server::{audit, db, seal, serve, sync, telemetry};
 use tokio::net::TcpListener;
 
 /// Serving pool size.
@@ -151,9 +151,10 @@ fn serve_main(flags: Flags) -> ExitCode {
 
 async fn serve(cfg: Config, exporting: bool) -> ExitCode {
     // Fail closed: no master key, no server (contracts/config.md).
-    if let Err(e) = seal::MasterKey::load(&cfg.master_key_file) {
-        return refuse(&format!("master key: {e}"));
-    }
+    let master_key = match seal::MasterKey::load(&cfg.master_key_file) {
+        Ok(k) => k,
+        Err(e) => return refuse(&format!("master key: {e}")),
+    };
     let opts = match db::options(&cfg.database_url) {
         Ok(o) => o,
         Err(e) => return refuse(&e),
@@ -183,9 +184,12 @@ async fn serve(cfg: Config, exporting: bool) -> ExitCode {
         sources = ?cfg.sources,
         "keel serving"
     );
-    let app = serve::AppState::new(Arc::new(cfg), providers, pool, Arc::new(SystemClock));
+    let app = serve::AppState::new(Arc::new(cfg), providers, pool, Arc::new(SystemClock))
+        .with_master_key(master_key);
     let sweeper = app.auth.sessions.spawn_sweeper(SESSION_SWEEP);
+    let poller = sync::spawn_poller(app.clone());
     let result = serve::serve(listener, serve::router(app.clone())).await;
+    poller.abort();
     sweeper.abort();
     app.db.close().await;
     match result {

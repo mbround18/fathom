@@ -29,6 +29,7 @@ use web_auth::session::{EndReason, Session};
 use crate::dispatch::{self, Channel, Request};
 use crate::identity::{self, Caller};
 use crate::serve::{AppState, error};
+use keel_core::authz::Capability;
 
 pub const CLOSE_GOING_AWAY: u16 = 1001;
 pub const CLOSE_UNSUPPORTED: u16 = 1003;
@@ -125,6 +126,7 @@ async fn run(app: AppState, session: Option<Session>, mut socket: WebSocket) {
     // Subscribed before the Hello, so an end that races it is not missed.
     let mut ended = app.auth.sessions.subscribe_ended();
     let mut epochs = app.revocations.subscribe();
+    let mut pushed = app.repos.events.subscribe();
 
     let first = tokio::time::timeout(HELLO_TIMEOUT, socket.recv()).await;
     let Ok(Some(Ok(Message::Text(text)))) = first else {
@@ -215,6 +217,25 @@ async fn run(app: AppState, session: Option<Session>, mut socket: WebSocket) {
                 Err(RecvError::Closed) => {
                     return close(socket, CLOSE_GOING_AWAY, "shutting_down").await;
                 }
+            },
+            // Bindings and receivers (US1): pushed to callers who may view the workspace,
+            // checked against the session as it is now.
+            p = pushed.recv() => match p {
+                Ok((workspace, event)) => match check(&app, &session.id).await {
+                    Check::Valid(c) => {
+                        let subject = crate::bindings::subject(&c);
+                        if keel_core::authz::require(&subject, Capability::View, workspace, &[])
+                            .is_ok()
+                            && !send(&mut socket, &EventEnvelope::push(event)).await
+                        {
+                            return;
+                        }
+                    }
+                    Check::Gone => return revoke(&app, &session.id, socket).await,
+                    Check::Unavailable => {}
+                },
+                // Missed pushes: the page re-reads on its next command.
+                Err(RecvError::Lagged(_) | RecvError::Closed) => {}
             },
         }
     }
