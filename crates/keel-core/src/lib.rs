@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod migration;
 pub mod policy;
 pub mod ports;
+pub mod repo_url;
 pub mod rollback;
 pub mod run;
 
