@@ -343,6 +343,46 @@ impl Mirror {
         }))
     }
 
+    /// The names directly inside directory `path` at `commit`, sorted. `None` when `path` is
+    /// absent or not a directory.
+    ///
+    /// # Errors
+    ///
+    /// The commit is not in the mirror.
+    pub fn list_dir(
+        &self,
+        commit: &CommitId,
+        path: &str,
+    ) -> Result<Option<Vec<String>>, MirrorError> {
+        let repo = self.repo(&[])?;
+        let root = commit_tree(&repo, commit)?;
+        let path = path.trim_end_matches('/');
+        let tree = if path.is_empty() {
+            root
+        } else {
+            let Some(entry) = root
+                .lookup_entry_by_path(path)
+                .map_err(|e| MirrorError::Repo(e.to_string()))?
+            else {
+                return Ok(None);
+            };
+            if !entry.mode().is_tree() {
+                return Ok(None);
+            }
+            entry
+                .object()
+                .map_err(|e| MirrorError::Repo(e.to_string()))?
+                .into_tree()
+        };
+        let mut names = Vec::new();
+        for e in tree.iter() {
+            let e = e.map_err(|e| MirrorError::Repo(e.to_string()))?;
+            names.push(e.filename().to_str_lossy().into_owned());
+        }
+        names.sort();
+        Ok(Some(names))
+    }
+
     /// The most recent `limit` commits reachable from `head`, newest first.
     ///
     /// # Errors

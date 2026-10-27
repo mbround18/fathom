@@ -1071,7 +1071,7 @@ pub async fn sync_now(app: &AppState, req: &Request<'_>, binding: Uuid) -> Vec<E
             binding,
             commit: s.commit,
             jobs_changed: s.jobs_changed,
-            inventories_changed: false,
+            inventories_changed: s.inventories_changed,
         }],
         Err(e) => op_error(e.code(), e.message()),
     }

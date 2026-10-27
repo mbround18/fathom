@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use keel_core::domain::WorkspaceId;
+use keel_core::inventory::{Checked, InventoryFiles, InventoryIssue, check_files};
 use keel_core::manifest::{self, Context, Manifest, ManifestIssue};
 use keel_core::ports::{CommitId, GitError, GitSource};
 use keel_git::{Ancestry, Auth, CommitInfo, FetchRequest, Mirror, MirrorError, TreeAt};
@@ -173,6 +174,76 @@ pub struct Fetched {
     pub manifest: Result<Manifest, Vec<ManifestIssue>>,
     /// The most recent commits, newest first (only when asked for).
     pub recent: Vec<CommitInfo>,
+    /// The manifest's inventories, read and checked at `head` (none when it is invalid).
+    pub inventories: Vec<RepoInventory>,
+}
+
+/// One manifest inventory as read at the fetched head.
+#[derive(Debug, Clone)]
+pub struct RepoInventory {
+    pub name: String,
+    pub path: String,
+    pub var_schema: Option<Value>,
+    pub checked: Checked,
+}
+
+/// The mirror's tree at one commit, as the inventory reader sees it. Read failures are absence,
+/// so a broken file shows up as a validation error.
+struct InventoryTree<'a> {
+    mirror: &'a Mirror,
+    commit: &'a CommitId,
+}
+
+impl InventoryFiles for InventoryTree<'_> {
+    fn read(&self, path: &str) -> Option<String> {
+        let bytes = self.mirror.read_file(self.commit, path).ok()?;
+        String::from_utf8(bytes).ok()
+    }
+
+    fn list(&self, dir: &str) -> Option<Vec<String>> {
+        self.mirror.list_dir(self.commit, dir).ok()?
+    }
+}
+
+/// Reads and checks every inventory `manifest` declares, at `head`.
+fn read_inventories(mirror: &Mirror, head: &CommitId, manifest: &Manifest) -> Vec<RepoInventory> {
+    let tree = InventoryTree {
+        mirror,
+        commit: head,
+    };
+    manifest
+        .inventories
+        .iter()
+        .map(|(name, inv)| {
+            let mut schema_problem = None;
+            let var_schema = inv.schema.as_deref().and_then(|path| {
+                match tree.read(path).map(|t| serde_json::from_str::<Value>(&t)) {
+                    Some(Ok(v @ Value::Object(_))) => Some(v),
+                    Some(_) => {
+                        schema_problem = Some((path, "the var schema is not a JSON object"));
+                        None
+                    }
+                    None => {
+                        schema_problem = Some((path, "the var schema does not exist"));
+                        None
+                    }
+                }
+            });
+            let mut checked = check_files(&tree, &inv.path, var_schema.as_ref());
+            if let Some((at, message)) = schema_problem {
+                checked.errors.push(InventoryIssue {
+                    at: at.to_owned(),
+                    message: message.to_owned(),
+                });
+            }
+            RepoInventory {
+                name: name.clone(),
+                path: inv.path.clone(),
+                var_schema,
+                checked,
+            }
+        })
+        .collect()
 }
 
 /// Fetches into `binding`'s mirror and reads the manifest at the fetched head. Blocking.
@@ -228,6 +299,10 @@ pub fn fetch_blocking(
     })?;
     let ancestry = mirror.classify(previous, &head)?;
     let manifest = read_manifest(&mirror, &head, ctx);
+    let inventories = match &manifest {
+        Ok(m) => read_inventories(&mirror, &head, m),
+        Err(_) => Vec::new(),
+    };
     let recent = if recent > 0 {
         mirror.recent_commits(&head, recent)?
     } else {
@@ -238,6 +313,7 @@ pub fn fetch_blocking(
         ancestry,
         manifest,
         recent,
+        inventories,
     })
 }
 
@@ -318,6 +394,8 @@ pub struct Synced {
     /// The binding's head moved to `commit`.
     pub moved: bool,
     pub jobs_changed: bool,
+    /// A repository inventory got a new revision.
+    pub inventories_changed: bool,
 }
 
 struct BindingRow {
@@ -447,7 +525,7 @@ pub async fn sync_binding(
     let state = fetched.ancestry.sync_state();
     let commit = fetched.head.0.clone();
     let moved = apply && row.last_commit.as_deref() != Some(commit.as_str());
-    let jobs_changed = record(
+    let (jobs_changed, inventories_changed) = record(
         app,
         binding,
         row.workspace,
@@ -465,7 +543,7 @@ pub async fn sync_binding(
                 binding,
                 commit: commit.clone(),
                 jobs_changed,
-                inventories_changed: false,
+                inventories_changed,
             },
         );
     }
@@ -476,6 +554,7 @@ pub async fn sync_binding(
         state,
         moved,
         jobs_changed,
+        inventories_changed,
     })
 }
 
@@ -519,7 +598,7 @@ async fn record_failure(
     }
 }
 
-/// Writes the outcome; returns whether the job set changed.
+/// Writes the outcome; returns whether the job set and any inventory changed.
 async fn record(
     app: &AppState,
     binding: Uuid,
@@ -528,17 +607,25 @@ async fn record(
     fetched: &Fetched,
     apply: bool,
     state: &'static str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<(bool, bool), sqlx::Error> {
     let now = app.clock.now();
     let commit = fetched.head.0.as_str();
     let mut tx = app.db.begin().await?;
     let mut jobs_changed = false;
+    let mut inventories_changed = false;
     let mut problems = 0usize;
     if apply {
         match &fetched.manifest {
             Ok(m) => {
                 jobs_changed = upsert_jobs(&mut tx, binding, commit, m).await?;
                 upsert_profiles(&mut tx, workspace, commit, m).await?;
+                let at = Commit {
+                    workspace,
+                    binding,
+                    commit,
+                };
+                inventories_changed =
+                    upsert_inventories(&mut tx, at, trigger, &fetched.inventories).await?;
                 sqlx::query(
                     "update repo_bindings set last_commit = $2, last_synced_at = $3, \
                      last_sync_error = null, manifest_problems = '[]' where id = $1",
@@ -591,12 +678,110 @@ async fn record(
                 "applied": apply,
                 "manifest_problems": problems,
                 "jobs_changed": jobs_changed,
+                "inventories_changed": inventories_changed,
             }),
         },
     )
     .await?;
     tx.commit().await?;
-    Ok(jobs_changed)
+    Ok((jobs_changed, inventories_changed))
+}
+
+/// Where a sync's writes come from.
+#[derive(Clone, Copy)]
+struct Commit<'a> {
+    workspace: Uuid,
+    binding: Uuid,
+    commit: &'a str,
+}
+
+/// Creates or updates the binding's repository inventories, and adds a revision to each whose
+/// content hash differs from its newest. An inventory name that is managed, or belongs to
+/// another binding, is left alone. Returns whether any revision was added.
+async fn upsert_inventories(
+    tx: &mut PgConnection,
+    at: Commit<'_>,
+    trigger: &Trigger,
+    inventories: &[RepoInventory],
+) -> Result<bool, sqlx::Error> {
+    let mut changed = false;
+    for inv in inventories {
+        let existing: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
+            "select id, source, binding_id from inventories \
+             where workspace_id = $1 and name = $2 for update",
+        )
+        .bind(at.workspace)
+        .bind(&inv.name)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let id = match existing {
+            None => {
+                let id = Uuid::now_v7();
+                sqlx::query(
+                    "insert into inventories (id, workspace_id, name, source, binding_id, path, \
+                     var_schema) values ($1, $2, $3, 'repo', $4, $5, $6)",
+                )
+                .bind(id)
+                .bind(at.workspace)
+                .bind(&inv.name)
+                .bind(at.binding)
+                .bind(&inv.path)
+                .bind(&inv.var_schema)
+                .execute(&mut *tx)
+                .await?;
+                id
+            }
+            Some((id, source, owner)) if source == "repo" && owner == Some(at.binding) => {
+                sqlx::query("update inventories set path = $2, var_schema = $3 where id = $1")
+                    .bind(id)
+                    .bind(&inv.path)
+                    .bind(&inv.var_schema)
+                    .execute(&mut *tx)
+                    .await?;
+                id
+            }
+            Some(_) => {
+                tracing::warn!(
+                    inventory = %inv.name,
+                    "sync: inventory name belongs to another source; left alone"
+                );
+                continue;
+            }
+        };
+        let head = crate::inventory::head(tx, id).await?;
+        if head.as_ref().is_some_and(|h| h.2 == inv.checked.hash) {
+            continue;
+        }
+        let rev = crate::inventory::NewRevision {
+            checked: &inv.checked,
+            source_commit: Some(at.commit),
+            author: None,
+            restored_from: None,
+        };
+        let (_, seq) =
+            crate::inventory::insert_revision(tx, id, head.map(|h| (h.0, h.1)), rev).await?;
+        audit::record(
+            tx,
+            Entry {
+                actor: &trigger.actor(),
+                action: "inventory_synced",
+                workspace: Some(WorkspaceId(at.workspace)),
+                target: json!({ "inventory": id, "name": inv.name, "binding": at.binding }),
+                decision: Decision::Allowed,
+                reason: None,
+                context: json!({
+                    "seq": seq,
+                    "commit": at.commit,
+                    "content_hash": inv.checked.hash,
+                    "hosts": inv.checked.hosts.len(),
+                    "valid": inv.checked.is_valid(),
+                }),
+            },
+        )
+        .await?;
+        changed = true;
+    }
+    Ok(changed)
 }
 
 async fn upsert_jobs(
