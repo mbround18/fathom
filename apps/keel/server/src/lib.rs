@@ -18,3 +18,6 @@ pub mod signin;
 pub mod sync;
 pub mod telemetry;
 pub mod ws;
+
+// Governance (US6)
+pub mod governance;

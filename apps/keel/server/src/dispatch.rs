@@ -85,6 +85,32 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
                 Ok(())
             }
         }
+        // Governance (US6). The handlers check grants; managing API tokens needs a session.
+        Cmd::ListApiTokens
+        | Cmd::PreviewApiTokenCreate { .. }
+        | Cmd::PreviewApiTokenRevoke { .. } => {
+            if caller.token.is_some() {
+                Err(Refused {
+                    code: "session_required",
+                })
+            } else {
+                Ok(())
+            }
+        }
+        Cmd::ListWorkspaces
+        | Cmd::PreviewWorkspaceCreate { .. }
+        | Cmd::PreviewWorkspaceUpdate { .. }
+        | Cmd::PreviewWorkspaceArchive { .. }
+        | Cmd::PreviewProjectCreate { .. }
+        | Cmd::ListTeams
+        | Cmd::PreviewTeamCreate { .. }
+        | Cmd::PreviewTeamMemberAdd { .. }
+        | Cmd::PreviewTeamMemberRemove { .. }
+        | Cmd::PreviewGrantAdd { .. }
+        | Cmd::PreviewGrantRemove { .. }
+        | Cmd::ListUsers
+        | Cmd::PreviewUserRole { .. }
+        | Cmd::PreviewUserRemove { .. } => Ok(()),
     }
 }
 
@@ -150,6 +176,24 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         Cmd::ListPasskeys => passkeys::list(app, req.caller).await,
         Cmd::PreviewPasskeyRemove { id } => passkeys::preview_remove(app, req, id).await,
         Cmd::RecoverPasskeys { code } => passkeys::recover(app, req, &code).await,
+        // Governance (US6)
+        other @ (Cmd::ListWorkspaces
+        | Cmd::PreviewWorkspaceCreate { .. }
+        | Cmd::PreviewWorkspaceUpdate { .. }
+        | Cmd::PreviewWorkspaceArchive { .. }
+        | Cmd::PreviewProjectCreate { .. }
+        | Cmd::ListTeams
+        | Cmd::PreviewTeamCreate { .. }
+        | Cmd::PreviewTeamMemberAdd { .. }
+        | Cmd::PreviewTeamMemberRemove { .. }
+        | Cmd::PreviewGrantAdd { .. }
+        | Cmd::PreviewGrantRemove { .. }
+        | Cmd::ListUsers
+        | Cmd::PreviewUserRole { .. }
+        | Cmd::PreviewUserRemove { .. }
+        | Cmd::ListApiTokens
+        | Cmd::PreviewApiTokenCreate { .. }
+        | Cmd::PreviewApiTokenRevoke { .. }) => crate::governance::handle(app, req, other).await,
     };
     events
         .into_iter()
