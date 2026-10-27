@@ -7,8 +7,10 @@ Each flag can also be set through the environment variable in parentheses.
 | Flag (env) | Default | Notes |
 |---|---|---|
 | `--listen` (`KEEL_LISTEN`) | `0.0.0.0:7830` | UI, `/api`, `/hooks`. Put TLS in front, or set `--tls-cert/--tls-key`. |
-| `--runner-listen` (`KEEL_RUNNER_LISTEN`) | `0.0.0.0:7831` | TLS 1.3 with mutual pinned certificates, always (R17). The key and certificate are generated in `--data-dir` at first start. Keep it on an internal network unless remote runners need it. |
-| `--runner-cert-rotate` | none | Subcommand form: `keel runner-cert rotate [--overlap 7d]`. |
+| `--runner-listen` (`KEEL_RUNNER_LISTEN`) | `0.0.0.0:7831` | The embedded SSH server for host runners (R17). Both SSH CAs are generated at first start and sealed in the database. Expose it only on the network hosts use (for example Tailscale). |
+| `--runner-cert-ttl` | `24h` | Lifetime of runner certificates. |
+| `--runner-max-offline` | `30d` | How long after certificate expiry a host may still renew with its bare key. |
+| `--signed-mode-default` | `false` | Signed mode for new bindings. |
 | `--public-url` (`KEEL_PUBLIC_URL`) | required | Used for receiver URLs, OIDC redirects and cookie scope. |
 | `--database-url` (`KEEL_DATABASE_URL`) | required | PostgreSQL. Migrations run at start, and are additive only. |
 | `--master-key-file` (`KEEL_MASTER_KEY_FILE`) | required | 32 random bytes, host-owned, `0400`. Keel refuses to start if it is missing. Create it with `keel keygen`. |
@@ -26,29 +28,30 @@ Each flag can also be set through the environment variable in parentheses.
 - `keel audit verify`, which checks the hash chain.
 - `keel recover-passkeys`, as in 054, run on the host.
 - `keel migrate`, which applies database migrations without serving.
+- `keel ssh-ca show`, which prints the CA public keys and the `@cert-authority` line for
+  `keel_runner_host_ca`.
 
-## `keel-runner`
+## Host runner
 
-| Flag (env) | Default | Notes |
-|---|---|---|
-| `--server` (`KEEL_SERVER`) | required | `wss://keel:7831`. A `ws://` URL is refused. |
-| `--enroll-token-file` | none | Needed only for first enrollment. The token carries the server fingerprint to pin. |
-| `--state-dir` | `/var/lib/keel-runner` | The runner key and certificate, and the pinned server fingerprints. |
-| `--job-uid` / `--job-gid` | `10002` | R2 |
+Installed by the base profile (contracts/host-install.md). Both binaries read
+`/etc/keel-runner/trust/policy.toml` and accept no flags that weaken it.
+
+| Binary | Flag (env) | Default | Notes |
+|---|---|---|---|
+| `keel-runner` | `--server` (`KEEL_RUNNER_SERVER`) | from `policy.toml` | `host:port`. |
+| `keel-runner` | `--state-dir` | `/var/lib/keel-runner` | Host key, certificate, enrollment token. |
+| `keel-runner` | `--executor-socket` | `/run/keel-runner/executor.sock` | |
+| `keel-executor` | `--state-dir` | `/var/lib/keel-executor` | Git store, ledger, run directories. |
+| `keel-executor` | `--venv` | `/opt/keel-runner/venv` | The only Python and Ansible it uses. |
+| `keel-executor` | `keel-executor ledger verify` | | Checks the ledger chain, for operators. |
 
 ## Compose (`apps/keel/compose.yaml`)
 
 - Services:
   - `keel`: server image, read-only root, non-root.
-  - `keel-runner`: runner image, `cap_drop: [ALL]`, `cap_add: [SETUID, SETGID, KILL]`,
-    `read_only: true`, `tmpfs: /work`, `security_opt: [no-new-privileges:true]`, pids and memory
-    limits.
   - `keel-db`: PostgreSQL, current stable major.
 - Every service has `restart: ${RESTART_POLICY:-no}`.
 - Networks:
-  - `edge`: `keel` only.
-  - `runners`: `keel` and `keel-runner`; internal.
+  - `edge`: `keel` only; publishes the web port and the runner SSH port.
   - `db`: `keel` and `keel-db`; internal.
-  - The runner also gets egress to managed nodes. It needs no Git access, because the server
-    fetches.
-- The runner has no route to `keel-db`.
+- There is no runner service: runners live on the managed hosts.

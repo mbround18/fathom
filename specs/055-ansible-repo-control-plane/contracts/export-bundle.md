@@ -11,13 +11,17 @@ bindings/<id>.json       # url, branch, transport, known_host, poll_interval, al
 inventories/<name>/meta.json
 inventories/<name>/revisions/<seq>.json   # every revision: content, hash, source commit, author, status
 credentials/<name>.json  # name, kind, fingerprint, external_ref?  (no values, no sealed bytes)
-teams/<name>.json        # local teams and grants only (suite-origin rows are never exported)
+teams/<name>.json        # local teams and grants (with profile scopes)
+profiles.json            # profiles per workspace (assignments are not exported)
+signers.json             # trusted signers per workspace (public keys only)
 runs/<id>.json           # optional history: run row, approvals, host results (no logs)
 ```
 
 ## Not exported
 
-Receiver secrets, credential values, sessions, passkeys, API tokens, runner keys and audit rows.
+Receiver secrets, credential values, sessions, passkeys, API tokens, SSH CA keys, hosts and
+their revisions, and audit rows. Hosts enrol again on the destination, which has its own CAs; the
+host ledgers are the record of what they ran.
 The destination audits the import itself, and the source's audit stays at the source as its
 record.
 

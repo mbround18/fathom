@@ -38,13 +38,16 @@ pub struct EventEnvelope { pub reply_to: Option<u64>, pub event: Event }
 |---|---|
 | Session | `GetMe` (`Me`, including effective grants and verification); the passkey commands exactly as in 054 |
 | Workspaces and teams | `ListWorkspaces`, `PreviewWorkspaceCreate/Update/Archive`; `ListTeams`, `PreviewTeamCreate`, `PreviewTeamMember{Add,Remove}`, `PreviewGrant{Add,Remove}`; `ListUsers`, `PreviewUserRole`, `PreviewUserRemove` |
-| Bindings | `ListBindings { workspace }`, `GetBinding`, `PreviewBindingCreate { project, url, branch, transport, credential, known_host, poll_interval, allow_force_push }` (the preview runs a test fetch), `PreviewBindingUpdate`, `PreviewBindingDisable` (lists the runs it will cancel), `PreviewBindingRemove`, `SyncBinding` |
+| Bindings | `ListBindings { workspace }`, `GetBinding`, `PreviewBindingCreate { project, url, branch, transport, credential, known_host, poll_interval, allow_force_push, signed_mode, override_quorum }` (the preview runs a test fetch and, with signed mode, reports which recent commits are unsigned), `PreviewSignedMode { binding, on }` (turning it off needs step-up), `PreviewBindingUpdate`, `PreviewBindingDisable` (lists the runs it will cancel), `PreviewBindingRemove`, `SyncBinding` |
 | Receivers | `ListReceivers`, `PreviewReceiverCreate { name, provider }` (on confirm, replies `ReceiverSecret { url, secret }` once), `PreviewReceiverRotate { previous_valid_for }`, `PreviewReceiver{Disable,Remove}`, `PreviewReceiverBind/Unbind { receiver, binding }`, `ListDeliveries { receiver?, binding?, decision?, from?, to? }` |
 | Inventory | `ListInventories`, `GetInventoryRevision { inventory, seq? }`, `DiffInventory { inventory, from, to }`, `PreviewInventoryCreate { source }`, `PreviewInventoryEdit { inventory, base_seq, content }` (managed only; refused as `stale_base` if not the head), `PreviewInventoryRestore { inventory, seq }`, `PreviewInventoryDeprecate`, `ValidateInventory { content }` (dry run) |
-| Credentials | `ListCredentials` (name, kind, fingerprint and grants only), `PreviewCredentialCreate/Rotate { value }`, `PreviewCredentialGrant/Revoke { credential, binding }`, `PreviewCredentialRemove` (refused while a pending or queued run needs it). Values are never returned. |
+| Credentials | `ListCredentials` (name, kind, fingerprint and grants only), `PreviewCredentialCreate/Rotate { value }`, `PreviewCredentialGrant/Revoke { credential, binding, profiles }`, `PreviewCredentialRemove` (refused while a pending or queued run needs it). Values are never returned. |
 | Jobs and policies | `ListJobs { binding }`, `ListPolicies`, `PreviewPolicyUpsert`, `PreviewPolicyRemove`, `ExplainPolicy { job, limit? }` (which policy wins and why) |
 | Runs | `ListRuns { workspace?, binding?, host?, actor?, state?, from?, to? }`, `GetRun`, `SubscribeRun { run, from_seq }` (streams `RunEvent`, `RunLog`, `RunState`), `UnsubscribeRun`, `PreviewRunStart { job, limit? }` (manual), `PreviewApprove { run }` / `PreviewDeny { run, comment }`, `PreviewCancel { run }`, `PreviewRollback { run }` (refused as `rollback_unavailable` or `artifact_missing`) |
-| Runners | `ListRunnerPools`, `PreviewRunnerPoolCreate/Share`, `PreviewRunnerEnroll { pool }` (on confirm, replies a one-time enrollment token), `PreviewRunnerRevoke` |
+| Review (signed mode) | `ListReviews { workspace?, state? }`, `GetReview { group }` (commits with signature status, flags), `GetReviewDiff { group, path? }` (file list, then one file's diff, paged), `PreviewOverride { group, comment }` (replies the canonical challenge; `Confirm` carries the passkey assertion over it, not the usual step-up), `PreviewOverrideDeny { group, comment }`, `PreviewBaseline { binding, job, hosts, commit, comment }` (first run on hosts with no base; passkey as for an override) |
+| Hosts and profiles | `ListHosts { workspace, profile?, drift? }`, `GetHost` (profiles, allowed profiles, signed-mode policy, per-job applied revision and drift, ledger head), `ListHostRevisions { host, job? }`, `PreviewHostEnroll { inventory_name, profiles }` (on confirm, replies a one-time token `keel-enroll-v1.<secret>.<host CA fingerprint>`), `PreviewHostRevoke`, `PreviewHostProfiles { host, profiles }` (refused outside the host's allowed profiles), `ListProfiles` |
+| Signers | `ListSigners`, `PreviewSignerAdd { kind, public_key, label, user? }`, `PreviewSignerRemove` (both need step-up; they change only Keel's early check, research R19) |
+| SSH CA | `GetSshCa` (CA fingerprints, the `@cert-authority` line for `keel_runner_host_ca`), `PreviewSshCaRotate { kind }` |
 | Migration | `PreviewExport { workspaces, include_history }` (on confirm, replies a download URL valid for 10 minutes), `PlanImport { upload_id }` (`ImportPlan` with diff and conflicts), `PreviewImport { upload_id, choices }` |
 | Audit | `ListAudit { workspace?, actor?, action?, binding?, host?, decision?, from?, to?, cursor? }` |
 
@@ -53,7 +56,9 @@ pub struct EventEnvelope { pub reply_to: Option<u64>, pub event: Event }
 - `RunState { run, state, reason? }`, to anyone allowed to see the run's workspace.
 - `DeliveryReceived { delivery }` and `BindingSynced { binding, commit, jobs_changed, inventories_changed }`.
 - `ApprovalRequested { run }`, to approvers of the workspace.
-- `RunnerState { runner, state }`, to admins.
+- `ReviewRequested { group }`, to approvers whose profile scope covers its hosts.
+- `HostState { host, state }` and `HostRevision { host, job, commit, authorization }`, to anyone
+  who can see the host.
 - `Revoked`: after this the server closes the socket (R11).
 
 Suite commands and events are added by the suite integration spec (research R14), with a

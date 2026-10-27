@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "spec a new app similar to AWX/Ansible Tower to manage Ansible nodes from source control, where an admin logs in, sets up a receiver, and binds it to the interface." Follow-up direction: Keel should include Depths-level security posture, full team/user management, and inventory provisioning support with rollback/migration behavior. Brand name finalized as **Keel**.
+**Input**: User description: "spec a new app similar to AWX/Ansible Tower to manage Ansible nodes from source control, where an admin logs in, sets up a receiver, and binds it to the interface." Follow-up direction: Keel should include Depths-level security posture, full team/user management, and inventory provisioning support with rollback/migration behavior. Brand name finalized as **Keel**. Follow-up direction (2026-10-27): runners live on the managed hosts themselves, installed by the base Debian profile of the operator's Ansible repository and executing as its automation account; runners talk to Keel over SSH with Keel acting as an SSH certificate authority; an optional signed mode refuses unsigned commits unless an approver reviews the diff and approves it with a passkey that the host itself verifies; Keel tracks which revision each host has applied; hosts are assigned profiles, and user roles can be scoped to profiles.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -106,6 +106,58 @@ As a platform admin, I can apply owner/admin/user roles, team-scoped authorizati
 
 ---
 
+### User Story 7 - Enrol hosts through the base profile (Priority: P1)
+
+As an operator, I can bring a host under Keel by applying my repository's base Debian profile to it. The profile installs the Keel runner, which enrols with a one-time token, runs only as the automation account, and only ever executes jobs for its own host.
+
+**Why this priority**: Host runners are where automation executes. If enrollment or the runner's privilege boundary is weak, nothing else in Keel is safe.
+
+**Independent Test**: Apply the base profile to a fresh Debian host with an enrollment token, confirm the host appears in Keel with its profiles, run a job against it, then revoke it and confirm it can no longer connect.
+
+**Acceptance Scenarios**:
+
+1. **Given** a fresh Debian host and a valid enrollment token, **When** the base profile is applied, **Then** the runner is installed, enrolls, and the host appears in Keel with the profiles named in the token.
+2. **Given** an enrolled host, **When** Keel dispatches a job, **Then** the runner executes it only against its own host, as the automation account, and reports per-task results.
+3. **Given** a runner talking to a server whose identity does not match the one pinned at enrollment, **When** it connects, **Then** it refuses to send or execute anything.
+4. **Given** an administrator revokes a host, **When** its runner reconnects or its certificate expires, **Then** Keel refuses it and the refusal is audited.
+5. **Given** a job from a profile the host does not allow locally, **When** it is dispatched, **Then** the host refuses it, even if Keel asked.
+
+---
+
+### User Story 8 - Signed mode with reviewed overrides (Priority: P1)
+
+As a security-conscious owner, I can turn on signed mode for a binding so Keel will not run Ansible from commits that are not signed by a trusted signer, unless an approver reviews the exact diff and approves it with a passkey. Each host checks this for itself, so a compromised Keel server still cannot make hosts run unsigned code.
+
+**Why this priority**: Repository content is code that runs as root on managed hosts. Signatures and host-side verification are what make a stolen Git account or a compromised Keel insufficient to take over the fleet.
+
+**Independent Test**: Enable signed mode, push a signed commit (runs), push an unsigned commit (waits for review), review and approve it with a passkey (runs), then send a forged approval directly to a host (refused).
+
+**Acceptance Scenarios**:
+
+1. **Given** signed mode, **When** every commit since the host's last applied revision is signed by a trusted signer, **Then** the run proceeds through normal policy.
+2. **Given** signed mode, **When** any commit in that range is unsigned or signed by an unknown key, **Then** the run waits in review, and the interface shows which commits failed and why.
+3. **Given** a run waiting in review, **When** an approver opens it, **Then** they see the full diff from each target host's last applied revision to the new commit, file by file, with the commits, authors and signature status.
+4. **Given** an approver approves with a passkey, **When** the host receives the job, **Then** the host verifies that approval against approver keys pinned on the host itself before executing.
+5. **Given** an approval that was not made by a pinned approver, or that covers a different commit, diff base or host, **When** it reaches a host, **Then** the host refuses the job and reports why.
+
+---
+
+### User Story 9 - Host profiles, profile-scoped roles and revision tracking (Priority: P2)
+
+As an administrator, I can assign hosts to profiles (for example debian, prox-vm, gameserver, k3s-agent), give users roles that apply only to certain profiles, and see which revision of the repository each host has applied for each job.
+
+**Why this priority**: Real fleets mix very different machines. Operators need to know what each host is running and to delegate safely by kind of machine.
+
+**Independent Test**: Assign two hosts different profiles, give a user operator rights on one profile only, confirm they can run jobs there and are refused elsewhere, then confirm each host's applied revision and drift are shown.
+
+**Acceptance Scenarios**:
+
+1. **Given** a host with assigned profiles, **When** a push changes files used by one profile, **Then** only hosts with that profile get a run.
+2. **Given** a user with a role scoped to a profile, **When** they act on a host outside that profile, **Then** the action is denied and audited.
+3. **Given** completed runs, **When** an operator opens a host, **Then** they see, per job, the applied commit, when, by which run, whether it was signed or overridden, and how far it is behind the branch head.
+
+---
+
 ### Edge Cases
 
 - Repository events arrive duplicated or out of order.
@@ -117,6 +169,12 @@ As a platform admin, I can apply owner/admin/user roles, team-scoped authorizati
 - Rollback artifacts are missing or stale for a requested recovery action.
 - Inventory migration destination already contains conflicting host/group identities.
 - Team membership changes while a long-running run is in progress.
+- A host is offline longer than its SSH certificate's lifetime.
+- A host's local record of its last applied revision disagrees with Keel's.
+- A signed merge commit brings in unsigned commits.
+- The first run on a host in signed mode, when it has no applied revision yet.
+- An approver's passkey is replaced, but hosts still pin the old one.
+- A job's playbook changes the runner's own installation or trust files.
 
 ## Requirements *(mandatory)*
 
@@ -151,6 +209,17 @@ As a platform admin, I can apply owner/admin/user roles, team-scoped authorizati
 - **FR-027** *(suite integration spec)*: Keel approval policies (FR-011) MUST apply to steps invoked by suite workflows; a portal approval MUST NOT replace them.
 - **FR-028** *(suite integration spec)*: Keel MUST publish a scope mapping from suite scopes to its workspaces/projects when enrolled.
 
+- **FR-029**: Keel MUST execute Ansible only through runners installed on the managed hosts. Each runner MUST execute jobs only against its own host and MUST NOT be directed at any other host.
+- **FR-030**: The runner MUST be installable by the operator's base host profile, MUST execute jobs as the automation account, and its network-facing process MUST NOT hold elevated privileges.
+- **FR-031**: Runners MUST connect outbound only, over SSH, authenticating with a host key enrolled once through a single-use, time-limited token, and holding a short-lived SSH certificate issued by Keel. Runners MUST verify Keel's identity against a key pinned at enrollment.
+- **FR-032**: Administrators MUST be able to revoke a host runner, which MUST end its connection immediately and refuse all later connections.
+- **FR-033**: Keel MUST support an optional signed mode per binding. In signed mode, every commit between a host's last applied revision and the target commit MUST carry a valid signature from a trusted signer before a run may execute, without review. OpenPGP and SSH signatures MUST both be supported.
+- **FR-034**: In signed mode, a run that fails the signature check MUST wait for review. The review MUST show the full diff from each target host's last applied revision, file by file, with commit authors and signature status. An override MUST be approved with a passkey and bound to the exact commit, diff base, job and hosts.
+- **FR-035**: Hosts MUST independently verify signatures and overrides against trust material pinned on the host (trusted signers, approver passkeys, Keel's keys). A host MAY require signed mode locally regardless of Keel's setting. A compromised Keel server MUST NOT be able to make a host execute an unsigned, unapproved commit.
+- **FR-036**: Keel and each host MUST record the applied revision per host and job. Keel MUST show, per host, the applied commit, time, run, signature or override status, and drift from the branch head.
+- **FR-037**: Administrators MUST be able to define host profiles and assign hosts to them. Hosts MUST refuse jobs for profiles they do not allow locally.
+- **FR-038**: Role grants MUST be scopable to profiles within a workspace, so that a user can hold operator or approver rights for some profiles only.
+
 ### Key Entities *(include if feature involves data)*
 
 - **Repository Binding**: A trusted linkage between a source-control repository and a managed workspace/project, including status and ownership metadata.
@@ -165,6 +234,11 @@ As a platform admin, I can apply owner/admin/user roles, team-scoped authorizati
 - **Team Membership**: User-to-team mapping that controls accessible inventories, runs, and approvals.
 - **Approval Policy**: Rules defining when explicit human approval is required before execution.
 - **Audit Record**: Immutable event history capturing actor, action, context, decision, and outcome.
+- **Host Runner**: The Keel agent on a managed host, with its enrolled SSH key, current certificate, allowed profiles and status.
+- **Host Profile**: A named kind of machine (for example debian, gameserver, k3s-agent) that selects which jobs apply to a host.
+- **Trusted Signer**: A public key (OpenPGP or SSH) whose commit signatures satisfy signed mode for a workspace.
+- **Signed-Mode Override**: A passkey-signed approval of an exact diff, verifiable by hosts.
+- **Applied Revision**: The commit a host last applied for a job, with the run, time and how it was authorized.
 
 ## Success Criteria *(mandatory)*
 
@@ -178,10 +252,15 @@ As a platform admin, I can apply owner/admin/user roles, team-scoped authorizati
 - **SC-006**: 100% of denied out-of-scope team actions are rejected and auditable.
 - **SC-007**: 95% of valid inventory migrations complete with integrity checks and no orphaned references.
 - **SC-008**: Keel passes its full test suite with no suite portal, event transport, or shared database configured.
+- **SC-009**: 100% of jobs built from unsigned commits in signed mode are refused by hosts unless they carry a host-verifiable passkey override, including when the server is replaced by a hostile one in testing.
+- **SC-010**: A fresh Debian host goes from base profile applied to enrolled and runnable in under 5 minutes.
+- **SC-011**: For every host, the applied revision per job is visible within 30 seconds of a run ending.
 
 ## Assumptions
 
 - Administrators already have a supported identity provider and can assign roles for platform access.
-- Managed nodes are already onboarded for Ansible-based execution by organizational standards.
+- Managed nodes are Debian hosts brought under Keel by the operator's own Ansible repository (`../ansible`): its base profile installs the runner and pins the host's trust material. Hosts that cannot run a runner are out of scope for 055.
+- Before the runner runs as the automation account, that account must not already be root-equivalent: the base role's group-writable `/root/ansible/.git` and wildcard `docker compose` sudo rule must be fixed in the Ansible repository (research R20).
+- Any job that uses Ansible privilege escalation is root on its host. Keel's protection is at the gate (signatures, approvals, host verification), not inside an approved job.
 - Repository ownership, branching strategy, and change review process are managed outside this feature.
 - This feature focuses on repository-bound node orchestration and governance; unrelated infrastructure provisioning workflows are out of scope.

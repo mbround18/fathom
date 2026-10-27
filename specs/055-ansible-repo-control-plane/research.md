@@ -4,74 +4,106 @@
 
 - **In scope:**
   - Hostile repository content. A playbook, role, lookup or `local_action` runs arbitrary code on
-    the machine that executes Ansible. Anyone who can push to a bound branch can write it.
+    the host that executes it, usually as root. Anyone who can push to a bound branch can write it.
+  - A stolen Git account, or a stolen signing key that is not on the trusted list.
   - Forged or replayed webhook deliveries.
   - A stolen provider account or session cookie.
-  - An insider acting outside their team scope.
+  - An insider acting outside their team or profile scope.
   - A tenant reading another workspace's credentials or run output.
+  - **A compromised Keel server** (new with host runners). It holds the master key, so it can read
+    credentials and refuse or delay runs. In signed mode it MUST NOT be able to make a host
+    execute anything that a trusted signer or a pinned approver did not authorize (R19, R20).
+  - A compromised managed host trying to reach other hosts or Keel's secrets for other hosts.
 - **Goals:**
   - Repository code never runs inside the Keel server, and never sees the database, the master
-    key, receiver secrets, or another run's credentials (R1, R2).
+    key, receiver secrets, or another host's credentials (R1, R2).
+  - The host is the last gate. It verifies signatures, approvals, its own last applied revision,
+    and its allowed profiles from trust material pinned on the host, not from what Keel says
+    (R19–R21).
+  - In signed mode everything that can execute comes from the signed tree: playbooks, the job
+    definition, the inventory and its vars. Keel supplies only the run id, the commit range and
+    secret values, and secrets are passed so that Ansible never templates them (R19).
   - A delivery is trusted only as a hint that a branch moved. Keel decides what changed by
     fetching the branch itself (R5).
   - A repository change can propose a run, but cannot weaken the approval policy that governs it
-    (R7).
+    (R7). Changes to host trust material are themselves signed commits, flagged in review (R22).
   - Every decision that changes state commits in the same transaction as its audit record (R10).
 - **Out of scope:**
-  - The managed nodes themselves, and what a correctly approved playbook does to them.
-  - A compromised Keel server. It holds the master key, so it can decrypt credentials. The server
-    stays small and never runs repository code, which is what keeps this risk narrow.
+  - What a correctly signed or approved playbook does. A job that uses `become` is root on its
+    host; Keel's protection is at the gate, not inside an approved job.
+  - Root on a managed host that is already compromised by other means.
+  - A compromised Keel server **without** signed mode. Then Keel is trusted for content, as AWX
+    is. The guide says so and recommends signed mode for any host that matters.
 - **Residual risk** (stated in the guide):
-  - A runner executes whatever an approved job contains, with that job's credentials.
-  - A runner pool shared by several workspaces lets one workspace's playbook observe the runner
-    while it is idle. Pools are per workspace by default (R2).
+  - A compromised Keel server reads every credential it stores, can see run output, and can
+    withhold runs. It cannot forge signatures, approvals or a host's ledger.
+  - A trusted signer's key, or an approver's passkey together with its device, is enough to run
+    code on every host that trusts it. Quorum (R20) raises that to several people.
 
-## R1. Where Ansible runs
+## R1. Where Ansible runs: on the managed host
 
-- **Decision:** add a separate service, `keel-runner`, which runs `ansible-playbook` as a
-  subprocess. Its image is built from the same Dockerfile and contains `ansible-core`, Python and
-  OpenSSH, and nothing from the server.
-  - The server never executes Ansible or repository code.
-  - Runners connect outbound to the server's runner listener (contracts/runner.md). A runner
-    opens no port, so adding one is a matter of starting another container.
-  - Each run receives a bundle: the repository tree at the pinned commit, the rendered inventory
-    revision, extra vars and the resolved credentials. Credentials are written to a `tmpfs` at
-    `0600`.
-- **Why:** playbooks are code. AWX isolates them in execution-environment containers. Keel gets
-  the same boundary with no Docker socket. Giving Keel a socket would make it root on the host,
-  which is the problem spec 054 had to solve for Depths.
+- **Decision:** every managed host runs its own `keel-runner`, installed by the operator's base
+  Debian profile (R22). Ansible runs on the host with `connection: local` and `--limit` set to the
+  host's own inventory name. There are no runner pools and no runner containers.
+  - The runner dials out to Keel over SSH (R17). A host opens no port.
+  - Keel sends each host a **per-host bundle**: the job name, the commit range, a Git pack of the
+    commits the host lacks, and only the secrets that host's job references (R19).
+  - The host keeps its own Git store and a ledger of applied revisions (R19), so it does not need
+    to trust Keel's view of what it last ran.
+  - The Keel server never executes Ansible or repository code, and holds no SSH key that reaches a
+    managed host.
+- **Why:**
+  - Push-based Ansible needs one machine with SSH keys to the whole fleet. That machine is the
+    single most valuable target in the system. With host runners nothing holds fleet-wide keys:
+    taking a host gives that host, and taking Keel in signed mode gives no code execution.
+  - It matches how `../ansible` already works: `make debian` applies the profile locally as root.
+  - Each host can enforce its own policy (signed mode, allowed profiles) independently of Keel.
 - **Alternatives rejected:**
-  - Running `ansible-playbook` inside the server. One bad role would then read the master key and
-    the database.
-  - A container per run (AWX-style). This needs a container runtime socket, which is
-    root-equivalent (054).
-  - `ansible-runner`. It adds a Python supervisor and artifact directory that Keel would then
-    have to parse. The callback in R3 is about 100 lines and gives Keel exactly the events it
-    needs.
+  - A runner service with SSH keys to every host (the first draft, R1 in commit f70fa44). One
+    malicious playbook or a compromised runner reaches every host.
+  - Running `ansible-playbook` inside the server. One bad role reads the master key and the
+    database.
+  - `ansible-pull`. It fetches straight from Git with no approval gate, no signature check beyond
+    `--verify-commit`, no per-host results and no secrets delivery.
 
-## R2. Isolation inside a runner
+## R2. Privilege separation on the host
 
-- **Decision:** a runner executes one run at a time.
-  - The supervisor (`keel-runner`, uid 10001) starts each run as a separate uid (10002) with
-    `setpriv`, in a new session.
-  - The container keeps only `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL`. It has a read-only root,
-    `no-new-privileges`, a `tmpfs` work directory, and pids and memory limits.
-  - After every run, whatever the outcome, the supervisor kills every process owned by uid 10002,
-    checks that none remain, and wipes the work directory. If processes survive, the runner
-    marks itself `tainted`, refuses further work, and reports this to the server.
-  - Runners belong to a **runner pool**. A pool is bound to one workspace by default. An admin
-    may share a pool across workspaces, after a preview that names every workspace involved.
-- **Why:** a playbook can start a background process to watch the next run. Running one job at a
-  time under a separate uid, then killing that uid, closes this off without user namespaces,
-  which Docker's default seccomp profile blocks.
+- **Decision:** two processes, two accounts, joined by a root-owned socket.
+  - **`keel-runner.service`** (network side) runs as the system user `keel-runner`: no shell, no
+    sudo, no group shared with humans. It holds the host's SSH key and certificate, speaks to
+    Keel, and passes bundles to the executor. Hardening: `ProtectSystem=strict`,
+    `ProtectHome=yes`, `PrivateTmp=yes`, `NoNewPrivileges=yes`, an empty
+    `CapabilityBoundingSet`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`,
+    `SystemCallFilter=@system-service`, `MemoryDenyWriteExecute=yes`, and write access only to
+    `/var/lib/keel-runner`.
+  - **`keel-executor@.service`** runs as the `automation` user, started per run through
+    `keel-executor.socket` (`Accept=yes`, `/run/keel-runner/executor.sock`, `SocketUser=root`,
+    `SocketGroup=keel-runner`, mode `0660`). Only the network side can connect, and it cannot
+    choose the user, the binary or the arguments.
+  - The executor **re-verifies everything itself** (R19, R20): it does not trust the network
+    side, which faces the network and is the more likely to be compromised.
+  - Ansible escalates with `become` through a sudo rule for the `automation` user only. That rule
+    is root-equivalent by nature; the gate is what the executor agrees to run.
+  - **Cleanup:** each run is one service instance with `KillMode=control-group`. When the run
+    ends, systemd kills every process in its cgroup and removes its `PrivateTmp`, so a playbook
+    cannot leave an unprivileged process watching the next run. A playbook that becomes root can
+    escape the cgroup; that is inside an approved job (threat model).
+  - The executor's state (`/var/lib/keel-executor`: Git store, ledger, work directories) is owned
+    by `automation`, mode `0700`, with no group bits, so members of the `automation` group get
+    nothing from it.
+- **Why:** the network side is the part an attacker can reach, so it holds nothing that runs code
+  or escalates. The part that runs code accepts only work that passes verification against files
+  it cannot write.
 - **Alternatives rejected:**
-  - Several concurrent runs in one runner. They would share a uid and could read each other's
-    `tmpfs`.
-  - bubblewrap or user namespaces. These need a relaxed seccomp profile on the host.
+  - One process as `automation`. A parser bug in the network code would be root through `become`.
+  - The old uid-10002 taint model inside a container. systemd cgroups give the same guarantee on
+    a host with less code.
+  - Running the executor as root. Equivalent once `become` is used, but loses the unprivileged
+    default for jobs that do not need it, and the user asked for the `automation` account.
 
 ## R3. Per-node results
 
-- **Decision:** the runner image ships a stdout-neutral callback plugin, `keel_events`, enabled
+- **Decision:** the runner package ships a stdout-neutral callback plugin, `keel_events`, enabled
   through `ANSIBLE_CALLBACKS_ENABLED`.
   - It writes one JSON line per event to the file descriptor named in `KEEL_EVENT_FD`. The events
     are `playbook_start`, `play_start`, `task_start`, per-host
@@ -82,9 +114,13 @@
     result passed to callbacks.
 - **Why:** it is the narrowest interface that gives the per-host outcome table (FR-010) and the
   run summary from Ansible's own `stats`. Parsing human-readable output would be fragile.
-- **Version:** use the current stable `ansible-core`, pinned in the runner image, with its Python.
-  The image is rebuilt on each upstream minor release. Keel declares the minimum version it
-  accepts in the runner's `Hello`.
+- **Version:** the current stable `ansible-core`, installed by the base profile into
+  `/opt/keel-runner/venv` with `uv` from a hash-pinned requirements file, and owned by root. The
+  executor uses only that interpreter. Keel declares the minimum version it accepts in the
+  runner's `Hello`.
+- **Collections:** the executor never runs `ansible-galaxy install`. Collections and roles are
+  either vendored in the repository, and so covered by its signatures, or installed in the venv
+  by the base profile with pinned hashes.
 
 ## R4. Git access
 
@@ -92,8 +128,8 @@
   `<data_dir>/mirrors/<binding id>.git`, using `gix` (gitoxide).
   - Supported transports are HTTPS (token) and SSH (deploy key, using the system `ssh` with
     `StrictHostKeyChecking=yes` and a pinned `known_hosts` entry per binding).
-  - The tree for a run is exported from the pinned commit into the run bundle. No hooks run and no
-    checkout happens on the server.
+  - For each host, Keel builds a Git pack of the commits between that host's base and the pinned
+    commit (R19). No hooks run and no checkout happens on the server.
   - Commits a run used are pinned as `refs/keel/runs/<run id>`, so they survive force-pushes and
     garbage collection. Rollback needs them (R8).
 - **Why:** gitoxide is pure Rust, runs no hooks, and needs no Git installation for HTTPS. The
@@ -148,8 +184,12 @@
 
 ## R7. Runs and approvals
 
-- **State machine:** `pending_approval`, `queued`, `running`, then one of `succeeded`, `failed`,
-  `cancelled`, `denied` or `expired`. `denied` covers a refused approval and a policy refusal.
+- **State machine:** `needs_review` (signed mode only, R19), `pending_approval`, `queued`,
+  `running`, then one of `succeeded`, `failed`, `cancelled`, `denied`, `expired` or `refused`.
+  `denied` covers a refused approval and a policy refusal. `refused` means a host's own
+  verification refused the work (R19–R21), with the host's reason.
+- **Fan-out:** a run targets hosts; each host has its own state and result, because hosts run
+  independently and may have different bases.
 - **Pinning:** when a run is created, Keel pins its commit and its inventory revision. If the
   inventory changes between the trigger and execution, the run still uses the pinned revision,
   and the run page shows "a newer inventory revision exists".
@@ -252,21 +292,29 @@ job opts in through its manifest.
 
 ## R12. Credentials
 
-- **Kinds:** `ssh_key` (with an optional passphrase), `become_password`, `vault_password` and
-  `env` (named variables for cloud collections).
+- **Kinds:**
+  - Delivered to hosts: `vault_password`, `env` (named variables for collections), and
+    `secret_vars` (named values exposed to playbooks as variables).
+  - Server-side only, never sent to a host: `git_https_token` and `git_ssh_key` for fetching a
+    binding.
+  - `ssh_key` and `become_password` from the first draft are gone: Ansible connects locally, and
+    `become` uses the `automation` sudo rule.
 - **At rest:** sealed with XChaCha20-Poly1305 under a per-credential data key, which is wrapped by
   the master key read from `KEEL_MASTER_KEY_FILE`.
   - The key file is host-owned, mode `0400`, and is not in the database.
   - If the file is missing or unreadable, Keel refuses to start. It never generates a key over
     existing data.
-- **In use:** credentials are decrypted only when a run's bundle is assembled, sent once over the
-  runner channel, written to the runner's `tmpfs` at `0600`, and wiped with the work directory.
-  They never appear in audit, run records, logs or the protocol. The protocol carries only the
-  name, kind, fingerprint and grants.
-- **Suite mode:** a credential may instead be a reference to a Ballast secret
-  (`ballast:<namespace>/<name>`), resolved through Ballast's public API with a per-run scoped
-  token. This uses the `SecretResolver` port. 055 ships only the `local` adapter; the
-  `ballast` adapter comes with the suite integration spec (R14).
+- **Scoping:** a credential is granted to a binding, and optionally to profiles. A host's bundle
+  carries only the credentials its job references and that are granted to one of its profiles.
+- **In use:** credentials are decrypted only when a host's bundle is assembled, sent once over
+  the SSH channel, and written by the executor into the run's private directory at `0600`.
+  - `secret_vars` are written to the extra-vars file tagged `!unsafe`, so Ansible never templates
+    them. A compromised Keel cannot smuggle a `{{ lookup('pipe', ...) }}` in through a secret
+    value.
+  - They never appear in audit, run records, logs or the protocol. The protocol carries only the
+    name, kind, fingerprint and grants.
+- **Ballast references** come with the suite integration spec (R14), through the `SecretResolver`
+  port. 055 ships only the sealed `local` adapter.
 
 ## R13. Migration between Keel instances
 
@@ -322,48 +370,65 @@ job opts in through its manifest.
 ## R16. Operations
 
 - **Image:** a multi-stage Dockerfile with `cargo-chef` (planner, cook, builder), a separate
-  `pnpm` web stage, and targets `server` (distroless) and `runner` (Debian slim with
-  `ansible-core`).
+  `pnpm` web stage, and one `server` target (distroless). There is no runner image.
+- **Runner release:** `keel-runner` is a static Linux binary (amd64 and arm64) attached to Keel's
+  releases with SHA-256 sums. The base profile installs it with the `github_release` role, pinned
+  by checksum in Ansible vars (R22).
   - The server serves the web `dist` from `--static-dir` / `KEEL_STATIC_DIR`; assets are never
     embedded in the binary.
-- **Compose:** services `keel`, `keel-runner`, `keel-db` (PostgreSQL), all with
-  `restart: ${RESTART_POLICY:-no}`. The runner listener uses mutual TLS (R17) and sits on an internal network
-  unless remote runners need it.
+- **Compose:** services `keel` and `keel-db` (PostgreSQL), both with
+  `restart: ${RESTART_POLICY:-no}`. The SSH runner listener (R17) is published on its own port;
+  hosts reach it over the operator's network (for example Tailscale).
 - **Telemetry:** OpenTelemetry (traces for trigger to sync to run; metrics for queue depth and run
   duration). It is off unless configured, as in Depths.
-- **Runtime flags:** polling and shared runner pools are runtime settings, not build features.
+- **Runtime flags:** polling and signed mode are runtime settings, not build features.
 
-## R17. Server ↔ runner channel security
+## R17. Server ↔ runner channel: SSH with Keel as certificate authority
 
-- **Decision:** the runner listener speaks TLS 1.3 only, with mutual authentication by pinned,
-  self-signed certificates. There is no CA and no plaintext mode.
-  - **Server identity:** at first start the server generates a runner-listener key and a
-    self-signed certificate, kept in its data directory.
-  - **Enrollment:** the one-time enrollment token carries the server certificate's SHA-256
-    fingerprint (`keel-enroll-v1.<secret>.<fingerprint>`). A new runner pins that fingerprint
-    before it sends anything, so there is no trust-on-first-use window.
-  - **Runner identity:** the runner generates an Ed25519 key and a self-signed certificate, and
-    presents it as its TLS client certificate. The server records its fingerprint at enrollment.
-  - **Enrollment window:** a connection with an unknown client certificate may send only
-    `Enroll { token }`. Tokens are single-use, expire after 15 minutes, and are stored hashed.
-  - **Afterwards:** the server accepts only client certificates whose fingerprint belongs to a
-    runner that is not revoked. Revoking a runner closes its connection at once.
-  - **Rotation:** the server announces a new certificate over the existing channel with
-    `RotateServerCert { fingerprint }`. Runners pin both certificates until the old one expires.
+- **Decision:** the runner channel is SSH. Keel embeds an SSH server (`russh`) on the runner
+  listener (default port 7831), and runners connect to it as SSH clients. Keel runs two SSH
+  certificate authorities, kept in its data directory: a **host CA** and a **runner CA**.
+  - **Server identity:** Keel's listener presents an SSH host certificate signed by the host CA.
+    Runners trust the host CA (an `@cert-authority` line), not one host key, so Keel can rotate its
+    host key without touching any host.
+  - **Enrollment:** the one-time token is `keel-enroll-v1.<secret>.<host CA fingerprint>`. The
+    runner pins the CA fingerprint before it sends anything, so there is no trust-on-first-use
+    window. Tokens are single-use, expire after 15 minutes, are stored hashed, and name the
+    inventory host and initial profiles.
+  - **Runner identity:** the host's own Ed25519 key, generated at install in
+    `/var/lib/keel-runner/id_ed25519` (`keel-runner`, `0600`). An unknown key may only open the
+    `keel-enroll-v1` subsystem and send `Enroll { token }`.
+  - **Runner certificates:** after enrollment Keel issues a user certificate from the runner CA:
+    key id `runner:<id>`, principals `host:<inventory name>` and `profile:<name>` for each
+    assigned profile, a serial, 24-hour validity, and no extensions (no pty, no forwarding, no
+    agent). Runners renew over the channel after half the lifetime.
+  - **Every later connection:** the runner authenticates with its certificate. Keel checks the CA
+    signature, validity, the serial against its key revocation list (KRL), and that the
+    certificate's key is the enrolled key of a runner that is not revoked.
+  - **Expired certificate:** a host that was offline past expiry may authenticate with its bare
+    enrolled key, and then may only send `RenewCert`. After `--runner-max-offline` (default
+    30 days) it must enrol again with a new token.
+  - **Server side of SSH:** Ed25519 keys only; `curve25519-sha256`; `chacha20-poly1305` or
+    AES-GCM. Shell, exec, pty, port forwarding, agent forwarding and X11 are all refused. The only
+    subsystems are `keel-enroll-v1` and `keel-runner-v1`, which carry length-prefixed JSON frames
+    (contracts/runner.md).
+  - **Revocation:** revoking a runner adds its serials to the KRL, closes its session at once, and
+    refuses every later connection.
 - **Why:**
-  - Run bundles carry live credentials, so the channel must be confidential even on an internal
-    network. It must also be safe when a runner pool lives on another host, close to the nodes
-    it manages.
-  - Mutual TLS gives both sides proof of identity and encryption in one step, using rustls with
-    no OpenSSL.
-  - Pinning gets the same assurance as a private CA with nothing to operate.
+  - SSH is what the operator already trusts and audits, and hosts already allow outbound SSH.
+  - Certificates make a runner's identity short-lived and self-describing: the principals say
+    which host and profiles it serves, signed by Keel, and a stolen certificate expires within a
+    day. The host CA removes host-key pinning churn.
+  - Bundles carry live credentials, so the channel must be confidential on any network.
 - **Alternatives rejected:**
-  - Plaintext WebSocket on an internal Docker network plus a signed nonce, which was the first
-    draft. Anyone on that network could read the secrets in a bundle.
-  - A private CA with issued certificates. It adds issuance, expiry and revocation lists, which
-    pinning makes unnecessary.
-  - Encrypting each bundle to the runner's key on top of TLS. TLS 1.3 with pinned certificates on
-    both ends already covers it.
+  - Mutual TLS with pinned self-signed certificates (the previous R17). Sound, but it reinvents
+    identity, rotation and revocation that SSH certificates already define.
+  - The system `sshd` with a forced command. It would put Keel's protocol behind the host's main
+    SSH daemon and its configuration, and needs inbound connections to every host.
+  - Plain SSH keys with no CA. No expiry, and the profiles a runner serves would live only in
+    Keel's database.
+- **Later:** keeping the host key in a TPM through `tpm2-pkcs11`, so it cannot be copied off the
+  host.
 
 ## R18. API style: one Rust protocol, not GraphQL
 
@@ -383,4 +448,154 @@ job opts in through its manifest.
     forbids that.
   - A read-only GraphQL facade for integrators. This can be added later as an adapter over
     `keel-core` if someone needs it. It is not part of 055.
+
+## R19. Signed mode and host revision tracking
+
+- **Decision:** signed mode is a per-binding setting. A host may also force it locally
+  (`require_signed` in its trust policy, R22), in which case it refuses unsigned work whatever
+  Keel's setting says.
+- **What must be signed:** every commit in the range from the host's last applied commit for the
+  job (the **base**) to the target commit, including merge commits and every commit a merge brings
+  in. A signed merge does not vouch for unsigned parents; they are in the range.
+  - OpenPGP signatures (`gpgsig`, verified with the `pgp` crate, rpgp) and SSH signatures
+    (namespace `git`, verified with `ssh-key`) both count. sequoia is LGPL, so it is not used.
+  - A signature counts only if its key is a **trusted signer**: on the workspace list (Keel's
+    early check) and in the host's own `signers` trust file (the enforcing check). A key that is
+    expired, revoked or lacks signing capability at the commit time does not count. A commit
+    signed by an unknown key is treated as unsigned.
+  - The committer name and email are not used. Only the key counts.
+- **Range rules:**
+  - The target must be a descendant of the base. A target that is the base re-applies it (allowed).
+    A target that is an ancestor of the base, or unrelated, is a downgrade or rewrite: it needs an
+    override (R20), including for `rollback.reapply`.
+  - **First run:** a host with no base for a job needs a **baseline**: an approver picks a commit
+    and approves it with a passkey (R20, empty base). The host records it as its base.
+- **What the host takes from Keel:** only the run id, the job name, the target commit, a Git pack
+  of the missing commits, secret values (R12), and any approvals. The job definition is read from
+  `.keel/jobs.yaml` **in the signed tree**; the inventory must be a repository inventory in the
+  same tree (managed inventories cannot be used in signed mode); extra vars come from the
+  manifest. Keel's own copy of the job is used only for display.
+- **Verification on the host (`crates/keel-trust`, used by both sides):**
+  1. Unpack the pack into the executor's Git store (`gix`, no hooks, no config from the pack).
+  2. Check that the target commit id exists and that its object graph is complete.
+  3. Read the base from the host's own ledger, never from the bundle. If Keel assumed a
+     different base, refuse with `base_mismatch` and report the host's base.
+  4. Walk `base..target`; check each commit's signature against the host's signers.
+  5. If any fail, require a valid override (R20) for exactly this base and target.
+  6. Check the job's profiles against the host's allowed profiles (R21).
+  7. Check out the target tree into the run's private directory and run.
+- **Ledger:** `/var/lib/keel-executor/ledger.jsonl`, one hash-chained line per run: run id, job,
+  base, target, authorization (`signed` with signer fingerprints, or `override` with approval
+  ids), start, end, outcome and the previous line's hash. The executor appends before and after
+  each run. A run id that is already in the ledger is refused, so approvals cannot be replayed.
+  - The runner reports the ledger head and per-job bases in `Hello`, and the per-run line in
+    `Finished`. Keel stores them as `host_revisions` and shows each host's applied commit and its
+    drift from the branch head (FR-036).
+  - A ledger whose chain does not verify makes the host refuse all work with `ledger_corrupt`
+    until an operator inspects it.
+- **Keel's early check:** at sync time Keel runs the same verification against its mirror and the
+  workspace signers, so a run that will need review is `needs_review` at once instead of failing
+  on the host.
+- **Why:** signatures on Git commits are the one authorization that neither Keel nor a stolen Git
+  account can forge. Checking the whole range on the host, against a base the host recorded
+  itself, means Keel cannot hide an unsigned commit by lying about history.
+- **Alternatives rejected:**
+  - Checking only the tip. One signed commit on top would launder unsigned ones beneath it.
+  - Verifying only in Keel. A compromised Keel would then be the whole fleet.
+  - `git verify-commit` on the host. It needs `gpg` and a keyring per host and gives no range
+    semantics.
+
+## R20. Overrides: diff review approved by a passkey the host verifies
+
+- **Review:** a run that fails the signature check enters `needs_review`. Keel groups target
+  hosts by base commit; each group gets one review showing:
+  - the commits in the range, with author, committer and signature status (signed by whom,
+    unsigned, unknown key, bad signature);
+  - the full diff from base to target, file by file, with changes to `.keel/`, inventories and
+    `keel_runner_*` variables flagged as **trust or targeting changes**;
+  - the job, the resolved hosts and the profiles.
+- **Approval:** an approver with rights over every host in the group (R21) enters a comment and
+  approves with a passkey. The WebAuthn challenge is the SHA-256 of a canonical, versioned
+  encoding of:
+  `("keel-override-v1", workspace, binding, run id, job, base, target, sorted host names,
+  expires_at)`.
+  - `expires_at` defaults to 24 hours. Four-eyes applies: the approver may not be the author of
+    any unsigned commit in the range, when the policy asks for it.
+  - A **quorum** of distinct approvers may be required, per binding in Keel and per host in its
+    trust policy (`override_quorum`). The host's number wins when it is higher.
+- **Host verification:** the bundle carries each assertion (credential id, authenticator data,
+  client data JSON, signature). The executor:
+  1. Rebuilds the canonical challenge from its own values (its base, the target, its own host
+     name) and the run id, job and expiry in the bundle.
+  2. Finds the credential id among `approvers` in its trust files, pinned through `../ansible`
+     (R22).
+  3. Checks `type` is `webauthn.get`, the challenge, the origin equals the pinned Keel origin,
+     the RP id hash, and that user verification was performed.
+  4. Verifies the signature (ES256 or EdDSA) over the authenticator data and client data hash.
+  5. Checks `expires_at` against its own clock and that the run id is not in its ledger.
+  6. Counts distinct approvers against the quorum.
+  - The verify-only function lives in `crates/web-passkeys` (`verify_assertion`, pure, no server
+    state) and is reused by `keel-trust`. Sign counters are checked by Keel only.
+- **Why:** an approval that only Keel checks is worth no more than Keel's integrity. A passkey
+  assertion bound to the exact diff, checked against keys pinned on the host, means only a real
+  approver with their device can authorize unsigned code, even if Keel is compromised.
+- **Alternatives rejected:**
+  - Keel signing the approval with its own key. A compromised Keel signs anything.
+  - Approver GPG or SSH signatures over the challenge. Workable, but passkeys are already how
+    Keel does step-up, and they need no key handling by approvers.
+
+## R21. Profiles and profile-scoped roles
+
+- **Host profiles:** a profile is a named kind of machine (`debian`, `prox-vm`, `gameserver`,
+  `k3s-master`, `k3s-agent`, matching the `../ansible` Makefile targets).
+  - The repository declares profiles in `.keel/jobs.yaml` and which jobs apply to each
+    (contracts/repo-manifest.md).
+  - An admin assigns profiles to hosts in Keel, through Preview/Confirm. The enrollment token sets
+    the initial profiles.
+  - The host's trust policy lists `allowed_profiles`, pinned by `../ansible`. Keel's assignment
+    must be a subset; profiles outside it are refused at enrollment, at certificate issue, and by
+    the executor for every job. The certificate carries only the intersection.
+  - A push that changes a job's paths creates runs only for hosts with a profile that job applies
+    to.
+- **Profile-scoped roles:** a team grant may list profiles (`profiles` empty means all). Viewers,
+  operators and approvers with a scoped grant see and act on hosts that have one of those
+  profiles only. A run or review that touches any host outside the scope needs someone whose
+  scope covers all of them.
+- **Why:** a gameserver operator should not approve changes to the Proxmox hosts. Host-side
+  `allowed_profiles` keeps a compromised Keel from turning a gameserver job onto a hypervisor.
+
+## R22. Integration with the operator's Ansible repository (`../ansible`)
+
+- **Decision:** the base Debian profile installs the runner through a new `keel_runner` role,
+  enabled per host by `keel_runner_enabled` (default `false`). The role contract is in
+  contracts/host-install.md. In outline it:
+  - creates the system users `keel-runner` and `automation` (the account the user asked jobs to
+    run as; today `automation` is only a group);
+  - installs `keel-runner` and `keel-executor` with `github_release`, checksum-pinned;
+  - builds `/opt/keel-runner/venv` with hash-pinned `ansible-core`;
+  - writes the trust files under `/etc/keel-runner/trust/` (root-owned, readable by `automation`
+    and `keel-runner`, writable by neither) from variables: `keel_runner_server` (Keel host and
+    port), `keel_runner_host_ca`, `keel_runner_origin`, `keel_runner_trusted_signers`,
+    `keel_runner_approvers`, `keel_runner_require_signed`, `keel_runner_allowed_profiles`,
+    `keel_runner_override_quorum`;
+  - installs the systemd units and the `automation` sudo rule;
+  - enrolls once, if `keel_enroll_token` is passed on the command line. The token never goes in
+    Git.
+- **Trust changes go through signed commits.** Approver keys and signers live in the repository's
+  `group_vars`. Changing them is a commit like any other, so in signed mode it must itself be
+  signed or approved by the current approvers, and the review flags it (R20).
+- **Prerequisites in `../ansible`, found while planning** (fix before the runner runs as
+  `automation`; none are changed by 055):
+  1. The `automation` group has a recursive read-write ACL on `/root/ansible`, including `.git`,
+     and sudo rules let it run `git -C /root/ansible pull/status/fetch` as root. A group member can
+     set `core.fsmonitor` or a hook in `.git/config`, and the next root `git` runs it: root for
+     every group member. Fix: run Git as the repository's owner rather than root, or remove write
+     on `.git` and pass `-c core.fsmonitor= -c core.hooksPath=/dev/null` with `safe.directory`.
+  2. The sudo rule `docker compose -f /root/ansible/composes/* up -d` matches any argument text,
+     including `../` and extra flags, so a group member can start any compose file: a privileged
+     container is root. Fix: a root-owned wrapper that takes a compose name from a fixed list.
+  3. Once Keel applies profiles, the manual `git pull` rules are no longer needed and can go.
+- **Why:** the user's Ansible repository already defines the base profile and the `automation`
+  group. Putting the runner there keeps host setup in one reviewed place, and pinning trust from
+  that repository means a host's trust comes from the operator, not from Keel.
 

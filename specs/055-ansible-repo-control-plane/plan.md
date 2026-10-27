@@ -5,7 +5,7 @@
 ## Summary
 
 Keel runs Ansible from Git: a push to a bound branch becomes a pinned, policy-checked,
-optionally approved run, with per-host results and a tamper-evident audit trail. Research R1–R16
+optionally approved run, with per-host results and a tamper-evident audit trail. Research R1–R22
 holds the decisions; the contracts and data model hold the shapes.
 
 1. **Repository and receivers (US1, US2).**
@@ -15,37 +15,49 @@ holds the decisions; the contracts and data model hold the shapes.
      contracts/receivers.md).
    - The repository proposes jobs in `.keel/jobs.yaml`; Keel's approval policies decide (R6,
      contracts/repo-manifest.md).
-2. **Runs and runners (US2, US5).**
+2. **Runs and host runners (US2, US5, US7).**
    - A state machine in `keel-core`. Approval is bound to the pinned commit and inventory
-     revision, with TTL, four-eyes and step-up (R7).
-   - Ansible runs only in a separate `keel-runner` service. It has no database and no master key,
-     dials out to the server, runs one job at a time under its own uid, and taints itself if
-     processes survive (R1–R3, contracts/runner.md).
-   - The server ↔ runner channel is TLS 1.3 with mutual, pinned self-signed certificates.
-     Enrollment tokens carry the server fingerprint, so there is no trust-on-first-use window
-     (R17).
+     revision, with TTL, four-eyes and step-up (R7). A run fans out to hosts, each with its own
+     state.
+   - Ansible runs only on the managed hosts, each against itself with `connection: local`. The
+     runner is installed by the base Debian profile in `../ansible` (R1, R22,
+     contracts/host-install.md).
+   - On the host, an unprivileged network half (`keel-runner`) hands work over a root-owned
+     socket to an executor that runs as `automation` and re-verifies everything; systemd kills the
+     run's cgroup afterwards (R2).
+   - The channel is SSH, with Keel's embedded server acting as host and runner certificate
+     authority: pinned CA in the token, 24-hour runner certificates naming host and profiles,
+     a KRL, and no shell or forwarding (R17, contracts/runner.md).
    - Rollback runs a rollback playbook or reapplies the last success, through the same policy (R8).
-3. **Inventory (US4).** Repository-backed or managed inventories, with immutable revisions,
+3. **Signed mode (US8).** Optional per binding, forceable per host. Every commit since the
+   host's own last applied revision must be signed by a trusted OpenPGP or SSH key, or an
+   approver must review the diff and approve it with a passkey that the host verifies against
+   keys pinned on the host. The host keeps a hash-chained ledger of what it applied, so a
+   compromised Keel cannot launder, downgrade or replay (R19, R20, contracts/signed-mode.md).
+4. **Profiles and revisions (US9).** Hosts are assigned profiles within a host-side ceiling;
+   grants can be scoped to profiles; Keel shows each host's applied revision and drift (R19,
+   R21).
+5. **Inventory (US4).** Repository-backed or managed inventories, with immutable revisions,
    validation and diff (R9).
-4. **Governance (US3, US6).**
+6. **Governance (US3, US6).**
    - The `web-auth` sign-in, roles and team grants at Depths parity.
    - `authz_epoch` revocation, and passkey step-up from a new shared `crates/web-passkeys` (R11).
    - An insert-only, hash-chained `audit_event`, written in the same transaction as the change
      (R10).
    - Credentials sealed with XChaCha20-Poly1305 under a host-owned master key (R12).
-5. **Migration (US5).** `.keelx` signed export and import, with a dry-run plan and skip or rename
+7. **Migration (US5).** `.keelx` signed export and import, with a dry-run plan and skip or rename
    conflict choices (R13, contracts/export-bundle.md).
-6. **Standalone only.** Suite mode (FR-026 to FR-028) moves to a dedicated suite integration spec
+8. **Standalone only.** Suite mode (FR-026 to FR-028) moves to a dedicated suite integration spec
    that joins all four apps once they exist (R14). 055 keeps only the cheap seams: `origin`
    columns, stable audit ids, and the `SuitePolicy` and `SecretResolver` ports with standalone
    adapters. SC-008 holds trivially.
-7. **API style.** One Rust protocol with ts-rs typings for the web client and for
+9. **API style.** One Rust protocol with ts-rs typings for the web client and for
    `POST /api/v1/cmd`, rather than GraphQL (R18, constitution II).
 
 ## Technical Context
 
-**Language/Version**: Rust 2024 (stable), TypeScript 5 / React 19. The runner image adds Python
-and ansible-core (current stable), used only as a subprocess.
+**Language/Version**: Rust 2024 (stable), TypeScript 5 / React 19. Managed hosts get Python and
+ansible-core (current stable) in a root-owned venv, used only as a subprocess of the executor.
 
 **Primary Dependencies**:
 
@@ -54,7 +66,11 @@ and ansible-core (current stable), used only as a subprocess.
   - `sqlx` (postgres, runtime-tokio, macros) in the server;
   - `gix` in `keel-git`;
   - `chacha20poly1305`, `ed25519-dalek`, `hmac` and `sha2` (RustCrypto);
-  - `rustls`, `tokio-rustls` and `rcgen` for the runner channel (R17);
+  - `russh` (SSH server in Keel, client in the runner) and `ssh-key` (certificates, KRL, SSH
+    signatures) for the runner channel (R17);
+  - `pgp` (rpgp, MIT/Apache) for OpenPGP commit signatures, chosen over LGPL sequoia (R19);
+  - `p256` and `ed25519-dalek` for host-side passkey assertion checks, and `serde_jcs` for the
+    canonical challenge (R20);
   - `webauthn-rs`, moved from the Depths server into `crates/web-passkeys`.
 - Web: `packages/ui`, `theme`, `branding` and `terminal` (LogView). No new web dependency.
 
@@ -68,12 +84,14 @@ The master key is a host-owned file.
 - gix against local bare repositories.
 - Server tests against a throwaway PostgreSQL (`KEEL_TEST_DATABASE_URL`), with a fake runner.
 - Playwright projects `us1`–`us6` against the fake backend.
-- Opt-in real-Ansible tests (`KEEL_IT_ANSIBLE=1`). See quickstart.md.
+- `keel-trust` test vectors shared by server and executor (contracts/signed-mode.md).
+- Opt-in real host tests in a systemd container (`KEEL_IT_HOST=1`). See quickstart.md.
 
-**Target Platform**: a Linux container host (server, runner and database through compose). The
-web client targets the same browsers as Depths.
+**Target Platform**: the server and database on a Linux container host through compose; host
+runners on Debian managed hosts (current stable and oldstable, amd64 and arm64) under systemd.
+The web client targets the same browsers as Depths.
 
-**Project Type**: a web service with a web UI, plus a runner service.
+**Project Type**: a web service with a web UI, plus a host agent.
 
 **Performance Goals**:
 
@@ -95,7 +113,7 @@ web client targets the same browsers as Depths.
 
 - Tens of workspaces and hundreds of bindings.
 - Inventories of up to about 5,000 hosts.
-- A handful of runners.
+- Up to a few hundred host runners, each with one SSH session.
 - Run logs are capped at 64 MiB per run.
 
 ## Constitution Check
@@ -104,18 +122,19 @@ web client targets the same browsers as Depths.
 
 | Principle | Check | Status |
 |---|---|---|
-| Scope | Constitution 1.3.0 adds Keel to the scope, the "Keel server (Linux container)" platform tier, and PostgreSQL/sqlx and ansible-core (runner image only) to the stack. | PASS |
+| Scope | Constitution 1.4.0 covers Keel, its server tier, the Keel host runner tier on Debian managed hosts, and ansible-core on managed hosts only. | PASS |
 | I. Explicit mutation | Every change is a `Preview*` followed by `Confirm`, naming the affected hosts, bindings and users. Runs show the resolved host list and the pinned commit before approval. Refusals reach the user verbatim, as code plus message. | PASS |
 | II. One contract | `keel-protocol` is defined in Rust with ts-rs bindings. The public API is the same `CmdEnvelope` over `POST /api/v1/cmd`, not a second API; this is a deliberate choice over GraphQL. Receivers and runners are separate, documented trust-boundary contracts. The domain sits in `keel-core` with ports, and gix and sqlx are adapters (sqlx used directly, per the database exception). | PASS |
 | III. Boundary tests | Round trips for every variant. Receiver signature and refusal tables. A state-machine suite. An audit-chain verify. Playwright us1–us6. Opt-in real Ansible. Each behaviour has a failing-first test. | PASS |
 | IV. Density | Run lists, deliveries and audit follow the Depths list patterns, mobile-first. The run view reuses `LogView`. | PASS |
 | V. Fast and quiet | Push-driven; polling happens only for bindings that ask for it, at their interval. No timers while idle. | PASS |
 | VI. User data | Audit is insert-only. Imports never overwrite. Runs pin inventory revisions, which are never edited in place. Volumes are never pruned by tooling. | PASS |
-| Platforms | A Linux container host, per the 1.3.0 Keel tier. No desktop tier is affected. | PASS |
+| Platforms | A Linux container host for the server and Debian hosts with systemd for runners, per the 1.4.0 Keel tiers. No desktop tier is affected. | PASS |
 
-Re-check after Phase 1: no new violations. The runner contract keeps secrets out of the server's
-logs and keeps the runner out of the database (VI). One protocol serves both the UI and the API
-(II).
+Re-check after Phase 1: no new violations. Hosts hold no database access and only their own
+secrets; the host ledger is append-only and hash-chained (VI). One protocol serves both the UI and
+the API (II); the runner channel and the host install are separate, documented trust-boundary
+contracts.
 
 ## Project Structure
 
@@ -127,10 +146,12 @@ specs/055-ansible-repo-control-plane/
 └── contracts/
     ├── protocol.md       # Cmd/Event, Preview/Confirm, public API
     ├── receivers.md      # POST /hooks/{id}: signatures, checks, decisions
-    ├── runner.md         # server ↔ runner frames, enrollment, taint
+    ├── runner.md         # SSH channel, enrollment, frames, local executor socket
+    ├── signed-mode.md    # commit check, override challenge and host verification, ledger
+    ├── host-install.md   # the keel_runner role contract for ../ansible
     ├── repo-manifest.md  # .keel/jobs.yaml
     ├── export-bundle.md  # .keelx layout, signature, import checks
-    └── config.md         # server/runner flags and env, compose
+    └── config.md         # server and host runner flags, compose
 ```
 
 ### Source Code
@@ -141,25 +162,32 @@ crates/keel-core/            # agnostic, no I/O
   src/ports.rs               # GitSource, SecretResolver, SuitePolicy, Clock
 crates/keel-protocol/        # Cmd/Event/types, ts-rs export test
 crates/keel-git/             # GitSource port + gix adapter (mirrors, pins, force-push detection)
-crates/keel-exec/            # runner frames, pinned mutual-TLS config, bundle builder/reader, keel_events parser
-crates/web-passkeys/         # extracted from apps/depths/server/src/passkeys.rs
+crates/keel-exec/            # runner frames, SSH server/client config (russh), CA and KRL, pack builder, keel_events parser
+crates/keel-trust/           # pure: commit signature range check, override challenge + verification, ledger chain
+  tests/vectors/
+crates/web-passkeys/         # extracted from apps/depths/server/src/passkeys.rs; adds pure verify_assertion
 apps/keel/server/            # binary `keel`: axum, sqlx, receivers, queue, audit, ws + /api/v1/cmd
   migrations/                # sqlx, additive only
-apps/keel/runner/            # binary `keel-runner`: connection, setpriv/uid isolation, process sweep
+apps/keel/runner/            # binaries `keel-runner` (network half) and `keel-executor` (runs Ansible as automation)
   ansible/callback/keel_events.py
+  ansible/requirements.txt   # hash-pinned ansible-core for the host venv
+  systemd/                   # reference units matching contracts/host-install.md
 apps/keel/web/               # React + Vite; features/{bindings,receivers,inventory,runs,approvals,teams,audit,migration}
   tests/e2e/us1..us6/
-apps/keel/Dockerfile         # cargo-chef; targets: server (distroless), runner (Debian slim + ansible-core), web
+apps/keel/Dockerfile         # cargo-chef; targets: server (distroless), web; runner ships as release binaries
 apps/keel/compose.yaml  .env.example
 apps/depths/server/          # uses crates/web-passkeys (no behaviour change)
-docs/guides/keel/            # install, binding a repository, approvals, runners, migration
+docs/guides/keel/            # install, binding a repository, approvals, host runners, signed mode, profiles, migration
 ```
 
 **Structure Decision**:
 
 - The domain lives in `crates/keel-core` with ports for Git, secrets, suite policy and time.
-  `keel-git` and `keel-exec` are reusable adapters. `apps/keel/server` and `apps/keel/runner` are
+  `keel-git` and `keel-exec` are reusable adapters. `keel-trust` is pure and shared by the server
+  and the executor, so both reach the same verdict. `apps/keel/server` and `apps/keel/runner` are
   thin binaries that stitch them together.
+- The `keel_runner` Ansible role lives in `../ansible`, the operator's repository. This
+  repository ships the binaries, reference units and the role contract only.
 - The server uses sqlx directly, with no repository trait, per the database exception.
 - The web app follows the Depths layout and shares `packages/*`.
 - Passkeys move into `crates/web-passkeys` so that Keel and Depths share one audited
@@ -170,8 +198,11 @@ docs/guides/keel/            # install, binding a repository, approvals, runners
 | Addition | Why | Simpler alternative rejected |
 |---|---|---|
 | PostgreSQL (new stack component) | Multi-user queue (`SKIP LOCKED`), insert-only audit enforced by grants and a trigger, transactional audit with each change | Files or SQLite: no role-level insert-only enforcement, and a weak concurrent queue for several runners. |
-| A separate runner service | Playbooks are arbitrary code. Running them away from the database, the master key and the receiver secrets contains a malicious playbook. | Running in the server process: one bad playbook reads every credential. |
-| Python and ansible-core in the runner image | Ansible is the product's engine | Reimplementing Ansible is out of scope; it stays a subprocess in its own image only. |
+| Host runners with a two-process split | Nothing holds SSH keys to the fleet; each host enforces its own policy; the network-facing half cannot run code or escalate (R1, R2). | A central runner with fleet SSH keys: one compromise reaches every host. One process on the host: a parser bug becomes root through `become`. |
+| Python and ansible-core on managed hosts | Ansible is the product's engine, and runs locally on each host | Reimplementing Ansible is out of scope. It lives in a root-owned, hash-pinned venv used only by the executor. |
+| SSH with two Keel CAs | Short-lived, self-describing runner identities; host CA rotation without touching hosts; revocation by KRL (R17). | Pinned mutual TLS: sound, but reinvents identity, rotation and revocation. The host's sshd: inbound access to every host. |
+| Signed mode with host-verified passkey overrides and a host ledger | A compromised Keel or Git account must not be able to run code on hosts (R19, R20). | Checking only in Keel: Keel becomes the whole fleet. Tip-only checks: laundering under a signed merge. |
+| `pgp` (rpgp) and `russh` | Pure Rust, permissive licenses, no `gpg` or `ssh` binaries to drive | sequoia (LGPL); shelling out to `gpg`/`ssh` with keyrings per host. |
 | `crates/web-passkeys` extraction (touches Depths) | Two copies of a WebAuthn relying party would drift, and drift there is a security bug | Copying Depths' module into Keel. |
 | `gix` | Bare mirrors, pins and ancestry checks without shelling out to `git` with credentials on the command line | The `git` CLI: credential handling through argv and environment, plus parsing its output. |
-| Ed25519 instance key; mutual TLS with pinned self-signed certificates for runners | Signed exports. A runner channel that stays confidential and authenticated even off the internal network, because bundles carry live credentials (R17). | Plaintext WebSocket plus a signed nonce: secrets readable on the network. A private CA: issuance and revocation to operate for the same assurance. |
+| Ed25519 instance key | Signed exports (R13). | Unsigned bundles: an import could be tampered with in transit. |
