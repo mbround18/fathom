@@ -11,8 +11,18 @@ publish = false
 fake = []
 
 [dependencies]
+# Binary frame fields (`Pack.chunk`, `Log.bytes`, `Krl.bytes`) travel as base64 inside JSON.
+base64 = "0.23.1"
 keel-trust = { path = "../keel-trust" }
+# The same rand_core (0.10) as the ssh-key that russh re-exports, for CA keys, nonces and serials.
+rand = "0.10.3"
+# SSH keys and certificates come from `russh::keys` (its ssh-key 0.7), so this crate uses one
+# ssh-key version.
 russh = "0.65.0"
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-ssh-key = { version = "0.6.7", features = ["ed25519", "p256"] }
+thiserror = "2.0.18"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }
+
+[dev-dependencies]
+tempfile = "3"

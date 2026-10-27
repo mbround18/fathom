@@ -5670,10 +5670,14 @@ dependencies = [
 name = "keel-exec"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "keel-trust",
+ "rand 0.10.3",
  "russh",
+ "serde",
  "serde_json",
- "ssh-key 0.6.7",
+ "tempfile",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
