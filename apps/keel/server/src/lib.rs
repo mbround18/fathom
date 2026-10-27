@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 pub mod dispatch;
 pub mod hooks;
+pub mod preview;
 pub mod queue;
 pub mod runner_listener;
 pub mod seal;
