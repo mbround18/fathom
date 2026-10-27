@@ -1,8 +1,9 @@
 # Sponsorship & Funding Policy
 
-Fathom is free and open source, and stays that way — no paid tier, no feature gating. Donations
-fund maintenance, not access, and cover infrastructure, testing clusters, and the hours spent
-building and supporting the project.
+Uwusquad (Fathom, Depths, Keel, Ballast, and the shared portal) is free and open source, and stays
+that way — no paid tier, no feature gating. Donations fund maintenance, not access, and cover
+infrastructure, test environments, security hardening, and the hours spent building and supporting
+the suite.
 
 ## Approved & Preferred Funding Platforms
 
@@ -20,4 +21,4 @@ transactional obligations.
 ## Thank You!
 
 Whether you sponsor via GitHub, drop a tip on Ko-fi, contribute code, or just star the repo —
-your support keeps Fathom alive and free.
+your support keeps the Uwusquad suite alive, secure, and free.

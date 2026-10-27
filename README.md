@@ -1,21 +1,30 @@
-# Fathom and Depths
+# Uwusquad Orchestration Suite
 
 > Orchestration companions for people who run their own infrastructure: fast, dense UIs that show you
 > what is really there and confirm every change.
 
 ![CI](https://github.com/mbround18/fathom/actions/workflows/ci.yml/badge.svg)
 
-This repository holds two apps that share a look, a set of libraries and a way of working. Each one
-manages a different kind of host. Both read your real state rather than a copy of it, preview what a
-change will do before doing it, and record who did what.
+This repository holds the **Uwusquad** suite. All apps share a visual language, common libraries, and
+the same operator-first safety model: read real state, preview before mutating, and record who did what.
 
 | App | For | Runs as | Get it |
 |---|---|---|---|
 | **[Fathom](#fathom)** | Kubernetes clusters | A desktop app (Linux), or hosted in a cluster for a team | [Install Fathom](#installing-fathom) · [Guides](docs/guides/README.md#fathom) |
 | **[Depths](#depths)** | Docker and Docker Compose hosts | One container beside the stacks it manages | [Install Depths](docs/guides/depths/install.md) · [Guides](docs/guides/depths/README.md) |
+| **Keel** *(in specification)* | Git-bound Ansible control plane and inventory provisioning | Hosted service | [Spec](specs/055-ansible-repo-control-plane/spec.md) |
+| **Ballast** *(in specification)* | Terraform/OpenTofu/Pulumi state + secrets control plane | Hosted service | [Spec](specs/056-ballast-state-secrets/spec.md) |
+| **Uwusquad Portal** *(in specification)* | Shared identity, RBAC, and cross-app workflows | Hosted service at `uwusquad.dev` | [Spec](specs/057-uwusquad-suite-portal/spec.md) |
 
-Use Fathom when your workloads run on Kubernetes. Use Depths for a machine that runs Compose stacks,
-for example one you manage with Dockge today.
+Use Fathom for Kubernetes. Use Depths for Compose hosts. Keel and Ballast are planned control planes
+that integrate through the Uwusquad portal.
+
+### Free and open source, donation-supported
+
+The suite is free and open source. There is no paid feature gate in core workflows. If you want to
+support long-term maintenance and faster delivery, see [Sponsorship & Funding](FUNDING.md).
+For suite positioning and domain layout under `uwusquad.dev`, see [Uwusquad Suite Positioning](docs/UWUSQUAD.md).
+For auth provider onboarding (Entra ID and other major providers), see [Suite Auth Providers](docs/guides/auth-providers.md).
 
 ---
 
