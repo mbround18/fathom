@@ -7,8 +7,9 @@
  * nothing are refused with the server's codes.
  *
  * It reads only a small YAML subset (`key: value` lines nested by two-space indent), enough for the
- * specs: a host is a key under a group's `hosts`, and every inventory checks one var against a
- * schema: `http_port` must be an integer.
+ * specs: a host is a key under a group's `hosts`. Its var schema understands two keywords:
+ * `properties.<var>.type` (`integer` or `string`, checked wherever the var appears) and `required`
+ * (vars every host must set). A seeded inventory's schema requires `http_port` to be an integer.
  */
 import type {
   Cmd,
@@ -37,13 +38,38 @@ interface Checked {
 interface Stored {
   info: InventoryInfo
   revisions: InventoryRevisionInfo[]
+  /** The var schema, parsed. */
+  schema: Schema | null
 }
 
+interface Schema {
+  type?: string
+  properties?: Record<string, { type?: string }>
+  required?: string[]
+}
+
+/** The schema every seeded inventory starts with. */
+export const PORT_SCHEMA: Schema = { type: 'object', properties: { http_port: { type: 'integer' } } }
+
+/** Parses a var schema as the server does, or says why it is refused. */
+function parseSchema(text: string): Schema | string {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return 'the var schema is not valid JSON'
+  }
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : 'the var schema is not a JSON object'
+}
+
+const pretty = (schema: Schema | null) => (schema === null ? null : JSON.stringify(schema, null, 2))
+
 /** Reads the YAML subset the fake understands. */
-export function check(source: string): Checked {
+export function check(source: string, schema: Schema | null = PORT_SCHEMA): Checked {
   const leaves = new Map<string, string>()
   const errors: InventoryProblem[] = []
   const hosts = new Map<string, Set<string>>()
+  const hostVars = new Map<string, Set<string>>()
   const stack: string[] = []
   source.split('\n').forEach((raw, i) => {
     const line = raw.replace(/\s+#.*$/, '')
@@ -62,14 +88,24 @@ export function check(source: string): Checked {
       const host = stack[2] ?? ''
       hosts.set(host, (hosts.get(host) ?? new Set()).add(group))
     }
+    if (depth === 3 && stack[1] === 'hosts') {
+      const host = stack[2] ?? ''
+      hostVars.set(host, (hostVars.get(host) ?? new Set()).add(stack[3] ?? ''))
+    }
     const value = (m[3] ?? '').trim()
     if (value === '' || value === '{}') return
     const number = /^-?\d+$/.test(value)
     leaves.set(path, number ? value : JSON.stringify(value))
-    if (stack[stack.length - 1] === 'http_port' && !number) {
-      errors.push({ at: path, message: 'expected integer' })
+    const type = schema?.properties?.[stack[stack.length - 1] ?? '']?.type
+    if ((type === 'integer' && !number) || (type === 'string' && number)) {
+      errors.push({ at: path, message: `expected ${type}` })
     }
   })
+  for (const host of hosts.keys()) {
+    for (const name of schema?.required ?? []) {
+      if (!hostVars.get(host)?.has(name)) errors.push({ at: `hosts.${host}`, message: `missing required var ${name}` })
+    }
+  }
   const hash = [...leaves.entries()].map(([k, v]) => `${k}=${v}`).join(';') + `|${[...hosts.keys()].join(',')}`
   return {
     leaves,
@@ -105,7 +141,7 @@ export class FakeInventories {
   }
 
   /** Adds a managed inventory with one revision per source, oldest first. */
-  seed(name: string, sources: string[]): InventoryInfo {
+  seed(name: string, sources: string[], schema: Schema | null = PORT_SCHEMA): InventoryInfo {
     const info: InventoryInfo = {
       id: this.next('inventory'),
       workspace: WORKSPACE,
@@ -117,13 +153,18 @@ export class FakeInventories {
       head_seq: null,
       head_status: null,
       host_count: 0,
-      has_schema: true,
+      has_schema: schema !== null,
       created_at: NOW,
     }
-    const s: Stored = { info, revisions: [] }
+    const s: Stored = { info, revisions: [], schema }
     this.stored.push(s)
     for (const source of sources) this.append(s, source, null)
     return info
+  }
+
+  /** The var schema of `name`. */
+  schemaOf(name: string): Schema | null | undefined {
+    return this.stored.find((s) => s.info.name === name)?.schema
   }
 
   /** The revisions of `name`, oldest first. */
@@ -132,7 +173,7 @@ export class FakeInventories {
   }
 
   private append(s: Stored, source: string, restoredFrom: number | null): void {
-    const c = check(source)
+    const c = check(source, s.schema)
     const seq = s.revisions.length + 1
     const summary: InventoryRevisionSummary = {
       seq,
@@ -163,7 +204,7 @@ export class FakeInventories {
     const revision = seq === null ? s.revisions.at(-1) : s.revisions[seq - 1]
     if (!revision) return opError('inventory_not_found', 'No such revision.')
     const history = [...s.revisions].reverse().map((r) => r.summary)
-    return [{ type: 'InventoryRevision', data: { inventory: s.info, revision, history } }]
+    return [{ type: 'InventoryRevision', data: { inventory: s.info, revision, history, var_schema: pretty(s.schema) } }]
   }
 
   private preview(action: string, summary: string, affected: string[], apply: () => Event[]): Event[] {
@@ -215,16 +256,31 @@ export class FakeInventories {
         ]
       }
       case 'ValidateInventory': {
-        const c = check(cmd.data.content)
+        const { inventory, var_schema } = cmd.data
+        let schema = inventory === null ? null : (this.find(inventory)?.schema ?? null)
+        let refused: InventoryProblem | null = null
+        if (var_schema !== undefined) {
+          const parsed = parseSchema(var_schema)
+          if (typeof parsed === 'string') {
+            refused = { at: 'schema', message: parsed }
+            schema = null
+          } else {
+            schema = parsed
+          }
+        }
+        const c = check(cmd.data.content, schema)
+        if (refused) c.errors.unshift(refused)
         return [{ type: 'InventoryValidation', data: { content_hash: c.hash, hosts: c.hosts, errors: c.errors, warnings: [] } }]
       }
       case 'PreviewInventoryCreate': {
-        const { name, content } = cmd.data
+        const { name, content, var_schema } = cmd.data
         if (this.stored.some((s) => s.info.name === name)) return opError('name_taken', 'An inventory with that name exists.')
-        const c = check(content)
+        const schema = var_schema === null ? null : parseSchema(var_schema)
+        if (typeof schema === 'string') return opError('schema_invalid', `The var schema is refused: ${schema}.`)
+        const c = check(content, schema)
         if (c.errors.length > 0) return this.invalid(c)
         return this.preview('inventory_create', `Create the managed inventory "${name}" with ${String(c.hosts.length)} host(s).`, [name], () => {
-          const info = this.seed(name, [content])
+          const info = this.seed(name, [content], schema)
           const s = this.find(info.id)
           return s ? this.revision(s, null) : []
         })
@@ -234,7 +290,7 @@ export class FakeInventories {
         if (!s) return opError('inventory_not_found', 'No such inventory.')
         const { base_seq, content } = cmd.data
         if (s.revisions.length !== base_seq) return this.revise(s, base_seq, content, null)
-        const c = check(content)
+        const c = check(content, s.schema)
         if (c.errors.length > 0) return this.invalid(c)
         if (c.hash === s.revisions.at(-1)?.summary.content_hash) {
           return opError('no_change', 'That is the same content as the newest revision.')
@@ -253,6 +309,33 @@ export class FakeInventories {
         const source = old.source
         const summary = `Restore revision ${String(cmd.data.seq)} of "${s.info.name}" as revision ${String(base + 1)}.`
         return this.preview('inventory_restore', summary, [s.info.name], () => this.revise(s, base, source, cmd.data.seq))
+      }
+      case 'PreviewInventorySchema': {
+        const s = this.find(cmd.data.inventory)
+        if (!s) return opError('inventory_not_found', 'No such inventory.')
+        if (s.info.source !== 'managed') {
+          return opError('inventory_from_repo', 'This inventory comes from a repository. Change it there; sync makes the revision.')
+        }
+        const text = cmd.data.var_schema
+        const schema = text === null ? null : parseSchema(text)
+        if (typeof schema === 'string') return opError('schema_invalid', `The var schema is refused: ${schema}.`)
+        if (JSON.stringify(schema) === JSON.stringify(s.schema)) {
+          return opError('no_change', "That is the inventory's current var schema.")
+        }
+        const head = s.revisions.at(-1)?.source
+        const c = head === undefined || head === null ? null : check(head, schema)
+        if (c && c.errors.length > 0) {
+          return opError('inventory_invalid', `The newest revision has ${String(c.errors.length)} error(s) against that schema; fix them first.`)
+        }
+        const summary =
+          schema === null
+            ? `Remove the var schema of "${s.info.name}"; its vars are no longer checked.`
+            : `Check the vars of "${s.info.name}" against the new schema from now on.`
+        return this.preview('inventory_schema', summary, [s.info.name], () => {
+          s.schema = schema
+          s.info = { ...s.info, has_schema: schema !== null }
+          return this.revision(s, null)
+        })
       }
       case 'PreviewInventoryDeprecate': {
         const s = this.find(cmd.data.inventory)

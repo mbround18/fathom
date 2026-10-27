@@ -7,6 +7,9 @@
  * slow reply never shows problems for text that has since changed. Saving, restoring and
  * deprecating are two-step, as everywhere else: a `Preview*` command answers a `Preview`, shown in
  * a confirm dialog, then `Confirm`. Inventory changes never ask for step-up.
+ *
+ * The var schema is edited the same way: `validateSchema` checks the newest revision against the
+ * draft schema (its own problems come back under `schema`), and `PreviewInventorySchema` saves it.
  */
 import { create } from 'zustand'
 
@@ -31,12 +34,21 @@ export interface Opened {
   inventory: InventoryInfo
   revision: InventoryRevisionInfo
   history: InventoryRevisionSummary[]
+  /** The inventory's var schema as pretty JSON, when it has one. */
+  var_schema: string | null
 }
 
 /** The newest check's answer, for the text it checked. */
 export interface Validation {
   text: string
   hosts: InventoryHostInfo[]
+  errors: InventoryProblem[]
+  warnings: InventoryProblem[]
+}
+
+/** The newest schema check's answer, for the draft schema it checked. */
+export interface SchemaValidation {
+  schema: string
   errors: InventoryProblem[]
   warnings: InventoryProblem[]
 }
@@ -55,6 +67,9 @@ export interface InventoryState {
   /** The text waiting for, or holding, the newest check. */
   checking: string | null
   validation: Validation | null
+  /** The draft schema waiting for, or holding, the newest schema check. */
+  checkingSchema: string | null
+  schemaValidation: SchemaValidation | null
   diff: Diff | null
   preview: Preview | null
   error: string | null
@@ -62,6 +77,8 @@ export interface InventoryState {
   /** Opens an inventory at `seq`, or its newest revision. `null` closes it. */
   open: (inventory: string | null, seq?: number | null) => void
   validate: (text: string) => void
+  /** Checks the open inventory's newest revision against a draft var schema. */
+  validateSchema: (schema: string) => void
   compare: (from: number, to: number) => void
   propose: (cmd: Cmd) => void
   confirm: () => void
@@ -72,6 +89,8 @@ export interface InventoryState {
 const mine = new Set<RequestId>()
 let latestCheck: { id: RequestId; text: string } | null = null
 let timer: ReturnType<typeof setTimeout> | null = null
+let latestSchemaCheck: { id: RequestId; schema: string } | null = null
+let schemaTimer: ReturnType<typeof setTimeout> | null = null
 
 function send(cmd: Cmd): RequestId | null {
   const id = sendCmd(cmd)
@@ -89,22 +108,24 @@ export const useInventory = create<InventoryState>()((set, get) => ({
   opened: null,
   checking: null,
   validation: null,
+  checkingSchema: null,
+  schemaValidation: null,
   diff: null,
   preview: null,
   error: null,
 
   load: (workspace) => {
     if (get().workspace !== workspace) {
-      set({ workspace, items: [], opened: null, diff: null, validation: null, checking: null })
+      set({ workspace, items: [], opened: null, diff: null, validation: null, checking: null, schemaValidation: null, checkingSchema: null })
     }
     send({ type: 'ListInventories', data: { workspace } })
   },
   open: (inventory, seq = null) => {
     if (inventory === null) {
-      set({ opened: null, diff: null, validation: null, checking: null })
+      set({ opened: null, diff: null, validation: null, checking: null, schemaValidation: null, checkingSchema: null })
       return
     }
-    if (get().opened?.inventory.id !== inventory) set({ diff: null, validation: null, checking: null })
+    if (get().opened?.inventory.id !== inventory) set({ diff: null, validation: null, checking: null, schemaValidation: null, checkingSchema: null })
     send({ type: 'GetInventoryRevision', data: { inventory, seq } })
   },
   validate: (text) => {
@@ -119,6 +140,21 @@ export const useInventory = create<InventoryState>()((set, get) => ({
         data: { workspace, content: text, inventory: opened?.inventory.id ?? null },
       })
       if (id !== null) latestCheck = { id, text }
+    }, VALIDATE_AFTER_MS)
+  },
+  validateSchema: (schema) => {
+    const { workspace, opened } = get()
+    if (schemaTimer !== null) clearTimeout(schemaTimer)
+    set({ checkingSchema: schema })
+    if (!workspace || !opened) return
+    const content = opened.revision.source ?? ''
+    schemaTimer = setTimeout(() => {
+      schemaTimer = null
+      const id = send({
+        type: 'ValidateInventory',
+        data: { workspace, content, inventory: opened.inventory.id, var_schema: schema },
+      })
+      if (id !== null) latestSchemaCheck = { id, schema }
     }, VALIDATE_AFTER_MS)
   },
   compare: (from, to) => {
@@ -173,6 +209,9 @@ onServerEvent(({ reply_to, event }) => {
     case 'InventoryValidation':
       if (latestCheck !== null && reply_to === latestCheck.id) {
         useInventory.setState({ validation: { text: latestCheck.text, ...event.data } })
+      } else if (latestSchemaCheck !== null && reply_to === latestSchemaCheck.id) {
+        const { errors, warnings } = event.data
+        useInventory.setState({ schemaValidation: { schema: latestSchemaCheck.schema, errors, warnings } })
       }
       break
     case 'Preview':

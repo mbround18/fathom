@@ -96,6 +96,11 @@ fn inventory_commands() {
             workspace: id(9),
             content: text("web:\n"),
             inventory: Some(id(1)),
+            var_schema: Some(text("{\"type\":\"object\"}")),
+        },
+        Cmd::PreviewInventorySchema {
+            inventory: id(1),
+            var_schema: None,
         },
     ];
     let names: Vec<&str> = cmds.iter().map(Cmd::name).collect();
@@ -111,6 +116,7 @@ fn inventory_commands() {
             "preview_inventory_restore",
             "preview_inventory_deprecate",
             "validate_inventory",
+            "preview_inventory_schema",
         ]
     );
     for cmd in &cmds {
@@ -136,6 +142,29 @@ fn inventory_commands() {
     }))
     .unwrap();
     assert!(matches!(cmd, Cmd::GetInventoryRevision { seq: None, .. }));
+    let cmd: Cmd = serde_json::from_value(json!({
+        "type": "ValidateInventory", "data": { "workspace": id(9), "content": "" }
+    }))
+    .unwrap();
+    assert!(matches!(
+        cmd,
+        Cmd::ValidateInventory {
+            inventory: None,
+            var_schema: None,
+            ..
+        }
+    ));
+    let cmd: Cmd = serde_json::from_value(json!({
+        "type": "PreviewInventorySchema", "data": { "inventory": id(1) }
+    }))
+    .unwrap();
+    assert!(matches!(
+        cmd,
+        Cmd::PreviewInventorySchema {
+            var_schema: None,
+            ..
+        }
+    ));
 
     // Names follow the object-name rule; oversized text is refused.
     assert!(
@@ -164,6 +193,7 @@ fn token_actions_hold_only_inventory_reads() {
         "preview_inventory_edit",
         "preview_inventory_restore",
         "preview_inventory_deprecate",
+        "preview_inventory_schema",
     ] {
         assert!(!TOKEN_ACTIONS.contains(&write), "{write}");
     }
@@ -202,8 +232,10 @@ fn inventory_events() {
             warnings: vec![],
         },
         history: vec![summary(2), summary(1)],
+        var_schema: Some("{\n  \"type\": \"object\"\n}".into()),
     });
     assert_eq!(v["data"]["revision"]["summary"]["status"], "invalid");
+    assert_eq!(v["data"]["var_schema"], "{\n  \"type\": \"object\"\n}");
 
     let v = round_trip(&Event::InventoryDiff {
         inventory: id(1),

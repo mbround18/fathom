@@ -35,6 +35,7 @@ fn revision(events: &[Event]) -> Revision {
                 inventory,
                 revision,
                 history,
+                ..
             },
         ]
         | [
@@ -43,6 +44,7 @@ fn revision(events: &[Event]) -> Revision {
                 inventory,
                 revision,
                 history,
+                ..
             },
         ] => (inventory.clone(), revision.clone(), history.clone()),
         other => panic!("expected a revision, got {other:?}"),
@@ -327,6 +329,7 @@ async fn invalid_content_is_reported_and_never_saved() {
             workspace: h.workspace,
             content: text(bad),
             inventory: Some(id),
+            var_schema: None,
         })
         .await;
     let [Event::InventoryValidation { errors, hosts, .. }] = out.as_slice() else {
@@ -356,11 +359,119 @@ async fn invalid_content_is_reported_and_never_saved() {
             workspace: h.workspace,
             content: text(bad),
             inventory: None,
+            var_schema: None,
         })
         .await;
     assert!(
         matches!(out.as_slice(), [Event::InventoryValidation { errors, .. }] if errors.is_empty()),
         "{out:?}"
+    );
+    h.finish().await;
+}
+
+/// The var schema an `InventoryRevision` (or a confirm ending in one) carries.
+fn schema_of(events: &[Event]) -> Option<String> {
+    match events {
+        [Event::InventoryRevision { var_schema, .. }]
+        | [
+            Event::Confirmed { .. },
+            Event::InventoryRevision { var_schema, .. },
+        ] => var_schema.clone(),
+        other => panic!("expected a revision, got {other:?}"),
+    }
+}
+
+fn set_schema(inventory: Uuid, schema: Option<&str>) -> Cmd {
+    Cmd::PreviewInventorySchema {
+        inventory,
+        var_schema: schema.map(text),
+    }
+}
+
+#[tokio::test]
+async fn a_managed_inventory_schema_can_be_changed_checked_and_removed() {
+    let Some(h) = Harness::new("inv_schema").await else {
+        return;
+    };
+    let id = create(&h, V1, None).await;
+    let get = || Cmd::GetInventoryRevision {
+        inventory: id,
+        seq: None,
+    };
+    assert_eq!(schema_of(&h.cmd(get()).await), None);
+
+    // The newest revision must pass a new schema before it is accepted.
+    let strict = r#"{"type":"object","properties":{"http_port":{"type":"string"}}}"#;
+    assert_eq!(
+        op_error(&h.cmd(set_schema(id, Some(strict))).await),
+        "inventory_invalid"
+    );
+    assert_eq!(
+        op_error(&h.cmd(set_schema(id, Some("[1, 2]"))).await),
+        "schema_invalid"
+    );
+    assert_eq!(
+        op_error(&h.cmd(set_schema(id, Some("{not json"))).await),
+        "schema_invalid"
+    );
+    assert_eq!(op_error(&h.cmd(set_schema(id, None)).await), "no_change");
+
+    // A draft schema is checked live, its own problems reported under `schema`.
+    let out = h
+        .cmd(Cmd::ValidateInventory {
+            workspace: h.workspace,
+            content: text(V1),
+            inventory: None,
+            var_schema: Some(text(strict)),
+        })
+        .await;
+    assert!(
+        matches!(out.as_slice(), [Event::InventoryValidation { errors, .. }]
+            if errors.iter().any(|e| e.at.contains("http_port"))),
+        "{out:?}"
+    );
+    let out = h
+        .cmd(Cmd::ValidateInventory {
+            workspace: h.workspace,
+            content: text(V1),
+            inventory: Some(id),
+            var_schema: Some(text("{not json")),
+        })
+        .await;
+    assert!(
+        matches!(out.as_slice(), [Event::InventoryValidation { errors, .. }]
+            if errors.first().is_some_and(|e| e.at == "schema")),
+        "{out:?}"
+    );
+
+    let schema = r#"{"type":"object","properties":{"http_port":{"type":"integer"}}}"#;
+    let (p, out) = h.confirm(set_schema(id, Some(schema))).await;
+    assert_eq!(p.action, "inventory_schema");
+    let stored = schema_of(&out).expect("schema in the revision event");
+    assert!(stored.contains("http_port"), "{stored}");
+    assert_eq!(schema_of(&h.cmd(get()).await), Some(stored));
+    assert_eq!(
+        op_error(&h.cmd(set_schema(id, Some(schema))).await),
+        "no_change"
+    );
+    // Later edits are checked against it.
+    let bad = "web:\n  hosts:\n    w1:\n      http_port: eighty\n";
+    assert_eq!(
+        op_error(&h.cmd(edit(id, 1, bad)).await),
+        "inventory_invalid"
+    );
+
+    let (_, out) = h.confirm(set_schema(id, None)).await;
+    assert_eq!(schema_of(&out), None);
+    let (_, out) = h.confirm(edit(id, 1, bad)).await;
+    assert_eq!(revision(&out).1.summary.seq, 2);
+    assert_eq!(
+        h.audit_actions()
+            .await
+            .iter()
+            .filter(|(a, _)| a == "inventory_schema_changed")
+            .count(),
+        2
     );
     h.finish().await;
 }
@@ -400,6 +511,10 @@ async fn a_token_may_list_inventories_but_never_edit_them() {
     };
     let out = h
         .cmd(token(&["list_inventories", "preview_inventory_edit"]))
+        .await;
+    assert_eq!(op_error(&out), "action_not_allowed");
+    let out = h
+        .cmd(token(&["list_inventories", "preview_inventory_schema"]))
         .await;
     assert_eq!(op_error(&out), "action_not_allowed");
 
@@ -522,6 +637,10 @@ async fn sync_adds_a_repo_revision_only_when_the_content_hash_changes() {
     // Repository inventories change in the repository, not in Keel.
     assert_eq!(
         op_error(&h.cmd(edit(id, 2, V2)).await),
+        "inventory_from_repo"
+    );
+    assert_eq!(
+        op_error(&h.cmd(set_schema(id, None)).await),
         "inventory_from_repo"
     );
     assert!(

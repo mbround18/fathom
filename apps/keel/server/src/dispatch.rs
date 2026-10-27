@@ -105,7 +105,8 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewInventoryEdit { .. }
         | Cmd::PreviewInventoryRestore { .. }
         | Cmd::PreviewInventoryDeprecate { .. }
-        | Cmd::ValidateInventory { .. } => Ok(()),
+        | Cmd::ValidateInventory { .. }
+        | Cmd::PreviewInventorySchema { .. } => Ok(()),
         // Passkeys belong to a person at a browser: a session, never a token.
         Cmd::GetVerification
         | Cmd::PasskeyBegin { .. }
@@ -277,7 +278,12 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
             workspace,
             content,
             inventory,
-        } => inventory::validate(app, req, workspace, content, inventory).await,
+            var_schema,
+        } => inventory::validate(app, req, workspace, content, inventory, var_schema).await,
+        Cmd::PreviewInventorySchema {
+            inventory,
+            var_schema,
+        } => inventory::preview_schema(app, req, inventory, var_schema).await,
         Cmd::Confirm {
             preview_id,
             step_up,

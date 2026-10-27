@@ -4,6 +4,9 @@
  * saving), a diff of any two revisions, and restore of an earlier one. A repository's inventory is
  * read-only here: it changes in the repository, and sync makes the revision.
  *
+ * A managed inventory's var schema (JSON Schema for each host's vars) is edited beside it, and
+ * checked against the newest revision as it is typed, since a schema it fails is refused.
+ *
  * Every change is previewed and confirmed. The editor is CodeMirror, loaded in its own chunk.
  */
 import {
@@ -181,6 +184,59 @@ function EditHead({ opened }: { opened: Opened }) {
         </Button>
         <Button size="sm" variant="outline" disabled={!edited} onClick={() => setDraft(saved)}>
           Discard changes
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Edits a managed inventory's var schema. Keyed by the stored schema, so a saved one resets it. */
+function EditSchema({ opened }: { opened: Opened }) {
+  const { inventory } = opened
+  const saved = opened.var_schema ?? ''
+  const [draft, setDraft] = useState(saved)
+  const validateSchema = useInventory((s) => s.validateSchema)
+  const checking = useInventory((s) => s.checkingSchema)
+  const validation = useInventory((s) => s.schemaValidation)
+  const propose = useInventory((s) => s.propose)
+
+  const edited = draft.trim() !== saved.trim()
+  const removing = edited && draft.trim() === ''
+  const checked = !edited || removing || (checking === draft && validation?.schema === draft)
+  const problems = edited && !removing && validation?.schema === draft ? validation : null
+  const canSave = edited && checked && (removing || (problems !== null && problems.errors.length === 0))
+
+  const change = (text: string) => {
+    setDraft(text)
+    if (text.trim() !== saved.trim() && text.trim() !== '') validateSchema(text)
+  }
+  const save = () => {
+    propose({ type: 'PreviewInventorySchema', data: { inventory: inventory.id, var_schema: removing ? null : draft } })
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Editor value={draft} onChange={change} label="Var schema JSON" />
+      <p aria-live="polite" className="text-xs text-muted-foreground" data-schema-check-state={!edited ? 'saved' : checked ? 'checked' : 'checking'}>
+        {!edited
+          ? saved === ''
+            ? 'No var schema: vars are not checked. Write a JSON Schema to check each host\'s vars.'
+            : 'The schema has no unsaved changes.'
+          : removing
+            ? 'Saving removes the schema.'
+            : checked
+              ? canSave
+                ? 'Checked: the newest revision passes this schema.'
+                : 'Fix the errors below before saving.'
+              : 'Checking…'}
+      </p>
+      {problems && <Problems errors={problems.errors} warnings={problems.warnings} label="Schema problems" />}
+      <div className="flex gap-2">
+        <Button size="sm" disabled={!canSave} onClick={save}>
+          {removing ? 'Remove schema' : 'Save schema'}
+        </Button>
+        <Button size="sm" variant="outline" disabled={!edited} onClick={() => setDraft(saved)}>
+          Discard schema changes
         </Button>
       </div>
     </div>
@@ -375,6 +431,15 @@ function Detail({ opened }: { opened: Opened }) {
         </>
       )}
 
+      <h3 className={H2}>Var schema</h3>
+      {editable ? (
+        <EditSchema key={`${inventory.id}-${opened.var_schema ?? ''}`} opened={opened} />
+      ) : opened.var_schema ? (
+        <Editor key={`${inventory.id}-schema`} value={opened.var_schema} label="Var schema JSON" readOnly />
+      ) : (
+        <p className="text-xs text-muted-foreground">No var schema: vars are not checked.</p>
+      )}
+
       <table aria-label="Hosts" className="w-full text-left text-xs">
         <thead className="text-muted-foreground">
           <tr>
@@ -403,11 +468,12 @@ function NewInventory() {
   const propose = useInventory((s) => s.propose)
   const [name, setName] = useState('')
   const [content, setContent] = useState('')
+  const [schema, setSchema] = useState('')
   const id = useId()
   const submit = (e: SyntheticEvent) => {
     e.preventDefault()
     if (!workspace) return
-    propose({ type: 'PreviewInventoryCreate', data: { workspace, name: name.trim(), content, var_schema: null } })
+    propose({ type: 'PreviewInventoryCreate', data: { workspace, name: name.trim(), content, var_schema: schema.trim() === '' ? null : schema } })
   }
   return (
     <form aria-label="New inventory" onSubmit={submit} className="flex flex-col gap-2 border border-border p-3">
@@ -415,6 +481,7 @@ function NewInventory() {
         <Input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} className="h-8 text-xs" required />
       </Field>
       <Editor value={content} onChange={setContent} label="New inventory YAML" />
+      <Editor value={schema} onChange={setSchema} label="New inventory var schema JSON (optional)" />
       <div>
         <Button size="sm" type="submit" disabled={!workspace || name.trim() === ''}>
           Preview inventory

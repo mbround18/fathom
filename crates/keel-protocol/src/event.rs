@@ -61,12 +61,15 @@ pub enum Event {
     // Inventories (US4)
     /// Reply to `ListInventories`, and after a deprecation.
     Inventories { items: Vec<InventoryInfo> },
-    /// Reply to `GetInventoryRevision`, and the result of a confirmed create, edit or restore.
+    /// Reply to `GetInventoryRevision`, and the result of a confirmed create, edit, restore or
+    /// schema change.
     /// `history` is every revision, newest first.
     InventoryRevision {
         inventory: InventoryInfo,
         revision: InventoryRevisionInfo,
         history: Vec<InventoryRevisionSummary>,
+        /// The inventory's var schema as pretty JSON, when it has one.
+        var_schema: Option<String>,
     },
     /// Reply to `DiffInventory`.
     InventoryDiff {

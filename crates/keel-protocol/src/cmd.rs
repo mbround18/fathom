@@ -241,7 +241,8 @@ pub enum Cmd {
         inventory: Uuid,
     },
     /// `InventoryValidation`: a dry run that stores nothing. With `inventory`, its var schema
-    /// applies.
+    /// applies; a draft `var_schema` (JSON text) applies instead, and its own problems are
+    /// reported under `schema`.
     ValidateInventory {
         #[ts(type = "string")]
         workspace: Uuid,
@@ -249,6 +250,19 @@ pub enum Cmd {
         #[serde(default)]
         #[ts(type = "string | null")]
         inventory: Option<Uuid>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        var_schema: Option<InventoryText>,
+    },
+    /// `Preview` of a managed inventory's var schema; `None` removes it. `OpError
+    /// {inventory_invalid}` when the newest revision fails it, `{schema_invalid}` when it is not a
+    /// JSON object, `{no_change}` when it equals the current one. `Confirm` replies
+    /// `InventoryRevision`.
+    PreviewInventorySchema {
+        #[ts(type = "string")]
+        inventory: Uuid,
+        #[serde(default)]
+        var_schema: Option<InventoryText>,
     },
     /// Carry out a `Preview`. `step_up` is required when the preview said so and the session has
     /// not verified within the step-up window. Replies `Confirmed` plus the command's own result.
@@ -431,6 +445,7 @@ impl Cmd {
             Cmd::PreviewInventoryRestore { .. } => "preview_inventory_restore",
             Cmd::PreviewInventoryDeprecate { .. } => "preview_inventory_deprecate",
             Cmd::ValidateInventory { .. } => "validate_inventory",
+            Cmd::PreviewInventorySchema { .. } => "preview_inventory_schema",
             Cmd::Confirm { .. } => "confirm",
             Cmd::GetVerification => "get_verification",
             Cmd::PasskeyBegin { .. } => "passkey_begin",
@@ -498,6 +513,7 @@ impl Cmd {
             | Cmd::PreviewInventoryRestore { .. }
             | Cmd::PreviewInventoryDeprecate { .. }
             | Cmd::ValidateInventory { .. }
+            | Cmd::PreviewInventorySchema { .. }
             | Cmd::Confirm { .. }
             | Cmd::GetVerification
             | Cmd::PasskeyBegin { .. }

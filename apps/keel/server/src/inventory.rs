@@ -232,6 +232,60 @@ fn from_repo() -> Vec<Event> {
     )
 }
 
+/// A var schema from the wire: a JSON object, or `Err` with what is wrong (`at` is `schema`).
+fn parse_schema(text: Option<&InventoryText>) -> Result<Option<Value>, &'static str> {
+    match text.map(|t| serde_json::from_str::<Value>(t.as_str())) {
+        None => Ok(None),
+        Some(Ok(v @ Value::Object(_))) => Ok(Some(v)),
+        Some(Ok(_)) => Err("the var schema is not a JSON object"),
+        Some(Err(_)) => Err("the var schema is not valid JSON"),
+    }
+}
+
+fn schema_invalid(why: &str) -> Vec<Event> {
+    op_error(
+        "schema_invalid",
+        &format!("The var schema is refused: {why}."),
+    )
+}
+
+/// The newest revision's source checked against `schema`; `None` before the first revision.
+async fn check_head(
+    conn: &mut PgConnection,
+    inventory: Uuid,
+    schema: Option<&Value>,
+) -> Result<Option<Checked>, sqlx::Error> {
+    let content: Option<(Value,)> = sqlx::query_as(
+        "select content from inventory_revisions where inventory_id = $1 \
+         order by seq desc limit 1",
+    )
+    .bind(inventory)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(content.map(|(c,)| {
+        core_inv::check_text(
+            core_inv::source_of(&c).unwrap_or_default(),
+            Format::Yaml,
+            schema,
+        )
+    }))
+}
+
+fn invalid_against(checked: &Checked) -> Vec<Event> {
+    let first = checked
+        .errors
+        .first()
+        .map(|i| format!(" First: {}: {}", i.at, i.message))
+        .unwrap_or_default();
+    op_error(
+        "inventory_invalid",
+        &format!(
+            "The newest revision has {} error(s) against that schema; fix them first.{first}",
+            checked.errors.len()
+        ),
+    )
+}
+
 fn problems(v: Value) -> Vec<InventoryProblem> {
     serde_json::from_value(v).unwrap_or_default()
 }
@@ -423,6 +477,11 @@ async fn revision_event(app: &AppState, inventory: Uuid, seq: Option<u32>) -> Ve
             return Ok(None);
         };
         let rev_id = row.0;
+        let (var_schema,): (Option<Value>,) =
+            sqlx::query_as("select var_schema from inventories where id = $1")
+                .bind(inventory)
+                .fetch_one(&app.db)
+                .await?;
         let (content, errors, warnings): (Value, Value, Value) = sqlx::query_as(
             "select content, errors, warnings from inventory_revisions where id = $1",
         )
@@ -457,6 +516,7 @@ async fn revision_event(app: &AppState, inventory: Uuid, seq: Option<u32>) -> Ve
                 warnings: problems(warnings),
             },
             history: history.into_iter().filter_map(summary).collect(),
+            var_schema: var_schema.and_then(|v| serde_json::to_string_pretty(&v).ok()),
         }))
     }
     .await;
@@ -541,9 +601,10 @@ pub async fn validate(
     workspace: Uuid,
     content: InventoryText,
     inventory: Option<Uuid>,
+    var_schema: Option<InventoryText>,
 ) -> Vec<Event> {
     const ACTION: &str = "validate_inventory";
-    let schema = match inventory {
+    let stored = match inventory {
         Some(id) => match authorized(app, req, ACTION, Capability::View, id).await {
             Ok(row) if row.workspace == workspace => row.var_schema,
             Ok(_) => return not_found("inventory"),
@@ -556,7 +617,26 @@ pub async fn validate(
             None
         }
     };
+    // A draft schema replaces the stored one; when it is unusable, the content is checked without
+    // one and the draft's problem is reported first.
+    let (schema, schema_problem) = match var_schema {
+        None => (stored, None),
+        Some(text) => match parse_schema(Some(&text)) {
+            Ok(s) => (s, None),
+            Err(why) => (None, Some(why)),
+        },
+    };
     let checked = core_inv::check_text(content.as_str(), Format::Yaml, schema.as_ref());
+    let mut errors = to_problems(&checked.errors);
+    if let Some(why) = schema_problem {
+        errors.insert(
+            0,
+            InventoryProblem {
+                at: "schema".to_owned(),
+                message: why.to_owned(),
+            },
+        );
+    }
     vec![Event::InventoryValidation {
         content_hash: checked.hash.clone(),
         hosts: checked
@@ -567,7 +647,7 @@ pub async fn validate(
                 groups: h.groups.clone(),
             })
             .collect(),
-        errors: to_problems(&checked.errors),
+        errors,
         warnings: to_problems(&checked.warnings),
     }]
 }
@@ -609,13 +689,9 @@ pub async fn preview_create(
     if let Err(e) = require(app, req, ACTION, Capability::Administer, workspace).await {
         return e;
     }
-    let schema = match var_schema
-        .as_ref()
-        .map(|s| serde_json::from_str::<Value>(s.as_str()))
-    {
-        None => None,
-        Some(Ok(v @ Value::Object(_))) => Some(v),
-        Some(_) => return op_error("schema_invalid", "The var schema is not a JSON object."),
+    let schema = match parse_schema(var_schema.as_ref()) {
+        Ok(s) => s,
+        Err(why) => return schema_invalid(why),
     };
     let checked = core_inv::check_text(content.as_str(), Format::Yaml, schema.as_ref());
     if !checked.is_valid() {
@@ -947,6 +1023,102 @@ pub async fn preview_deprecate(app: &AppState, req: &Request<'_>, inventory: Uui
         req,
         Draft {
             action: "inventory_deprecate".to_owned(),
+            summary,
+            affected: vec![row.name],
+            step_up: false,
+        },
+        op,
+    )
+}
+
+pub async fn preview_schema(
+    app: &AppState,
+    req: &Request<'_>,
+    inventory: Uuid,
+    var_schema: Option<InventoryText>,
+) -> Vec<Event> {
+    const ACTION: &str = "preview_inventory_schema";
+    let row = match authorized(app, req, ACTION, Capability::Administer, inventory).await {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    if row.source != "managed" {
+        return from_repo();
+    }
+    let schema = match parse_schema(var_schema.as_ref()) {
+        Ok(s) => s,
+        Err(why) => return schema_invalid(why),
+    };
+    if schema == row.var_schema {
+        return op_error("no_change", "That is the inventory's current var schema.");
+    }
+    let checked = async {
+        let mut conn = app.db.acquire().await?;
+        check_head(&mut conn, inventory, schema.as_ref()).await
+    }
+    .await;
+    match checked {
+        Ok(Some(c)) if !c.is_valid() => return invalid_against(&c),
+        Ok(_) => {}
+        Err(e) => return db_failed(&e),
+    }
+    let summary = if schema.is_some() {
+        format!(
+            "Check the vars of \"{}\" against the new schema from now on.",
+            row.name
+        )
+    } else {
+        format!(
+            "Remove the var schema of \"{}\"; its vars are no longer checked.",
+            row.name
+        )
+    };
+    let ws = row.workspace;
+    let ctx = channel(req);
+    let op: PendingOp = Box::new(move |app: AppState, caller: Caller| {
+        Box::pin(async move {
+            // The head may have moved since the preview: re-check it under the row lock.
+            let result: Result<Option<Checked>, sqlx::Error> = async {
+                let mut tx = app.db.begin().await?;
+                sqlx::query("select 1 from inventories where id = $1 for update")
+                    .bind(inventory)
+                    .execute(&mut *tx)
+                    .await?;
+                if let Some(c) = check_head(&mut tx, inventory, schema.as_ref()).await?
+                    && !c.is_valid()
+                {
+                    return Ok(Some(c));
+                }
+                sqlx::query("update inventories set var_schema = $2 where id = $1")
+                    .bind(inventory)
+                    .bind(&schema)
+                    .execute(&mut *tx)
+                    .await?;
+                audit_write(
+                    &mut tx,
+                    &caller,
+                    ws,
+                    "inventory_schema_changed",
+                    json!({ "inventory": inventory }),
+                    json!({ "has_schema": schema.is_some(), "request": ctx }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(None)
+            }
+            .await;
+            match result {
+                Ok(None) => revision_event(&app, inventory, None).await,
+                Ok(Some(c)) => invalid_against(&c),
+                Err(e) => db_failed(&e),
+            }
+        })
+    });
+    preview(
+        app,
+        req,
+        Draft {
+            action: "inventory_schema".to_owned(),
             summary,
             affected: vec![row.name],
             step_up: false,

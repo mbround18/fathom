@@ -68,7 +68,7 @@ test('an edit is checked as it is typed, and errors block saving', async ({ page
   await expect(detail.getByRole('heading', { name: 'Revision 3 (newest)' })).toBeVisible()
   await expect(detail.getByRole('table', { name: 'Revisions' }).getByRole('row')).toHaveCount(4)
   await expect(detail.getByRole('table', { name: 'Hosts' })).toContainText('web2')
-  await expect(detail.getByText('No unsaved changes.')).toBeVisible()
+  await expect(detail.getByText('No unsaved changes.', { exact: true })).toBeVisible()
   expect(backend.inventories.revisions('prod')).toHaveLength(3)
 })
 
