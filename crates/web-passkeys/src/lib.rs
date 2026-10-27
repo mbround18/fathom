@@ -9,7 +9,9 @@
 //! - [`verify`]: [`verify::verify_assertion`], which needs only a pinned public key, so Keel's
 //!   hosts can check override approvals without any server state.
 //! - [`cose`]: COSE_Key bytes for pinning ES256 and EdDSA keys.
+//! - [`b64`]: base64url without padding, as WebAuthn encodes ids and challenges.
 
+pub mod b64;
 pub mod ceremony;
 pub mod cose;
 pub mod recovery;

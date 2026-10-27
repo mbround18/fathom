@@ -9,8 +9,6 @@
 //! only issues random challenges, so these use the pure [`crate::verify::verify_assertion`]. The
 //! sign counter is not checked for bound assertions; their challenge is single use by construction.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use webauthn_rs::prelude::{
     AuthenticationResult, Base64UrlSafeData, CreationChallengeResponse, PasskeyAuthentication,
     PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
@@ -81,7 +79,7 @@ pub fn validate_name(name: &str, existing: &[StoredPasskey]) -> Option<String> {
 
 /// The credential id as stored: base64url without padding.
 pub fn credential_id_string(raw: &[u8]) -> String {
-    URL_SAFE_NO_PAD.encode(raw)
+    crate::b64::encode(raw)
 }
 
 impl Ceremonies {
