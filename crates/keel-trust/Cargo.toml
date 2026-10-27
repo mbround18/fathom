@@ -1,0 +1,21 @@
+[package]
+name = "keel-trust"
+version = "0.1.0"
+description = "Pure Keel trust checks: commit signatures, override challenges and verification, ledger"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Pure: no I/O. The server and the executor link the same code, so both reach the same verdict.
+[dependencies]
+# OpenPGP `gpgsig` verification (rpgp; sequoia is LGPL and not used). No compression codecs:
+# signatures are verified, messages never decompressed.
+pgp = { version = "0.21.0", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+# Canonical JSON (RFC 8785) for the override challenge and the ledger chain.
+serde_jcs = "0.2.0"
+sha2 = "0.11"
+# SSH signatures (`sshsig`, namespace `git`) and certificates.
+ssh-key = { version = "0.6.7", features = ["ed25519", "p256"] }
+# Verify-only use of the passkey assertion check (T023).
+web-passkeys = { path = "../web-passkeys" }

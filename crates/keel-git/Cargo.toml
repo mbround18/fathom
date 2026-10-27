@@ -1,0 +1,19 @@
+[package]
+name = "keel-git"
+version = "0.1.0"
+description = "Keel's GitSource adapter on gix: mirrors, pins, force-push detection, packs, diffs"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# Fetch over HTTPS with the blocking client (reqwest + rustls, the reqwest major already in the
+# lockfile). No worktree features: Keel keeps bare mirrors.
+gix = { version = "0.90.0", default-features = false, features = [
+    "sha1",
+    "revision",
+    "blob-diff",
+    "blocking-network-client",
+    "blocking-http-transport-reqwest-rust-tls",
+] }
+keel-core = { path = "../keel-core" }

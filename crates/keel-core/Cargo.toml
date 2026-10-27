@@ -1,0 +1,18 @@
+[package]
+name = "keel-core"
+version = "0.1.0"
+description = "Keel's agnostic domain: policy, runs, approvals, rollback, inventory, ports (no I/O)"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Agnostic core: no tokio, no sqlx, no gix, no filesystem or network I/O. Adapters implement the
+# ports in `ports.rs`.
+[dependencies]
+globset = "0.4.21"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11"
+thiserror = "2"
+time = { version = "0.3.55", features = ["serde"] }
+uuid = { version = "1.28.0", features = ["v7", "serde"] }

@@ -1,0 +1,20 @@
+[package]
+name = "keel-runner"
+version = "0.1.0"
+description = "Keel host runner: keel-runner (network half) and keel-executor (runs Ansible)"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "keel-runner"
+path = "src/bin/keel-runner.rs"
+
+[[bin]]
+name = "keel-executor"
+path = "src/bin/keel-executor.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive", "env"] }
+keel-exec = { path = "../../../crates/keel-exec" }
+keel-trust = { path = "../../../crates/keel-trust" }

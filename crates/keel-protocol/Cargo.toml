@@ -1,0 +1,17 @@
+[package]
+name = "keel-protocol"
+version = "0.1.0"
+description = "Keel versioned command/event protocol, defined in Rust with generated TypeScript"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Wire-only: keel-core for its types, no I/O and no app crate.
+[dependencies]
+keel-core = { path = "../keel-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+# Same features as Fathom's and depths-protocol's, so shared wire types export alike.
+ts-rs = { version = "12", features = ["serde-compat", "no-serde-warnings"] }
+
+[dev-dependencies]
+serde_json = "1.0.154"

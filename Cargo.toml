@@ -9,6 +9,8 @@ members = [
     "crates/*",
     "apps/depths/server",
     "apps/depths/volume-helper",
+    "apps/keel/server",
+    "apps/keel/runner",
 ]
 resolver = "3"
 

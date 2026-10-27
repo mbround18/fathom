@@ -1,0 +1,17 @@
+[package]
+name = "web-passkeys"
+version = "0.1.0"
+description = "Passkeys for the suite's servers: store trait, ceremonies, recovery codes, pure verify_assertion"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+ed25519-dalek = "2.2.0"
+p256 = "0.13.2"
+sha2 = "0.11"
+webauthn-rs = "0.5.5"
+
+[dev-dependencies]
+# A software passkey for ceremony tests (no hardware, deterministic).
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
