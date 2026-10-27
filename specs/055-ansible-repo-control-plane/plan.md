@@ -21,6 +21,9 @@ holds the decisions; the contracts and data model hold the shapes.
    - Ansible runs only in a separate `keel-runner` service. It has no database and no master key,
      dials out to the server, runs one job at a time under its own uid, and taints itself if
      processes survive (R1–R3, contracts/runner.md).
+   - The server ↔ runner channel is TLS 1.3 with mutual, pinned self-signed certificates.
+     Enrollment tokens carry the server fingerprint, so there is no trust-on-first-use window
+     (R17).
    - Rollback runs a rollback playbook or reapplies the last success, through the same policy (R8).
 3. **Inventory (US4).** Repository-backed or managed inventories, with immutable revisions,
    validation and diff (R9).
@@ -32,9 +35,12 @@ holds the decisions; the contracts and data model hold the shapes.
    - Credentials sealed with XChaCha20-Poly1305 under a host-owned master key (R12).
 5. **Migration (US5).** `.keelx` signed export and import, with a dry-run plan and skip or rename
    conflict choices (R13, contracts/export-bundle.md).
-6. **Standalone first.** Suite mode (057 portal, 056 Ballast secrets) plugs in through the
-   `SuitePolicy` and `SecretResolver` ports and is off by default (R12, R14). SC-008 holds with
-   no suite settings at all.
+6. **Standalone only.** Suite mode (FR-026 to FR-028) moves to a dedicated suite integration spec
+   that joins all four apps once they exist (R14). 055 keeps only the cheap seams: `origin`
+   columns, stable audit ids, and the `SuitePolicy` and `SecretResolver` ports with standalone
+   adapters. SC-008 holds trivially.
+7. **API style.** One Rust protocol with ts-rs typings for the web client and for
+   `POST /api/v1/cmd`, rather than GraphQL (R18, constitution II).
 
 ## Technical Context
 
@@ -48,6 +54,7 @@ and ansible-core (current stable), used only as a subprocess.
   - `sqlx` (postgres, runtime-tokio, macros) in the server;
   - `gix` in `keel-git`;
   - `chacha20poly1305`, `ed25519-dalek`, `hmac` and `sha2` (RustCrypto);
+  - `rustls`, `tokio-rustls` and `rcgen` for the runner channel (R17);
   - `webauthn-rs`, moved from the Depths server into `crates/web-passkeys`.
 - Web: `packages/ui`, `theme`, `branding` and `terminal` (LogView). No new web dependency.
 
@@ -134,7 +141,7 @@ crates/keel-core/            # agnostic, no I/O
   src/ports.rs               # GitSource, SecretResolver, SuitePolicy, Clock
 crates/keel-protocol/        # Cmd/Event/types, ts-rs export test
 crates/keel-git/             # GitSource port + gix adapter (mirrors, pins, force-push detection)
-crates/keel-exec/            # runner frames, bundle builder/reader, keel_events parser
+crates/keel-exec/            # runner frames, pinned mutual-TLS config, bundle builder/reader, keel_events parser
 crates/web-passkeys/         # extracted from apps/depths/server/src/passkeys.rs
 apps/keel/server/            # binary `keel`: axum, sqlx, receivers, queue, audit, ws + /api/v1/cmd
   migrations/                # sqlx, additive only
@@ -167,4 +174,4 @@ docs/guides/keel/            # install, binding a repository, approvals, runners
 | Python and ansible-core in the runner image | Ansible is the product's engine | Reimplementing Ansible is out of scope; it stays a subprocess in its own image only. |
 | `crates/web-passkeys` extraction (touches Depths) | Two copies of a WebAuthn relying party would drift, and drift there is a security bug | Copying Depths' module into Keel. |
 | `gix` | Bare mirrors, pins and ancestry checks without shelling out to `git` with credentials on the command line | The `git` CLI: credential handling through argv and environment, plus parsing its output. |
-| Ed25519 instance and runner keys | Signed exports and runner enrollment without a CA | mTLS with a private CA: more moving parts for the same pinning. |
+| Ed25519 instance key; mutual TLS with pinned self-signed certificates for runners | Signed exports. A runner channel that stays confidential and authenticated even off the internal network, because bundles carry live credentials (R17). | Plaintext WebSocket plus a signed nonce: secrets readable on the network. A private CA: issuance and revocation to operate for the same assurance. |

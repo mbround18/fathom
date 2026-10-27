@@ -147,9 +147,9 @@ As a platform admin, I can apply owner/admin/user roles, team-scoped authorizati
 - **FR-023**: System MUST support migration workflows for inventory/control data between Keel environments with provenance and integrity checks.
 - **FR-024**: System MUST preserve repository and inventory lineage in all run, rollback, and migration records.
 - **FR-025**: Keel MUST run fully standalone, with its own sign-in, authorization, approvals, and audit, and no UwU Squad portal, event transport, or shared database configured.
-- **FR-026**: Keel MAY be enrolled in the UwU Squad suite. When enrolled, it MUST follow the Standalone and Suite Mode rules of spec 057: authorization decided locally from local bindings plus the last verified suite bundle, binding origin recorded, audit forwarded with its own log as source of truth, and workflow steps accepted only through its public API.
-- **FR-027**: Keel approval policies (FR-011) MUST apply to steps invoked by suite workflows; a portal approval MUST NOT replace them.
-- **FR-028**: Keel MUST publish a scope mapping from suite scopes to its workspaces/projects when enrolled.
+- **FR-026** *(delivered by the suite integration spec; 055 keeps the seams, see research R14)*: Keel MAY be enrolled in the UwU Squad suite. When enrolled, it MUST follow the Standalone and Suite Mode rules of spec 057: authorization decided locally from local bindings plus the last verified suite bundle, binding origin recorded, audit forwarded with its own log as source of truth, and workflow steps accepted only through its public API.
+- **FR-027** *(suite integration spec)*: Keel approval policies (FR-011) MUST apply to steps invoked by suite workflows; a portal approval MUST NOT replace them.
+- **FR-028** *(suite integration spec)*: Keel MUST publish a scope mapping from suite scopes to its workspaces/projects when enrolled.
 
 ### Key Entities *(include if feature involves data)*
 

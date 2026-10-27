@@ -37,6 +37,7 @@ bare repositories. Shapes are in the contracts; this list states only what has t
 | US4 inventory | Edit a managed inventory from a stale base | `stale_base`. From the head, a new revision; a running run keeps its pinned revision. Invalid vars against the schema are refused before saving. |
 | US5 rollback | Roll back a run whose job has `rollback.playbook` | A new run, linked to the original, through the same policy. Without rollback config: `rollback_unavailable`. |
 | US5 migration | Export a workspace, import into a second instance's schema | Dry run lists conflicts. With `rename`, the import applies in one transaction, references resolve, and no credential values cross (SC-007). A tampered bundle is refused before anything is written. |
+| Runners | Enrol a runner with a token, then connect with a different server certificate; connect an unenrolled client certificate; reuse the token; revoke a live runner | Pinned fingerprint mismatch: the runner refuses. Unknown certificate: `unknown_runner`. Reused token: refused and audited. Revoke: the connection closes and its run becomes `failed (runner_lost)`. |
 | US6 teams | An operator in team A acts on team B's workspace | `Denied`, audited (SC-006). Removing a user's grant closes their open socket (`Revoked`). |
 | Standalone | Run the full `keel-server` suite with no suite settings | All pass (SC-008). |
 

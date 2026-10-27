@@ -26,18 +26,14 @@ moved from files to tables.
 
 **projects**: `id`, `workspace_id`, `slug` (unique per workspace), `name`.
 
-**teams**: `id`, `name`, `origin` (`local | suite`).
+**teams**: `id`, `name`, `origin` (`local` only in 055; `suite` arrives with the integration spec, R14).
 
 **team_members**: `team_id`, `user_id`, `origin`.
 
 **grants**: `id`, `team_id`, `workspace_id`, `role` (`viewer | operator | approver | ws_admin`),
-`origin` (`local | suite`), `bundle_version?`.
-- Suite-origin rows are written only by the suite adapter, and are read-only in the UI and the
-  protocol.
-- Effective access is the union of grants, minus any suite suspension (057 FR-039).
+`origin` (`local` in 055).
+- Effective access is the union of grants.
 - Audited.
-
-**suspensions** (suite only): `issuer`, `subject`, `bundle_version`, `until?`.
 
 **api_tokens**: `id`, `name`, `owner_user_id`, `workspace_id`, `actions text[]`, `hash`,
 `expires_at`, `last_used_at?`, `revoked_at?`.
@@ -92,9 +88,9 @@ SSH), `allow_force_push bool` (default false), `poll_interval?`, `status` (`acti
 
 **credentials**: `id`, `workspace_id`, `name` (unique per workspace), `kind`
 (`ssh_key | become_password | vault_password | env | git_token`), `sealed bytea?`,
-`wrapped_key bytea?`, `fingerprint`, `external_ref?` (`ballast:<ns>/<name>`, suite only),
-`created_by`, `rotated_at?`.
-- Exactly one of `sealed` or `external_ref` is set.
+`wrapped_key bytea?`, `fingerprint`, `created_by`, `rotated_at?`.
+- `sealed` is always set in 055. Ballast references (`external_ref`) arrive with the integration
+  spec (R14).
 - `fingerprint` is SHA-256 over the plaintext, truncated, and shown so operators can tell keys
   apart.
 - Audited, without values.
@@ -162,8 +158,15 @@ pending_approval ──approve(n of N)──▶ queued ──claim──▶ runn
 **runner_pool_workspaces**: `pool_id`, `workspace_id`.
 - A non-shared pool has exactly one workspace (R2).
 
-**runners**: `id`, `pool_id`, `name`, `key_fingerprint`, `version`, `ansible_version`,
-`state` (`idle | busy | tainted | offline`), `last_seen_at`.
+**runners**: `id`, `pool_id`, `name`, `cert_fingerprint` (SHA-256 of its TLS client certificate,
+R17), `version`, `ansible_version`, `state` (`idle | busy | tainted | offline | revoked`),
+`last_seen_at`.
+
+**runner_enrollments**: `id`, `pool_id`, `token_hash`, `expires_at`, `used_at?`, `created_by`.
+- Single-use, with a 15-minute TTL.
+
+**runner_listener**: a singleton holding the sealed TLS key, the `cert`, its `fingerprint`, and
+`previous_fingerprint?` and `previous_expires_at?` while a rotation overlaps.
 
 ## Migration
 
@@ -185,11 +188,7 @@ display name, or `system`, `receiver:<id>` or `runner:<id>`), `action`, `workspa
 - Indexed on (`at`), (`workspace_id`, `at`), (`actor`, `at`) and (`action`, `at`), so the
   searches in FR-014 are served from indexes.
 
-**audit_outbox** (suite only): `event_id`, `attempts`, `next_attempt_at`.
+## Suite (deferred)
 
-## Suite
-
-**suite_enrollment**: a singleton holding `portal_url`, `portal_key`, `contract_version`,
-`bundle_version`, `bundle_received_at`, `max_age` and `state`.
-
-**scope_mappings**: `suite_scope`, `workspace_id`, `project_id?`.
+`suspensions`, `audit_outbox`, `suite_enrollment` and `scope_mappings` belong to the suite
+integration spec (research R14). 055 creates none of them.

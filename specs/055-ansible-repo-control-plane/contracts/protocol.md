@@ -9,7 +9,7 @@ starts at version 1.
 | Path | Who | Auth |
 |---|---|---|
 | `GET /api/v1/ws` | Web client | Session cookie + CSRF on upgrade. The client sends `Hello`, then `CmdEnvelope`s, and receives `EventEnvelope`s. |
-| `POST /api/v1/cmd` | Public API: scripts and suite workflow steps (057 FR-044) | `Authorization: Bearer <api token or token-exchanged credential>`. The body is a `CmdEnvelope`, and the response is the reply events as a JSON array. Streaming commands are refused with `use_websocket`. |
+| `POST /api/v1/cmd` | Public API: scripts and, later, suite workflow steps | `Authorization: Bearer <api token>`. The body is a `CmdEnvelope`, and the response is the reply events as a JSON array. Streaming commands are refused with `use_websocket`. |
 | `GET /api/v1/audit/export` | Web client, API | As above. Returns JSON lines for the same filter as `ListAudit`. |
 
 Receivers (contracts/receivers.md) and runners (contracts/runner.md) use separate contracts.
@@ -47,7 +47,6 @@ pub struct EventEnvelope { pub reply_to: Option<u64>, pub event: Event }
 | Runners | `ListRunnerPools`, `PreviewRunnerPoolCreate/Share`, `PreviewRunnerEnroll { pool }` (on confirm, replies a one-time enrollment token), `PreviewRunnerRevoke` |
 | Migration | `PreviewExport { workspaces, include_history }` (on confirm, replies a download URL valid for 10 minutes), `PlanImport { upload_id }` (`ImportPlan` with diff and conflicts), `PreviewImport { upload_id, choices }` |
 | Audit | `ListAudit { workspace?, actor?, action?, binding?, host?, decision?, from?, to?, cursor? }` |
-| Suite | `GetSuiteStatus`, `PreviewEnroll { portal_url, code }`, `PreviewLeave` (lists the identities that would lose access), `ListScopeMappings`, `PreviewScopeMappingUpsert` |
 
 ## Events pushed without a request
 
@@ -56,7 +55,9 @@ pub struct EventEnvelope { pub reply_to: Option<u64>, pub event: Event }
 - `ApprovalRequested { run }`, to approvers of the workspace.
 - `RunnerState { runner, state }`, to admins.
 - `Revoked`: after this the server closes the socket (R11).
-- `StalePolicy { age }` (suite only), to admins.
+
+Suite commands and events are added by the suite integration spec (research R14), with a
+protocol version bump.
 
 ## Tests
 

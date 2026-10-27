@@ -1,15 +1,27 @@
 # Contract: server ↔ runner (`crates/keel-exec`)
 
-## Connection
+## Connection (research R17)
 
-- The runner connects to the server's **runner listener** (`--runner-listen`, internal network
-  only), using `GET /runner/v1/ws`.
-- **Enrollment:** the runner generates an Ed25519 key on first start, stored on its own volume. It
-  sends the key once together with the one-time enrollment token from `PreviewRunnerEnroll`.
-  The server records the key's fingerprint against the pool.
-- **Every connection:** the server sends a nonce, and the runner signs it. The runner checks the
-  server's instance key against the fingerprint pinned when it enrolled. Revoked runners are
-  refused.
+- The runner dials the server's **runner listener** (`--runner-listen`) at
+  `wss://<host>:7831/runner/v1/ws`.
+  - TLS 1.3 only, through rustls. There is no plaintext mode, and a `ws://` URL is refused at
+    start.
+- **Server authentication:** the runner accepts only a server certificate whose SHA-256
+  fingerprint it has pinned. It ignores CA chains and hostnames.
+- **Runner authentication:** the runner always presents its self-signed Ed25519 client
+  certificate, kept in `--state-dir`.
+- **Enrollment:**
+  1. `PreviewRunnerEnroll` yields `keel-enroll-v1.<secret>.<server-fingerprint>`.
+  2. The runner pins the fingerprint from the token, connects, and sends `Enroll { token }` as its
+     only frame.
+  3. The server checks the token (single-use, 15-minute TTL, stored hashed), records the client
+     certificate's fingerprint against the pool, and replies `Enrolled { runner_id }`.
+  - A wrong or used token closes the connection and is audited.
+- **Every later connection:** the client certificate must belong to a runner that is not revoked,
+  or the TLS handshake is followed by a close with `unknown_runner`. Revoking a runner closes its
+  live connection.
+- **Server certificate rotation:** `RotateServerCert { fingerprint, old_expires_at }` arrives
+  over the authenticated channel. The runner pins both fingerprints until `old_expires_at`.
 - Frames are JSON, and the message types are defined in Rust in `keel-exec`. They do not appear
   in the web protocol.
 
@@ -17,7 +29,10 @@
 
 | Direction | Frame | Notes |
 |---|---|---|
+| R → S | `Enroll { token }` | First connection only; see above. |
+| S → R | `Enrolled { runner_id }` | |
 | R → S | `Hello { runner_id, version, ansible_core, python, state }` | The server refuses `ansible_core` versions below its minimum (R3). |
+| S → R | `RotateServerCert { fingerprint, old_expires_at }` | |
 | S → R | `Assign { run_id, bundle_size, deadline }` | Sent only to an `idle` runner of a pool that serves the run's workspace. |
 | S → R | `Bundle { run_id, chunk, last }` | A tar holding `repo/` (the tree at the pinned commit), `inventory/` (rendered from the pinned revision, with `group_vars` and `host_vars`), `job.json` (playbook, limit, extra vars, timeout) and `secrets/` (credential files and `env.json`). Its SHA-256 is in the final chunk. |
 | R → S | `Started { run_id, pid_namespace_ok }` | |
@@ -30,7 +45,7 @@
 
 ## Guarantees
 
-- Secrets travel only in `Bundle`. They are never logged by either side, and they live in the
+- Secrets travel only in `Bundle`, inside the mutually authenticated TLS channel. They are never logged by either side, and they live in the
   runner's `tmpfs` only between `Assign` and `Cleaned`.
 - The server writes `run_events` and `run_log_chunks` in batches, and forwards them live to
   subscribed clients. `seq` makes a reconnecting client's `SubscribeRun { from_seq }` resume

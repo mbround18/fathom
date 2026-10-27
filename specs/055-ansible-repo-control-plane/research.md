@@ -265,8 +265,8 @@ job opts in through its manifest.
   name, kind, fingerprint and grants.
 - **Suite mode:** a credential may instead be a reference to a Ballast secret
   (`ballast:<namespace>/<name>`), resolved through Ballast's public API with a per-run scoped
-  token. This uses the `SecretResolver` port, with a `local` adapter and a `ballast` adapter. It
-  is only available when both products are enrolled.
+  token. This uses the `SecretResolver` port. 055 ships only the `local` adapter; the
+  `ballast` adapter comes with the suite integration spec (R14).
 
 ## R13. Migration between Keel instances
 
@@ -289,23 +289,27 @@ job opts in through its manifest.
     instances' ids and the bundle hash (SC-007).
   - Credentials must be re-entered, or re-pointed to Ballast, on the destination.
 
-## R14. Suite mode
+## R14. Suite mode: deferred to a suite integration spec
 
-Suite mode is built against 057's contract when that contract exists. Keel does not wait for it:
-the standalone data model already carries what suite mode needs.
-
-- Every grant has an `origin` (`local` or `suite`). Suite grants are read-only.
-- The authorizer takes local grants plus an optional `SuiteBundle` from the `SuitePolicy` port.
-  The standalone adapter returns none.
-- Audit rows have stable UUIDs, so they can later be forwarded through an outbox table with
-  at-least-once delivery.
-- The public API is the same protocol over `POST /api/v1/cmd`, with bearer tokens scoped to a
-  workspace and to actions (FR-044). Workflow-invoked runs still pass Keel's approval policy and
-  step-up (FR-027).
-- The scope mapping (FR-028) is a table from suite scope to workspace and project.
-
-When 057 is planned, the bundle verification and outbox code should be a shared crate used by all
-four products. Keel's adapter then becomes a thin wrapper around it.
+- **Decision:** 055 builds standalone Keel only. Enrolling in the suite (FR-026 to FR-028) moves
+  to a dedicated integration spec, written once all four apps exist, that joins them through
+  057's portal in one pass.
+- 055 keeps only the seams that are expensive to add later:
+  - every team, member and grant row has an `origin` column, always `local` for now;
+  - audit rows have stable UUIDv7 ids, so they can be forwarded later;
+  - `keel-core` has `SuitePolicy` and `SecretResolver` ports, and ships only their standalone
+    adapters (no suite bundle; sealed credentials only).
+- Moved to the integration spec:
+  - the `suspensions`, `audit_outbox`, `suite_enrollment` and `scope_mappings` tables;
+  - `credentials.external_ref` (Ballast references);
+  - the suite commands and events.
+- The public API (`POST /api/v1/cmd`, R18) stays in 055, because scripts need it without the
+  suite.
+- **Why:** suite contracts written against three apps that do not exist yet would be guesses.
+  The bundle verification and outbox code should be one shared crate for all four apps, and that
+  is easier to design with all four in front of you.
+- **Alternatives rejected:** building suite mode in 055 against 057's draft contract. It would be
+  rewritten when the other apps reveal what the contract actually needs.
 
 ## R15. Web client
 
@@ -323,8 +327,60 @@ four products. Keel's adapter then becomes a thin wrapper around it.
   - The server serves the web `dist` from `--static-dir` / `KEEL_STATIC_DIR`; assets are never
     embedded in the binary.
 - **Compose:** services `keel`, `keel-runner`, `keel-db` (PostgreSQL), all with
-  `restart: ${RESTART_POLICY:-no}`. The runner listener is on an internal network only.
+  `restart: ${RESTART_POLICY:-no}`. The runner listener uses mutual TLS (R17) and sits on an internal network
+  unless remote runners need it.
 - **Telemetry:** OpenTelemetry (traces for trigger to sync to run; metrics for queue depth and run
   duration). It is off unless configured, as in Depths.
-- **Runtime flags:** suite enrollment, polling and shared runner pools are runtime settings, not
-  build features.
+- **Runtime flags:** polling and shared runner pools are runtime settings, not build features.
+
+## R17. Server ↔ runner channel security
+
+- **Decision:** the runner listener speaks TLS 1.3 only, with mutual authentication by pinned,
+  self-signed certificates. There is no CA and no plaintext mode.
+  - **Server identity:** at first start the server generates a runner-listener key and a
+    self-signed certificate, kept in its data directory.
+  - **Enrollment:** the one-time enrollment token carries the server certificate's SHA-256
+    fingerprint (`keel-enroll-v1.<secret>.<fingerprint>`). A new runner pins that fingerprint
+    before it sends anything, so there is no trust-on-first-use window.
+  - **Runner identity:** the runner generates an Ed25519 key and a self-signed certificate, and
+    presents it as its TLS client certificate. The server records its fingerprint at enrollment.
+  - **Enrollment window:** a connection with an unknown client certificate may send only
+    `Enroll { token }`. Tokens are single-use, expire after 15 minutes, and are stored hashed.
+  - **Afterwards:** the server accepts only client certificates whose fingerprint belongs to a
+    runner that is not revoked. Revoking a runner closes its connection at once.
+  - **Rotation:** the server announces a new certificate over the existing channel with
+    `RotateServerCert { fingerprint }`. Runners pin both certificates until the old one expires.
+- **Why:**
+  - Run bundles carry live credentials, so the channel must be confidential even on an internal
+    network. It must also be safe when a runner pool lives on another host, close to the nodes
+    it manages.
+  - Mutual TLS gives both sides proof of identity and encryption in one step, using rustls with
+    no OpenSSL.
+  - Pinning gets the same assurance as a private CA with nothing to operate.
+- **Alternatives rejected:**
+  - Plaintext WebSocket on an internal Docker network plus a signed nonce, which was the first
+    draft. Anyone on that network could read the secrets in a bundle.
+  - A private CA with issued certificates. It adds issuance, expiry and revocation lists, which
+    pinning makes unnecessary.
+  - Encrypting each bundle to the runner's key on top of TLS. TLS 1.3 with pinned certificates on
+    both ends already covers it.
+
+## R18. API style: one Rust protocol, not GraphQL
+
+- **Decision:** keep one Rust-defined protocol (`keel-protocol`) with ts-rs bindings. The web
+  client uses it over the WebSocket, and scripts use it over `POST /api/v1/cmd`.
+- **Why:**
+  - Constitution II requires one contract per app, defined once in Rust, with types generated
+    from it. ts-rs already gives the web client end-to-end typings from that one definition:
+    the guarantee GraphQL codegen provides, without a second schema to keep in sync.
+  - Depths and Fathom use the same pattern, so Keel shares their fake-backend tests and tooling.
+  - Preview/Confirm and step-up map directly onto commands. In GraphQL they would be mutations
+    with side channels.
+  - Live run logs are already event streams over the socket. GraphQL subscriptions would add a
+    second streaming transport.
+- **Alternatives rejected:**
+  - GraphQL through `async-graphql` as the main API. It means two contracts, and constitution II
+    forbids that.
+  - A read-only GraphQL facade for integrators. This can be added later as an adapter over
+    `keel-core` if someone needs it. It is not part of 055.
+
