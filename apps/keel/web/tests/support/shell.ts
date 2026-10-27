@@ -1,10 +1,15 @@
 /**
- * Placeholder story helper (spec 055 T010): opens the shell. The fake backend replaces it in the
- * Foundational phase.
+ * Story helper: opens the signed-in shell against the fake backend. The us1–us9 placeholders use
+ * it until each story writes its own specs on the `backend` fixture (fake-backend.ts).
  */
 import { expect, type Page } from '@playwright/test'
 
-export async function openShell(page: Page): Promise<void> {
+import { FakeBackend } from './fake-backend'
+
+/** Cookies ignore the port, so the host alone is enough for the session cookie. */
+export async function openShell(page: Page, baseURL = 'http://localhost'): Promise<FakeBackend> {
+  const backend = await FakeBackend.install(page, baseURL)
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: /Keel/ })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible()
+  return backend
 }
