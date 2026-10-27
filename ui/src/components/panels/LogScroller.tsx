@@ -40,9 +40,9 @@ export interface LogScrollerProps {
   rev: number
   status: LogStreamStatus
   /** The backend's own words for a failure. */
-  error?: string
+  error?: string | undefined
   /** Why the stream closed, as the backend named it. */
-  reason?: string
+  reason?: string | undefined
   /** What is being waited for while `status` is `starting`. */
   startingLabel: string
   /** Title for the error state that replaces the pane when nothing ever arrived. */
@@ -136,8 +136,8 @@ export function StreamEndBar({
   onRestart,
 }: {
   status: LogStreamStatus
-  reason?: string
-  error?: string
+  reason?: string | undefined
+  error?: string | undefined
   onRestart: () => void
 }) {
   const failed = status === 'error'

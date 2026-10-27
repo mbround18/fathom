@@ -68,7 +68,7 @@ declare global {
 }
 
 export interface FakeTransportOptions {
-  scenario?: ScenarioName
+  scenario?: ScenarioName | undefined
   latencyMs?: number
 }
 

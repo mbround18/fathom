@@ -105,7 +105,7 @@ interface Envelope {
 
 declare global {
   interface Window {
-    __raw?: { ws: WebSocket; frames: Frame[]; closed?: number }
+    __raw?: { ws: WebSocket; frames: Frame[]; closed?: number | undefined }
   }
 }
 

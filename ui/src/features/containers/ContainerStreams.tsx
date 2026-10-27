@@ -164,7 +164,7 @@ function ContainerShellPane({ container }: { container: Container }) {
   // The client mints the session's id, so this pane knows its own stream by number and needs none
   // of the pod terminal's "newest entry since" guesswork.
   const streamIdRef = useRef(0)
-  const [status, setStatus] = useState<{ phase: TerminalPhase; reason?: string }>({
+  const [status, setStatus] = useState<{ phase: TerminalPhase; reason?: string | undefined }>({
     phase: 'attaching',
   })
 

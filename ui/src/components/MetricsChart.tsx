@@ -59,7 +59,7 @@ export function MetricsChart({
       <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 300, height }}>
         <LineChart data={points}>
           <XAxis dataKey="t" hide />
-          <YAxis width={44} tick={{ fontSize: 10 }} tickFormatter={format} />
+          <YAxis width={44} tick={{ fontSize: 10 }} {...(format ? { tickFormatter: format } : {})} />
           <Tooltip formatter={(v) => (typeof v === 'number' && format ? format(v) : String(v))} />
           <Legend wrapperStyle={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 10 }} />
           {series.map((s, i) => (

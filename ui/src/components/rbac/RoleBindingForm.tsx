@@ -45,7 +45,7 @@ type RoleRefKind = 'Role' | 'ClusterRole'
 /** Create-mode prefill, e.g. from the Role form's "Bind this role…" shortcut (042). */
 export interface RoleBindingInitial {
   name?: string
-  namespace?: string
+  namespace?: string | undefined
   roleRefKind?: 'Role' | 'ClusterRole'
   roleRefName?: string
 }

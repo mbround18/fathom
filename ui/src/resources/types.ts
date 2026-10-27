@@ -58,14 +58,14 @@ export type DetailBlock =
 
 export interface DetailContext<R, D> {
   /** The list row, when the object is still in its list. */
-  row?: R
+  row?: R | undefined
   /** The backend's read reply, once it has arrived. */
-  detail?: D
+  detail?: D | undefined
   /**
    * `RefreshRelatedResources`'s reply for this object (US3), when the descriptor's `read()`
    * requested one. `undefined` until it arrives (or if this kind never requests one).
    */
-  related?: RelatedResourceRef[]
+  related?: RelatedResourceRef[] | undefined
 }
 
 export interface DetailSection<R, D = unknown> {
@@ -135,7 +135,7 @@ export interface ActionDescriptor<R> {
   accessCheck?(row: R): {
     verb: string
     resource: string
-    group?: string
+    group?: string | undefined
     namespace?: string | null
   }
   /** The commands to send for `rows` (one per row, or one `BulkDelete`). */

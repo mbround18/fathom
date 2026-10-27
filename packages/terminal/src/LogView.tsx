@@ -63,7 +63,7 @@ export interface LogViewProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onSc
   /** Called when the operator scrolls to the very top, to fetch earlier lines. */
   onLoadOlder?: () => void
   /** The operator scrolled away from the bottom (`false`) or back to it (`true`). */
-  onFollowChange?: (follow: boolean) => void
+  onFollowChange?: ((follow: boolean) => void) | undefined
   /** Older lines dropped before the first one shown: a count, or `true` when it is unknown. */
   dropped?: DroppedCount
   /** Wording for the dropped marker. */
@@ -71,11 +71,11 @@ export interface LogViewProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onSc
   /** Shown instead of the lines, e.g. a loading or empty state. */
   placeholder?: ReactNode
   /** Show only these lines (indices into `lines`, ascending). All lines when absent. */
-  rows?: readonly number[]
+  rows?: readonly number[] | undefined
   /** Lower-cased substrings to mark in each line. */
   highlights?: readonly string[]
   /** Makes each row activatable (click, Enter, Space): "show this line in context". */
-  onActivateLine?: (line: number) => void
+  onActivateLine?: ((line: number) => void) | undefined
   /** Scroll to a line and flash it. */
   focus?: LogFocus | null
   /** Parsed-line cache; the shared one by default. */
@@ -108,11 +108,11 @@ interface RowProps {
   last: boolean
   highlights: readonly string[]
   activatable: boolean
-  onActivate?: (line: number) => void
+  onActivate?: ((line: number) => void) | undefined
   expanded: boolean
   onToggle: (line: number) => void
   flash: boolean
-  measure?: (el: Element | null) => void
+  measure?: ((el: Element | null) => void) | undefined
 }
 
 function selectionInside(el: Element): boolean {

@@ -29,7 +29,7 @@ export function AdoptionControl({
 }: {
   project: Project
   /** The selected container, when one is — its rights may differ from its group's (FR-016). */
-  container?: Container
+  container?: Container | undefined
 }) {
   const adopt = useStore((s) => s.adoptContainerProject)
   const release = useStore((s) => s.releaseContainerProject)

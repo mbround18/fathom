@@ -32,11 +32,11 @@ export interface TopologyNode {
   kind: TopologyNodeKind
   label: string
   tone: Tone
-  detail?: string
+  detail?: string | undefined
   tier: TopologyTier
   parentId?: string
-  x?: number
-  y?: number
+  x?: number | undefined
+  y?: number | undefined
   vx?: number
   vy?: number
   loading?: boolean

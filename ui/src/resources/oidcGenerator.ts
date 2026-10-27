@@ -30,19 +30,19 @@ export interface OidcFormInput {
   /** JWT claim to use as the Kubernetes groups (commonly `groups`). */
   groupsClaim: string
   /** Optional prefix prepended to the username claim value (`--oidc-username-prefix`). */
-  usernamePrefix?: string
+  usernamePrefix?: string | undefined
   /** Optional prefix prepended to each group claim value (`--oidc-groups-prefix`). */
-  groupsPrefix?: string
+  groupsPrefix?: string | undefined
   /**
    * Optional expected audience. Rendered as `--oidc-required-claim=aud=<audience>`, not a
    * dedicated audience flag (there isn't one — see the module comment).
    */
-  audience?: string
+  audience?: string | undefined
   /**
    * Optional comma-separated extra OAuth2/OIDC scopes to request when obtaining a token
    * (informational only — not a `kube-apiserver` flag; see the module comment).
    */
-  extraScopes?: string
+  extraScopes?: string | undefined
 }
 
 /**

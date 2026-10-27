@@ -13,12 +13,12 @@ import type { ListRow } from '@/store'
 
 interface DetailSectionsProps {
   descriptor: AnyDescriptor
-  row?: ListRow
+  row?: ListRow | undefined
   detail?: unknown
   /** Column ids the source list is hiding for lack of width (FR-009): shown here instead. */
-  hiddenColumns?: readonly string[]
+  hiddenColumns?: readonly string[] | undefined
   /** US3: `RefreshRelatedResources`'s reply for the current target, if it requested one. */
-  related?: RelatedResourceRef[]
+  related?: RelatedResourceRef[] | undefined
   /** T105: when set (Node/Pod/workload), a Metrics section is appended. */
   metricsTarget?: { kind: string; namespace?: string | null | undefined; name: string }
 }

@@ -17,7 +17,7 @@ export interface DanglingRoleRefOptions {
    * Names of Roles in the binding's own namespace (RoleBinding only; omit for ClusterRoleBinding).
    * `undefined` for a RoleBinding means "Roles not loaded yet".
    */
-  roleNames?: ReadonlySet<string>
+  roleNames?: ReadonlySet<string> | undefined
   /** Names of ClusterRoles cluster-wide; `undefined` = not loaded yet. */
   clusterRoleNames: ReadonlySet<string> | undefined
 }

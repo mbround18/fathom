@@ -51,7 +51,7 @@ export interface ResourceEditSession {
   liveYamlChangedSinceReview: boolean
   status: EditSessionStatus
   /** Verbatim backend error message on `'error'`/`'conflict'`/`'deleted'` (constitution I). */
-  lastError?: string
+  lastError?: string | undefined
   /** The in-flight (or last) apply's request id, for correlating a late result. */
   requestId?: number
 }

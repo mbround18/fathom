@@ -39,17 +39,17 @@ export interface SetupConnection {
 
 export interface SetupInputs {
   kubeconfig: SetupKubeconfig
-  activeContext?: string
+  activeContext?: string | undefined
   /** Connection state of `activeContext`. */
-  connection?: SetupConnection
+  connection?: SetupConnection | undefined
   /** Hosted mode never shows the setup screen. */
   hosted: boolean
   /** The context picked on the setup screen, until setup finishes or the operator goes back. */
-  pickedInSetup?: string
+  pickedInSetup?: string | undefined
   /** The sign-in step is offered and has not been skipped or finished. */
-  signInStep?: boolean
+  signInStep?: boolean | undefined
   /** "Choose another context" from a failed setup connect: back to the context list. */
-  choosing?: boolean
+  choosing?: boolean | undefined
 }
 
 /** `undefined` when the normal shell should render. */

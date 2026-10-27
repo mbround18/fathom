@@ -110,8 +110,11 @@ export function isoToLocal(iso: string | undefined): string {
   return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** A filter being edited: `undefined` clears a field. */
+export type AuditFilterDraft = { [K in keyof AuditFilter]?: AuditFilter[K] | undefined }
+
 /** Drops empty fields, so `{stack: ''}` asks for any stack. */
-export function cleanFilter(f: AuditFilter): AuditFilter {
+export function cleanFilter(f: AuditFilterDraft): AuditFilter {
   const out: AuditFilter = {}
   if (f.stack) out.stack = f.stack
   if (f.actor) out.actor = f.actor

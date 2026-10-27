@@ -17,7 +17,7 @@ export function SecurityChip({
 }: {
   level: SecurityLevel | null | undefined
   /** A container's rating, for its reasons. */
-  security?: ContainerSecurity
+  security?: ContainerSecurity | undefined
   /** Reasons given directly (a stack's chip names its worst containers). */
   reasons?: readonly string[]
 }) {

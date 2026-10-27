@@ -17,8 +17,8 @@ export interface SummaryTile {
 export interface SummaryRow {
   key: string
   primary: ReactNode
-  secondary?: ReactNode
-  tone?: 'ok' | 'warn' | 'err' | 'muted'
+  secondary?: ReactNode | undefined
+  tone?: 'ok' | 'warn' | 'err' | 'muted' | undefined
   /** When set, the row renders as a button (e.g. click-through to the generic CRD Inspector). */
   onSelect?: () => void
   testId?: string

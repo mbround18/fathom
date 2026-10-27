@@ -60,7 +60,7 @@ interface Hook {
   side_effects: string | null
 }
 
-function HookCard({ h, v }: { h: Hook; v?: HookView }) {
+function HookCard({ h, v }: { h: Hook; v?: HookView | undefined }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5" data-testid="webhook-hook">
       <span className="truncate font-mono">{h.name}</span>

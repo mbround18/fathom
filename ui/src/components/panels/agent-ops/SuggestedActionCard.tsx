@@ -34,7 +34,7 @@ export function SuggestedActionCard({
   object: AgentObjectRef
   suggestion: SuggestedAction
   /** From `AgentConversation.executed_actions`, once this suggestion has been executed. */
-  executedOutcome?: ExecutedAction['outcome']
+  executedOutcome?: ExecutedAction['outcome'] | undefined
 }) {
   const resolved = resolveSuggestedAction(suggestion)
   const [planned, setPlanned] = useState<PlannedAction | undefined>(undefined)

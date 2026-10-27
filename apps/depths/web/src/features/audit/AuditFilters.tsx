@@ -8,7 +8,7 @@ import { useState, type SyntheticEvent } from 'react'
 
 import type { AuditAction, AuditFilter } from '@/protocol/generated'
 
-import { ACTION_LABEL, ACTIONS, isoToLocal, localToIso } from './model'
+import { ACTION_LABEL, ACTIONS, cleanFilter, isoToLocal, localToIso, type AuditFilterDraft } from './model'
 
 const FIELD = 'h-7 min-w-0 border border-input bg-background px-1.5 text-xs outline-none focus:border-ring'
 
@@ -25,8 +25,8 @@ export function AuditFilters({
   const [stack, setStack] = useState(filter.stack ?? '')
   const [actor, setActor] = useState(filter.actor ?? '')
 
-  const apply = (over: Partial<AuditFilter> = {}): void => {
-    onChange({ ...filter, stack: stack.trim(), actor: actor.trim(), ...over })
+  const apply = (over: AuditFilterDraft = {}): void => {
+    onChange(cleanFilter({ ...filter, stack: stack.trim(), actor: actor.trim(), ...over }))
   }
   const submit = (e: SyntheticEvent): void => {
     e.preventDefault()

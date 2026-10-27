@@ -24,7 +24,7 @@ export type TerminalPhase = 'attaching' | 'active' | 'ended' | 'error'
 /** What the surface needs of a session, whatever kind it is. */
 export interface TerminalStream {
   status: TerminalPhase
-  reason?: string
+  reason?: string | undefined
   /** A short-lived handoff queue; xterm.js owns the rendered scrollback. */
   chunks: RingBuffer<string>
   /** Bumped on every appended chunk. */
@@ -53,8 +53,8 @@ export interface TerminalSurfaceProps {
   subscribe: (onChange: () => void) => () => void
   /** The terminal's size changed, or the session became live at this size. */
   onResize: (cols: number, rows: number) => void
-  testId?: string
-  onPhase?: (phase: TerminalPhase, reason?: string) => void
+  testId?: string | undefined
+  onPhase?: ((phase: TerminalPhase, reason?: string) => void) | undefined
 }
 
 /** Base64-encode a keystroke/paste string for an exec session's input. */

@@ -154,37 +154,37 @@ export type PaneKind = SlotConfig['kind']
 export interface PaneState {
   id: PaneId
   kind: PaneKind
-  tool?: ToolKind
-  route?: Route
+  tool?: ToolKind | undefined
+  route?: Route | undefined
   search: string
   /** List: the row key open in the inspector (inverse video). */
-  selection?: string
+  selection?: string | undefined
   scrollTop: number
   /** List: column sort; `undefined` keeps the backend's order. */
-  sort?: { id: string; desc: boolean }
+  sort?: { id: string; desc: boolean } | undefined
   /** List: the keyboard cursor's row key. */
-  focusedRow?: string
+  focusedRow?: string | undefined
   /** List: column ids the budget currently shows (the inspector lists the hidden ones, FR-009). */
-  visibleColumns?: string[]
+  visibleColumns?: string[] | undefined
   /** Inspector: the object it shows, and the list pane it was opened from. */
-  target?: ObjectRef
-  source?: PaneId
+  target?: ObjectRef | undefined
+  source?: PaneId | undefined
   /**
    * Inspector: prior `target`s drilled through via related-resource links to reach the current
    * one, oldest first (data-model.md §"Frontend: drill-down / back-stack state", research.md
    * R6). Empty when opened directly from a list row. Session-transient, never persisted.
    */
-  history?: ObjectRef[]
+  history?: ObjectRef[] | undefined
   /**
    * Inspector: the selected tab while drilling through related resources (043 FR-032: "Follow"
    * keeps the Topology tab). Cleared when the inspector is opened fresh from a list row.
    */
-  inspectorTab?: string
+  inspectorTab?: string | undefined
   /**
    * Tool (topology): last camera transform (research.md R4), mirroring how `scrollTop` persists
    * a list pane's scroll position across re-layout. `undefined` until the pane's first render.
    */
-  topology?: { scale: number; x: number; y: number }
+  topology?: { scale: number; x: number; y: number } | undefined
 }
 
 /** data-model.md §4: starting → ready → backend-gone (fatal; retry = app restart). */
@@ -231,7 +231,7 @@ export interface SessionState {
   /** Kubeconfig context names. Empty with `contextsLoaded` means no kubeconfig. */
   contexts: string[]
   contextsLoaded: boolean
-  activeContext?: string
+  activeContext?: string | undefined
   namespaces: string[]
   /** `null` means all namespaces. */
   activeNamespace: string | null
@@ -286,7 +286,7 @@ export interface SessionState {
   federation: FederationSlice
   /** 031: the identity cannot list namespaces; `namespaces` holds only the ones it reaches
    * (the kubeconfig context's plus any typed into the picker). */
-  namespacesRestricted?: boolean
+  namespacesRestricted?: boolean | undefined
 }
 
 type RowOf<T> = T extends readonly (infer R)[] ? R : T extends { events: (infer E)[] } ? E : never
@@ -301,9 +301,9 @@ export interface ListState {
   total?: number
   latestRequest?: number
   status: 'idle' | 'loading' | 'ready' | 'error'
-  error?: string
+  error?: string | undefined
   /** 031: the error is an RBAC denial; the pane shows "Not permitted" rather than an error. */
-  forbidden?: boolean
+  forbidden?: boolean | undefined
   updatedAt: number
 }
 
@@ -338,7 +338,7 @@ type GenericReadEvent = Exclude<
 /** 024-pod-exec-terminal: result of a `CheckPodExecAccess` pre-check. */
 export interface ExecAccessCheckState {
   allowed: boolean
-  reason?: string
+  reason?: string | undefined
   /** Bumped on every reply so a repeat check for the same key is observable. */
   rev: number
 }
@@ -375,22 +375,22 @@ export interface LogStreamState {
   kind: 'logs'
   target: LogStreamTarget
   /** The view that started it (`startPodLogs`'s `owner`). */
-  owner?: string
+  owner?: string | undefined
   lines: RingBuffer<string>
   /** Bumped on every append; the buffer itself is mutated in place. */
   rev: number
   follow: boolean
   status: 'starting' | 'streaming' | 'closed' | 'error'
-  reason?: string
-  error?: string
+  reason?: string | undefined
+  error?: string | undefined
 }
 
 export interface ExecStreamState {
   kind: 'exec'
   status: 'attaching' | 'active' | 'ended' | 'error'
-  reason?: string
+  reason?: string | undefined
   /** Chosen container, for display. */
-  container?: string
+  container?: string | undefined
   /**
    * Decoded output chunks, bounded like `LogStreamState.lines` (constitution Principle V) —
    * xterm.js owns the *rendered* scrollback (research.md R5), this is only a short-lived
@@ -417,15 +417,15 @@ export interface ContainerLogStreamState {
   kind: 'container-logs'
   containerId: string
   /** The view that started it, so it can find its stream again without holding the id. */
-  owner?: string
+  owner?: string | undefined
   lines: RingBuffer<string>
   /** Bumped on every append; the buffer itself is mutated in place. */
   rev: number
   /** True once the backend has said it dropped earlier output. */
   truncated: boolean
   status: 'starting' | 'streaming' | 'closed' | 'error'
-  reason?: string
-  error?: string
+  reason?: string | undefined
+  error?: string | undefined
 }
 
 /**
@@ -444,7 +444,7 @@ export interface ContainerSessionState {
   rev: number
   status: 'attaching' | 'active' | 'ended' | 'error'
   /** The backend's verbatim reason, shown as it was said (FR-004). */
-  reason?: string
+  reason?: string | undefined
 }
 
 export interface TunnelState {
@@ -521,7 +521,7 @@ export interface NodeAction {
   nodeName: string
   kind: 'cordon' | 'uncordon' | 'drain' | 'taint-add' | 'taint-remove'
   status: 'confirming' | 'in-progress' | 'complete' | 'cancelled' | 'failed'
-  error?: string
+  error?: string | undefined
   taint?: { key: string; value?: string; effect: string }
   drain?: DrainProgress
   /** The `DrainNode`/`CancelDrainNode` command's request id, stringified (drain only). */
@@ -601,7 +601,7 @@ export interface NodeShellSession {
   node: string
   namespace: string
   pod: string
-  detail?: string
+  detail?: string | undefined
   leftover: boolean
 }
 
@@ -626,8 +626,8 @@ export interface NodeShellState {
 export interface TeamState {
   clusterSettings?: ClusterSettings
   clusterSettingsContext?: string
-  clusterSettingsError?: string
-  orgAvailable?: OrgClusterSettings
+  clusterSettingsError?: string | undefined
+  orgAvailable?: OrgClusterSettings | undefined
   storeStatus?: TeamStoreStatus
   adopted: AdoptedConnectionProfile[]
   available: ConnectionProfile[]
@@ -689,17 +689,17 @@ export interface KindOperation {
   clusterName: string
   kind: 'create' | 'delete'
   /** Latest stage line from kind's own output. */
-  stage?: string
+  stage?: string | undefined
   status: 'in-progress' | 'complete' | 'failed' | 'cancelled'
-  error?: string
+  error?: string | undefined
 }
 
 /** 030-kind-cluster-provisioning: state behind the Local Clusters panel. */
 export interface KindState {
   /** `undefined` until the first `KindPrerequisitesUpdated`. */
-  prerequisites?: KindPrerequisites
+  prerequisites?: KindPrerequisites | undefined
   /** `undefined` until the first `KindClustersUpdated`. */
-  clusters?: KindClusterSummary[]
+  clusters?: KindClusterSummary[] | undefined
   operations: Record<string, KindOperation>
 }
 
@@ -749,7 +749,7 @@ export interface ContainerRuntimeState {
   /** The last inventory, kept across a runtime that goes away so `stale` has something to mark. */
   inventory?: ContainerInventory
   /** The backend's verbatim reason the inventory could not be refreshed (FR-003). */
-  stale?: string
+  stale?: string | undefined
   /** Projects the operator has adopted; everything else is read-only (FR-012). */
   adopted: string[]
   /** True when the grant record could not be read, so refusals are explained honestly. */
@@ -757,7 +757,7 @@ export interface ContainerRuntimeState {
   /** Containers backing each local cluster, both directions of the cross-link. */
   clusterLinks: ClusterLink[]
   /** The mutation in flight, if any. See `ContainerOperation` for why there is only ever one. */
-  operation?: ContainerOperation
+  operation?: ContainerOperation | undefined
   /** US6: what the containers currently on screen are using, for as long as they are (FR-045). */
   usage: ContainerUsageState
 }
@@ -840,12 +840,12 @@ export interface LayoutState {
    * first page is in — so the list never waits for the relevance scan (SC-003) and no wrong item
    * is ever flashed. Any operator action that supersedes it clears it. Never persisted.
    */
-  pendingAutoOpen?: { paneId: PaneId; route: Route }
+  pendingAutoOpen?: { paneId: PaneId; route: Route } | undefined
   /**
    * 044: the step the auto-open filled, marked `data-auto-open` until the operator clicks anywhere
    * in the cascade (contract "Slots and test ids").
    */
-  autoOpened?: PaneId
+  autoOpened?: PaneId | undefined
   /** Dock panes, one per allowed dock tool (`dockTabs(dock, true)`); the dock picks by tool. */
   dockPanes: PaneId[]
   /**
@@ -1015,7 +1015,7 @@ export interface StoreData {
   /** Actions awaiting a result, by request id. */
   pending: Record<number, PendingAction>
   /** The action dialog on screen, if any. */
-  actionPrompt?: ActionPrompt
+  actionPrompt?: ActionPrompt | undefined
   ui: UiConfig
   prefs: PrefsState
   /** 031-hosted-server-mode: shell mode, signed-in identity, limits and terminal states. */

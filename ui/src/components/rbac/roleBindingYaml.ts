@@ -20,7 +20,7 @@ export interface RoleBindingManifestInput {
   roleRefName: string
   subjects: readonly RoleBindingSubjectInput[]
   /** Optional `metadata.labels` (create mode). Omitted from the manifest when empty. */
-  labels?: Readonly<Record<string, string>>
+  labels?: Readonly<Record<string, string>> | undefined
 }
 
 /** A label key: optional DNS-subdomain prefix + `/`, then a 1-63 char name (k8s rules). */

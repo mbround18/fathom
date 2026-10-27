@@ -9,7 +9,7 @@ export interface AuditLogFilter {
   outcome: 'all' | 'success' | 'failure'
   context: string | null
   /** Inclusive bounds, epoch milliseconds. */
-  timeRange: { from?: number; to?: number }
+  timeRange: { from?: number | undefined; to?: number | undefined }
   searchText: string
   /** Actor username (hosted server only); null = any. */
   actor: string | null

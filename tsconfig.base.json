@@ -17,6 +17,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
-    "noImplicitReturns": true
+    "noImplicitReturns": true,
+    "exactOptionalPropertyTypes": true
   }
 }

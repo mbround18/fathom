@@ -47,13 +47,14 @@ export default defineConfig({
         ? { launchOptions: { args: [`--host-resolver-rules=MAP *.localtest.me ${ip}`] } }
         : {}),
   },
-  webServer:
-    webkit && ip
-      ? {
+  ...(webkit && ip
+    ? {
+        webServer: {
           command: 'node tests/hosted/resolve-proxy.mjs',
           port: proxyPort,
           reuseExistingServer: false,
-        }
-      : undefined,
+        },
+      }
+    : {}),
   projects: [{ name: `${webkit ? 'webkit' : 'chromium'}-${provider}` }],
 })

@@ -51,8 +51,8 @@ export function maxStreamId(streams: Record<number, unknown>): number {
 
 export interface TerminalSurfaceProps {
   transport: TerminalTransport
-  testId?: string
-  onPhase?: (phase: TerminalPhase, reason?: string) => void
+  testId?: string | undefined
+  onPhase?: ((phase: TerminalPhase, reason?: string) => void) | undefined
 }
 
 /** A store-backed transport on the package surface. */

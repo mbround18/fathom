@@ -16,7 +16,7 @@ import { listKey, useStore } from '@/store'
 export interface DanglingRoleRefBadgeProps {
   roleRef: string
   /** The binding's own namespace (RoleBinding) — omit/null for a ClusterRoleBinding. */
-  namespace?: string | null
+  namespace?: string | null | undefined
 }
 
 /**

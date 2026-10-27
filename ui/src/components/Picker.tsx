@@ -36,7 +36,7 @@ interface PickerProps {
   placeholder?: string
   disabled?: boolean
   onChange: (value: string) => void
-  className?: string
+  className?: string | undefined
   /**
    * 031: offer "Use <label> “typed”" for a value missing from `options` (a namespace the
    * identity reaches but cannot list). `validate` gates what may be typed. Always searchable.

@@ -30,9 +30,9 @@ export function PortForwardActionsPanel({
   namespace: string
   name: string
   /** Declared ports for a Pod target (`PodDetails.ports`), when `kind === 'Pod'`. */
-  containerPorts?: readonly ContainerPort[]
+  containerPorts?: readonly ContainerPort[] | undefined
   /** Declared ports for a Service target (`ServiceDetails.ports`), when `kind === 'Service'`. */
-  servicePorts?: readonly ServicePort[]
+  servicePorts?: readonly ServicePort[] | undefined
 }) {
   const [manualPort, setManualPort] = useState('')
   const [dialogTarget, setDialogTarget] = useState<ForwardTarget | undefined>(undefined)

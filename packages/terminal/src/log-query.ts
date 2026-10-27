@@ -172,7 +172,7 @@ export interface FilterOptions {
   /** Level facet: when non-empty, only these levels pass. */
   facet?: ReadonlySet<LogLevel>
   /** Another narrowing the caller applies (a time window), by line index. */
-  extra?: (index: number) => boolean
+  extra?: ((index: number) => boolean) | undefined
   cache: LineCache
 }
 

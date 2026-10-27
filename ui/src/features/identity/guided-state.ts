@@ -33,11 +33,11 @@ export interface GuidedDraft {
   step: GuidedStep
   config: OidcIssuerConfig
   /** What the provider's discovery document declared. Evidence, never stored. */
-  discovery?: Discovery
+  discovery?: Discovery | undefined
   /** What one test sign-in proved. Evidence, never stored, carries no token material. */
-  signIn?: DraftSignInResult
+  signIn?: DraftSignInResult | undefined
   /** The API server's own authentication configuration beside this draft. */
-  comparison?: ApiServerAuthComparison
+  comparison?: ApiServerAuthComparison | undefined
   roleMap: FathomRoleMap
   origin: IssuerOrigin
   /**

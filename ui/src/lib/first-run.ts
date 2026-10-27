@@ -19,9 +19,9 @@ export type FirstRun =
 export interface FirstRunInputs {
   contextsLoaded: boolean
   contextCount: number
-  activeContext?: string
-  issue?: KubeconfigIssue
-  problem?: ConnectionProblem
+  activeContext?: string | undefined
+  issue?: KubeconfigIssue | undefined
+  problem?: ConnectionProblem | undefined
 }
 
 /** `undefined` when the pane should render normally. */
@@ -126,7 +126,7 @@ export function connectionProblemCopy(context: string, problem: ConnectionProble
 }
 
 export interface ReloadResult {
-  issue?: KubeconfigIssue
+  issue?: KubeconfigIssue | undefined
   /** `KubeconfigStatus.paths`: the files read, or the paths the issue is about. */
   paths: readonly string[]
   contextCount: number

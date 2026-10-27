@@ -37,7 +37,7 @@ async function call(method: string, path: string, body?: unknown) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const json = (await res.json()) as { value: unknown }
   if (!res.ok) throw new Error(`${method} ${path}: ${JSON.stringify(json.value)}`)

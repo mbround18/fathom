@@ -87,9 +87,9 @@ export interface GuidedIssuerPathProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Pre-filled for an existing issuer's "Review…"; absent for "Add issuer…" (FR-016). */
-  issuer?: OidcIssuerConfig
+  issuer?: OidcIssuerConfig | undefined
   /** `SeededFromEnvironment` opens the path read-only and names where it is changed (FR-032). */
-  origin?: IssuerOrigin
+  origin?: IssuerOrigin | undefined
 }
 
 export function GuidedIssuerPath({ open, onOpenChange, issuer, origin }: GuidedIssuerPathProps) {
@@ -530,7 +530,7 @@ function Field({
   onChange: (v: string) => void
   placeholder?: string
   hint?: string
-  disabled?: boolean
+  disabled?: boolean | undefined
   onBlur?: () => void
 }) {
   return (

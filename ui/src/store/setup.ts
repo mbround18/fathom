@@ -9,21 +9,21 @@ import type { StoreData } from './index'
 
 export interface SetupFlow {
   /** The context picked on the setup screen, until setup finishes. */
-  picked?: string
+  picked?: string | undefined
   /** The optional sign-in step is showing. */
-  signInStep?: boolean
+  signInStep?: boolean | undefined
   /** The sign-in step was skipped or finished for this pick (a 401 no longer re-offers it). */
-  signInDone?: boolean
+  signInDone?: boolean | undefined
   /** "Choose another context" after a failed connect: the context list is back. */
-  choosing?: boolean
+  choosing?: boolean | undefined
   /**
    * A page opened while the setup screen shows (for example from the header Settings menu).
    * A clusterless page replaces the setup screen with "Back to setup"; any other section
    * leaves the setup screen in place.
    */
-  detour?: { paneId: string; section: SectionKey }
+  detour?: { paneId: string; section: SectionKey } | undefined
   /** The remembered context was considered once both the UI config and contexts arrived. */
-  startupTried?: boolean
+  startupTried?: boolean | undefined
 }
 
 export const INITIAL_SETUP: SetupFlow = {}

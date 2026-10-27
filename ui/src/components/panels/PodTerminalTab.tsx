@@ -106,7 +106,7 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
     return () => clearTimeout(t)
   }, [gate, runKey])
 
-  const [status, setStatus] = useState<{ phase: TerminalPhase; reason?: string }>({
+  const [status, setStatus] = useState<{ phase: TerminalPhase; reason?: string | undefined }>({
     phase: 'attaching',
   })
   const open = gate === 'open' && canExec.status === 'allowed'

@@ -35,7 +35,7 @@ export function OpenStats({ target, label }: { target: StatsTarget; label: strin
  * why, when the container's rating keeps its shell from this person (051 FR-005); it stays
  * focusable so the reason can be read. The server re-checks the container at open either way.
  */
-export function OpenShell({ container, security }: { container: string; security?: ContainerSecurity }) {
+export function OpenShell({ container, security }: { container: string; security?: ContainerSecurity | undefined }) {
   const shellOn = useSession((s) => s.me?.features.shell ?? false)
   const role = useSession((s) => s.me?.role)
   const openTab = useTabs((s) => s.openTab)

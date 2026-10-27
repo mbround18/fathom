@@ -699,7 +699,7 @@ export const sessionClosed = (stream_id: number, error: string | null) =>
  * pass while mishandling what the backend actually sends.
  */
 export const logStreamClosed = (stream_id: number, reason = 'ended', error?: string) =>
-  ev({ type: 'StreamClosed', data: { stream_id, reason, error } })
+  ev({ type: 'StreamClosed', data: { stream_id, reason, ...(error === undefined ? {} : { error }) } })
 
 // ---------------------------------------------------------------------------
 // The scripted backend

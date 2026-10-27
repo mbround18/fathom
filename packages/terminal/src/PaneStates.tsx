@@ -87,7 +87,7 @@ export function ErrorState({
 }: {
   title?: string
   detail?: ReactNode
-  onRetry?: () => void
+  onRetry?: (() => void) | undefined
 }) {
   return (
     <StateFrame
@@ -138,7 +138,7 @@ export function NoLongerExists({ name }: { name?: string }) {
  * 031: the identity's RBAC does not allow reading this section (the API server answered 403).
  * Not an error: nothing is broken and retrying will not help, so no Retry button.
  */
-export function NotPermitted({ what, detail }: { what?: string; detail?: ReactNode }) {
+export function NotPermitted({ what, detail }: { what?: string | undefined; detail?: ReactNode }) {
   return (
     <StateFrame
       kind="not-permitted"

@@ -35,7 +35,7 @@ const ESTIMATED_ROW_PX = 56
 const OVERSCAN = 10
 
 /** `selected` marks the stack shown beside the list when it is a sidebar. */
-export function StackList({ selected }: { selected?: string } = {}) {
+export function StackList({ selected }: { selected?: string | undefined } = {}) {
   const list = useStacks((s) => s.list)
   const runtimeError = useStacks((s) => s.runtimeError)
   const listDenied = useStacks((s) => s.listDenied)

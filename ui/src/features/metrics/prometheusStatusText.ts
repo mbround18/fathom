@@ -39,7 +39,7 @@ const SUMMARY_MAX = 160
  * long, multi-line or HTML message (an older backend, or an unexpected error path) so a raw
  * response body is never rendered inline.
  */
-export function splitPrometheusStatus(test: PrometheusTest): { summary: string; detail?: string } {
+export function splitPrometheusStatus(test: PrometheusTest): { summary: string; detail?: string | undefined } {
   const message = test.message
   const firstLine = message.split(/\r?\n/, 1)[0] ?? ''
   const stripped = firstLine

@@ -18,7 +18,7 @@ import { PortForwardPortField } from './PortForwardPortField'
 export interface ForwardTarget {
   namespace: string
   pod: string
-  container?: string
+  container?: string | undefined
   /** The target/remote port to forward to. */
   remotePort: number
   /** Set when this target was resolved from a Service inspector (US1 Scenario 2). */

@@ -14,11 +14,13 @@ const STORIES = ['shell', 'us1-stacks', 'us2-lifecycle', 'us3-edit', 'us4-tabs',
 const PORT = Number(process.env.DEPTHS_E2E_PORT ?? 4183)
 const ORIGIN = `http://localhost:${String(PORT)}`
 
+const workers = autoWorkers()
+
 export default defineConfig({
   fullyParallel: true,
   // Sized from the machine's current load and free memory (CLAUDE.md: one shared box);
   // `PLAYWRIGHT_WORKERS=<n>` overrides.
-  workers: autoWorkers(),
+  ...(workers === undefined ? {} : { workers }),
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: [['list'], ...(process.env.CI ? [['html', { open: 'never' }] as const] : [])],

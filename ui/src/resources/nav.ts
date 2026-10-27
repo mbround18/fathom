@@ -23,7 +23,7 @@ export interface NavVisibilityContext {
    * hides the group the same way `'absent'` does — the difference is that `undefined` will
    * change, and it must not be guessed at in the meantime (FR-002).
    */
-  runtime?: RuntimePresenceState
+  runtime?: RuntimePresenceState | undefined
 }
 
 export interface NavEntry {

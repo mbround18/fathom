@@ -99,13 +99,15 @@ const FUNCTIONAL_PROJECTS = ENGINES.flatMap(({ engine, device }) =>
   })),
 )
 
+const workers = autoWorkers()
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
   // Sized from the machine's current load and free memory rather than Playwright's default of
   // half the cores, which on a 32-core box is 16 browsers and enough to make the desktop crawl
   // while another agent is building. `PLAYWRIGHT_WORKERS=<n>` overrides.
-  workers: autoWorkers(),
+  ...(workers === undefined ? {} : { workers }),
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: [

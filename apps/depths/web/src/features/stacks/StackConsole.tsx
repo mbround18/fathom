@@ -27,7 +27,7 @@ export interface ConsoleSource {
   /** The container, when it is one (a shell and its stats need one). */
   container: string | null
   /** The container's rating, when it is one and it is known (051). */
-  security?: ContainerSecurity
+  security?: ContainerSecurity | undefined
 }
 
 /** The console body's id, which the source tabs above it control. */

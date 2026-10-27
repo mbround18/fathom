@@ -39,7 +39,7 @@ function owned(field: string | null): boolean {
   return field === DISPLAY_NAME_FIELD || (field !== null && field.startsWith(LABEL_FIELD_PREFIX))
 }
 
-export function FleetMemberEditor({ context, member }: { context: string; member?: FleetMember }) {
+export function FleetMemberEditor({ context, member }: { context: string; member?: FleetMember | undefined }) {
   const send = useStore((s) => s.send)
   const rejection = useStore((s) => s.session.fleetRejection)
   const adoptedDefinitions = useStore((s) => s.session.fleetAdopted)
