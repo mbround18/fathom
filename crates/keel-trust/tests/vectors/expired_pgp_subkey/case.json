@@ -1,0 +1,41 @@
+{
+  "description": "Signed by a trusted key's subkey that had expired at the committer time.",
+  "ledger": "{\"at\":\"2025-12-31T23:00:00Z\",\"auth\":{\"approvals\":[\"YWxpY2UtY3JlZGVudGlhbA\"],\"approvers\":[\"alice\"],\"kind\":\"baseline\"},\"base\":null,\"event\":\"start\",\"hash\":\"557b1fb6a77b5100824bcc8acda2eee55cf7bea8cc37207e46364f207da8568a\",\"job\":\"web-deploy\",\"prev\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"run\":\"5e5e5e5e-0000-4000-8000-000000000000\",\"seq\":1,\"target\":\"0f4269b296843c661051f422721eacddf529e3fb\"}\n{\"at\":\"2025-12-31T23:10:00Z\",\"event\":\"end\",\"exit\":0,\"hash\":\"78047d077728762a30fae1b02d307ebae3ed56f93dad228e338a4901c983caf5\",\"job\":\"web-deploy\",\"outcome\":\"succeeded\",\"prev\":\"557b1fb6a77b5100824bcc8acda2eee55cf7bea8cc37207e46364f207da8568a\",\"run\":\"5e5e5e5e-0000-4000-8000-000000000000\",\"seq\":2}\n",
+  "assumed_base": "0f4269b296843c661051f422721eacddf529e3fb",
+  "target": "b508bb5c70805b4259809ffd843955c1948b738d",
+  "run": {
+    "workspace": "0b7f1c2e-3d4a-4b5c-8d6e-7f8091a2b3c4",
+    "binding": "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+    "run": "5e5e5e5e-0000-4000-8000-000000000006",
+    "job": "web-deploy",
+    "assign_quorum": 0
+  },
+  "policy": {
+    "origin": "https://keel.example.test",
+    "rp_id": "keel.example.test",
+    "override_quorum": 1,
+    "max_override_age_secs": 86400,
+    "inventory_name": "web-1"
+  },
+  "approvals": [],
+  "now": 1767312000,
+  "expect_check": {
+    "failures": [
+      {
+        "commit": "b508bb5c70805b4259809ffd843955c1948b738d",
+        "problem": "expired"
+      }
+    ],
+    "reason": "unsigned",
+    "verdict": "needs_override"
+  },
+  "expect": {
+    "failures": [
+      {
+        "commit": "b508bb5c70805b4259809ffd843955c1948b738d",
+        "problem": "expired"
+      }
+    ],
+    "refused": "unsigned"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "description": "First run on a host: a baseline approval authorizes it.",
+  "ledger": "",
+  "assumed_base": null,
+  "target": "0c35e61ea3f72e3fef7337f5672874c892f7a050",
+  "run": {
+    "workspace": "0b7f1c2e-3d4a-4b5c-8d6e-7f8091a2b3c4",
+    "binding": "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+    "run": "5e5e5e5e-0000-4000-8000-00000000000a",
+    "job": "web-deploy",
+    "assign_quorum": 0
+  },
+  "policy": {
+    "origin": "https://keel.example.test",
+    "rp_id": "keel.example.test",
+    "override_quorum": 1,
+    "max_override_age_secs": 86400,
+    "inventory_name": "web-1"
+  },
+  "approvals": [
+    {
+      "kind": "baseline",
+      "approver": "alice",
+      "credential_id": "YWxpY2UtY3JlZGVudGlhbA",
+      "authenticator_data": "izIstf7tpMyhmCIn5O9S_N8lDn9xh4EFguarfb7nufwFAAAABw",
+      "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiTnBEY05IdldULWowN3RPUXpGbG1LSG94REtqbmxwRlRLWjB5WldsV295USIsIm9yaWdpbiI6Imh0dHBzOi8va2VlbC5leGFtcGxlLnRlc3QiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+      "signature": "MEUCIHsgT1IxP2OTyRMWNp5VgTOoK5JhYDZs62soUaPArcewAiEAodQ2r6mWzRbWI1kxjz6C4_s9uP6Hj6NZJ6iBASrIQsg",
+      "expires_at": "2026-01-02T01:00:00Z",
+      "comment": "vector",
+      "hosts": [
+        "web-1"
+      ]
+    }
+  ],
+  "now": 1767312000,
+  "expect_check": {
+    "failures": [],
+    "reason": "baseline",
+    "verdict": "needs_override"
+  },
+  "expect": {
+    "authorized": {
+      "approvals": [
+        "YWxpY2UtY3JlZGVudGlhbA"
+      ],
+      "approvers": [
+        "alice"
+      ],
+      "kind": "baseline"
+    }
+  }
+}

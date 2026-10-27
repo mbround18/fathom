@@ -1,0 +1,14 @@
+[
+  {
+    "label": "alice",
+    "credential_id": "YWxpY2UtY3JlZGVudGlhbA",
+    "public_key_cose": "pQECAyYgASFYIAIX5hfwtkQ5KCePlpmeaaI6TywVK99tbN9m5bgCgtTtIlggGUp968uXcS0t2jyoWqh2Wlb0X8dYWZZS8ol8ZTBuV5Q",
+    "alg": "ES256"
+  },
+  {
+    "label": "bob",
+    "credential_id": "Ym9iLWNyZWRlbnRpYWw",
+    "public_key_cose": "pAEBAycgBiFYIKCapfR6Z1mAL_lV-NwtKhSlyZ0jvpf4ZBJ_-Tg0VaTw",
+    "alg": "EdDSA"
+  }
+]

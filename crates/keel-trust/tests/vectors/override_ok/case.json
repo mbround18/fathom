@@ -1,0 +1,72 @@
+{
+  "description": "An unsigned tip overridden by two distinct approvers, quorum 2.",
+  "ledger": "{\"at\":\"2025-12-31T23:00:00Z\",\"auth\":{\"approvals\":[\"YWxpY2UtY3JlZGVudGlhbA\"],\"approvers\":[\"alice\"],\"kind\":\"baseline\"},\"base\":null,\"event\":\"start\",\"hash\":\"557b1fb6a77b5100824bcc8acda2eee55cf7bea8cc37207e46364f207da8568a\",\"job\":\"web-deploy\",\"prev\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"run\":\"5e5e5e5e-0000-4000-8000-000000000000\",\"seq\":1,\"target\":\"0f4269b296843c661051f422721eacddf529e3fb\"}\n{\"at\":\"2025-12-31T23:10:00Z\",\"event\":\"end\",\"exit\":0,\"hash\":\"78047d077728762a30fae1b02d307ebae3ed56f93dad228e338a4901c983caf5\",\"job\":\"web-deploy\",\"outcome\":\"succeeded\",\"prev\":\"557b1fb6a77b5100824bcc8acda2eee55cf7bea8cc37207e46364f207da8568a\",\"run\":\"5e5e5e5e-0000-4000-8000-000000000000\",\"seq\":2}\n",
+  "assumed_base": "0f4269b296843c661051f422721eacddf529e3fb",
+  "target": "95a1f5ded2e595c30c915143b3a0fb222b01fbf5",
+  "run": {
+    "workspace": "0b7f1c2e-3d4a-4b5c-8d6e-7f8091a2b3c4",
+    "binding": "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+    "run": "5e5e5e5e-0000-4000-8000-00000000000c",
+    "job": "web-deploy",
+    "assign_quorum": 0
+  },
+  "policy": {
+    "origin": "https://keel.example.test",
+    "rp_id": "keel.example.test",
+    "override_quorum": 2,
+    "max_override_age_secs": 86400,
+    "inventory_name": "web-1"
+  },
+  "approvals": [
+    {
+      "kind": "override",
+      "approver": "alice",
+      "credential_id": "YWxpY2UtY3JlZGVudGlhbA",
+      "authenticator_data": "izIstf7tpMyhmCIn5O9S_N8lDn9xh4EFguarfb7nufwFAAAABw",
+      "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiQkF1bmo0TGZJVmE4cjdwNEFiX3diMEktS19uQ05hRXY4SEgxZXlaSlFkSSIsIm9yaWdpbiI6Imh0dHBzOi8va2VlbC5leGFtcGxlLnRlc3QiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+      "signature": "MEQCIH3hdby2KSkmroiuqIV-QmiQdNxHMXUYE7Vx_02p8vSEAiBGyJyNJEpv_r8LwCRIhOd5VZdZZxGILPQDXYeaD0ARqg",
+      "expires_at": "2026-01-02T01:00:00Z",
+      "comment": "vector",
+      "hosts": [
+        "web-1"
+      ]
+    },
+    {
+      "kind": "override",
+      "approver": "bob",
+      "credential_id": "Ym9iLWNyZWRlbnRpYWw",
+      "authenticator_data": "izIstf7tpMyhmCIn5O9S_N8lDn9xh4EFguarfb7nufwFAAAABw",
+      "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiQkF1bmo0TGZJVmE4cjdwNEFiX3diMEktS19uQ05hRXY4SEgxZXlaSlFkSSIsIm9yaWdpbiI6Imh0dHBzOi8va2VlbC5leGFtcGxlLnRlc3QiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+      "signature": "rLAQYnHQLEAT22SAAo-QkRQFa8v-eJIFCMccXEJLcoFyJfCe90_OinXHfdIrTMJtiEjNysRN1DiPK_kL7mCZDQ",
+      "expires_at": "2026-01-02T01:00:00Z",
+      "comment": "vector",
+      "hosts": [
+        "web-1"
+      ]
+    }
+  ],
+  "now": 1767312000,
+  "expect_check": {
+    "failures": [
+      {
+        "commit": "95a1f5ded2e595c30c915143b3a0fb222b01fbf5",
+        "problem": "missing"
+      }
+    ],
+    "reason": "unsigned",
+    "verdict": "needs_override"
+  },
+  "expect": {
+    "authorized": {
+      "approvals": [
+        "YWxpY2UtY3JlZGVudGlhbA",
+        "Ym9iLWNyZWRlbnRpYWw"
+      ],
+      "approvers": [
+        "alice",
+        "bob"
+      ],
+      "kind": "override"
+    }
+  }
+}

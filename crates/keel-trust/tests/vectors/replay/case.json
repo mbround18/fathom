@@ -1,0 +1,31 @@
+{
+  "description": "The same run is sent again after it started on this host.",
+  "ledger": "{\"at\":\"2025-12-31T23:00:00Z\",\"auth\":{\"approvals\":[\"YWxpY2UtY3JlZGVudGlhbA\"],\"approvers\":[\"alice\"],\"kind\":\"baseline\"},\"base\":null,\"event\":\"start\",\"hash\":\"557b1fb6a77b5100824bcc8acda2eee55cf7bea8cc37207e46364f207da8568a\",\"job\":\"web-deploy\",\"prev\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"run\":\"5e5e5e5e-0000-4000-8000-000000000000\",\"seq\":1,\"target\":\"0f4269b296843c661051f422721eacddf529e3fb\"}\n{\"at\":\"2025-12-31T23:10:00Z\",\"event\":\"end\",\"exit\":0,\"hash\":\"78047d077728762a30fae1b02d307ebae3ed56f93dad228e338a4901c983caf5\",\"job\":\"web-deploy\",\"outcome\":\"succeeded\",\"prev\":\"557b1fb6a77b5100824bcc8acda2eee55cf7bea8cc37207e46364f207da8568a\",\"run\":\"5e5e5e5e-0000-4000-8000-000000000000\",\"seq\":2}\n{\"at\":\"2026-01-01T01:00:00Z\",\"auth\":{\"kind\":\"signed\",\"signers\":[\"openpgp:412238127A9049A02DD9C192498AF9DAB682D60D\"]},\"base\":\"0f4269b296843c661051f422721eacddf529e3fb\",\"event\":\"start\",\"hash\":\"b49cfdc60c971f536fe1085893b6d278c5be208b9bb1feef3ed1b8b3115d25da\",\"job\":\"web-deploy\",\"prev\":\"78047d077728762a30fae1b02d307ebae3ed56f93dad228e338a4901c983caf5\",\"run\":\"5e5e5e5e-0000-4000-8000-000000000012\",\"seq\":3,\"target\":\"b2903caeaa690a485cb82ed56ddda21f69929100\"}\n",
+  "assumed_base": "0f4269b296843c661051f422721eacddf529e3fb",
+  "target": "b2903caeaa690a485cb82ed56ddda21f69929100",
+  "run": {
+    "workspace": "0b7f1c2e-3d4a-4b5c-8d6e-7f8091a2b3c4",
+    "binding": "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+    "run": "5e5e5e5e-0000-4000-8000-000000000012",
+    "job": "web-deploy",
+    "assign_quorum": 0
+  },
+  "policy": {
+    "origin": "https://keel.example.test",
+    "rp_id": "keel.example.test",
+    "override_quorum": 1,
+    "max_override_age_secs": 86400,
+    "inventory_name": "web-1"
+  },
+  "approvals": [],
+  "now": 1767312000,
+  "expect_check": {
+    "signers": [
+      "openpgp:412238127A9049A02DD9C192498AF9DAB682D60D"
+    ],
+    "verdict": "signed"
+  },
+  "expect": {
+    "refused": "replay"
+  }
+}

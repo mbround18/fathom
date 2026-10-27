@@ -1,0 +1,11 @@
+{
+  "commits": {
+    "0f4269b296843c661051f422721eacddf529e3fb": "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nauthor Keel Test <test@keel.example.test> 1767225660 +0000\ncommitter Keel Test <test@keel.example.test> 1767225660 +0000\n\nbase\n",
+    "12052ddebbe7fb2270e899bbf1a5f2291b5a82a3": "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nparent 0f4269b296843c661051f422721eacddf529e3fb\nauthor Keel Test <test@keel.example.test> 1767225720 +0000\ncommitter Keel Test <test@keel.example.test> 1767225720 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n wnUEABYIAB0FAmlVuXgWIQQY97qnOjtd+C6PE8pKzaweRKrZZgAKCRBKzaweRKrZ\n ZiZRAP9c+wrf1heFnSwwHzTbFNSjsyXT45nmlE/ZBm5xGfVmiwEA5kC3nXqhdyQf\n 686AKILtZzCzC4gBMs+Ckdn/ibDStQg=\n =3gaq\n -----END PGP SIGNATURE-----\n\nsigned side\n",
+    "baa3830924a26abec28653d49c21f8abc0129aeb": "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nparent 0f4269b296843c661051f422721eacddf529e3fb\nauthor Keel Test <test@keel.example.test> 1767225780 +0000\ncommitter Keel Test <test@keel.example.test> 1767225780 +0000\n\nunsigned side\n",
+    "cb6e22d31f362e04159980e601de4e4a352d2d00": "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nparent 12052ddebbe7fb2270e899bbf1a5f2291b5a82a3\nparent baa3830924a26abec28653d49c21f8abc0129aeb\nauthor Keel Test <test@keel.example.test> 1767225840 +0000\ncommitter Keel Test <test@keel.example.test> 1767225840 +0000\ngpgsig -----BEGIN SSH SIGNATURE-----\n U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgn/YgTWG1mp5hr91k/fKUv+ihZo\n e6BTiCO6Wdtst7If8AAAADZ2l0AAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5\n AAAAQOfnkFABZdvT8y/o2JDGxpLcNSqaW2MbbpLUImAsINumGaqgcTsJ7VRXXlIUbSH9Sc\n C4lagF9YbvF/Cxt0vhIQM=\n -----END SSH SIGNATURE-----\n\nsigned merge\n"
+  },
+  "trees": [
+    "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+  ]
+}
