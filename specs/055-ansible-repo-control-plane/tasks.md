@@ -125,53 +125,53 @@ Preview/Confirm and the web shell that every story uses.
 
 ### Tests first
 
-- [ ] T012 [P] Round-trip tests in crates/keel-protocol/tests/roundtrip.rs for `Hello`,
+- [X] T012 [P] Round-trip tests in crates/keel-protocol/tests/roundtrip.rs for `Hello`,
   `CmdEnvelope`, `EventEnvelope`, `Preview`, `Confirm { preview_id, step_up }`,
   `Denied { action, reason }`, `OpError { code, message }`, `Revoked`, `GetMe`/`Me`.
-- [ ] T013 [P] Audit-chain tests in apps/keel/server/tests/audit.rs (database): an insert computes
+- [X] T013 [P] Audit-chain tests in apps/keel/server/tests/audit.rs (database): an insert computes
   `hash = SHA-256(prev_hash ‖ canonical row)`; `UPDATE` and `DELETE` on `audit_event` fail for the
   app role and for the owner (trigger); `keel audit verify` detects an offline edit.
-- [ ] T014 [P] Seal tests in apps/keel/server/src/seal.rs: round trip under a test master key;
+- [X] T014 [P] Seal tests in apps/keel/server/src/seal.rs: round trip under a test master key;
   wrong key fails; a missing or unreadable `--master-key-file` refuses start; `keel keygen` writes
   32 bytes at mode `0400`.
-- [ ] T015 [P] Preview/Confirm tests in apps/keel/server/tests/preview.rs: a preview is
+- [X] T015 [P] Preview/Confirm tests in apps/keel/server/tests/preview.rs: a preview is
   single-use, bound to its session, expires after 5 minutes, and a `Confirm` from another session
   is refused.
-- [ ] T016 [P] Authorization tests in crates/keel-core/src/authz.rs: deny by default; union of
+- [X] T016 [P] Authorization tests in crates/keel-core/src/authz.rs: deny by default; union of
   grants; a scoped grant (`profiles` non-empty) covers a host only if the host has one of its
   profiles; an action on several hosts needs coverage of all of them; the last owner cannot be
   removed or demoted.
 
 ### Implementation
 
-- [ ] T017 Define the domain types in crates/keel-core: ids (UUIDv7 newtypes), `InstanceRole`
+- [X] T017 Define the domain types in crates/keel-core: ids (UUIDv7 newtypes), `InstanceRole`
   (`owner | admin | user`), `TeamRole` (`viewer | operator | approver | ws_admin`), `Slug`
   (`^[a-z0-9][a-z0-9-]{0,62}$`), `Origin` (`local` only), and the ports `GitSource`,
   `SecretResolver`, `SuitePolicy` (standalone adapter only: always local) and `Clock` in
   crates/keel-core/src/ports.rs.
-- [ ] T018 Implement `authz::effective(grants, host_profiles) -> Access` and `authz::require` in
+- [X] T018 Implement `authz::effective(grants, host_profiles) -> Access` and `authz::require` in
   crates/keel-core/src/authz.rs until T016 passes.
-- [ ] T019 Implement the run state machine in crates/keel-core/src/run.rs exactly as the diagram
+- [X] T019 Implement the run state machine in crates/keel-core/src/run.rs exactly as the diagram
   in data-model.md (`needs_review`, `pending_approval`, `queued`, `running`, `succeeded`,
   `failed`, `refused`, `cancelled`, `denied`, `expired`), with `state_reason` one of
   `approval_denied`, `approval_expired`, `binding_disabled`, `cancelled_by_user`, `runner_lost`,
   `inventory_invalid`, `artifact_missing`, `credential_unavailable`, `host_refused`. Unit tests
   cover every allowed transition and refuse every other one; the run's state summarizes its hosts
   (`succeeded` only if every host succeeded, `refused` if any host refused).
-- [ ] T020 Server config in apps/keel/server/src/config.rs with every flag and env var of
+- [X] T020 Server config in apps/keel/server/src/config.rs with every flag and env var of
   contracts/config.md (`--listen` default `0.0.0.0:7830`, `--runner-listen` `0.0.0.0:7831`,
   `--runner-cert-ttl` `24h`, `--runner-max-offline` `30d`, `--signed-mode-default` `false`,
   `--public-url` required, `--database-url` required, `--master-key-file` required,
   `--data-dir` `/var/lib/keel`, `--static-dir` `/usr/share/keel/web`, auth flags (at least one
   required), `--step-up-window` `5m`, `--approval-ttl-default` `24h`, `--run-log-cap` `64MiB`,
   `--otel-endpoint`), plus unit tests for defaults and each required key's error.
-- [ ] T021 Migration `0001_identity.sql` in apps/keel/server/migrations/: `users`, `sessions`
+- [X] T021 Migration `0001_identity.sql` in apps/keel/server/migrations/: `users`, `sessions`
   (id stored hashed), `passkeys`, `passkey_recovery`, `workspaces`, `projects`, `teams`,
   `team_members`, `grants` (`profiles text[]`, `origin`), `api_tokens`, and `audit_event` with
   its insert-only grant and update/delete trigger and the indexes (`at`), (`workspace_id`, `at`),
   (`actor`, `at`), (`action`, `at`). Wire `sqlx::migrate!` in apps/keel/server/src/db.rs and the
   `keel migrate` subcommand.
-- [ ] T022 Implement apps/keel/server/src/audit.rs: `audit::record(tx, actor, action, workspace,
+- [X] T022 Implement apps/keel/server/src/audit.rs: `audit::record(tx, actor, action, workspace,
   target, decision, reason, context)` inside the caller's transaction, computing the chain; the
   `keel audit verify` subcommand. Pass T013.
 - [X] T023 Implement crates/web-passkeys: registration and authentication ceremonies, a
@@ -180,21 +180,21 @@ Preview/Confirm and the web shell that every story uses.
   client_data_json, signature, expected_challenge, origin, rp_id) -> Result<(), VerifyError>`
   checking `type == "webauthn.get"`, challenge, origin, `rpIdHash`, UP and UV flags, and ES256 or
   EdDSA. Tests with softpasskey and fixed vectors in crates/web-passkeys/tests/.
-- [ ] T024 Implement apps/keel/server/src/seal.rs (XChaCha20-Poly1305, per-item data key wrapped
+- [X] T024 Implement apps/keel/server/src/seal.rs (XChaCha20-Poly1305, per-item data key wrapped
   by the master key) and `keel keygen`. Pass T014.
-- [ ] T025 Sign-in through `web-auth` in apps/keel/server/src/serve.rs, mirroring Depths: OIDC,
+- [X] T025 Sign-in through `web-auth` in apps/keel/server/src/serve.rs, mirroring Depths: OIDC,
   GitHub and Discord providers, sessions with `authz_epoch`, CSRF on the WebSocket upgrade. The
   first user to sign in on an empty instance becomes `owner`.
-- [ ] T026 The WebSocket (`GET /api/v1/ws`) and `POST /api/v1/cmd` transports in
+- [X] T026 The WebSocket (`GET /api/v1/ws`) and `POST /api/v1/cmd` transports in
   apps/keel/server/src/ws.rs and api.rs: one dispatcher, per-command authorization against the
   session's current epoch, `Denied` audited, streaming commands over `/cmd` refused with
   `use_websocket`. On an epoch change, close the user's sockets with `Revoked`.
-- [ ] T027 The Preview/Confirm framework in apps/keel/server/src/preview.rs: previews stored
+- [X] T027 The Preview/Confirm framework in apps/keel/server/src/preview.rs: previews stored
   in memory per session with a 5-minute TTL, `step_up` required flag, passkey step-up within
   `--step-up-window`. Pass T015.
 - [ ] T028 Session and passkey commands (`GetMe`, the passkey commands as in 054) in
   crates/keel-protocol and apps/keel/server/src/passkeys.rs.
-- [ ] T029 [P] Static web serving from `--static-dir` (never embedded) and OpenTelemetry setup
+- [X] T029 [P] Static web serving from `--static-dir` (never embedded) and OpenTelemetry setup
   in apps/keel/server/src/telemetry.rs, off unless `--otel-endpoint` is set.
 - [ ] T030 [P] Web shell in apps/keel/web/src: app frame, sign-in redirect, protocol client over
   the socket, passkey enrol and step-up dialogs, `Revoked` handling, and navigation for bindings,
