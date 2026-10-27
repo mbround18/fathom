@@ -386,6 +386,9 @@ async fn a_bearer_token_is_scoped_and_refusals_are_audited() {
     };
     let narrow = insert("kt_narrow", vec!["run_create"]).await;
     insert("kt_me", vec!["get_me"]).await;
+    // A row naming a command off the allow-list (written before the list, or by hand) still
+    // cannot run it.
+    insert("kt_off_list", vec!["get_me", "list_api_tokens"]).await;
 
     let call = |token: &'static str| {
         Request::post("/api/v1/cmd")
@@ -417,6 +420,24 @@ async fn a_bearer_token_is_scoped_and_refusals_are_audited() {
     assert_eq!(status, StatusCode::OK);
     let evs: Vec<EventEnvelope> = serde_json::from_slice(&body).unwrap();
     assert!(matches!(&evs[0].event, Event::Me(me) if me.id == alice.user.id));
+
+    let (status, body, _) = h
+        .call(
+            Request::post("/api/v1/cmd")
+                .header(header::AUTHORIZATION, "Bearer kt_off_list")
+                .body(Body::from(r#"{"id":4,"cmd":{"type":"ListApiTokens"}}"#))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let evs: Vec<EventEnvelope> = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        evs[0].event,
+        Event::Denied {
+            action: "list_api_tokens".into(),
+            reason: "token_scope".into()
+        }
+    );
 
     let (status, _, _) = h.call(call("kt_unknown")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);

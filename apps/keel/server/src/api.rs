@@ -23,7 +23,9 @@ use crate::serve::{AppState, error};
 use crate::governance;
 use crate::preview::Draft;
 use keel_core::authz::Capability;
-use keel_protocol::{ApiTokenInfo, Label, MAX_TOKEN_DAYS, TokenActions, TokenSecret};
+use keel_protocol::{
+    ApiTokenInfo, Label, MAX_TOKEN_DAYS, TOKEN_ACTIONS, TokenActions, TokenSecret,
+};
 use serde_json::json;
 
 /// The header the client echoes the session's CSRF token in.
@@ -111,21 +113,8 @@ pub async fn cmd(State(app): State<AppState>, headers: HeaderMap, body: Bytes) -
 // - A token is scoped to one workspace (which its owner must at least see) and to a set of
 //   command names. It acts as its owner, narrowed: [`identity::load_token`] keeps only the
 //   owner's grants there and `dispatch::authorize` refuses any command not in `actions`.
+// - Only commands on [`TOKEN_ACTIONS`] may be named; `authorize` also refuses anything else.
 // - Tokens are managed from a session only (`authorize` refuses tokens with `session_required`).
-
-/// Commands a token may never be scoped to: passkeys belong to a person at a browser, and a
-/// token must not mint or revoke tokens.
-const SESSION_ONLY: &[&str] = &[
-    "get_verification",
-    "passkey_begin",
-    "passkey_finish",
-    "list_passkeys",
-    "preview_passkey_remove",
-    "recover_passkeys",
-    "list_api_tokens",
-    "preview_api_token_create",
-    "preview_api_token_revoke",
-];
 
 type TokenRow = (
     uuid::Uuid,
@@ -203,10 +192,13 @@ pub async fn token_create(
         )];
     }
     let actions: Vec<String> = actions.0.iter().map(|a| a.as_str().to_owned()).collect();
-    if actions.is_empty() || actions.iter().any(|a| SESSION_ONLY.contains(&a.as_str())) {
+    if actions.is_empty() || !actions.iter().all(|a| TOKEN_ACTIONS.contains(&a.as_str())) {
         return vec![Event::op_error(
             "action_not_allowed",
-            "Name at least one action. Passkey and token commands need a session.",
+            format!(
+                "Name at least one action, from: {}. Passkey and token commands need a session.",
+                TOKEN_ACTIONS.join(", ")
+            ),
         )];
     }
     let ws_row: Result<Option<(String, bool)>, sqlx::Error> =

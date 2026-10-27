@@ -7,7 +7,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use keel_protocol::{Cmd, CmdEnvelope, Event, EventEnvelope};
+use keel_protocol::{Cmd, CmdEnvelope, Event, EventEnvelope, TOKEN_ACTIONS};
 use serde_json::json;
 
 use crate::audit::{self, Decision, Entry};
@@ -53,14 +53,15 @@ pub struct Refused {
     pub code: &'static str,
 }
 
-/// Per-command authorization (deny by default for anything a token was not scoped to).
+/// Per-command authorization (deny by default for anything a token was not scoped to, or that
+/// is not on [`TOKEN_ACTIONS`]).
 ///
 /// # Errors
 ///
 /// The command is not allowed for this caller.
 pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
     if let Some(t) = &caller.token
-        && !t.actions.iter().any(|a| a == cmd.name())
+        && !(TOKEN_ACTIONS.contains(&cmd.name()) && t.actions.iter().any(|a| a == cmd.name()))
     {
         return Err(Refused {
             code: "token_scope",

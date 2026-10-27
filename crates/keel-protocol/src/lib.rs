@@ -8,7 +8,7 @@ pub mod event;
 pub mod passkey;
 pub mod types;
 
-pub use cmd::{Cmd, CmdEnvelope, Hello};
+pub use cmd::{Cmd, CmdEnvelope, Hello, TOKEN_ACTIONS};
 pub use event::{Event, EventEnvelope};
 pub use passkey::{
     AssertionCredential, AssertionResponse, AttestationCredential, AttestationResponse, CeremonyId,

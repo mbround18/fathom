@@ -883,6 +883,25 @@ async fn api_tokens_are_shown_once_stored_hashed_scoped_and_revocable() {
         matches!(&events[0], Event::OpError { code, .. } if code == "action_not_allowed"),
         "{events:?}"
     );
+    // ...nor one naming a command that is not on the token allow-list.
+    let events = h
+        .cmd(
+            &bob,
+            Cmd::PreviewApiTokenCreate {
+                name: Label::new("ci").unwrap(),
+                workspace: ws,
+                actions: TokenActions(vec![
+                    ActionName::new("list_workspaces").unwrap(),
+                    ActionName::new("not_a_command").unwrap(),
+                ]),
+                expires_in_days: 7,
+            },
+        )
+        .await;
+    assert!(
+        matches!(&events[0], Event::OpError { code, .. } if code == "action_not_allowed"),
+        "{events:?}"
+    );
 
     let p = h
         .preview(
