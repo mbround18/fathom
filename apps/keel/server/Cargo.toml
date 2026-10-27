@@ -6,12 +6,32 @@ edition = "2024"
 license = "Apache-2.0"
 publish = false
 
+[lib]
+name = "keel_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "keel"
 path = "src/main.rs"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
+futures-util = "0.3"
+http = "1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["server", "server-auto", "http1", "service", "tokio", "server-graceful"] }
+# OS randomness for data keys and nonces (the same crate web-auth uses).
+rand = "0.10"
+secrecy = "0.10"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11"
+time = { version = "0.3.55", features = ["formatting", "parsing", "serde"] }
+tower-http = { version = "0.7", features = ["fs", "limit", "timeout"] }
+tracing-opentelemetry = "0.34.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+url = "2.5"
+uuid = { version = "1.28.0", features = ["v7", "serde"] }
 # XChaCha20-Poly1305 sealing of credentials at rest (research.md).
 chacha20poly1305 = "0.11.0"
 clap = { version = "4.6", features = ["derive", "env"] }
@@ -23,6 +43,8 @@ keel-git = { path = "../../../crates/keel-git" }
 keel-protocol = { path = "../../../crates/keel-protocol" }
 keel-trust = { path = "../../../crates/keel-trust" }
 opentelemetry = "0.33.1"
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics"] }
 sqlx = { version = "0.9.0", default-features = false, features = [
     "postgres",
     "runtime-tokio",
@@ -38,3 +60,9 @@ tower = "0.5"
 tracing = "0.1.44"
 web-auth = { path = "../../../crates/web-auth" }
 web-passkeys = { path = "../../../crates/web-passkeys" }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tokio = { version = "1.54.1", features = ["full", "test-util"] }
+tower = { version = "0.5", features = ["util"] }

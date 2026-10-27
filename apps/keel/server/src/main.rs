@@ -2,20 +2,6 @@
 //!
 //! Phase 1 scaffolding: only `--help` and `--version` work; later phases fill the modules.
 
-mod api;
-mod audit;
-mod config;
-mod db;
-mod dispatch;
-mod hooks;
-mod queue;
-mod runner_listener;
-mod seal;
-mod serve;
-mod sync;
-mod telemetry;
-mod ws;
-
 use clap::Parser;
 
 /// Keel: the Ansible control plane bound to source control.
