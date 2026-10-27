@@ -6,8 +6,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::passkey::PasskeyAssertion;
-use crate::types::{ClientName, CsrfToken, PreviewId, RequestId};
+use crate::passkey::{PasskeyAssertion, PasskeyPurpose, PasskeyResponse, RecoveryCode};
+use crate::types::{B64Url, ClientName, CsrfToken, PreviewId, RequestId};
 
 /// The first frame on a WebSocket. A wrong `csrf_token` closes with 4403; a missing or expired
 /// session with 4401; another `protocol_version` with 4400.
@@ -44,6 +44,22 @@ pub enum Cmd {
         #[ts(optional)]
         step_up: Option<PasskeyAssertion>,
     },
+
+    // Passkeys, as in Depths (spec 054). Session callers only.
+    /// `Verification`.
+    GetVerification,
+    /// `PasskeyChallenge`, answered with `PasskeyFinish`.
+    PasskeyBegin { purpose: PasskeyPurpose },
+    /// `PasskeyRegistered` (then `Verification`), `Verification`, or `PasskeyRefused`.
+    PasskeyFinish(PasskeyResponse),
+    /// `Passkeys`: the person's own.
+    ListPasskeys,
+    /// `Preview` (always `step_up`); `Confirm` removes it and ends the person's other sessions.
+    /// `PasskeyRefused {last_passkey}` for the last one.
+    PreviewPasskeyRemove { id: B64Url },
+    /// `Verification` (with `recovering`), or `PasskeyRefused {recovery_invalid}`. Removes every
+    /// passkey and ends the person's other sessions.
+    RecoverPasskeys { code: RecoveryCode },
 }
 
 impl Cmd {
@@ -53,6 +69,12 @@ impl Cmd {
         match self {
             Cmd::GetMe => "get_me",
             Cmd::Confirm { .. } => "confirm",
+            Cmd::GetVerification => "get_verification",
+            Cmd::PasskeyBegin { .. } => "passkey_begin",
+            Cmd::PasskeyFinish(_) => "passkey_finish",
+            Cmd::ListPasskeys => "list_passkeys",
+            Cmd::PreviewPasskeyRemove { .. } => "preview_passkey_remove",
+            Cmd::RecoverPasskeys { .. } => "recover_passkeys",
         }
     }
 
@@ -61,7 +83,14 @@ impl Cmd {
     #[must_use]
     pub const fn is_streaming(&self) -> bool {
         match self {
-            Cmd::GetMe | Cmd::Confirm { .. } => false,
+            Cmd::GetMe
+            | Cmd::Confirm { .. }
+            | Cmd::GetVerification
+            | Cmd::PasskeyBegin { .. }
+            | Cmd::PasskeyFinish(_)
+            | Cmd::ListPasskeys
+            | Cmd::PreviewPasskeyRemove { .. }
+            | Cmd::RecoverPasskeys { .. } => false,
         }
     }
 }

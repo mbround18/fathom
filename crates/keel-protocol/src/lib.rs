@@ -11,8 +11,10 @@ pub mod types;
 pub use cmd::{Cmd, CmdEnvelope, Hello};
 pub use event::{Event, EventEnvelope};
 pub use passkey::{
-    AssertionCredential, AssertionResponse, CeremonyId, CredProps, PasskeyAssertion,
-    PasskeyExtensions, PublicKeyType, Verification,
+    AssertionCredential, AssertionResponse, AttestationCredential, AttestationResponse, CeremonyId,
+    CredProps, MAX_PASSKEY_NAME_CHARS, PasskeyAssertion, PasskeyCredential, PasskeyExtensions,
+    PasskeyInfo, PasskeyName, PasskeyPurpose, PasskeyRefusedReason, PasskeyRequest,
+    PasskeyResponse, PasskeyTransport, PublicKeyType, RecoveryCode, Verification,
 };
 pub use types::{
     B64Url, ClientName, CsrfToken, InstanceRole, Me, MeGrant, Preview, PreviewId, RequestId,

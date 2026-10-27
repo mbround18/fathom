@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::passkey::{PasskeyInfo, PasskeyRefusedReason, PasskeyRequest, Verification};
 use crate::types::{Me, Preview, PreviewId, RequestId};
 
 /// Every frame the server sends, and each element of `POST /api/v1/cmd`'s reply array.
@@ -31,6 +32,20 @@ pub enum Event {
     OpError { code: String, message: String },
     /// The user's access changed or the session ended; the server closes the socket after this.
     Revoked,
+
+    // Passkeys, as in Depths (spec 054).
+    /// A ceremony to answer with `PasskeyFinish` (or, for `verify`, on `Confirm.step_up`).
+    PasskeyChallenge(PasskeyRequest),
+    /// A passkey was added. `Verification` follows.
+    PasskeyRegistered(PasskeyInfo),
+    /// Reply to `ListPasskeys`.
+    Passkeys { items: Vec<PasskeyInfo> },
+    /// Where the session stands on passkeys.
+    Verification(Verification),
+    /// Register a passkey first.
+    PasskeyEnrolmentRequired,
+    /// A passkey answer, recovery code or removal was refused. Audited.
+    PasskeyRefused { reason: PasskeyRefusedReason },
 }
 
 impl EventEnvelope {

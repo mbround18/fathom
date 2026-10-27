@@ -3,6 +3,6 @@ import type { AssertionCredential } from "./AssertionCredential";
 import type { CeremonyId } from "./CeremonyId";
 
 /**
- * A fresh check carried on `Confirm` (step-up).
+ * A fresh check carried on `Confirm` (step-up): an answer to a `Verify` ceremony.
  */
 export type PasskeyAssertion = { ceremony: CeremonyId, credential: AssertionCredential, };

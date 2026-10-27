@@ -64,6 +64,10 @@ fn export_typescript_bindings() {
         "Preview",
         "PasskeyAssertion",
         "Verification",
+        "PasskeyRequest",
+        "PasskeyResponse",
+        "PasskeyInfo",
+        "PasskeyRefusedReason",
     ] {
         assert!(names.iter().any(|n| n == required), "missing {required}");
     }

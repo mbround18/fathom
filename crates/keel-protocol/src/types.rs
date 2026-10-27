@@ -51,6 +51,7 @@ macro_rules! checked_string {
         }
     };
 }
+pub(crate) use checked_string;
 
 checked_string!(
     /// The session's CSRF token (URL-safe base64), at most 128 bytes. Never logged.

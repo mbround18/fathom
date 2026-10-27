@@ -215,3 +215,198 @@ fn confirmed_denied_op_error_revoked() {
     assert_eq!(v["data"]["code"], "preview_expired");
     assert_eq!(round_trip(&Event::Revoked), json!({"type": "Revoked"}));
 }
+
+// ---- Passkeys (T028): the same commands, events and shapes as depths-protocol (054) ----------
+
+#[test]
+fn passkey_commands_round_trip_as_in_depths() {
+    let v = round_trip(&Cmd::GetVerification);
+    assert_eq!(v, json!({"type": "GetVerification"}));
+
+    let v = round_trip(&Cmd::PasskeyBegin {
+        purpose: PasskeyPurpose::Register {
+            name: PasskeyName::new("laptop").unwrap(),
+        },
+    });
+    assert_eq!(
+        v,
+        json!({"type": "PasskeyBegin", "data": {"purpose": {"kind": "register", "name": "laptop"}}})
+    );
+    let v = round_trip(&Cmd::PasskeyBegin {
+        purpose: PasskeyPurpose::Verify,
+    });
+    assert_eq!(
+        v,
+        json!({"type": "PasskeyBegin", "data": {"purpose": {"kind": "verify"}}})
+    );
+
+    assert_eq!(
+        round_trip(&Cmd::ListPasskeys),
+        json!({"type": "ListPasskeys"})
+    );
+    assert_eq!(
+        round_trip(&Cmd::PreviewPasskeyRemove {
+            id: B64Url::new("Y3JlZA").unwrap()
+        }),
+        json!({"type": "PreviewPasskeyRemove", "data": {"id": "Y3JlZA"}})
+    );
+    assert_eq!(
+        round_trip(&Cmd::RecoverPasskeys {
+            code: RecoveryCode::new("ABCDEFGHJK").unwrap()
+        }),
+        json!({"type": "RecoverPasskeys", "data": {"code": "ABCDEFGHJK"}})
+    );
+}
+
+#[test]
+fn passkey_finish_tells_attestation_from_assertion() {
+    let reg = json!({
+        "type": "PasskeyFinish",
+        "data": {
+            "ceremony": Uuid::from_u128(9).to_string(),
+            "credential": {
+                "id": "Y3JlZA",
+                "rawId": "Y3JlZA",
+                "response": {
+                    "attestationObject": "YXR0",
+                    "clientDataJSON": "Y2xpZW50",
+                    "transports": ["internal", "hybrid"]
+                },
+                "type": "public-key",
+                "extensions": {"credProps": {"rk": true}}
+            }
+        }
+    });
+    let cmd: Cmd = serde_json::from_value(reg.clone()).unwrap();
+    let Cmd::PasskeyFinish(PasskeyResponse {
+        credential: PasskeyCredential::Attestation(a),
+        ..
+    }) = &cmd
+    else {
+        panic!("not an attestation: {cmd:?}");
+    };
+    assert_eq!(a.response.transports.len(), 2);
+    assert_eq!(round_trip(&cmd), reg);
+
+    let cmd = Cmd::PasskeyFinish(PasskeyResponse {
+        ceremony: CeremonyId(Uuid::from_u128(9)),
+        credential: PasskeyCredential::Assertion(assertion().credential),
+    });
+    let v = round_trip(&cmd);
+    assert_eq!(v["data"]["credential"]["response"]["signature"], "c2ln");
+    assert_eq!(cmd.name(), "passkey_finish");
+}
+
+#[test]
+fn passkey_inputs_are_bounded() {
+    assert!(PasskeyName::new("").is_err());
+    assert!(PasskeyName::new(" padded").is_err());
+    assert!(PasskeyName::new("tab\there").is_err());
+    assert!(PasskeyName::new("x".repeat(65)).is_err());
+    assert!(PasskeyName::new("é".repeat(64)).is_ok());
+    assert!(RecoveryCode::new("SHORT").is_err());
+    assert!(RecoveryCode::new("ABCD-EFGH-JK").is_err());
+    assert!(RecoveryCode::new("A".repeat(33)).is_err());
+    let too_many = json!({
+        "attestationObject": "YQ", "clientDataJSON": "YQ",
+        "transports": ["usb", "usb", "usb", "usb", "usb", "usb", "usb", "usb", "usb"]
+    });
+    assert!(serde_json::from_value::<AttestationResponse>(too_many).is_err());
+    let bad = json!({"attestationObject": "YQ", "clientDataJSON": "YQ", "transports": ["USB!"]});
+    assert!(serde_json::from_value::<AttestationResponse>(bad).is_err());
+    // The register purpose takes no extra fields.
+    assert!(
+        serde_json::from_value::<Cmd>(json!({
+            "type": "PasskeyBegin",
+            "data": {"purpose": {"kind": "register", "name": "a", "x": 1}}
+        }))
+        .is_err()
+    );
+}
+
+#[test]
+fn passkey_command_names() {
+    assert_eq!(Cmd::GetVerification.name(), "get_verification");
+    assert_eq!(
+        Cmd::PasskeyBegin {
+            purpose: PasskeyPurpose::Verify
+        }
+        .name(),
+        "passkey_begin"
+    );
+    assert_eq!(Cmd::ListPasskeys.name(), "list_passkeys");
+    assert_eq!(
+        Cmd::PreviewPasskeyRemove {
+            id: B64Url::new("YQ").unwrap()
+        }
+        .name(),
+        "preview_passkey_remove"
+    );
+    assert_eq!(
+        Cmd::RecoverPasskeys {
+            code: RecoveryCode::new("ABCDEFGHJK").unwrap()
+        }
+        .name(),
+        "recover_passkeys"
+    );
+    assert!(!Cmd::ListPasskeys.is_streaming());
+}
+
+#[test]
+fn recovery_code_debug_is_redacted() {
+    let code = RecoveryCode::new("ABCDEFGHJK").unwrap();
+    assert!(!format!("{code:?}").contains("ABCDEFGHJK"));
+}
+
+#[test]
+fn passkey_events_round_trip_as_in_depths() {
+    let v = round_trip(&Event::PasskeyChallenge(PasskeyRequest {
+        ceremony: CeremonyId(Uuid::from_u128(9)),
+        options: json!({"challenge": "Y2g", "rpId": "keel.example.com"}),
+    }));
+    assert_eq!(v["type"], "PasskeyChallenge");
+    assert_eq!(v["data"]["options"]["rpId"], "keel.example.com");
+
+    let info = PasskeyInfo {
+        id: "Y3JlZA".into(),
+        name: "laptop".into(),
+        created: "2026-10-27T12:00:00Z".into(),
+        last_used: None,
+    };
+    let v = round_trip(&Event::PasskeyRegistered(info.clone()));
+    assert_eq!(
+        v,
+        json!({"type": "PasskeyRegistered", "data": {
+            "id": "Y3JlZA", "name": "laptop", "created": "2026-10-27T12:00:00Z", "last_used": null
+        }})
+    );
+    let v = round_trip(&Event::Passkeys { items: vec![info] });
+    assert_eq!(v["data"]["items"][0]["name"], "laptop");
+
+    let v = round_trip(&Event::Verification(me().verification));
+    assert_eq!(v["type"], "Verification");
+    assert_eq!(v["data"]["window_secs"], 300);
+
+    assert_eq!(
+        round_trip(&Event::PasskeyEnrolmentRequired),
+        json!({"type": "PasskeyEnrolmentRequired"})
+    );
+    for (reason, wire) in [
+        (PasskeyRefusedReason::Replayed, "replayed"),
+        (PasskeyRefusedReason::WrongOrigin, "wrong_origin"),
+        (
+            PasskeyRefusedReason::UnknownCredential,
+            "unknown_credential",
+        ),
+        (PasskeyRefusedReason::Expired, "expired"),
+        (PasskeyRefusedReason::Cancelled, "cancelled"),
+        (PasskeyRefusedReason::RecoveryInvalid, "recovery_invalid"),
+        (PasskeyRefusedReason::Invalid, "invalid"),
+        (PasskeyRefusedReason::LastPasskey, "last_passkey"),
+    ] {
+        assert_eq!(
+            round_trip(&Event::PasskeyRefused { reason }),
+            json!({"type": "PasskeyRefused", "data": {"reason": wire}})
+        );
+    }
+}
