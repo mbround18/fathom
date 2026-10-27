@@ -14,8 +14,18 @@ pgp = { version = "0.21.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 # Canonical JSON (RFC 8785) for the override challenge and the ledger chain.
 serde_jcs = "0.2.0"
+serde_json = "1.0.154"
 sha2 = "0.11"
 # SSH signatures (`sshsig`, namespace `git`) and certificates.
 ssh-key = { version = "0.6.7", features = ["ed25519", "p256"] }
+thiserror = "2"
 # Verify-only use of the passkey assertion check (T023).
 web-passkeys = { path = "../web-passkeys" }
+
+[dev-dependencies]
+# The vector generator (tests/gen/): approver passkeys, Git object ids and a seeded RNG for
+# OpenPGP key generation, so the committed vectors rebuild byte for byte.
+ed25519-dalek = "2.2.0"
+p256 = "0.13.2"
+rand_chacha = "0.3"
+sha1 = "0.10"
