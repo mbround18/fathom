@@ -44,7 +44,8 @@ use web_auth::session::{SessionConfig, SessionStore};
 
 use crate::config::Config;
 use crate::dispatch::PendingOp;
-use crate::preview::{NoStepUp, Previews, StepUpVerifier};
+use crate::passkeys::Passkeys;
+use crate::preview::{Previews, StepUpVerifier};
 
 /// How long a client may take to send its request headers.
 pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -125,6 +126,8 @@ pub struct AppState {
     pub db: PgPool,
     pub clock: Arc<dyn Clock>,
     pub previews: Arc<Previews<PendingOp>>,
+    /// Passkey ceremonies; also the step-up verifier.
+    pub passkeys: Arc<Passkeys>,
     pub step_up: Arc<dyn StepUpVerifier>,
     /// A user's `authz_epoch` changed (or they were disabled): sockets of that user re-check.
     pub revocations: broadcast::Sender<Uuid>,
@@ -139,7 +142,7 @@ impl FromRef<AppState> for AuthState {
 }
 
 impl AppState {
-    /// Builds the state. Step-up fails closed ([`NoStepUp`]) until passkeys are wired (T028).
+    /// Builds the state. Step-up checks passkey assertions ([`Passkeys`]).
     #[must_use]
     pub fn new(cfg: Arc<Config>, providers: Providers, db: PgPool, clock: Arc<dyn Clock>) -> Self {
         let cookies = Cookies::new(cfg.public_url.scheme() == "https");
@@ -152,11 +155,13 @@ impl AppState {
         };
         let origin: Arc<str> = cfg.origin().into();
         let (revocations, _) = broadcast::channel(256);
+        let passkeys = Arc::new(Passkeys::new(&cfg, db.clone(), clock.clone()));
         Self {
             previews: Arc::new(Previews::new(clock.clone())),
             logins: Arc::new(LoginStore::new(LOGIN_TTL, LOGIN_CAP).with_cookie(cookies.login)),
             providers: Arc::new(providers),
-            step_up: Arc::new(NoStepUp),
+            step_up: passkeys.clone(),
+            passkeys,
             cfg,
             auth,
             cookies,

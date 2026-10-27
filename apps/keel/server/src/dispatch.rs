@@ -12,6 +12,7 @@ use serde_json::json;
 
 use crate::audit::{self, Decision, Entry};
 use crate::identity::{self, Caller};
+use crate::passkeys;
 use crate::preview::Confirmation;
 use crate::serve::AppState;
 
@@ -28,7 +29,8 @@ pub enum Channel {
 }
 
 impl Channel {
-    const fn as_str(self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Channel::Socket => "ws",
             Channel::Api => "api",
@@ -68,6 +70,21 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         // Everyone signed in may read themselves. A `Confirm` was authorized when its preview
         // was made, and the operation re-checks what it needs when it runs.
         Cmd::GetMe | Cmd::Confirm { .. } => Ok(()),
+        // Passkeys belong to a person at a browser: a session, never a token.
+        Cmd::GetVerification
+        | Cmd::PasskeyBegin { .. }
+        | Cmd::PasskeyFinish(_)
+        | Cmd::ListPasskeys
+        | Cmd::PreviewPasskeyRemove { .. }
+        | Cmd::RecoverPasskeys { .. } => {
+            if caller.token.is_some() {
+                Err(Refused {
+                    code: "session_required",
+                })
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
@@ -121,9 +138,18 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
                     out.extend(op(app.clone(), req.caller.clone()).await);
                     out
                 }
-                Err(e) => vec![Event::op_error(e.code(), e.message())],
+                Err(e) => match passkeys::confirm_refused(app, req, &e).await {
+                    Some(events) => events,
+                    None => vec![Event::op_error(e.code(), e.message())],
+                },
             }
         }
+        Cmd::GetVerification => passkeys::get_verification(app, req).await,
+        Cmd::PasskeyBegin { purpose } => passkeys::begin(app, req, purpose).await,
+        Cmd::PasskeyFinish(response) => passkeys::finish(app, req, response).await,
+        Cmd::ListPasskeys => passkeys::list(app, req.caller).await,
+        Cmd::PreviewPasskeyRemove { id } => passkeys::preview_remove(app, req, id).await,
+        Cmd::RecoverPasskeys { code } => passkeys::recover(app, req, &code).await,
     };
     events
         .into_iter()

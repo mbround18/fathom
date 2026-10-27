@@ -304,6 +304,8 @@ pub struct Caller {
     pub user: User,
     /// A passkey check within the step-up window counts from here (sessions only).
     pub verified_at: Option<OffsetDateTime>,
+    /// The session redeemed a recovery code and has not enrolled a passkey since.
+    pub recovering: bool,
     pub grants: Vec<Grant>,
     /// Set when the caller is an API token rather than a session.
     pub token: Option<TokenScope>,
@@ -354,7 +356,7 @@ async fn grants_of(pool: &PgPool, user: Uuid) -> Result<Vec<(Grant, String)>, sq
         .collect()
 }
 
-/// A [`UserRow`] followed by `sessions.verified_at`.
+/// A [`UserRow`] followed by `sessions.verified_at` and `sessions.recovering`.
 type SessionRow = (
     Uuid,
     String,
@@ -365,6 +367,7 @@ type SessionRow = (
     i64,
     Option<OffsetDateTime>,
     Option<OffsetDateTime>,
+    bool,
 );
 
 /// Token id, workspace and actions, then the owner's [`UserRow`].
@@ -398,7 +401,7 @@ pub async fn load_session(
          where s.id = $1 and u.id = s.user_id and s.authz_epoch = u.authz_epoch \
            and u.disabled_at is null and s.expires_at > $2 \
          returning u.id, u.issuer, u.subject, u.display_name, u.email, u.instance_role, \
-           u.authz_epoch, u.disabled_at, s.verified_at",
+           u.authz_epoch, u.disabled_at, s.verified_at, s.recovering",
     )
     .bind(session)
     .bind(now)
@@ -407,7 +410,7 @@ pub async fn load_session(
     let Some(r) = row else {
         return Ok(None);
     };
-    let verified_at = r.8;
+    let (verified_at, recovering) = (r.8, r.9);
     let (user, _) = user_of((r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7))?;
     let grants = grants_of(pool, user.id)
         .await?
@@ -417,6 +420,7 @@ pub async fn load_session(
     Ok(Some(Caller {
         user,
         verified_at,
+        recovering,
         grants,
         token: None,
     }))
@@ -469,6 +473,7 @@ pub async fn load_token(
     Ok(Some(Caller {
         user,
         verified_at: None,
+        recovering: false,
         grants,
         token: Some(scope),
     }))
@@ -501,30 +506,47 @@ pub async fn me(
             profiles: g.profiles,
         })
         .collect();
-    let (enrolled,): (bool,) =
-        sqlx::query_as("select exists (select 1 from passkeys where user_id = $1)")
-            .bind(caller.user.id)
-            .fetch_one(pool)
-            .await?;
-    let verified = caller
-        .verified_at
-        .is_some_and(|at| at <= now && now - at <= window);
     Ok(Me {
         id: caller.user.id,
         display_name: caller.user.display_name.clone(),
         email: caller.user.email.clone(),
         instance_role: caller.user.instance_role.into(),
         grants,
-        verification: Verification {
-            verified,
-            at: caller.verified_at.and_then(|t| t.format(&Rfc3339).ok()),
-            window_secs: u32::try_from(window.whole_seconds()).unwrap_or(u32::MAX),
-            enrolled,
-            // Once a person has a passkey, step-up actions need it (T028 refines recovery).
-            required: enrolled,
-            recovering: false,
-        },
+        verification: verification(pool, caller, window, now).await?,
     })
+}
+
+/// Where the caller's session stands on passkeys.
+///
+/// # Errors
+///
+/// A database error.
+pub async fn verification(
+    pool: &PgPool,
+    caller: &Caller,
+    window: Duration,
+    now: OffsetDateTime,
+) -> Result<Verification, sqlx::Error> {
+    let (enrolled,): (bool,) =
+        sqlx::query_as("select exists (select 1 from passkeys where user_id = $1)")
+            .bind(caller.user.id)
+            .fetch_one(pool)
+            .await?;
+    Ok(Verification {
+        verified: is_recent(caller.verified_at, window, now),
+        at: caller.verified_at.and_then(|t| t.format(&Rfc3339).ok()),
+        window_secs: u32::try_from(window.whole_seconds()).unwrap_or(u32::MAX),
+        enrolled,
+        // Every role verifies with a passkey before step-up actions (R11).
+        required: true,
+        recovering: caller.recovering,
+    })
+}
+
+/// Whether a passkey check at `at` still covers `now`.
+#[must_use]
+pub fn is_recent(at: Option<OffsetDateTime>, window: Duration, now: OffsetDateTime) -> bool {
+    at.is_some_and(|at| at <= now && now - at <= window)
 }
 
 /// The user signed in as `(issuer, subject)`, disabled or not.

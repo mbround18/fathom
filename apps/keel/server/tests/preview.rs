@@ -8,7 +8,7 @@ use std::sync::Arc;
 use keel_core::ports::TestClock;
 use keel_protocol::{
     AssertionCredential, AssertionResponse, B64Url, CeremonyId, PasskeyAssertion,
-    PasskeyExtensions, PublicKeyType,
+    PasskeyExtensions, PasskeyRefusedReason, PublicKeyType,
 };
 use keel_server::preview::{
     ConfirmError, Confirmation, Draft, MAX_PER_SESSION, NoStepUp, Previews, StepUpVerifier, TTL,
@@ -69,7 +69,7 @@ impl StepUpVerifier for AcceptAll {
         &'a self,
         _: &'a str,
         _: &'a PasskeyAssertion,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ()>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), PasskeyRefusedReason>> + Send + 'a>> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -161,7 +161,7 @@ async fn step_up_required_then_failed_then_ok() {
     with.step_up = Some(&a);
     assert_eq!(
         previews.confirm(with, &NoStepUp).await,
-        Err(ConfirmError::StepUpFailed)
+        Err(ConfirmError::StepUpFailed(PasskeyRefusedReason::Invalid))
     );
     // Neither consumed the preview.
     assert_eq!(previews.confirm(with, &AcceptAll).await, Ok("op"));

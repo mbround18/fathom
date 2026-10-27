@@ -8,6 +8,7 @@ pub mod db;
 pub mod dispatch;
 pub mod hooks;
 pub mod identity;
+pub mod passkeys;
 pub mod preview;
 pub mod queue;
 pub mod runner_listener;

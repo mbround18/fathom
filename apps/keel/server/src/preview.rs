@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use keel_core::ports::Clock;
-use keel_protocol::{PasskeyAssertion, Preview, PreviewId};
+use keel_protocol::{PasskeyAssertion, PasskeyRefusedReason, Preview, PreviewId};
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -48,8 +48,8 @@ pub enum ConfirmError {
     Expired,
     /// Step-up is required and the session has not verified recently; send an assertion.
     StepUpRequired,
-    /// The assertion did not verify.
-    StepUpFailed,
+    /// The assertion did not verify, for this reason.
+    StepUpFailed(PasskeyRefusedReason),
 }
 
 impl ConfirmError {
@@ -59,7 +59,7 @@ impl ConfirmError {
             ConfirmError::Unknown => "preview_unknown",
             ConfirmError::Expired => "preview_expired",
             ConfirmError::StepUpRequired => "step_up_required",
-            ConfirmError::StepUpFailed => "step_up_failed",
+            ConfirmError::StepUpFailed(_) => "step_up_failed",
         }
     }
 
@@ -69,22 +69,22 @@ impl ConfirmError {
             ConfirmError::Unknown => "That preview does not exist or was already used.",
             ConfirmError::Expired => "That preview expired. Start the action again.",
             ConfirmError::StepUpRequired => "Confirm with your passkey to continue.",
-            ConfirmError::StepUpFailed => "The passkey check failed.",
+            ConfirmError::StepUpFailed(_) => "The passkey check failed.",
         }
     }
 }
 
-/// Checks a passkey assertion for a session (T028 supplies the real one).
+/// Checks a passkey assertion for a session (`crate::passkeys::Passkeys` in the server).
 pub trait StepUpVerifier: Send + Sync {
-    /// `Ok(())` only when the assertion is valid for this session's user.
+    /// `Ok(())` only when the assertion is valid for this session's user; otherwise why not.
     fn verify<'a>(
         &'a self,
         session: &'a str,
         assertion: &'a PasskeyAssertion,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ()>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), PasskeyRefusedReason>> + Send + 'a>>;
 }
 
-/// Refuses every assertion: step-up fails closed until passkeys are wired.
+/// Refuses every assertion (tests, and anything without a relying party): fails closed.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoStepUp;
 
@@ -93,8 +93,8 @@ impl StepUpVerifier for NoStepUp {
         &'a self,
         _session: &'a str,
         _assertion: &'a PasskeyAssertion,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ()>> + Send + 'a>> {
-        Box::pin(async { Err(()) })
+    ) -> Pin<Box<dyn Future<Output = Result<(), PasskeyRefusedReason>> + Send + 'a>> {
+        Box::pin(async { Err(PasskeyRefusedReason::Invalid) })
     }
 }
 
@@ -197,7 +197,7 @@ impl<T> Previews<T> {
                 verifier
                     .verify(c.session, assertion)
                     .await
-                    .map_err(|()| ConfirmError::StepUpFailed)?;
+                    .map_err(ConfirmError::StepUpFailed)?;
             }
         }
         // Re-check after the await: another confirm may have won, or the TTL may have passed.
