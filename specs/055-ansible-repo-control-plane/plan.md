@@ -97,14 +97,14 @@ web client targets the same browsers as Depths.
 
 | Principle | Check | Status |
 |---|---|---|
-| Scope | Constitution 1.2.0 names Fathom and Depths only. Keel needs a MINOR amendment that adds Keel to the scope, adds a "Keel server (Linux container)" platform tier, and adds PostgreSQL/sqlx and ansible-core (runner image only) to the stack. This is the first task, as 050's T001 was. | GATED on amendment |
+| Scope | Constitution 1.3.0 adds Keel to the scope, the "Keel server (Linux container)" platform tier, and PostgreSQL/sqlx and ansible-core (runner image only) to the stack. | PASS |
 | I. Explicit mutation | Every change is a `Preview*` followed by `Confirm`, naming the affected hosts, bindings and users. Runs show the resolved host list and the pinned commit before approval. Refusals reach the user verbatim, as code plus message. | PASS |
 | II. One contract | `keel-protocol` is defined in Rust with ts-rs bindings. The public API is the same `CmdEnvelope` over `POST /api/v1/cmd`, not a second API; this is a deliberate choice over GraphQL. Receivers and runners are separate, documented trust-boundary contracts. The domain sits in `keel-core` with ports, and gix and sqlx are adapters (sqlx used directly, per the database exception). | PASS |
 | III. Boundary tests | Round trips for every variant. Receiver signature and refusal tables. A state-machine suite. An audit-chain verify. Playwright us1–us6. Opt-in real Ansible. Each behaviour has a failing-first test. | PASS |
 | IV. Density | Run lists, deliveries and audit follow the Depths list patterns, mobile-first. The run view reuses `LogView`. | PASS |
 | V. Fast and quiet | Push-driven; polling happens only for bindings that ask for it, at their interval. No timers while idle. | PASS |
 | VI. User data | Audit is insert-only. Imports never overwrite. Runs pin inventory revisions, which are never edited in place. Volumes are never pruned by tooling. | PASS |
-| Platforms | A Linux container host. No desktop tier is affected. | PASS once amended |
+| Platforms | A Linux container host, per the 1.3.0 Keel tier. No desktop tier is affected. | PASS |
 
 Re-check after Phase 1: no new violations. The runner contract keeps secrets out of the server's
 logs and keeps the runner out of the database (VI). One protocol serves both the UI and the API
@@ -146,7 +146,6 @@ apps/keel/Dockerfile         # cargo-chef; targets: server (distroless), runner 
 apps/keel/compose.yaml  .env.example
 apps/depths/server/          # uses crates/web-passkeys (no behaviour change)
 docs/guides/keel/            # install, binding a repository, approvals, runners, migration
-.specify/memory/constitution.md   # MINOR amendment (first task)
 ```
 
 **Structure Decision**:

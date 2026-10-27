@@ -2,30 +2,31 @@
 
 <!--
 Sync Impact Report
-- Version change: 1.1.0 -> 1.2.0 (MINOR: scope extended to the companion suite, guidance
-  materially expanded, new platform tier)
+- Version change: 1.2.0 -> 1.3.0 (MINOR: scope extended to Keel, new platform tier, stack
+  additions)
 - Modified sections:
-  - New "Scope" preamble: the principles bind every app in the orchestration companion suite
-    (Fathom, Depths) and the shared crates and packages they use.
-  - Principle II "One Contract, Backend Owns the Cluster" -> "One Contract Per App, Backend Owns
-    the Runtime": each app owns one versioned, Rust-defined contract; shared domains define wire
-    types once in a shared crate that each app's contract re-exports. Fathom's rules are unchanged.
-  - Principle VI: Depths' on-disk state (stacks root, audit log) added to the data covered.
-  - Supported Platforms: new "Depths server (Linux container)" tier.
-  - Stack: CodeMirror 6, `notify` and the optional OpenTelemetry exporter added; Axum + Tower
-    named for the servers.
-- Principles: none removed; II generalised compatibly (every existing MUST still holds for Fathom)
-- Templates requiring updates: none (plan/spec/tasks templates carry no protocol path or app name)
-- Affected specs: specs/050-depths-stack-manager (T001 gate satisfied)
+  - Scope: Keel (Ansible from source control) joins Fathom and Depths.
+  - Principle II: Keel's protocol crate `crates/keel-protocol` named. Its public API reuses the
+    same protocol over HTTP; receivers and runners are separate documented contracts.
+  - Principle VI: Keel's data added: insert-only hash-chained audit, immutable inventory
+    revisions, imports that never overwrite, credentials never leave sealed storage.
+  - Supported Platforms: new "Keel server (Linux container)" tier, with a separate runner
+    service.
+  - Stack: PostgreSQL through sqlx (Keel), and ansible-core in the Keel runner image only.
+- Principles: none removed or redefined; every existing MUST still holds for Fathom and Depths.
+- Templates requiring updates: none (plan/spec/tasks templates carry no app name)
+- Affected specs: specs/055-ansible-repo-control-plane (plan's scope gate satisfied)
 - Follow-up TODOs: none
 -->
 
 ## Scope
 
-The orchestration companion suite is Fathom (Kubernetes) and Depths (Docker hosts), plus the
+The orchestration companion suite is Fathom (Kubernetes), Depths (Docker hosts) and Keel (Ansible
+runs driven from source control), plus the
 shared crates in `crates/` and packages in `packages/`. The principles below apply to every app
 in the suite. Where a rule names Kubernetes, kubeconfig or `~/.fathom/`, read the equivalent for
-the app in question (for Depths: the Docker host, the stacks root and its data directory).
+the app in question (for Depths: the Docker host, the stacks root and its data directory; for Keel: the managed
+nodes, its database and its data directory).
 
 ## Core Principles
 
@@ -49,7 +50,7 @@ on showing what's happening before and after acting.
 - All cluster or Docker access, persistence, and long-running work (watches, log streams, port
   forwards, metrics, compose operations, the MCP server) MUST live in the app's Rust backend.
 - Each app owns one versioned command/event protocol (Fathom: `src/protocol/`; Depths:
-  `crates/depths-protocol`). Its UI MUST talk to its backend only through that protocol. UI code
+  `crates/depths-protocol`; Keel: `crates/keel-protocol`). Its UI MUST talk to its backend only through that protocol. UI code
   MUST NOT call the backend's internals or read or write the app's on-disk state directly.
 - The protocol MUST be defined once, in Rust. Any other client (the TypeScript UI, or future mobile
   shells) MUST use types generated from it. A breaking change on one side MUST fail the build
@@ -121,6 +122,10 @@ CPU while idle does not get kept installed.
 - Depths treats the stacks root as the only source of truth for stacks: it writes compose and
   `.env` files byte for byte, never rewrites files it was not asked to change, and keeps the
   layout readable by Dockge. Its audit log is append-only.
+- Keel's audit log is insert-only and hash-chained, enforced by the database role, and written in
+  the same transaction as the change it records. Inventory revisions are immutable once saved;
+  edits create new revisions. Imports MUST NOT overwrite existing objects. Credential values
+  stay sealed at rest and MUST NOT appear in logs, events, audit or exports.
 
 **Rationale**: An operator's saved forwards and integrations are their workflow. Losing them on
 upgrade costs more trust than any feature earns.
@@ -160,11 +165,18 @@ mode. Access to the Docker socket is root-equivalent on the host, and the docs M
 plainly. Running behind a Docker socket proxy MUST be supported and is the documented default.
 Multi-host agents are out of scope until a later amendment.
 
+**Keel server (Linux container).** Keel runs as Linux containers (amd64, arm64) through compose:
+the server, a PostgreSQL database and one or more runners. Sign-in is required; there is no
+anonymous mode. Playbooks MUST run only in the separate runner service, which holds no database
+credentials and no master key, so a playbook cannot read Keel's stored secrets. The docs MUST say
+plainly that a runner has the reach of the credentials granted to the jobs it runs.
+
 **Not supported yet.** Mobile (iOS/Android) is out of scope. The architecture MUST stay
 mobile-ready (Principles II and IV), but no mobile outcome is promised.
 
 **Stack.** The backends are Rust (edition 2024) with tokio; Fathom uses kube-rs, and the servers
-use Axum and Tower. Depths watches files with `notify`, and telemetry uses an optional
+use Axum and Tower. Keel stores its state in PostgreSQL through sqlx, and its runner image adds
+Python and ansible-core, used only as a subprocess there. Depths watches files with `notify`, and telemetry uses an optional
 OpenTelemetry exporter (off unless configured). The desktop shell is Tauri v2, and the frontends
 are a pnpm workspace of React, TypeScript (strict), Vite, shadcn/ui, and Tailwind, with
 CodeMirror 6 for editing, tested with Vitest and Playwright. Replacing a stack component requires an amendment or a plan
@@ -206,4 +218,4 @@ a version bump, and an update to every affected spec or plan.
   CRITICAL.
 - Reviewers MUST reject changes that violate a MUST without a recorded justification.
 
-**Version**: 1.2.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-10-23
+**Version**: 1.3.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-10-27
