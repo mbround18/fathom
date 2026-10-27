@@ -65,34 +65,34 @@ US3 and US5 are independent of US7–US9 once US2 is done, so they can run as a 
 
 ## Phase 1: Setup
 
-- [ ] T001 Create the agnostic crate `crates/keel-core` (`edition = "2024"`,
+- [X] T001 Create the agnostic crate `crates/keel-core` (`edition = "2024"`,
   `license = "Apache-2.0"`, `publish = false`).
   - Dependencies: `serde`, `serde_json`, `thiserror`, `uuid` (v7), `time`, `sha2`, `globset`.
     No tokio, no sqlx, no gix, no filesystem or network I/O.
   - Empty modules `policy`, `run`, `approval`, `rollback`, `inventory`, `manifest`, `migration`,
     `authz`, `ports` in crates/keel-core/src/lib.rs. The existing `crates/*` member picks it up.
-- [ ] T002 [P] Create `crates/keel-protocol` with `serde`, `ts-rs` and `keel-core` (types only),
+- [X] T002 [P] Create `crates/keel-protocol` with `serde`, `ts-rs` and `keel-core` (types only),
   modules `cmd`, `event`, `types`, `lib` (`PROTOCOL_VERSION = 1`), and the
   `tests/export_bindings.rs` test writing to apps/keel/web/src/protocol/generated/, copying the
   pattern of crates/depths-protocol/tests/export_bindings.rs.
-- [ ] T003 [P] Create `crates/keel-git` (`gix` with HTTPS and blocking network client features,
+- [X] T003 [P] Create `crates/keel-git` (`gix` with HTTPS and blocking network client features,
   `keel-core`) with modules `mirror`, `pin`, `ancestry`, `pack`, `diff`.
-- [ ] T004 [P] Create `crates/keel-trust` (pure, no I/O): dependencies `pgp` (rpgp), `ssh-key`
+- [X] T004 [P] Create `crates/keel-trust` (pure, no I/O): dependencies `pgp` (rpgp), `ssh-key`
   (with `ed25519`, `p256`), `serde_jcs`, `sha2`, `serde`, `web-passkeys` (verify-only, T023).
   Modules `commit_check`, `challenge`, `override_verify`, `ledger`; empty
   crates/keel-trust/tests/vectors/.
-- [ ] T005 [P] Create `crates/keel-exec`: `russh`, `ssh-key`, `tokio`, `serde_json`, `keel-trust`.
+- [X] T005 [P] Create `crates/keel-exec`: `russh`, `ssh-key`, `tokio`, `serde_json`, `keel-trust`.
   Modules `frames`, `codec` (u32 big-endian length prefix, 16 MiB cap), `ca`, `krl`,
   `server_config`, `client_config`, `pack_builder`, `events` (the `keel_events` line parser),
   `fake` (test double behind a `fake` feature).
-- [ ] T006 [P] Create `crates/web-passkeys` (store trait, ceremonies, recovery codes, pure
+- [X] T006 [P] Create `crates/web-passkeys` (store trait, ceremonies, recovery codes, pure
   `verify_assertion`) with `webauthn-rs` 0.5, `p256`, `ed25519-dalek`, `sha2`; dev-dependency
   `webauthn-authenticator-rs` (softpasskey).
   - **054 is not implemented yet** (no passkey module exists in apps/depths/server). Build the
     crate from 054's contracts/protocol.md passkey shapes instead of extracting. Add a note to
     specs/054-depths-root-boundary/tasks.md US4 that Depths consumes `crates/web-passkeys` rather
     than adding `webauthn-rs` to the Depths server.
-- [ ] T007 Create the binary crate `apps/keel/server` (binary `keel`) and add `"apps/keel/server"`
+- [X] T007 Create the binary crate `apps/keel/server` (binary `keel`) and add `"apps/keel/server"`
   to the root Cargo.toml `[workspace] members`.
   - Dependencies: `keel-core`, `keel-protocol`, `keel-git`, `keel-exec`, `keel-trust`,
     `web-auth`, `web-passkeys`, `axum`, `tower`, `tokio`, `sqlx` (postgres, runtime-tokio,
@@ -101,19 +101,19 @@ US3 and US5 are independent of US7–US9 once US2 is done, so they can run as a 
   - Files: `src/main.rs`, `config.rs`, `db.rs`, `audit.rs`, `seal.rs`, `serve.rs`, `ws.rs`,
     `api.rs`, `hooks.rs`, `sync.rs`, `queue.rs`, `dispatch.rs`, `runner_listener.rs`,
     `telemetry.rs`; `migrations/` empty.
-- [ ] T008 Create `apps/keel/runner` with binaries `keel-runner` and `keel-executor`
+- [X] T008 Create `apps/keel/runner` with binaries `keel-runner` and `keel-executor`
   (`src/bin/keel-runner.rs`, `src/bin/keel-executor.rs`) and add it to `[workspace] members`.
   Also add `ansible/callback/keel_events.py`, `ansible/requirements.txt` (empty placeholder) and
   `systemd/` (empty).
-- [ ] T009 [P] Create `apps/keel/web` as `@companion/keel-web`, copying apps/depths/web's
+- [X] T009 [P] Create `apps/keel/web` as `@companion/keel-web`, copying apps/depths/web's
   package.json scripts, tsconfig set, vite, vitest and eslint configs, and depending on
   `@companion/ui`, `theme`, `branding` and `terminal` (`workspace:*`). Use the `舵` brand from
   packages/branding.
-- [ ] T010 [P] In apps/keel/web/playwright.config.ts, define
+- [X] T010 [P] In apps/keel/web/playwright.config.ts, define
   `STORIES = ['shell', 'us1', 'us2', 'us3', 'us4', 'us5', 'us6', 'us7', 'us8', 'us9']` with
   `autoWorkers()` from ui/tests/support/workers.ts, and a placeholder spec per directory under
   apps/keel/web/tests/e2e/ that only opens the shell.
-- [ ] T011 [P] Add the new crates' licenses to deny.toml if `cargo deny check licenses` asks
+- [X] T011 [P] Add the new crates' licenses to deny.toml if `cargo deny check licenses` asks
   (rpgp, russh, ssh-key, gix are MIT/Apache-2.0); confirm no LGPL crate (sequoia) is pulled in.
 
 ---
