@@ -118,7 +118,7 @@ export function ChangeDialog() {
             <Body change={change} />
             <DialogFooter>
               {change.phase === 'done' || change.phase === 'refused' ? (
-                <Button onClick={dismiss}>Close</Button>
+                <Button onClick={dismiss}>{change.phase === 'done' ? 'Done' : 'Dismiss'}</Button>
               ) : (
                 <>
                   <Button type="button" variant="ghost" onClick={dismiss}>

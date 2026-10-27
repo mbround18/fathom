@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { usePasskeys } from '@/features/passkeys/store'
 import { useGovernance } from '@/features/teams/store'
-import type { PasskeyAssertion, Preview } from '@/protocol/wire'
+import type { Cmd, PasskeyAssertion, Preview } from '@/protocol/wire'
 
 import type { FakeSocket } from './fake-socket'
 import { frames, lastCmd, ME, resetSession, signIn } from './session-helpers'
@@ -33,10 +33,8 @@ const ASSERTION = {
   },
 } as unknown as PasskeyAssertion
 
-const GRANT = {
-  type: 'PreviewGrantAdd',
-  data: { team: 't-1', workspace: 'w-1', role: 'operator', profiles: [] },
-} as const
+const GRANT_DATA = { team: 't-1', workspace: 'w-1', role: 'operator' as const, profiles: [] }
+const GRANT: Cmd = { type: 'PreviewGrantAdd', data: GRANT_DATA }
 
 beforeEach(() => {
   resetSession()
@@ -70,7 +68,7 @@ describe('changes', () => {
     answer(s, 'ListTeams', { type: 'Teams', data: { items: [] } })
 
     useGovernance.getState().propose('Add grant', GRANT)
-    expect(lastCmd(s, 'PreviewGrantAdd')?.cmd?.data).toEqual(GRANT.data)
+    expect(lastCmd(s, 'PreviewGrantAdd')?.cmd?.data).toEqual(GRANT_DATA)
     expect(useGovernance.getState().change?.phase).toBe('asking')
 
     answer(s, 'PreviewGrantAdd', { type: 'Preview', data: preview() })
