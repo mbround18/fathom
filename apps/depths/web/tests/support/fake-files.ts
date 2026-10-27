@@ -321,6 +321,8 @@ function refusalOf(kind: RefusalKind, current: Fingerprint | null): FileRefusal 
       return { kind, removed: 3, failed_at: 'locked.db', errno: 'EACCES', message: 'Permission denied' }
     case 'os_error':
       return { kind, errno: 'EIO', message: 'Input/output error' }
+    case 'guard':
+      return { kind, rule: 'sensitive_path', setting: 'HostConfig.Binds=/etc:/data' }
     default:
       return { kind }
   }

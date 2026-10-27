@@ -1225,6 +1225,29 @@ export class FakeBackend {
         })
         return [{ type: 'Users', data: this.users }]
       }
+
+      // Spec 054. No UI drives these yet: the fake answers as a server with no passkeys and no
+      // guard exceptions, and refuses every ceremony.
+      case 'GetVerification':
+        return [{
+          type: 'Verification',
+          data: { verified: false, at: null, window_secs: 300, enrolled: false, required: false, recovering: false },
+        }]
+
+      case 'ListPasskeys':
+        return [{ type: 'Passkeys', data: { items: [] } }]
+
+      case 'GetGuardExceptions':
+        if (!may(cmd.data.stack)) return denied()
+        return [{ type: 'GuardExceptions', data: { stack: cmd.data.stack, items: [] } }]
+
+      case 'PasskeyBegin':
+      case 'PasskeyFinish':
+      case 'PreviewPasskeyRemove':
+        return [{ type: 'PasskeyRefused', data: { reason: 'invalid' } }]
+
+      case 'RecoverPasskeys':
+        return [{ type: 'PasskeyRefused', data: { reason: 'recovery_invalid' } }]
     }
   }
 

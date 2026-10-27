@@ -41,6 +41,14 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   'files.delete': 'File deleted',
   'files.restore': 'File restored',
   'files.refused': 'Refused: files',
+  guard_refused: 'Refused: runtime guard',
+  passkey_registered: 'Passkey registered',
+  passkey_removed: 'Passkey removed',
+  passkey_verified: 'Passkey verified',
+  passkey_failed: 'Passkey failed',
+  step_up_required: 'Passkey check required',
+  passkey_recovery_issued: 'Recovery code issued',
+  passkey_recovered: 'Passkeys recovered',
 }
 
 export const ACTIONS = Object.keys(ACTION_LABEL) as AuditAction[]

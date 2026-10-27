@@ -5,6 +5,7 @@ import { App } from '@/app/App'
 import { disconnect } from '@/app/connection'
 import { useSession } from '@/app/session-store'
 import type { Me } from '@/protocol/generated'
+import { PROTOCOL_VERSION } from '@/protocol/generated/constants'
 
 import { FakeSocket } from './fake-socket'
 
@@ -94,7 +95,7 @@ describe('App bootstrap', () => {
     const s = FakeSocket.last()
     expect(s.url).toBe(`ws://${location.host}/api/v1/ws`)
     act(() => s.open())
-    expect(s.frames()[0]).toEqual({ protocol_version: 1, csrf_token: 'tok-1' })
+    expect(s.frames()[0]).toEqual({ protocol_version: PROTOCOL_VERSION, csrf_token: 'tok-1' })
   })
 
   it('routes a 4401 close to the sign-in page', async () => {
