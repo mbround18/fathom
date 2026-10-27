@@ -10,8 +10,6 @@
  * step-up dialog and resolves with the assertion, without `PasskeyFinish`, or `null` when closed.
  *
  * A pushed `PasskeyEnrolmentRequired` opens the enrol dialog as required.
- *
- * The wire types come from protocol/passkey-pending.ts until T028 generates them.
  */
 import { create } from 'zustand'
 
