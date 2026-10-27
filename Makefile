@@ -16,6 +16,27 @@
 # Packages are UNSIGNED. Signing, notarization and the macOS/Windows Tier-1 runs
 # are post-MVP (docs/MVP.md); nothing here pretends otherwise.
 
+# Per-project fast gates (unit tests, builds, lint) without the full scripts/ci.sh pipeline:
+#
+#   make keel test      make depths lint      make fathom build      make keel   (lists targets)
+#
+# The first goal picks the project; the rest go to its Makefile (apps/keel, apps/depths, ui).
+PROJECT_DIRS := keel=apps/keel depths=apps/depths fathom=ui
+PROJECT_NAME := $(filter keel depths fathom,$(firstword $(MAKECMDGOALS)))
+
+ifneq ($(PROJECT_NAME),)
+
+PROJECT_DIR := $(patsubst $(PROJECT_NAME)=%,%,$(filter $(PROJECT_NAME)=%,$(PROJECT_DIRS)))
+SUBGOALS    := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+
+.PHONY: $(PROJECT_NAME) $(SUBGOALS)
+$(PROJECT_NAME):
+	@$(MAKE) --no-print-directory -C $(PROJECT_DIR) $(or $(SUBGOALS),help)
+# The sub-make ran them; here they are no-ops.
+$(SUBGOALS): ; @:
+
+else
+
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
@@ -50,6 +71,7 @@ help: ## Print this target list
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 	@echo
+	@echo "  keel|depths|fathom <t>  per-project gate: make keel test, make depths lint (make keel lists them)"
 	@echo "  DIST=<dir>              stage somewhere other than ./dist"
 	@echo "  CARGO_BUILD_JOBS=<n>    cargo parallelism (default $(CARGO_BUILD_JOBS))"
 	@echo "  GC_DAYS=<n>             gc: sweep cargo output unused for n days (default $(GC_DAYS))"
@@ -167,3 +189,5 @@ stage:
 	  | sort | xargs -r sha256sum > SHA256SUMS
 	@echo
 	@ls -lh $(DIST)
+
+endif
