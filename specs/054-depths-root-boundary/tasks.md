@@ -76,6 +76,9 @@ US1/US2, US3 and US4/US5 are three independent tracks.
     `rustix` (`fs`), `serde_json`, `tracing`, `clap`. All are workspace versions.
   - Subcommands `serve` (default), `health` and `check` are stubs that exit 2.
 - [ ] T003 [P] Add `webauthn-rs` 0.5 to apps/depths/server/Cargo.toml.
+  - **Superseded by 055**: Keel creates `crates/web-passkeys` (055 T006, T023), which already
+    wraps `webauthn-rs` and the softpasskey dev-dependency. Depend on that crate instead of adding
+    `webauthn-rs` here; keep only what the crate does not cover.
   - Features: `danger-allow-state-serialisation` only if ceremony state must be stored. Prefer
     in-memory and leave it off.
   - Add `openssl = { version = "0.10", features = ["vendored"] }`.
@@ -475,6 +478,10 @@ id, with no fallback to the main image.
 
 **Goal**: passkey enrolment and verification. Admin and owner sessions stay restricted until they
 verify. Owners recover through a host-only code.
+
+**Shared crate**: the ceremonies, recovery codes and `verify_assertion` live in
+`crates/web-passkeys` (built by 055). Depths implements its `PasskeyStore` trait over
+`<data_dir>/passkeys.json` (T059) and calls the crate for T060; it does not reimplement them.
 
 **Independent Test**:
 
