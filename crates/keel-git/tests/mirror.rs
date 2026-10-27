@@ -150,6 +150,32 @@ fn reads_symlinks_without_following_them() {
 }
 
 #[test]
+fn manifest_validates_against_the_fetched_tree() {
+    use keel_core::manifest::{Context, validate};
+    let src = Source::new();
+    std::fs::create_dir_all(src.work.join("playbooks")).unwrap();
+    std::os::unix::fs::symlink("../../etc/passwd", src.work.join("playbooks/escape.yaml")).unwrap();
+    src.commit("playbooks/web.yaml", "- hosts: all\n", "pb");
+    let manifest = "version: 1\nprofiles: { debian: {} }\njobs:\n  web:\n    playbook: PB\n    profiles: [debian]\n    inventory: prod\n";
+    let head = src.commit(".keel/jobs.yaml", manifest, "manifest");
+    src.push();
+    let data = tempfile::tempdir().unwrap();
+    let mirror = Mirror::open(data.path(), Uuid::from_u128(9)).unwrap();
+    let url = src.url();
+    mirror.fetch(&request(&url, data.path())).unwrap();
+    let tree = keel_git::TreeAt {
+        mirror: &mirror,
+        commit: &head,
+    };
+    let ctx = Context::default();
+    let ok = manifest.replace("PB", "playbooks/web.yaml");
+    validate(ok.as_bytes(), &tree, &ctx).expect("valid at the fetched head");
+    let bad = manifest.replace("PB", "playbooks/escape.yaml");
+    let issues = validate(bad.as_bytes(), &tree, &ctx).expect_err("escaping link");
+    assert!(issues[0].message.contains("symbolic link"), "{issues:?}");
+}
+
+#[test]
 fn no_hooks_run_in_the_mirror() {
     let src = Source::new();
     src.commit("a.txt", "a", "a");

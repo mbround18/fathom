@@ -33,6 +33,26 @@ impl Ancestry {
     }
 }
 
+/// The mirror's tree at one commit, for manifest validation. Lookup failures read as absent, so
+/// validation fails closed.
+pub struct TreeAt<'a> {
+    pub mirror: &'a Mirror,
+    pub commit: &'a CommitId,
+}
+
+impl keel_core::manifest::RepoTree for TreeAt<'_> {
+    fn kind(&self, path: &str) -> Option<keel_core::manifest::PathKind> {
+        use crate::mirror::EntryKind;
+        use keel_core::manifest::PathKind;
+        match self.mirror.entry(self.commit, path).ok()?? {
+            EntryKind::File => Some(PathKind::File),
+            EntryKind::Dir => Some(PathKind::Dir),
+            EntryKind::Symlink(t) => Some(PathKind::Symlink(t)),
+            EntryKind::Submodule => Some(PathKind::Other),
+        }
+    }
+}
+
 impl Mirror {
     /// Classifies `new` against `previous`. A previous head no longer in the mirror counts as
     /// rewritten.

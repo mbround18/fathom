@@ -8,5 +8,5 @@ pub mod mirror;
 pub mod pack;
 pub mod pin;
 
-pub use ancestry::Ancestry;
+pub use ancestry::{Ancestry, TreeAt};
 pub use mirror::{Auth, CommitInfo, EntryKind, FetchRequest, Mirror, MirrorError};
