@@ -15,6 +15,7 @@ interface Route {
 
 const ROUTES: readonly Route[] = [
   { pattern: '/runs', page: lazy(() => import('@/features/runs/RunsPage')) },
+  { pattern: '/runs/:id', page: lazy(() => import('@/features/runs/RunPage')) },
   { pattern: '/reviews', page: lazy(() => import('@/features/reviews/ReviewsPage')) },
   { pattern: '/bindings', page: lazy(() => import('@/features/bindings/BindingsPage')) },
   { pattern: '/receivers', page: lazy(() => import('@/features/receivers/ReceiversPage')) },
