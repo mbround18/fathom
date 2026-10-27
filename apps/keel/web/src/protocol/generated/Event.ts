@@ -9,14 +9,22 @@ import type { InventoryInfo } from "./InventoryInfo";
 import type { InventoryProblem } from "./InventoryProblem";
 import type { InventoryRevisionInfo } from "./InventoryRevisionInfo";
 import type { InventoryRevisionSummary } from "./InventoryRevisionSummary";
+import type { JobInfo } from "./JobInfo";
 import type { JobSummary } from "./JobSummary";
+import type { LogStream } from "./LogStream";
 import type { Me } from "./Me";
 import type { PasskeyInfo } from "./PasskeyInfo";
 import type { PasskeyRefusedReason } from "./PasskeyRefusedReason";
 import type { PasskeyRequest } from "./PasskeyRequest";
+import type { PolicyCheck } from "./PolicyCheck";
+import type { PolicyInfo } from "./PolicyInfo";
 import type { Preview } from "./Preview";
 import type { PreviewId } from "./PreviewId";
 import type { ReceiverInfo } from "./ReceiverInfo";
+import type { RunHostInfo } from "./RunHostInfo";
+import type { RunInfo } from "./RunInfo";
+import type { RunPhase } from "./RunPhase";
+import type { RunReason } from "./RunReason";
 import type { TeamInfo } from "./TeamInfo";
 import type { TokenSecret } from "./TokenSecret";
 import type { UserInfo } from "./UserInfo";
@@ -30,4 +38,4 @@ export type Event = { "type": "Me", "data": Me } | { "type": "Bindings", "data":
 /**
  * The inventory's var schema as pretty JSON, when it has one.
  */
-var_schema: string | null, } } | { "type": "InventoryDiff", "data": { inventory: string, from: number, to: number, changes: Array<InventoryChange>, } } | { "type": "InventoryValidation", "data": { content_hash: string, hosts: Array<InventoryHostInfo>, errors: Array<InventoryProblem>, warnings: Array<InventoryProblem>, } } | { "type": "Preview", "data": Preview } | { "type": "Confirmed", "data": { preview_id: PreviewId, } } | { "type": "Denied", "data": { action: string, reason: string, } } | { "type": "OpError", "data": { code: string, message: string, } } | { "type": "Revoked" } | { "type": "PasskeyChallenge", "data": PasskeyRequest } | { "type": "PasskeyRegistered", "data": PasskeyInfo } | { "type": "Passkeys", "data": { items: Array<PasskeyInfo>, } } | { "type": "Verification", "data": Verification } | { "type": "PasskeyEnrolmentRequired" } | { "type": "PasskeyRefused", "data": { reason: PasskeyRefusedReason, } } | { "type": "Workspaces", "data": { items: Array<WorkspaceInfo>, } } | { "type": "Teams", "data": { items: Array<TeamInfo>, } } | { "type": "Users", "data": { items: Array<UserInfo>, } } | { "type": "ApiTokens", "data": { items: Array<ApiTokenInfo>, } } | { "type": "ApiTokenCreated", "data": { token: ApiTokenInfo, secret: TokenSecret, } };
+var_schema: string | null, } } | { "type": "InventoryDiff", "data": { inventory: string, from: number, to: number, changes: Array<InventoryChange>, } } | { "type": "InventoryValidation", "data": { content_hash: string, hosts: Array<InventoryHostInfo>, errors: Array<InventoryProblem>, warnings: Array<InventoryProblem>, } } | { "type": "Preview", "data": Preview } | { "type": "Confirmed", "data": { preview_id: PreviewId, } } | { "type": "Denied", "data": { action: string, reason: string, } } | { "type": "OpError", "data": { code: string, message: string, } } | { "type": "Revoked" } | { "type": "PasskeyChallenge", "data": PasskeyRequest } | { "type": "PasskeyRegistered", "data": PasskeyInfo } | { "type": "Passkeys", "data": { items: Array<PasskeyInfo>, } } | { "type": "Verification", "data": Verification } | { "type": "PasskeyEnrolmentRequired" } | { "type": "PasskeyRefused", "data": { reason: PasskeyRefusedReason, } } | { "type": "Workspaces", "data": { items: Array<WorkspaceInfo>, } } | { "type": "Teams", "data": { items: Array<TeamInfo>, } } | { "type": "Users", "data": { items: Array<UserInfo>, } } | { "type": "ApiTokens", "data": { items: Array<ApiTokenInfo>, } } | { "type": "ApiTokenCreated", "data": { token: ApiTokenInfo, secret: TokenSecret, } } | { "type": "Runs", "data": { items: Array<RunInfo>, } } | { "type": "Run", "data": { run: RunInfo, hosts: Array<RunHostInfo>, } } | { "type": "RunSubscribed", "data": { run: string, seq: number, } } | { "type": "RunEvent", "data": { run: string, seq: number, at: string, kind: string, host: string | null, task: string | null, data: string, } } | { "type": "RunLog", "data": { run: string, seq: number, stream: LogStream, text: string, } } | { "type": "RunState", "data": { run: string, state: RunPhase, reason: RunReason | null, } } | { "type": "Jobs", "data": { binding: string, items: Array<JobInfo>, } } | { "type": "Policies", "data": { workspace: string, items: Array<PolicyInfo>, } } | { "type": "PolicyExplanation", "data": { job: string, limit: string | null, winner: string, requires_approval: boolean, reason: string, checks: Array<PolicyCheck>, } };

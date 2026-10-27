@@ -13,9 +13,12 @@ import type { ObjectName } from "./ObjectName";
 import type { PasskeyAssertion } from "./PasskeyAssertion";
 import type { PasskeyPurpose } from "./PasskeyPurpose";
 import type { PasskeyResponse } from "./PasskeyResponse";
+import type { Pattern } from "./Pattern";
+import type { PolicySpec } from "./PolicySpec";
 import type { PreviewId } from "./PreviewId";
 import type { ReceiverProvider } from "./ReceiverProvider";
 import type { RecoveryCode } from "./RecoveryCode";
+import type { RunPhase } from "./RunPhase";
 import type { SecretValue } from "./SecretValue";
 import type { Slug } from "./Slug";
 import type { TeamRole } from "./TeamRole";
@@ -28,4 +31,8 @@ export type Cmd = { "type": "GetMe" } | { "type": "ListBindings", "data": { work
 /**
  * 1 to 366.
  */
-expires_in_days: number, } } | { "type": "PreviewApiTokenRevoke", "data": { token: string, } };
+expires_in_days: number, } } | { "type": "PreviewApiTokenRevoke", "data": { token: string, } } | { "type": "ListRuns", "data": { workspace: string, binding: string | null, 
+/**
+ * A host's inventory name.
+ */
+host: ObjectName | null, actor: string | null, state: RunPhase | null, from: Instant | null, to: Instant | null, } } | { "type": "GetRun", "data": { run: string, } } | { "type": "SubscribeRun", "data": { run: string, from_seq: number, } } | { "type": "UnsubscribeRun", "data": { run: string, } } | { "type": "PreviewRunStart", "data": { job: string, limit: Pattern | null, } } | { "type": "PreviewCancel", "data": { run: string, } } | { "type": "ListJobs", "data": { binding: string, } } | { "type": "ListPolicies", "data": { workspace: string, } } | { "type": "PreviewPolicyUpsert", "data": PolicySpec } | { "type": "PreviewPolicyRemove", "data": { policy: string, } } | { "type": "ExplainPolicy", "data": { job: string, limit: Pattern | null, } };

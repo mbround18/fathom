@@ -44,5 +44,12 @@ pub use governance::{
     TokenActions, TokenSecret, UserInfo, WorkspaceInfo,
 };
 
+// Runs (US2)
+pub mod run;
+pub use run::{
+    FirstFailure, HostPhase, HostStats, JobInfo, LogStream, Pattern, PolicyCheck, PolicyInfo,
+    PolicySpec, RunHostInfo, RunInfo, RunPhase, RunReason, RunSummary, RunTrigger,
+};
+
 /// The version a client states in `Hello.protocol_version`.
 pub const PROTOCOL_VERSION: u32 = 1;

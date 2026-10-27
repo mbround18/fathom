@@ -19,6 +19,8 @@ use crate::inventory::InventoryText;
 // Governance (US6)
 use crate::governance::{GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
+// Runs (US2)
+use crate::run::{Pattern, PolicySpec, RunPhase};
 
 /// The first frame on a WebSocket. A wrong `csrf_token` closes with 4403; a missing or expired
 /// session with 4401; another `protocol_version` with 4400.
@@ -382,6 +384,80 @@ pub enum Cmd {
         #[ts(type = "string")]
         token: Uuid,
     },
+    // Runs (US2)
+    /// `Runs`: the workspace's runs, newest first (at most 200), filtered.
+    ListRuns {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        binding: Option<Uuid>,
+        /// A host's inventory name.
+        #[serde(default)]
+        host: Option<ObjectName>,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        actor: Option<Uuid>,
+        #[serde(default)]
+        state: Option<RunPhase>,
+        #[serde(default)]
+        from: Option<Instant>,
+        #[serde(default)]
+        to: Option<Instant>,
+    },
+    /// `Run`: one run with its hosts.
+    GetRun {
+        #[ts(type = "string")]
+        run: Uuid,
+    },
+    /// `RunSubscribed`, then the run's stored `RunEvent`/`RunLog` after `from_seq` in order,
+    /// then live ones until the run ends or `UnsubscribeRun`. WebSocket only.
+    SubscribeRun {
+        #[ts(type = "string")]
+        run: Uuid,
+        #[serde(default)]
+        from_seq: u64,
+    },
+    UnsubscribeRun {
+        #[ts(type = "string")]
+        run: Uuid,
+    },
+    /// `Preview` naming the pinned commit, inventory revision and hosts; `Confirm` replies `Run`.
+    PreviewRunStart {
+        #[ts(type = "string")]
+        job: Uuid,
+        #[serde(default)]
+        limit: Option<Pattern>,
+    },
+    /// `Preview`; `Confirm` sends `Cancel` to the run's hosts and replies `RunState`.
+    PreviewCancel {
+        #[ts(type = "string")]
+        run: Uuid,
+    },
+    /// `Jobs`: the binding's current jobs.
+    ListJobs {
+        #[ts(type = "string")]
+        binding: Uuid,
+    },
+    /// `Policies`: the workspace's approval policies, by priority.
+    ListPolicies {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Policies`. The catch-all cannot be narrowed.
+    PreviewPolicyUpsert(PolicySpec),
+    /// `Preview` (step-up); `Confirm` replies `Policies`. The catch-all cannot be removed.
+    PreviewPolicyRemove {
+        #[ts(type = "string")]
+        policy: Uuid,
+    },
+    /// `PolicyExplanation`: which policy a run of `job` with `limit` would get, and why.
+    ExplainPolicy {
+        #[ts(type = "string")]
+        job: Uuid,
+        #[serde(default)]
+        limit: Option<Pattern>,
+    },
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -404,6 +480,12 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     "list_workspaces",
     "list_teams",
     "list_users",
+    // Runs (US2)
+    "list_runs",
+    "get_run",
+    "list_jobs",
+    "list_policies",
+    "explain_policy",
 ];
 
 impl Cmd {
@@ -471,6 +553,18 @@ impl Cmd {
             Cmd::ListApiTokens => "list_api_tokens",
             Cmd::PreviewApiTokenCreate { .. } => "preview_api_token_create",
             Cmd::PreviewApiTokenRevoke { .. } => "preview_api_token_revoke",
+            // Runs (US2)
+            Cmd::ListRuns { .. } => "list_runs",
+            Cmd::GetRun { .. } => "get_run",
+            Cmd::SubscribeRun { .. } => "subscribe_run",
+            Cmd::UnsubscribeRun { .. } => "unsubscribe_run",
+            Cmd::PreviewRunStart { .. } => "preview_run_start",
+            Cmd::PreviewCancel { .. } => "preview_cancel",
+            Cmd::ListJobs { .. } => "list_jobs",
+            Cmd::ListPolicies { .. } => "list_policies",
+            Cmd::PreviewPolicyUpsert(_) => "preview_policy_upsert",
+            Cmd::PreviewPolicyRemove { .. } => "preview_policy_remove",
+            Cmd::ExplainPolicy { .. } => "explain_policy",
         }
     }
 
@@ -539,6 +633,17 @@ impl Cmd {
             | Cmd::ListApiTokens
             | Cmd::PreviewApiTokenCreate { .. }
             | Cmd::PreviewApiTokenRevoke { .. } => false,
+            // Runs (US2)
+            Cmd::SubscribeRun { .. } | Cmd::UnsubscribeRun { .. } => true,
+            Cmd::ListRuns { .. }
+            | Cmd::GetRun { .. }
+            | Cmd::PreviewRunStart { .. }
+            | Cmd::PreviewCancel { .. }
+            | Cmd::ListJobs { .. }
+            | Cmd::ListPolicies { .. }
+            | Cmd::PreviewPolicyUpsert(_)
+            | Cmd::PreviewPolicyRemove { .. }
+            | Cmd::ExplainPolicy { .. } => false,
         }
     }
 }

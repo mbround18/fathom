@@ -15,6 +15,10 @@ use crate::inventory::{
 };
 // Governance (US6)
 use crate::governance::{ApiTokenInfo, TeamInfo, TokenSecret, UserInfo, WorkspaceInfo};
+// Runs (US2)
+use crate::run::{
+    JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
+};
 
 /// Every frame the server sends, and each element of `POST /api/v1/cmd`'s reply array.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -124,6 +128,70 @@ pub enum Event {
     ApiTokenCreated {
         token: ApiTokenInfo,
         secret: TokenSecret,
+    },
+
+    // Runs (US2)
+    /// Reply to `ListRuns`.
+    Runs { items: Vec<RunInfo> },
+    /// Reply to `GetRun` and to a confirmed `PreviewRunStart`.
+    Run {
+        run: RunInfo,
+        hosts: Vec<RunHostInfo>,
+    },
+    /// Reply to `SubscribeRun`: `seq` is the last sequence number it will replay.
+    RunSubscribed {
+        #[ts(type = "string")]
+        run: Uuid,
+        seq: u64,
+    },
+    /// One structured event of a subscribed run. `data` is the event's JSON.
+    RunEvent {
+        #[ts(type = "string")]
+        run: Uuid,
+        seq: u64,
+        at: String,
+        kind: String,
+        host: Option<String>,
+        task: Option<String>,
+        data: String,
+    },
+    /// A chunk of a subscribed run's output (lossy UTF-8).
+    RunLog {
+        #[ts(type = "string")]
+        run: Uuid,
+        seq: u64,
+        stream: LogStream,
+        text: String,
+    },
+    /// A run changed state (pushed to the workspace's viewers, and to subscribers).
+    RunState {
+        #[ts(type = "string")]
+        run: Uuid,
+        state: RunPhase,
+        reason: Option<RunReason>,
+    },
+    /// Reply to `ListJobs`.
+    Jobs {
+        #[ts(type = "string")]
+        binding: Uuid,
+        items: Vec<JobInfo>,
+    },
+    /// Reply to `ListPolicies`, and after a policy change.
+    Policies {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        items: Vec<PolicyInfo>,
+    },
+    /// Reply to `ExplainPolicy`.
+    PolicyExplanation {
+        #[ts(type = "string")]
+        job: Uuid,
+        limit: Option<String>,
+        #[ts(type = "string")]
+        winner: Uuid,
+        requires_approval: bool,
+        reason: String,
+        checks: Vec<PolicyCheck>,
     },
 }
 

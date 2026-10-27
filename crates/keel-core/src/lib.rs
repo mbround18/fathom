@@ -13,6 +13,7 @@ pub mod ports;
 pub mod repo_url;
 pub mod rollback;
 pub mod run;
+pub mod target;
 
 /// Re-exported so wire crates use the same `Uuid` without their own dependency.
 pub use uuid;
