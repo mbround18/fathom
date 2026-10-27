@@ -10,6 +10,7 @@ import {
   PlayIcon,
   SealCheckIcon,
   TreeStructureIcon,
+  UserListIcon,
   UsersThreeIcon,
   WebhooksLogoIcon,
   type Icon,
@@ -29,6 +30,7 @@ export const SECTIONS: readonly Section[] = [
   { path: '/inventory', label: 'Inventory', icon: ListChecksIcon },
   { path: '/hosts', label: 'Hosts', icon: HardDrivesIcon },
   { path: '/teams', label: 'Teams', icon: UsersThreeIcon },
+  { path: '/users', label: 'Users', icon: UserListIcon },
   { path: '/audit', label: 'Audit', icon: ClipboardTextIcon },
   { path: '/migration', label: 'Migration', icon: ArrowsLeftRightIcon },
 ]

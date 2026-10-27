@@ -1,7 +1,7 @@
 /** The section navigation and its empty pages (spec 055 T030). */
 import { expect, test } from '../../support/fake-backend'
 
-const SECTIONS = ['Runs', 'Reviews', 'Bindings', 'Receivers', 'Inventory', 'Hosts', 'Teams', 'Audit', 'Migration']
+const SECTIONS = ['Runs', 'Reviews', 'Bindings', 'Receivers', 'Inventory', 'Hosts', 'Teams', 'Users', 'Audit', 'Migration']
 
 test('/ goes to runs', async ({ page }) => {
   await page.goto('/')

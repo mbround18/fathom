@@ -21,6 +21,7 @@ const ROUTES: readonly Route[] = [
   { pattern: '/inventory', page: lazy(() => import('@/features/inventory/InventoryPage')) },
   { pattern: '/hosts', page: lazy(() => import('@/features/hosts/HostsPage')) },
   { pattern: '/teams', page: lazy(() => import('@/features/teams/TeamsPage')) },
+  { pattern: '/users', page: lazy(() => import('@/features/users/UsersPage')) },
   { pattern: '/audit', page: lazy(() => import('@/features/audit/AuditPage')) },
   { pattern: '/migration', page: lazy(() => import('@/features/migration/MigrationPage')) },
   { pattern: ACCOUNT_PASSKEYS, page: lazy(() => import('@/features/passkeys/PasskeysPage')) },
