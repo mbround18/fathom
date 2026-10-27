@@ -325,15 +325,15 @@ one, see invalid content refused before use, and see lineage on each revision.
 
 ### Tests
 
-- [ ] T053 [P] [US4] Inventory parser and validator tests in crates/keel-core/src/inventory.rs:
+- [X] T053 [P] [US4] Inventory parser and validator tests in crates/keel-core/src/inventory.rs:
   YAML and INI with `group_vars/` and `host_vars/`; Ansible name rules; no group cycles; no
   duplicate host identities; JSON Schema on vars; plaintext-secret warning for `*password*`,
   `*token*`, `*secret*` plain strings (vault values allowed); an invalid revision is stored with
   status `invalid` and its errors.
-- [ ] T054 [P] [US4] Server tests in apps/keel/server/tests/inventory.rs: a new revision only when
+- [X] T054 [P] [US4] Server tests in apps/keel/server/tests/inventory.rs: a new revision only when
   `content_hash` changes; `PreviewInventoryEdit` from a stale base is refused as `stale_base`;
   revisions cannot be updated (no grant); a deprecated inventory accepts no new runs.
-- [ ] T055 [P] [US4] Playwright apps/keel/web/tests/e2e/us4/: edit a managed inventory, see
+- [X] T055 [P] [US4] Playwright apps/keel/web/tests/e2e/us4/: edit a managed inventory, see
   validation errors before saving, diff two revisions, restore an earlier one.
 
 ### Implementation
@@ -341,12 +341,12 @@ one, see invalid content refused before use, and see lineage on each revision.
 - [X] T056 [US4] Migration `0004_inventory.sql`: `inventories` (`source` `repo | managed`, name
   unique per workspace), `inventory_revisions` (immutable, no `UPDATE` grant; `seq` per
   inventory; `restored_from?`; `imported_from?`), `inventory_hosts`.
-- [ ] T057 [US4] Parser and validator in crates/keel-core/src/inventory.rs. Pass T053.
-- [ ] T058 [US4] Inventory commands in apps/keel/server/src/inventory.rs: `ListInventories`,
+- [X] T057 [US4] Parser and validator in crates/keel-core/src/inventory.rs. Pass T053.
+- [X] T058 [US4] Inventory commands in apps/keel/server/src/inventory.rs: `ListInventories`,
   `GetInventoryRevision`, `DiffInventory`, `PreviewInventoryCreate`, `PreviewInventoryEdit`,
   `PreviewInventoryRestore` (new revision equal to an old one), `PreviewInventoryDeprecate`,
   `ValidateInventory`. Hook `repo` revisions into sync (T051). Pass T054.
-- [ ] T059 [P] [US4] Web page apps/keel/web/src/features/inventory/ with the revision list, diff
+- [X] T059 [P] [US4] Web page apps/keel/web/src/features/inventory/ with the revision list, diff
   and editor (CodeMirror YAML, as Depths).
 
 **Checkpoint**: US4 scenario in quickstart.md §2 passes; Playwright `us4` passes.
@@ -364,7 +364,7 @@ running and terminal states, per-host outcomes and failure context are visible.
 
 ### Tests
 
-- [ ] T060 [P] [US2] Policy tests in crates/keel-core/src/policy.rs: lowest `priority` among
+- [X] T060 [P] [US2] Policy tests in crates/keel-core/src/policy.rs: lowest `priority` among
   matching policies wins; `match` by job name glob, inventory and limit glob; the priority-`max`
   catch-all `{requires_approval: true}` exists in every workspace and cannot be deleted;
   `ExplainPolicy` says which policy wins and why.
@@ -374,42 +374,42 @@ running and terminal states, per-host outcomes and failure context are visible.
   lines (`playbook_start`, `play_start`, `task_start`, per-host `ok/changed/failed/unreachable/
   skipped`, `stats`), and a Python unit test for apps/keel/runner/ansible/callback/keel_events.py
   that `no_log` results are written only as `censored`.
-- [ ] T063 [P] [US2] Server tests in apps/keel/server/tests/runs.rs with the fake runner: a push
+- [X] T063 [P] [US2] Server tests in apps/keel/server/tests/runs.rs with the fake runner: a push
   that touches a job's `paths` creates a run pinned to the fetched commit and inventory revision;
   a force-push gives `history_rewritten` and no run; per-host results arrive within 30 s of the
   fake runner finishing (SC-003); a lost runner after 3 missed pings marks its hosts `lost`;
   logs past `--run-log-cap` keep head and tail with a truncation marker; `SubscribeRun
   { from_seq }` resumes without gaps.
-- [ ] T064 [P] [US2] Playwright apps/keel/web/tests/e2e/us2/: a run list, a run page with live
+- [X] T064 [P] [US2] Playwright apps/keel/web/tests/e2e/us2/: a run list, a run page with live
   `LogView`, per-host results table with summary counts, an unreachable host's first failure.
 
 ### Implementation
 
-- [ ] T065 [US2] Migration `0005_runs.sql`: `approval_policies` (with the catch-all inserted on
+- [X] T065 [US2] Migration `0005_runs.sql`: `approval_policies` (with the catch-all inserted on
   workspace creation), `runs` (`kind` `normal | rollback | baseline`; `trigger` `delivery | poll |
   manual | api | workflow`; `state`; `state_reason`), `run_hosts` (`state` `queued | sent |
   running | succeeded | failed | refused | lost | cancelled`; `refusal` enum as data-model.md),
   `run_host_results`, `run_events`, `run_log_chunks`, and a minimal `hosts` table (completed in
   T080).
-- [ ] T066 [US2] Policy resolution in crates/keel-core/src/policy.rs. Pass T060.
+- [X] T066 [US2] Policy resolution in crates/keel-core/src/policy.rs. Pass T060.
 - [X] T067 [US2] Frames and codec in crates/keel-exec/src/frames.rs and codec.rs; the
   `keel_events` parser; the `fake` runner session. Pass T061, T062.
 - [X] T068 [US2] The `keel_events` callback plugin in
   apps/keel/runner/ansible/callback/keel_events.py: stdout-neutral, one JSON line per event to the
   fd in `KEEL_EVENT_FD`.
-- [ ] T069 [US2] Run creation in apps/keel/server/src/sync.rs and runs.rs: on `synced`, for each
+- [X] T069 [US2] Run creation in apps/keel/server/src/sync.rs and runs.rs: on `synced`, for each
   job whose `paths` match the changed files, create a run, pin `refs/keel/runs/<id>` and the
   inventory revision, resolve hosts (by job profiles and `limit`), and apply policy (`queued` when
   no approval is required).
-- [ ] T070 [US2] Queue and dispatch in apps/keel/server/src/queue.rs and dispatch.rs:
+- [X] T070 [US2] Queue and dispatch in apps/keel/server/src/queue.rs and dispatch.rs:
   `SELECT … FOR UPDATE SKIP LOCKED`, per-host `Assign`, `Pack` (built by
   crates/keel-exec/src/pack_builder.rs from crates/keel-git/src/pack.rs), `Secrets` (only the
   credentials the job references that are granted to one of the host's profiles; never `git_*`),
   `Cancel`; batched writes of `run_events` and `run_log_chunks`; live forwarding to subscribers.
-- [ ] T071 [US2] Run commands: `ListRuns`, `GetRun`, `SubscribeRun`, `UnsubscribeRun`,
+- [X] T071 [US2] Run commands: `ListRuns`, `GetRun`, `SubscribeRun`, `UnsubscribeRun`,
   `PreviewRunStart` (manual), `PreviewCancel`, `ListJobs`, `ListPolicies`, `PreviewPolicyUpsert`,
   `PreviewPolicyRemove`, `ExplainPolicy`, and the `RunState` event.
-- [ ] T072 [P] [US2] Web pages apps/keel/web/src/features/runs/ (list, run page with `LogView`
+- [X] T072 [P] [US2] Web pages apps/keel/web/src/features/runs/ (list, run page with `LogView`
   from `@companion/terminal`, per-host table, "a newer inventory revision exists" notice).
 
 **Checkpoint**: US2 scenarios in quickstart.md §2 pass with the fake runner; Playwright `us2`
