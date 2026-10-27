@@ -174,7 +174,7 @@ A first-time visitor to `uwusquad.dev` meets Mio, the suite mascot, who walks th
 - Hair: deep navy fading to tide cyan (`accentNeon` #3ef2ff) at the tips, worn in a low side tail tied with a magenta (`accent2` #ff2bd6) cord like a mooring line.
 - Outfit: a navy pilot's coat (`card` #0c1228) with cyan piping and a high collar, over a sailor-style collar with a magenta neckerchief. Practical boots and gloves; nothing that reads as a costume or as revealing.
 - Hairpin: four small brush-stroke charms showing the product marks 尋 淵 舵 衡, in the suite's Yuji Boku brush style. This is how she carries the whole suite with her.
-- Emblem: 澪 in brush script on her coat's shoulder patch.
+- Emblem: 澪, the portal's own mark, in brush script on her coat's shoulder patch. She and the portal share one glyph: where the portal header shows 澪, she is the character behind it.
 - Prop: a pilot's lantern that glows status green (`statusOk` #39ffb0) when a route is clear.
 - Light theme (`BLUEPRINT_LIGHT`): the same design drawn as blueprint linework on pale paper.
 
@@ -245,7 +245,7 @@ Every product (Fathom, Depths, Keel, Ballast) is complete on its own. Suite mode
 - **FR-016**: Suite positioning MUST clearly communicate that core orchestration and management capabilities are free and open source.
 - **FR-017**: Donation prompts MUST be encouraged and visible across suite entry points without blocking access to core product capabilities.
 - **FR-018**: The portal MUST provide a centralized support/funding surface that links to approved donation channels and funding policy.
-- **FR-019**: Suite brand architecture MUST be explicit: master brand `UwU Squad`, product brands `Fathom`, `Depths`, `Keel`, and `Ballast`.
+- **FR-019**: Suite brand architecture MUST be explicit: master brand `UwU Squad`, product brands `Fathom`, `Depths`, `Keel`, and `Ballast`, and the portal mark `澪` (Mio, the channel between the products) alongside the product marks `尋`, `淵`, `舵`, `衡`.
 - **FR-020**: Product UI surfaces MUST lead with product names, while suite marketing surfaces MUST present “UwU Squad Suite” as the umbrella.
 - **FR-021**: The suite MUST use a consistent positioning line and subline across homepage, product pages, and onboarding.
 - **FR-022**: The suite MUST maintain four message pillars across major marketing surfaces: open/free core, operator-grade security, cross-app workflows, and self-host ownership.

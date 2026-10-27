@@ -12,6 +12,7 @@
 - Depths: `淵`
 - Keel: `舵`
 - Ballast: `衡`
+- Portal: `澪` (channel; shared with the mascot Mio)
 
 ## Poetic Motif
 

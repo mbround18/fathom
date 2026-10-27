@@ -160,6 +160,6 @@ As a user of the UwU Squad suite, I can recognize Ballast as a first-class sibli
 
 ## Branding Notes
 
-- Suite marks: Fathom `尋`, Depths `淵`, Keel `舵`, Ballast `衡`.
+- Suite marks: Fathom `尋`, Depths `淵`, Keel `舵`, Ballast `衡`; portal `澪`.
 - Ballast conceptual line: stability, trim, and controlled motion under change.
 - Poetic motif (for brand copy): 「潮平兩岸闊，風正一帆懸」 (Wang Wan, Tang) — “When the tide is level, the banks open wide; with a true wind, a lone sail hangs steady.”

@@ -6,7 +6,7 @@ Uwusquad is the product-suite umbrella for:
 - **Depths**: Docker/Compose host operations
 - **Keel**: Git-bound Ansible and inventory control plane
 - **Ballast**: IaC state + secrets control plane
-- **Uwusquad Portal**: shared identity, RBAC, and cross-app workflow orchestration
+- **Uwusquad Portal** (`澪`): shared identity, RBAC, and cross-app workflow orchestration
 
 ## Product fit
 
