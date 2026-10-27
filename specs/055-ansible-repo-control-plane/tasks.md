@@ -368,9 +368,9 @@ running and terminal states, per-host outcomes and failure context are visible.
   matching policies wins; `match` by job name glob, inventory and limit glob; the priority-`max`
   catch-all `{requires_approval: true}` exists in every workspace and cannot be deleted;
   `ExplainPolicy` says which policy wins and why.
-- [ ] T061 [P] [US2] Frame round trips in crates/keel-exec/tests/frames.rs for every frame of
+- [X] T061 [P] [US2] Frame round trips in crates/keel-exec/tests/frames.rs for every frame of
   contracts/runner.md, plus the codec refusing frames over 16 MiB.
-- [ ] T062 [P] [US2] `keel_events` parser tests in crates/keel-exec/src/events.rs over recorded
+- [X] T062 [P] [US2] `keel_events` parser tests in crates/keel-exec/src/events.rs over recorded
   lines (`playbook_start`, `play_start`, `task_start`, per-host `ok/changed/failed/unreachable/
   skipped`, `stats`), and a Python unit test for apps/keel/runner/ansible/callback/keel_events.py
   that `no_log` results are written only as `censored`.
@@ -392,9 +392,9 @@ running and terminal states, per-host outcomes and failure context are visible.
   `run_host_results`, `run_events`, `run_log_chunks`, and a minimal `hosts` table (completed in
   T080).
 - [ ] T066 [US2] Policy resolution in crates/keel-core/src/policy.rs. Pass T060.
-- [ ] T067 [US2] Frames and codec in crates/keel-exec/src/frames.rs and codec.rs; the
+- [X] T067 [US2] Frames and codec in crates/keel-exec/src/frames.rs and codec.rs; the
   `keel_events` parser; the `fake` runner session. Pass T061, T062.
-- [ ] T068 [US2] The `keel_events` callback plugin in
+- [X] T068 [US2] The `keel_events` callback plugin in
   apps/keel/runner/ansible/callback/keel_events.py: stdout-neutral, one JSON line per event to the
   fd in `KEEL_EVENT_FD`.
 - [ ] T069 [US2] Run creation in apps/keel/server/src/sync.rs and runs.rs: on `synced`, for each
@@ -427,11 +427,11 @@ two-process runner, revocation.
 
 ### Tests
 
-- [ ] T073 [P] [US7] SSH listener tests in crates/keel-exec/tests/listener.rs: only Ed25519,
+- [X] T073 [P] [US7] SSH listener tests in crates/keel-exec/tests/listener.rs: only Ed25519,
   `curve25519-sha256`, `chacha20-poly1305@openssh.com` or `aes256-gcm@openssh.com`; shell, exec,
   pty, env, port forwarding both ways, agent and X11 refused; only the `keel-enroll-v1` and
   `keel-runner-v1` subsystems; an unknown key may open only `keel-enroll-v1`.
-- [ ] T074 [P] [US7] CA and KRL tests in crates/keel-exec/tests/ca.rs: runner certificates carry
+- [X] T074 [P] [US7] CA and KRL tests in crates/keel-exec/tests/ca.rs: runner certificates carry
   key id `runner:<id>`, principals `host:<name>` and `profile:<p>` for assigned ∩ allowed
   profiles, a unique serial, `--runner-cert-ttl` validity and no extensions; a revoked serial in
   the KRL is refused; a retiring CA stays trusted until its certificates expire.
