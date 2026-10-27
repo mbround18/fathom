@@ -17,3 +17,8 @@ gix = { version = "0.90.0", default-features = false, features = [
     "blocking-http-transport-reqwest-rust-tls",
 ] }
 keel-core = { path = "../keel-core" }
+thiserror = "2"
+uuid = { version = "1.28.0", features = ["v7"] }
+
+[dev-dependencies]
+tempfile = "3"

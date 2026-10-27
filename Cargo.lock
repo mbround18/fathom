@@ -5687,6 +5687,9 @@ version = "0.1.0"
 dependencies = [
  "gix",
  "keel-core",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
