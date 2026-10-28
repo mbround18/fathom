@@ -50,7 +50,7 @@ migration (research R4).
   connected, it sends what is new. If the file shrinks (truncated or replaced), it reads from the
   start, and Keel de-duplicates by `(at, playbook, commit)`.
 
-### Protocol (`crates/keel-protocol`, runner channel)
+### Runner channel (`crates/keel-exec/src/frames.rs`, subsystem `keel-runner-v1`)
 
 | Dir | Frame | Rules |
 |---|---|---|

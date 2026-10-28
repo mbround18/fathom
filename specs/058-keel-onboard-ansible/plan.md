@@ -68,7 +68,7 @@ amendments.
 | Principle | Assessment |
 |---|---|
 | I. Operator-first, explicit mutation | Pass. Every host is onboarded by hand and baselined. Jobs only run what the operator already runs with `make`. Outside runs are surfaced, never hidden or blocked. |
-| II. One contract per app | Pass. `OutsideRuns`/`OutsideRunsAck` and the host fields go into `keel-protocol`, with regenerated bindings. No side channel. |
+| II. One contract per app | Pass. `OutsideRuns`/`OutsideRunsAck` go into the existing runner channel (`keel-exec` frames). The host fields go into `keel-protocol`, with regenerated bindings. No side channel. |
 | III. Tested at the boundaries | Pass. Molecule covers the privilege boundary (sudoers, ACL, wrapper, root grant). Round-trip tests cover the new frames. A server test covers the flag. Playwright covers the badge. |
 | IV. Density scales with width | Pass. The only UI is one badge and a filter in existing host views, which follow existing layouts. |
 | V. Fast and quiet | Pass. A batch every 60 s, of at most 100 entries; no polling from the UI (it's event-driven). |
@@ -102,7 +102,8 @@ specs/058-keel-onboard-ansible/
 # fathom (this repo): amendments A1, A2
 .specify/memory/constitution.md                 # 1.4.1
 specs/055-ansible-repo-control-plane/           # contract edits (runner, host-install, …)
-crates/keel-protocol/src/                       # OutsideRuns, OutsideRunsAck, host fields
+crates/keel-exec/src/frames.rs                  # OutsideRuns, OutsideRunsAck (runner channel)
+crates/keel-protocol/src/host.rs                # changed_outside, entries, ListHosts filter, event
 apps/keel/runner/src/                           # outside-run reader, offset, keel-exec naming
 apps/keel/runner/systemd/                       # User=keel-exec, RestartPreventExitStatus=78
 apps/keel/server/migrations/                    # host_outside_runs, hosts.changed_outside
