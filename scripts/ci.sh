@@ -59,7 +59,25 @@ N="nice -n ${CI_NICE}"
 # ui/dist is embedded by the Tauri crate at compile time; the Rust jobs only need it to exist.
 STUB_UI_DIST="mkdir -p ui/dist && { [ -f ui/dist/index.html ] || echo '<!doctype html><title>Fathom</title>' > ui/dist/index.html; }"
 
+# timed_steps --step <cmd> ...: wraps each step so it prints "ci-time: <secs>s <label>" from inside
+# the container. run_job collects those lines into the slice's timing report and history.
+timed_steps() {
+  TIMED=()
+  local label
+  while [ $# -gt 0 ]; do
+    if [ "$1" = --step ] && [ $# -gt 1 ]; then
+      label=$(printf '%s' "${2//"$N "/}" | tr -cd 'A-Za-z0-9 _./:=@-' | cut -c1-70)
+      TIMED+=(--step "t0=\$(date +%s); ( $2 ); rc=\$?; echo \"ci-time: \$((\$(date +%s) - t0))s $label\"; exit \$rc")
+      shift 2
+    else
+      TIMED+=("$1")
+      shift
+    fi
+  done
+}
+
 rust_run() {
+  timed_steps --step "$STUB_UI_DIST" "$@"
   nice -n "$CI_NICE" paws run \
     --toolchain rust \
     --apt "$RUST_APT" \
@@ -70,8 +88,7 @@ rust_run() {
     --cache fathom-ci-cargo-git=/usr/local/cargo/git \
     --cache fathom-ci-target=/src/target \
     --cache fathom-ci-cargo-tools=/opt/cargo-tools \
-    --step "$STUB_UI_DIST" \
-    "$@"
+    "${TIMED[@]}"
 }
 
 # 050: the shared container runtime must stay app-agnostic. Fails if its dependency tree reaches
@@ -162,15 +179,15 @@ need_mem() {
 node_run() {
   local workdir=$1
   shift
+  timed_steps --step "corepack enable" \
+    --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" "$@"
   nice -n "$CI_NICE" paws run \
     --image "$PLAYWRIGHT_IMAGE" \
     --workdir "$workdir" \
     --env CI=true --env PLAYWRIGHT_WORKERS --env VITEST_WORKERS --env CI_RUN_ID --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     --cache fathom-ci-pnpm-store=/pnpm-store \
     --cache fathom-ci-corepack=/root/.cache/node/corepack \
-    --step "corepack enable" \
-    --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" \
-    "$@"
+    "${TIMED[@]}"
 }
 
 # Spec 050: Depths' crates (and the shared ones it builds on), then its web app against the fake
@@ -264,16 +281,48 @@ job_changed() {
   [ "${#failed[@]}" -eq 0 ] || { echo "ci: FAILED (${failed[*]})" >&2; return 1; }
 }
 
-run_job() {
-  local name=$1 start
-  start=$(date +%s)
-  echo "ci: == $name =="
-  if "job_$name"; then
-    echo "ci: $name passed in $(($(date +%s) - start))s"
-  else
-    echo "ci: $name FAILED after $(($(date +%s) - start))s" >&2
-    return 1
+# Every slice's timings go here, one line per run: when, commit, slice, pass|fail, total seconds,
+# then its steps slowest first. `column -t -s$'\t' <file> | tail` shows the trend.
+CI_TIMES=${CI_TIMES:-${XDG_STATE_HOME:-$HOME/.local/state}/fathom/ci-times.tsv}
+
+# report_times <slice> <pass|fail> <total secs> <log>: the slowest steps, what the engine spent
+# outside them (image pulls, cache mounts, exports), and the change against the last pass.
+report_times() {
+  local name=$1 result=$2 total=$3 log=$4 steps sum prev
+  steps=$(sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -oE 'ci-time: [0-9]+s .*' | sed 's/^ci-time: //' \
+    | awk '!seen[$0]++' | sort -rn)
+  sum=$(awk '{ s += $1 } END { print s + 0 }' <<<"$steps")
+  prev=$(awk -F'\t' -v n="$name" '$3 == n && $4 == "pass" { t = $5 } END { print t }' "$CI_TIMES" 2>/dev/null)
+  echo "ci: $name steps, slowest first:"
+  sed 's/^/ci:   /' <<<"$steps"
+  echo "ci:   $((total - sum))s outside steps (engine, images, caches)"
+  [ -n "$prev" ] && echo "ci: $name last passed in ${prev}s; this run $((total - prev))s against it"
+  mkdir -p "$(dirname "$CI_TIMES")"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -Is)" "$(git rev-parse --short HEAD)" "$name" "$result" \
+    "$total" "$(paste -sd ';' <<<"$steps")" >>"$CI_TIMES"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    { echo "### $name: $result in ${total}s"; echo; sed 's/^\([0-9]*s\) \(.*\)/- \1 `\2`/' <<<"$steps"; } \
+      >>"$GITHUB_STEP_SUMMARY"
   fi
+}
+
+run_job() {
+  local name=$1 start log rc total
+  start=$(date +%s)
+  log=$(mktemp)
+  echo "ci: == $name =="
+  "job_$name" 2>&1 | tee "$log"
+  rc=${PIPESTATUS[0]}
+  total=$(($(date +%s) - start))
+  if [ "$rc" -eq 0 ]; then
+    report_times "$name" pass "$total" "$log"
+    echo "ci: $name passed in ${total}s"
+  else
+    report_times "$name" fail "$total" "$log"
+    echo "ci: $name FAILED after ${total}s" >&2
+  fi
+  rm -f "$log"
+  return "$rc"
 }
 
 command -v paws >/dev/null || { echo "ci: paws is not on PATH (cargo install --git https://github.com/mbround18/paws paws-cli)" >&2; exit 1; }

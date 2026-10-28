@@ -124,6 +124,11 @@ scripts/ci.sh keel                     # one slice: shared|fathom|fathom-full|de
 scripts/ci.sh all                      # every slice, full e2e matrix: the release gate
 ```
 
+Every slice reports its steps slowest first, the time the engine spent outside them, and the
+change against its last pass, and appends a line to `~/.local/state/fathom/ci-times.tsv`
+(`CI_TIMES`). Look at the trend with `column -t -s$'\t' ~/.local/state/fathom/ci-times.tsv | tail`
+and treat a slice that grows as a bug: the slowest step is where to cut first.
+
 `scripts/ci.sh` is the only thing `.github/workflows/ci.yml` runs, so a green local run is a green
 CI run. CI is sliced per app: `changed`, the default, diffs against `origin/main` (`CI_BASE`) and
 runs only the slices that touch, so a Keel change gates Keel's crates, bindings and web app in
