@@ -574,6 +574,7 @@ impl Ops {
             stack: name.as_str().to_owned(),
             kind,
             steps,
+            step_up: None,
             file_diff: self.removal_diff(&name, &core_op).await,
             reaches: Reach {
                 containers,
@@ -847,6 +848,7 @@ impl Ops {
             stack: name.as_str().to_owned(),
             kind,
             steps,
+            step_up: None,
             file_diff: Some(file_diff),
             reaches: Reach {
                 containers,
@@ -1137,6 +1139,7 @@ impl Job {
             event: Event::OpFinished {
                 operation_id: self.operation_id,
                 outcome: outcome.clone(),
+                guard: None,
             },
         });
         outcome
@@ -1331,7 +1334,7 @@ mod tests {
         assert!(matches!(&evs[0], Event::OpOutput { chunk, .. } if chunk.contains("Started")));
         assert!(matches!(
             evs.last(),
-            Some(Event::OpFinished { operation_id, outcome: OpOutcome::Succeeded }) if *operation_id == id
+            Some(Event::OpFinished { operation_id, outcome: OpOutcome::Succeeded, .. }) if *operation_id == id
         ));
         assert!(!f.ops.is_busy("web"));
 

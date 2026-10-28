@@ -621,6 +621,7 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         Cmd::Confirm {
             preview_id,
             acknowledge_findings,
+            ..
         } => {
             // Spec 053: a file preview confirms through the file gate.
             if app.files.has_preview(&conn.session, preview_id) {
@@ -695,6 +696,7 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             shell,
             cols,
             rows,
+            ..
         } => {
             if app.cfg.features.shell {
                 vec![streams::open_shell(conn, &access, id, container, shell, cols, rows).await]
@@ -707,6 +709,19 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 )]
             }
         }
+        // Spec 054: the protocol is in, the server half is not built yet.
+        Cmd::GetVerification
+        | Cmd::PasskeyBegin { .. }
+        | Cmd::PasskeyFinish(_)
+        | Cmd::ListPasskeys
+        | Cmd::PreviewPasskeyRemove { .. }
+        | Cmd::RecoverPasskeys { .. }
+        | Cmd::GetGuardExceptions { .. } => vec![conn.deny_reason(
+            id,
+            None,
+            DenyReason::FeatureDisabled,
+            "passkeys and the runtime guard are not available yet (spec 054)".into(),
+        )],
         Cmd::OpenLogs {
             target,
             tail,

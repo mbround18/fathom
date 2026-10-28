@@ -315,6 +315,14 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
         | Cmd::ListHistory { stack, .. }
         | Cmd::ReadVersion { stack, .. }
         | Cmd::PreviewFileOp { stack, .. } => gate(who, stack_place(stack), Refused("missing")),
+        // 054: refused for everyone until the server half lands.
+        Cmd::GetVerification
+        | Cmd::PasskeyBegin { .. }
+        | Cmd::PasskeyFinish(_)
+        | Cmd::ListPasskeys
+        | Cmd::PreviewPasskeyRemove { .. }
+        | Cmd::RecoverPasskeys { .. }
+        | Cmd::GetGuardExceptions { .. } => Denied(FEATURE_DISABLED),
     }
 }
 
@@ -537,6 +545,45 @@ fn samples() -> Vec<(Prep, Value)> {
             cmd("CloseStream", json!({ "stream_id": "$ID" })),
         ));
     }
+    // 054: refused until the server half lands.
+    v.push((Prep::None, bare("GetVerification")));
+    v.push((
+        Prep::None,
+        cmd("PasskeyBegin", json!({ "purpose": { "kind": "verify" } })),
+    ));
+    v.push((
+        Prep::None,
+        cmd(
+            "PasskeyFinish",
+            json!({
+                "ceremony": "00000000-0000-0000-0000-000000000007",
+                "credential": {
+                    "id": "aWQ",
+                    "rawId": "cmF3",
+                    "response": {
+                        "attestationObject": "YXR0ZXN0",
+                        "clientDataJSON": "Y2xpZW50",
+                        "transports": ["usb"]
+                    },
+                    "type": "public-key",
+                    "extensions": {}
+                }
+            }),
+        ),
+    ));
+    v.push((Prep::None, bare("ListPasskeys")));
+    v.push((
+        Prep::None,
+        cmd("PreviewPasskeyRemove", json!({ "id": "Y2hlY2s" })),
+    ));
+    v.push((
+        Prep::None,
+        cmd("RecoverPasskeys", json!({ "code": "AbCd1234Ef" })),
+    ));
+    v.push((
+        Prep::None,
+        cmd("GetGuardExceptions", json!({ "stack": "web" })),
+    ));
     v
 }
 
@@ -581,7 +628,7 @@ fn declared_variants() -> BTreeSet<String> {
 #[test]
 fn every_command_has_a_sample() {
     let declared = declared_variants();
-    assert_eq!(declared.len(), 28, "{declared:?}");
+    assert_eq!(declared.len(), 35, "{declared:?}");
     let sampled: BTreeSet<String> = samples()
         .iter()
         .map(|(_, c)| c["type"].as_str().unwrap().to_owned())

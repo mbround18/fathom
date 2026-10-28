@@ -153,6 +153,8 @@ pub fn entry(actor: Actor, action: AuditAction, ip: IpAddr, outcome: AuditOutcom
         preview_id: None,
         operation_id: None,
         argv: Vec::new(),
+        guard: None,
+        passkey: None,
         target: None,
         diff_summary: None,
         outcome,
