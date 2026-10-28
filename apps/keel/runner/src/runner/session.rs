@@ -22,6 +22,8 @@ use super::{Runner, RunnerError, renew_at, unix_now};
 /// How often the runner pings, and how long a silent server is tolerated.
 const PING_EVERY: Duration = Duration::from_secs(15);
 const SILENCE: Duration = Duration::from_secs(45);
+/// How often a connected runner looks for new runs outside Keel.
+const OUTSIDE_EVERY: Duration = Duration::from_secs(60);
 /// After asking for a renewal, how long to wait before asking again.
 const RENEW_RETRY: Duration = Duration::from_secs(60);
 /// After relaying `Cancel`, how long the executor has to send `Finished` before the runner
@@ -78,6 +80,7 @@ fn from_server(frame: &Frame) -> bool {
             | Frame::Secrets { .. }
             | Frame::Approvals { .. }
             | Frame::Cancel { .. }
+            | Frame::OutsideRunsAck { .. }
             | Frame::Ping
             | Frame::Pong
     )
@@ -151,11 +154,15 @@ impl Runner {
             bases,
         };
         send(&out, hello)?;
+        // Runs outside Keel: what is new on Hello, then every minute (spec 058 amendment A2).
+        let mut outside_sent = self.send_outside(&out)?;
 
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<String>();
         let mut relays = Relays::default();
         let mut last_heard = Instant::now();
         let mut ping = tokio::time::interval_at(Instant::now() + PING_EVERY, PING_EVERY);
+        let mut outside_tick =
+            tokio::time::interval_at(Instant::now() + OUTSIDE_EVERY, OUTSIDE_EVERY);
 
         let result = loop {
             tokio::select! {
@@ -180,6 +187,19 @@ impl Runner {
                             renew_deadline = deadline_for(renew_at(&cert));
                         }
                         Frame::Krl { bytes } => self.save_krl(&bytes)?,
+                        Frame::OutsideRunsAck { through } => {
+                            if outside_sent != Some(through) {
+                                eprintln!(
+                                    "keel-runner: OutsideRunsAck for offset {through}, which is not the batch sent; ignored"
+                                );
+                                continue;
+                            }
+                            if let Err(e) = self.outside.ack(through) {
+                                eprintln!("keel-runner: saving the outside-runs offset: {e}");
+                            }
+                            // A backlog over 100 entries drains batch by batch.
+                            outside_sent = self.send_outside(&out)?;
+                        }
                         Frame::Assign { ref run_id, .. } => {
                             let run_id = run_id.clone();
                             if relays.0.contains_key(&run_id) {
@@ -220,6 +240,11 @@ impl Runner {
                     }
                     send(&out, Frame::Ping)?;
                 }
+                _ = outside_tick.tick() => {
+                    // Unacknowledged batches are sent again from the saved offset; Keel
+                    // de-duplicates.
+                    outside_sent = self.send_outside(&out)?;
+                }
                 () = sleep_until(renew_deadline) => {
                     send(&out, Frame::RenewCert {})?;
                     renew_deadline = Instant::now() + RENEW_RETRY;
@@ -231,6 +256,25 @@ impl Runner {
             .disconnect(russh::Disconnect::ByApplication, "", "")
             .await;
         result
+    }
+}
+
+impl Runner {
+    /// Sends what is new in the outside-runs record, if anything, and returns the batch's end
+    /// offset. A record that cannot be read is reported and does not end the session.
+    fn send_outside(&self, out: &mpsc::UnboundedSender<Frame>) -> Result<Option<u64>, RunnerError> {
+        match self.outside.next_batch() {
+            Ok(Some(batch)) => {
+                let through = batch.through;
+                send(out, batch.into_frame())?;
+                Ok(Some(through))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => {
+                eprintln!("keel-runner: reading {}: {e}", self.outside.log().display());
+                Ok(None)
+            }
+        }
     }
 }
 

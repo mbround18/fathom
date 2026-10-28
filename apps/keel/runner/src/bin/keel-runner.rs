@@ -42,6 +42,13 @@ struct Cli {
         default_value = "/opt/keel-runner/venv"
     )]
     venv: PathBuf,
+    /// The record of `ansible-playbook` runs made outside Keel, which the runner reports.
+    #[arg(
+        long,
+        env = "KEEL_RUNNER_OUTSIDE_LOG",
+        default_value = keel_runner::runner::outside::DEFAULT_OUTSIDE_LOG
+    )]
+    outside_log: PathBuf,
 }
 
 #[tokio::main]
@@ -54,7 +61,7 @@ async fn main() {
         executor_socket: cli.executor_socket,
         venv: cli.venv,
     }) {
-        Ok(r) => r,
+        Ok(r) => r.with_outside_log(cli.outside_log),
         Err(e) => {
             eprintln!("keel-runner: {e}");
             std::process::exit(1);

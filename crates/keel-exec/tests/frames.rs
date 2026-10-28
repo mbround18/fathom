@@ -449,7 +449,8 @@ fn an_outside_run_checks_its_bounds() {
     };
     assert!(none.check().is_ok(), "no commit is allowed");
 
-    let bad: Vec<(&str, fn(&mut OutsideRun))> = vec![
+    type Spoil = fn(&mut OutsideRun);
+    let bad: Vec<(&str, Spoil)> = vec![
         ("user over 64 bytes", |r| r.user = "u".repeat(65)),
         ("playbook over 256 bytes", |r| r.playbook = "p".repeat(257)),
         ("short commit", |r| r.commit = Some("abc".into())),

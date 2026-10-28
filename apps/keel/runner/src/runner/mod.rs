@@ -11,6 +11,7 @@
 //!
 //! It never interprets work: the executor checks everything itself.
 
+pub mod outside;
 pub(crate) mod session;
 
 use std::io::ErrorKind;
@@ -208,6 +209,8 @@ pub struct Runner {
     policy: Policy,
     host_cas: Vec<KeyData>,
     key: Arc<PrivateKey>,
+    /// The record of runs outside Keel (spec 058 amendment A2).
+    outside: outside::OutsideLog,
 }
 
 impl std::fmt::Debug for Runner {
@@ -226,12 +229,20 @@ impl Runner {
         let policy = Policy::load(&cfg.trust_dir)?;
         let host_cas = parse_host_ca(&read_trust_file(&cfg.trust_dir.join(HOST_CA_FILE))?)?;
         let key = Arc::new(load_or_create_key(&cfg.state_dir)?);
+        let outside = outside::OutsideLog::new(outside::DEFAULT_OUTSIDE_LOG, &cfg.state_dir);
         Ok(Self {
             cfg,
             policy,
             host_cas,
             key,
+            outside,
         })
+    }
+
+    /// Reads runs outside Keel from `path` instead of `/var/lib/keel-outside/runs.jsonl`.
+    pub fn with_outside_log(mut self, path: impl Into<PathBuf>) -> Self {
+        self.outside = outside::OutsideLog::new(path, &self.cfg.state_dir);
+        self
     }
 
     pub fn config(&self) -> &RunnerConfig {
