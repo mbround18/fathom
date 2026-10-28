@@ -39,7 +39,7 @@ See contracts/keel-amendments.md § A1.
 - [X] T004 [P] Write a failing test in `apps/keel/runner/tests/units.rs` that parses `apps/keel/runner/systemd/keel-executor@.service` and `keel-runner.service`. It asserts `User=keel-exec`, `Group=keel-exec`, and `RestartPreventExitStatus=78` on `keel-runner.service`.
 - [X] T005 Make T004 pass in `apps/keel/runner/systemd/keel-executor@.service` and `apps/keel/runner/systemd/keel-runner.service`.
 - [X] T006 Replace every literal executor account name and doc comment `automation` with `keel-exec` in `apps/keel/runner/src/bin/keel-executor.rs`, `apps/keel/runner/src/lib.rs` and `apps/keel/runner/src/executor/`. Gate: `cargo test -p keel-runner`.
-- [ ] T007 Re-vendor both unit files into `../ansible/roles/keel_runner/files/systemd/`, byte-identical to fathom's.
+- [X] T007 Re-vendor both unit files into `../ansible/roles/keel_runner/files/systemd/`, byte-identical to fathom's.
 
 **Checkpoint**: Keel's runner and its 055 docs name `keel-exec`, and the constitution is at 1.4.1.
 
@@ -55,7 +55,7 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
 
 ### Tests first
 
-- [ ] T008 [P] [US1] Extend `../ansible/roles/base/molecule/default/tests/test_default.py` with the following failing cases.
+- [X] T008 [P] [US1] Extend `../ansible/roles/base/molecule/default/tests/test_default.py` with the following failing cases.
   - A group member cannot write `/root/ansible/.git/hooks/x`, `.git/config` or `playbooks/x.yaml`.
   - `sudo automation-compose-up` exits as follows:
     - 64 with no arguments, with two arguments, with `'x up -d -f /tmp/y'`, and with `../x`;
@@ -64,7 +64,7 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
   - A listed name with a compose file runs.
   - `sudo -l -U <member>` shows no `docker` rule.
   - Converge is idempotent (a second converge reports `changed=0`).
-- [ ] T009 [P] [US1] Create Molecule scenarios for `../ansible/roles/keel_runner/molecule/`, each with testinfra tests.
+- [X] T009 [P] [US1] Create Molecule scenarios for `../ansible/roles/keel_runner/molecule/`, each with testinfra tests.
   - `default`: fresh install. It creates the `keel-exec` user and group, with nologin and home `/var/lib/keel-executor` `0700`. `/etc/sudoers.d/keel-exec` contains exactly `keel-exec ALL=(root) NOPASSWD: ALL` and `Defaults:keel-exec !requiretty`, and passes `visudo -cf`.
   - `migrate`: a trial `automation` user with home `/var/lib/keel-executor` and a nologin shell is converted. Ledger and Git store bytes are unchanged (compare sha256), the `automation` group still exists, and `/etc/sudoers.d/keel-automation` is gone.
   - `refuse`: the role fails with no `keel-exec` sudoers file in three cases:
@@ -74,20 +74,20 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
 
 ### Implementation
 
-- [ ] T010 [US1] In `../ansible/roles/base/tasks/main.yml`, set the group ACL on `/root/ansible` to `r-X`, recursive, for both the access and default ACL, with any group `w` removed. Skip when the path is absent, and make it idempotent (research R1).
-- [ ] T011 [US1] Add `../ansible/roles/base/templates/automation-compose-up.sh.j2`, installed as `/usr/local/sbin/automation-compose-up` (root, `0755`). It is POSIX sh, with no sourcing and no `eval`, and uses the exact exit codes and `exec env -i PATH=… docker compose -f /root/ansible/composes/NAME/compose.yaml up -d` from contracts/base-hardening.md.
-- [ ] T012 [US1] In `../ansible/roles/base/tasks/main.yml` and `../ansible/roles/base/defaults/main.yml`, add `/etc/automation/composes.list` (root:root `0644`), built from `base_automation_composes`. Its default is `[inventory_hostname]` when `composes/<inventory_hostname>/compose.yaml` exists, else `[]`.
-- [ ] T013 [US1] Replace the free-form `base_automation_sudo_commands` with a template `../ansible/roles/base/templates/sudoers-automation.j2`.
+- [X] T010 [US1] In `../ansible/roles/base/tasks/main.yml`, set the group ACL on `/root/ansible` to `r-X`, recursive, for both the access and default ACL, with any group `w` removed. Skip when the path is absent, and make it idempotent (research R1).
+- [X] T011 [US1] Add `../ansible/roles/base/templates/automation-compose-up.sh.j2`, installed as `/usr/local/sbin/automation-compose-up` (root, `0755`). It is POSIX sh, with no sourcing and no `eval`, and uses the exact exit codes and `exec env -i PATH=… docker compose -f /root/ansible/composes/NAME/compose.yaml up -d` from contracts/base-hardening.md.
+- [X] T012 [US1] In `../ansible/roles/base/tasks/main.yml` and `../ansible/roles/base/defaults/main.yml`, add `/etc/automation/composes.list` (root:root `0644`), built from `base_automation_composes`. Its default is `[inventory_hostname]` when `composes/<inventory_hostname>/compose.yaml` exists, else `[]`.
+- [X] T013 [US1] Replace the free-form `base_automation_sudo_commands` with a template `../ansible/roles/base/templates/sudoers-automation.j2`.
   - It holds the exact `AUTOMATION_GIT` and `AUTOMATION_COMPOSE` aliases from contracts/base-hardening.md.
   - `AUTOMATION_GIT` is gated by `base_automation_git_rules` (default `true`).
   - Mode `0440`, validated by `visudo -cf %s`.
   - Remove the old variable from defaults; fail with a clear message if an inventory still sets it.
-- [ ] T014 [US1] In `../ansible/roles/keel_runner/tasks/account.yml` (new), included from `main.yml`, create the `keel-exec` user and group (research R3):
+- [X] T014 [US1] In `../ansible/roles/keel_runner/tasks/account.yml` (new), included from `main.yml`, create the `keel-exec` user and group (research R3):
   - group `keel-exec`, plus membership of `keel-trust`;
   - nologin shell;
   - home `/var/lib/keel-executor`, mode `0700`.
   - Remove the role's creation of the `automation` user and group.
-- [ ] T015 [US1] In `../ansible/roles/keel_runner/tasks/migrate.yml` (new), run before `account.yml` (research R4).
+- [X] T015 [US1] In `../ansible/roles/keel_runner/tasks/migrate.yml` (new), run before `account.yml` (research R4).
   - Detect the trial user: name `automation`, home `/var/lib/keel-executor`, nologin shell.
   - Then, in order:
     1. stop `keel-runner.service` and `keel-executor.socket`;
@@ -97,13 +97,13 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
     5. remove `/etc/sudoers.d/keel-automation`;
     6. restart the units.
   - Fail closed if an `automation` user exists that doesn't match the trial shape.
-- [ ] T016 [US1] In `../ansible/roles/keel_runner/tasks/grant.yml` (new), assert on live state:
+- [X] T016 [US1] In `../ansible/roles/keel_runner/tasks/grant.yml` (new), assert on live state:
   - `/etc/sudoers.d/automation` has no `docker compose` and does have `/usr/local/sbin/automation-compose-up`;
   - `getfacl -R /root/ansible` (when present) shows no group `w`;
   - no human account is in group `keel-exec`.
   - Only then write `/etc/sudoers.d/keel-exec` (visudo-validated, `0440`).
   - If any assertion fails, remove an existing grant and fail.
-- [ ] T017 [US1] Point `../ansible/roles/keel_runner/files/systemd/` and the role's tasks and templates at `keel-exec`. Ensure `playbooks/keel-node.yaml` runs `base` hardening first, or asserts on it, through T016. Gate: `make test ROLE=base` and then `make test ROLE=keel_runner`.
+- [X] T017 [US1] Point `../ansible/roles/keel_runner/files/systemd/` and the role's tasks and templates at `keel-exec`. Ensure `playbooks/keel-node.yaml` runs `base` hardening first, or asserts on it, through T016. Gate: `make test ROLE=base` and then `make test ROLE=keel_runner`.
 
 **Checkpoint**: US1 independent test passes.
 
@@ -115,13 +115,13 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
 
 **Independent test**: quickstart.md § 2 on a throwaway VM.
 
-- [ ] T018 [P] [US2] In `../ansible/Makefile`, `keel-node` runs `playbooks/debian.yaml` and then `playbooks/keel-node.yaml` through `KEEL_PLAYBOOK`, in one invocation (research R5). `make debian keel-node` still works. Update the help text and the examples line to `KEEL_TOKEN=<token> make keel-node`.
-- [ ] T019 [P] [US2] In `../ansible/roles/keel_runner/tasks/main.yml`, fail when `inventory_hostname` is not a host in `inventory/hosts.yml` and Keel is in use. The message names the hostname and the file (research R6, FR-013).
-- [ ] T020 [US2] In `../ansible/roles/keel_runner/tasks/token.yml`:
+- [X] T018 [P] [US2] In `../ansible/Makefile`, `keel-node` runs `playbooks/debian.yaml` and then `playbooks/keel-node.yaml` through `KEEL_PLAYBOOK`, in one invocation (research R5). `make debian keel-node` still works. Update the help text and the examples line to `KEEL_TOKEN=<token> make keel-node`.
+- [X] T019 [P] [US2] In `../ansible/roles/keel_runner/tasks/main.yml`, fail when `inventory_hostname` is not a host in `inventory/hosts.yml` and Keel is in use. The message names the hostname and the file (research R6, FR-013).
+- [X] T020 [US2] In `../ansible/roles/keel_runner/tasks/token.yml`:
   - accept an enroll or a join token from `KEEL_TOKEN` only, and keep `no_log: true` on every task that touches it;
   - for a join token, print the host key fingerprint (`ssh-keygen -lf` of the runner's host key) for the owner to match in Keel (FR-007);
   - after enrolment, assert that no token remains on disk (FR-006).
-- [ ] T021 [US2] Move the SOPS age key (research R7), in `../ansible/roles/sops/tasks/main.yml` and `../ansible/roles/sops/defaults/main.yml`:
+- [X] T021 [US2] Move the SOPS age key (research R7), in `../ansible/roles/sops/tasks/main.yml` and `../ansible/roles/sops/defaults/main.yml`:
   - new path `/etc/sops/age/keys.txt` (`sops_age_key_file`);
   - directory `0750` and file `0440` root:keel-exec when the `keel-exec` group exists, else root `0400`;
   - a symlink from `/root/.config/sops/age/keys.txt`.
@@ -153,7 +153,7 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
   - Timeouts as listed. Keel's 055 manifest parser must accept the file; check it with a fathom unit test, or with `keel` if it has a validate command.
 - [X] T026 [P] [US3] In `../ansible/roles/tailscale/tasks/main.yml`, make the role a no-op when the host is already on the tailnet and `TS_AUTHKEY` is unset (contracts/jobs-manifest.md § Conditions). Add a Molecule case for it if the role has a scenario.
 - [X] T027 [P] [US3] Audit every job playbook in `../ansible/playbooks/` for `vars_prompt`, `pause` and required run-time variables, and remove them or give them defaults so each job runs unattended.
-- [ ] T028 [P] [US3] In `../ansible/roles/keel_server/tasks/main.yml`, when `KEEL_EVENT_FD` is set, defer `docker compose up -d` with a systemd transient timer 30 s after the job, in the same way `keel_runner` defers its restart. Without it, run `docker compose up -d` at once (research R9).
+- [X] T028 [P] [US3] In `../ansible/roles/keel_server/tasks/main.yml`, when `KEEL_EVENT_FD` is set, defer `docker compose up -d` with a systemd transient timer 30 s after the job, in the same way `keel_runner` defers its restart. Without it, run `docker compose up -d` at once (research R9).
 - [X] T029 [US3] Wire `scripts/keel-manifest-check.py` and its tests into `../ansible/Makefile` `lint`.
 
 **Checkpoint**: US3 independent test passes on the integration branch.
@@ -236,13 +236,13 @@ Comes before US5 because R12's per-host gate needs it. See contracts/keel-amendm
   - add the event `HostChangedOutside { host }`.
   - Add round-trip tests and regenerate `apps/keel/web/src/protocol/generated/`. Gate: `cargo test -p keel-protocol`.
 - [X] T045 [US6] Add the badge, filter and entry list to `apps/keel/web/src/features/hosts/HostsPage.tsx` and `apps/keel/web/src/features/hosts/store.ts`, live from the event. Gate: the Vitest unit tests, then `pnpm --filter @companion/keel-web exec playwright test tests/e2e/us10`.
-- [ ] T046 [P] [US6] Write the callback `../ansible/callback_plugins/keel_outside.py`.
+- [X] T046 [P] [US6] Write the callback `../ansible/callback_plugins/keel_outside.py`.
   - When `KEEL_EVENT_FD` is unset and `/var/lib/keel-outside/` exists, it appends one JSON line `{"v":1,"at","user","playbook","commit","dirty","check"}` to `runs.jsonl`.
   - Enforce the field bounds before writing.
   - On error, print one warning and never fail the run.
   - Enable the callback in `../ansible/ansible.cfg` (`callbacks_enabled`, and `callback_plugins = callback_plugins`).
   - Add pytest coverage in `../ansible/scripts/tests/test_keel_outside.py`.
-- [ ] T047 [US6] In `../ansible/roles/keel_runner/tasks/main.yml`, create `/var/lib/keel-outside/` (root, `0755`) and `runs.jsonl` (root, `0644`), and add the paths to the Molecule `default` verify.
+- [X] T047 [US6] In `../ansible/roles/keel_runner/tasks/main.yml`, create `/var/lib/keel-outside/` (root, `0755`) and `runs.jsonl` (root, `0644`), and add the paths to the Molecule `default` verify.
 - [X] T048 [US6] Update 055's `contracts/runner.md` (frames), `data-model.md` (table and flag) and `quickstart.md` in `specs/055-ansible-repo-control-plane/` to match A2.
 
 **Checkpoint**: quickstart.md § 5 passes on the trial VM.
@@ -255,7 +255,7 @@ Comes before US5 because R12's per-host gate needs it. See contracts/keel-amendm
 
 **Independent test**: quickstart.md § 6 for each host.
 
-- [ ] T049 [US5] Add `../ansible/docs/keel-onboarding.md`, a log with one row per host in R12's order:
+- [X] T049 [US5] Add `../ansible/docs/keel-onboarding.md`, a log with one row per host in R12's order:
   - trial VM;
   - `audiobookshelf` or `pulse`;
   - `rustfs`, `steam`;
@@ -280,7 +280,7 @@ Comes before US5 because R12's per-host gate needs it. See contracts/keel-amendm
 
 ## Phase 10: Polish and cross-cutting
 
-- [ ] T055 [P] Write `../ansible/CONTRIBUTING.md` § Keel (FR-020). It covers:
+- [X] T055 [P] Write `../ansible/CONTRIBUTING.md` § Keel (FR-020). It covers:
   - onboarding a host;
   - accepting a join request (fingerprint match);
   - upgrading runners (bump the release and checksums);
@@ -288,7 +288,7 @@ Comes before US5 because R12's per-host gate needs it. See contracts/keel-amendm
   - the limits of the outside-run record;
   - rotating signers, approvers and the join token;
   - the trial host_vars.
-- [ ] T056 [P] Update the `README.md` in `../ansible` with one line pointing at Keel and at CONTRIBUTING.
+- [X] T056 [P] Update the `README.md` in `../ansible` with one line pointing at Keel and at CONTRIBUTING.
 - [ ] T057 Run `make lint` and `make test` in `../ansible` (one role at a time if the machine is loaded).
 - [ ] T058 Main session only: run the full fathom gate `scripts/ci.sh` once, on the combined branch.
 - [ ] T059 Run `scripts/hygiene.sh`. Delete any Molecule containers and kind clusters the tasks created, and prune the build cache with `docker builder prune --filter until=24h`.
