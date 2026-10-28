@@ -40,10 +40,6 @@ import type {
   SignerKind,
 } from '@/protocol/wire'
 
-/** The native input and select style the forms use. */
-export const FIELD =
-  'h-8 border border-input bg-background px-2 text-xs outline-none focus-visible:border-accent-neon'
-
 const OFFLINE = 'Keel is not connected. Wait for it to reconnect, then try again.'
 
 /** The server's limit on a review comment (`ReviewComment`). */

@@ -6,14 +6,20 @@
  *
  * The workspace's trusted signers (the early check's list) are edited at the foot of the page.
  */
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@companion/ui'
-import { useEffect, useId, useState } from 'react'
+import { CaretLeftIcon, CaretRightIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
+import { Button } from '@companion/ui'
+import { useId, useState } from 'react'
 
-import { useSession } from '@/app/session-store'
-import type { ReviewState, SignatureStatus, SignerKind } from '@/protocol/wire'
+import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
+import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
+import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
+import { DataTable } from '@/ui/DataTable'
+import { ErrorLine as Alert } from '@/ui/ErrorLine'
+import { FIELD, H2, LABEL, LINK, Select } from '@/ui/form'
+import { Page } from '@/ui/Page'
+import { PageHeader } from '@/ui/PageHeader'
 
 import {
-  FIELD,
   FLAG_LABELS,
   MAX_COMMENT,
   REASON_LABELS,
@@ -22,8 +28,6 @@ import {
   shortSha,
   useReviews,
 } from './store'
-
-const LABEL = 'text-[11px] tracking-wider text-muted-foreground uppercase'
 
 function statusTone(status: SignatureStatus): string {
   if (status === 'good') return 'text-status-ok'
@@ -45,58 +49,14 @@ function stateTone(state: ReviewState): string {
 function ErrorLine() {
   const error = useReviews((s) => s.error)
   const clear = useReviews((s) => s.clearError)
-  if (!error) return null
-  return (
-    <p role="alert" className="flex items-center justify-between gap-2 border border-status-err/40 px-2 py-1 text-xs text-status-err">
-      <span>{error}</span>
-      <Button variant="ghost" size="xs" onClick={clear}>
-        Dismiss
-      </Button>
-    </p>
-  )
+  return <Alert message={error} onDismiss={clear} />
 }
 
 /** Picks one of the signed-in user's workspaces and lists its reviews. */
 function WorkspacePicker() {
-  const grants = useSession((s) => s.me?.grants ?? [])
   const workspace = useReviews((s) => s.workspace)
   const load = useReviews((s) => s.load)
-  const id = useId()
-  const first = grants[0]?.workspace ?? null
-  const unique = [...new Map(grants.map((g) => [g.workspace, g.workspace_slug])).entries()]
-
-  useEffect(() => {
-    const current = workspace ?? first
-    if (current) load(current)
-  }, [workspace, first, load])
-
-  if (unique.length === 0)
-    return (
-      <p data-pane-state="empty" className="text-xs text-muted-foreground">
-        You have no workspace yet. An owner or admin grants one from Teams.
-      </p>
-    )
-  return (
-    <div className="flex items-center gap-2">
-      <label htmlFor={id} className={LABEL}>
-        Workspace
-      </label>
-      <select
-        id={id}
-        className={FIELD}
-        value={workspace ?? first ?? ''}
-        onChange={(e) => {
-          load(e.target.value)
-        }}
-      >
-        {unique.map(([ws, slug]) => (
-          <option key={ws} value={ws}>
-            {slug}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
+  return <GrantWorkspacePicker workspace={workspace} load={load} />
 }
 
 function FilterPicker() {
@@ -104,13 +64,12 @@ function FilterPicker() {
   const setFilter = useReviews((s) => s.setFilter)
   const id = useId()
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       <label htmlFor={id} className={LABEL}>
         Show
       </label>
-      <select
+      <Select
         id={id}
-        className={FIELD}
         value={filter ?? 'all'}
         onChange={(e) => {
           setFilter(e.target.value === 'all' ? null : (e.target.value as ReviewState))
@@ -121,7 +80,7 @@ function FilterPicker() {
         <option value="denied">Denied</option>
         <option value="expired">Expired</option>
         <option value="all">All</option>
-      </select>
+      </Select>
     </div>
   )
 }
@@ -131,62 +90,55 @@ function ReviewList() {
   const selected = useReviews((s) => s.selected)
   const select = useReviews((s) => s.select)
   return (
-    <div className="overflow-x-auto">
-      <table aria-label="Reviews" className="w-full text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1">Job</th>
-            <th>Commit</th>
-            <th>Base</th>
-            <th>Hosts</th>
-            <th>Why</th>
-            <th>State</th>
-            <th>Approvals</th>
-            <th>Flagged</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 && (
-            <tr>
-              <td colSpan={8} data-pane-state="empty" className="py-1 text-muted-foreground">
-                Nothing to review.
-              </td>
-            </tr>
-          )}
-          {items.map((r) => (
-            <tr
-              key={r.id}
-              data-review-state={r.state}
-              aria-selected={r.id === selected}
-              className={`border-t border-border ${r.id === selected ? 'bg-accent/30' : ''}`}
+    <DataTable<ReviewInfo>
+      label="Reviews"
+      rows={items}
+      rowKey={(r) => r.id}
+      rowData={(r) => ({ 'data-review-state': r.state })}
+      selected={(r) => r.id === selected}
+      columns={[
+        {
+          key: 'job',
+          header: 'Job',
+          cell: (r) => (
+            <button
+              type="button"
+              className={`${LINK} font-mono break-all`}
+              aria-label={`Open review of ${r.job_name} on ${r.hosts.join(', ')}`}
+              onClick={() => {
+                select(r.id)
+              }}
             >
-              <td className="py-1">
-                <Button
-                  variant="link"
-                  size="xs"
-                  className="px-0 font-mono"
-                  aria-label={`Open review of ${r.job_name} on ${r.hosts.join(', ')}`}
-                  onClick={() => {
-                    select(r.id)
-                  }}
-                >
-                  {r.job_name}
-                </Button>
-              </td>
-              <td className="font-mono">{shortSha(r.target)}</td>
-              <td className="font-mono">{shortSha(r.base)}</td>
-              <td className="font-mono">{r.hosts.join(', ')}</td>
-              <td>{REASON_LABELS[r.reason]}</td>
-              <td className={`uppercase ${stateTone(r.state)}`}>{r.state}</td>
-              <td>
-                {r.approvals}/{r.quorum}
-              </td>
-              <td className={r.flagged > 0 ? 'text-status-warn' : ''}>{r.flagged}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              {r.job_name}
+            </button>
+          ),
+        },
+        { key: 'commit', header: 'Commit', cell: (r) => <span className="font-mono">{shortSha(r.target)}</span> },
+        { key: 'base', header: 'Base', cell: (r) => <span className="font-mono">{shortSha(r.base)}</span> },
+        { key: 'hosts', header: 'Hosts', className: 'w-[18%]', cell: (r) => <span className="font-mono">{r.hosts.join(', ')}</span> },
+        { key: 'why', header: 'Why', cell: (r) => REASON_LABELS[r.reason] },
+        {
+          key: 'state',
+          header: 'State',
+          cell: (r) => <span className={`text-[11px] tracking-wider uppercase ${stateTone(r.state)}`}>{r.state}</span>,
+        },
+        {
+          key: 'approvals',
+          header: 'Approvals',
+          cell: (r) => (
+            <span className="tabular-nums">
+              {r.approvals}/{r.quorum}
+            </span>
+          ),
+        },
+        {
+          key: 'flagged',
+          header: 'Flagged',
+          cell: (r) => <span className={`tabular-nums ${r.flagged > 0 ? 'text-status-warn' : ''}`}>{r.flagged}</span>,
+        },
+      ]}
+      empty="Nothing to review. Runs whose commits fail the signature check wait here."
+    />
   )
 }
 
@@ -194,11 +146,16 @@ function Commits() {
   const detail = useReviews((s) => s.detail)
   if (!detail) return null
   return (
-    <section aria-label="Commits" className="flex flex-col gap-1">
+    <section aria-label="Commits" className="flex min-w-0 flex-col gap-1">
       <h3 className={LABEL}>Commits</h3>
-      <ul className="flex flex-col gap-1 text-xs">
+      <ul className="flex min-w-0 flex-col border border-border text-xs">
         {detail.commits.map((c) => (
-          <li key={c.id} data-commit={c.id} data-signature={c.status} className="flex flex-wrap items-baseline gap-2">
+          <li
+            key={c.id}
+            data-commit={c.id}
+            data-signature={c.status}
+            className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 border-t border-border px-2 py-1 first:border-t-0"
+          >
             <span className="font-mono">{shortSha(c.id)}</span>
             <span className={statusTone(c.status)}>{STATUS_LABELS[c.status]}</span>
             {c.signer && <span className="font-mono text-muted-foreground">{c.signer}</span>}
@@ -215,9 +172,9 @@ function Flags() {
   const flags = useReviews((s) => s.detail?.flags ?? [])
   if (flags.length === 0) return null
   return (
-    <section aria-label="Flagged changes" className="flex flex-col gap-1 border border-status-warn/40 p-2">
-      <h3 className={LABEL}>These change who or what Keel trusts and targets</h3>
-      <ul className="flex flex-col gap-1 text-xs">
+    <section aria-label="Flagged changes" className="flex min-w-0 flex-col gap-1 border border-status-warn/50 bg-status-warn/5 p-2">
+      <h3 className="text-[11px] tracking-wider text-status-warn uppercase">These change who or what Keel trusts and targets</h3>
+      <ul className="flex min-w-0 flex-col gap-1 text-xs">
         {flags.map((f) => (
           <li key={`${f.kind}:${f.path}`} data-flag={f.kind}>
             <span className="text-status-warn">{FLAG_LABELS[f.kind]}</span>{' '}
@@ -242,15 +199,15 @@ function Diff() {
   const openFile = useReviews((s) => s.openFile)
   if (files.length === 0) return null
   return (
-    <section aria-label="Diff" className="flex flex-col gap-2">
+    <section aria-label="Diff" className="flex min-w-0 flex-col gap-2">
       <h3 className={LABEL}>Changed files</h3>
-      <ul aria-label="Changed files" className="flex flex-col gap-1 text-xs">
+      <ul aria-label="Changed files" className="flex min-w-0 flex-col gap-1 text-xs">
         {files.map((f) => (
-          <li key={f.path} className="flex flex-wrap items-center gap-2">
+          <li key={f.path} className="flex min-w-0 flex-wrap items-center gap-2">
             <Button
               variant={diff?.path === f.path ? 'outline' : 'ghost'}
               size="xs"
-              className="font-mono"
+              className="h-auto min-h-6 max-w-full font-mono break-all whitespace-normal normal-case"
               aria-current={diff?.path === f.path ? 'true' : undefined}
               onClick={() => {
                 openFile(f.path)
@@ -268,9 +225,9 @@ function Diff() {
         ))}
       </ul>
       {diff && (
-        <div aria-label={`Diff of ${diff.path}`} role="region" className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-mono">{diff.path}</span>
+        <div aria-label={`Diff of ${diff.path}`} role="region" className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <span className="min-w-0 font-mono break-all">{diff.path}</span>
             <span className="text-muted-foreground" data-diff-page>
               Page {diff.page + 1} of {Math.max(diff.pages, 1)}
             </span>
@@ -282,6 +239,7 @@ function Diff() {
                 openFile(diff.path, diff.page - 1)
               }}
             >
+              <CaretLeftIcon aria-hidden />
               Previous page
             </Button>
             <Button
@@ -293,6 +251,7 @@ function Diff() {
               }}
             >
               Next page
+              <CaretRightIcon aria-hidden />
             </Button>
           </div>
           {diff.binary ? (
@@ -316,11 +275,11 @@ function Decisions() {
   const decisions = useReviews((s) => s.detail?.decisions ?? [])
   if (decisions.length === 0) return null
   return (
-    <section aria-label="Decisions" className="flex flex-col gap-1">
+    <section aria-label="Decisions" className="flex min-w-0 flex-col gap-1">
       <h3 className={LABEL}>Decisions</h3>
-      <ul className="flex flex-col gap-1 text-xs">
+      <ul className="flex min-w-0 flex-col border border-border text-xs">
         {decisions.map((d) => (
-          <li key={`${d.approver}:${d.at}`}>
+          <li key={`${d.approver}:${d.at}`} className="border-t border-border px-2 py-1 first:border-t-0">
             <span className={d.approve ? 'text-status-ok' : 'text-status-err'}>{d.approve ? 'Approved' : 'Denied'}</span>{' '}
             by {d.approver} at {d.at}
             {d.expires_at && <span className="text-muted-foreground"> (lapses {d.expires_at})</span>}
@@ -344,7 +303,7 @@ function DecideForm() {
   return (
     <form
       aria-label="Decide"
-      className="flex flex-col gap-2"
+      className="flex min-w-0 flex-col gap-2 border-t border-border pt-3"
       onSubmit={(e) => {
         e.preventDefault()
         approve(comment)
@@ -355,7 +314,8 @@ function DecideForm() {
       </label>
       <textarea
         id={id}
-        className="min-h-16 border border-input bg-background p-2 text-xs outline-none focus-visible:border-accent-neon"
+        className={`${FIELD} h-auto min-h-16 py-1.5`}
+        placeholder="What you checked, and why it is safe (or not) to run."
         value={comment}
         maxLength={MAX_COMMENT}
         onChange={(e) => {
@@ -367,7 +327,7 @@ function DecideForm() {
           Four-eyes: someone other than whoever asked for the run or wrote these commits must approve.
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" disabled={!ok}>
           Approve with passkey
         </Button>
@@ -393,9 +353,9 @@ function Detail() {
   if (!detail) return null
   const r = detail.review
   return (
-    <section aria-label="Review" data-review={r.id} className="flex flex-col gap-3 border border-border p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold">
+    <section aria-label="Review" data-review={r.id} className="flex min-w-0 flex-col border border-border">
+      <div className="flex min-h-10 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
+        <h2 className="min-w-0 text-xs font-semibold break-words">
           {r.job_name} at <span className="font-mono">{shortSha(r.target)}</span> on{' '}
           <span className="font-mono">{r.hosts.join(', ')}</span>
         </h2>
@@ -406,21 +366,24 @@ function Detail() {
             select(null)
           }}
         >
+          <XIcon aria-hidden />
           Close
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {REASON_LABELS[r.reason]}. Base <span className="font-mono">{shortSha(r.base)}</span>.{' '}
-        <span className={`uppercase ${stateTone(r.state)}`} data-state>
-          {r.state}
-        </span>{' '}
-        ({r.approvals}/{r.quorum} approvals)
-      </p>
-      <Commits />
-      <Flags />
-      <Diff />
-      <Decisions />
-      <DecideForm key={r.id} />
+      <div className="flex min-w-0 flex-col gap-4 p-3">
+        <p className="text-xs text-muted-foreground">
+          {REASON_LABELS[r.reason]}. Base <span className="font-mono">{shortSha(r.base)}</span>.{' '}
+          <span className={`tracking-wider uppercase ${stateTone(r.state)}`} data-state>
+            {r.state}
+          </span>{' '}
+          ({r.approvals}/{r.quorum} approvals)
+        </p>
+        <Commits />
+        <Flags />
+        <Diff />
+        <Decisions />
+        <DecideForm key={r.id} />
+      </div>
     </section>
   )
 }
@@ -431,54 +394,33 @@ function ConfirmDialog() {
   const signing = useReviews((s) => s.signing)
   const confirm = useReviews((s) => s.confirm)
   const cancel = useReviews((s) => s.cancel)
-  const waiting = pending?.kind === 'approve' && pending.challenge === null
+  const approving = pending?.kind === 'approve'
+  const waiting = approving && pending.challenge === null
   return (
-    <Dialog
-      open={pending !== null}
-      onOpenChange={(open) => {
-        if (!open) cancel()
-      }}
+    <Confirm
+      // The approve dialog explains the passkey itself, with what it signs.
+      preview={pending && (approving ? { ...pending.preview, step_up: false } : pending.preview)}
+      title={approving ? 'Approve with passkey' : 'Confirm'}
+      confirmLabel={approving ? 'Sign and approve' : 'Confirm'}
+      busy={waiting || signing}
+      onCancel={cancel}
+      onConfirm={() => void confirm()}
     >
-      {pending && (
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{pending.kind === 'approve' ? 'Approve with passkey' : 'Confirm'}</DialogTitle>
-            <DialogDescription data-preview-summary>{pending.preview.summary}</DialogDescription>
-          </DialogHeader>
-          {pending.preview.affected.length > 0 && (
-            <ul aria-label="Affected" className="flex flex-col gap-1 text-xs">
-              {pending.preview.affected.map((a) => (
-                <li key={a} className="font-mono break-all">
-                  {a}
-                </li>
-              ))}
-            </ul>
-          )}
-          {pending.kind === 'approve' && pending.challenge && (
-            <div className="flex flex-col gap-1 text-xs">
-              <p>
-                Your passkey signs exactly this. Hosts check the signature before they run, and the override lapses at{' '}
-                <span data-override-expires>{pending.challenge.expires_at}</span>.
-              </p>
-              <pre data-canonical className="max-h-40 overflow-auto border border-border bg-background p-2 font-mono text-[11px] break-all whitespace-pre-wrap">
-                {pending.challenge.canonical}
-              </pre>
-            </div>
-          )}
-          {pending.kind !== 'approve' && pending.preview.step_up && (
-            <p className="text-xs text-muted-foreground">This change asks for your passkey.</p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={cancel}>
-              Cancel
-            </Button>
-            <Button disabled={waiting || signing} onClick={() => void confirm()}>
-              {pending.kind === 'approve' ? 'Sign and approve' : 'Confirm'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+      {pending?.kind === 'approve' && pending.challenge && (
+        <div className="flex min-w-0 flex-col gap-1 text-xs">
+          <p>
+            Your passkey signs exactly this. Hosts check the signature before they run, and the override lapses at{' '}
+            <span data-override-expires>{pending.challenge.expires_at}</span>.
+          </p>
+          <pre
+            data-canonical
+            className="max-h-40 overflow-auto border border-border bg-background p-2 font-mono text-[11px] break-all whitespace-pre-wrap"
+          >
+            {pending.challenge.canonical}
+          </pre>
+        </div>
       )}
-    </Dialog>
+    </Confirm>
   )
 }
 
@@ -495,71 +437,55 @@ function Signers() {
   const labelId = useId()
   const ok = key.trim().length > 0 && label.trim().length > 0
   return (
-    <section aria-labelledby="signers-title" className="flex flex-col gap-2 border-t border-border pt-3">
-      <h2 id="signers-title" className="font-display text-xs font-semibold tracking-wider uppercase">
-        Trusted signers
-      </h2>
-      <p className="text-xs text-muted-foreground">
+    <section aria-labelledby="signers-title" className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h2 id="signers-title" className={H2}>
+          Trusted signers
+        </h2>
+        <p className="max-w-prose text-xs text-muted-foreground">
         Commits signed by these keys pass Keel&apos;s early check. Hosts check signatures against their own
         keel_runner_trusted_signers, so keep the two lists in step.
-      </p>
-      <table aria-label="Trusted signers" className="w-full text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1">Label</th>
-            <th>Kind</th>
-            <th>Fingerprint</th>
-            <th>Added</th>
-            <th>
-              <span className="sr-only">Actions</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {signers.length === 0 && (
-            <tr>
-              <td colSpan={5} data-pane-state="empty" className="py-1 text-muted-foreground">
-                No trusted signers: every commit needs a review.
-              </td>
-            </tr>
-          )}
-          {signers.map((s) => (
-            <tr key={s.id} className="border-t border-border">
-              <td className="py-1">{s.label}</td>
-              <td>{s.kind}</td>
-              <td className="font-mono break-all">{s.fingerprint}</td>
-              <td className="whitespace-nowrap">{s.added_at}</td>
-              <td className="text-right">
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  aria-label={`Remove signer ${s.label}`}
-                  onClick={() => {
-                    removeSigner(s.id)
-                  }}
-                >
-                  Remove
-                </Button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        </p>
+      </div>
+      <DataTable<SignerInfo>
+        label="Trusted signers"
+        rows={signers}
+        rowKey={(s) => s.id}
+        columns={[
+          { key: 'label', header: 'Label', cell: (s) => s.label },
+          { key: 'kind', header: 'Kind', cell: (s) => (s.kind === 'ssh' ? 'SSH' : 'OpenPGP') },
+          { key: 'fp', header: 'Fingerprint', className: 'w-[40%]', cell: (s) => <span className="font-mono break-all">{s.fingerprint}</span> },
+          { key: 'added', header: 'Added', cell: (s) => <span className="tabular-nums">{s.added_at}</span> },
+        ]}
+        actions={(s) => (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-status-err"
+            aria-label={`Remove signer ${s.label}`}
+            onClick={() => {
+              removeSigner(s.id)
+            }}
+          >
+            Remove
+          </Button>
+        )}
+        empty="No trusted signers: every commit needs a review."
+      />
       <form
         aria-label="Add a signer"
-        className="flex flex-wrap items-end gap-2"
+        className="flex min-w-0 flex-wrap items-end gap-2 border border-border bg-muted/20 p-3"
         onSubmit={(e) => {
           e.preventDefault()
           if (ok) addSigner(kind, key.trim(), label.trim())
         }}
       >
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <label htmlFor={kindId} className={LABEL}>
             Kind
           </label>
-          <select
+          <Select
             id={kindId}
-            className={FIELD}
             value={kind}
             onChange={(e) => {
               setKind(e.target.value as SignerKind)
@@ -567,15 +493,15 @@ function Signers() {
           >
             <option value="ssh">SSH</option>
             <option value="openpgp">OpenPGP</option>
-          </select>
+          </Select>
         </div>
-        <div className="flex min-w-60 flex-1 flex-col gap-1">
+        <div className="flex min-w-0 flex-1 basis-60 flex-col gap-1">
           <label htmlFor={keyId} className={LABEL}>
             Public key
           </label>
           <textarea
             id={keyId}
-            className="min-h-8 border border-input bg-background p-2 font-mono text-xs outline-none focus-visible:border-accent-neon"
+            className={`${FIELD} h-auto min-h-8 py-1.5 font-mono`}
             value={key}
             placeholder={kind === 'ssh' ? 'ssh-ed25519 AAAA… ci@example.org' : '-----BEGIN PGP PUBLIC KEY BLOCK-----'}
             onChange={(e) => {
@@ -583,7 +509,7 @@ function Signers() {
             }}
           />
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <label htmlFor={labelId} className={LABEL}>
             Label
           </label>
@@ -598,6 +524,7 @@ function Signers() {
           />
         </div>
         <Button type="submit" size="sm" disabled={!ok}>
+          <PlusIcon aria-hidden />
           Add signer
         </Button>
       </form>
@@ -608,14 +535,15 @@ function Signers() {
 export default function ReviewsPage() {
   const workspace = useReviews((s) => s.workspace)
   return (
-    <section data-page="reviews" aria-labelledby="reviews-title" className="flex flex-col gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 id="reviews-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Reviews
-        </h1>
+    <Page name="reviews" labelledBy="reviews-title">
+      <PageHeader
+        id="reviews-title"
+        title="Reviews"
+        description="Runs held for a person to check, because their commits were not signed by a trusted key."
+      >
         <WorkspacePicker />
         {workspace && <FilterPicker />}
-      </div>
+      </PageHeader>
       <ErrorLine />
       {workspace && (
         <>
@@ -625,6 +553,6 @@ export default function ReviewsPage() {
         </>
       )}
       <ConfirmDialog />
-    </section>
+    </Page>
   )
 }
