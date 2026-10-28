@@ -16,6 +16,10 @@ import {
 import { useEffect } from 'react'
 
 import type { PasskeyInfo } from '@/protocol/wire'
+import { EmptyState } from '@/ui/EmptyState'
+import { LoadState } from '@/ui/LoadState'
+import { Page } from '@/ui/Page'
+import { PageHeader } from '@/ui/PageHeader'
 
 import { usePasskeyList, type Removal } from './list-store'
 
@@ -76,9 +80,7 @@ function List() {
 
   if (status === 'idle' || status === 'loading')
     return (
-      <p role="status" data-pane-state="loading" className="border border-border p-2 text-xs text-muted-foreground">
-        Loading passkeys…
-      </p>
+      <LoadState loading label="Loading passkeys…" />
     )
   if (status === 'error')
     return (
@@ -95,9 +97,9 @@ function List() {
     )
   if (items.length === 0)
     return (
-      <p data-pane-state="empty" className="border border-border p-2 text-xs text-muted-foreground">
+      <EmptyState icon={<FingerprintIcon aria-hidden />} title="No passkeys">
         You have no passkeys yet. Add one to approve and run risky changes.
-      </p>
+      </EmptyState>
     )
   return (
     <ul aria-label="Your passkeys" className="min-w-0 border border-border">
@@ -225,32 +227,25 @@ export default function PasskeysPage() {
   }, [load, reset])
 
   return (
-    <section
-      data-page="passkeys"
-      aria-labelledby="passkeys-title"
-      className="flex max-w-2xl min-w-0 flex-col gap-3 p-3 sm:p-4"
-    >
-      <header className="flex flex-wrap items-center gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h1 id="passkeys-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-            Passkeys
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            Keel asks for one of these before risky actions. Keep more than one, in case you lose a device.
-          </p>
-        </div>
-        <Button size="sm" onClick={() => void add()}>
-          <PlusIcon aria-hidden />
-          Add passkey
-        </Button>
-      </header>
+    <Page name="passkeys" labelledBy="passkeys-title">
+      <PageHeader
+        id="passkeys-title"
+        title="Passkeys"
+        description="Keel asks for one of these before risky actions. Keep more than one, in case you lose a device."
+        actions={
+          <Button size="sm" onClick={() => void add()}>
+            <PlusIcon aria-hidden />
+            Add passkey
+          </Button>
+        }
+      />
       {addError && (
-        <p role="alert" data-add-error className="border border-status-err/40 px-2 py-1 text-xs text-status-err">
+        <p role="alert" data-add-error className="border border-status-err/50 bg-status-err/5 px-3 py-2 text-xs text-status-err">
           {addError}
         </p>
       )}
       <List />
       <RemoveDialog />
-    </section>
+    </Page>
   )
 }
