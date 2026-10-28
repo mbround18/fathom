@@ -2,7 +2,7 @@
 
 The runner is installed on each managed host by the base profile (contracts/host-install.md).
 It has two halves (research R2): `keel-runner` (network side, user `keel-runner`) and
-`keel-executor` (runs Ansible, user `automation`). This contract covers the SSH channel between
+`keel-executor` (runs Ansible, user `keel-exec`). This contract covers the SSH channel between
 Keel and `keel-runner`, and the local socket between the two halves.
 
 ## SSH connection (research R17)
@@ -63,7 +63,7 @@ Keel and `keel-runner`, and the local socket between the two halves.
 ## Local socket (`/run/keel-runner/executor.sock`)
 
 - Owned by root, group `keel-runner`, mode `0660`; `Accept=yes`, so each connection starts one
-  `keel-executor@.service` instance as `automation`.
+  `keel-executor@.service` instance as `keel-exec`.
 - The network side forwards `Assign`, `Pack`, `Secrets`, `Approvals` and `Cancel` unchanged, and
   relays `Started`, `Refused`, `Event`, `Log` and `Finished` back. It does not interpret them, and
   the executor trusts nothing it says.

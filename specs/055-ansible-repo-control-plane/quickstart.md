@@ -56,8 +56,8 @@ KEEL_IT_HOST=1 cargo test -p keel-runner --test host
 The test starts a throwaway Debian container with systemd (named `keel-it-host-<pid>`), applies
 the `keel_runner` role contract with a test token, and checks that:
 
-- the runner enrols, and `keel-runner` holds no sudo and no `automation` access;
-- a signed fixture job runs as `automation` with `connection: local`, and `keel_events` lines
+- the runner enrols, and `keel-runner` holds no sudo and no `keel-exec` or `automation` access;
+- a signed fixture job runs as `keel-exec` with `connection: local`, and `keel_events` lines
   arrive in order, with per-host stats matching `PLAY RECAP`;
 - a job that leaves a background process behind leaves nothing once the executor unit ends;
 - secrets files are gone after `Finished`, and `secret_vars` containing `{{ lookup('pipe', 'id') }}`

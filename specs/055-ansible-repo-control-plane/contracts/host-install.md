@@ -30,13 +30,15 @@ list is empty, because such a host could never run anything.
 
 1. **Accounts:**
    - `keel-runner`: system user, `/usr/sbin/nologin`, no home, not in `sudo`, `docker`,
-     `automation` or any group a human belongs to; member of `keel-trust`.
-   - `automation`: system user, `/usr/sbin/nologin`, home `/var/lib/keel-executor` (`0700`);
-     member of `keel-trust`. Its primary group is its own (`automation` stays a supplementary
-     group for humans, as today), so executor files carry no group access.
-   - `/etc/sudoers.d/keel-automation`, validated with `visudo -cf`:
-     `automation ALL=(root) NOPASSWD: ALL` and `Defaults:automation !requiretty`. This is what
-     Ansible `become` needs. It is root-equivalent; the executor's checks are the gate.
+     `automation`, `keel-exec` or any group a human belongs to; member of `keel-trust`.
+   - `keel-exec`: system user, `/usr/sbin/nologin`, home `/var/lib/keel-executor` (`0700`);
+     member of `keel-trust`. Its primary group is its own `keel-exec` group, with no human in
+     it, so executor files carry no group access. It is not the base role's human `automation`
+     group, which stays as it is.
+   - `/etc/sudoers.d/keel-exec`, validated with `visudo -cf`:
+     `keel-exec ALL=(root) NOPASSWD: ALL` and `Defaults:keel-exec !requiretty`. This is what
+     Ansible `become` needs. It is root-equivalent; the executor's checks are the gate. The role
+     writes it only after the prerequisite check passes (see "Prerequisite check").
 2. **Binaries:** `/usr/local/bin/keel-runner` and `/usr/local/bin/keel-executor` from
    `github_release`, checksum-verified, root-owned `0755`.
 3. **Ansible:** `/opt/keel-runner/venv` built with `uv` from a hash-pinned requirements file
@@ -48,10 +50,12 @@ list is empty, because such a host could never run anything.
    - `keel-runner.service`: `User=keel-runner`, `ExecStart=/usr/local/bin/keel-runner`,
      `StateDirectory=keel-runner` (`0700`), and the hardening in research R2. `Restart=on-failure`
      is acceptable here: these are server hosts managed by Ansible, not compose services on the
-     dev box.
+     dev box. `RestartPreventExitStatus=78` stops the restart loop when the
+     runner exits on a configuration error (contracts/join.md).
    - `keel-executor.socket`: `ListenStream=/run/keel-runner/executor.sock`, `SocketUser=root`,
      `SocketGroup=keel-runner`, `SocketMode=0660`, `Accept=yes`.
-   - `keel-executor@.service`: `User=automation`, `ExecStart=/usr/local/bin/keel-executor`,
+   - `keel-executor@.service`: `User=keel-exec`, `Group=keel-exec`,
+     `ExecStart=/usr/local/bin/keel-executor`,
      `StandardInput=socket`, `KillMode=control-group`, `PrivateTmp=yes`, `ProtectHome=yes`,
      `RuntimeMaxSec=` from the job deadline cap (default `6h`). `NoNewPrivileges` stays off,
      because `become` needs sudo.
@@ -74,13 +78,43 @@ review flags any diff touching `keel_runner_*` variables.
 
 ## Prerequisites in `../ansible` (research R22)
 
-Before `automation` becomes a user that runs jobs, the base role's existing automation group
-grants must stop being root-equivalent:
+Before `keel-exec` gets its root grant, the base role's existing grants to the human
+`automation` group must stop being root-equivalent:
 
 1. The recursive group ACL on `/root/ansible` must not give write on `.git`, or root must stop
    running `git` there.
 2. The `docker compose -f /root/ansible/composes/* up -d` sudo rule must become a fixed-list
    wrapper.
+
+## Prerequisite check (058 research R3)
+
+The role checks the live host, not a marker file, before it writes `/etc/sudoers.d/keel-exec`:
+
+1. `/etc/sudoers.d/automation` contains no `docker compose` rule, and does contain the
+   fixed-list wrapper rule.
+2. `getfacl /root/ansible/.git` and `getfacl /root/ansible` show no `w` for the `automation`
+   group, in either the access or the default ACL; or `/root/ansible` does not exist.
+
+If either check fails, the role fails and names which one. It does not fall back to installing
+the runner without root: a runner that cannot `become` fails every real job anyway.
+
+## Trial migration (058 research R4)
+
+Hosts that ran the trial role have an executor user named `automation`. The role recognises it
+by home and shell together: a user `automation` whose home is `/var/lib/keel-executor` and whose
+shell is `nologin`. When it finds one, it:
+
+1. stops `keel-runner.service` and `keel-executor.socket`, and waits for any running
+   `keel-executor@` instance to finish (bounded by the job deadline);
+2. creates `keel-exec`;
+3. runs `chown -R keel-exec:keel-exec /var/lib/keel-executor`, keeping the ledger and the Git
+   store byte for byte;
+4. removes the `automation` user only, never the `automation` group, and removes
+   `/etc/sudoers.d/keel-automation` if the trial wrote one;
+5. installs the new units and starts them.
+
+A user named `automation` with any other home or shell is a human account. The role never
+touches it and fails instead.
 
 ## Uninstall
 

@@ -76,30 +76,31 @@
     `CapabilityBoundingSet`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`,
     `SystemCallFilter=@system-service`, `MemoryDenyWriteExecute=yes`, and write access only to
     `/var/lib/keel-runner`.
-  - **`keel-executor@.service`** runs as the `automation` user, started per run through
+  - **`keel-executor@.service`** runs as the `keel-exec` user, started per run through
     `keel-executor.socket` (`Accept=yes`, `/run/keel-runner/executor.sock`, `SocketUser=root`,
     `SocketGroup=keel-runner`, mode `0660`). Only the network side can connect, and it cannot
     choose the user, the binary or the arguments.
   - The executor **re-verifies everything itself** (R19, R20): it does not trust the network
     side, which faces the network and is the more likely to be compromised.
-  - Ansible escalates with `become` through a sudo rule for the `automation` user only. That rule
+  - Ansible escalates with `become` through a sudo rule for the `keel-exec` user only. That rule
     is root-equivalent by nature; the gate is what the executor agrees to run.
   - **Cleanup:** each run is one service instance with `KillMode=control-group`. When the run
     ends, systemd kills every process in its cgroup and removes its `PrivateTmp`, so a playbook
     cannot leave an unprivileged process watching the next run. A playbook that becomes root can
     escape the cgroup; that is inside an approved job (threat model).
   - The executor's state (`/var/lib/keel-executor`: Git store, ledger, work directories) is owned
-    by `automation`, mode `0700`, with no group bits, so members of the `automation` group get
-    nothing from it.
+    by `keel-exec`, mode `0700`, with no group bits, so members of the human `automation` group
+    get nothing from it.
 - **Why:** the network side is the part an attacker can reach, so it holds nothing that runs code
   or escalates. The part that runs code accepts only work that passes verification against files
   it cannot write.
 - **Alternatives rejected:**
-  - One process as `automation`. A parser bug in the network code would be root through `become`.
+  - One process as `keel-exec`. A parser bug in the network code would be root through `become`.
   - The old uid-10002 taint model inside a container. systemd cgroups give the same guarantee on
     a host with less code.
   - Running the executor as root. Equivalent once `become` is used, but loses the unprivileged
-    default for jobs that do not need it, and the user asked for the `automation` account.
+    default for jobs that do not need it. The executor has its own account, `keel-exec`, rather
+    than reusing the human `automation` group's name (058 research R3).
 
 ## R3. Per-node results
 
@@ -298,7 +299,7 @@ job opts in through its manifest.
   - Server-side only, never sent to a host: `git_https_token` and `git_ssh_key` for fetching a
     binding.
   - `ssh_key` and `become_password` from the first draft are gone: Ansible connects locally, and
-    `become` uses the `automation` sudo rule.
+    `become` uses the `keel-exec` sudo rule.
 - **At rest:** sealed with XChaCha20-Poly1305 under a per-credential data key, which is wrapped by
   the master key read from `KEEL_MASTER_KEY_FILE`.
   - The key file is host-owned, mode `0400`, and is not in the database.
@@ -569,23 +570,23 @@ job opts in through its manifest.
 - **Decision:** the base Debian profile installs the runner through a new `keel_runner` role,
   enabled per host by `keel_runner_enabled` (default `false`). The role contract is in
   contracts/host-install.md. In outline it:
-  - creates the system users `keel-runner` and `automation` (the account the user asked jobs to
-    run as; today `automation` is only a group);
+  - creates the system users `keel-runner` and `keel-exec` (the executor's own account; the
+    human `automation` group stays as it is, 058 research R3);
   - installs `keel-runner` and `keel-executor` with `github_release`, checksum-pinned;
   - builds `/opt/keel-runner/venv` with hash-pinned `ansible-core`;
-  - writes the trust files under `/etc/keel-runner/trust/` (root-owned, readable by `automation`
+  - writes the trust files under `/etc/keel-runner/trust/` (root-owned, readable by `keel-exec`
     and `keel-runner`, writable by neither) from variables: `keel_runner_server` (Keel host and
     port), `keel_runner_host_ca`, `keel_runner_origin`, `keel_runner_trusted_signers`,
     `keel_runner_approvers`, `keel_runner_require_signed`, `keel_runner_allowed_profiles`,
     `keel_runner_override_quorum`;
-  - installs the systemd units and the `automation` sudo rule;
+  - installs the systemd units and the `keel-exec` sudo rule;
   - enrolls once, if `keel_enroll_token` is passed on the command line. The token never goes in
     Git.
 - **Trust changes go through signed commits.** Approver keys and signers live in the repository's
   `group_vars`. Changing them is a commit like any other, so in signed mode it must itself be
   signed or approved by the current approvers, and the review flags it (R20).
-- **Prerequisites in `../ansible`, found while planning** (fix before the runner runs as
-  `automation`; none are changed by 055):
+- **Prerequisites in `../ansible`, found while planning** (fix before `keel-exec` gets its
+  root grant; none are changed by 055):
   1. The `automation` group has a recursive read-write ACL on `/root/ansible`, including `.git`,
      and sudo rules let it run `git -C /root/ansible pull/status/fetch` as root. A group member can
      set `core.fsmonitor` or a hook in `.git/config`, and the next root `git` runs it: root for

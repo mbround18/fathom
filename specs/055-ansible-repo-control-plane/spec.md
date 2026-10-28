@@ -108,7 +108,7 @@ As a platform admin, I can apply owner/admin/user roles, team-scoped authorizati
 
 ### User Story 7 - Enrol hosts through the base profile (Priority: P1)
 
-As an operator, I can bring a host under Keel by applying my repository's base Debian profile to it. The profile installs the Keel runner, which enrols with a one-time token, runs only as the automation account, and only ever executes jobs for its own host.
+As an operator, I can bring a host under Keel by applying my repository's base Debian profile to it. The profile installs the Keel runner, which enrols with a one-time token, runs jobs only as its own executor account `keel-exec`, and only ever executes jobs for its own host.
 
 **Why this priority**: Host runners are where automation executes. If enrollment or the runner's privilege boundary is weak, nothing else in Keel is safe.
 
@@ -117,7 +117,7 @@ As an operator, I can bring a host under Keel by applying my repository's base D
 **Acceptance Scenarios**:
 
 1. **Given** a fresh Debian host and a valid enrollment token, **When** the base profile is applied, **Then** the runner is installed, enrolls, and the host appears in Keel with the profiles named in the token.
-2. **Given** an enrolled host, **When** Keel dispatches a job, **Then** the runner executes it only against its own host, as the automation account, and reports per-task results.
+2. **Given** an enrolled host, **When** Keel dispatches a job, **Then** the runner executes it only against its own host, as the executor account `keel-exec`, and reports per-task results.
 3. **Given** a runner talking to a server whose identity does not match the one pinned at enrollment, **When** it connects, **Then** it refuses to send or execute anything.
 4. **Given** an administrator revokes a host, **When** its runner reconnects or its certificate expires, **Then** Keel refuses it and the refusal is audited.
 5. **Given** a job from a profile the host does not allow locally, **When** it is dispatched, **Then** the host refuses it, even if Keel asked.
@@ -216,7 +216,7 @@ As an administrator, I can assign hosts to profiles (for example debian, prox-vm
 - **FR-028** *(suite integration spec)*: Keel MUST publish a scope mapping from suite scopes to its workspaces/projects when enrolled.
 
 - **FR-029**: Keel MUST execute Ansible only through runners installed on the managed hosts. Each runner MUST execute jobs only against its own host and MUST NOT be directed at any other host.
-- **FR-030**: The runner MUST be installable by the operator's base host profile, MUST execute jobs as the automation account, and its network-facing process MUST NOT hold elevated privileges.
+- **FR-030**: The runner MUST be installable by the operator's base host profile, MUST execute jobs as a dedicated executor account (`keel-exec`) that no human shares, and its network-facing process MUST NOT hold elevated privileges.
 - **FR-031**: Runners MUST connect outbound only, over SSH, authenticating with a host key enrolled once through a single-use, time-limited token, and holding a short-lived SSH certificate issued by Keel. Runners MUST verify Keel's identity against a key pinned at enrollment.
 - **FR-031a**: Keel MUST also support enrolment by join request: an operator issues a signed, expiring join token per workspace that carries the connection settings a host needs; a host presenting it becomes a pending request that an operator accepts (with step-up) or rejects after comparing the host key fingerprint. Join tokens MUST be off until issued, rotatable at once (rejecting pending requests made with the old token), bounded against flooding, and MUST NOT supply trust decisions (allowed profiles, signed mode, signers, approvers) to the host.
 - **FR-031b**: Keel MUST serve the runner binaries it ships at a public download path. Hosts MUST install them only after checking them against checksums pinned in the operator's repository, and runners MUST NOT update themselves.
@@ -270,7 +270,7 @@ As an administrator, I can assign hosts to profiles (for example debian, prox-vm
 
 - Administrators already have a supported identity provider and can assign roles for platform access.
 - Managed nodes are Debian hosts brought under Keel by the operator's own Ansible repository (`../ansible`): its base profile installs the runner and pins the host's trust material. Hosts that cannot run a runner are out of scope for 055.
-- Before the runner runs as the automation account, that account must not already be root-equivalent: the base role's group-writable `/root/ansible/.git` and wildcard `docker compose` sudo rule must be fixed in the Ansible repository (research R20).
+- Before the executor account `keel-exec` gets its root grant, the base role's grants to the human `automation` group must stop being root-equivalent: its group-writable `/root/ansible/.git` and wildcard `docker compose` sudo rule must be fixed in the Ansible repository (research R20).
 - Any job that uses Ansible privilege escalation is root on its host. Keel's protection is at the gate (signatures, approvals, host verification), not inside an approved job.
 - Repository ownership, branching strategy, and change review process are managed outside this feature.
 - This feature focuses on repository-bound node orchestration and governance; unrelated infrastructure provisioning workflows are out of scope.

@@ -6,7 +6,7 @@ verdict from the same inputs; a shared test vector suite proves it.
 
 ## Trust files on the host (`/etc/keel-runner/trust/`)
 
-Root-owned, mode `0640`, group `keel-trust` (members: `keel-runner`, `automation`). Written only by
+Root-owned, mode `0640`, group `keel-trust` (members: `keel-runner`, `keel-exec`). Written only by
 the base profile (contracts/host-install.md).
 
 | File | Content |
@@ -73,7 +73,7 @@ no server state.
 
 ## Ledger (`/var/lib/keel-executor/ledger.jsonl`)
 
-One JSON line per event, owner `automation`, mode `0600`.
+One JSON line per event, owner `keel-exec`, mode `0600`.
 
 ```json
 {"seq":42,"at":"…","run":"…","job":"web-deploy","event":"start","base":"…","target":"…",

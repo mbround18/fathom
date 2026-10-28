@@ -23,7 +23,7 @@ holds the decisions; the contracts and data model hold the shapes.
      runner is installed by the base Debian profile in `../ansible` (R1, R22,
      contracts/host-install.md).
    - On the host, an unprivileged network half (`keel-runner`) hands work over a root-owned
-     socket to an executor that runs as `automation` and re-verifies everything; systemd kills the
+     socket to an executor that runs as `keel-exec` and re-verifies everything; systemd kills the
      run's cgroup afterwards (R2).
    - The channel is SSH, with Keel's embedded server acting as host and runner certificate
      authority: pinned CA in the token, 24-hour runner certificates naming host and profiles,
@@ -168,7 +168,7 @@ crates/keel-trust/           # pure: commit signature range check, override chal
 crates/web-passkeys/         # extracted from apps/depths/server/src/passkeys.rs; adds pure verify_assertion
 apps/keel/server/            # binary `keel`: axum, sqlx, receivers, queue, audit, ws + /api/v1/cmd
   migrations/                # sqlx, additive only
-apps/keel/runner/            # binaries `keel-runner` (network half) and `keel-executor` (runs Ansible as automation)
+apps/keel/runner/            # binaries `keel-runner` (network half) and `keel-executor` (runs Ansible as keel-exec)
   ansible/callback/keel_events.py
   ansible/requirements.txt   # hash-pinned ansible-core for the host venv
   systemd/                   # reference units matching contracts/host-install.md
