@@ -198,3 +198,75 @@ impl RepoTree for GitTree {
         })
     }
 }
+
+impl Store {
+    /// The store as keel-trust's [`keel_trust::ObjectStore`], for signed mode's commit check.
+    pub fn objects(&self) -> Result<Objects, StoreError> {
+        Ok(Objects(self.repo()?))
+    }
+}
+
+/// An opened store, read by keel-trust's commit check. Holds a `gix::Repository`, so it must
+/// not live across an await.
+pub struct Objects(gix::Repository);
+
+fn trust_err(e: impl std::fmt::Display) -> keel_trust::object::StoreError {
+    keel_trust::object::StoreError(e.to_string())
+}
+
+fn object_id(id: &keel_trust::CommitId) -> Result<ObjectId, keel_trust::object::StoreError> {
+    ObjectId::from_hex(id.as_str().as_bytes()).map_err(trust_err)
+}
+
+impl keel_trust::ObjectStore for Objects {
+    fn commit_bytes(
+        &self,
+        id: &keel_trust::CommitId,
+    ) -> Result<Option<Vec<u8>>, keel_trust::object::StoreError> {
+        let Some(obj) = self.0.try_find_object(object_id(id)?).map_err(trust_err)? else {
+            return Ok(None);
+        };
+        if obj.kind != gix::object::Kind::Commit {
+            return Err(trust_err(format!("{} is not a commit", id.as_str())));
+        }
+        Ok(Some(obj.data.clone()))
+    }
+
+    /// Every tree and blob under `tree` is present with the right kind. Submodule entries
+    /// (commits) are not followed: the checkout skips them too.
+    fn tree_complete(
+        &self,
+        tree: &keel_trust::CommitId,
+    ) -> Result<bool, keel_trust::object::StoreError> {
+        let mut stack = vec![object_id(tree)?];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(obj) = self.0.try_find_object(id).map_err(trust_err)? else {
+                return Ok(false);
+            };
+            if obj.kind != gix::object::Kind::Tree {
+                return Ok(false);
+            }
+            for entry in obj.into_tree().iter() {
+                let Ok(entry) = entry else { return Ok(false) };
+                let mode = entry.mode();
+                let oid = entry.oid().to_owned();
+                if mode.is_commit() {
+                    continue;
+                }
+                if mode.is_tree() {
+                    stack.push(oid);
+                    continue;
+                }
+                match self.0.try_find_header(oid).map_err(trust_err)? {
+                    Some(h) if h.kind() == gix::object::Kind::Blob => {}
+                    _ => return Ok(false),
+                }
+            }
+        }
+        Ok(true)
+    }
+}

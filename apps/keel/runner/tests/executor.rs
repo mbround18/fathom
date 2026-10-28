@@ -18,6 +18,8 @@ use keel_exec::codec::{read_frame, write_frame};
 use keel_exec::frames::{Frame, Refusal, SecretItem, SecretString};
 use keel_exec::pack_builder;
 use keel_runner::executor::{CANCELLED, ExecutorConfig, SETUP_FAILED, serve};
+use keel_trust::CommitId;
+use keel_trust::ledger::{Entry, Outcome};
 use tokio::net::UnixStream;
 
 const POLICY: &str = r#"
@@ -129,6 +131,12 @@ impl Host {
 
 /// A Git repository with the manifest, committed; returns (commit id, pack of HEAD).
 fn repo(root: &Path) -> (String, Vec<u8>) {
+    let (mut commits, pack) = repo_signed(root, None);
+    (commits.pop().unwrap(), pack)
+}
+
+/// As [`repo`]; with `key`, two commits (oldest first) SSH-signed by the private key at `key`.
+fn repo_signed(root: &Path, key: Option<&Path>) -> (Vec<String>, Vec<u8>) {
     let repo = root.join("repo");
     for d in ["playbooks", "inventories/prod", ".keel"] {
         std::fs::create_dir_all(repo.join(d)).unwrap();
@@ -159,6 +167,15 @@ fn repo(root: &Path) -> (String, Vec<u8>) {
                 "-c",
                 "init.defaultBranch=main",
             ])
+            .args(match key {
+                Some(k) => vec![
+                    "-c".to_owned(),
+                    "gpg.format=ssh".to_owned(),
+                    "-c".to_owned(),
+                    format!("user.signingkey={}", k.display()),
+                ],
+                None => vec![],
+            })
             .args(args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped());
@@ -176,16 +193,26 @@ fn repo(root: &Path) -> (String, Vec<u8>) {
     };
     git(&["init", "-q"], None);
     git(&["add", "-A"], None);
-    git(&["commit", "-q", "-m", "init"], None);
-    let commit = String::from_utf8(git(&["rev-parse", "HEAD"], None))
-        .unwrap()
-        .trim()
-        .to_owned();
+    let head = || {
+        String::from_utf8(git(&["rev-parse", "HEAD"], None))
+            .unwrap()
+            .trim()
+            .to_owned()
+    };
+    let mut commits = vec![];
+    if key.is_some() {
+        git(&["commit", "-q", "-S", "-m", "init"], None);
+        commits.push(head());
+        git(&["commit", "-q", "-S", "--allow-empty", "-m", "next"], None);
+    } else {
+        git(&["commit", "-q", "-m", "init"], None);
+    }
+    commits.push(head());
     let pack = git(
         &["pack-objects", "--stdout", "--revs", "-q"],
         Some(b"HEAD\n"),
     );
-    (commit, pack)
+    (commits, pack)
 }
 
 fn now() -> u64 {
@@ -502,9 +529,31 @@ async fn an_old_ansible_core_is_refused() {
 }
 
 #[tokio::test]
-async fn require_signed_refuses_until_signed_mode_exists() {
+async fn require_signed_refuses_an_unsigned_first_run() {
     let host = Host::new(&format!("require_signed = true\n{POLICY}"));
-    let frames = full_run(&host, "run-9", "web-deploy").await;
+    std::fs::write(host.cfg.trust_dir.join("signers"), "").unwrap();
+    std::fs::write(host.cfg.trust_dir.join("approvers.json"), "[]").unwrap();
+    let (commit, pack) = repo(&host.root);
+    let (mut s, task) = start(&host.cfg);
+    send(
+        &mut s,
+        [assign("run-9", "web-deploy", None, &commit, &pack)],
+    )
+    .await;
+    send(&mut s, pack_builder::frames("run-9", &pack)).await;
+    send(
+        &mut s,
+        [
+            secrets("run-9", false),
+            Frame::Approvals {
+                run_id: "run-9".to_owned(),
+                items: vec![],
+            },
+        ],
+    )
+    .await;
+    let frames = drain(&mut s).await;
+    task.await.unwrap();
     assert!(
         matches!(
             frames.as_slice(),
@@ -515,6 +564,178 @@ async fn require_signed_refuses_until_signed_mode_exists() {
         ),
         "{frames:?}"
     );
+    assert!(host.record().is_empty());
+    assert!(!host.cfg.state_dir.join("ledger.jsonl").exists());
+}
+
+/// An SSH key for signing commits, and its `allowed_signers` line.
+fn signing_key(root: &Path) -> (PathBuf, String) {
+    let key = root.join("signing_key");
+    let out = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-C", "keel-test", "-f"])
+        .arg(&key)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let public = std::fs::read_to_string(key.with_extension("pub")).unwrap();
+    (key, format!("keel {}", public.trim()))
+}
+
+#[tokio::test]
+async fn a_signed_run_is_recorded_start_and_end() {
+    let host = Host::new(&format!("require_signed = true\n{POLICY}"));
+    let (key, signer) = signing_key(&host.root);
+    std::fs::write(host.cfg.trust_dir.join("signers"), format!("{signer}\n")).unwrap();
+    std::fs::write(host.cfg.trust_dir.join("approvers.json"), "[]").unwrap();
+    let (commits, pack) = repo_signed(&host.root, Some(&key));
+    let (base, commit) = (commits[0].clone(), commits[1].clone());
+    // The host already ran `base` (a first run needs a baseline approval).
+    let mut seed = keel_trust::Ledger::empty();
+    let mut text = seed
+        .append(Entry::Start {
+            at: "2026-01-01T00:00:00Z".to_owned(),
+            run: "seed-run".to_owned(),
+            job: "web-deploy".to_owned(),
+            base: None,
+            target: CommitId::parse(&base).unwrap(),
+            auth: keel_trust::Auth::Signed {
+                signers: vec!["SHA256:seed".to_owned()],
+            },
+        })
+        .unwrap();
+    text.push_str(
+        &seed
+            .append(Entry::End {
+                at: "2026-01-01T00:01:00Z".to_owned(),
+                run: "seed-run".to_owned(),
+                job: "web-deploy".to_owned(),
+                outcome: Outcome::Succeeded,
+                exit: Some(0),
+            })
+            .unwrap(),
+    );
+    std::fs::write(host.cfg.state_dir.join("ledger.jsonl"), &text).unwrap();
+
+    let (mut s, task) = start(&host.cfg);
+    send(
+        &mut s,
+        [assign("run-14", "web-deploy", Some(&base), &commit, &pack)],
+    )
+    .await;
+    send(&mut s, pack_builder::frames("run-14", &pack)).await;
+    send(
+        &mut s,
+        [
+            secrets("run-14", false),
+            Frame::Approvals {
+                run_id: "run-14".to_owned(),
+                items: vec![],
+            },
+        ],
+    )
+    .await;
+    let frames = drain(&mut s).await;
+    task.await.unwrap();
+    let Some(Frame::Finished {
+        exit_code: 0,
+        ledger_line,
+        ..
+    }) = frames.last()
+    else {
+        panic!("{frames:?}");
+    };
+    assert!(!host.record().is_empty(), "the playbook did not run");
+    let ledger = std::fs::read_to_string(host.cfg.state_dir.join("ledger.jsonl")).unwrap();
+    let lines: Vec<&str> = ledger.lines().collect();
+    assert_eq!(lines.len(), 4, "{ledger}");
+    assert!(ledger.starts_with(&text), "the ledger was rewritten");
+    assert!(
+        lines[2].contains("\"start\"") && lines[2].contains(&commit),
+        "{ledger}"
+    );
+    assert_eq!(lines[3], ledger_line);
+    assert!(ledger_line.contains("\"end\""), "{ledger_line}");
+
+    // The same run id again is a replay, and the ledger does not change.
+    let (mut s, task) = start(&host.cfg);
+    send(
+        &mut s,
+        [assign(
+            "run-14",
+            "web-deploy",
+            Some(&commit),
+            &commit,
+            &pack,
+        )],
+    )
+    .await;
+    let frames = drain(&mut s).await;
+    task.await.unwrap();
+    assert!(
+        matches!(
+            frames.as_slice(),
+            [Frame::Refused {
+                reason: Refusal::Replay,
+                ..
+            }]
+        ),
+        "{frames:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(host.cfg.state_dir.join("ledger.jsonl")).unwrap(),
+        ledger
+    );
+}
+
+#[tokio::test]
+async fn signed_mode_without_trust_files_fails_closed() {
+    let host = Host::new(&format!("require_signed = true\n{POLICY}"));
+    let (commit, pack) = repo(&host.root);
+    let (mut s, task) = start(&host.cfg);
+    send(
+        &mut s,
+        [assign("run-13", "web-deploy", None, &commit, &pack)],
+    )
+    .await;
+    send(&mut s, pack_builder::frames("run-13", &pack)).await;
+    send(
+        &mut s,
+        [
+            secrets("run-13", false),
+            Frame::Approvals {
+                run_id: "run-13".to_owned(),
+                items: vec![],
+            },
+        ],
+    )
+    .await;
+    let frames = drain(&mut s).await;
+    task.await.unwrap();
+    assert!(
+        matches!(frames.last(), Some(Frame::Finished { exit_code, .. }) if *exit_code == SETUP_FAILED),
+        "{frames:?}"
+    );
+    assert!(host.record().is_empty());
+}
+
+#[test]
+fn ledger_verify_reports_a_broken_chain_and_leaves_it_alone() {
+    let host = Host::new(POLICY);
+    let verify = || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_keel-executor"))
+            .arg("--state-dir")
+            .arg(&host.cfg.state_dir)
+            .args(["ledger", "verify"])
+            .output()
+            .unwrap()
+    };
+    let out = verify();
+    assert!(out.status.success(), "{out:?}");
+    let ledger = host.cfg.state_dir.join("ledger.jsonl");
+    std::fs::write(&ledger, "garbage\n").unwrap();
+    let out = verify();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert_eq!(std::fs::read_to_string(&ledger).unwrap(), "garbage\n");
 }
 
 #[tokio::test]

@@ -5,8 +5,9 @@
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 use std::path::PathBuf;
 
-use clap::Parser;
-use keel_runner::executor::{ExecutorConfig, serve};
+use clap::{Parser, Subcommand};
+use keel_runner::executor::signed::verify_ledger_file;
+use keel_runner::executor::{ExecutorConfig, LEDGER_FILE, serve};
 
 /// Keel host runner: runs Ansible as the automation user, verifying what it is given.
 #[derive(Debug, Parser)]
@@ -39,6 +40,24 @@ struct Cli {
     /// The directory holding the `keel_events` callback (default: `<venv>/share/keel/callback`).
     #[arg(long)]
     callback_dir: Option<PathBuf>,
+    /// Without a command, serve the connection on fd 0.
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// The host ledger.
+    Ledger {
+        #[command(subcommand)]
+        action: LedgerAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum LedgerAction {
+    /// Verify the whole hash chain. Exits 1 if it does not verify; never changes the file.
+    Verify,
 }
 
 fn same_file(a: i32, b: i32) -> bool {
@@ -84,6 +103,20 @@ fn take_connection() -> std::io::Result<std::os::unix::net::UnixStream> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let cli = Cli::parse();
+    if let Some(Command::Ledger {
+        action: LedgerAction::Verify,
+    }) = cli.command
+    {
+        let path = cli.state_dir.join(LEDGER_FILE);
+        match verify_ledger_file(&path) {
+            Ok(msg) => println!("{}: {msg}", path.display()),
+            Err(e) => {
+                eprintln!("{}: does not verify: {e}", path.display());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     let stream = match take_connection() {
         Ok(s) => s,
         Err(e) => {

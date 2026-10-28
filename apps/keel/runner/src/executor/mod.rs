@@ -4,10 +4,13 @@
 //! - `ReadLedger` → `Ledger` (head and per-job bases, for the network half's `Hello`).
 //! - `Assign` → one run. The executor trusts nothing the network half says. In order it checks
 //!   its local policy, its ledger (`ledger_corrupt`), that the run id is new (`replay`), that
-//!   Keel's base matches its own (`base_mismatch`), signed mode (`unsigned`), and the
-//!   ansible-core floor (`version_too_old`). It then collects the pack and secrets, verifies the
-//!   pack's size and SHA-256, unpacks it into its own Git store, reads `.keel/jobs.yaml` from the
-//!   target commit, checks the job's profiles against `allowed_profiles`
+//!   Keel's base matches its own (`base_mismatch`), and the ansible-core floor
+//!   (`version_too_old`). It then collects the pack and secrets (and, in signed mode, the
+//!   approvals), verifies the pack's size and SHA-256, and unpacks it into its own Git store. In
+//!   signed mode it then decides with keel-trust under the ledger lock ([`signed`]): the chain,
+//!   replay and base again, the commit range from its own base (`unsigned`, `downgrade`), and
+//!   any approvals against its pinned passkeys and quorum (`bad_override`). It reads
+//!   `.keel/jobs.yaml` from the target commit, checks the job's profiles against `allowed_profiles`
 //!   (`profile_not_allowed`), checks the commit out into a private run directory and runs
 //!   `ansible-playbook` against this host only: `--limit <inventory_name>` and
 //!   `ansible_connection=local` are forced, whatever the job says.
@@ -16,9 +19,13 @@
 //! not accept, ...) ends with a `Log` saying why and `Finished` with exit code
 //! [`SETUP_FAILED`], without `Started`. The run directory, and every secret in it, is removed
 //! before `Finished` is sent.
+//!
+//! In signed mode the executor appends a `start` line to its ledger before the playbook runs
+//! and an `end` line after, and returns the `end` line as `Finished.ledger_line`.
 
 mod process;
 pub mod secrets;
+pub mod signed;
 pub mod store;
 
 use std::collections::BTreeMap;
@@ -204,8 +211,8 @@ impl Drop for RunDir {
 struct Delivery {
     pack: Vec<u8>,
     secrets: Vec<SecretItem>,
-    /// Kept for the signed-mode override checks (T098).
-    _approvals: Vec<Approval>,
+    /// Override and baseline approvals (signed mode only).
+    approvals: Vec<Approval>,
 }
 
 struct Assignment {
@@ -300,15 +307,6 @@ fn check_assignment(a: &Assignment, cfg: &ExecutorConfig) -> Result<Policy, Stop
             ),
         ));
     }
-    if policy.require_signed {
-        // Signed-mode verification (contracts/signed-mode.md) is T098. Until it exists a host
-        // that requires signed work runs nothing.
-        return Err(Stop::Refuse(
-            Refusal::Unsigned,
-            "this host requires signed work, and signed-mode verification is not built yet (T098)"
-                .to_owned(),
-        ));
-    }
     let installed = crate::venv::ansible_core_version(&cfg.venv);
     if !meets_min_ansible_core(&installed) {
         return Err(Stop::Refuse(
@@ -320,12 +318,15 @@ fn check_assignment(a: &Assignment, cfg: &ExecutorConfig) -> Result<Policy, Stop
     Ok(policy)
 }
 
-/// Collects `Pack` until the last chunk and `Secrets`, and verifies the pack.
+/// Collects `Pack` until the last chunk and `Secrets`, in any order, and verifies the pack. In
+/// signed mode it also waits for `Approvals` (empty when every commit is signed), so the
+/// decision never depends on which frame arrived first.
 async fn collect(
     a: &Assignment,
     cfg: &ExecutorConfig,
     incoming: &mut mpsc::Receiver<Frame>,
     deadline: Instant,
+    want_approvals: bool,
 ) -> Result<Delivery, Stop> {
     if a.pack_size > cfg.max_pack_bytes {
         return Err(fail(format!(
@@ -337,7 +338,7 @@ async fn collect(
     let mut pack_sha = None;
     let mut secrets = None;
     let mut approvals = None;
-    while pack_sha.is_none() || secrets.is_none() {
+    while pack_sha.is_none() || secrets.is_none() || (want_approvals && approvals.is_none()) {
         let frame = tokio::select! {
             f = incoming.recv() => f.ok_or(Stop::Gone)?,
             () = tokio::time::sleep_until(deadline) => return Err(fail("the deadline passed before the pack arrived")),
@@ -385,15 +386,141 @@ async fn collect(
     Ok(Delivery {
         pack,
         secrets: secrets.unwrap_or_default(),
-        _approvals: approvals.unwrap_or_default(),
+        approvals: approvals.unwrap_or_default(),
     })
 }
 
-/// The ledger line for a finished run. Appending signed start/end lines to the ledger is
-/// signed mode's job (T098, research R19); until then nothing is appended, so `ledger_line` is
-/// empty and the replay check above only sees lines written by a later version.
-fn record_in_ledger_t098(_a: &Assignment, _exit_code: i32) -> String {
-    String::new()
+/// A signed-mode run the host has authorized, holding the ledger lock until its `start` line
+/// is written.
+struct Authorized {
+    _lock: signed::LedgerLock,
+    ledger: signed::OpenLedger,
+    base: Option<CommitId>,
+    target: CommitId,
+    auth: keel_trust::Auth,
+}
+
+/// Signed mode's decision (contracts/signed-mode.md), against the host's own ledger, trust files
+/// and object store, under the ledger lock. Synchronous: the store must not live across an
+/// await.
+fn authorize(
+    a: &Assignment,
+    cfg: &ExecutorConfig,
+    policy: &Policy,
+    store: &store::Store,
+    items: &[Approval],
+) -> Result<Authorized, Stop> {
+    let trust = signed::load_trust(&cfg.trust_dir, policy)
+        .map_err(|e| fail(format!("trust files: {e}")))?;
+    let target = CommitId::parse(&a.target).map_err(|_| fail("the target is not a commit id"))?;
+    let lock = signed::LedgerLock::acquire(&cfg.state_dir)
+        .map_err(|e| fail(format!("ledger lock: {e}")))?;
+    let path = cfg.ledger_path();
+    let text = signed::read_ledger_text(&path)
+        .map_err(|e| Stop::Refuse(Refusal::LedgerCorrupt, format!("ledger: {e}")))?;
+    // Keel's base only has to match the host's; anything that is not a commit id cannot.
+    let assumed = match a.base.as_deref().map(CommitId::parse).transpose() {
+        Ok(b) => b,
+        Err(_) => {
+            return Err(Stop::Refuse(
+                Refusal::BaseMismatch,
+                "Keel's base is not a commit id".to_owned(),
+            ));
+        }
+    };
+    // Approvals that do not decode are decided like no approvals, and then refused as
+    // `bad_override` rather than `unsigned`, so the earlier checks keep their order.
+    let (approvals, undecodable) = match signed::wire_approvals(items) {
+        Ok(v) => (v, None),
+        Err(e) => (Vec::new(), Some(e)),
+    };
+    let objects = store.objects().map_err(|e| fail(e.to_string()))?;
+    let run = signed::run_context(&a.run_id, &a.job);
+    let now = i64::try_from(crate::runner::unix_now()).unwrap_or(i64::MAX);
+    let req = keel_trust::RunRequest {
+        ledger: &text,
+        store: &objects,
+        signers: &trust.signers,
+        approvers: &trust.approvers,
+        policy: &trust.policy,
+        run: &run,
+        assumed_base: assumed.as_ref(),
+        target: &target,
+        approvals: &approvals,
+        now,
+    };
+    match keel_trust::authorize(&req) {
+        Ok(ok) => Ok(Authorized {
+            _lock: lock,
+            ledger: signed::OpenLedger {
+                path,
+                ledger: ok.ledger,
+            },
+            base: ok.base,
+            target,
+            auth: ok.auth,
+        }),
+        Err(r) => {
+            if let Some(e) = undecodable
+                && matches!(
+                    r,
+                    keel_trust::Refusal::Unsigned { .. } | keel_trust::Refusal::Downgrade
+                )
+            {
+                return Err(Stop::Refuse(Refusal::BadOverride, e));
+            }
+            match signed::wire_refusal(&r, a.base.as_deref()) {
+                Ok((reason, detail)) => Err(Stop::Refuse(reason, detail)),
+                Err(msg) => Err(fail(msg)),
+            }
+        }
+    }
+}
+
+/// How a started signed run ended, for its `end` line. A run that never got to execute
+/// anything is `cancelled` and does not move the base; anything else that did not exit 0 is
+/// `failed`, which does, because the host may be partly applied.
+fn outcome(exit_code: i32, executed: bool) -> keel_trust::ledger::Outcome {
+    use keel_trust::ledger::Outcome;
+    match (executed, exit_code) {
+        (false, _) => Outcome::Cancelled,
+        (true, 0) => Outcome::Succeeded,
+        (true, _) => Outcome::Failed,
+    }
+}
+
+/// Appends the `end` line of a started signed run and returns it; on failure, says why on the
+/// run's log and returns an empty line (the run stays open in the ledger, and its base does not
+/// move).
+fn record_end(
+    a: &Assignment,
+    cfg: &ExecutorConfig,
+    out: &mpsc::UnboundedSender<Frame>,
+    exit_code: i32,
+    executed: bool,
+) -> String {
+    let exit = executed.then_some(i64::from(exit_code));
+    match signed::record_end(
+        &cfg.state_dir,
+        &cfg.ledger_path(),
+        &a.run_id,
+        &a.job,
+        outcome(exit_code, executed),
+        exit,
+    ) {
+        Ok(line) => line,
+        Err(e) => {
+            let msg = format!("keel-executor: could not record the run's end in the ledger: {e}\n");
+            eprint!("{msg}");
+            let _ = out.send(Frame::Log {
+                run_id: a.run_id.clone(),
+                seq: 0,
+                stream: LogStream::Stderr,
+                bytes: msg.into_bytes(),
+            });
+            String::new()
+        }
+    }
 }
 
 async fn prepare_and_run(
@@ -408,12 +535,19 @@ async fn prepare_and_run(
         return Err(fail("the run's deadline has already passed"));
     }
     let mut deadline = Instant::now() + Duration::from_secs(a.deadline - now);
-    let delivery = collect(a, cfg, incoming, deadline).await?;
+    let delivery = collect(a, cfg, incoming, deadline, policy.require_signed).await?;
 
     let store = store::Store::open(&cfg.state_dir.join("git")).map_err(|e| fail(e.to_string()))?;
     store
         .unpack(&delivery.pack)
         .map_err(|e| fail(e.to_string()))?;
+    // Signed mode decides here, on the unpacked objects, and keeps the ledger lock until the
+    // run's `start` line is written below.
+    let authorized = if policy.require_signed {
+        Some(authorize(a, cfg, &policy, &store, &delivery.approvals)?)
+    } else {
+        None
+    };
     let (def, inventory_path) = read_job(a, &store, &policy, &delivery.secrets)?;
     let def = &def;
     drop(delivery.pack);
@@ -485,19 +619,43 @@ async fn prepare_and_run(
             .map(|(k, v)| (OsString::from(k), OsString::from(v))),
     );
 
-    out.send(Frame::Started {
-        run_id: a.run_id.clone(),
-    })
-    .map_err(|_| Stop::Gone)?;
+    // The `start` line is on disk before anything runs; then the lock is released.
+    let signed_run = match authorized {
+        Some(mut auth) => {
+            auth.ledger
+                .append(keel_trust::ledger::Entry::Start {
+                    at: signed::ledger_now(),
+                    run: a.run_id.clone(),
+                    job: a.job.clone(),
+                    base: auth.base.take(),
+                    target: auth.target.clone(),
+                    auth: auth.auth.clone(),
+                })
+                .map_err(|e| fail(format!("cannot record the run in the ledger: {e}")))?;
+            true
+        }
+        None => false,
+    };
+    if out
+        .send(Frame::Started {
+            run_id: a.run_id.clone(),
+        })
+        .is_err()
+    {
+        if signed_run {
+            record_end(a, cfg, out, CANCELLED, false);
+        }
+        return Err(Stop::Gone);
+    }
     let inv = process::Invocation {
         program: cfg.ansible_playbook.clone(),
         args,
         cwd: tree_dir,
         env,
     };
-    let (exit_code, stats) =
+    let (exit_code, stats, executed) =
         match process::run(inv, &a.run_id, out, incoming, deadline, cfg.cancel_grace).await {
-            Ok(o) => (o.exit_code, o.stats),
+            Ok(o) => (o.exit_code, o.stats, true),
             Err(e) => {
                 let msg = format!("keel-executor: cannot run ansible-playbook: {e}\n");
                 eprint!("{msg}");
@@ -507,11 +665,17 @@ async fn prepare_and_run(
                     stream: LogStream::Stderr,
                     bytes: msg.into_bytes(),
                 });
-                (SETUP_FAILED, BTreeMap::new())
+                (SETUP_FAILED, BTreeMap::new(), false)
             }
         };
     drop(run_dir);
-    let ledger_line = record_in_ledger_t098(a, exit_code);
+    // Unsigned mode writes no ledger lines: the ledger records only signed-mode authorizations
+    // (its `auth` has no unsigned kind), so `ledger_line` stays empty there.
+    let ledger_line = if signed_run {
+        record_end(a, cfg, out, exit_code, executed)
+    } else {
+        String::new()
+    };
     let _ = out.send(Frame::Finished {
         run_id: a.run_id.clone(),
         exit_code,
