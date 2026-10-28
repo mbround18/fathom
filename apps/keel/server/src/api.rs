@@ -183,7 +183,7 @@ pub async fn list_all_tokens(
         let context = governance::origin(req).context;
         return governance::deny(app, req.caller, CMD, None, code, context).await;
     }
-    all_tokens(app, holder, state).await
+    all_tokens(app, req.caller, holder, state).await
 }
 
 /// The state of `api_tokens t`, as SQL: revoked first, then expired.
@@ -192,6 +192,7 @@ const TOKEN_STATE_SQL: &str = "case when t.revoked_at is not null then 'revoked'
 
 async fn all_tokens(
     app: &AppState,
+    caller: &identity::Caller,
     holder: Option<uuid::Uuid>,
     state: Option<ApiTokenState>,
 ) -> Vec<Event> {
@@ -215,10 +216,13 @@ async fn all_tokens(
          {TOKEN_STATE_SQL} from api_tokens t join workspaces w on w.id = t.workspace_id \
          join users u on u.id = t.owner_user_id \
          where ($1::uuid is null or t.owner_user_id = $1) \
-         and ($2::text is null or {TOKEN_STATE_SQL} = $2) order by t.id desc"
+         and ($2::text is null or {TOKEN_STATE_SQL} = $2) \
+         and ($3::uuid is null or t.workspace_id is distinct from $3) order by t.id desc"
     )))
     .bind(holder)
     .bind(state.as_ref().map(crate::bindings::enum_str))
+    // The System workspace is left out for non-owners (spec 060 US7).
+    .bind(crate::system::hide_system(caller))
     .fetch_all(&app.db)
     .await;
     match rows {
@@ -414,7 +418,10 @@ pub async fn token_revoke(app: &AppState, req: &Request<'_>, token: uuid::Uuid) 
             tracing::error!(error = %e, "token lookup failed");
             return vec![governance::internal()];
         }
-        Ok(Some((name, owner, ws, revoked, holder_name))) if may(req.caller, owner) => {
+        // A System-workspace token is invisible to non-owners (spec 060 US7).
+        Ok(Some((name, owner, ws, revoked, holder_name)))
+            if may(req.caller, owner) && crate::system::hide_system(req.caller) != Some(ws) =>
+        {
             if revoked {
                 return vec![Event::op_error(
                     "already_revoked",
@@ -475,7 +482,7 @@ pub async fn token_revoke(app: &AppState, req: &Request<'_>, token: uuid::Uuid) 
             return events;
         }
         if by_admin {
-            all_tokens(&app, None, None).await
+            all_tokens(&app, &caller, None, None).await
         } else {
             tokens(&app, caller.user.id).await
         }

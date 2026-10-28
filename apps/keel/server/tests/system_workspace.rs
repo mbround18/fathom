@@ -3,6 +3,8 @@
 //! - Configure creates `keel-system` once and reuses it; the slug is reserved.
 //! - An instance admin is refused `owner_only` on it (hosts, runs), never sees it in lists, and
 //!   nobody can add a grant or an API token on it.
+//! - The admin lists across workspaces (`ListEnrollments`, `ListAllApiTokens`) leave its rows
+//!   out for non-owners, and those rows can't be revoked or rolled by them.
 //! - Enrolment there is limited to the allowed profiles (`profile_not_allowed`).
 //! - Remove revokes its hosts, disables its bindings, archives it and deletes the configuration
 //!   in one audited change, keeping its history.
@@ -425,5 +427,132 @@ async fn remove_revokes_disables_archives_and_keeps_history() {
     );
     let (again, v) = configure(&h, &["debian"], 0).await;
     assert_eq!((again, v), (ws, 1));
+    h.finish().await;
+}
+
+/// Inserts an API token on `ws` for `holder`, as if made before the workspace was System.
+async fn token_on(h: &Harness, holder: Uuid, ws: Uuid) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "insert into api_tokens (id, name, owner_user_id, workspace_id, actions, hash, \
+         expires_at) values ($1, 'ci', $2, $3, array['list_workspaces'], $4, \
+         now() + interval '7 days')",
+    )
+    .bind(id)
+    .bind(holder)
+    .bind(ws)
+    .bind(id.as_bytes().to_vec())
+    .execute(&h.db.owner)
+    .await
+    .expect("token");
+    id
+}
+
+fn enrolment_ids(out: &[Event]) -> Vec<Uuid> {
+    match out {
+        [Event::Enrollments { items }] => items.iter().map(|e| e.id).collect(),
+        other => panic!("enrolments: {other:?}"),
+    }
+}
+
+fn token_ids(out: &[Event]) -> Vec<Uuid> {
+    match out {
+        [Event::AllApiTokens { items }] => items.iter().map(|t| t.token.id).collect(),
+        other => panic!("tokens: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn admin_lists_leave_it_out_for_non_owners() {
+    let Some(h) = Harness::new("system_lists").await else {
+        return;
+    };
+    hosts::bootstrap(&h.app).await.expect("bootstrap");
+    let (ws, _) = configure(&h, &["debian"], 0).await;
+    // One enrolment token in each workspace, minted by the owner.
+    let mut minted = Vec::new();
+    for w in [ws, h.workspace] {
+        sqlx::query("insert into profiles (id, workspace_id, name) values ($1, $2, 'debian')")
+            .bind(Uuid::now_v7())
+            .bind(w)
+            .execute(&h.db.owner)
+            .await
+            .expect("profile");
+        let (_, out) = h
+            .confirm(Cmd::PreviewHostEnroll {
+                workspace: w,
+                inventory_name: HostName::new("host-1").unwrap(),
+                profiles: profiles(&["debian"]),
+            })
+            .await;
+        match out.as_slice() {
+            [Event::Confirmed { .. }, Event::HostEnrollment { id, .. }] => minted.push(*id),
+            other => panic!("enrol: {other:?}"),
+        }
+    }
+    let (system_enrolment, ops_enrolment) = (minted[0], minted[1]);
+    let admin = admin(&h).await;
+    let system_token = token_on(&h, h.owner.user.id, ws).await;
+    let ops_token = token_on(&h, admin.user.id, h.workspace).await;
+    let all_enrolments = |workspace| Cmd::ListEnrollments {
+        state: None,
+        workspace,
+    };
+    let all_tokens = || Cmd::ListAllApiTokens {
+        holder: None,
+        state: None,
+    };
+
+    // The owner sees both workspaces' rows.
+    let seen = enrolment_ids(&h.cmd(all_enrolments(None)).await);
+    assert!(
+        seen.contains(&system_enrolment) && seen.contains(&ops_enrolment),
+        "{seen:?}"
+    );
+    let seen = token_ids(&h.cmd(all_tokens()).await);
+    assert!(
+        seen.contains(&system_token) && seen.contains(&ops_token),
+        "{seen:?}"
+    );
+
+    // The admin sees only the other workspace's, even when asking for System's by id.
+    assert_eq!(
+        enrolment_ids(&h.cmd_as(&admin, all_enrolments(None)).await),
+        vec![ops_enrolment]
+    );
+    assert!(enrolment_ids(&h.cmd_as(&admin, all_enrolments(Some(ws))).await).is_empty());
+    assert_eq!(
+        token_ids(&h.cmd_as(&admin, all_tokens()).await),
+        vec![ops_token]
+    );
+
+    // Nor can the admin act on them: for the admin they don't exist.
+    let out = h
+        .cmd_as(
+            &admin,
+            Cmd::PreviewEnrollmentRevoke {
+                enrollment: system_enrolment,
+            },
+        )
+        .await;
+    assert_eq!(op_error(&out), "not_found");
+    let out = h
+        .cmd_as(
+            &admin,
+            Cmd::PreviewEnrollmentRoll {
+                enrollment: system_enrolment,
+            },
+        )
+        .await;
+    assert_eq!(op_error(&out), "not_found");
+    let out = h
+        .cmd_as(
+            &admin,
+            Cmd::PreviewApiTokenRevoke {
+                token: system_token,
+            },
+        )
+        .await;
+    assert_eq!(denied(&out), "not_owner");
     h.finish().await;
 }

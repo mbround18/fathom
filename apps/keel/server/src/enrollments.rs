@@ -66,13 +66,15 @@ fn info(r: Row) -> EnrollmentInfo {
     }
 }
 
-/// `$1` state, `$2` workspace, `$3` one enrolment, `$4` limit. The filters are one `where`
+/// `$1` state, `$2` workspace, `$3` one enrolment, `$4` limit, `$5` a workspace to leave out
+/// (the System workspace for non-owners, `system::hide_system`). The filters are one `where`
 /// clause so a visibility rule can join it.
 async fn rows(
     conn: &mut PgConnection,
     state: Option<EnrollmentState>,
     workspace: Option<Uuid>,
     enrollment: Option<Uuid>,
+    hide: Option<Uuid>,
 ) -> Result<Vec<EnrollmentInfo>, sqlx::Error> {
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select * from (select e.id, e.workspace_id, w.slug, e.inventory_name, e.profiles, \
@@ -80,7 +82,8 @@ async fn rows(
          e.rolled_from from host_enrollments e join workspaces w on w.id = e.workspace_id \
          left join users u on u.id = e.created_by \
          where ($2::uuid is null or e.workspace_id = $2) \
-         and ($3::uuid is null or e.id = $3)) s \
+         and ($3::uuid is null or e.id = $3) \
+         and ($5::uuid is null or e.workspace_id is distinct from $5)) s \
          where ($1::text is null or s.state = $1) \
          order by s.created_at desc, s.id desc limit $4"
     )))
@@ -88,6 +91,7 @@ async fn rows(
     .bind(workspace)
     .bind(enrollment)
     .bind(LIST_LIMIT)
+    .bind(hide)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows.into_iter().map(info).collect())
@@ -95,12 +99,14 @@ async fn rows(
 
 async fn enrollments_event(
     app: &AppState,
+    caller: &Caller,
     state: Option<EnrollmentState>,
     workspace: Option<Uuid>,
 ) -> Vec<Event> {
+    let hide = crate::system::hide_system(caller);
     let result = async {
         let mut conn = app.db.acquire().await?;
-        rows(&mut conn, state, workspace, None).await
+        rows(&mut conn, state, workspace, None, hide).await
     }
     .await;
     match result {
@@ -123,14 +129,19 @@ pub async fn list(
     if let Err(code) = check_admin(req.caller) {
         return deny(app, req.caller, CMD, workspace, code, origin(req).context).await;
     }
-    enrollments_event(app, state, workspace).await
+    enrollments_event(app, req.caller, state, workspace).await
 }
 
-/// One enrolment, by id.
-async fn one(app: &AppState, enrollment: Uuid) -> Result<Option<EnrollmentInfo>, Vec<Event>> {
+/// One enrolment, by id, if `caller` may see it.
+async fn one(
+    app: &AppState,
+    caller: &Caller,
+    enrollment: Uuid,
+) -> Result<Option<EnrollmentInfo>, Vec<Event>> {
+    let hide = crate::system::hide_system(caller);
     let result = async {
         let mut conn = app.db.acquire().await?;
-        rows(&mut conn, None, None, Some(enrollment)).await
+        rows(&mut conn, None, None, Some(enrollment), hide).await
     }
     .await;
     match result {
@@ -233,7 +244,7 @@ pub async fn preview_revoke(app: &AppState, req: &Request<'_>, enrollment: Uuid)
     if let Err(code) = check_admin(req.caller) {
         return deny(app, req.caller, CMD, None, code, o.context).await;
     }
-    let e = match one(app, enrollment).await {
+    let e = match one(app, req.caller, enrollment).await {
         Ok(Some(e)) => e,
         Ok(None) => return vec![governance::not_found("enrolment token")],
         Err(ev) => return ev,
@@ -270,7 +281,7 @@ pub async fn preview_revoke(app: &AppState, req: &Request<'_>, enrollment: Uuid)
         if let Err(events) = governance::settle(&app, &caller, ACTION, ws, &o, step).await {
             return events;
         }
-        enrollments_event(&app, None, None).await
+        enrollments_event(&app, &caller, None, None).await
     });
     let draft = Draft {
         action: ACTION.to_owned(),
@@ -289,7 +300,7 @@ pub async fn preview_roll(app: &AppState, req: &Request<'_>, enrollment: Uuid) -
     if let Err(code) = check_admin(req.caller) {
         return deny(app, req.caller, CMD, None, code, o.context).await;
     }
-    let e = match one(app, enrollment).await {
+    let e = match one(app, req.caller, enrollment).await {
         Ok(Some(e)) => e,
         Ok(None) => return vec![governance::not_found("enrolment token")],
         Err(ev) => return ev,
