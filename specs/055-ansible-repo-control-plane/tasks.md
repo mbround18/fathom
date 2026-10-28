@@ -435,64 +435,64 @@ two-process runner, revocation.
   key id `runner:<id>`, principals `host:<name>` and `profile:<p>` for assigned ∩ allowed
   profiles, a unique serial, `--runner-cert-ttl` validity and no extensions; a revoked serial in
   the KRL is refused; a retiring CA stays trusted until its certificates expire.
-- [ ] T075 [P] [US7] Enrollment tests in apps/keel/server/tests/enroll.rs: the token
+- [X] T075 [P] [US7] Enrollment tests in apps/keel/server/tests/enroll.rs: the token
   `keel-enroll-v1.<secret>.<host CA fingerprint>` is single-use, expires after 15 minutes, is
   stored hashed; a reused token is refused, burned and audited; `inventory_name` must match;
   profiles outside `allowed_profiles` are refused.
-- [ ] T076 [P] [US7] Runner client tests in apps/keel/runner/tests/client.rs: a server whose host
+- [X] T076 [P] [US7] Runner client tests in apps/keel/runner/tests/client.rs: a server whose host
   certificate is from another CA, a bare host key, or an expired certificate is refused before
   anything is sent; a token whose fingerprint does not match `host_ca.pub` is refused; an expired
   runner certificate within `--runner-max-offline` may only send `RenewCert`.
-- [ ] T077 [P] [US7] Executor isolation tests in apps/keel/runner/tests/executor.rs (no systemd):
+- [X] T077 [P] [US7] Executor isolation tests in apps/keel/runner/tests/executor.rs (no systemd):
   the executor forces `--limit <inventory_name>` and `ansible_connection=local`; refuses
   `profile_not_allowed`; writes secrets at `0600` in the run directory and removes them after
   `Finished`; `secret_vars` are written tagged `!unsafe`, so `{{ lookup('pipe', 'id') }}` stays
   untemplated.
-- [ ] T078 [P] [US7] Round-trip tests for `ListHosts`, `GetHost`, `PreviewHostEnroll`,
+- [X] T078 [P] [US7] Round-trip tests for `ListHosts`, `GetHost`, `PreviewHostEnroll`,
   `PreviewHostRevoke`, `GetSshCa`, `PreviewSshCaRotate` and `HostState`.
-- [ ] T079 [P] [US7] Playwright apps/keel/web/tests/e2e/us7/: enrol a host (token shown once with
+- [X] T079 [P] [US7] Playwright apps/keel/web/tests/e2e/us7/: enrol a host (token shown once with
   copyable `-e keel_enroll_token=…`), see it come online, revoke it.
 
 ### Implementation
 
-- [ ] T080 [US7] Migration `0005_hosts.sql`: complete `hosts` (`inventory_name` unique per
+- [X] T080 [US7] Migration `0006_hosts.sql` (0005 is `0005_runs.sql`): complete `hosts` (`inventory_name` unique per
   workspace; `ssh_key_fingerprint` unique; `allowed_profiles text[]`; `require_signed`; `state`
   `online | offline | revoked`), `host_enrollments`, `host_profiles`, `ssh_cas` (`kind`
   `host | runner`; `state` `active | retiring | retired`; sealed private key), `ssh_certs`
   (`serial` unique).
-- [ ] T081 [US7] CA, certificate issue and KRL in crates/keel-exec/src/ca.rs and krl.rs; both CAs
+- [X] T081 [US7] CA, certificate issue and KRL in crates/keel-exec/src/ca.rs and krl.rs; both CAs
   generated at first start and sealed; `keel ssh-ca show` prints fingerprints and the
   `@cert-authority` line. Pass T074.
-- [ ] T082 [US7] The embedded SSH server in apps/keel/server/src/runner_listener.rs with the
+- [X] T082 [US7] The embedded SSH server in apps/keel/server/src/runner_listener.rs with the
   `russh` config from crates/keel-exec/src/server_config.rs: host certificate, authentication
   rules of contracts/runner.md, enrollment subsystem, runner subsystem, `Hello` checks (refuse
   `ansible_core` below the minimum with `version_too_old`), `RenewCert`, `Krl`, `Ping`/`Pong`
   every 15 s. Pass T073, T075.
-- [ ] T083 [US7] Host commands in apps/keel/server/src/hosts.rs: `PreviewHostEnroll`,
+- [X] T083 [US7] Host commands in apps/keel/server/src/hosts.rs: `PreviewHostEnroll`,
   `PreviewHostRevoke` (adds serials to the KRL, closes the session, a running host becomes
   `lost`), `ListHosts`, `GetHost`, `GetSshCa`, `PreviewSshCaRotate`; all audited with actor
   `host:<id>` for host-originated events.
-- [ ] T084 [US7] `keel-runner` (network half) in apps/keel/runner/src/runner/: reads
+- [X] T084 [US7] `keel-runner` (network half) in apps/keel/runner/src/runner/: reads
   `/etc/keel-runner/trust/policy.toml` and `host_ca.pub`, generates its Ed25519 key in
   `/var/lib/keel-runner/id_ed25519` (`0600`) on first start, enrolls from `enroll-token` and
   deletes it, connects, renews at half lifetime, and forwards `Assign`, `Pack`, `Secrets`,
   `Approvals`, `Cancel` unchanged to the executor socket; relays `Started`, `Refused`, `Event`,
   `Log`, `Finished`. It never interprets work. Pass T076.
-- [ ] T085 [US7] `keel-executor` in apps/keel/runner/src/executor/: one run per socket
+- [X] T085 [US7] `keel-executor` in apps/keel/runner/src/executor/: one run per socket
   connection; unpack into its Git store (gix, no hooks, no config from the pack); read the job
   from `.keel/jobs.yaml` in the target tree; check profiles against `allowed_profiles`; check
   out into a private run directory; run `ansible-playbook` from `/opt/keel-runner/venv` with
   `KEEL_EVENT_FD`; `Cancel` sends SIGINT, then the runner stops the unit after 30 s;
   `ReadLedger`. Base and replay checks use the ledger from T097. Pass T077.
-- [ ] T086 [US7] Reference systemd units in apps/keel/runner/systemd/ matching
+- [X] T086 [US7] Reference systemd units in apps/keel/runner/systemd/ matching
   contracts/host-install.md and research R2: `keel-runner.service` (hardening list of R2),
   `keel-executor.socket` (`SocketUser=root`, `SocketGroup=keel-runner`, `SocketMode=0660`,
   `Accept=yes`), `keel-executor@.service` (`User=automation`, `KillMode=control-group`,
   `PrivateTmp=yes`, `ProtectHome=yes`, `RuntimeMaxSec=6h`).
-- [ ] T087 [US7] Hash-pinned `ansible-core` (current stable) in
+- [X] T087 [US7] Hash-pinned `ansible-core` (current stable) in
   apps/keel/runner/ansible/requirements.txt (`uv pip compile --generate-hashes`), and the minimum
   version constant in crates/keel-exec.
-- [ ] T088 [P] [US7] Web page apps/keel/web/src/features/hosts/ (list with state, enrol dialog,
+- [X] T088 [P] [US7] Web page apps/keel/web/src/features/hosts/ (list with state, enrol dialog,
   revoke).
 
 **Checkpoint**: US7 targeted tests pass; T133 passes when run by the main session.
