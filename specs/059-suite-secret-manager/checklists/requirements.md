@@ -33,6 +33,8 @@
 
 - Kubernetes, SOPS and each app's `SecretResolver` port are named because they are the integration
   targets the request asks for, not implementation choices.
+- Let's Encrypt (ACME) and Cloudflare are named for the same reason: they are the certificate
+  integrations asked for (2026-10-28), behind adapters, not implementation choices.
 - Out of scope for the first version: dynamic per-request credentials, push delivery other than
   Kubernetes, and automatic import of SOPS-held secrets.
 - Deferred: planning waits until Fathom, Depths, Keel and Ballast exist and the suite integration

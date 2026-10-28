@@ -17,6 +17,10 @@ ballast integrations when we have the synergy between all the apps". Agreed in c
 - Each app reaches it through the `SecretResolver` port it already has. Without the secret
   manager, every app keeps working standalone.
 - Spec only. There is no plan until the four apps and the suite integration spec exist.
+- Added 2026-10-28: it also manages TLS certificates, issued and renewed from Let's Encrypt, with
+  Cloudflare answering the domain challenge. Suite apps on names that only resolve on the local
+  network (Keel at `keel.boop.ninja` behind a UniFi DNS record) then get a trusted certificate
+  instead of a self-signed one.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -162,6 +166,41 @@ integrity check. Then edit one stored audit record offline, and the check report
 
 ---
 
+### User Story 7 - Certificates that issue and renew themselves (Priority: P3)
+
+As an operator, I can ask for a TLS certificate for a name I own, and the secret manager gets it
+from Let's Encrypt, proves the name through Cloudflare DNS, stores the certificate and key as a
+managed secret, renews it before it expires, and delivers each new version to the apps and
+namespaces granted it. This works for names that only resolve on my local network, because the
+proof goes through public DNS and never needs the app reachable from the internet.
+
+**Why this priority**: Today a suite app on a local-only name serves a self-signed certificate.
+Browsers warn on it, and refuse passkeys, which Depths and Keel use for step-up. A certificate
+is also a secret that expires on a schedule, so it fits the store, grants, delivery and audit the
+other stories already build.
+
+**Independent Test**: With a Cloudflare zone and a scoped API token stored as a secret, request a
+certificate for a name in that zone that has no public A record. It issues against the Let's
+Encrypt staging directory, is granted to Keel, and Keel serves it. Shorten the renewal window, and
+the certificate renews and Keel serves the new version, with no manual step.
+
+**Acceptance Scenarios**:
+
+1. **Given** a Cloudflare zone and a stored API token limited to editing DNS in that zone, **When**
+   an operator requests a certificate for a name in the zone, **Then** the secret manager publishes
+   the challenge record, gets the certificate, removes the record, and stores certificate and key
+   as a new version of a certificate secret.
+2. **Given** a certificate within its renewal window (default 30 days before expiry), **When** the
+   renewal runs, **Then** a new version is stored and every consumer and delivery target granted
+   it holds the new version, as for any rotation.
+3. **Given** a renewal that fails (the token was revoked, the zone moved, Let's Encrypt refused),
+   **When** it fails, **Then** the current certificate stays in service, the failure is audited
+   and shown to the owner with the days left, and the renewal is retried with backoff.
+4. **Given** a name in a zone the stored token cannot edit, **When** an operator requests it,
+   **Then** the request is refused before anything is sent to Let's Encrypt, and says why.
+
+---
+
 ### Edge Cases
 
 - A secret is deleted while consumers still hold grants. Deletion is refused until the grants are
@@ -177,6 +216,13 @@ integrity check. Then edit one stored audit record offline, and the check report
   why. It never starts in a degraded mode that serves unsealed data.
 - A consumer's credential is stolen. Revoking that consumer stops all its resolutions at once, and
   the audit trail lists what it resolved and when.
+- A certificate expires because every renewal failed. Consumers keep the expired version (the
+  secret manager never swaps in a self-signed one silently), and the owner was warned at 21, 7
+  and 1 days before expiry.
+- Let's Encrypt rate limits are reached. Requests queue with the limit's reset time shown, and
+  tests use the staging directory only.
+- The Cloudflare token can edit more than the zone it is used for. The secret manager warns when
+  it is stored, and the token stays an ordinary secret whose reveal and rotation need step-up.
 - The suite integration spec is not adopted. The secret manager still works standalone with its own
   sign-in, and apps that do not use it are unaffected.
 
@@ -218,6 +264,24 @@ integrity check. Then edit one stored audit record offline, and the check report
   a consumer, or cannot write the audit record for a resolution.
 - **FR-015**: The system MUST let an owner export and import secret metadata and grants between
   instances, with values transferred only sealed to the destination's key, and never in clear.
+- **FR-016**: The system MUST issue TLS certificates through ACME, with Let's Encrypt as the first
+  certificate authority, and MUST let an operator choose the staging or production directory for
+  each certificate.
+- **FR-017**: The system MUST prove control of a name through a DNS challenge, with Cloudflare as
+  the first DNS provider, using an API token held as a secret in this store. It MUST remove the
+  challenge record afterwards, whether issuance succeeds or fails. Certificate authorities and DNS
+  providers are adapters behind one interface each, so others can be added without changing
+  certificates already issued.
+- **FR-018**: The system MUST store each certificate and its private key as a secret of kind
+  `certificate`, with its names, issuer and expiry visible without revealing the key. Grants,
+  delivery (including Kubernetes TLS secrets), rotation overlap and audit apply to it as to any
+  secret.
+- **FR-019**: The system MUST renew a certificate inside its renewal window without an operator,
+  keep the current version in service until a renewal succeeds, and warn the owner of a failing
+  renewal at 21, 7 and 1 days before expiry.
+- **FR-020**: The private key of a certificate MUST be generated inside the secret manager and
+  never leave it except to granted consumers, exactly like a secret value. Revealing it needs
+  step-up.
 
 ### Key Entities
 
@@ -233,6 +297,13 @@ integrity check. Then edit one stored audit record offline, and the check report
   version and drift status.
 - **Policy**: rules for which actions on which secrets need approval or step-up.
 - **Audit record**: an insert-only, chained record of an action or refusal.
+- **Certificate**: a secret of kind `certificate` with its names, certificate authority and
+  directory (staging or production), DNS provider credential, renewal window, expiry and renewal
+  state.
+- **ACME account**: the account registered with a certificate authority, with its contact address
+  and sealed account key, owned by a team.
+- **DNS provider credential**: a reference to the secret holding a provider's API token, and the
+  zones it may edit.
 
 ## Success Criteria *(mandatory)*
 
@@ -249,6 +320,12 @@ integrity check. Then edit one stored audit record offline, and the check report
 - **SC-005**: An operator can move one credential that is currently copied into Depths, Keel and a
   cluster to a single managed secret in under 15 minutes, and rotate it once without touching any
   of the three apps.
+- **SC-007**: A certificate for a name that only resolves on the local network is issued and
+  served by a granted app within 5 minutes of the request, and the app's sign-in page then opens
+  without a certificate warning.
+- **SC-008**: Over a simulated year with a shortened renewal window, every certificate renews
+  before its window closes with no operator action, and no consumer ever serves an expired
+  certificate while a renewal could have succeeded.
 - **SC-006**: With the secret manager turned off, each of the four apps passes its own standalone
   test suite unchanged.
 
@@ -265,4 +342,7 @@ integrity check. Then edit one stored audit record offline, and the check report
   scope for the first version. Static secrets with versions and rotation are in scope.
 - Secrets that already live in SOPS files tracked by Ballast stay there until their owner moves
   them. Importing them is an explicit, audited action, not an automatic sweep.
+- Certificate management is ACME-only in the first version. A private certificate authority for
+  the suite, and providers other than Let's Encrypt and Cloudflare, are later adapters. Until
+  this ships, Keel's Ansible role makes a self-signed certificate when none is given.
 - Overlap period default: 24 hours. Step-up window: the same as Depths and Keel.
