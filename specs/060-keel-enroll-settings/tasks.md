@@ -23,8 +23,8 @@ acceptance scenarios map to the tests below.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `react-markdown` and `remark-gfm` (latest stable, approved) to `apps/keel/web/package.json` with `pnpm --filter @companion/keel-web add react-markdown remark-gfm`, and commit the lockfile
-- [ ] T002 [P] Create the empty module directories `apps/keel/web/src/ui/` and `apps/keel/web/src/features/settings/`, and `docs/guides/keel/README.md` (a short index of the Keel guides)
+- [X] T001 Add `react-markdown` and `remark-gfm` (latest stable, approved) to `apps/keel/web/package.json` with `pnpm --filter @companion/keel-web add react-markdown remark-gfm`, and commit the lockfile
+- [X] T002 [P] Create the empty module directories `apps/keel/web/src/ui/` and `apps/keel/web/src/features/settings/`, and `docs/guides/keel/README.md` (a short index of the Keel guides)
 
 ---
 
@@ -33,7 +33,7 @@ acceptance scenarios map to the tests below.
 The contract and the schema land first, in the main session, so the parallel agents build on one
 shape.
 
-- [ ] T003 Write migration `apps/keel/server/migrations/0010_settings_system.sql` exactly per data-model.md. It covers:
+- [X] T003 Write migration `apps/keel/server/migrations/0010_settings_system.sql` exactly per data-model.md. It covers:
   - **`instance_settings`**:
     - `id boolean primary key default true check (id)`;
     - `enroll_template text check (octet_length(enroll_template) <= 4096)`;
@@ -48,24 +48,24 @@ shape.
     `create unique index workspaces_one_system on workspaces (system) where system`.
   - **`system_config`**: `id boolean pk default true check (id)`, `workspace_id uuid not null references workspaces (id)`, `allowed_profiles text[] not null` (1 to 16 entries), `version bigint not null default 1`, `updated_by`, `updated_at`.
   - **Grants**: `keel_app` gets `select, insert, update` on the new tables, plus `delete` on `system_config` only.
-- [ ] T004 [P] Add a pure `enroll_template` module to `crates/keel-core/src/enroll_template.rs`, exported from `crates/keel-core/src/lib.rs`:
+- [X] T004 [P] Add a pure `enroll_template` module to `crates/keel-core/src/enroll_template.rs`, exported from `crates/keel-core/src/lib.rs`:
   - `validate(&str) -> Result<(), TemplateError>`, with the codes `missing_token`, `unknown_placeholder` and `too_long` (more than 4,096 bytes);
   - `render(&str, &Values) -> String`, single pass (FR-010);
   - `DEFAULT_TEMPLATE`;
   - a test that loads `specs/060-keel-enroll-settings/contracts/template-vectors.json` and checks every `render`, `single_pass`, `refuse` and `too_long` case.
-- [ ] T005 [P] Extend `crates/keel-core/src/authz.rs`:
+- [X] T005 [P] Extend `crates/keel-core/src/authz.rs`:
   - add `Subject.system_workspace: Option<WorkspaceId>` and `Refusal::OwnerOnly` (`code() = "owner_only"`);
   - make `require` refuse non-owners on the System workspace, before the instance-admin bypass;
   - add unit tests: an owner is allowed, an admin is refused, a user with a grant is refused, other workspaces are unchanged.
-- [ ] T006 Add every command and event from `specs/060-keel-enroll-settings/contracts/protocol.md` to `crates/keel-protocol/src/{cmd,event}.rs`, or the module that holds hosts, users and workspaces. That is:
+- [X] T006 Add every command and event from `specs/060-keel-enroll-settings/contracts/protocol.md` to `crates/keel-protocol/src/{cmd,event}.rs`, or the module that holds hosts, users and workspaces. That is:
   - **new commands**: `GetSettings`, `PreviewSettingsUpdate`, `ListEnrollments`, `PreviewEnrollmentRevoke`, `PreviewEnrollmentRoll`, `ListAllApiTokens`, `GetSystem`, `PreviewSystemConfigure`, `PreviewSystemRemove`;
   - **new events**: `Settings`, `RoleMappingInfo`, `Enrollments`, `EnrollmentInfo`, `EnrollmentState`, `AllApiTokens`, `AdminApiTokenInfo`, `ApiTokenState`, `System`;
   - **changed events**: `HostEnrollment` gains `snippet`, `instructions` and `instructions_unavailable`; `UserInfo` gains `role_source`; `WorkspaceInfo` gains `system`.
 
   Add round-trip serde tests.
-- [ ] T007 Regenerate the TS bindings with `make keel bindings`, and commit `apps/keel/web/src/protocol/generated/`. Depends on T006.
-- [ ] T008 Make `dispatch.rs` compile with every new command routed to a stub that returns `OpError { code: "not_implemented" }`. Add the new event fields, with defaults, at the existing construction sites in `apps/keel/server/src/{hosts,governance,identity}.rs`. Then run `cargo build -p keel-server`.
-- [ ] T009 Add `AppState.system_workspace: RwLock<Option<Uuid>>`, loaded at startup from `system_config` in `apps/keel/server/src/serve.rs`. Thread it into the `Subject` built for every caller (`apps/keel/server/src/governance.rs`).
+- [X] T007 Regenerate the TS bindings with `make keel bindings`, and commit `apps/keel/web/src/protocol/generated/`. Depends on T006.
+- [X] T008 Make `dispatch.rs` compile with every new command routed to a stub that returns `OpError { code: "not_implemented" }`. Add the new event fields, with defaults, at the existing construction sites in `apps/keel/server/src/{hosts,governance,identity}.rs`. Then run `cargo build -p keel-server`.
+- [X] T009 Add `AppState.system_workspace: RwLock<Option<Uuid>>`, loaded at startup from `system_config` in `apps/keel/server/src/serve.rs`. Thread it into the `Subject` built for every caller (`apps/keel/server/src/governance.rs`).
 
 **Checkpoint**: The workspace builds, the bindings are fresh, and the migration applies on the test database.
 
