@@ -10,6 +10,10 @@
 //! world-readable), `KEEL_OIDC_ISSUER` (`--oidc-issuer`) and `KEEL_OIDC_SCOPES`. At least one is
 //! required; there is no anonymous mode.
 //!
+//! The OIDC provider can also grant instance roles from a claim (spec 060, US5;
+//! contracts/config.md): `KEEL_OIDC_ROLE_CLAIM`, `KEEL_OIDC_{OWNER,ADMIN,USER}_VALUES` and
+//! `KEEL_OIDC_ROLE_REQUIRED`, each with an `--oidc-…` flag. See [`RoleMapping`].
+//!
 //! Anything wrong refuses start with one line naming the setting.
 
 use std::fmt;
@@ -111,6 +115,22 @@ pub struct Flags {
     /// OIDC client id [env: KEEL_OIDC_CLIENT_ID]
     #[arg(long, global = true)]
     pub oidc_client_id: Option<String>,
+    /// Dotted path to the string-array claim instance roles are read from, like
+    /// `realm_access.roles`; unset means no role mapping [env: KEEL_OIDC_ROLE_CLAIM]
+    #[arg(long, global = true)]
+    pub oidc_role_claim: Option<String>,
+    /// Comma-separated claim values that grant owner [env: KEEL_OIDC_OWNER_VALUES]
+    #[arg(long, global = true)]
+    pub oidc_owner_values: Option<String>,
+    /// Comma-separated claim values that grant admin [env: KEEL_OIDC_ADMIN_VALUES]
+    #[arg(long, global = true)]
+    pub oidc_admin_values: Option<String>,
+    /// Comma-separated claim values that grant user [env: KEEL_OIDC_USER_VALUES]
+    #[arg(long, global = true)]
+    pub oidc_user_values: Option<String>,
+    /// Refuse sign-ins that match no role value [env: KEEL_OIDC_ROLE_REQUIRED] [default: false]
+    #[arg(long, global = true)]
+    pub oidc_role_required: Option<String>,
     /// GitHub OAuth client id [env: KEEL_GITHUB_CLIENT_ID]
     #[arg(long, global = true)]
     pub github_client_id: Option<String>,
@@ -209,6 +229,67 @@ impl fmt::Debug for ProviderConfig {
     }
 }
 
+/// Instance roles granted by the OIDC provider's claims (spec 060, US5). Deployment
+/// configuration only: nothing in the UI can change it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleMapping {
+    /// Dotted path to a string-array claim (`groups`, `realm_access.roles`).
+    pub claim: String,
+    pub owner: Vec<String>,
+    pub admin: Vec<String>,
+    pub user: Vec<String>,
+    /// Sign-ins matching no value, and sign-ins through other providers, are refused.
+    pub required: bool,
+}
+
+impl RoleMapping {
+    /// The highest role any of `groups` grants (owner, then admin, then user).
+    #[must_use]
+    pub fn role_for(&self, groups: &[String]) -> Option<keel_core::InstanceRole> {
+        use keel_core::InstanceRole::{Admin, Owner, User};
+        let any = |values: &[String]| groups.iter().any(|g| values.contains(g));
+        if any(&self.owner) {
+            Some(Owner)
+        } else if any(&self.admin) {
+            Some(Admin)
+        } else if any(&self.user) {
+            Some(User)
+        } else {
+            None
+        }
+    }
+
+    /// The read-only view System Settings shows.
+    #[must_use]
+    pub fn info(&self) -> keel_protocol::RoleMappingInfo {
+        keel_protocol::RoleMappingInfo {
+            provider: "oidc".to_owned(),
+            claim: self.claim.clone(),
+            owner: self.owner.clone(),
+            admin: self.admin.clone(),
+            user: self.user.clone(),
+            required: self.required,
+        }
+    }
+}
+
+/// `a, b` into `["a", "b"]`; an empty item (`a,,b`) refuses, naming `name`.
+fn parse_values(name: &str, raw: Option<&str>) -> Result<Vec<String>, ConfigError> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    raw.split(',')
+        .map(str::trim)
+        .map(|v| {
+            if v.is_empty() {
+                refuse(format!("{name}: `{raw}` has an empty value"))
+            } else {
+                Ok(v.to_owned())
+            }
+        })
+        .collect()
+}
+
 /// `--tls-cert` and `--tls-key`: paths only; [`crate::tls::load`] reads them at start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TlsFiles {
@@ -241,6 +322,8 @@ pub struct Config {
     pub insecure_dev: bool,
     /// Serve `listen` over HTTPS. `None`: plain HTTP, for a TLS proxy in front or --insecure-dev.
     pub tls: Option<TlsFiles>,
+    /// Instance roles from the OIDC provider's claims; `None` keeps first-user-is-owner.
+    pub role_mapping: Option<RoleMapping>,
     /// `(setting, where it came from)`, for the start-up log. Never values.
     pub sources: Vec<(&'static str, String)>,
 }
@@ -475,6 +558,13 @@ impl Config {
             env,
             sources: Vec::new(),
         };
+        let role_flags = RoleFlags {
+            claim: flags.oidc_role_claim,
+            owner: flags.oidc_owner_values,
+            admin: flags.oidc_admin_values,
+            user: flags.oidc_user_values,
+            required: flags.oidc_role_required,
+        };
 
         let insecure_dev = if flags.insecure_dev {
             r.sources.push(("insecure_dev", "--insecure-dev".into()));
@@ -679,6 +769,10 @@ impl Config {
                  or KEEL_GITHUB_CLIENT_ID, or KEEL_DISCORD_CLIENT_ID, with its secret",
             );
         }
+        let has_oidc = providers
+            .iter()
+            .any(|p| matches!(p, ProviderConfig::Oidc { .. }));
+        let role_mapping = Self::role_mapping(&mut r, role_flags, has_oidc)?;
 
         Ok(Config {
             listen,
@@ -699,8 +793,71 @@ impl Config {
             otel_endpoint,
             insecure_dev,
             tls,
+            role_mapping,
             sources: r.sources,
         })
+    }
+
+    /// The OIDC role mapping as System Settings shows it, or `None` without one.
+    #[must_use]
+    pub fn role_mapping_info(&self) -> Option<keel_protocol::RoleMappingInfo> {
+        self.role_mapping.as_ref().map(RoleMapping::info)
+    }
+
+    /// The role mapping settings, validated per contracts/config.md (FR-030).
+    fn role_mapping(
+        r: &mut Resolver<'_>,
+        f: RoleFlags,
+        has_oidc: bool,
+    ) -> Result<Option<RoleMapping>, ConfigError> {
+        const CLAIM: &str = "KEEL_OIDC_ROLE_CLAIM (--oidc-role-claim)";
+        let claim = r.pick_quiet("oidc_role_claim", f.claim, "KEEL_OIDC_ROLE_CLAIM");
+        let lists = [
+            ("oidc_owner_values", f.owner, "KEEL_OIDC_OWNER_VALUES"),
+            ("oidc_admin_values", f.admin, "KEEL_OIDC_ADMIN_VALUES"),
+            ("oidc_user_values", f.user, "KEEL_OIDC_USER_VALUES"),
+        ]
+        .map(|(setting, flag, env)| (env, r.pick_quiet(setting, flag, env)));
+        let required = r.pick_quiet("oidc_role_required", f.required, "KEEL_OIDC_ROLE_REQUIRED");
+
+        let Some(claim) = claim.map(|c| c.trim().to_owned()) else {
+            let set = lists
+                .iter()
+                .find(|(_, v)| v.is_some())
+                .map(|(env, _)| *env)
+                .or(required.as_ref().map(|_| "KEEL_OIDC_ROLE_REQUIRED"));
+            return match set {
+                Some(env) => refuse(format!("{env} is set but {CLAIM} is not")),
+                None => Ok(None),
+            };
+        };
+        if !has_oidc {
+            return refuse(format!(
+                "{CLAIM} needs the OIDC provider: set KEEL_OIDC_ISSUER and KEEL_OIDC_CLIENT_ID"
+            ));
+        }
+        if claim.split('.').any(str::is_empty) {
+            return refuse(format!("{CLAIM}: `{claim}` has an empty path segment"));
+        }
+        let [owner, admin, user] = lists.map(|(env, v)| parse_values(env, v.as_deref()));
+        let (owner, admin, user) = (owner?, admin?, user?);
+        if owner.is_empty() && admin.is_empty() && user.is_empty() {
+            return refuse(format!(
+                "{CLAIM} is set but KEEL_OIDC_OWNER_VALUES, KEEL_OIDC_ADMIN_VALUES and \
+                 KEEL_OIDC_USER_VALUES are all empty"
+            ));
+        }
+        let required = match required {
+            Some(v) => parse_bool("KEEL_OIDC_ROLE_REQUIRED", &v)?,
+            None => false,
+        };
+        Ok(Some(RoleMapping {
+            claim,
+            owner,
+            admin,
+            user,
+            required,
+        }))
     }
 
     #[must_use]
@@ -713,6 +870,15 @@ impl Config {
     pub fn origin(&self) -> String {
         self.public_url.origin().ascii_serialization()
     }
+}
+
+/// The role mapping's flags, taken out of [`Flags`] before it is consumed.
+struct RoleFlags {
+    claim: Option<String>,
+    owner: Option<String>,
+    admin: Option<String>,
+    user: Option<String>,
+    required: Option<String>,
 }
 
 impl Resolver<'_> {
@@ -1027,5 +1193,150 @@ mod tests {
         assert!(matches!(cli.command, Some(Command::Keygen)));
         let cli = Cli::try_parse_from(["keel"]).unwrap();
         assert!(cli.command.is_none());
+    }
+
+    fn with_oidc(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+        let mut pairs = BASE.to_vec();
+        pairs.extend([
+            ("KEEL_OIDC_ISSUER", "https://idp.example.com/realms/home"),
+            ("KEEL_OIDC_CLIENT_ID", "keel"),
+        ]);
+        pairs.extend_from_slice(extra);
+        pairs
+    }
+
+    #[test]
+    fn no_role_mapping_by_default() {
+        let c = resolve(&with_oidc(&[])).unwrap();
+        assert_eq!(c.role_mapping, None);
+        assert_eq!(c.role_mapping_info(), None);
+    }
+
+    #[test]
+    fn role_mapping_resolves_and_flags_win() {
+        let c = resolve(&with_oidc(&[
+            ("KEEL_OIDC_ROLE_CLAIM", "realm_access.roles"),
+            ("KEEL_OIDC_OWNER_VALUES", "keel-owners"),
+            ("KEEL_OIDC_ADMIN_VALUES", " keel-admins , ops "),
+            ("KEEL_OIDC_ROLE_REQUIRED", "true"),
+        ]))
+        .unwrap();
+        let m = c.role_mapping.clone().unwrap();
+        assert_eq!(m.claim, "realm_access.roles");
+        assert_eq!(m.owner, ["keel-owners"]);
+        assert_eq!(m.admin, ["keel-admins", "ops"]);
+        assert!(m.user.is_empty());
+        assert!(m.required);
+        let info = c.role_mapping_info().unwrap();
+        assert_eq!(
+            (info.provider.as_str(), info.claim.as_str()),
+            ("oidc", "realm_access.roles")
+        );
+
+        let pairs = with_oidc(&[
+            ("KEEL_OIDC_ROLE_CLAIM", "realm_access.roles"),
+            ("KEEL_OIDC_USER_VALUES", "everyone"),
+        ]);
+        let env = env_of(&pairs);
+        let flags = Flags {
+            oidc_role_claim: Some("groups".into()),
+            oidc_user_values: Some("keel-users".into()),
+            oidc_role_required: Some("false".into()),
+            ..Flags::default()
+        };
+        let m = Config::resolve(flags, &env).unwrap().role_mapping.unwrap();
+        assert_eq!(m.claim, "groups");
+        assert_eq!(m.user, ["keel-users"]);
+        assert!(!m.required);
+    }
+
+    #[test]
+    fn highest_mapped_role_wins() {
+        use keel_core::InstanceRole::{Admin, Owner, User};
+        let m = RoleMapping {
+            claim: "groups".into(),
+            owner: vec!["o".into()],
+            admin: vec!["a".into()],
+            user: vec!["u".into()],
+            required: false,
+        };
+        let g = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(m.role_for(&g(&["u", "a"])), Some(Admin));
+        assert_eq!(m.role_for(&g(&["u", "o", "a"])), Some(Owner));
+        assert_eq!(m.role_for(&g(&["x", "u"])), Some(User));
+        assert_eq!(m.role_for(&g(&["x"])), None);
+        assert_eq!(m.role_for(&[]), None);
+    }
+
+    #[test]
+    fn role_mapping_refusals_name_the_setting() {
+        // a value list or ROLE_REQUIRED without the claim
+        for (key, value) in [
+            ("KEEL_OIDC_OWNER_VALUES", "o"),
+            ("KEEL_OIDC_ADMIN_VALUES", "a"),
+            ("KEEL_OIDC_USER_VALUES", "u"),
+            ("KEEL_OIDC_ROLE_REQUIRED", "true"),
+        ] {
+            let err = resolve(&with_oidc(&[(key, value)])).unwrap_err().0;
+            assert!(
+                err.contains(key) && err.contains("KEEL_OIDC_ROLE_CLAIM"),
+                "{err}"
+            );
+        }
+        // the claim without OIDC configured
+        let mut pairs = BASE.to_vec();
+        pairs.extend([
+            ("KEEL_OIDC_ROLE_CLAIM", "groups"),
+            ("KEEL_OIDC_USER_VALUES", "u"),
+        ]);
+        let err = resolve(&pairs).unwrap_err().0;
+        assert!(
+            err.contains("KEEL_OIDC_ROLE_CLAIM") && err.contains("KEEL_OIDC_ISSUER"),
+            "{err}"
+        );
+        // the claim with every value list empty
+        let err = resolve(&with_oidc(&[("KEEL_OIDC_ROLE_CLAIM", "groups")]))
+            .unwrap_err()
+            .0;
+        assert!(
+            err.contains("KEEL_OIDC_ROLE_CLAIM") && err.contains("all empty"),
+            "{err}"
+        );
+        // an empty claim segment
+        for claim in ["a..b", ".a", "a."] {
+            let err = resolve(&with_oidc(&[
+                ("KEEL_OIDC_ROLE_CLAIM", claim),
+                ("KEEL_OIDC_USER_VALUES", "u"),
+            ]))
+            .unwrap_err()
+            .0;
+            assert!(
+                err.contains("KEEL_OIDC_ROLE_CLAIM") && err.contains("segment"),
+                "{err}"
+            );
+        }
+        // an empty value after trimming
+        for (key, value) in [
+            ("KEEL_OIDC_OWNER_VALUES", "a,,b"),
+            ("KEEL_OIDC_ADMIN_VALUES", "a, ,b"),
+            ("KEEL_OIDC_USER_VALUES", "a,"),
+        ] {
+            let err = resolve(&with_oidc(&[
+                ("KEEL_OIDC_ROLE_CLAIM", "groups"),
+                (key, value),
+            ]))
+            .unwrap_err()
+            .0;
+            assert!(err.contains(key) && err.contains("empty value"), "{err}");
+        }
+        // a ROLE_REQUIRED that is not a boolean
+        let err = resolve(&with_oidc(&[
+            ("KEEL_OIDC_ROLE_CLAIM", "groups"),
+            ("KEEL_OIDC_USER_VALUES", "u"),
+            ("KEEL_OIDC_ROLE_REQUIRED", "maybe"),
+        ]))
+        .unwrap_err()
+        .0;
+        assert!(err.contains("KEEL_OIDC_ROLE_REQUIRED"), "{err}");
     }
 }
