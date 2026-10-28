@@ -9,32 +9,32 @@
  *
  * Every change is previewed and confirmed. The editor is CodeMirror, loaded in its own chunk.
  */
-import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Input,
-} from '@companion/ui'
-import { lazy, Suspense, useEffect, useId, useState, type ReactNode, type SyntheticEvent } from 'react'
+import { ArrowCounterClockwiseIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
+import { Button, Input } from '@companion/ui'
+import { lazy, Suspense, useId, useState, type ReactNode, type SyntheticEvent } from 'react'
 
-import { useSession } from '@/app/session-store'
+import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import type { InventoryProblem } from '@/protocol/wire'
+import { ConfirmDialog } from '@/ui/ConfirmDialog'
+import { DataTable } from '@/ui/DataTable'
+import { ErrorLine as Alert } from '@/ui/ErrorLine'
+import { Field as FormField, H2, LABEL, LINK, Select } from '@/ui/form'
+import { LoadState } from '@/ui/LoadState'
+import { Page } from '@/ui/Page'
+import { PageHeader } from '@/ui/PageHeader'
 
 import { useInventory, type Opened } from './store'
 
 const YamlEditor = lazy(() => import('./YamlEditor'))
 
-const FIELD =
-  'h-8 border border-input bg-background px-2 text-xs outline-none focus-visible:border-accent-neon'
-const H2 = 'font-display text-xs font-semibold tracking-wider uppercase'
+type Revision = Opened['history'][number]
+type Host = Opened['revision']['hosts'][number]
+type Change = NonNullable<ReturnType<typeof useInventory.getState>['diff']>['changes'][number]
+type Item = ReturnType<typeof useInventory.getState>['items'][number]
 
 function Editor(props: { value: string; onChange?: (text: string) => void; label: string; readOnly?: boolean }) {
   return (
-    <Suspense fallback={<p className="text-xs text-muted-foreground">Loading the editor…</p>}>
+    <Suspense fallback={<LoadState loading label="Loading the editor…" />}>
       <YamlEditor {...props} />
     </Suspense>
   )
@@ -42,97 +42,35 @@ function Editor(props: { value: string; onChange?: (text: string) => void; label
 
 function Field({ label, children, id }: { label: string; children: ReactNode; id: string }) {
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-[11px] tracking-wider text-muted-foreground uppercase">
-        {label}
-      </label>
+    <FormField label={label} htmlFor={id}>
       {children}
-    </div>
+    </FormField>
   )
 }
 
 function WorkspacePicker() {
-  const grants = useSession((s) => s.me?.grants ?? [])
   const workspace = useInventory((s) => s.workspace)
   const load = useInventory((s) => s.load)
-  const id = useId()
-  const first = grants[0]?.workspace ?? null
-  const unique = [...new Map(grants.map((g) => [g.workspace, g.workspace_slug])).entries()]
-
-  useEffect(() => {
-    const current = workspace ?? first
-    if (current) load(current)
-  }, [workspace, first, load])
-
-  if (unique.length === 0)
-    return (
-      <p data-pane-state="empty" className="text-xs text-muted-foreground">
-        You have no workspace yet. An owner or admin grants one from Teams.
-      </p>
-    )
-  return (
-    <div className="flex items-center gap-2">
-      <label htmlFor={id} className="text-[11px] tracking-wider text-muted-foreground uppercase">
-        Workspace
-      </label>
-      <select id={id} className={FIELD} value={workspace ?? first ?? ''} onChange={(e) => load(e.target.value)}>
-        {unique.map(([ws, slug]) => (
-          <option key={ws} value={ws}>
-            {slug}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
+  return <GrantWorkspacePicker workspace={workspace} load={load} />
 }
 
 function ErrorLine() {
   const error = useInventory((s) => s.error)
   const clear = useInventory((s) => s.clearError)
-  if (!error) return null
-  return (
-    <p role="alert" className="flex items-center justify-between gap-2 border border-status-err/40 px-2 py-1 text-xs text-status-err">
-      <span>{error}</span>
-      <Button variant="ghost" size="xs" onClick={clear}>
-        Dismiss
-      </Button>
-    </p>
-  )
+  return <Alert message={error} onDismiss={clear} />
 }
 
 function PreviewDialog() {
   const preview = useInventory((s) => s.preview)
   const confirm = useInventory((s) => s.confirm)
   const cancel = useInventory((s) => s.cancel)
-  return (
-    <Dialog
-      open={preview !== null}
-      onOpenChange={(open) => {
-        if (!open) cancel()
-      }}
-    >
-      {preview && (
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm</DialogTitle>
-            <DialogDescription data-preview-summary>{preview.summary}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={cancel}>
-              Cancel
-            </Button>
-            <Button onClick={confirm}>Confirm</Button>
-          </DialogFooter>
-        </DialogContent>
-      )}
-    </Dialog>
-  )
+  return <ConfirmDialog preview={preview} onCancel={cancel} onConfirm={confirm} />
 }
 
 function Problems({ errors, warnings, label }: { errors: InventoryProblem[]; warnings: InventoryProblem[]; label: string }) {
   if (errors.length + warnings.length === 0) return null
   return (
-    <ul aria-label={label} data-problems className="flex flex-col gap-0.5 text-xs">
+    <ul aria-label={label} data-problems className="flex min-w-0 flex-col gap-0.5 border border-border p-2 text-xs">
       {errors.map((p, i) => (
         <li key={`e${String(i)}`} data-problem-severity="error" className="break-words text-status-err">
           <span className="font-mono">{p.at}</span>: {p.message}
@@ -172,17 +110,17 @@ function EditHead({ opened }: { opened: Opened }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
       <Editor value={draft} onChange={change} label="Inventory YAML" />
       <p aria-live="polite" className="text-xs text-muted-foreground" data-check-state={!edited ? 'saved' : checked ? 'checked' : 'checking'}>
         {!edited ? 'No unsaved changes.' : checked ? (canSave ? 'Checked: no errors.' : 'Fix the errors below before saving.') : 'Checking…'}
       </p>
       {problems && <Problems errors={problems.errors} warnings={problems.warnings} label="Problems" />}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={!canSave} onClick={save}>
           Save revision
         </Button>
-        <Button size="sm" variant="outline" disabled={!edited} onClick={() => setDraft(saved)}>
+        <Button size="sm" variant="ghost" disabled={!edited} onClick={() => setDraft(saved)}>
           Discard changes
         </Button>
       </div>
@@ -215,7 +153,7 @@ function EditSchema({ opened }: { opened: Opened }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
       <Editor value={draft} onChange={change} label="Var schema JSON" />
       <p aria-live="polite" className="text-xs text-muted-foreground" data-schema-check-state={!edited ? 'saved' : checked ? 'checked' : 'checking'}>
         {!edited
@@ -231,11 +169,11 @@ function EditSchema({ opened }: { opened: Opened }) {
               : 'Checking…'}
       </p>
       {problems && <Problems errors={problems.errors} warnings={problems.warnings} label="Schema problems" />}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={!canSave} onClick={save}>
           {removing ? 'Remove schema' : 'Save schema'}
         </Button>
-        <Button size="sm" variant="outline" disabled={!edited} onClick={() => setDraft(saved)}>
+        <Button size="sm" variant="ghost" disabled={!edited} onClick={() => setDraft(saved)}>
           Discard schema changes
         </Button>
       </div>
@@ -249,50 +187,54 @@ function History({ opened }: { opened: Opened }) {
   const propose = useInventory((s) => s.propose)
   const managed = inventory.source === 'managed' && inventory.status === 'active'
   return (
-    <table aria-label="Revisions" className="w-full text-left text-xs">
-      <thead className="text-muted-foreground">
-        <tr>
-          <th className="py-1">Revision</th>
-          <th>Status</th>
-          <th>Hosts</th>
-          <th>By</th>
-          <th>Created</th>
-          <th>
-            <span className="sr-only">Actions</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {history.map((r) => (
-          <tr key={r.seq} aria-current={r.seq === revision.summary.seq || undefined} className="border-t border-border">
-            <td className="py-1 font-mono">
-              {r.seq}
-              {r.seq === inventory.head_seq && <span className="ml-1 text-muted-foreground">(newest)</span>}
-              {r.restored_from !== null && <span className="ml-1 text-muted-foreground">restored from {r.restored_from}</span>}
-            </td>
-            <td className={r.status === 'invalid' ? 'text-status-err' : undefined}>{r.status}</td>
-            <td>{r.host_count}</td>
-            <td>{r.author ?? (r.source_commit ? r.source_commit.slice(0, 12) : '—')}</td>
-            <td className="font-mono">{r.created_at}</td>
-            <td className="flex gap-1 py-1">
-              <Button size="xs" variant="ghost" aria-label={`View revision ${String(r.seq)}`} onClick={() => open(inventory.id, r.seq)}>
-                View
+    <section aria-labelledby={`${inventory.id}-revisions`} className="flex min-w-0 flex-col gap-2">
+      <h3 id={`${inventory.id}-revisions`} className={LABEL}>
+        History
+      </h3>
+      <DataTable<Revision>
+        label="Revisions"
+        rows={history}
+        rowKey={(r) => String(r.seq)}
+        selected={(r) => r.seq === revision.summary.seq}
+        columns={[
+          {
+            key: 'seq',
+            header: 'Revision',
+            className: 'w-[26%]',
+            cell: (r) => (
+              <span className="font-mono">
+                {r.seq}
+                {r.seq === inventory.head_seq && <span className="ml-1 text-muted-foreground">(newest)</span>}
+                {r.restored_from !== null && <span className="ml-1 text-muted-foreground">restored from {r.restored_from}</span>}
+              </span>
+            ),
+          },
+          { key: 'status', header: 'Status', cell: (r) => <span className={r.status === 'invalid' ? 'text-status-err' : undefined}>{r.status}</span> },
+          { key: 'hosts', header: 'Hosts', cell: (r) => <span className="tabular-nums">{r.host_count}</span> },
+          { key: 'by', header: 'By', cell: (r) => r.author ?? (r.source_commit ? r.source_commit.slice(0, 12) : '—') },
+          { key: 'created', header: 'Created', cell: (r) => <span className="font-mono">{r.created_at}</span> },
+        ]}
+        actions={(r) => (
+          <>
+            <Button size="xs" variant="ghost" aria-label={`View revision ${String(r.seq)}`} onClick={() => open(inventory.id, r.seq)}>
+              View
+            </Button>
+            {managed && r.seq !== inventory.head_seq && (
+              <Button
+                size="xs"
+                variant="outline"
+                aria-label={`Restore revision ${String(r.seq)}`}
+                onClick={() => propose({ type: 'PreviewInventoryRestore', data: { inventory: inventory.id, seq: r.seq } })}
+              >
+                <ArrowCounterClockwiseIcon aria-hidden />
+                Restore
               </Button>
-              {managed && r.seq !== inventory.head_seq && (
-                <Button
-                  size="xs"
-                  variant="outline"
-                  aria-label={`Restore revision ${String(r.seq)}`}
-                  onClick={() => propose({ type: 'PreviewInventoryRestore', data: { inventory: inventory.id, seq: r.seq } })}
-                >
-                  Restore
-                </Button>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            )}
+          </>
+        )}
+        empty="No revisions yet."
+      />
+    </section>
   )
 }
 
@@ -312,22 +254,22 @@ function Compare({ opened }: { opened: Opened }) {
   }
   const pick = (value: number, set: (n: number) => void, label: string, key: string) => (
     <Field label={label} id={`${id}-${key}`}>
-      <select id={`${id}-${key}`} className={FIELD} value={value} onChange={(e) => set(Number(e.target.value))}>
+      <Select id={`${id}-${key}`} value={value} onChange={(e) => set(Number(e.target.value))}>
         {seqs.map((s) => (
           <option key={s} value={s}>
             {s}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   )
 
   return (
-    <section aria-labelledby={`${id}-title`} className="flex flex-col gap-2">
-      <h3 id={`${id}-title`} className={H2}>
+    <section aria-labelledby={`${id}-title`} className="flex min-w-0 flex-col gap-2">
+      <h3 id={`${id}-title`} className={LABEL}>
         Compare revisions
       </h3>
-      <form aria-label="Compare revisions" onSubmit={submit} className="flex flex-wrap items-end gap-2">
+      <form aria-label="Compare revisions" onSubmit={submit} className="flex min-w-0 flex-wrap items-end gap-2">
         {pick(from, setFrom, 'From', 'from')}
         {pick(to, setTo, 'To', 'to')}
         <Button size="sm" type="submit" disabled={from === to}>
@@ -335,39 +277,27 @@ function Compare({ opened }: { opened: Opened }) {
         </Button>
       </form>
       {shown && (
-        <table aria-label={`Changes from ${String(shown.from)} to ${String(shown.to)}`} className="w-full text-left text-xs">
-          <thead className="text-muted-foreground">
-            <tr>
-              <th className="py-1">Path</th>
-              <th>Change</th>
-              <th>Before</th>
-              <th>After</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.changes.length === 0 && (
-              <tr>
-                <td colSpan={4} data-pane-state="empty" className="py-1 text-muted-foreground">
-                  The two revisions hold the same content.
-                </td>
-              </tr>
-            )}
-            {shown.changes.map((c) => (
-              <tr key={c.path} data-change={c.kind} className="border-t border-border font-mono">
-                <td className="py-1 break-all">{c.path}</td>
-                <td
-                  className={
-                    c.kind === 'added' ? 'text-status-ok' : c.kind === 'removed' ? 'text-status-err' : 'text-status-warn'
-                  }
-                >
+        <DataTable<Change>
+          label={`Changes from ${String(shown.from)} to ${String(shown.to)}`}
+          rows={shown.changes}
+          rowKey={(c) => c.path}
+          rowData={(c) => ({ 'data-change': c.kind })}
+          columns={[
+            { key: 'path', header: 'Path', className: 'w-[34%]', cell: (c) => <span className="font-mono break-all">{c.path}</span> },
+            {
+              key: 'kind',
+              header: 'Change',
+              cell: (c) => (
+                <span className={c.kind === 'added' ? 'text-status-ok' : c.kind === 'removed' ? 'text-status-err' : 'text-status-warn'}>
                   {c.kind}
-                </td>
-                <td className="break-all">{c.before ?? '—'}</td>
-                <td className="break-all">{c.after ?? '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </span>
+              ),
+            },
+            { key: 'before', header: 'Before', cell: (c) => <span className="font-mono break-all">{c.before ?? '—'}</span> },
+            { key: 'after', header: 'After', cell: (c) => <span className="font-mono break-all">{c.after ?? '—'}</span> },
+          ]}
+          empty="The two revisions hold the same content."
+        />
       )}
     </section>
   )
@@ -382,14 +312,14 @@ function Detail({ opened }: { opened: Opened }) {
   const editable = inventory.source === 'managed' && inventory.status === 'active' && head
 
   return (
-    <section aria-label={`Inventory ${inventory.name}`} className="flex flex-col gap-3 border border-border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="font-mono text-xs">{inventory.name}</h2>
+    <section aria-label={`Inventory ${inventory.name}`} className="flex min-w-0 flex-col border border-border">
+      <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
+        <h2 className="min-w-0 font-mono text-xs break-all">{inventory.name}</h2>
         <span className="text-xs text-muted-foreground">
           {inventory.source === 'repo' ? `from ${inventory.path ?? 'a repository'}` : 'managed'} · {inventory.status}
           {inventory.has_schema ? ' · vars checked against a schema' : ''}
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-1">
           {inventory.status === 'active' && (
             <Button
               size="xs"
@@ -400,65 +330,68 @@ function Detail({ opened }: { opened: Opened }) {
             </Button>
           )}
           <Button size="xs" variant="ghost" onClick={() => open(null)}>
+            <XIcon aria-hidden />
             Close
           </Button>
         </div>
       </div>
 
-      <h3 className={H2}>
-        Revision {seq}
-        {head ? ' (newest)' : ''}
-      </h3>
-      {!head && (
-        <p className="text-xs text-muted-foreground">
-          An earlier revision, read-only.{' '}
-          <Button size="xs" variant="ghost" onClick={() => open(inventory.id)}>
-            Back to the newest
-          </Button>
-        </p>
-      )}
-      {editable ? (
-        <EditHead key={`${inventory.id}-${String(seq)}`} opened={opened} />
-      ) : (
-        <>
-          <Editor
-            key={`${inventory.id}-${String(seq)}`}
-            value={revision.source ?? revision.content}
-            label={`Inventory revision ${String(seq)}`}
-            readOnly
+      <div className="flex min-w-0 flex-col gap-4 p-3">
+        <h3 className={H2}>
+          Revision {seq}
+          {head ? ' (newest)' : ''}
+        </h3>
+        {!head && (
+          <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            An earlier revision, read-only.
+            <Button size="xs" variant="ghost" onClick={() => open(inventory.id)}>
+              Back to the newest
+            </Button>
+          </p>
+        )}
+        {editable ? (
+          <EditHead key={`${inventory.id}-${String(seq)}`} opened={opened} />
+        ) : (
+          <>
+            <Editor
+              key={`${inventory.id}-${String(seq)}`}
+              value={revision.source ?? revision.content}
+              label={`Inventory revision ${String(seq)}`}
+              readOnly
+            />
+            <Problems errors={revision.errors} warnings={revision.warnings} label="Problems" />
+          </>
+        )}
+
+        <h3 className={H2}>Var schema</h3>
+        {editable ? (
+          <EditSchema key={`${inventory.id}-${opened.var_schema ?? ''}`} opened={opened} />
+        ) : opened.var_schema ? (
+          <Editor key={`${inventory.id}-schema`} value={opened.var_schema} label="Var schema JSON" readOnly />
+        ) : (
+          <p className="text-xs text-muted-foreground">No var schema: vars are not checked.</p>
+        )}
+
+        <section aria-labelledby={`${inventory.id}-hosts`} className="flex min-w-0 flex-col gap-2">
+          <h3 id={`${inventory.id}-hosts`} className={LABEL}>
+            Hosts
+          </h3>
+          <DataTable<Host>
+            label="Hosts"
+            rows={revision.hosts}
+            rowKey={(h) => h.host}
+            columns={[
+              { key: 'host', header: 'Host', cell: (h) => <span className="font-mono break-all">{h.host}</span> },
+              { key: 'groups', header: 'Groups', cell: (h) => h.groups.join(', ') },
+            ]}
+            empty="This revision lists no hosts."
           />
-          <Problems errors={revision.errors} warnings={revision.warnings} label="Problems" />
-        </>
-      )}
+        </section>
 
-      <h3 className={H2}>Var schema</h3>
-      {editable ? (
-        <EditSchema key={`${inventory.id}-${opened.var_schema ?? ''}`} opened={opened} />
-      ) : opened.var_schema ? (
-        <Editor key={`${inventory.id}-schema`} value={opened.var_schema} label="Var schema JSON" readOnly />
-      ) : (
-        <p className="text-xs text-muted-foreground">No var schema: vars are not checked.</p>
-      )}
 
-      <table aria-label="Hosts" className="w-full text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1">Host</th>
-            <th>Groups</th>
-          </tr>
-        </thead>
-        <tbody>
-          {revision.hosts.map((h) => (
-            <tr key={h.host} className="border-t border-border">
-              <td className="py-1 font-mono">{h.host}</td>
-              <td>{h.groups.join(', ')}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <History opened={opened} />
-      {opened.history.length > 1 && <Compare key={inventory.id} opened={opened} />}
+        <History opened={opened} />
+        {opened.history.length > 1 && <Compare key={inventory.id} opened={opened} />}
+      </div>
     </section>
   )
 }
@@ -476,7 +409,8 @@ function NewInventory() {
     propose({ type: 'PreviewInventoryCreate', data: { workspace, name: name.trim(), content, var_schema: schema.trim() === '' ? null : schema } })
   }
   return (
-    <form aria-label="New inventory" onSubmit={submit} className="flex flex-col gap-2 border border-border p-3">
+    <form aria-label="New inventory" onSubmit={submit} className="flex min-w-0 flex-col gap-3 border border-border bg-muted/20 p-3">
+      <h2 className={H2}>New managed inventory</h2>
       <Field label="Name" id={`${id}-name`}>
         <Input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} className="h-8 text-xs" required />
       </Field>
@@ -498,57 +432,57 @@ export default function InventoryPage() {
   const [creating, setCreating] = useState(false)
 
   return (
-    <section data-page="inventory" aria-labelledby="inventory-title" className="flex flex-col gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 id="inventory-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Inventory
-        </h1>
+    <Page name="inventory" labelledBy="inventory-title">
+      <PageHeader
+        id="inventory-title"
+        title="Inventory"
+        description="The hosts and groups each job runs against, with every revision kept and checked."
+        actions={
+          <Button size="sm" variant={creating ? 'ghost' : 'default'} aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+            {creating ? <XIcon aria-hidden /> : <PlusIcon aria-hidden />}
+            {creating ? 'Close the form' : 'New inventory'}
+          </Button>
+        }
+      >
         <WorkspacePicker />
-        <Button size="sm" variant="outline" className="ml-auto" onClick={() => setCreating((c) => !c)}>
-          {creating ? 'Close the form' : 'New inventory'}
-        </Button>
-      </div>
+      </PageHeader>
       <ErrorLine />
       {creating && <NewInventory />}
 
-      <table aria-label="Inventories" className="w-full text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1">Name</th>
-            <th>Source</th>
-            <th>Status</th>
-            <th>Newest revision</th>
-            <th>Hosts</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 && (
-            <tr>
-              <td colSpan={5} data-pane-state="empty" className="py-1 text-muted-foreground">
-                No inventory yet. Bind a repository that declares one, or create a managed one.
-              </td>
-            </tr>
-          )}
-          {items.map((i) => (
-            <tr key={i.id} aria-current={opened?.inventory.id === i.id || undefined} className="border-t border-border">
-              <td className="py-1">
-                <Button size="xs" variant="ghost" className="font-mono" onClick={() => open(i.id)}>
-                  {i.name}
-                </Button>
-              </td>
-              <td>{i.source}</td>
-              <td>{i.status}</td>
-              <td className={i.head_status === 'invalid' ? 'text-status-err' : undefined}>
+      <DataTable<Item>
+        label="Inventories"
+        rows={items}
+        rowKey={(i) => i.id}
+        selected={(i) => opened?.inventory.id === i.id}
+        columns={[
+          {
+            key: 'name',
+            header: 'Name',
+            className: 'w-[28%]',
+            cell: (i) => (
+              <button type="button" className={`${LINK} font-mono break-all`} onClick={() => open(i.id)}>
+                {i.name}
+              </button>
+            ),
+          },
+          { key: 'source', header: 'Source', cell: (i) => i.source },
+          { key: 'status', header: 'Status', cell: (i) => i.status },
+          {
+            key: 'head',
+            header: 'Newest revision',
+            cell: (i) => (
+              <span className={i.head_status === 'invalid' ? 'text-status-err' : undefined}>
                 {i.head_seq === null ? '—' : `${String(i.head_seq)} (${i.head_status ?? ''})`}
-              </td>
-              <td>{i.host_count}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </span>
+            ),
+          },
+          { key: 'hosts', header: 'Hosts', cell: (i) => <span className="tabular-nums">{i.host_count}</span> },
+        ]}
+        empty="No inventory yet. Bind a repository that declares one, or create a managed one."
+      />
 
       {opened && <Detail opened={opened} />}
       <PreviewDialog />
-    </section>
+    </Page>
   )
 }
