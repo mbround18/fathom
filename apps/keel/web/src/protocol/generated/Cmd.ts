@@ -5,6 +5,8 @@ import type { BindingUpdate } from "./BindingUpdate";
 import type { CredentialKind } from "./CredentialKind";
 import type { DeliveryDecision } from "./DeliveryDecision";
 import type { GrantProfiles } from "./GrantProfiles";
+import type { HostName } from "./HostName";
+import type { HostProfiles } from "./HostProfiles";
 import type { InstanceRole } from "./InstanceRole";
 import type { Instant } from "./Instant";
 import type { InventoryText } from "./InventoryText";
@@ -16,11 +18,13 @@ import type { PasskeyResponse } from "./PasskeyResponse";
 import type { Pattern } from "./Pattern";
 import type { PolicySpec } from "./PolicySpec";
 import type { PreviewId } from "./PreviewId";
+import type { ProfileName } from "./ProfileName";
 import type { ReceiverProvider } from "./ReceiverProvider";
 import type { RecoveryCode } from "./RecoveryCode";
 import type { RunPhase } from "./RunPhase";
 import type { SecretValue } from "./SecretValue";
 import type { Slug } from "./Slug";
+import type { SshCaKind } from "./SshCaKind";
 import type { TeamRole } from "./TeamRole";
 import type { TokenActions } from "./TokenActions";
 
@@ -35,4 +39,4 @@ expires_in_days: number, } } | { "type": "PreviewApiTokenRevoke", "data": { toke
 /**
  * A host's inventory name.
  */
-host: ObjectName | null, actor: string | null, state: RunPhase | null, from: Instant | null, to: Instant | null, } } | { "type": "GetRun", "data": { run: string, } } | { "type": "SubscribeRun", "data": { run: string, from_seq: number, } } | { "type": "UnsubscribeRun", "data": { run: string, } } | { "type": "PreviewRunStart", "data": { job: string, limit: Pattern | null, } } | { "type": "PreviewCancel", "data": { run: string, } } | { "type": "ListJobs", "data": { binding: string, } } | { "type": "ListPolicies", "data": { workspace: string, } } | { "type": "PreviewPolicyUpsert", "data": PolicySpec } | { "type": "PreviewPolicyRemove", "data": { policy: string, } } | { "type": "ExplainPolicy", "data": { job: string, limit: Pattern | null, } };
+host: ObjectName | null, actor: string | null, state: RunPhase | null, from: Instant | null, to: Instant | null, } } | { "type": "GetRun", "data": { run: string, } } | { "type": "SubscribeRun", "data": { run: string, from_seq: number, } } | { "type": "UnsubscribeRun", "data": { run: string, } } | { "type": "PreviewRunStart", "data": { job: string, limit: Pattern | null, } } | { "type": "PreviewCancel", "data": { run: string, } } | { "type": "ListJobs", "data": { binding: string, } } | { "type": "ListPolicies", "data": { workspace: string, } } | { "type": "PreviewPolicyUpsert", "data": PolicySpec } | { "type": "PreviewPolicyRemove", "data": { policy: string, } } | { "type": "ExplainPolicy", "data": { job: string, limit: Pattern | null, } } | { "type": "ListHosts", "data": { workspace: string, profile: ProfileName | null, drift: boolean | null, } } | { "type": "GetHost", "data": { host: string, } } | { "type": "PreviewHostEnroll", "data": { workspace: string, inventory_name: HostName, profiles: HostProfiles, } } | { "type": "PreviewHostRevoke", "data": { host: string, } } | { "type": "GetSshCa" } | { "type": "PreviewSshCaRotate", "data": { kind: SshCaKind, } };

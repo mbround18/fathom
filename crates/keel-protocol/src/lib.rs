@@ -52,4 +52,10 @@ pub use run::{
 };
 
 /// The version a client states in `Hello.protocol_version`.
+pub mod host;
+pub use host::{
+    EnrollToken, HostCertInfo, HostDetail, HostInfo, HostName, HostProfiles, HostStatus,
+    MAX_HOST_PROFILES, SshCaInfo, SshCaKind, SshCaState,
+};
+
 pub const PROTOCOL_VERSION: u32 = 1;

@@ -15,6 +15,8 @@ use crate::inventory::{
 };
 // Governance (US6)
 use crate::governance::{ApiTokenInfo, TeamInfo, TokenSecret, UserInfo, WorkspaceInfo};
+// Hosts and the SSH CAs (US7)
+use crate::host::{EnrollToken, HostDetail, HostInfo, HostStatus, SshCaInfo};
 // Runs (US2)
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
@@ -192,6 +194,35 @@ pub enum Event {
         requires_approval: bool,
         reason: String,
         checks: Vec<PolicyCheck>,
+    },
+
+    // Hosts and the SSH CAs (US7)
+    /// Reply to `ListHosts`.
+    Hosts { items: Vec<HostInfo> },
+    /// Reply to `GetHost` and to a confirmed `PreviewHostRevoke`.
+    Host(HostDetail),
+    /// A confirmed `PreviewHostEnroll`. `token` is shown this once; Keel keeps only its hash.
+    HostEnrollment {
+        #[ts(type = "string")]
+        id: Uuid,
+        #[ts(type = "string")]
+        workspace: Uuid,
+        inventory_name: String,
+        profiles: Vec<String>,
+        expires_at: String,
+        token: EnrollToken,
+    },
+    /// Reply to `GetSshCa` and to a confirmed `PreviewSshCaRotate`.
+    SshCa {
+        cas: Vec<SshCaInfo>,
+        /// `@cert-authority * ssh-ed25519 …`: the value for `keel_runner_host_ca`.
+        cert_authority: String,
+    },
+    /// Pushed when a host connects, disconnects or is revoked, to anyone who can see it.
+    HostState {
+        #[ts(type = "string")]
+        host: Uuid,
+        state: HostStatus,
     },
 }
 

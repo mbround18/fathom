@@ -21,6 +21,9 @@ use crate::governance::{GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
 // Runs (US2)
 use crate::run::{Pattern, PolicySpec, RunPhase};
+// Hosts and the SSH CAs (US7)
+use crate::governance::ProfileName;
+use crate::host::{HostName, HostProfiles, SshCaKind};
 
 /// The first frame on a WebSocket. A wrong `csrf_token` closes with 4403; a missing or expired
 /// session with 4401; another `protocol_version` with 4400.
@@ -458,6 +461,40 @@ pub enum Cmd {
         #[serde(default)]
         limit: Option<Pattern>,
     },
+
+    // Hosts and the SSH CAs (US7)
+    /// `Hosts`: the workspace's enrolled hosts. `drift` is not tracked yet (US8), so
+    /// `drift: true` matches no host.
+    ListHosts {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[serde(default)]
+        profile: Option<ProfileName>,
+        #[serde(default)]
+        drift: Option<bool>,
+    },
+    /// `Host`: profiles, allowed profiles, signed-mode policy, ledger head and certificates.
+    GetHost {
+        #[ts(type = "string")]
+        host: Uuid,
+    },
+    /// `Preview`; `Confirm` replies `HostEnrollment` with the one-time token.
+    PreviewHostEnroll {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        inventory_name: HostName,
+        profiles: HostProfiles,
+    },
+    /// `Preview` (step-up); `Confirm` revokes the host's certificates (KRL), closes its session
+    /// and replies `Host`.
+    PreviewHostRevoke {
+        #[ts(type = "string")]
+        host: Uuid,
+    },
+    /// `SshCa`: CA fingerprints and the `@cert-authority` line for `keel_runner_host_ca`.
+    GetSshCa,
+    /// `Preview` (instance admin, step-up); `Confirm` replies `SshCa`.
+    PreviewSshCaRotate { kind: SshCaKind },
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -486,6 +523,10 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     "list_jobs",
     "list_policies",
     "explain_policy",
+    // Hosts and the SSH CAs (US7)
+    "list_hosts",
+    "get_host",
+    "get_ssh_ca",
 ];
 
 impl Cmd {
@@ -565,6 +606,13 @@ impl Cmd {
             Cmd::PreviewPolicyUpsert(_) => "preview_policy_upsert",
             Cmd::PreviewPolicyRemove { .. } => "preview_policy_remove",
             Cmd::ExplainPolicy { .. } => "explain_policy",
+            // Hosts and the SSH CAs (US7)
+            Cmd::ListHosts { .. } => "list_hosts",
+            Cmd::GetHost { .. } => "get_host",
+            Cmd::PreviewHostEnroll { .. } => "preview_host_enroll",
+            Cmd::PreviewHostRevoke { .. } => "preview_host_revoke",
+            Cmd::GetSshCa => "get_ssh_ca",
+            Cmd::PreviewSshCaRotate { .. } => "preview_ssh_ca_rotate",
         }
     }
 
@@ -644,6 +692,13 @@ impl Cmd {
             | Cmd::PreviewPolicyUpsert(_)
             | Cmd::PreviewPolicyRemove { .. }
             | Cmd::ExplainPolicy { .. } => false,
+            // Hosts and the SSH CAs (US7)
+            Cmd::ListHosts { .. }
+            | Cmd::GetHost { .. }
+            | Cmd::PreviewHostEnroll { .. }
+            | Cmd::PreviewHostRevoke { .. }
+            | Cmd::GetSshCa
+            | Cmd::PreviewSshCaRotate { .. } => false,
         }
     }
 }

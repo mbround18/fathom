@@ -125,6 +125,7 @@ macro_rules! bounded_list {
         }
     };
 }
+pub(crate) use bounded_list;
 
 bounded_list!(
     /// The profiles a grant is scoped to (at most 32, no duplicates); empty means the whole
