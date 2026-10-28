@@ -121,6 +121,10 @@ As an operator, I can bring a host under Keel by applying my repository's base D
 3. **Given** a runner talking to a server whose identity does not match the one pinned at enrollment, **When** it connects, **Then** it refuses to send or execute anything.
 4. **Given** an administrator revokes a host, **When** its runner reconnects or its certificate expires, **Then** Keel refuses it and the refusal is audited.
 5. **Given** a job from a profile the host does not allow locally, **When** it is dispatched, **Then** the host refuses it, even if Keel asked.
+6. **Given** a workspace with an active join token, **When** a host presents it, **Then** the host appears as a join request showing its key fingerprint and reported facts, and it can run nothing until an operator accepts it with step-up.
+7. **Given** a pending or new join request, **When** an operator rejects it, **Then** the host stops knocking and the same host key is refused for 30 days.
+8. **Given** an operator rotates the join token, **When** a host presents the old one, **Then** it is refused, pending requests made with it are rejected, and already-accepted hosts keep working.
+9. **Given** a host installing the runner from Keel's download path, **When** a downloaded file does not match the checksum pinned in the operator's repository, **Then** the install fails and nothing is replaced.
 
 ---
 
@@ -175,6 +179,8 @@ As an administrator, I can assign hosts to profiles (for example debian, prox-vm
 - The first run on a host in signed mode, when it has no applied revision yet.
 - An approver's passkey is replaced, but hosts still pin the old one.
 - A job's playbook changes the runner's own installation or trust files.
+- A join token leaks and strangers flood the request list.
+- A join request names an inventory name that is already taken.
 
 ## Requirements *(mandatory)*
 
@@ -212,6 +218,8 @@ As an administrator, I can assign hosts to profiles (for example debian, prox-vm
 - **FR-029**: Keel MUST execute Ansible only through runners installed on the managed hosts. Each runner MUST execute jobs only against its own host and MUST NOT be directed at any other host.
 - **FR-030**: The runner MUST be installable by the operator's base host profile, MUST execute jobs as the automation account, and its network-facing process MUST NOT hold elevated privileges.
 - **FR-031**: Runners MUST connect outbound only, over SSH, authenticating with a host key enrolled once through a single-use, time-limited token, and holding a short-lived SSH certificate issued by Keel. Runners MUST verify Keel's identity against a key pinned at enrollment.
+- **FR-031a**: Keel MUST also support enrolment by join request: an operator issues a signed, expiring join token per workspace that carries the connection settings a host needs; a host presenting it becomes a pending request that an operator accepts (with step-up) or rejects after comparing the host key fingerprint. Join tokens MUST be off until issued, rotatable at once (rejecting pending requests made with the old token), bounded against flooding, and MUST NOT supply trust decisions (allowed profiles, signed mode, signers, approvers) to the host.
+- **FR-031b**: Keel MUST serve the runner binaries it ships at a public download path. Hosts MUST install them only after checking them against checksums pinned in the operator's repository, and runners MUST NOT update themselves.
 - **FR-032**: Administrators MUST be able to revoke a host runner, which MUST end its connection immediately and refuse all later connections.
 - **FR-033**: Keel MUST support an optional signed mode per binding. In signed mode, every commit between a host's last applied revision and the target commit MUST carry a valid signature from a trusted signer before a run may execute, without review. OpenPGP and SSH signatures MUST both be supported.
 - **FR-034**: In signed mode, a run that fails the signature check MUST wait for review. The review MUST show the full diff from each target host's last applied revision, file by file, with commit authors and signature status. An override MUST be approved with a passkey and bound to the exact commit, diff base, job and hosts.
@@ -235,6 +243,8 @@ As an administrator, I can assign hosts to profiles (for example debian, prox-vm
 - **Approval Policy**: Rules defining when explicit human approval is required before execution.
 - **Audit Record**: Immutable event history capturing actor, action, context, decision, and outcome.
 - **Host Runner**: The Keel agent on a managed host, with its enrolled SSH key, current certificate, allowed profiles and status.
+- **Join Token**: A signed, expiring, per-workspace value that tells a host how to reach and pin Keel and lets it ask to join; one active per workspace.
+- **Join Request**: A host's request to join, identified by its key fingerprint, pending until an operator accepts or rejects it.
 - **Host Profile**: A named kind of machine (for example debian, gameserver, k3s-agent) that selects which jobs apply to a host.
 - **Trusted Signer**: A public key (OpenPGP or SSH) whose commit signatures satisfy signed mode for a workspace.
 - **Signed-Mode Override**: A passkey-signed approval of an exact diff, verifiable by hosts.

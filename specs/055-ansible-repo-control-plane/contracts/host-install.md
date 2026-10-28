@@ -20,6 +20,8 @@ what Keel relies on. Nothing in `../ansible` changes as part of 055 without the 
 | `keel_runner_override_quorum` | `1` | |
 | `keel_runner_inventory_name` | `inventory_hostname` | |
 | `keel_enroll_token` | unset | Passed only with `-e` for the first run. Never stored in Git or in vars files. |
+| `keel_join_token` | unset | A join token (contracts/join.md). Multi-use and expiring, so it may live in encrypted vars. Supplies `keel_runner_server`, `keel_runner_host_ca`, `keel_runner_origin` and `keel_runner_rp_id` when those are unset; the role fails if a set var disagrees with the token. Never supplies trust decisions. |
+| `keel_runner_download` | `false` | `true` fetches the binaries, requirements and callback from `https://<origin>/runner/latest/…` instead of `github_release`; each file must match `keel_runner_sha256`. |
 
 Validation: the role fails if `keel_runner_require_signed` is true and either signer or approver
 list is empty, because such a host could never run anything.
@@ -57,6 +59,9 @@ list is empty, because such a host could never run anything.
    its state directory. It never leaves the host.
 7. **Enrollment:** if `keel_enroll_token` is set and the host is not yet enrolled, write it to
    `/var/lib/keel-runner/enroll-token` (`0400`) with `no_log: true`, then start the service.
+   Otherwise, if `keel_join_token` is set and the host is not yet enrolled, write it to
+   `/var/lib/keel-runner/join-token` (`0400`) with `no_log: true`, start the service, and print
+   `keel-runner fingerprint` so the operator can match it against the join request in Keel.
 8. **Idempotence:** re-running the role changes trust files and versions only. It never deletes
    `/var/lib/keel-executor/ledger.jsonl` or the executor's Git store.
 

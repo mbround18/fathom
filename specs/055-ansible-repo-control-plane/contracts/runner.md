@@ -21,9 +21,10 @@ Keel and `keel-runner`, and the local socket between the two halves.
     enrolled key of a host that is not revoked.
   - Expired certificate: the bare enrolled key, accepted only within `--runner-max-offline` of the
     certificate's expiry and only for the `RenewCert` frame.
-  - Unknown key: only the `keel-enroll-v1` subsystem.
+  - Unknown key: only the `keel-enroll-v1` and `keel-join-v1` subsystems.
 - **Refused by the server:** shell, exec, pty, env, port forwarding (both directions), agent and
-  X11 forwarding. The only subsystems are `keel-enroll-v1` and `keel-runner-v1`.
+  X11 forwarding. The only subsystems are `keel-enroll-v1`, `keel-join-v1` (contracts/join.md) and
+  `keel-runner-v1`.
 - Frames are length-prefixed (u32, big-endian) JSON, at most 16 MiB each, defined in Rust in
   `keel-exec`. They do not appear in the web protocol.
 

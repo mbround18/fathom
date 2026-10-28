@@ -10,6 +10,9 @@ Each flag can also be set through the environment variable in parentheses.
 | `--runner-listen` (`KEEL_RUNNER_LISTEN`) | `0.0.0.0:7831` | The embedded SSH server for host runners (R17). Both SSH CAs are generated at first start and sealed in the database. Expose it only on the network hosts use (for example Tailscale). |
 | `--runner-cert-ttl` | `24h` | Lifetime of runner certificates. |
 | `--runner-max-offline` | `30d` | How long after certificate expiry a host may still renew with its bare key. |
+| `--join-pending-max` | `50` | Pending join requests per workspace (contracts/join.md). |
+| `--join-rate` | `10/min` | Join attempts per source address. |
+| `--runner-dist-dir` (`KEEL_RUNNER_DIST_DIR`) | `/usr/share/keel/runner` | Runner binaries served at `/runner/latest/…`. Missing means `404`, not a start failure. |
 | `--signed-mode-default` | `false` | Signed mode for new bindings. |
 | `--public-url` (`KEEL_PUBLIC_URL`) | required | Used for receiver URLs, OIDC redirects and cookie scope. |
 | `--database-url` (`KEEL_DATABASE_URL`) | required | PostgreSQL. Migrations run at start, and are additive only. |
@@ -41,6 +44,7 @@ Installed by the base profile (contracts/host-install.md). Both binaries read
 | `keel-runner` | `--server` (`KEEL_RUNNER_SERVER`) | from `policy.toml` | `host:port`. |
 | `keel-runner` | `--state-dir` | `/var/lib/keel-runner` | Host key, certificate, enrollment token. |
 | `keel-runner` | `--executor-socket` | `/run/keel-runner/executor.sock` | |
+| `keel-runner` | `keel-runner fingerprint` | | Prints the host key's SHA-256 fingerprint, to compare with a join request. |
 | `keel-executor` | `--state-dir` | `/var/lib/keel-executor` | Git store, ledger, run directories. |
 | `keel-executor` | `--venv` | `/opt/keel-runner/venv` | The only Python and Ansible it uses. |
 | `keel-executor` | `keel-executor ledger verify` | | Checks the ledger chain, for operators. |

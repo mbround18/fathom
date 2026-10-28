@@ -46,6 +46,7 @@ pub struct EventEnvelope { pub reply_to: Option<u64>, pub event: Event }
 | Runs | `ListRuns { workspace?, binding?, host?, actor?, state?, from?, to? }`, `GetRun`, `SubscribeRun { run, from_seq }` (streams `RunEvent`, `RunLog`, `RunState`), `UnsubscribeRun`, `PreviewRunStart { job, limit? }` (manual), `PreviewApprove { run }` / `PreviewDeny { run, comment }`, `PreviewCancel { run }`, `PreviewRollback { run }` (refused as `rollback_unavailable` or `artifact_missing`) |
 | Review (signed mode) | `ListReviews { workspace?, state? }`, `GetReview { group }` (commits with signature status, flags), `GetReviewDiff { group, path? }` (file list, then one file's diff, paged), `PreviewOverride { group, comment }` (replies the canonical challenge; `Confirm` carries the passkey assertion over it, not the usual step-up), `PreviewOverrideDeny { group, comment }`, `PreviewBaseline { binding, job, hosts, commit, comment }` (first run on hosts with no base; passkey as for an override) |
 | Hosts and profiles | `ListHosts { workspace, profile?, drift? }`, `GetHost` (profiles, allowed profiles, signed-mode policy, per-job applied revision and drift, ledger head), `ListHostRevisions { host, job? }`, `PreviewHostEnroll { inventory_name, profiles }` (on confirm, replies a one-time token `keel-enroll-v1.<secret>.<host CA fingerprint>`), `PreviewHostRevoke`, `PreviewHostProfiles { host, profiles }` (refused outside the host's allowed profiles), `ListProfiles` |
+| Join (contracts/join.md) | `ListJoinRequests { workspace, state? }`, `PreviewJoinAccept { request, inventory_name, profiles }`, `PreviewJoinReject { request, comment? }`, `GetJoinToken { workspace }`, `PreviewJoinTokenIssue { workspace, expires_in, inventory_name?, profiles? }` and `PreviewJoinTokenRotate { workspace, expires_in }` (on confirm, reply `JoinTokenSecret { token }` once), `PreviewJoinTokenDisable`, `PreviewJoinSigningKeyRotate` |
 | Signers | `ListSigners`, `PreviewSignerAdd { kind, public_key, label, user? }`, `PreviewSignerRemove` (both need step-up; they change only Keel's early check, research R19) |
 | SSH CA | `GetSshCa` (CA fingerprints, the `@cert-authority` line for `keel_runner_host_ca`), `PreviewSshCaRotate { kind }` |
 | Migration | `PreviewExport { workspaces, include_history }` (on confirm, replies a download URL valid for 10 minutes), `PlanImport { upload_id }` (`ImportPlan` with diff and conflicts), `PreviewImport { upload_id, choices }` |
@@ -57,6 +58,7 @@ pub struct EventEnvelope { pub reply_to: Option<u64>, pub event: Event }
 - `DeliveryReceived { delivery }` and `BindingSynced { binding, commit, jobs_changed, inventories_changed }`.
 - `ApprovalRequested { run }`, to approvers of the workspace.
 - `ReviewRequested { group }`, to approvers whose profile scope covers its hosts.
+- `JoinRequested { request }`, to operators of the workspace.
 - `HostState { host, state }` and `HostRevision { host, job, commit, authorization }`, to anyone
   who can see the host.
 - `Revoked`: after this the server closes the socket (R11).

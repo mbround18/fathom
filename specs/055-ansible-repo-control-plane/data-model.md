@@ -194,6 +194,22 @@ workspace), `ssh_key_fingerprint` (SHA-256 of the enrolled Ed25519 key, unique),
 `expires_at`, `used_at?`, `host_id?`, `created_by`.
 - Single-use, with a 15-minute TTL (R17). Audited.
 
+**join_signing_key** (one row, contracts/join.md): `kid`, sealed Ed25519 private key, `public_key`,
+`created_at`, `retired_at?`. Rotating it retires the row and every join token signed by it.
+
+**join_tokens**: `jti` (pk), `workspace_id`, `kid`, `token_hash` (SHA-256 of the whole token),
+`inventory_name?`, `profiles text[]`, `expires_at`, `created_by`, `created_at`, `retired_at?`.
+- At most one row per workspace with `retired_at` null (partial unique index). Rotate and disable
+  set `retired_at`. Audited by `jti`; the token itself is never stored.
+
+**join_requests**: `id`, `workspace_id`, `jti`, `ssh_key_fingerprint`, `ssh_public_key`,
+`inventory_name` (suggested), `allowed_profiles text[]`, `require_signed`, `hostname`, `os`, `arch`,
+`runner_version` (all reported, length-bounded), `source_addr`, `state`
+(`pending | accepted | rejected | expired`), `reason?`, `first_seen_at`, `last_seen_at`,
+`decided_by?`, `decided_at?`, `host_id?`.
+- Unique per (`workspace_id`, `ssh_key_fingerprint`). Pending rows expire after 7 days; rejected
+  fingerprints are answered `JoinRejected` for 30 days. Accepting creates the `hosts` row.
+
 **profiles**: `id`, `workspace_id`, `name` (unique per workspace, `^[a-z0-9][a-z0-9-]{0,62}$`),
 `description?`, `declared_at_commit?` (from `.keel/jobs.yaml`).
 
