@@ -71,7 +71,7 @@ export class FakeHosts {
       allowed_profiles: minted?.profiles ?? ['base'],
       state: 'online',
       runner_version: '0.1.0',
-      ansible_version: '2.17.4',
+      ansible_version: '2.21.4',
       last_seen_at: NOW,
     })
     this.hosts = [...this.hosts, host]

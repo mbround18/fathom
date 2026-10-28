@@ -145,7 +145,7 @@ impl FakeRunner {
             hello: Frame::Hello {
                 host_id: host_id.into(),
                 version: env!("CARGO_PKG_VERSION").into(),
-                ansible_core: "2.19.0".into(),
+                ansible_core: "2.21.0".into(),
                 python: "3.12.3".into(),
                 allowed_profiles: vec!["base".into()],
                 require_signed: false,

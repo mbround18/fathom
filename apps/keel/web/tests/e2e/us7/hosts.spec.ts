@@ -66,7 +66,7 @@ test('a host is enrolled with a one-time token, comes online and is revoked', as
   const row = table.locator('tr', { hasText: 'web-1' })
   await expect(row).toHaveAttribute('data-host-state', 'online')
   await expect(row).toContainText('base, web')
-  await expect(row).toContainText('2.17.4')
+  await expect(row).toContainText('2.21.4')
 
   // Revoke: previewed with step-up (the session just verified), then the host is revoked.
   await row.getByRole('button', { name: 'Revoke web-1' }).click()

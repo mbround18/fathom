@@ -31,29 +31,6 @@ use crate::frames::{Frame, Peer, Subsystem};
 /// The only SSH user name a runner may log in as.
 pub const RUNNER_USER: &str = "runner";
 
-/// The oldest `ansible-core` a runner may report in `Hello` (contracts/runner.md); older is
-/// refused with `version_too_old`.
-pub const MIN_ANSIBLE_CORE: (u64, u64, u64) = (2, 17, 0);
-
-/// Whether `version` (`2.19.0`, `2.19.0rc1`, `2.20`) is at least [`MIN_ANSIBLE_CORE`]. A version
-/// that does not parse is refused.
-pub fn ansible_core_supported(version: &str) -> bool {
-    let mut parts = [0u64; 3];
-    let mut seen = 0;
-    for (i, part) in version.trim().split('.').take(3).enumerate() {
-        let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
-        let Ok(n) = digits.parse::<u64>() else {
-            return false;
-        };
-        parts[i] = n;
-        seen = i + 1;
-        if digits.len() != part.len() {
-            break;
-        }
-    }
-    seen >= 2 && (parts[0], parts[1], parts[2]) >= MIN_ANSIBLE_CORE
-}
-
 /// Ciphers both sides accept, most preferred first. Both are AEAD, so no MAC is negotiated.
 pub const CIPHERS: &[cipher::Name] = &[cipher::CHACHA20_POLY1305, cipher::AES_256_GCM];
 
@@ -488,20 +465,5 @@ impl<A: RunnerAuthority, S: SubsystemService> Handler for KeelSshHandler<A, S> {
         let stream = chan.into_stream();
         tokio::spawn(async move { service.serve_with_key(access, key, stream).await });
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ansible_core_supported;
-
-    #[test]
-    fn ansible_core_below_the_minimum_or_unparsable_is_refused() {
-        for ok in ["2.17.0", "2.19.0", "2.19.0rc1", "2.20", "3.0.0", " 2.18.1 "] {
-            assert!(ansible_core_supported(ok), "{ok}");
-        }
-        for bad in ["2.16.14", "2.9.27", "2", "", "two.19", "v2.19.0", "1.99.99"] {
-            assert!(!ansible_core_supported(bad), "{bad}");
-        }
     }
 }

@@ -530,7 +530,7 @@ pub enum AttachError {
     WrongHost,
     /// Unknown or revoked host.
     UnknownHost,
-    /// The runner's `ansible_core` is below [`keel_exec::server_config::MIN_ANSIBLE_CORE`].
+    /// The runner's `ansible_core` is below [`keel_exec::versions::MIN_ANSIBLE_CORE`].
     VersionTooOld,
     Codec(codec::CodecError),
     Db(sqlx::Error),
@@ -593,16 +593,16 @@ where
     if host_id != host.to_string() {
         return Err(AttachError::WrongHost);
     }
-    if !keel_exec::server_config::ansible_core_supported(&ansible_core) {
-        let (a, b, c) = keel_exec::server_config::MIN_ANSIBLE_CORE;
+    if !keel_exec::versions::meets_min_ansible_core(&ansible_core) {
         let _ = codec::write_frame(
             &mut stream,
             &Frame::Refused {
                 run_id: String::new(),
                 reason: Refusal::VersionTooOld,
                 detail: format!(
-                    "ansible-core {} is below {a}.{b}.{c}",
-                    truncate(&ansible_core, 64)
+                    "ansible-core {} is below {}",
+                    truncate(&ansible_core, 64),
+                    keel_exec::versions::MIN_ANSIBLE_CORE
                 ),
             },
         )
