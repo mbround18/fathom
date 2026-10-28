@@ -264,6 +264,10 @@ pub async fn token_create(
     if let Err(code) = governance::check_ws(req.caller, ws, Capability::View) {
         return governance::deny(app, req.caller, CMD, Some(ws), code, o.context).await;
     }
+    // The System workspace takes no API tokens (spec 060).
+    if governance::is_system(req.caller, ws) {
+        return governance::deny(app, req.caller, CMD, Some(ws), "owner_only", o.context).await;
+    }
     if !(1..=MAX_TOKEN_DAYS).contains(&days) {
         return vec![Event::op_error(
             "invalid_expiry",

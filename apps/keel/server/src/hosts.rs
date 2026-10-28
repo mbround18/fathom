@@ -766,6 +766,18 @@ pub(crate) async fn check_enroll(
     inventory_name: &str,
     profiles: &[String],
 ) -> Result<(), Vec<Event>> {
+    // The System workspace runs only the profiles its configuration allows (spec 060 FR-037).
+    let mut conn = app.db.acquire().await.map_err(|e| db_failed(&e))?;
+    if let Some(p) = crate::system::disallowed_profile(&mut conn, workspace, profiles)
+        .await
+        .map_err(|e| db_failed(&e))?
+    {
+        return Err(op_error(
+            "profile_not_allowed",
+            &format!("The System workspace does not allow the profile {p}."),
+        ));
+    }
+    drop(conn);
     let found: Vec<(String,)> =
         sqlx::query_as("select name from profiles where workspace_id = $1 and name = any($2)")
             .bind(workspace)

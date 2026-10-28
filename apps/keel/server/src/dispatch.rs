@@ -446,9 +446,10 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         Cmd::ListAllApiTokens { holder, state } => {
             crate::api::list_all_tokens(app, req, holder, state).await
         }
-        // The System workspace (spec 060 US7): not built yet.
-        Cmd::GetSystem | Cmd::PreviewSystemConfigure { .. } | Cmd::PreviewSystemRemove => {
-            vec![not_implemented()]
+        // The System workspace (spec 060 US7).
+        other
+        @ (Cmd::GetSystem | Cmd::PreviewSystemConfigure { .. } | Cmd::PreviewSystemRemove) => {
+            crate::system::handle(app, req, other).await
         }
     };
     events
@@ -459,10 +460,6 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
 
 fn internal() -> Event {
     Event::op_error("internal", "Keel could not complete that. Try again.")
-}
-
-fn not_implemented() -> Event {
-    Event::op_error("not_implemented", "This Keel does not support that yet.")
 }
 
 /// Audits a refusal; a failed write is logged, never shown to the caller.

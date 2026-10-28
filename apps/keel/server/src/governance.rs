@@ -134,6 +134,12 @@ pub(crate) fn check_ws(c: &Caller, workspace: Uuid, cap: Capability) -> Result<(
     authz::require(&subject(c), cap, WorkspaceId(workspace), &[]).map_err(|r| r.code())
 }
 
+/// Whether `workspace` is the System workspace, which takes no grants and no API tokens
+/// (spec 060 contracts/protocol.md).
+pub(crate) fn is_system(c: &Caller, workspace: Uuid) -> bool {
+    c.system_workspace == Some(WorkspaceId(workspace))
+}
+
 fn is_owner(c: &Caller) -> bool {
     c.user.instance_role == keel_core::InstanceRole::Owner
 }
@@ -439,7 +445,8 @@ pub async fn list_workspaces(app: &AppState, caller: &Caller) -> Vec<Event> {
         };
         Ok(rows
             .into_iter()
-            .filter(|r| visible(r.0, r.4))
+            // The System workspace exists only for instance owners (spec 060 FR-039).
+            .filter(|r| visible(r.0, r.4) && (!r.5 || (caller.token.is_none() && is_owner(caller))))
             .map(
                 |(id, slug, name, created, archived, system)| WorkspaceInfo {
                     id,
@@ -484,6 +491,12 @@ async fn workspace_create(
         return deny(app, req.caller, CMD, None, code, o.context).await;
     }
     let (slug, name) = (slug.as_str().to_owned(), name.as_str().to_owned());
+    if slug == crate::system::SLUG {
+        return vec![Event::op_error(
+            "slug_reserved",
+            format!("The slug {slug} is reserved for the System workspace."),
+        )];
+    }
     let taken = read(app, async |c| {
         sqlx::query_scalar::<_, bool>("select exists(select 1 from workspaces where slug = $1)")
             .bind(&slug)
@@ -625,6 +638,15 @@ async fn workspace_archive(app: &AppState, req: &Request<'_>, ws: Uuid) -> Vec<E
     if let Err(code) = check_admin(req.caller) {
         return deny(app, req.caller, CMD, Some(ws), code, o.context).await;
     }
+    if is_system(req.caller, ws) {
+        if !is_owner(req.caller) {
+            return deny(app, req.caller, CMD, Some(ws), "owner_only", o.context).await;
+        }
+        return vec![Event::op_error(
+            "system_workspace",
+            "Remove the System workspace from System settings.",
+        )];
+    }
     let name = match live_workspace(app, ws).await {
         Ok(n) => n,
         Err(e) => return e,
@@ -697,6 +719,12 @@ async fn project_create(
         Err(e) => return e,
     };
     let (slug, name) = (slug.as_str().to_owned(), name.as_str().to_owned());
+    if slug == crate::system::SLUG {
+        return vec![Event::op_error(
+            "slug_reserved",
+            format!("The slug {slug} is reserved for the System workspace."),
+        )];
+    }
     let taken = read(app, async |c| {
         sqlx::query_scalar::<_, bool>(
             "select exists(select 1 from projects where workspace_id = $1 and slug = $2)",
@@ -1092,6 +1120,9 @@ async fn grant_add(
     let o = origin(req);
     if let Err(code) = check_ws(req.caller, ws, Capability::Administer) {
         return deny(app, req.caller, CMD, Some(ws), code, o.context).await;
+    }
+    if is_system(req.caller, ws) {
+        return deny(app, req.caller, CMD, Some(ws), "owner_only", o.context).await;
     }
     let ws_name = match live_workspace(app, ws).await {
         Ok(n) => n,

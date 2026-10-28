@@ -40,3 +40,6 @@ pub mod review;
 // Instance settings and enrolment tokens (spec 060 US1 to US3)
 pub mod enrollments;
 pub mod settings;
+
+// The owner-only System workspace (spec 060 US7)
+pub mod system;
