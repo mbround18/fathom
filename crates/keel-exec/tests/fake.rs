@@ -10,11 +10,14 @@ use tokio::io::DuplexStream;
 fn assign(run_id: &str, job: &str, pack_size: u64) -> Frame {
     Frame::Assign {
         run_id: run_id.into(),
+        workspace: "00000000-0000-0000-0000-000000000001".into(),
+        binding: "00000000-0000-0000-0000-000000000002".into(),
         job: job.into(),
         base: None,
         target: "a".repeat(40),
         deadline: 1_900_000_000,
         pack_size,
+        quorum: None,
     }
 }
 

@@ -1308,16 +1308,35 @@ impl AssignError {
 }
 
 async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError> {
-    type Row = (Option<Uuid>, String, String, Option<Value>);
+    type Row = (
+        Option<Uuid>,
+        String,
+        String,
+        Option<Value>,
+        Uuid,
+        bool,
+        Option<String>,
+        String,
+        Option<i32>,
+    );
     let row: Option<Row> = sqlx::query_as(
-        "select r.binding_id, r.job_name, r.commit, j.definition from runs r \
-         left join jobs j on j.id = r.job_id where r.id = $1",
+        "select r.binding_id, r.job_name, r.commit, j.definition, r.workspace_id, r.signed_mode, \
+                rh.base_commit, rh.host_name, \
+                greatest(b.override_quorum, h.override_quorum, 1) \
+         from runs r \
+         join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 \
+         join hosts h on h.id = rh.host_id \
+         left join jobs j on j.id = r.job_id \
+         left join repo_bindings b on b.id = r.binding_id \
+         where r.id = $1",
     )
     .bind(run)
+    .bind(host)
     .fetch_optional(&app.db)
     .await
     .map_err(|_| AssignError::Internal)?;
-    let Some((Some(binding), job, commit, def)) = row else {
+    let Some((Some(binding), job, commit, def, workspace, signed, base, host_name, quorum)) = row
+    else {
         return Err(AssignError::ArtifactMissing);
     };
     let def: Option<keel_core::manifest::JobDefinition> =
@@ -1342,17 +1361,27 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     let mut frames = vec![
         Frame::Assign {
             run_id: run_id.clone(),
+            workspace: workspace.to_string(),
+            binding: binding.to_string(),
             job,
-            base: None,
+            base,
             target: commit,
             deadline,
             pack_size: pack.bytes.len() as u64,
+            quorum: quorum.and_then(|q| u32::try_from(q).ok()),
         },
         Frame::Secrets {
             run_id: run_id.clone(),
             items,
         },
     ];
+    // A signed-mode host waits for `Approvals`, empty when every commit is signed.
+    if signed {
+        frames.push(Frame::Approvals {
+            run_id: run_id.clone(),
+            items: approvals(app, run, &host_name).await?,
+        });
+    }
     frames.extend(keel_exec::pack_builder::frames(&run_id, &pack.bytes));
     for f in frames {
         if !app.runs.send(host, f) {
@@ -1360,6 +1389,65 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
         }
     }
     Ok(())
+}
+
+/// The approved overrides and baselines of `run` whose review group covers `host_name`, as the
+/// host verifies them. The assertion goes out exactly as stored; a row whose assertion cannot be
+/// read is an internal error (the run is not sent with a partial set).
+async fn approvals(
+    app: &AppState,
+    run: Uuid,
+    host_name: &str,
+) -> Result<Vec<frames::Approval>, AssignError> {
+    type Row = (
+        String,
+        String,
+        Value,
+        time::OffsetDateTime,
+        Vec<String>,
+        Option<String>,
+    );
+    let rows: Vec<Row> = sqlx::query_as(
+        "select u.email, a.comment, a.assertion, a.expires_at, g.hosts, g.base_commit \
+         from approvals a \
+         join review_groups g on g.id = a.review_group_id \
+         join users u on u.id = a.approver_user_id \
+         where a.run_id = $1 and a.kind = 'override' and a.decision = 'approve' \
+           and $2 = any(g.hosts) \
+         order by a.at",
+    )
+    .bind(run)
+    .bind(host_name)
+    .fetch_all(&app.db)
+    .await
+    .map_err(|_| AssignError::Internal)?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (email, comment, assertion, expires_at, hosts, base) in rows {
+        let field = |name: &str| -> Result<String, AssignError> {
+            assertion
+                .get(name)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or(AssignError::Internal)
+        };
+        let mut hosts = hosts;
+        hosts.sort();
+        hosts.dedup();
+        out.push(frames::Approval {
+            // The challenge's kind: `baseline` exactly when the group has no base.
+            kind: if base.is_none() { "baseline" } else { "override" }.into(),
+            approver: email,
+            credential_id: field("credential_id")?,
+            authenticator_data: field("authenticator_data")?,
+            client_data_json: field("client_data_json")?,
+            signature: field("signature")?,
+            expires_at: u64::try_from(expires_at.unix_timestamp())
+                .map_err(|_| AssignError::Internal)?,
+            comment,
+            hosts,
+        });
+    }
+    Ok(out)
 }
 
 /// The job's credentials, as granted to the binding for one of the host's profiles.

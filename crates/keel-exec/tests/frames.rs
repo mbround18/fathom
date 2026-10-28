@@ -57,11 +57,14 @@ fn every_frame() -> Vec<Frame> {
         },
         Frame::Assign {
             run_id: "r-1".into(),
+            workspace: "00000000-0000-0000-0000-000000000001".into(),
+            binding: "00000000-0000-0000-0000-000000000002".into(),
             job: "site".into(),
             base: None,
             target: "b".repeat(40),
             deadline: 1_900_000_000,
             pack_size: 1234,
+            quorum: Some(2),
         },
         Frame::Pack {
             run_id: "r-1".into(),
@@ -94,6 +97,7 @@ fn every_frame() -> Vec<Frame> {
                 signature: "c2ln".into(),
                 expires_at: 1_900_000_000,
                 comment: "hotfix reviewed".into(),
+                hosts: vec!["web-1".into(), "web-2".into()],
             }],
         },
         Frame::Started {

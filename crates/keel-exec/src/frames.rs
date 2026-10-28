@@ -167,6 +167,9 @@ pub struct Approval {
     /// Unix seconds.
     pub expires_at: u64,
     pub comment: String,
+    /// Inventory names the approval covers, as in the challenge: non-empty, sorted, no
+    /// duplicates.
+    pub hosts: Vec<String>,
 }
 
 /// Every frame of contracts/runner.md, plus the local-socket `ReadLedger`/`Ledger` pair.
@@ -212,13 +215,19 @@ pub enum Frame {
         bytes: Vec<u8>,
     },
     /// S → R. `base` is Keel's belief (`None` for a baseline); `deadline` is Unix seconds.
+    /// `workspace` and `binding` are lowercase hyphenated UUIDs and, with `run_id`, `job`, `base`
+    /// and `target`, rebuild the override challenge (contracts/signed-mode.md). `quorum` is the
+    /// binding's override quorum; the host takes the larger of it and its own.
     Assign {
         run_id: String,
+        workspace: String,
+        binding: String,
         job: String,
         base: Option<String>,
         target: String,
         deadline: u64,
         pack_size: u64,
+        quorum: Option<u32>,
     },
     /// S → R. A slice of the Git pack; the last chunk carries the whole pack's SHA-256 (hex).
     Pack {
@@ -420,18 +429,24 @@ impl fmt::Debug for Frame {
             Frame::Krl { bytes } => d.field("bytes", &Len(bytes.len())),
             Frame::Assign {
                 run_id,
+                workspace,
+                binding,
                 job,
                 base,
                 target,
                 deadline,
                 pack_size,
+                quorum,
             } => d
                 .field("run_id", run_id)
+                .field("workspace", workspace)
+                .field("binding", binding)
                 .field("job", job)
                 .field("base", base)
                 .field("target", target)
                 .field("deadline", deadline)
-                .field("pack_size", pack_size),
+                .field("pack_size", pack_size)
+                .field("quorum", quorum),
             Frame::Pack {
                 run_id,
                 chunk,
