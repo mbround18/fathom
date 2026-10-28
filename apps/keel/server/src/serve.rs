@@ -15,7 +15,7 @@
 //! paths are JSON 404s, not the SPA.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
 use axum::Json;
@@ -142,6 +142,9 @@ pub struct AppState {
     pub ssh: crate::hosts::Ssh,
     /// Signed mode (US8): the challenges of open override and baseline previews.
     pub reviews: Arc<crate::review::Overrides>,
+    /// The owner-only System workspace (spec 060, US7): loaded from `system_config` at start by
+    /// [`AppState::load_system_workspace`], updated on configure and remove.
+    pub system_workspace: Arc<RwLock<Option<Uuid>>>,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -187,7 +190,39 @@ impl AppState {
             }),
             ssh: crate::hosts::Ssh::default(),
             reviews: Arc::new(crate::review::Overrides::default()),
+            system_workspace: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// The System workspace, when one is configured.
+    #[must_use]
+    pub fn system_workspace(&self) -> Option<Uuid> {
+        *self
+            .system_workspace
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Records the System workspace after a configure (`Some`) or remove (`None`).
+    pub fn set_system_workspace(&self, workspace: Option<Uuid>) {
+        *self
+            .system_workspace
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = workspace;
+    }
+
+    /// Reads the System workspace from `system_config`; no row means none.
+    ///
+    /// # Errors
+    ///
+    /// A database error.
+    pub async fn load_system_workspace(&self) -> Result<Option<Uuid>, sqlx::Error> {
+        let workspace: Option<Uuid> =
+            sqlx::query_scalar("select workspace_id from system_config where id")
+                .fetch_optional(&self.db)
+                .await?;
+        self.set_system_workspace(workspace);
+        Ok(workspace)
     }
 
     /// Seals and opens credentials and receiver secrets with `key`. Without one they fail

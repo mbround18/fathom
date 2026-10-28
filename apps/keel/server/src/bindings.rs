@@ -123,6 +123,7 @@ pub(crate) fn subject(caller: &Caller) -> Subject<'_> {
     Subject {
         instance_role: caller.user.instance_role,
         grants: &caller.grants,
+        system_workspace: caller.system_workspace,
     }
 }
 

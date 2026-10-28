@@ -251,6 +251,10 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     if let Err(e) = hosts::bootstrap(&app).await {
         return refuse(&format!("SSH CAs: {e}"));
     }
+    // The owner-only check needs the System workspace before the first command.
+    if let Err(e) = app.load_system_workspace().await {
+        return refuse(&format!("system workspace: {e}"));
+    }
     let runners = match runner_listener::spawn(app.clone(), runner_listener) {
         Ok(t) => t,
         Err(e) => return refuse(&format!("runner listener: {e}")),

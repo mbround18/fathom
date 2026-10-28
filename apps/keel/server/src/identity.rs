@@ -309,6 +309,9 @@ pub struct Caller {
     pub grants: Vec<Grant>,
     /// Set when the caller is an API token rather than a session.
     pub token: Option<TokenScope>,
+    /// The owner-only System workspace as of this command (spec 060), from
+    /// `AppState::system_workspace`. The loaders leave it `None`; the transports fill it.
+    pub system_workspace: Option<WorkspaceId>,
 }
 
 impl Caller {
@@ -423,6 +426,7 @@ pub async fn load_session(
         recovering,
         grants,
         token: None,
+        system_workspace: None,
     }))
 }
 
@@ -476,6 +480,7 @@ pub async fn load_token(
         recovering: false,
         grants,
         token: Some(scope),
+        system_workspace: None,
     }))
 }
 

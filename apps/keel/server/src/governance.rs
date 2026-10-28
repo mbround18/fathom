@@ -18,8 +18,8 @@ use std::future::Future;
 use keel_core::authz::{self, Capability, Refusal, Subject};
 use keel_core::domain::WorkspaceId;
 use keel_protocol::{
-    Cmd, Event, GrantInfo, GrantProfiles, InstanceRole, Label, ProjectInfo, Slug, TeamInfo,
-    TeamMemberInfo, TeamRole, UserInfo, WorkspaceInfo,
+    Cmd, Event, GrantInfo, GrantProfiles, InstanceRole, Label, ProjectInfo, RoleSource, Slug,
+    TeamInfo, TeamMemberInfo, TeamRole, UserInfo, WorkspaceInfo,
 };
 use serde_json::{Value, json};
 use sqlx::PgConnection;
@@ -112,6 +112,7 @@ fn subject(c: &Caller) -> Subject<'_> {
     Subject {
         instance_role: c.user.instance_role,
         grants: &c.grants,
+        system_workspace: c.system_workspace,
     }
 }
 
@@ -416,13 +417,13 @@ async fn read<T>(
 
 // ---- workspaces and projects ----------------------------------------------------------------
 
-type WorkspaceRow = (Uuid, String, String, OffsetDateTime, bool);
+type WorkspaceRow = (Uuid, String, String, OffsetDateTime, bool, bool);
 
 /// `Workspaces`: instance admins see every workspace, a token its own, others their grants'.
 pub async fn list_workspaces(app: &AppState, caller: &Caller) -> Vec<Event> {
     let result: Result<Vec<WorkspaceInfo>, sqlx::Error> = async {
         let rows: Vec<WorkspaceRow> = sqlx::query_as(
-            "select id, slug, name, created_at, archived_at is not null from workspaces \
+            "select id, slug, name, created_at, archived_at is not null, system from workspaces \
              order by slug",
         )
         .fetch_all(&app.db)
@@ -439,22 +440,25 @@ pub async fn list_workspaces(app: &AppState, caller: &Caller) -> Vec<Event> {
         Ok(rows
             .into_iter()
             .filter(|r| visible(r.0, r.4))
-            .map(|(id, slug, name, created, archived)| WorkspaceInfo {
-                id,
-                slug,
-                name,
-                created: ts(created),
-                archived,
-                projects: projects
-                    .iter()
-                    .filter(|p| p.1 == id)
-                    .map(|p| ProjectInfo {
-                        id: p.0,
-                        slug: p.2.clone(),
-                        name: p.3.clone(),
-                    })
-                    .collect(),
-            })
+            .map(
+                |(id, slug, name, created, archived, system)| WorkspaceInfo {
+                    id,
+                    slug,
+                    name,
+                    created: ts(created),
+                    archived,
+                    system,
+                    projects: projects
+                        .iter()
+                        .filter(|p| p.1 == id)
+                        .map(|p| ProjectInfo {
+                            id: p.0,
+                            slug: p.2.clone(),
+                            name: p.3.clone(),
+                        })
+                        .collect(),
+                },
+            )
             .collect())
     }
     .await;
@@ -1258,7 +1262,15 @@ async fn grant_remove(app: &AppState, req: &Request<'_>, grant: Uuid) -> Vec<Eve
 
 // ---- users ----------------------------------------------------------------------------------
 
-type UserListRow = (Uuid, String, Option<String>, String, bool, OffsetDateTime);
+type UserListRow = (
+    Uuid,
+    String,
+    Option<String>,
+    String,
+    bool,
+    OffsetDateTime,
+    String,
+);
 
 async fn list_users(app: &AppState, req: &Request<'_>) -> Vec<Event> {
     if let Err(code) = check_admin(req.caller) {
@@ -1278,8 +1290,8 @@ async fn list_users(app: &AppState, req: &Request<'_>) -> Vec<Event> {
 async fn users(app: &AppState) -> Vec<Event> {
     let result: Result<Vec<UserInfo>, sqlx::Error> = async {
         let rows: Vec<UserListRow> = sqlx::query_as(
-            "select id, display_name, email, instance_role, disabled_at is not null, created_at \
-             from users order by display_name, id",
+            "select id, display_name, email, instance_role, disabled_at is not null, created_at, \
+             role_source from users order by display_name, id",
         )
         .fetch_all(&app.db)
         .await?;
@@ -1294,17 +1306,24 @@ async fn users(app: &AppState) -> Vec<Event> {
             by_user.entry(u).or_default().push(t);
         }
         rows.into_iter()
-            .map(|(id, display_name, email, role, disabled, created)| {
-                Ok(UserInfo {
-                    id,
-                    display_name,
-                    email,
-                    instance_role: decode::<keel_core::InstanceRole>(&role)?.into(),
-                    disabled,
-                    teams: by_user.remove(&id).unwrap_or_default(),
-                    created: ts(created),
-                })
-            })
+            .map(
+                |(id, display_name, email, role, disabled, created, source)| {
+                    Ok(UserInfo {
+                        id,
+                        display_name,
+                        email,
+                        instance_role: decode::<keel_core::InstanceRole>(&role)?.into(),
+                        disabled,
+                        teams: by_user.remove(&id).unwrap_or_default(),
+                        created: ts(created),
+                        role_source: if source == "idp" {
+                            RoleSource::Idp
+                        } else {
+                            RoleSource::Keel
+                        },
+                    })
+                },
+            )
             .collect()
     }
     .await;

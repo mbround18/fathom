@@ -110,6 +110,8 @@ pub fn effective(
 pub struct Subject<'a> {
     pub instance_role: InstanceRole,
     pub grants: &'a [Grant],
+    /// The owner-only System workspace, when one is configured (spec 060).
+    pub system_workspace: Option<WorkspaceId>,
 }
 
 impl Subject<'_> {
@@ -133,6 +135,8 @@ pub enum Refusal {
     InstanceAdminOnly,
     #[error("the last owner cannot be removed or demoted")]
     LastOwner,
+    #[error("instance owners only")]
+    OwnerOnly,
 }
 
 impl Refusal {
@@ -143,18 +147,27 @@ impl Refusal {
             Refusal::HostNotCovered => "host_not_covered",
             Refusal::InstanceAdminOnly => "instance_admin_only",
             Refusal::LastOwner => "last_owner",
+            Refusal::OwnerOnly => "owner_only",
         }
     }
 }
 
 /// Requires `cap` on `workspace`, and on every host in `hosts` (each given by its profiles).
-/// With no hosts the workspace itself is the target.
+/// With no hosts the workspace itself is the target. The System workspace is for instance owners
+/// only, whatever the grants or the admin bypass say.
 pub fn require(
     subject: &Subject<'_>,
     cap: Capability,
     workspace: WorkspaceId,
     hosts: &[Vec<String>],
 ) -> Result<(), Refusal> {
+    if subject.system_workspace == Some(workspace) {
+        return if subject.instance_role == InstanceRole::Owner {
+            Ok(())
+        } else {
+            Err(Refusal::OwnerOnly)
+        };
+    }
     if subject.is_instance_admin() {
         return Ok(());
     }
@@ -227,6 +240,7 @@ mod tests {
         Subject {
             instance_role: InstanceRole::User,
             grants,
+            system_workspace: None,
         }
     }
 
@@ -365,6 +379,7 @@ mod tests {
             let s = Subject {
                 instance_role: role,
                 grants: &[],
+                system_workspace: None,
             };
             assert!(require(&s, Capability::Administer, ws(9), &[host(&["x"])]).is_ok());
             assert!(require_instance_admin(&s).is_ok());
@@ -401,5 +416,41 @@ mod tests {
         assert_eq!(Refusal::NoGrant.code(), "no_grant");
         assert_eq!(Refusal::HostNotCovered.code(), "host_not_covered");
         assert_eq!(Refusal::LastOwner.code(), "last_owner");
+        assert_eq!(Refusal::OwnerOnly.code(), "owner_only");
+    }
+
+    #[test]
+    fn system_workspace_is_for_owners_only() {
+        let sys = ws(7);
+        let other = ws(8);
+        let subject = |role, grants| Subject {
+            instance_role: role,
+            grants,
+            system_workspace: Some(sys),
+        };
+        let owner = subject(InstanceRole::Owner, &[]);
+        assert!(require(&owner, Capability::Administer, sys, &[host(&["x"])]).is_ok());
+
+        let admin = subject(InstanceRole::Admin, &[]);
+        assert_eq!(
+            require(&admin, Capability::View, sys, &[]),
+            Err(Refusal::OwnerOnly)
+        );
+        assert!(require(&admin, Capability::Administer, other, &[]).is_ok());
+
+        let g = [
+            grant(sys, TeamRole::WsAdmin, &[]),
+            grant(other, TeamRole::Operator, &[]),
+        ];
+        let granted = subject(InstanceRole::User, &g);
+        assert_eq!(
+            require(&granted, Capability::View, sys, &[host(&["web"])]),
+            Err(Refusal::OwnerOnly)
+        );
+        assert!(require(&granted, Capability::Operate, other, &[]).is_ok());
+        assert_eq!(
+            require(&granted, Capability::Approve, other, &[]),
+            Err(Refusal::NoGrant)
+        );
     }
 }

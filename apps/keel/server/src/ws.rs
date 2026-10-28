@@ -30,6 +30,7 @@ use web_auth::session::{EndReason, Session};
 use crate::dispatch::{self, Channel, Request};
 use crate::identity::{self, Caller};
 use crate::serve::{AppState, error};
+use keel_core::WorkspaceId;
 use keel_core::authz::Capability;
 
 pub const CLOSE_GOING_AWAY: u16 = 1001;
@@ -111,7 +112,10 @@ async fn check(app: &AppState, session: &str) -> Check {
         return Check::Gone;
     }
     match identity::load_session(&app.db, session, app.clock.now()).await {
-        Ok(Some(c)) => Check::Valid(Box::new(c)),
+        Ok(Some(mut c)) => {
+            c.system_workspace = app.system_workspace().map(WorkspaceId);
+            Check::Valid(Box::new(c))
+        }
         Ok(None) => Check::Gone,
         Err(e) => {
             tracing::error!(error = %e, "session lookup failed");

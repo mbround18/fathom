@@ -22,6 +22,7 @@ use crate::serve::{AppState, error};
 // Governance (US6)
 use crate::governance;
 use crate::preview::Draft;
+use keel_core::WorkspaceId;
 use keel_core::authz::Capability;
 use keel_protocol::{
     ApiTokenInfo, Label, MAX_TOKEN_DAYS, TOKEN_ACTIONS, TokenActions, TokenSecret,
@@ -85,6 +86,8 @@ pub async fn cmd(State(app): State<AppState>, headers: HeaderMap, body: Bytes) -
             }
         }
     };
+    let mut caller = caller;
+    caller.system_workspace = app.system_workspace().map(WorkspaceId);
     let Ok(env) = serde_json::from_slice::<CmdEnvelope>(&body) else {
         return error(StatusCode::BAD_REQUEST, "bad_request");
     };

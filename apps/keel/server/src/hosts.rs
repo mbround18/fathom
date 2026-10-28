@@ -856,6 +856,10 @@ async fn create_enrollment(
         profiles,
         expires_at: ts(expires),
         token: EnrollToken(token),
+        // TODO(060 US1): render the instance template and attach the instructions.
+        snippet: String::new(),
+        instructions: String::new(),
+        instructions_unavailable: false,
     }]
 }
 

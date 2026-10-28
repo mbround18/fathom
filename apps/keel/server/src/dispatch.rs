@@ -178,6 +178,25 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::ListSigners { .. }
         | Cmd::PreviewSignerAdd { .. }
         | Cmd::PreviewSignerRemove { .. } => Ok(()),
+        // Settings, enrolments, admin tokens and the System workspace (spec 060): sessions
+        // only; the handlers check instance admin or owner.
+        Cmd::GetSettings
+        | Cmd::PreviewSettingsUpdate { .. }
+        | Cmd::ListEnrollments { .. }
+        | Cmd::PreviewEnrollmentRevoke { .. }
+        | Cmd::PreviewEnrollmentRoll { .. }
+        | Cmd::ListAllApiTokens { .. }
+        | Cmd::GetSystem
+        | Cmd::PreviewSystemConfigure { .. }
+        | Cmd::PreviewSystemRemove => {
+            if caller.token.is_some() {
+                Err(Refused {
+                    code: "session_required",
+                })
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
@@ -408,6 +427,16 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::ListSigners { .. }
         | Cmd::PreviewSignerAdd { .. }
         | Cmd::PreviewSignerRemove { .. }) => crate::review::handle(app, req, other).await,
+        // Settings, enrolments, admin tokens and the System workspace (spec 060): not built yet.
+        Cmd::GetSettings
+        | Cmd::PreviewSettingsUpdate { .. }
+        | Cmd::ListEnrollments { .. }
+        | Cmd::PreviewEnrollmentRevoke { .. }
+        | Cmd::PreviewEnrollmentRoll { .. }
+        | Cmd::ListAllApiTokens { .. }
+        | Cmd::GetSystem
+        | Cmd::PreviewSystemConfigure { .. }
+        | Cmd::PreviewSystemRemove => vec![not_implemented()],
     };
     events
         .into_iter()
@@ -417,6 +446,10 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
 
 fn internal() -> Event {
     Event::op_error("internal", "Keel could not complete that. Try again.")
+}
+
+fn not_implemented() -> Event {
+    Event::op_error("not_implemented", "This Keel does not support that yet.")
 }
 
 /// Audits a refusal; a failed write is logged, never shown to the caller.
