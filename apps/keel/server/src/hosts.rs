@@ -24,6 +24,7 @@ use std::time::{Duration, SystemTime};
 
 use keel_core::WorkspaceId;
 use keel_core::authz::{self, Capability};
+use keel_core::enroll_template;
 use keel_exec::ca::{self, CaKind, RunnerCertRequest, RunnerCertVerifier, SshCa, TrustedCa};
 use keel_exec::frames::Frame;
 use keel_exec::krl::Krl;
@@ -759,7 +760,7 @@ async fn preview_enroll(
 }
 
 /// The profiles exist in the workspace and no host has that name yet.
-async fn check_enroll(
+pub(crate) async fn check_enroll(
     app: &AppState,
     workspace: Uuid,
     inventory_name: &str,
@@ -803,64 +804,155 @@ async fn create_enrollment(
     inventory_name: String,
     profiles: Vec<String>,
 ) -> Vec<Event> {
-    let Some(cas) = app.ssh.get() else {
-        return op_error(
-            "ssh_ca_unavailable",
-            "The SSH certificate authorities are not loaded.",
-        );
+    let new = match NewEnrollment::mint(app) {
+        Ok(n) => n,
+        Err(e) => return e,
     };
-    let Some(token) = new_token(&cas.host.fingerprint()) else {
-        return internal();
-    };
-    let id = Uuid::now_v7();
-    let expires = OffsetDateTime::now_utc() + TOKEN_TTL;
-    let result: Result<(), sqlx::Error> = async {
+    let result: Result<String, sqlx::Error> = async {
         let mut tx = app.db.begin().await?;
-        sqlx::query(
-            "insert into host_enrollments (id, workspace_id, inventory_name, profiles, \
-             token_hash, expires_at, created_by) values ($1, $2, $3, $4, $5, $6, $7)",
-        )
-        .bind(id)
-        .bind(workspace)
-        .bind(&inventory_name)
-        .bind(&profiles)
-        .bind(token_hash(&token))
-        .bind(expires)
-        .bind(caller.user.id)
-        .execute(&mut *tx)
-        .await?;
-        // Never the token, nor its hash.
-        audit::record(
+        let slug = insert_enrollment(
             &mut tx,
-            Entry {
-                actor: &caller.actor(),
-                action: "host_enrollment_created",
-                workspace: Some(WorkspaceId(workspace)),
-                target: json!({ "enrollment": id, "inventory_name": inventory_name }),
-                decision: Decision::Allowed,
-                reason: None,
-                context: json!({ "profiles": profiles, "expires_at": ts(expires) }),
-            },
+            caller,
+            workspace,
+            &inventory_name,
+            &profiles,
+            &new,
+            None,
         )
         .await?;
-        tx.commit().await
+        tx.commit().await?;
+        Ok(slug)
     }
     .await;
-    if let Err(e) = result {
-        return db_failed(&e);
+    match result {
+        Ok(slug) => {
+            vec![enrollment_event(app, new, workspace, &slug, inventory_name, profiles).await]
+        }
+        Err(e) => db_failed(&e),
     }
-    vec![Event::HostEnrollment {
-        id,
+}
+
+/// A token about to be stored: its row id, the token itself (shown once) and its expiry.
+pub(crate) struct NewEnrollment {
+    pub id: Uuid,
+    token: String,
+    pub expires: OffsetDateTime,
+}
+
+impl NewEnrollment {
+    /// A fresh token for the active host CA.
+    pub(crate) fn mint(app: &AppState) -> Result<Self, Vec<Event>> {
+        let Some(cas) = app.ssh.get() else {
+            return Err(op_error(
+                "ssh_ca_unavailable",
+                "The SSH certificate authorities are not loaded.",
+            ));
+        };
+        let Some(token) = new_token(&cas.host.fingerprint()) else {
+            return Err(internal());
+        };
+        Ok(Self {
+            id: Uuid::now_v7(),
+            token,
+            expires: OffsetDateTime::now_utc() + TOKEN_TTL,
+        })
+    }
+}
+
+/// Stores `new` (its hash only) and audits `host_enrollment_created` in the caller's
+/// transaction; a rolled token's audit context names the one it replaced. Returns the
+/// workspace slug.
+pub(crate) async fn insert_enrollment(
+    tx: &mut PgConnection,
+    caller: &Caller,
+    workspace: Uuid,
+    inventory_name: &str,
+    profiles: &[String],
+    new: &NewEnrollment,
+    rolled_from: Option<Uuid>,
+) -> Result<String, sqlx::Error> {
+    let slug: String = sqlx::query_scalar("select slug from workspaces where id = $1")
+        .bind(workspace)
+        .fetch_one(&mut *tx)
+        .await?;
+    sqlx::query(
+        "insert into host_enrollments (id, workspace_id, inventory_name, profiles, \
+         token_hash, expires_at, created_by, rolled_from) \
+         values ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(new.id)
+    .bind(workspace)
+    .bind(inventory_name)
+    .bind(profiles)
+    .bind(token_hash(&new.token))
+    .bind(new.expires)
+    .bind(caller.user.id)
+    .bind(rolled_from)
+    .execute(&mut *tx)
+    .await?;
+    let mut context = json!({ "profiles": profiles, "expires_at": ts(new.expires) });
+    if let Some(old) = rolled_from {
+        context["rolled_from"] = json!(old);
+    }
+    // Never the token, nor its hash.
+    audit::record(
+        tx,
+        Entry {
+            actor: &caller.actor(),
+            action: "host_enrollment_created",
+            workspace: Some(WorkspaceId(workspace)),
+            target: json!({ "enrollment": new.id, "inventory_name": inventory_name }),
+            decision: Decision::Allowed,
+            reason: None,
+            context,
+        },
+    )
+    .await?;
+    Ok(slug)
+}
+
+/// The `HostEnrollment` reply for a stored token. The snippet is the instance template rendered
+/// with the token (spec 060, FR-004); when the settings can't be read, the default template is
+/// used and `instructions_unavailable` says so. Nothing here logs the token.
+pub(crate) async fn enrollment_event(
+    app: &AppState,
+    new: NewEnrollment,
+    workspace: Uuid,
+    slug: &str,
+    inventory_name: String,
+    profiles: Vec<String>,
+) -> Event {
+    let (template, instructions, unavailable) = match crate::settings::load(&app.db).await {
+        Ok(s) => (s.template().to_owned(), s.instructions, false),
+        Err(e) => {
+            tracing::warn!(error = %e, "enrolment settings unreadable, using the defaults");
+            (
+                enroll_template::DEFAULT_TEMPLATE.to_owned(),
+                String::new(),
+                true,
+            )
+        }
+    };
+    let values = enroll_template::Values {
+        token: new.token.clone(),
+        name: inventory_name.clone(),
+        profiles: profiles.join(","),
+        workspace: slug.to_owned(),
+        runner: crate::settings::runner_address(&app.cfg).unwrap_or_default(),
+        url: crate::settings::public_url(&app.cfg),
+        expires: ts(new.expires),
+    };
+    Event::HostEnrollment {
+        id: new.id,
         workspace,
         inventory_name,
         profiles,
-        expires_at: ts(expires),
-        token: EnrollToken(token),
-        // TODO(060 US1): render the instance template and attach the instructions.
-        snippet: String::new(),
-        instructions: String::new(),
-        instructions_unavailable: false,
-    }]
+        expires_at: ts(new.expires),
+        snippet: enroll_template::render(&template, &values),
+        token: EnrollToken(new.token),
+        instructions,
+        instructions_unavailable: unavailable,
+    }
 }
 
 async fn preview_revoke(app: &AppState, req: &Request<'_>, host: Uuid) -> Vec<Event> {

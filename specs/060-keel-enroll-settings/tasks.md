@@ -79,7 +79,7 @@ shape.
 
 ### Tests
 
-- [ ] T010 [P] [US1] Write a server DB test in `apps/keel/server/tests/enroll_snippet.rs`. It checks that:
+- [X] T010 [P] [US1] Write a server DB test in `apps/keel/server/tests/enroll_snippet.rs`. It checks that:
   - `HostEnrollment.snippet` renders the default template with the real token when there is no settings row;
   - with a saved template, it renders that template;
   - `instructions_unavailable` is true when the settings read fails.
@@ -91,7 +91,7 @@ shape.
 
 ### Implementation
 
-- [ ] T012 [US1] In `apps/keel/server/src/hosts.rs` `create_enrollment`: load `instance_settings` (falling back to defaults on error, with `instructions_unavailable = true`), and render the snippet with `keel_core::enroll_template::render`. The values are `%t` the token, `%n`, `%p` comma-joined, `%w` the slug, `%s` from `runner_host_names` and `runner_listen`, `%u` the public URL, and `%e` the RFC 3339 expiry. Never log the token.
+- [X] T012 [US1] In `apps/keel/server/src/hosts.rs` `create_enrollment`: load `instance_settings` (falling back to defaults on error, with `instructions_unavailable = true`), and render the snippet with `keel_core::enroll_template::render`. The values are `%t` the token, `%n`, `%p` comma-joined, `%w` the slug, `%s` from `runner_host_names` and `runner_listen`, `%u` the public URL, and `%e` the RFC 3339 expiry. Never log the token.
 - [ ] T013 [P] [US1] Build the shared primitives `apps/keel/web/src/ui/{Dialog,CopyBlock}.tsx`, on radix-ui and the theme tokens in `index.css`. `CopyBlock` takes a masked mode with a reveal, and a copied state.
 - [ ] T014 [P] [US1] Write `apps/keel/web/src/features/settings/Markdown.tsx`, lazy-loaded. It uses react-markdown and remark-gfm, plus a remark plugin that turns `html` nodes into `text`. `a` gets `target=_blank rel="noopener noreferrer"`; `img` renders as a link. Add a Vitest in `apps/keel/web/tests/unit/markdown.test.tsx`.
 - [ ] T015 [US1] Write `apps/keel/web/src/features/hosts/EnrollDialog.tsx`:
