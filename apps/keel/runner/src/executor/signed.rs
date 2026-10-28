@@ -2,8 +2,8 @@
 //!
 //! The executor decides alone. The base comes from its own ledger, never from `Assign`; the
 //! signers, approvers, origin, RP id, quorum and maximum approval age come from its trust files.
-//! Nothing Keel sends can lower the quorum (`max(policy.override_quorum, Keel's)`, and Keel's is
-//! not on the wire, so it counts as 0) or add a signer or approver.
+//! Nothing Keel sends can lower the quorum (`max(policy.override_quorum, Keel's)`) or add a signer
+//! or approver.
 //!
 //! The ledger is append-only and crash-safe: every line is written with `O_APPEND` and `fsync`ed
 //! before the executor acts on it, and the directory is `fsync`ed when the file is created. An
@@ -31,11 +31,6 @@ pub const SIGNERS_FILE: &str = "signers";
 pub const APPROVERS_FILE: &str = "approvers.json";
 /// The lock serializing ledger reads and appends, under the state directory.
 pub const LOCK_FILE: &str = "ledger.lock";
-
-/// Says, in every `bad_override` detail, why no approval can verify yet: the challenge covers
-/// `workspace`, `binding` and `hosts`, and the wire carries none of them.
-pub const WIRE_GAP: &str = "Assign carries no workspace or binding and Approvals no hosts \
-     (keel-exec frames.rs), so this host cannot rebuild the challenge";
 
 /// The host's trust, as signed mode needs it.
 pub struct Trust {
@@ -65,16 +60,21 @@ pub fn load_trust(trust_dir: &Path, policy: &Policy) -> Result<Trust, String> {
     })
 }
 
-/// The run as keel-trust sees it. `workspace`, `binding` and Keel's quorum are not on the wire
-/// (see [`WIRE_GAP`]): they are left empty and 0, so no challenge can match and the quorum is the
-/// host's own.
-pub fn run_context(run_id: &str, job: &str) -> RunContext {
+/// The run as keel-trust sees it, from `Assign`. A missing quorum counts as 0, so the host's own
+/// quorum applies; keel-trust takes the larger of the two.
+pub fn run_context(
+    workspace: &str,
+    binding: &str,
+    run_id: &str,
+    job: &str,
+    quorum: Option<u32>,
+) -> RunContext {
     RunContext {
-        workspace: String::new(),
-        binding: String::new(),
+        workspace: workspace.to_owned(),
+        binding: binding.to_owned(),
         run: run_id.to_owned(),
         job: job.to_owned(),
-        assign_quorum: 0,
+        assign_quorum: quorum.unwrap_or(0),
     }
 }
 
@@ -87,8 +87,7 @@ fn has_assertion(a: &frames::Approval) -> bool {
 ///
 /// Items without a passkey assertion are dropped: they are not approvals the host can verify,
 /// and with nothing left the run is `unsigned` (or `downgrade`), exactly as with no approvals.
-/// Any other item that does not decode is `bad_override`. The wire carries no `hosts`, so each
-/// approval covers no host (see [`WIRE_GAP`]).
+/// Any other item that does not decode is `bad_override`.
 pub fn wire_approvals(items: &[frames::Approval]) -> Result<Vec<Approval>, String> {
     let mut out = Vec::new();
     for (index, a) in items.iter().filter(|a| has_assertion(a)).enumerate() {
@@ -106,7 +105,7 @@ pub fn wire_approvals(items: &[frames::Approval]) -> Result<Vec<Approval>, Strin
             "signature": a.signature,
             "expires_at": expires_at,
             "comment": a.comment,
-            "hosts": [],
+            "hosts": a.hosts,
         });
         let approval: Approval = serde_json::from_value(value).map_err(|_| {
             format!("approval {index}: the kind or an assertion field does not decode")
@@ -154,9 +153,7 @@ pub fn wire_refusal(
             frames::Refusal::Downgrade,
             "the target is not this host's base or a descendant of it".to_owned(),
         ),
-        Refusal::BadOverride { error } => {
-            (frames::Refusal::BadOverride, format!("{error}; {WIRE_GAP}"))
-        }
+        Refusal::BadOverride { error } => (frames::Refusal::BadOverride, error.to_string()),
     })
 }
 
@@ -288,6 +285,7 @@ mod tests {
             signature: "AwQ".to_owned(),
             expires_at: 1_800_000_000,
             comment: "ok".to_owned(),
+            hosts: vec!["web-1".to_owned()],
         }
     }
 
@@ -301,13 +299,13 @@ mod tests {
     }
 
     #[test]
-    fn a_wire_approval_decodes_without_hosts() {
+    fn a_wire_approval_decodes_with_its_hosts() {
         let got = wire_approvals(&[wire("baseline")]).unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, ApprovalKind::Baseline);
         assert_eq!(got[0].authenticator_data, vec![0, 1, 2]);
         assert_eq!(got[0].expires_at, "2027-01-15T08:00:00Z");
-        assert!(got[0].hosts.is_empty(), "the wire carries no hosts");
+        assert_eq!(got[0].hosts, vec!["web-1".to_owned()]);
     }
 
     #[test]

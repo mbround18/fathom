@@ -217,11 +217,15 @@ struct Delivery {
 
 struct Assignment {
     run_id: String,
+    workspace: String,
+    binding: String,
     job: String,
     base: Option<String>,
     target: String,
     deadline: u64,
     pack_size: u64,
+    /// Keel's override quorum; the host counts `max(its own, this)`.
+    quorum: Option<u32>,
 }
 
 async fn run(
@@ -232,11 +236,14 @@ async fn run(
 ) {
     let Frame::Assign {
         run_id,
+        workspace,
+        binding,
         job,
         base,
         target,
         deadline,
         pack_size,
+        quorum,
     } = assign
     else {
         return;
@@ -247,11 +254,14 @@ async fn run(
     }
     let a = Assignment {
         run_id,
+        workspace,
+        binding,
         job,
         base,
         target,
         deadline,
         pack_size,
+        quorum,
     };
     let run_id = a.run_id.clone();
     match prepare_and_run(&a, cfg, out, incoming).await {
@@ -435,7 +445,7 @@ fn authorize(
         Err(e) => (Vec::new(), Some(e)),
     };
     let objects = store.objects().map_err(|e| fail(e.to_string()))?;
-    let run = signed::run_context(&a.run_id, &a.job);
+    let run = signed::run_context(&a.workspace, &a.binding, &a.run_id, &a.job, a.quorum);
     let now = i64::try_from(crate::runner::unix_now()).unwrap_or(i64::MAX);
     let req = keel_trust::RunRequest {
         ledger: &text,

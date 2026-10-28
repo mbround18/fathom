@@ -254,11 +254,14 @@ fn secrets(run_id: &str, sleep: bool) -> Frame {
 fn assign(run_id: &str, job: &str, base: Option<&str>, target: &str, pack: &[u8]) -> Frame {
     Frame::Assign {
         run_id: run_id.to_owned(),
+        workspace: "ws-1".to_owned(),
+        binding: "main".to_owned(),
         job: job.to_owned(),
         base: base.map(str::to_owned),
         target: target.to_owned(),
         deadline: now() + 600,
         pack_size: pack.len() as u64,
+        quorum: None,
     }
 }
 

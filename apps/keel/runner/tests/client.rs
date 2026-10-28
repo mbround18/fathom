@@ -535,11 +535,14 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
     let key_data = host.runner(1).public_key().clone();
     let assign = Frame::Assign {
         run_id: "run-1".to_owned(),
+        workspace: "ws-1".to_owned(),
+        binding: "main".to_owned(),
         job: "site".to_owned(),
         base: None,
         target: INVENTORY_NAME.to_owned(),
         deadline: 4_000_000_000,
         pack_size: 0,
+        quorum: None,
     };
     let secrets = Frame::Secrets {
         run_id: "run-1".to_owned(),

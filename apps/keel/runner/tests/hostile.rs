@@ -400,11 +400,14 @@ fn run(
 ) -> Vec<Frame> {
     let mut frames = vec![Frame::Assign {
         run_id: run_id.to_owned(),
+        workspace: "ws-1".to_owned(),
+        binding: "main".to_owned(),
         job: JOB.to_owned(),
         base: base.map(str::to_owned),
         target: target.to_owned(),
         deadline: now() + 600,
         pack_size: pack.len() as u64,
+        quorum: None,
     }];
     frames.extend(pack_builder::frames(run_id, pack));
     frames.push(Frame::Secrets {
@@ -418,8 +421,13 @@ fn run(
     frames
 }
 
-/// An approval with the given assertion fields (base64url).
-fn approval(authenticator_data: &str, client_data_json: &str, signature: &str) -> Approval {
+/// An approval for `host` with the given assertion fields (base64url).
+fn approval(
+    host: &str,
+    authenticator_data: &str,
+    client_data_json: &str,
+    signature: &str,
+) -> Approval {
     Approval {
         kind: "override".to_owned(),
         approver: "mallory".to_owned(),
@@ -429,6 +437,7 @@ fn approval(authenticator_data: &str, client_data_json: &str, signature: &str) -
         signature: signature.to_owned(),
         expires_at: now() + 3600,
         comment: "trust me".to_owned(),
+        hosts: vec![host.to_owned()],
     }
 }
 
@@ -447,9 +456,9 @@ async fn a_hostile_server_with_the_right_ca_gets_every_run_refused() {
     seed_ledger(&host, b);
     let ledger_before = host.ledger();
 
-    // An approval with a plausible assertion whose challenge names no host (the wire cannot
-    // name one), standing in for approvals given for another host.
+    // An approval with a plausible assertion, given for another host.
     let other_host = approval(
+        "web-2",
         "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA",
         "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiQUFBQSIsIm9yaWdpbiI6Imh0dHBzOi8va2VlbC50ZXN0In0",
         "c3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzcw",
@@ -459,7 +468,10 @@ async fn a_hostile_server_with_the_right_ca_gets_every_run_refused() {
             "run-unsigned",
             Some(b),
             c,
-            vec![approval("", "", ""), approval("", "", "")],
+            vec![
+                approval(INVENTORY_NAME, "", "", ""),
+                approval(INVENTORY_NAME, "", "", ""),
+            ],
             Refusal::Unsigned,
         ),
         ("run-wrong-base", Some(c), c, vec![], Refusal::BaseMismatch),
