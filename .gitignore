@@ -54,3 +54,7 @@ ui/playwright-report
 
 # pnpm workspace root
 node_modules/
+
+# Keel dev compose: local settings and secrets (TLS cert/key, master key)
+apps/keel/.env
+apps/keel/secrets/

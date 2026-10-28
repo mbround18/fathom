@@ -1,0 +1,97 @@
+# Keel dev stack (spec 055 T127): the server and its PostgreSQL. Runners live on the managed hosts;
+# there is no runner service here.
+#
+#   cp .env.example .env          # fill in the URL, names, DB password and one sign-in provider
+#   make keel image               # build mbround18/keel:latest (or set KEEL_IMAGE)
+#   make keel compose-secrets     # TLS cert + key and the master key into KEEL_SECRETS_DIR
+#   make keel compose-up
+#
+# Keel serves HTTPS itself on KEEL_HTTPS_PORT (KEEL_TLS_CERT/KEEL_TLS_KEY), and the runner SSH
+# listener on KEEL_RUNNER_PORT. Expose the runner port only on the network hosts use.
+# The secrets directory is bind-mounted read-only; nothing secret is baked into the image.
+# `make keel compose-down` leaves the volumes; remove them only by name, by hand.
+
+name: keel
+
+services:
+  keel-db:
+    image: postgres:18-trixie
+    restart: ${RESTART_POLICY:-no}
+    environment:
+      # The owner role: it runs the migrations, which create the NOLOGIN role keel_app that the
+      # server switches to for serving (migrations/0001_identity.sql, db.rs).
+      POSTGRES_USER: keel
+      POSTGRES_DB: keel
+      POSTGRES_PASSWORD: ${KEEL_DB_PASSWORD:?set KEEL_DB_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "keel", "-d", "keel"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      # PostgreSQL 18 images keep PGDATA under this directory (18/docker).
+      - keel-db:/var/lib/postgresql
+    networks:
+      - db
+
+  keel:
+    image: ${KEEL_IMAGE:-mbround18/keel:latest}
+    build:
+      context: ../..
+      dockerfile: apps/keel/Dockerfile
+      target: server
+    restart: ${RESTART_POLICY:-no}
+    depends_on:
+      keel-db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      KEEL_LISTEN: 0.0.0.0:7830
+      KEEL_RUNNER_LISTEN: 0.0.0.0:7831
+      KEEL_PUBLIC_URL: ${KEEL_PUBLIC_URL:?set KEEL_PUBLIC_URL in .env}
+      KEEL_RUNNER_HOST_NAMES: ${KEEL_RUNNER_HOST_NAMES:-}
+      KEEL_DATABASE_URL: postgres://keel:${KEEL_DB_PASSWORD}@keel-db:5432/keel
+      KEEL_MASTER_KEY_FILE: /run/keel/master.key
+      KEEL_TLS_CERT: /run/keel/tls.crt
+      KEEL_TLS_KEY: /run/keel/tls.key
+      KEEL_DATA_DIR: /var/lib/keel
+      KEEL_STATIC_DIR: /usr/share/keel/web
+      # One sign-in provider at least (contracts/config.md). Empty values count as unset.
+      KEEL_OIDC_ISSUER: ${KEEL_OIDC_ISSUER:-}
+      KEEL_OIDC_CLIENT_ID: ${KEEL_OIDC_CLIENT_ID:-}
+      KEEL_OIDC_CLIENT_SECRET: ${KEEL_OIDC_CLIENT_SECRET:-}
+      KEEL_OIDC_SCOPES: ${KEEL_OIDC_SCOPES:-}
+      KEEL_GITHUB_CLIENT_ID: ${KEEL_GITHUB_CLIENT_ID:-}
+      KEEL_GITHUB_CLIENT_SECRET: ${KEEL_GITHUB_CLIENT_SECRET:-}
+      KEEL_DISCORD_CLIENT_ID: ${KEEL_DISCORD_CLIENT_ID:-}
+      KEEL_DISCORD_CLIENT_SECRET: ${KEEL_DISCORD_CLIENT_SECRET:-}
+      KEEL_SIGNED_MODE_DEFAULT: ${KEEL_SIGNED_MODE_DEFAULT:-false}
+      KEEL_LOG: ${KEEL_LOG:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    ports:
+      - "${KEEL_HTTPS_PORT:-8443}:7830"
+      - "${KEEL_RUNNER_PORT:-7831}:7831"
+    volumes:
+      - keel-data:/var/lib/keel
+      - ${KEEL_SECRETS_DIR:?set KEEL_SECRETS_DIR in .env}:/run/keel:ro
+    networks:
+      - edge
+      - db
+
+networks:
+  # keel only: the published web and runner ports.
+  edge: {}
+  # keel and keel-db; no route out.
+  db:
+    internal: true
+
+volumes:
+  keel-data:
+  keel-db:
