@@ -576,7 +576,7 @@ that each host verifies against keys pinned on the host; a hash-chained ledger o
   JCS(line without hash))`, first `prev` 32 zero bytes; the base is the `target` of the latest
   `end` with `succeeded` or `failed`; a `run` with an existing `start` is `replay`; a broken
   chain is `ledger_corrupt`.
-- [ ] T092 [P] [US8] Server tests in apps/keel/server/tests/signed.rs: the early check makes a run
+- [X] T092 [P] [US8] Server tests in apps/keel/server/tests/signed.rs: the early check makes a run
   `needs_review` at sync time with failing commits listed; hosts grouped by base into
   `review_groups`; turning signed mode off needs step-up and is audited; a binding in signed mode
   refuses a `managed` inventory.
@@ -584,9 +584,9 @@ that each host verifies against keys pinned on the host; a hash-chained ledger o
   with the right CA sends an unsigned pack with passkey-less approvals, a wrong `base`, an older
   target, approvals for another host and a replayed run id; the executor refuses each with
   `unsigned`, `base_mismatch`, `downgrade`, `bad_override` and `replay` (SC-009).
-- [ ] T094 [P] [US8] Round-trip tests for the review commands, `PreviewSignedMode`,
+- [X] T094 [P] [US8] Round-trip tests for the review commands, `PreviewSignedMode`,
   `PreviewBaseline`, signer commands and the `ReviewRequested` event.
-- [ ] T095 [P] [US8] Playwright apps/keel/web/tests/e2e/us8/: a review lists commits with
+- [X] T095 [P] [US8] Playwright apps/keel/web/tests/e2e/us8/: a review lists commits with
   signature status, flags `.keel/`, inventory and `keel_runner_*` changes, pages through the diff
   file by file, and approves with a passkey and a required comment.
 
@@ -606,21 +606,21 @@ that each host verifies against keys pinned on the host; a hash-chained ledger o
   own ledger, never from `Assign`; `base_mismatch` reporting the host's base; run the check;
   verify overrides; append `start` before and `end` after the run; verify the whole chain at start;
   return `ledger_line` in `Finished`; `keel-executor ledger verify`. Pass T093.
-- [ ] T099 [US8] Migration `0006_signed.sql`: `review_groups` (`state` `open | approved | denied |
+- [X] T099 [US8] Migration `0007_signed.sql` (plus `0008_review_reason.sql`): `review_groups` (`state` `open | approved | denied |
   expired`), `approvals` (`kind` `approval | override`; unique on (`run_id`,
   `approver_user_id`, `kind`, `review_group_id`); `challenge_sha256?`; `assertion jsonb?`),
   `trusted_signers` (`kind` `openpgp | ssh`; fingerprint unique per workspace), `host_revisions`
   (insert-only).
-- [ ] T100 [US8] Early check and review grouping in apps/keel/server/src/review.rs using the same
+- [X] T100 [US8] Early check and review grouping in apps/keel/server/src/review.rs using the same
   `keel-trust` functions against the mirror and workspace signers; diff for review from
   crates/keel-git/src/diff.rs, with trust or targeting flags. Pass T092.
-- [ ] T101 [US8] Review commands: `ListReviews`, `GetReview`, `GetReviewDiff` (paged),
+- [X] T101 [US8] Review commands: `ListReviews`, `GetReview`, `GetReviewDiff` (paged),
   `PreviewOverride` (replies the canonical challenge; `Confirm` carries the passkey assertion over
   it; comment required; four-eyes against unsigned commit authors when the policy asks),
   `PreviewOverrideDeny`, `PreviewBaseline`, `PreviewSignedMode`; signer commands `ListSigners`,
   `PreviewSignerAdd`, `PreviewSignerRemove` (step-up). Approvals are sent to hosts unchanged in
   `Approvals`.
-- [ ] T102 [P] [US8] Web page apps/keel/web/src/features/reviews/ (commit list, flagged files,
+- [X] T102 [P] [US8] Web page apps/keel/web/src/features/reviews/ (commit list, flagged files,
   paged diff, passkey approve with comment, deny) and a signers section in workspace settings.
 
 **Checkpoint**: `cargo test -p keel-trust` vectors pass on both server and executor paths; the US8
@@ -744,10 +744,10 @@ schema with a conflict renamed; a tampered bundle is refused before anything is 
 
 ## Phase 12: Polish and cross-cutting
 
-- [ ] T126 [P] Dockerfile apps/keel/Dockerfile: cargo-chef planner, cook, builder; a separate
+- [X] T126 [P] Dockerfile apps/keel/Dockerfile: cargo-chef planner, cook, builder; a separate
   pnpm web stage; target `server` (distroless, non-root, read-only root) with the web `dist`
   copied beside the binary and served from `KEEL_STATIC_DIR`.
-- [ ] T127 [P] apps/keel/compose.yaml and .env.example: services `keel` and `keel-db`
+- [X] T127 [P] apps/keel/compose.yaml and .env.example: services `keel` and `keel-db`
   (PostgreSQL 18), both `restart: ${RESTART_POLICY:-no}`; networks `edge` (keel only, web and
   runner ports) and `db` (internal); the master key mounted read-only; named volumes, never
   pruned by tooling.
