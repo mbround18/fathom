@@ -114,9 +114,9 @@ shape.
 
 ### Tests
 
-- [ ] T017 [P] [US5] Add web-auth unit tests in `crates/web-auth/src/oidc.rs`: a dotted path (`realm_access.roles`) reads a nested array; a single segment behaves as before; a non-array leaf is treated as missing.
-- [ ] T018 [P] [US5] Add config tests in `apps/keel/server/src/config.rs`, one for each refusal in `contracts/config.md`. Each asserts that the error names the setting.
-- [ ] T019 [P] [US5] Add server DB tests in `apps/keel/server/tests/oidc_roles.rs`:
+- [X] T017 [P] [US5] Add web-auth unit tests in `crates/web-auth/src/oidc.rs`: a dotted path (`realm_access.roles`) reads a nested array; a single segment behaves as before; a non-array leaf is treated as missing.
+- [X] T018 [P] [US5] Add config tests in `apps/keel/server/src/config.rs`, one for each refusal in `contracts/config.md`. Each asserts that the error names the setting.
+- [X] T019 [P] [US5] Add server DB tests in `apps/keel/server/tests/oidc_roles.rs`:
   - concurrent first sign-ins make exactly one owner (FR-023);
   - the highest mapped role wins;
   - a change bumps the epoch and audits `user_role` with reason `identity_provider`;
@@ -127,12 +127,12 @@ shape.
 
 ### Implementation
 
-- [ ] T020 [US5] In `crates/web-auth/src/oidc.rs`, teach the groups-claim lookup (around line 441) dotted paths: walk objects segment by segment, and require a string array at the leaf.
-- [ ] T021 [US5] In `apps/keel/server/src/config.rs`, add `RoleMapping { claim, owner, admin, user, required }` from `KEEL_OIDC_ROLE_*` and the `--oidc-role-*` flags, with the validation from `contracts/config.md`. In `apps/keel/server/src/serve.rs` (around line 444), set `ClaimsConfig.groups` to the claim, `groups_prefix` to `""`, and `groups_required` to `required`.
-- [ ] T022 [US5] In `apps/keel/server/src/identity.rs` `sign_in`, inside the `SIGN_IN_LOCK` advisory lock, apply the mapping per research R7. Add `SignInError::NotMapped`, and set `role_source` and `idp_role`. In `apps/keel/server/src/signin.rs`, pass the groups through and audit refusals with `role_not_mapped`.
-- [ ] T023 [US5] In `apps/keel/server/src/governance.rs`, refuse `PreviewUserRole` for idp-managed users, and fill `UserInfo.role_source`.
+- [X] T020 [US5] In `crates/web-auth/src/oidc.rs`, teach the groups-claim lookup (around line 441) dotted paths: walk objects segment by segment, and require a string array at the leaf.
+- [X] T021 [US5] In `apps/keel/server/src/config.rs`, add `RoleMapping { claim, owner, admin, user, required }` from `KEEL_OIDC_ROLE_*` and the `--oidc-role-*` flags, with the validation from `contracts/config.md`. In `apps/keel/server/src/serve.rs` (around line 444), set `ClaimsConfig.groups` to the claim, `groups_prefix` to `""`, and `groups_required` to `required`.
+- [X] T022 [US5] In `apps/keel/server/src/identity.rs` `sign_in`, inside the `SIGN_IN_LOCK` advisory lock, apply the mapping per research R7. Add `SignInError::NotMapped`, and set `role_source` and `idp_role`. In `apps/keel/server/src/signin.rs`, pass the groups through and audit refusals with `role_not_mapped`.
+- [X] T023 [US5] In `apps/keel/server/src/governance.rs`, refuse `PreviewUserRole` for idp-managed users, and fill `UserInfo.role_source`.
 - [ ] T024 [P] [US5] In `apps/keel/web/src/features/users/UsersPage.tsx`, show an "Identity provider" tag and no role control for idp rows.
-- [ ] T025 [P] [US5] Write `docs/guides/keel/oidc-roles.md`: the Keycloak setup, the env vars, and what owners see.
+- [X] T025 [P] [US5] Write `docs/guides/keel/oidc-roles.md`: the Keycloak setup, the env vars, and what owners see.
 
 **Checkpoint**: US5 tests pass.
 
