@@ -6,6 +6,9 @@ edition = "2024"
 license = "Apache-2.0"
 publish = false
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "keel-runner"
 path = "src/bin/keel-runner.rs"
@@ -16,5 +19,33 @@ path = "src/bin/keel-executor.rs"
 
 [dependencies]
 clap = { version = "4.6", features = ["derive", "env"] }
+# The executor's Git store: unpack a pack and read trees. Isolated open, no hooks, no worktree.
+gix = { version = "0.90.0", default-features = false, features = ["sha1"] }
+keel-core = { path = "../../../crates/keel-core" }
 keel-exec = { path = "../../../crates/keel-exec" }
 keel-trust = { path = "../../../crates/keel-trust" }
+# setpgid, dup2 and killpg for the ansible-playbook process group.
+libc = "0.2.191"
+# The same rand_core as russh's ssh-key, for the runner's Ed25519 key.
+rand = "0.10.3"
+russh = "0.65.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11"
+thiserror = "2"
+tokio = { version = "1.54.1", features = [
+    "macros",
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "io-std",
+    "sync",
+    "time",
+    "process",
+    "fs",
+    "signal",
+] }
+toml = "1.1"
+
+[dev-dependencies]
+tempfile = "3"
