@@ -885,6 +885,16 @@ impl Session {
                 ledger_line,
             } => {
                 let Some(run) = self.active(&run_id).await else {
+                    // A replay after a Keel restart (spec 060 FR-037), a duplicate, or junk.
+                    late(
+                        &self.app,
+                        self.host,
+                        &run_id,
+                        exit_code,
+                        &stats,
+                        &ledger_line,
+                    )
+                    .await;
                     return;
                 };
                 self.flush().await;
@@ -894,21 +904,18 @@ impl Session {
                     .map(|a| a.host_name.clone())
                     .unwrap_or_default();
                 let ff = active.and_then(|a| a.first_failure);
-                let s = stats.get(&name).copied().unwrap_or_else(|| {
-                    stats
-                        .values()
-                        .fold(events::HostStats::default(), |a, b| events::HostStats {
-                            ok: a.ok + b.ok,
-                            changed: a.changed + b.changed,
-                            failures: a.failures + b.failures,
-                            unreachable: a.unreachable + b.unreachable,
-                            skipped: a.skipped + b.skipped,
-                            rescued: a.rescued + b.rescued,
-                            ignored: a.ignored + b.ignored,
-                        })
-                });
-                if let Err(e) =
-                    finished(&self.app, run, self.host, exit_code, s, ff, &ledger_line).await
+                let s = host_stats(&stats, &name);
+                if let Err(e) = finished(
+                    &self.app,
+                    run,
+                    self.host,
+                    exit_code,
+                    s,
+                    ff,
+                    &ledger_line,
+                    &["sent", "running"],
+                )
+                .await
                 {
                     tracing::error!(error = %e, run = %run, "recording Finished failed");
                 }
@@ -939,6 +946,11 @@ impl Session {
                     tracing::warn!(error = %e, host = %self.host, "renewing a runner certificate failed")
                 }
             },
+            // Answered in order, so a runner's Ping after a Finished comes back as a Pong only
+            // once that Finished is handled: the runner's acknowledgement (spec 060).
+            Frame::Ping => {
+                let _ = self.out.send(Frame::Pong);
+            }
             // Any frame already counted as liveness.
             _ => {}
         }
@@ -978,6 +990,138 @@ fn clamp(n: u64) -> i32 {
 /// The exit code a runner reports for a run cancelled before or while it ran.
 const CANCELLED_EXIT: i32 = 130;
 
+/// The host's own stats from a `Finished`, or the sum when the runner named it otherwise.
+fn host_stats(stats: &BTreeMap<String, events::HostStats>, name: &str) -> events::HostStats {
+    stats.get(name).copied().unwrap_or_else(|| {
+        stats
+            .values()
+            .fold(events::HostStats::default(), |a, b| events::HostStats {
+                ok: a.ok + b.ok,
+                changed: a.changed + b.changed,
+                failures: a.failures + b.failures,
+                unreachable: a.unreachable + b.unreachable,
+                skipped: a.skipped + b.skipped,
+                rescued: a.rescued + b.rescued,
+                ignored: a.ignored + b.ignored,
+            })
+    })
+}
+
+/// A `Finished` for a run this session isn't running (spec 060 FR-037,
+/// contracts/runner-replay.md): a runner replaying a result Keel missed while it restarted.
+///
+/// - A `lost` row of this host takes the real outcome; the run's state is recomputed when it
+///   ended as `runner_lost`, and `run_result_late` is audited.
+/// - A row already finished: a duplicate, ignored.
+/// - An unknown run, or one not on this host: ignored with a warning.
+async fn late(
+    app: &AppState,
+    host: Uuid,
+    run_id: &str,
+    exit_code: i32,
+    stats: &BTreeMap<String, events::HostStats>,
+    ledger_line: &str,
+) {
+    let Ok(run) = Uuid::parse_str(run_id) else {
+        tracing::warn!(host = %host, "a Finished named no run; ignored");
+        return;
+    };
+    let row: Result<Option<(String, String)>, sqlx::Error> =
+        sqlx::query_as("select state, host_name from run_hosts where run_id = $1 and host_id = $2")
+            .bind(run)
+            .bind(host)
+            .fetch_optional(&app.db)
+            .await;
+    let (state, name) = match row {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            tracing::warn!(host = %host, run = %run, "a Finished for a run not on this host; ignored");
+            return;
+        }
+        Err(e) => {
+            tracing::error!(error = %e, run = %run, "reading a late Finished's run failed");
+            return;
+        }
+    };
+    if state != "lost" {
+        tracing::debug!(host = %host, run = %run, state, "a duplicate Finished; ignored");
+        return;
+    }
+    let s = host_stats(stats, &name);
+    match finished(app, run, host, exit_code, s, None, ledger_line, &["lost"]).await {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(e) => {
+            tracing::error!(error = %e, run = %run, "recording a late Finished failed");
+            return;
+        }
+    }
+    if let Err(e) = after_late(app, run, host).await {
+        tracing::error!(error = %e, run = %run, "settling a late Finished failed");
+    }
+    maybe_finish(app, run).await;
+}
+
+/// Recomputes a run that ended as `runner_lost` from its hosts' states now, and audits
+/// `run_result_late` with the host's outcome.
+async fn after_late(app: &AppState, run: Uuid, host: Uuid) -> Result<(), sqlx::Error> {
+    let mut tx = app.db.begin().await?;
+    let (workspace, ended, reason): (Uuid, bool, Option<String>) = sqlx::query_as(
+        "select workspace_id, ended_at is not null, state_reason from runs where id = $1 \
+         for no key update",
+    )
+    .bind(run)
+    .fetch_one(&mut *tx)
+    .await?;
+    let (outcome,): (String,) =
+        sqlx::query_as("select state from run_hosts where run_id = $1 and host_id = $2")
+            .bind(run)
+            .bind(host)
+            .fetch_one(&mut *tx)
+            .await?;
+    let mut next = None;
+    if ended && reason.as_deref() == Some("runner_lost") {
+        let hosts: Vec<(String,)> = sqlx::query_as("select state from run_hosts where run_id = $1")
+            .bind(run)
+            .fetch_all(&mut *tx)
+            .await?;
+        let hosts: Vec<HostState> = hosts.iter().filter_map(|h| h.0.parse().ok()).collect();
+        if let Some(status) = core_run::summarize(&hosts) {
+            let summary = summary(&mut tx, run).await?;
+            sqlx::query(
+                "update runs set state = $2, state_reason = $3, summary = $4 where id = $1",
+            )
+            .bind(run)
+            .bind(status.state.as_str())
+            .bind(status.reason.map(|r| r.as_str()))
+            .bind(json!(summary))
+            .execute(&mut *tx)
+            .await?;
+            next = Some(status);
+        }
+    }
+    audit::record(
+        &mut tx,
+        Entry {
+            actor: &Actor::Host(host),
+            action: "run_result_late",
+            workspace: Some(WorkspaceId(workspace)),
+            target: json!({ "run": run, "host": host }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({ "outcome": outcome }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    if let Some(status) = next {
+        push_state(app, workspace, run, status);
+    }
+    Ok(())
+}
+
+/// Records a host's `Finished` when its row is in one of `from`; whether it was.
+#[allow(clippy::too_many_arguments)]
 async fn finished(
     app: &AppState,
     run: Uuid,
@@ -986,7 +1130,8 @@ async fn finished(
     s: events::HostStats,
     ff: Option<keel_protocol::FirstFailure>,
     ledger_line: &str,
-) -> Result<(), sqlx::Error> {
+    from: &[&str],
+) -> Result<bool, sqlx::Error> {
     let mut tx = app.db.begin().await?;
     let (run_state,): (String,) =
         sqlx::query_as("select state from runs where id = $1 for no key update")
@@ -1006,12 +1151,13 @@ async fn finished(
         .then(|| keel_exec::pack_builder::sha256_hex(ledger_line.as_bytes()));
     let n = sqlx::query(
         "update run_hosts set state = $3, ended_at = now(), ledger_hash = $4 \
-         where run_id = $1 and host_id = $2 and state in ('sent', 'running')",
+         where run_id = $1 and host_id = $2 and state = any($5)",
     )
     .bind(run)
     .bind(host)
     .bind(state)
     .bind(&ledger)
+    .bind(from)
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -1037,7 +1183,8 @@ async fn finished(
             host_revision(&mut tx, run, host, state, ledger.as_deref(), ledger_line).await?;
         }
     }
-    tx.commit().await
+    tx.commit().await?;
+    Ok(n == 1)
 }
 
 /// Records what the host applied (spec 055 US8, T101): its new base for the job.
