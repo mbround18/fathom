@@ -179,7 +179,7 @@ shape.
 
 ### Tests
 
-- [ ] T035 [P] [US3] Write a server DB test in `apps/keel/server/tests/enrollments.rs`. It covers:
+- [X] T035 [P] [US3] Write a server DB test in `apps/keel/server/tests/enrollments.rs`. It covers:
   - the state derivation for all five states;
   - a revoked token refused at enrolment exactly as a burned one is;
   - revoke and roll refused on used tokens (FR-019);
@@ -190,7 +190,7 @@ shape.
 
 ### Implementation
 
-- [ ] T037 [US3] Write `apps/keel/server/src/enrollments.rs` with `ListEnrollments`, `PreviewEnrollmentRevoke` and `PreviewEnrollmentRoll`, per research R4. Roll reuses `hosts::check_enroll` and `create_enrollment`, so it returns a `HostEnrollment` with a snippet. Wire them in `dispatch.rs`.
+- [X] T037 [US3] Write `apps/keel/server/src/enrollments.rs` with `ListEnrollments`, `PreviewEnrollmentRevoke` and `PreviewEnrollmentRoll`, per research R4. Roll reuses `hosts::check_enroll` and `create_enrollment`, so it returns a `HostEnrollment` with a snippet. Wire them in `dispatch.rs`.
 - [ ] T038 [P] [US3] Build the shared primitive `apps/keel/web/src/ui/DataTable.tsx`: responsive, so it becomes a card list under 640 px, with a filter slot and row actions.
 - [ ] T039 [US3] Write `apps/keel/web/src/features/settings/TokensTab.tsx`, the enrolment section: state filter, revoke, and roll, which opens the `EnrollDialog` result step.
 

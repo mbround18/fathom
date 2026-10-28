@@ -434,10 +434,16 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
             instructions,
             version,
         } => crate::settings::preview_update(app, req, template, instructions, version).await,
-        Cmd::ListEnrollments { .. }
-        | Cmd::PreviewEnrollmentRevoke { .. }
-        | Cmd::PreviewEnrollmentRoll { .. }
-        | Cmd::ListAllApiTokens { .. }
+        Cmd::ListEnrollments { state, workspace } => {
+            crate::enrollments::list(app, req, state, workspace).await
+        }
+        Cmd::PreviewEnrollmentRevoke { enrollment } => {
+            crate::enrollments::preview_revoke(app, req, enrollment).await
+        }
+        Cmd::PreviewEnrollmentRoll { enrollment } => {
+            crate::enrollments::preview_roll(app, req, enrollment).await
+        }
+        Cmd::ListAllApiTokens { .. }
         | Cmd::GetSystem
         | Cmd::PreviewSystemConfigure { .. }
         | Cmd::PreviewSystemRemove => vec![not_implemented()],

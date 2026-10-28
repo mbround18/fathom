@@ -37,5 +37,6 @@ pub mod hosts;
 // Signed mode with reviewed overrides (US8)
 pub mod review;
 
-// Instance settings (spec 060 US1, US2)
+// Instance settings and enrolment tokens (spec 060 US1 to US3)
+pub mod enrollments;
 pub mod settings;
