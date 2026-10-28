@@ -132,6 +132,12 @@ pub struct Flags {
     /// Allow an http:// public URL, loopback listen only (development) [env: KEEL_INSECURE_DEV]
     #[arg(long, global = true)]
     pub insecure_dev: bool,
+    /// PEM certificate chain: serve --listen over HTTPS; needs --tls-key [env: KEEL_TLS_CERT]
+    #[arg(long, global = true)]
+    pub tls_cert: Option<PathBuf>,
+    /// PEM private key for --tls-cert, read once at start [env: KEEL_TLS_KEY]
+    #[arg(long, global = true)]
+    pub tls_key: Option<PathBuf>,
 }
 
 /// Why start-up refused.
@@ -203,6 +209,13 @@ impl fmt::Debug for ProviderConfig {
     }
 }
 
+/// `--tls-cert` and `--tls-key`: paths only; [`crate::tls::load`] reads them at start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsFiles {
+    pub cert: PathBuf,
+    pub key: PathBuf,
+}
+
 /// The resolved configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -226,6 +239,8 @@ pub struct Config {
     pub run_log_cap: u64,
     pub otel_endpoint: Option<String>,
     pub insecure_dev: bool,
+    /// Serve `listen` over HTTPS. `None`: plain HTTP, for a TLS proxy in front or --insecure-dev.
+    pub tls: Option<TlsFiles>,
     /// `(setting, where it came from)`, for the start-up log. Never values.
     pub sources: Vec<(&'static str, String)>,
 }
@@ -579,6 +594,23 @@ impl Config {
             "OTEL_EXPORTER_OTLP_ENDPOINT",
         );
 
+        let path = |p: Option<PathBuf>| p.map(|p| p.display().to_string());
+        let tls_cert = r.pick_quiet("tls_cert", path(flags.tls_cert), "KEEL_TLS_CERT");
+        let tls_key = r.pick_quiet("tls_key", path(flags.tls_key), "KEEL_TLS_KEY");
+        let tls = match (tls_cert, tls_key) {
+            (Some(cert), Some(key)) => Some(TlsFiles {
+                cert: PathBuf::from(cert),
+                key: PathBuf::from(key),
+            }),
+            (Some(_), None) => {
+                return refuse("--tls-cert (KEEL_TLS_CERT) needs --tls-key (KEEL_TLS_KEY)");
+            }
+            (None, Some(_)) => {
+                return refuse("--tls-key (KEEL_TLS_KEY) needs --tls-cert (KEEL_TLS_CERT)");
+            }
+            (None, None) => None,
+        };
+
         let mut providers = Vec::new();
         if let Some(client_id) = r.pick_quiet(
             "discord_client_id",
@@ -666,6 +698,7 @@ impl Config {
             run_log_cap,
             otel_endpoint,
             insecure_dev,
+            tls,
             sources: r.sources,
         })
     }
@@ -889,6 +922,41 @@ mod tests {
         assert!(resolve(&pairs).unwrap_err().0.contains("loopback"));
         pairs.push(("KEEL_LISTEN", "127.0.0.1:7830"));
         assert!(resolve(&pairs).unwrap().insecure_dev);
+    }
+
+    #[test]
+    fn tls_needs_both_cert_and_key() {
+        assert_eq!(resolve(BASE).unwrap().tls, None);
+        let mut pairs = BASE.to_vec();
+        pairs.extend([
+            ("KEEL_TLS_CERT", "/run/keel/tls.crt"),
+            ("KEEL_TLS_KEY", "/run/keel/tls.key"),
+        ]);
+        let c = resolve(&pairs).unwrap();
+        assert_eq!(
+            c.tls,
+            Some(TlsFiles {
+                cert: "/run/keel/tls.crt".into(),
+                key: "/run/keel/tls.key".into(),
+            })
+        );
+        assert!(c.sources.contains(&("tls_key", "KEEL_TLS_KEY".into())));
+        for only in ["KEEL_TLS_CERT", "KEEL_TLS_KEY"] {
+            let mut pairs = BASE.to_vec();
+            pairs.push((only, "/run/keel/x.pem"));
+            let err = resolve(&pairs).unwrap_err().0;
+            assert!(
+                err.contains("KEEL_TLS_CERT") && err.contains("KEEL_TLS_KEY"),
+                "{err}"
+            );
+        }
+        // A flag counts like its variable.
+        let env = env_of(BASE);
+        let flags = Flags {
+            tls_key: Some("/k.pem".into()),
+            ..Flags::default()
+        };
+        assert!(Config::resolve(flags, &env).is_err());
     }
 
     #[test]

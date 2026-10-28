@@ -367,7 +367,8 @@ pub async fn serve_until(
     Ok(())
 }
 
-async fn shutdown_signal() {
+/// Completes on SIGTERM or Ctrl-C.
+pub async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
     };

@@ -7,6 +7,8 @@ Each flag can also be set through the environment variable in parentheses.
 | Flag (env) | Default | Notes |
 |---|---|---|
 | `--listen` (`KEEL_LISTEN`) | `0.0.0.0:7830` | UI, `/api`, `/hooks`. Put TLS in front, or set `--tls-cert/--tls-key`. |
+| `--tls-cert` (`KEEL_TLS_CERT`) | unset | PEM certificate chain, leaf first. Set with `--tls-key`, and `--listen` serves HTTPS (rustls, TLS 1.2 and 1.3, HTTP/1.1). One without the other refuses start. Unset: plain HTTP, for a TLS proxy in front or `--insecure-dev`. |
+| `--tls-key` (`KEEL_TLS_KEY`) | unset | PEM private key (PKCS#8, PKCS#1 or SEC1) for `--tls-cert`, read once at start, so it may be `0400`. A missing, unreadable or mismatched key refuses start. Errors name the file, never its contents. |
 | `--runner-listen` (`KEEL_RUNNER_LISTEN`) | `0.0.0.0:7831` | The embedded SSH server for host runners (R17). Both SSH CAs are generated at first start and sealed in the database. Expose it only on the network hosts use (for example Tailscale). |
 | `--runner-cert-ttl` | `24h` | Lifetime of runner certificates. |
 | `--runner-max-offline` | `30d` | How long after certificate expiry a host may still renew with its bare key. |

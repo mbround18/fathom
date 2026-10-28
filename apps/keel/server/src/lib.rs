@@ -21,6 +21,7 @@ pub mod serve;
 pub mod signin;
 pub mod sync;
 pub mod telemetry;
+pub mod tls;
 pub mod ws;
 
 // Governance (US6)

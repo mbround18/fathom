@@ -15,7 +15,7 @@ use std::time::Duration;
 use clap::Parser;
 use keel_core::ports::SystemClock;
 use keel_server::config::{self, AuditCommand, Cli, Command, Config, Flags, SshCaCommand};
-use keel_server::{audit, db, hosts, runner_listener, seal, serve, sync, telemetry};
+use keel_server::{audit, db, hosts, runner_listener, seal, serve, sync, telemetry, tls};
 use tokio::net::TcpListener;
 
 /// Serving pool size.
@@ -183,6 +183,11 @@ fn serve_main(flags: Flags) -> ExitCode {
         Ok(c) => c,
         Err(e) => return refuse(&e.to_string()),
     };
+    // The certificate and key are read once, here; a bad pair refuses before anything starts.
+    let tls = match cfg.tls.as_ref().map(tls::load).transpose() {
+        Ok(t) => t,
+        Err(e) => return refuse(&e),
+    };
     let guard = match telemetry::init(cfg.otel_endpoint.as_deref()) {
         Ok(g) => g,
         Err(e) => return refuse(&e),
@@ -194,13 +199,13 @@ fn serve_main(flags: Flags) -> ExitCode {
         Ok(rt) => rt,
         Err(e) => return refuse(&format!("cannot start the async runtime: {e}")),
     };
-    let code = runtime.block_on(serve(cfg, guard.exporting()));
+    let code = runtime.block_on(serve(cfg, tls, guard.exporting()));
     drop(runtime);
     drop(guard);
     code
 }
 
-async fn serve(cfg: Config, exporting: bool) -> ExitCode {
+async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: bool) -> ExitCode {
     // Fail closed: no master key, no server (contracts/config.md).
     let master_key = match seal::MasterKey::load(&cfg.master_key_file) {
         Ok(k) => k,
@@ -231,6 +236,7 @@ async fn serve(cfg: Config, exporting: bool) -> ExitCode {
     };
     tracing::info!(
         listen = %cfg.listen,
+        https = tls.is_some(),
         public_url = %cfg.public_url,
         providers = ?cfg.provider_ids(),
         static_dir = %cfg.static_dir.display(),
@@ -251,7 +257,11 @@ async fn serve(cfg: Config, exporting: bool) -> ExitCode {
     };
     let sweeper = app.auth.sessions.spawn_sweeper(SESSION_SWEEP);
     let poller = sync::spawn_poller(app.clone());
-    let result = serve::serve(listener, serve::router(app.clone())).await;
+    let router = serve::router(app.clone());
+    let result = match tls {
+        Some(tls) => tls::serve(listener, tls, router).await,
+        None => serve::serve(listener, router).await,
+    };
     poller.abort();
     sweeper.abort();
     runners.abort();
