@@ -221,6 +221,17 @@ export class FakeBackend {
     return this
   }
 
+  /**
+   * Adds a handler in front of the one already installed for `type`: when it returns `undefined`,
+   * the earlier handler answers (and, past that, the default). Lets several fakes share `Confirm`.
+   */
+  chain<T extends CmdType>(type: T, handler: Handler<T>): this {
+    const prev = this.handlers.get(type) as Handler<T> | undefined
+    const both: Handler<T> = (cmd, ctx) => handler(cmd, ctx) ?? prev?.(cmd, ctx)
+    this.handlers.set(type, both as unknown as Handler<CmdType>)
+    return this
+  }
+
   /** Sends a live event (no `reply_to`) on every open socket. */
   push(event: Event): void {
     for (const s of this.open()) s.send(event)

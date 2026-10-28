@@ -104,9 +104,10 @@ export class FakeGovernance {
     for (const type of PREVIEWS) {
       backend.on(type, (cmd) => this.refused(type) ?? this.preview(this.draft(cmd)))
     }
-    backend.on('Confirm', (cmd) => {
+    // Chained, so a preview another fake made (hosts, settings) is confirmed by that fake.
+    backend.chain('Confirm', (cmd) => {
       const draft = this.previews.get(cmd.data.preview_id)
-      if (!draft) return [{ type: 'OpError', data: { code: 'preview_expired', message: 'That preview has expired.' } }]
+      if (!draft) return undefined
       this.previews.delete(cmd.data.preview_id)
       return [{ type: 'Confirmed', data: { preview_id: cmd.data.preview_id } }, ...draft.apply()]
     })

@@ -1,15 +1,13 @@
 /**
- * Hosts (spec 055 US7, T088): the workspace's enrolled hosts, the SSH CA line runners pin, and
- * the one enrolment token just minted.
+ * Hosts (spec 055 US7, T088): the workspace's enrolled hosts and the SSH CA line runners pin.
  *
  * Lists follow what the server sends: `Hosts`, `Host` and the pushed `HostState` (online, offline,
- * revoked). Enrolling and revoking are two-step, like every change: `PreviewHostEnroll` /
- * `PreviewHostRevoke` answer a `Preview`, shown in a confirm dialog, then `Confirm` (with a passkey
- * assertion when the preview asks for step-up and the session has not just verified).
- * `Preview`, `OpError` and `Denied` count only when they answer a command sent from here.
+ * revoked). Revoking is two-step, like every change: `PreviewHostRevoke` answers a `Preview`,
+ * shown in a confirm dialog, then `Confirm` (with a passkey assertion when the preview asks for
+ * step-up and the session has not just verified). `Preview`, `OpError` and `Denied` count only when
+ * they answer a command sent from here.
  *
- * An enrolment token arrives once, in `HostEnrollment`, as the reply to that `Confirm`. It is held
- * here until dismissed (or the workspace changes) and never stored anywhere else.
+ * Enrolling lives in the Enroll dialog (spec 060, `enroll-store.ts`), which holds the minted token.
  *
  * Changed outside Keel (spec 058 amendment A2): `HostInfo.changed_outside` marks a host whose
  * runner reported a run Keel did not make. The list can be narrowed to those hosts (the server
@@ -29,24 +27,10 @@ export const FIELD =
 
 const OFFLINE = 'Keel is not connected. Wait for it to reconnect, then try again.'
 
-/** A token just minted: shown once. */
-export interface Enrollment {
-  id: string
-  inventory_name: string
-  profiles: string[]
-  expires_at: string
-  token: string
-}
-
 export interface SshCa {
   cas: SshCaInfo[]
   /** The `@cert-authority * …` line for `keel_runner_host_ca`. */
   cert_authority: string
-}
-
-/** The `ansible-playbook` extra var that hands a host its token. */
-export function tokenArg(token: string): string {
-  return `-e keel_enroll_token=${token}`
 }
 
 /** Splits "debian, web" or "debian web" into profile names. */
@@ -58,7 +42,6 @@ export interface HostsState {
   workspace: string | null
   hosts: HostInfo[]
   ssh: SshCa | null
-  enrollment: Enrollment | null
   preview: Preview | null
   error: string | null
   /** List only hosts changed outside Keel. */
@@ -70,12 +53,9 @@ export interface HostsState {
   setChangedOnly: (on: boolean) => void
   /** Opens `host`'s detail (`GetHost`); `null` closes it. */
   show: (host: string | null) => void
-  /** Previews a token for `inventory_name` with `profiles`. */
-  enroll: (inventory_name: string, profiles: string[]) => void
   revoke: (host: string) => void
   confirm: () => Promise<void>
   cancel: () => void
-  dismissEnrollment: () => void
   clearError: () => void
 }
 
@@ -100,7 +80,6 @@ export const useHosts = create<HostsState>()((set, get) => ({
   workspace: null,
   hosts: [],
   ssh: null,
-  enrollment: null,
   preview: null,
   error: null,
   changedOnly: false,
@@ -108,7 +87,7 @@ export const useHosts = create<HostsState>()((set, get) => ({
   detail: null,
 
   load: (workspace) => {
-    if (get().workspace !== workspace) set({ workspace, hosts: [], enrollment: null, open: null, detail: null })
+    if (get().workspace !== workspace) set({ workspace, hosts: [], open: null, detail: null })
     list(workspace)
     send({ type: 'GetSshCa' })
   },
@@ -120,12 +99,6 @@ export const useHosts = create<HostsState>()((set, get) => ({
   show: (host) => {
     set({ open: host, detail: null })
     if (host !== null) send({ type: 'GetHost', data: { host } })
-  },
-  enroll: (inventory_name, profiles) => {
-    const workspace = get().workspace
-    if (!workspace) return
-    set({ error: null, preview: null })
-    send({ type: 'PreviewHostEnroll', data: { workspace, inventory_name, profiles } })
   },
   revoke: (host) => {
     set({ error: null, preview: null })
@@ -145,9 +118,6 @@ export const useHosts = create<HostsState>()((set, get) => ({
   },
   cancel: () => {
     set({ preview: null })
-  },
-  dismissEnrollment: () => {
-    set({ enrollment: null })
   },
   clearError: () => {
     set({ error: null })
@@ -191,12 +161,6 @@ onServerEvent(({ reply_to, event }) => {
       }
       break
     }
-    case 'HostEnrollment':
-      if (ours && event.data.workspace === s.workspace) {
-        const { id, inventory_name, profiles, expires_at, token } = event.data
-        useHosts.setState({ enrollment: { id, inventory_name, profiles, expires_at, token }, preview: null })
-      }
-      break
     case 'SshCa':
       if (ours) useHosts.setState({ ssh: { cas: event.data.cas, cert_authority: event.data.cert_authority } })
       break

@@ -65,7 +65,11 @@ export interface GovernanceState {
   refused: Partial<Record<ListKind, Refusal>>
   change: Change | null
   load: (kind: ListKind) => void
-  propose: (title: string, cmd: Cmd) => void
+  /**
+   * `onResult` sees every event answering the change's `Confirm` (`Confirmed` first, then the
+   * result, or a refusal), for callers that keep what the change returns (spec 060 settings).
+   */
+  propose: (title: string, cmd: Cmd, onResult?: (event: Event) => void) => void
   confirm: () => Promise<void>
   dismiss: () => void
 }
@@ -87,6 +91,8 @@ const replies = new Map<RequestId, (event: Event) => void>()
 let changeIds: RequestId[] = []
 /** Bumped whenever a change opens or closes, so stale replies do nothing. */
 let generation = 0
+/** The open change's `onResult`. */
+let resultHandler: ((event: Event) => void) | undefined
 
 onServerEvent(({ reply_to, event }) => {
   if (reply_to === undefined) return
@@ -162,9 +168,10 @@ export const useGovernance = create<GovernanceState>()((set, get) => {
       })
     },
 
-    propose: (title, cmd) => {
+    propose: (title, cmd, onResult) => {
       get().dismiss()
       const gen = ++generation
+      resultHandler = onResult
       set({ change: { title, phase: 'asking', preview: null, refusal: null, created: null } })
       const id = sendForChange(cmd, gen, (event) => {
         if (event.type === 'Preview') patchChange(gen, { phase: 'preview', preview: event.data })
@@ -193,7 +200,9 @@ export const useGovernance = create<GovernanceState>()((set, get) => {
         type: 'Confirm',
         data: stepUp ? { preview_id: preview.preview_id, step_up: stepUp } : { preview_id: preview.preview_id },
       }
+      const onResult = resultHandler
       const id = sendForChange(cmd, gen, (event) => {
+        onResult?.(event)
         if (event.type === 'Confirmed') {
           patchChange(gen, { phase: 'done' })
           const s = get()
@@ -213,6 +222,7 @@ export const useGovernance = create<GovernanceState>()((set, get) => {
 
     dismiss: () => {
       generation++
+      resultHandler = undefined
       for (const id of changeIds) replies.delete(id)
       changeIds = []
       set({ change: null })

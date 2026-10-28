@@ -7,7 +7,8 @@
  * - `ListHosts` answers `Hosts`; `GetSshCa` answers `SshCa`.
  * - `PreviewHostEnroll` refuses a profile the workspace lacks (`unknown_profile`) or a name already
  *   enrolled (`host_exists`), else previews; its `Confirm` answers `Confirmed` and
- *   `HostEnrollment` with a fresh token, once.
+ *   `HostEnrollment` with a fresh token, the snippet and the instructions, once. `instructions`
+ *   sets what step 2 renders.
  * - `PreviewHostRevoke` previews with `step_up`; its `Confirm` needs a fresh check (as the shared
  *   fake does), revokes, answers `Confirmed` and `Host`, and pushes `HostState`.
  * - `connect(name)` stands in for the runner running the base profile with the token: the host is
@@ -53,6 +54,8 @@ export class FakeHosts {
   profiles = ['base', 'web']
   /** Every token minted, in order (what the hosts would be handed). */
   readonly tokens: { inventory_name: string; profiles: string[]; token: string }[] = []
+  /** The admin's instructions `HostEnrollment` carries (Markdown). */
+  instructions = ''
   private readonly pending = new Map<string, Pending>()
   /** Runs outside Keel each host reported, newest first. */
   private readonly outside = new Map<string, OutsideRunInfo[]>()
@@ -62,9 +65,11 @@ export class FakeHosts {
 
   constructor(backend: FakeBackend) {
     this.backend = backend
-    for (const type of ['ListHosts', 'GetHost', 'GetSshCa', 'PreviewHostEnroll', 'PreviewHostRevoke', 'Confirm'] as const) {
+    for (const type of ['ListHosts', 'GetHost', 'GetSshCa', 'PreviewHostEnroll', 'PreviewHostRevoke'] as const) {
       backend.on(type, (cmd) => this.respond(cmd))
     }
+    // Chained: a preview this fake did not make falls through to the next fake.
+    backend.chain('Confirm', (cmd) => this.respond(cmd))
   }
 
   /** The runner enrolled with the token minted for `name` and connected. */
@@ -233,10 +238,11 @@ export class FakeHosts {
                 workspace: WORKSPACE,
                 inventory_name: p.inventory_name,
                 profiles: p.profiles,
-                expires_at: EXPIRES,
+                // Fifteen minutes from now, as the server mints it, so the countdown runs.
+                expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
                 token,
                 snippet: `read -rs KEEL_TOKEN; export KEEL_TOKEN  # paste: ${token}\nmake keel-node`,
-                instructions: '',
+                instructions: this.instructions,
                 instructions_unavailable: false,
               },
             },

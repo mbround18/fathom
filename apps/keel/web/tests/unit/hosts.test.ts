@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { parseProfiles, tokenArg, useHosts } from '@/features/hosts/store'
+import { HOST_NAME, useEnroll } from '@/features/hosts/enroll-store'
+import { parseProfiles, useHosts } from '@/features/hosts/store'
 import type { HostInfo, Preview } from '@/protocol/wire'
 
 import type { FakeSocket } from './fake-socket'
@@ -47,13 +48,13 @@ beforeEach(() => {
     workspace: null,
     hosts: [],
     ssh: null,
-    enrollment: null,
     preview: null,
     error: null,
     changedOnly: false,
     open: null,
     detail: null,
   })
+  useEnroll.getState().close()
 })
 
 describe('helpers', () => {
@@ -61,8 +62,12 @@ describe('helpers', () => {
     expect(parseProfiles(' base, web  web,,db ')).toEqual(['base', 'web', 'db'])
     expect(parseProfiles('   ')).toEqual([])
   })
-  it('formats the extra var', () => {
-    expect(tokenArg(TOKEN)).toBe(`-e keel_enroll_token=${TOKEN}`)
+  it('checks inventory names the way keel-protocol does', () => {
+    expect(HOST_NAME.test('web-01.example_a')).toBe(true)
+    expect(HOST_NAME.test('-web')).toBe(false)
+    expect(HOST_NAME.test('web 1')).toBe(false)
+    expect(HOST_NAME.test('a'.repeat(253))).toBe(true)
+    expect(HOST_NAME.test('a'.repeat(254))).toBe(false)
   })
 })
 
@@ -88,48 +93,70 @@ describe('hosts', () => {
     expect(useHosts.getState().hosts.map((h) => h.id)).toEqual(['h-1', 'h-2'])
   })
 
-  it('holds a minted token only when it answers our confirm, until dismissed', () => {
+  it('the Enroll dialog holds a minted token only when it answers its confirm, until closed', () => {
     const s = signIn()
-    useHosts.getState().load('w-1')
+    useEnroll.getState().open('w-1')
+    expect(useEnroll.getState().phase).toBe('form')
+    const minted = {
+      id: 'e-1',
+      workspace: 'w-1',
+      inventory_name: 'web-1',
+      profiles: ['base'],
+      expires_at: '2026-10-28T12:15:00Z',
+      token: TOKEN,
+      snippet: `ansible-playbook -e keel_enroll_token=${TOKEN}`,
+      instructions: '',
+      instructions_unavailable: false,
+    }
     // A token pushed without a reply_to of ours is ignored.
-    s.serverSend({
-      event: {
-        type: 'HostEnrollment',
-        data: { id: 'e-0', workspace: 'w-1', inventory_name: 'x', profiles: [], expires_at: '', token: TOKEN },
-      },
-    })
-    expect(useHosts.getState().enrollment).toBeNull()
+    s.serverSend({ event: { type: 'HostEnrollment', data: { ...minted, id: 'e-0' } } })
+    expect(useEnroll.getState().minted).toBeNull()
 
-    useHosts.getState().enroll('web-1', ['base'])
+    useEnroll.getState().submit('w-1', 'web-1', ['base'])
+    expect(useEnroll.getState().phase).toBe('asking')
     expect(lastCmd(s, 'PreviewHostEnroll')?.cmd?.data).toEqual({
       workspace: 'w-1',
       inventory_name: 'web-1',
       profiles: ['base'],
     })
     answer(s, 'PreviewHostEnroll', { type: 'Preview', data: preview() })
-    void useHosts.getState().confirm()
+    expect(useEnroll.getState().phase).toBe('preview')
+    void useEnroll.getState().confirm()
     expect(lastCmd(s, 'Confirm')?.cmd?.data).toEqual({ preview_id: 'p-1' })
-    answer(
-      s,
-      'Confirm',
-      { type: 'Confirmed', data: { preview_id: 'p-1' } },
-      {
-        type: 'HostEnrollment',
-        data: {
-          id: 'e-1',
-          workspace: 'w-1',
-          inventory_name: 'web-1',
-          profiles: ['base'],
-          expires_at: '2026-10-27T12:15:00Z',
-          token: TOKEN,
-        },
-      },
-    )
-    expect(useHosts.getState().enrollment?.token).toBe(TOKEN)
-    expect(useHosts.getState().preview).toBeNull()
+    const before = useEnroll.getState().mintedCount
+    answer(s, 'Confirm', { type: 'Confirmed', data: { preview_id: 'p-1' } }, { type: 'HostEnrollment', data: minted })
+    expect(useEnroll.getState().phase).toBe('result')
+    expect(useEnroll.getState().minted?.token).toBe(TOKEN)
+    expect(useEnroll.getState().mintedCount).toBe(before + 1)
 
-    useHosts.getState().dismissEnrollment()
-    expect(useHosts.getState().enrollment).toBeNull()
+    useEnroll.getState().close()
+    expect(useEnroll.getState().minted).toBeNull()
+    expect(useEnroll.getState().phase).toBe('closed')
+  })
+
+  it('an enrol refusal is shown, and Back returns to the form', () => {
+    const s = signIn()
+    useEnroll.getState().open('w-1')
+    useEnroll.getState().submit('w-1', 'web-1', ['nope'])
+    answer(s, 'PreviewHostEnroll', {
+      type: 'OpError',
+      data: { code: 'profile_not_allowed', message: 'nope is not an allowed profile' },
+    })
+    expect(useEnroll.getState().phase).toBe('refused')
+    expect(useEnroll.getState().refusal).toEqual({
+      kind: 'error',
+      code: 'profile_not_allowed',
+      message: 'nope is not an allowed profile',
+    })
+    useEnroll.getState().back()
+    expect(useEnroll.getState().phase).toBe('form')
+  })
+
+  it('a roll previews PreviewEnrollmentRoll and ends on the token', () => {
+    const s = signIn()
+    useEnroll.getState().roll('e-1')
+    expect(useEnroll.getState().mode).toBe('roll')
+    expect(lastCmd(s, 'PreviewEnrollmentRoll')?.cmd?.data).toEqual({ enrollment: 'e-1' })
   })
 
   it('a revoke is previewed, and a refusal is shown', () => {
