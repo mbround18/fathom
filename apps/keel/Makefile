@@ -56,7 +56,7 @@ image-push: image-push-check image ## Push the image; refuses on a dirty tree or
 compose-secrets: ## TLS cert + key and the master key into KEEL_SECRETS_DIR (from .env); never overwrites
 	@[ -f .env ] || { echo "keel: copy .env.example to .env first" >&2; exit 1; }
 	@set -a; . ./.env; set +a; \
-	dir="$${KEEL_SECRETS_DIR:?set KEEL_SECRETS_DIR in .env}"; name="$${KEEL_TLS_NAME:-keel-dev.lan}"; \
+	dir="$${KEEL_SECRETS_DIR:?set KEEL_SECRETS_DIR in .env}"; name="$${KEEL_TLS_NAME:-keel.boop.ninja}"; \
 	mkdir -p "$$dir"; chmod 0711 "$$dir"; dir=$$(cd "$$dir" && pwd); \
 	if [ -e "$$dir/tls.key" ]; then echo "keel: $$dir/tls.key exists; left as is"; \
 	elif command -v mkcert >/dev/null; then \
