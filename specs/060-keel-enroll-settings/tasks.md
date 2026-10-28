@@ -247,9 +247,9 @@ shape.
 
 **Independent test**: quickstart scenario 16.
 
-- [ ] T053 [US6] Migrate every remaining section in `apps/keel/web/src/features/*` (workspaces, bindings, inventory, runs, reviews, audit, users and hosts) to the `src/ui/` primitives.
-- [ ] T054 [US6] Run the `impeccable` skill over `apps/keel/web` (critique, then polish, then harden), and apply its findings in `apps/keel/web/src/**`.
-- [ ] T055 [US6] Write a Playwright spec, `apps/keel/web/tests/e2e/polish-screens.spec.ts`: every section at 360 and 1280 px, in light and dark, asserting there is no horizontal scroll (`scrollWidth <= clientWidth`).
+- [X] T053 [US6] Migrate every remaining section in `apps/keel/web/src/features/*` (workspaces, bindings, inventory, runs, reviews, audit, users and hosts) to the `src/ui/` primitives.
+- [X] T054 [US6] Run the `impeccable` skill over `apps/keel/web` (critique, then polish, then harden), and apply its findings in `apps/keel/web/src/**`.
+- [X] T055 [US6] Write a Playwright spec, `apps/keel/web/tests/e2e/polish-screens.spec.ts`: every section at 360 and 1280 px, in light and dark, asserting there is no horizontal scroll (`scrollWidth <= clientWidth`).
 
 ---
 
