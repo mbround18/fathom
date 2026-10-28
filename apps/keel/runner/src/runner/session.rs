@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep_until};
 
+use super::spool::{Acks, Spool};
 use super::{Runner, RunnerError, renew_at, unix_now};
 
 /// How often the runner pings, and how long a silent server is tolerated.
@@ -154,10 +155,15 @@ impl Runner {
             bases,
         };
         send(&out, hello)?;
+        // Results Keel missed while it restarted, oldest first, then a Ping whose Pong
+        // acknowledges them (spec 060 FR-037).
+        let mut acks = Acks::default();
+        self.replay(&out, &mut acks)?;
         // Runs outside Keel: what is new on Hello, then every minute (spec 058 amendment A2).
         let mut outside_sent = self.send_outside(&out)?;
 
-        let (done_tx, mut done_rx) = mpsc::unbounded_channel::<String>();
+        // A relay's run id, and whether it wrote a Finished to the spool.
+        let (done_tx, mut done_rx) = mpsc::unbounded_channel::<(String, bool)>();
         let mut relays = Relays::default();
         let mut last_heard = Instant::now();
         let mut ping = tokio::time::interval_at(Instant::now() + PING_EVERY, PING_EVERY);
@@ -177,7 +183,11 @@ impl Runner {
                     }
                     match frame {
                         Frame::Ping => send(&out, Frame::Pong)?,
-                        Frame::Pong => {}
+                        Frame::Pong => {
+                            for run_id in acks.pong() {
+                                self.spool.remove(&run_id);
+                            }
+                        }
                         Frame::RenewCert {} => {
                             send(&out, Frame::RenewCert {})?;
                             renew_deadline = Instant::now() + RENEW_RETRY;
@@ -213,6 +223,7 @@ impl Runner {
                                 rx,
                                 out.clone(),
                                 done_tx.clone(),
+                                self.spool.clone(),
                             ));
                             relays.0.insert(run_id, RelayHandle { inbound, task });
                         }
@@ -231,14 +242,20 @@ impl Runner {
                         }
                     }
                 }
-                Some(run_id) = done_rx.recv() => {
+                Some((run_id, spooled)) = done_rx.recv() => {
                     relays.0.remove(&run_id);
+                    if spooled {
+                        // Its Pong says Keel handled the Finished before it.
+                        send(&out, Frame::Ping)?;
+                        acks.ping_after([run_id]);
+                    }
                 }
                 _ = ping.tick() => {
                     if last_heard.elapsed() > SILENCE {
                         break Err(RunnerError::Protocol("the server went silent".to_owned()));
                     }
                     send(&out, Frame::Ping)?;
+                    acks.ping();
                 }
                 _ = outside_tick.tick() => {
                     // Unacknowledged batches are sent again from the saved offset; Keel
@@ -260,6 +277,33 @@ impl Runner {
 }
 
 impl Runner {
+    /// Sends the undelivered results, oldest first, then a `Ping` that acknowledges them. A
+    /// spool that cannot be read is reported and does not end the session.
+    fn replay(
+        &self,
+        out: &mpsc::UnboundedSender<Frame>,
+        acks: &mut Acks,
+    ) -> Result<(), RunnerError> {
+        let pending = match self.spool.pending(unix_now()) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("keel-runner: reading {}: {e}", self.spool.dir().display());
+                return Ok(());
+            }
+        };
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let mut sent = Vec::with_capacity(pending.len());
+        for p in pending {
+            send(out, p.frame)?;
+            sent.push(p.run_id);
+        }
+        send(out, Frame::Ping)?;
+        acks.ping_after(sent);
+        Ok(())
+    }
+
     /// Sends what is new in the outside-runs record, if anything, and returns the batch's end
     /// offset. A record that cannot be read is reported and does not end the session.
     fn send_outside(&self, out: &mpsc::UnboundedSender<Frame>) -> Result<Option<u64>, RunnerError> {
@@ -296,9 +340,11 @@ async fn relay(
     assign: Frame,
     mut inbound: mpsc::UnboundedReceiver<Frame>,
     out: mpsc::UnboundedSender<Frame>,
-    done: mpsc::UnboundedSender<String>,
+    done: mpsc::UnboundedSender<(String, bool)>,
+    spool: Spool,
 ) {
     let run_id = assign.run_id().unwrap_or_default().to_owned();
+    let mut spooled = false;
     let stream = match UnixStream::connect(&socket).await {
         Ok(s) => s,
         Err(e) => {
@@ -306,7 +352,7 @@ async fn relay(
                 "keel-runner: run {run_id}: executor socket {}: {e}; dropped",
                 socket.display()
             );
-            let _ = done.send(run_id);
+            let _ = done.send((run_id, false));
             return;
         }
     };
@@ -348,6 +394,13 @@ async fn relay(
                     break;
                 }
                 let terminal = matches!(frame, Frame::Refused { .. } | Frame::Finished { .. });
+                // Written ahead of sending: a Keel that restarts now gets it on the next Hello.
+                match spool.write(&frame, unix_now()) {
+                    Ok(w) => spooled |= w,
+                    Err(e) => eprintln!(
+                        "keel-runner: run {run_id}: saving the result for replay: {e}"
+                    ),
+                }
                 if out.send(frame).is_err() || terminal {
                     break;
                 }
@@ -358,5 +411,5 @@ async fn relay(
             }
         }
     }
-    let _ = done.send(run_id);
+    let _ = done.send((run_id, spooled));
 }

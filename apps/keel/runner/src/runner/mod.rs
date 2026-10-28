@@ -13,6 +13,7 @@
 
 pub mod outside;
 pub(crate) mod session;
+pub mod spool;
 
 use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt as _;
@@ -211,6 +212,8 @@ pub struct Runner {
     key: Arc<PrivateKey>,
     /// The record of runs outside Keel (spec 058 amendment A2).
     outside: outside::OutsideLog,
+    /// Results Keel has not acknowledged (spec 060 FR-037).
+    spool: spool::Spool,
 }
 
 impl std::fmt::Debug for Runner {
@@ -230,13 +233,21 @@ impl Runner {
         let host_cas = parse_host_ca(&read_trust_file(&cfg.trust_dir.join(HOST_CA_FILE))?)?;
         let key = Arc::new(load_or_create_key(&cfg.state_dir)?);
         let outside = outside::OutsideLog::new(outside::DEFAULT_OUTSIDE_LOG, &cfg.state_dir);
+        let spool = spool::Spool::new(&cfg.state_dir, spool::DEFAULT_MAX_OFFLINE);
         Ok(Self {
             cfg,
             policy,
             host_cas,
             key,
             outside,
+            spool,
         })
+    }
+
+    /// Drops undelivered results older than `max` unsent instead of after 30 days.
+    pub fn with_max_offline(mut self, max: Duration) -> Self {
+        self.spool = spool::Spool::new(&self.cfg.state_dir, max);
+        self
     }
 
     /// Reads runs outside Keel from `path` instead of `/var/lib/keel-outside/runs.jsonl`.

@@ -49,6 +49,14 @@ struct Cli {
         default_value = keel_runner::runner::outside::DEFAULT_OUTSIDE_LOG
     )]
     outside_log: PathBuf,
+    /// How long a run result Keel has not acknowledged is kept for replay (`30d`, `12h`, `90m`).
+    #[arg(
+        long,
+        env = "KEEL_RUNNER_MAX_OFFLINE",
+        default_value = "30d",
+        value_parser = keel_runner::runner::spool::parse_duration
+    )]
+    max_offline: std::time::Duration,
 }
 
 #[tokio::main]
@@ -61,7 +69,9 @@ async fn main() {
         executor_socket: cli.executor_socket,
         venv: cli.venv,
     }) {
-        Ok(r) => r.with_outside_log(cli.outside_log),
+        Ok(r) => r
+            .with_outside_log(cli.outside_log)
+            .with_max_offline(cli.max_offline),
         Err(e) => {
             eprintln!("keel-runner: {e}");
             std::process::exit(1);
