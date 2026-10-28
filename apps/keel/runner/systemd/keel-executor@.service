@@ -8,8 +8,8 @@ CollectMode=inactive-or-failed
 
 [Service]
 Type=exec
-User=automation
-Group=automation
+User=keel-exec
+Group=keel-exec
 SupplementaryGroups=keel-trust
 ExecStart=/usr/local/bin/keel-executor
 # fd 0 is the connection and carries frames only. stdout and stderr must not inherit it
@@ -31,4 +31,4 @@ PrivateTmp=yes
 ProtectHome=yes
 # The job deadline cap (keel_runner_max_run, default 6h).
 RuntimeMaxSec=6h
-# NoNewPrivileges stays off: Ansible's become needs sudo (the automation sudo rule).
+# NoNewPrivileges stays off: Ansible's become needs sudo (the keel-exec sudo rule).

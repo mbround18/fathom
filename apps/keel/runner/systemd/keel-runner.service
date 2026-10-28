@@ -17,6 +17,9 @@ ExecStart=/usr/local/bin/keel-runner
 # Server hosts are managed by Ansible, not compose services on the dev box (host-install.md).
 Restart=on-failure
 RestartSec=10s
+# Exit 78 (EX_CONFIG) is a configuration error, e.g. Keel rejected the join: restarting would
+# only fail again (contracts/join.md).
+RestartPreventExitStatus=78
 
 StateDirectory=keel-runner
 StateDirectoryMode=0700
