@@ -172,6 +172,54 @@ pub struct Approval {
     pub hosts: Vec<String>,
 }
 
+/// The most entries one `OutsideRuns` frame may carry (spec 058 amendment A2).
+pub const MAX_OUTSIDE_RUNS: usize = 100;
+/// The longest `user` of an [`OutsideRun`], in bytes.
+pub const MAX_OUTSIDE_USER: usize = 64;
+/// The longest `playbook` of an [`OutsideRun`], in bytes.
+pub const MAX_OUTSIDE_PLAYBOOK: usize = 256;
+/// The longest `at` of an [`OutsideRun`], in bytes (an RFC 3339 time is far shorter).
+pub const MAX_OUTSIDE_AT: usize = 64;
+
+/// A run of `ansible-playbook` on the host that Keel did not start, as the host recorded it in
+/// `/var/lib/keel-outside/runs.jsonl` (spec 058 amendment A2). These are the host's claims, not
+/// facts Keel checked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutsideRun {
+    /// RFC 3339, as the host's clock had it.
+    pub at: String,
+    pub user: String,
+    pub playbook: String,
+    /// 40 lowercase hex characters, or `None` when the checkout had no commit.
+    pub commit: Option<String>,
+    pub dirty: bool,
+    /// `--check`: a dry run, which changed nothing.
+    pub check: bool,
+}
+
+impl OutsideRun {
+    /// The record's bounds: `at` non-empty and at most 64 bytes, `user` at most 64 bytes,
+    /// `playbook` at most 256, `commit` 40 lowercase hex characters when present.
+    pub fn check(&self) -> Result<(), &'static str> {
+        if self.at.is_empty() || self.at.len() > MAX_OUTSIDE_AT {
+            return Err("at is empty or too long");
+        }
+        if self.user.len() > MAX_OUTSIDE_USER {
+            return Err("user is over 64 bytes");
+        }
+        if self.playbook.len() > MAX_OUTSIDE_PLAYBOOK {
+            return Err("playbook is over 256 bytes");
+        }
+        if let Some(c) = &self.commit
+            && !(c.len() == 40 && c.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        {
+            return Err("commit is not 40 lowercase hex characters");
+        }
+        Ok(())
+    }
+}
+
 /// Every frame of contracts/runner.md, plus the local-socket `ReadLedger`/`Ledger` pair.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "frame", deny_unknown_fields)]
@@ -282,6 +330,20 @@ pub enum Frame {
         stats: BTreeMap<String, HostStats>,
         ledger_line: String,
     },
+    /// R → S. New lines of the host's outside-runs record: at most [`MAX_OUTSIDE_RUNS`] entries;
+    /// `skipped` counts lines the runner dropped as malformed or oversized; `through` is the byte
+    /// offset in the record just past this batch, which the server echoes in `OutsideRunsAck`.
+    OutsideRuns {
+        #[serde(deserialize_with = "bounded_outside_runs")]
+        entries: Vec<OutsideRun>,
+        skipped: u32,
+        through: u64,
+    },
+    /// S → R. The server has stored every entry up to byte `through`; only now does the runner
+    /// move its offset.
+    OutsideRunsAck {
+        through: u64,
+    },
     Ping,
     Pong,
 
@@ -315,6 +377,8 @@ impl Frame {
             Frame::Log { .. } => "Log",
             Frame::Cancel { .. } => "Cancel",
             Frame::Finished { .. } => "Finished",
+            Frame::OutsideRuns { .. } => "OutsideRuns",
+            Frame::OutsideRunsAck { .. } => "OutsideRunsAck",
             Frame::Ping => "Ping",
             Frame::Pong => "Pong",
             Frame::ReadLedger => "ReadLedger",
@@ -340,6 +404,7 @@ impl Frame {
             | Frame::Event { .. }
             | Frame::Log { .. }
             | Frame::Finished { .. }
+            | Frame::OutsideRuns { .. }
             | Frame::ReadLedger => Direction::RunnerToServer,
             Frame::Enrolled { .. }
             | Frame::Cert { .. }
@@ -349,6 +414,7 @@ impl Frame {
             | Frame::Secrets { .. }
             | Frame::Approvals { .. }
             | Frame::Cancel { .. }
+            | Frame::OutsideRunsAck { .. }
             | Frame::Ledger { .. } => Direction::ServerToRunner,
             Frame::RenewCert {} | Frame::Ping | Frame::Pong => Direction::Both,
         }
@@ -492,12 +558,48 @@ impl fmt::Debug for Frame {
                 .field("exit_code", exit_code)
                 .field("stats", stats)
                 .field("ledger_line", ledger_line),
+            Frame::OutsideRuns {
+                entries,
+                skipped,
+                through,
+            } => d
+                .field("entries", entries)
+                .field("skipped", skipped)
+                .field("through", through),
+            Frame::OutsideRunsAck { through } => d.field("through", through),
             Frame::Ledger { ledger_head, bases } => {
                 d.field("ledger_head", ledger_head).field("bases", bases)
             }
         };
         d.finish()
     }
+}
+
+/// `OutsideRuns.entries`, refused past [`MAX_OUTSIDE_RUNS`] while decoding.
+fn bounded_outside_runs<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<OutsideRun>, D::Error> {
+    struct Bounded;
+    impl<'de> serde::de::Visitor<'de> for Bounded {
+        type Value = Vec<OutsideRun>;
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "at most {MAX_OUTSIDE_RUNS} outside runs")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut out = Vec::new();
+            while let Some(run) = seq.next_element::<OutsideRun>()? {
+                if out.len() == MAX_OUTSIDE_RUNS {
+                    return Err(serde::de::Error::invalid_length(out.len() + 1, &self));
+                }
+                out.push(run);
+            }
+            Ok(out)
+        }
+    }
+    d.deserialize_seq(Bounded)
 }
 
 /// Standard base64 for `Vec<u8>` fields.

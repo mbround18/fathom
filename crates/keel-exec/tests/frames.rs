@@ -6,8 +6,20 @@ use std::collections::BTreeMap;
 use keel_exec::codec::{self, CodecError, MAX_FRAME_LEN};
 use keel_exec::events::HostStats;
 use keel_exec::frames::{
-    Approval, Base, Direction, Frame, LogStream, Refusal, SecretItem, Subsystem,
+    Approval, Base, Direction, Frame, LogStream, MAX_OUTSIDE_RUNS, OutsideRun, Peer, Refusal,
+    SecretItem, Subsystem,
 };
+
+fn outside_run() -> OutsideRun {
+    OutsideRun {
+        at: "2026-10-27T12:00:00Z".into(),
+        user: "root".into(),
+        playbook: "playbooks/debian.yaml".into(),
+        commit: Some("a".repeat(40)),
+        dirty: true,
+        check: false,
+    }
+}
 
 fn every_frame() -> Vec<Frame> {
     let mut stats = BTreeMap::new();
@@ -128,6 +140,19 @@ fn every_frame() -> Vec<Frame> {
             stats,
             ledger_line: "{\"seq\":1}".into(),
         },
+        Frame::OutsideRuns {
+            entries: vec![
+                outside_run(),
+                OutsideRun {
+                    commit: None,
+                    check: true,
+                    ..outside_run()
+                },
+            ],
+            skipped: 2,
+            through: 4096,
+        },
+        Frame::OutsideRunsAck { through: 4096 },
         Frame::Ping,
         Frame::Pong,
         Frame::ReadLedger,
@@ -173,11 +198,12 @@ fn every_frame_names_a_direction_and_a_subsystem() {
         }
         let dir = frame.direction();
         match name {
-            "Hello" | "Started" | "Refused" | "Event" | "Log" | "Finished" | "Enroll" => {
+            "Hello" | "Started" | "Refused" | "Event" | "Log" | "Finished" | "Enroll"
+            | "OutsideRuns" => {
                 assert_eq!(dir, Direction::RunnerToServer, "{name}")
             }
             "Assign" | "Pack" | "Secrets" | "Approvals" | "Cancel" | "Krl" | "Cert"
-            | "Enrolled" => {
+            | "Enrolled" | "OutsideRunsAck" => {
                 assert_eq!(dir, Direction::ServerToRunner, "{name}")
             }
             "RenewCert" | "Ping" | "Pong" => assert_eq!(dir, Direction::Both, "{name}"),
@@ -358,4 +384,92 @@ async fn frames_stream_back_to_back() {
     }
     writer.await.unwrap();
     assert_eq!(got, sent);
+}
+
+/// Amendment A2 (spec 058 T036): a runner reports runs made outside Keel, at most 100 a frame.
+#[test]
+fn outside_runs_are_bounded_and_strict() {
+    // The wire shape: the record's fields without `v` (the runner checks it and drops it).
+    let frame = Frame::OutsideRuns {
+        entries: vec![outside_run()],
+        skipped: 0,
+        through: 120,
+    };
+    let json: serde_json::Value =
+        serde_json::from_slice(&codec::encode_body(&frame).unwrap()).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "frame": "OutsideRuns",
+            "entries": [{
+                "at": "2026-10-27T12:00:00Z",
+                "user": "root",
+                "playbook": "playbooks/debian.yaml",
+                "commit": "a".repeat(40),
+                "dirty": true,
+                "check": false,
+            }],
+            "skipped": 0,
+            "through": 120,
+        })
+    );
+    assert!(frame.may_be_sent_by(Peer::Runner));
+    assert!(!frame.may_be_sent_by(Peer::Server));
+    let ack = Frame::OutsideRunsAck { through: 120 };
+    assert!(ack.may_be_sent_by(Peer::Server));
+    assert!(!ack.may_be_sent_by(Peer::Runner));
+
+    // Exactly 100 entries decode; 101 are refused.
+    let at_limit = Frame::OutsideRuns {
+        entries: vec![outside_run(); MAX_OUTSIDE_RUNS],
+        skipped: 0,
+        through: 1,
+    };
+    let bytes = codec::encode_body(&at_limit).unwrap();
+    assert_eq!(codec::decode_body(&bytes).unwrap(), at_limit);
+    let mut over: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    over["entries"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::to_value(outside_run()).unwrap());
+    assert!(codec::decode_body(&serde_json::to_vec(&over).unwrap()).is_err());
+
+    // Unknown fields in an entry are refused, like everywhere else.
+    let mut extra = serde_json::to_value(&frame).unwrap();
+    extra["entries"][0]["shell"] = serde_json::json!("id");
+    assert!(codec::decode_body(&serde_json::to_vec(&extra).unwrap()).is_err());
+}
+
+#[test]
+fn an_outside_run_checks_its_bounds() {
+    assert!(outside_run().check().is_ok());
+    let none = OutsideRun {
+        commit: None,
+        ..outside_run()
+    };
+    assert!(none.check().is_ok(), "no commit is allowed");
+
+    let bad: Vec<(&str, fn(&mut OutsideRun))> = vec![
+        ("user over 64 bytes", |r| r.user = "u".repeat(65)),
+        ("playbook over 256 bytes", |r| r.playbook = "p".repeat(257)),
+        ("short commit", |r| r.commit = Some("abc".into())),
+        ("upper-case commit", |r| r.commit = Some("A".repeat(40))),
+        ("non-hex commit", |r| r.commit = Some("g".repeat(40))),
+        ("empty at", |r| r.at = String::new()),
+        ("at over 64 bytes", |r| r.at = "2".repeat(65)),
+    ];
+    for (why, spoil) in bad {
+        let mut r = outside_run();
+        spoil(&mut r);
+        assert!(r.check().is_err(), "{why}");
+    }
+    let at_limits = OutsideRun {
+        user: "u".repeat(64),
+        playbook: "p".repeat(256),
+        ..outside_run()
+    };
+    assert!(
+        at_limits.check().is_ok(),
+        "the limits themselves are allowed"
+    );
 }
