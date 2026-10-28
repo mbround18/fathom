@@ -4,13 +4,30 @@
  * Every change is previewed and confirmed (./parts.tsx); credential values are sent once and
  * never shown back, only their fingerprints.
  */
+import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
 import { useId, useState, type SyntheticEvent } from 'react'
 
-import type { BindingInfo, CredentialKind, Transport } from '@/protocol/wire'
+import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
+import { DataTable } from '@/ui/DataTable'
+import { Field as FormField, FIELD, H2, LABEL, LINK } from '@/ui/form'
+import { Page } from '@/ui/Page'
+import { PageHeader } from '@/ui/PageHeader'
 
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from './parts'
-import { FIELD, short, useRepos } from './store'
+import { short, useRepos } from './store'
+
+function tone(status: string): string {
+  return status === 'active' ? 'text-status-ok' : status === 'disabled' ? 'text-muted-foreground' : 'text-status-warn'
+}
+
+function Status({ status, ...rest }: { status: string; [data: `data-${string}`]: boolean }) {
+  return (
+    <span {...rest} className={`text-[11px] tracking-wider uppercase ${tone(status)}`}>
+      {status}
+    </span>
+  )
+}
 
 const KINDS: { kind: CredentialKind; label: string }[] = [
   { kind: 'git_https_token', label: 'Git HTTPS token' },
@@ -56,7 +73,12 @@ export function NewBinding() {
     transport === 'ssh' ? c.kind === 'git_ssh_key' : c.kind === 'git_https_token',
   )
   return (
-    <form aria-label="New binding" onSubmit={submit} className="grid gap-2 border border-border p-3 sm:grid-cols-2">
+    <form
+      aria-label="New binding"
+      onSubmit={submit}
+      className="grid min-w-0 gap-3 border border-border bg-muted/20 p-3 sm:grid-cols-2"
+    >
+      <h2 className={`${H2} sm:col-span-2`}>New binding</h2>
       <Field label="Project id" id={`${id}-project`}>
         <Input id={`${id}-project`} value={project} onChange={(e) => setProject(e.target.value)} required />
       </Field>
@@ -92,10 +114,10 @@ export function NewBinding() {
           <Input id={`${id}-known`} value={knownHost} onChange={(e) => setKnownHost(e.target.value)} required />
         </Field>
       )}
-      <Field label="Poll every (seconds, blank for webhook only)" id={`${id}-poll`}>
+      <FormField label="Poll every (seconds)" htmlFor={`${id}-poll`} hint="Leave blank to sync only when a webhook arrives.">
         <Input id={`${id}-poll`} inputMode="numeric" value={poll} onChange={(e) => setPoll(e.target.value)} />
-      </Field>
-      <div className="flex items-end">
+      </FormField>
+      <div className="flex items-start sm:col-span-2">
         <Button type="submit">Preview binding</Button>
       </div>
     </form>
@@ -114,14 +136,12 @@ function Detail({ binding }: { binding: BindingInfo }) {
   const granted = credentials.filter((c) => c.grants.some((g) => g.binding === binding.id))
 
   return (
-    <section aria-label={`Binding ${binding.url}`} className="flex flex-col gap-3 border border-border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="font-mono text-xs break-all">
+    <section aria-label={`Binding ${binding.url}`} className="flex min-w-0 flex-col border border-border">
+      <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
+        <h2 className="min-w-0 font-mono text-xs break-all">
           {binding.url} @ {binding.branch}
         </h2>
-        <span data-binding-status className="text-[11px] uppercase">
-          {binding.status}
-        </span>
+        <Status data-binding-status status={binding.status} />
         <div className="ml-auto flex flex-wrap gap-1">
           <Button size="xs" variant="outline" onClick={() => sync(binding.id)}>
             Sync now
@@ -146,93 +166,90 @@ function Detail({ binding }: { binding: BindingInfo }) {
             Remove
           </Button>
           <Button size="xs" variant="ghost" onClick={() => open(null)}>
+            <XIcon aria-hidden />
             Close
           </Button>
         </div>
       </div>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">Last commit</dt>
-        <dd className="font-mono">{short(binding.last_commit)}</dd>
-        <dt className="text-muted-foreground">Synced</dt>
-        <dd>{binding.last_synced_at ?? 'never'}</dd>
-        <dt className="text-muted-foreground">Polling</dt>
-        <dd>{binding.poll_interval === null ? 'webhook only' : `every ${String(binding.poll_interval)}s`}</dd>
-        {binding.last_sync_error && (
-          <>
-            <dt className="text-muted-foreground">Error</dt>
-            <dd role="status" data-sync-error className="text-status-err">
-              {binding.last_sync_error}
-            </dd>
-          </>
-        )}
-      </dl>
-      {binding.manifest_problems.length > 0 && (
-        <ul aria-label="Manifest problems" className="flex flex-col gap-1 text-xs text-status-err">
-          {binding.manifest_problems.map((p, i) => (
-            <li key={i}>{JSON.stringify(p)}</li>
-          ))}
-        </ul>
-      )}
-      <table aria-label="Jobs" className="w-full text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1">Job</th>
-            <th>Playbook</th>
-            <th>Profiles</th>
-            <th>Inventory</th>
-            <th>State</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.length === 0 && (
-            <tr>
-              <td colSpan={5} data-pane-state="empty" className="py-1 text-muted-foreground">
-                No jobs at this commit.
-              </td>
-            </tr>
+      <div className="flex min-w-0 flex-col gap-4 p-3">
+        <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs">
+          <dt className="text-muted-foreground">Last commit</dt>
+          <dd className="font-mono">{short(binding.last_commit)}</dd>
+          <dt className="text-muted-foreground">Synced</dt>
+          <dd>{binding.last_synced_at ?? 'never'}</dd>
+          <dt className="text-muted-foreground">Polling</dt>
+          <dd>{binding.poll_interval === null ? 'webhook only' : `every ${String(binding.poll_interval)}s`}</dd>
+          {binding.last_sync_error && (
+            <>
+              <dt className="text-muted-foreground">Error</dt>
+              <dd role="status" data-sync-error className="break-words text-status-err">
+                {binding.last_sync_error}
+              </dd>
+            </>
           )}
-          {jobs.map((j) => (
-            <tr key={j.name} className="border-t border-border">
-              <td className="py-1 font-mono">{j.name}</td>
-              <td className="font-mono">{j.playbook}</td>
-              <td>{j.profiles.join(', ')}</td>
-              <td>{j.inventory}</td>
-              <td>{j.blocked ? <span className="text-status-err">blocked: {j.blocked}</span> : 'ready'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="flex flex-wrap items-end gap-2">
-        <Field label="Grant a credential" id={`${id}-grant`}>
-          <select id={`${id}-grant`} className={FIELD} value={grant} onChange={(e) => setGrant(e.target.value)}>
-            <option value="">Choose…</option>
-            {credentials.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
+        </dl>
+        {binding.manifest_problems.length > 0 && (
+          <ul aria-label="Manifest problems" className="flex min-w-0 flex-col gap-1 border border-status-err/40 p-2 text-xs text-status-err">
+            {binding.manifest_problems.map((p, i) => (
+              <li key={i} className="font-mono break-all">
+                {JSON.stringify(p)}
+              </li>
             ))}
-          </select>
-        </Field>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!grant}
-          onClick={() =>
-            propose({ type: 'PreviewCredentialGrant', data: { credential: grant, binding: binding.id, profiles: [] } })
-          }
-        >
-          Grant
-        </Button>
-        {granted.map((c) => (
+          </ul>
+        )}
+        <div className="flex min-w-0 flex-col gap-2">
+          <h3 className={LABEL}>Jobs at {short(binding.last_commit)}</h3>
+          <DataTable<JobSummary>
+            label="Jobs"
+            rows={jobs}
+            rowKey={(j) => j.name}
+            columns={[
+              { key: 'job', header: 'Job', cell: (j) => <span className="font-mono">{j.name}</span> },
+              { key: 'playbook', header: 'Playbook', cell: (j) => <span className="font-mono break-all">{j.playbook}</span> },
+              { key: 'profiles', header: 'Profiles', cell: (j) => j.profiles.join(', ') },
+              { key: 'inventory', header: 'Inventory', cell: (j) => j.inventory },
+              {
+                key: 'state',
+                header: 'State',
+                cell: (j) =>
+                  j.blocked ? <span className="text-status-err">blocked: {j.blocked}</span> : <span className="text-status-ok">ready</span>,
+              },
+            ]}
+            empty="No jobs at this commit. Jobs come from the repository's .keel/jobs.yaml."
+          />
+        </div>
+        <div className="flex min-w-0 flex-wrap items-end gap-2">
+          <Field label="Grant a credential" id={`${id}-grant`}>
+            <select id={`${id}-grant`} className={FIELD} value={grant} onChange={(e) => setGrant(e.target.value)}>
+              <option value="">Choose…</option>
+              {credentials.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Button
-            key={c.id}
-            size="xs"
-            variant="ghost"
-            onClick={() => propose({ type: 'PreviewCredentialRevoke', data: { credential: c.id, binding: binding.id } })}
+            size="sm"
+            variant="outline"
+            disabled={!grant}
+            onClick={() =>
+              propose({ type: 'PreviewCredentialGrant', data: { credential: grant, binding: binding.id, profiles: [] } })
+            }
           >
-            Revoke {c.name}
+            Grant
           </Button>
-        ))}
+          {granted.map((c) => (
+            <Button
+              key={c.id}
+              size="xs"
+              variant="ghost"
+              onClick={() => propose({ type: 'PreviewCredentialRevoke', data: { credential: c.id, binding: binding.id } })}
+            >
+              Revoke {c.name}
+            </Button>
+          ))}
+        </div>
       </div>
     </section>
   )
@@ -256,31 +273,28 @@ function Credentials() {
   }
 
   return (
-    <section aria-labelledby={`${id}-title`} className="flex flex-col gap-2">
-      <h2 id={`${id}-title`} className="font-display text-xs font-semibold tracking-wider uppercase">
-        Credentials
-      </h2>
-      <table aria-label="Credentials" className="w-full text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1">Name</th>
-            <th>Kind</th>
-            <th>Fingerprint</th>
-            <th>Granted to</th>
-          </tr>
-        </thead>
-        <tbody>
-          {credentials.map((c) => (
-            <tr key={c.id} className="border-t border-border">
-              <td className="py-1 font-mono">{c.name}</td>
-              <td>{c.kind}</td>
-              <td className="font-mono">{c.fingerprint}</td>
-              <td>{c.grants.length}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <form aria-label="New credential" onSubmit={submit} className="flex flex-wrap items-end gap-2">
+    <section aria-labelledby={`${id}-title`} className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h2 id={`${id}-title`} className={H2}>
+          Credentials
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Secrets a binding uses to fetch or run. Keel stores the value and shows only its fingerprint.
+        </p>
+      </div>
+      <DataTable<CredentialInfo>
+        label="Credentials"
+        rows={credentials}
+        rowKey={(c) => c.id}
+        columns={[
+          { key: 'name', header: 'Name', cell: (c) => <span className="font-mono">{c.name}</span> },
+          { key: 'kind', header: 'Kind', cell: (c) => KINDS.find((k) => k.kind === c.kind)?.label ?? c.kind },
+          { key: 'fp', header: 'Fingerprint', className: 'w-[40%]', cell: (c) => <span className="font-mono break-all">{c.fingerprint}</span> },
+          { key: 'grants', header: 'Granted to', cell: (c) => <span className="tabular-nums">{c.grants.length}</span> },
+        ]}
+        empty="No credentials yet. A public repository needs none."
+      />
+      <form aria-label="New credential" onSubmit={submit} className="flex min-w-0 flex-wrap items-end gap-2 border border-border bg-muted/20 p-3">
         <Field label="Name" id={`${id}-name`}>
           <Input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
@@ -320,58 +334,51 @@ export default function BindingsPage() {
   const current = detail ? (bindings.find((b) => b.id === detail.binding.id) ?? detail.binding) : null
 
   return (
-    <section data-page="bindings" aria-labelledby="bindings-title" className="flex flex-col gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 id="bindings-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Bindings
-        </h1>
+    <Page name="bindings" labelledBy="bindings-title">
+      <PageHeader
+        id="bindings-title"
+        title="Bindings"
+        description="Repositories bound to a project, the jobs they define, and the credentials they use."
+        actions={
+          workspace && (
+            <Button size="sm" variant={adding ? 'ghost' : 'default'} aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
+              {adding ? <XIcon aria-hidden /> : <PlusIcon aria-hidden />}
+              {adding ? 'Close form' : 'New binding'}
+            </Button>
+          )
+        }
+      >
         <WorkspacePicker />
-        {workspace && (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setAdding((a) => !a)}>
-            {adding ? 'Close form' : 'New binding'}
-          </Button>
-        )}
-      </div>
+      </PageHeader>
       <ErrorLine />
       {adding && <NewBinding />}
       {workspace && (
-        <table aria-label="Bindings" className="w-full text-left text-xs">
-          <thead className="text-muted-foreground">
-            <tr>
-              <th className="py-1">Repository</th>
-              <th>Branch</th>
-              <th>Status</th>
-              <th>Commit</th>
-              <th>Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bindings.length === 0 && (
-              <tr>
-                <td colSpan={5} data-pane-state="empty" className="py-1 text-muted-foreground">
-                  No repository is bound yet.
-                </td>
-              </tr>
-            )}
-            {bindings.map((b) => (
-              <tr key={b.id} className="border-t border-border">
-                <td className="py-1">
-                  <button type="button" className="font-mono break-all hover:underline" onClick={() => open(b.id)}>
-                    {b.url}
-                  </button>
-                </td>
-                <td>{b.branch}</td>
-                <td>{b.status}</td>
-                <td className="font-mono">{short(b.last_commit)}</td>
-                <td className="text-status-err">{b.last_sync_error ?? ''}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable<BindingInfo>
+          label="Bindings"
+          rows={bindings}
+          rowKey={(b) => b.id}
+          columns={[
+            {
+              key: 'url',
+              header: 'Repository',
+              className: 'w-[36%]',
+              cell: (b) => (
+                <button type="button" className={`${LINK} font-mono break-all`} onClick={() => open(b.id)}>
+                  {b.url}
+                </button>
+              ),
+            },
+            { key: 'branch', header: 'Branch', cell: (b) => <span className="font-mono">{b.branch}</span> },
+            { key: 'status', header: 'Status', cell: (b) => <Status status={b.status} /> },
+            { key: 'commit', header: 'Commit', cell: (b) => <span className="font-mono">{short(b.last_commit)}</span> },
+            { key: 'error', header: 'Error', cell: (b) => <span className="text-status-err">{b.last_sync_error ?? ''}</span> },
+          ]}
+          empty="No repository is bound yet."
+        />
       )}
       {current && <Detail binding={current} />}
       {workspace && <Credentials />}
       <PreviewDialog />
-    </section>
+    </Page>
   )
 }
