@@ -6,10 +6,9 @@ use ts_rs::TS;
 use crate::types::{
     Actor, AuditEntry, ComposeWarning, DenyReason, Entry, EnvText, FileContent, FilePreview,
     FileRefusal, FileVersion, Fingerprint, GuardException, GuardRefusal, HostSample, Mount,
-    MountId, OpOutcome, OperationId, PasskeyInfo, PasskeyRefusedReason, PasskeyRequest,
-    Verification,
-    OperationKind, Preview, PreviewId, PreviewVoidReason, RelPath, RequestId, StackDetail,
-    StackList, StreamCloseReason, UserList, ValidationError, VersionId,
+    MountId, OpOutcome, OperationId, OperationKind, PasskeyInfo, PasskeyRefusedReason,
+    PasskeyRequest, Preview, PreviewId, PreviewVoidReason, RelPath, RequestId, StackDetail,
+    StackList, StreamCloseReason, UserList, ValidationError, Verification, VersionId,
 };
 use crate::wire::{StreamId, UsageSample};
 

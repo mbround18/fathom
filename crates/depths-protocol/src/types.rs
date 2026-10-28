@@ -1684,7 +1684,8 @@ pub enum FileRefusal {
     OsError {
         errno: String,
         message: String,
-    },    /// 054: the runtime guard refused to start the helper.
+    },
+    /// 054: the runtime guard refused to start the helper.
     Guard(GuardRefusal),
 }
 

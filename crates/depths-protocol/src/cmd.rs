@@ -11,9 +11,8 @@ use ts_rs::TS;
 use crate::types::{
     AuditCursor, AuditFilter, ContainerRef, CsrfToken, FileOp, LogTail, LogTarget,
     MAX_STATS_TARGETS, MAX_USER_STACKS, MountId, OperationId, PasskeyAssertion, PasskeyPurpose,
-    PasskeyResponse, PreviewId, RecoveryCode, RelPath, RequestId, Role,
-    Shell, ShellBytes, StackDraft, StackName, StackOp, StatsTarget, Timestamp, UserId, VersionId,
-    at_most,
+    PasskeyResponse, PreviewId, RecoveryCode, RelPath, RequestId, Role, Shell, ShellBytes,
+    StackDraft, StackName, StackOp, StatsTarget, Timestamp, UserId, VersionId, at_most,
 };
 use crate::wire::StreamId;
 
