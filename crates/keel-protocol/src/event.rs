@@ -17,6 +17,11 @@ use crate::inventory::{
 use crate::governance::{ApiTokenInfo, TeamInfo, TokenSecret, UserInfo, WorkspaceInfo};
 // Hosts and the SSH CAs (US7)
 use crate::host::{EnrollToken, HostDetail, HostInfo, HostStatus, SshCaInfo};
+// Signed mode: review and signers (US8)
+use crate::review::{
+    DiffFile, DiffPage, OverrideChallenge, ReviewCommit, ReviewDecision, ReviewFlag, ReviewInfo,
+    SignerInfo,
+};
 // Runs (US2)
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
@@ -223,6 +228,41 @@ pub enum Event {
         #[ts(type = "string")]
         host: Uuid,
         state: HostStatus,
+    },
+
+    // Signed mode: review and signers (US8)
+    /// Reply to `ListReviews`.
+    Reviews { items: Vec<ReviewInfo> },
+    /// Reply to `GetReview`, and after a confirmed override or deny.
+    Review {
+        review: ReviewInfo,
+        commits: Vec<ReviewCommit>,
+        flags: Vec<ReviewFlag>,
+        decisions: Vec<ReviewDecision>,
+    },
+    /// Reply to `GetReviewDiff`: every changed file, and the requested page of one file.
+    ReviewDiff {
+        #[ts(type = "string")]
+        group: Uuid,
+        files: Vec<DiffFile>,
+        page: Option<DiffPage>,
+    },
+    /// Follows the `Preview` of `PreviewOverride` and `PreviewBaseline`.
+    OverrideChallenge(OverrideChallenge),
+    /// A signed-mode run needs review (pushed to the workspace's approvers).
+    ReviewRequested {
+        #[ts(type = "string")]
+        group: Uuid,
+        #[ts(type = "string")]
+        run: Uuid,
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// Reply to `ListSigners`, and after a signer change.
+    Signers {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        items: Vec<SignerInfo>,
     },
 }
 

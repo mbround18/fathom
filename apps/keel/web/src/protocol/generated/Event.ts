@@ -3,6 +3,8 @@ import type { ApiTokenInfo } from "./ApiTokenInfo";
 import type { BindingInfo } from "./BindingInfo";
 import type { CredentialInfo } from "./CredentialInfo";
 import type { DeliveryInfo } from "./DeliveryInfo";
+import type { DiffFile } from "./DiffFile";
+import type { DiffPage } from "./DiffPage";
 import type { EnrollToken } from "./EnrollToken";
 import type { HostDetail } from "./HostDetail";
 import type { HostInfo } from "./HostInfo";
@@ -17,6 +19,7 @@ import type { JobInfo } from "./JobInfo";
 import type { JobSummary } from "./JobSummary";
 import type { LogStream } from "./LogStream";
 import type { Me } from "./Me";
+import type { OverrideChallenge } from "./OverrideChallenge";
 import type { PasskeyInfo } from "./PasskeyInfo";
 import type { PasskeyRefusedReason } from "./PasskeyRefusedReason";
 import type { PasskeyRequest } from "./PasskeyRequest";
@@ -25,10 +28,15 @@ import type { PolicyInfo } from "./PolicyInfo";
 import type { Preview } from "./Preview";
 import type { PreviewId } from "./PreviewId";
 import type { ReceiverInfo } from "./ReceiverInfo";
+import type { ReviewCommit } from "./ReviewCommit";
+import type { ReviewDecision } from "./ReviewDecision";
+import type { ReviewFlag } from "./ReviewFlag";
+import type { ReviewInfo } from "./ReviewInfo";
 import type { RunHostInfo } from "./RunHostInfo";
 import type { RunInfo } from "./RunInfo";
 import type { RunPhase } from "./RunPhase";
 import type { RunReason } from "./RunReason";
+import type { SignerInfo } from "./SignerInfo";
 import type { SshCaInfo } from "./SshCaInfo";
 import type { TeamInfo } from "./TeamInfo";
 import type { TokenSecret } from "./TokenSecret";
@@ -47,4 +55,4 @@ var_schema: string | null, } } | { "type": "InventoryDiff", "data": { inventory:
 /**
  * `@cert-authority * ssh-ed25519 …`: the value for `keel_runner_host_ca`.
  */
-cert_authority: string, } } | { "type": "HostState", "data": { host: string, state: HostStatus, } };
+cert_authority: string, } } | { "type": "HostState", "data": { host: string, state: HostStatus, } } | { "type": "Reviews", "data": { items: Array<ReviewInfo>, } } | { "type": "Review", "data": { review: ReviewInfo, commits: Array<ReviewCommit>, flags: Array<ReviewFlag>, decisions: Array<ReviewDecision>, } } | { "type": "ReviewDiff", "data": { group: string, files: Array<DiffFile>, page: DiffPage | null, } } | { "type": "OverrideChallenge", "data": OverrideChallenge } | { "type": "ReviewRequested", "data": { group: string, run: string, workspace: string, } } | { "type": "Signers", "data": { workspace: string, items: Array<SignerInfo>, } };

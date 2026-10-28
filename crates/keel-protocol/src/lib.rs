@@ -59,3 +59,12 @@ pub use host::{
 };
 
 pub const PROTOCOL_VERSION: u32 = 1;
+
+// Signed mode: review and signers (US8)
+pub mod review;
+pub use review::{
+    BaselineHosts, CommitSha, DiffFile, DiffPage, DiffStatus, MAX_BASELINE_HOSTS,
+    MAX_REPO_PATH_BYTES, MAX_REVIEW_COMMENT_CHARS, MAX_SIGNER_KEY_BYTES, OverrideChallenge,
+    RepoPath, ReviewComment, ReviewCommit, ReviewDecision, ReviewFlag, ReviewFlagKind, ReviewInfo,
+    ReviewReason, ReviewState, SignatureStatus, SignerInfo, SignerKey, SignerKind,
+};

@@ -24,6 +24,11 @@ use crate::run::{Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
 use crate::host::{HostName, HostProfiles, SshCaKind};
+// Signed mode: review and signers (US8)
+use crate::governance::Label as SignerLabel;
+use crate::review::{
+    BaselineHosts, CommitSha, RepoPath, ReviewComment, ReviewState, SignerKey, SignerKind,
+};
 
 /// The first frame on a WebSocket. A wrong `csrf_token` closes with 4403; a missing or expired
 /// session with 4401; another `protocol_version` with 4400.
@@ -495,6 +500,75 @@ pub enum Cmd {
     GetSshCa,
     /// `Preview` (instance admin, step-up); `Confirm` replies `SshCa`.
     PreviewSshCaRotate { kind: SshCaKind },
+
+    // Signed mode: review and signers (US8)
+    /// `Reviews`: review groups the caller may see, newest first.
+    ListReviews {
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        workspace: Option<Uuid>,
+        #[serde(default)]
+        state: Option<ReviewState>,
+    },
+    /// `Review`: commits with their signature status, flags and decisions.
+    GetReview {
+        #[ts(type = "string")]
+        group: Uuid,
+    },
+    /// `ReviewDiff`: the changed files; with `path`, one page of that file's diff.
+    GetReviewDiff {
+        #[ts(type = "string")]
+        group: Uuid,
+        #[serde(default)]
+        path: Option<RepoPath>,
+        #[serde(default)]
+        page: Option<u32>,
+    },
+    /// `Preview` then `OverrideChallenge`. `Confirm` must carry the passkey assertion over that
+    /// challenge (a recent step-up does not stand in for it). Replies `Review`.
+    PreviewOverride {
+        #[ts(type = "string")]
+        group: Uuid,
+        comment: ReviewComment,
+    },
+    /// `Preview`; `Confirm` denies the group and the run. Replies `Review`.
+    PreviewOverrideDeny {
+        #[ts(type = "string")]
+        group: Uuid,
+        comment: ReviewComment,
+    },
+    /// The first signed-mode run on hosts with no base. `Preview` then `OverrideChallenge`, as
+    /// for an override; `Confirm` replies `Run`.
+    PreviewBaseline {
+        #[ts(type = "string")]
+        binding: Uuid,
+        #[ts(type = "string")]
+        job: Uuid,
+        hosts: BaselineHosts,
+        commit: CommitSha,
+        comment: ReviewComment,
+    },
+    /// `Signers`: Keel's trusted signers for the early check.
+    ListSigners {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Signers`.
+    PreviewSignerAdd {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        kind: SignerKind,
+        public_key: SignerKey,
+        label: SignerLabel,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        user: Option<Uuid>,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Signers`.
+    PreviewSignerRemove {
+        #[ts(type = "string")]
+        signer: Uuid,
+    },
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -527,6 +601,11 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     "list_hosts",
     "get_host",
     "get_ssh_ca",
+    // Signed mode: review and signers (US8)
+    "list_reviews",
+    "get_review",
+    "get_review_diff",
+    "list_signers",
 ];
 
 impl Cmd {
@@ -613,6 +692,16 @@ impl Cmd {
             Cmd::PreviewHostRevoke { .. } => "preview_host_revoke",
             Cmd::GetSshCa => "get_ssh_ca",
             Cmd::PreviewSshCaRotate { .. } => "preview_ssh_ca_rotate",
+            // Signed mode: review and signers (US8)
+            Cmd::ListReviews { .. } => "list_reviews",
+            Cmd::GetReview { .. } => "get_review",
+            Cmd::GetReviewDiff { .. } => "get_review_diff",
+            Cmd::PreviewOverride { .. } => "preview_override",
+            Cmd::PreviewOverrideDeny { .. } => "preview_override_deny",
+            Cmd::PreviewBaseline { .. } => "preview_baseline",
+            Cmd::ListSigners { .. } => "list_signers",
+            Cmd::PreviewSignerAdd { .. } => "preview_signer_add",
+            Cmd::PreviewSignerRemove { .. } => "preview_signer_remove",
         }
     }
 
@@ -699,6 +788,16 @@ impl Cmd {
             | Cmd::PreviewHostRevoke { .. }
             | Cmd::GetSshCa
             | Cmd::PreviewSshCaRotate { .. } => false,
+            // Signed mode: review and signers (US8)
+            Cmd::ListReviews { .. }
+            | Cmd::GetReview { .. }
+            | Cmd::GetReviewDiff { .. }
+            | Cmd::PreviewOverride { .. }
+            | Cmd::PreviewOverrideDeny { .. }
+            | Cmd::PreviewBaseline { .. }
+            | Cmd::ListSigners { .. }
+            | Cmd::PreviewSignerAdd { .. }
+            | Cmd::PreviewSignerRemove { .. } => false,
         }
     }
 }
