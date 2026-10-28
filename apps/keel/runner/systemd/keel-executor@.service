@@ -1,0 +1,34 @@
+# Keel host runner, executor (spec 055 contracts/host-install.md, research R2).
+# Reference unit: the base profile installs it. One instance per connection on
+# keel-executor.socket, i.e. one request (ReadLedger or one run). The executor re-verifies
+# everything the network half sends.
+[Unit]
+Description=Keel host runner executor (one request)
+CollectMode=inactive-or-failed
+
+[Service]
+Type=exec
+User=automation
+Group=automation
+SupplementaryGroups=keel-trust
+ExecStart=/usr/local/bin/keel-executor
+# fd 0 is the connection and carries frames only. stdout and stderr must not inherit it
+# (systemd's default for both is "inherit"), or a log line would corrupt the wire; the
+# executor also points them at /dev/null itself if they do.
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+
+StateDirectory=keel-executor
+StateDirectoryMode=0700
+UMask=0077
+
+# When the run ends (or RuntimeMaxSec passes), every process in the cgroup goes with it, and
+# PrivateTmp is removed, so a playbook cannot leave a process watching the next run.
+KillMode=control-group
+TimeoutStopSec=30s
+PrivateTmp=yes
+ProtectHome=yes
+# The job deadline cap (keel_runner_max_run, default 6h).
+RuntimeMaxSec=6h
+# NoNewPrivileges stays off: Ansible's become needs sudo (the automation sudo rule).

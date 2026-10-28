@@ -1,0 +1,53 @@
+# Keel host runner, network half (spec 055 contracts/host-install.md, research R2).
+# Reference unit: the base profile installs it. It holds the host's SSH key and certificate,
+# speaks to Keel, and relays runs to keel-executor.socket. It runs nothing itself.
+[Unit]
+Description=Keel host runner (network half)
+Wants=network-online.target keel-executor.socket
+After=network-online.target keel-executor.socket
+
+[Service]
+Type=exec
+User=keel-runner
+Group=keel-runner
+SupplementaryGroups=keel-trust
+# KEEL_RUNNER_SERVER=<host>:<port>, written by the base profile from keel_runner_server.
+EnvironmentFile=/etc/keel-runner/runner.env
+ExecStart=/usr/local/bin/keel-runner
+# Server hosts are managed by Ansible, not compose services on the dev box (host-install.md).
+Restart=on-failure
+RestartSec=10s
+
+StateDirectory=keel-runner
+StateDirectoryMode=0700
+UMask=0077
+
+# Hardening (research R2).
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+# Writes only to its state directory; reads the trust files; connects to the executor socket.
+ReadWritePaths=/var/lib/keel-runner
+ReadOnlyPaths=/etc/keel-runner/trust
+
+[Install]
+WantedBy=multi-user.target

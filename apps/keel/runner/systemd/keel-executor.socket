@@ -1,0 +1,20 @@
+# Keel host runner, executor socket (spec 055 contracts/host-install.md, research R2).
+# Reference unit: the base profile installs it. Only keel-runner (group) can connect; each
+# connection starts one keel-executor@.service instance, which cannot be told which user,
+# binary or arguments to use.
+[Unit]
+Description=Keel host runner executor socket
+
+[Socket]
+ListenStream=/run/keel-runner/executor.sock
+SocketUser=root
+SocketGroup=keel-runner
+SocketMode=0660
+DirectoryMode=0755
+Accept=yes
+# One run per connection; a handful at once is already more than Keel sends a host.
+MaxConnections=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
