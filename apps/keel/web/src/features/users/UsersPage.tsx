@@ -19,8 +19,11 @@ import { INSTANCE_ROLE_LABEL, INSTANCE_ROLES } from '@/features/teams/labels'
 import { Field, InlineForm, ListState, NativeSelect, Pane } from '@/features/teams/parts'
 import { useGovernance } from '@/features/teams/store'
 import type { ApiTokenInfo, InstanceRole, UserInfo } from '@/protocol/wire'
+import { Select } from '@/ui/form'
+import { Page } from '@/ui/Page'
+import { PageHeader } from '@/ui/PageHeader'
 
-const ROW = 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-2 py-1 text-xs'
+const ROW = 'flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-3 py-1.5 text-xs first:border-t-0'
 
 /** Day precision is enough for a list; the full timestamp is in the title. */
 function day(rfc3339: string): string {
@@ -158,10 +161,10 @@ function NewToken({ onDone }: { onDone: () => void }) {
       }}
     >
       <Field label="Token name" htmlFor={nameId}>
-        <Input id={nameId} value={name} maxLength={64} autoComplete="off" className="h-7 text-xs" onChange={(e) => setName(e.target.value)} />
+        <Input id={nameId} value={name} maxLength={64} autoComplete="off" className="text-xs" onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="Workspace" htmlFor={wsId}>
-        <NativeSelect id={wsId} value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
+        <Select id={wsId} value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
           <option value="">Choose a workspace…</option>
           {(workspaces ?? [])
             .filter((w) => !w.archived)
@@ -170,7 +173,7 @@ function NewToken({ onDone }: { onDone: () => void }) {
                 {w.slug}
               </option>
             ))}
-        </NativeSelect>
+        </Select>
       </Field>
       <Field label="Actions" htmlFor={actionsId}>
         <Input
@@ -178,12 +181,12 @@ function NewToken({ onDone }: { onDone: () => void }) {
           value={actions}
           placeholder="list_workspaces, list_teams"
           autoComplete="off"
-          className="h-7 font-mono text-xs"
+          className="font-mono text-xs"
           onChange={(e) => setActions(e.target.value)}
         />
       </Field>
       <Field label="Expires in days" htmlFor={daysId}>
-        <Input id={daysId} type="number" min={1} max={366} value={days} className="h-7 text-xs" onChange={(e) => setDays(e.target.value)} />
+        <Input id={daysId} type="number" min={1} max={366} value={days} className="text-xs" onChange={(e) => setDays(e.target.value)} />
       </Field>
       <Button type="submit" size="sm" disabled={!ready}>
         Preview
@@ -238,7 +241,7 @@ function Tokens() {
       }
     >
       {creating && <NewToken onDone={() => setCreating(false)} />}
-      <ListState items={tokens} refusal={refusal} empty="No API tokens." />
+      <ListState items={tokens} refusal={refusal} empty="No API tokens. Create one for a script or CI job that talks to Keel." />
       {tokens && tokens.length > 0 && (
         <ul aria-label="API tokens" className="min-w-0">
           {tokens.map((t) => (
@@ -264,16 +267,11 @@ export default function UsersPage() {
     if (admin) loadSettings()
   }, [admin, loadSettings])
   return (
-    <section data-page="users" aria-labelledby="users-title" className="flex h-full min-w-0 flex-col overflow-y-auto">
-      <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-2 py-1.5">
-        <h1 id="users-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Users
-        </h1>
-        <p className="min-w-0 text-xs text-muted-foreground">Who can sign in, their role, and API tokens.</p>
-      </div>
+    <Page name="users" labelledBy="users-title">
+      <PageHeader id="users-title" title="Users" description="Who can sign in, their role, and your API tokens." />
       <Users />
       <Tokens />
       <ChangeDialog />
-    </section>
+    </Page>
   )
 }

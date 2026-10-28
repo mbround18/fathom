@@ -15,16 +15,13 @@ import { Link } from '@/app/Link'
 import { RefusalText } from '@/features/teams/parts'
 import { CopyBlock } from '@/ui/CopyBlock'
 import { Dialog } from '@/ui/Dialog'
+import { FIELD, LABEL } from '@/ui/form'
 
 import { HOST_NAME, MAX_PROFILES, useEnroll, type Minted } from './enroll-store'
 import { parseProfiles } from './store'
 import { useWorkspaces } from './workspaces'
 
 const Markdown = lazy(() => import('@/features/settings/Markdown'))
-
-const LABEL = 'text-xs text-muted-foreground'
-const SELECT =
-  'h-8 w-full min-w-0 border border-input bg-background px-2 text-xs outline-none focus-visible:border-accent-neon'
 
 /** Re-renders every second while mounted; the current time. */
 function useNow(): number {
@@ -187,7 +184,7 @@ function Form({ suggestions, onCancel }: { suggestions: string[]; onCancel: () =
         </label>
         <select
           id={wsId}
-          className={SELECT}
+          className={`${FIELD} w-full`}
           value={chosen?.id ?? ''}
           onChange={(e) => {
             setWorkspace(e.target.value)

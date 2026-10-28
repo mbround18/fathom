@@ -6,6 +6,9 @@
 import { WarningOctagonIcon } from '@phosphor-icons/react'
 import type { ComponentProps, ReactNode } from 'react'
 
+import { H2, LABEL, Select } from '@/ui/form'
+import { LoadState } from '@/ui/LoadState'
+
 import type { Refusal } from './store'
 
 /** A `Denied` or `OpError`, verbatim: the action and the reason code, or the server's message. */
@@ -46,13 +49,13 @@ export function Pane({
   children: ReactNode
 }) {
   return (
-    <section data-pane={id} aria-labelledby={`${id}-title`} className="flex min-w-0 flex-col border-b border-border">
-      <div className="flex min-w-0 flex-wrap items-center gap-2 px-2 py-1.5">
-        <h2 id={`${id}-title`} className="font-display text-xs font-semibold tracking-wider uppercase">
+    <section data-pane={id} aria-labelledby={`${id}-title`} className="flex min-w-0 flex-col border border-border">
+      <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
+        <h2 id={`${id}-title`} className={H2}>
           {title}
         </h2>
         {count !== undefined && count !== null && (
-          <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
+          <span className="border border-border px-1.5 text-[11px] text-muted-foreground tabular-nums">{count}</span>
         )}
         <span className="flex-1" />
         {actions}
@@ -74,39 +77,35 @@ export function ListState({
 }) {
   if (refusal)
     return (
-      <div className="px-2 pb-2">
+      <div className="p-3">
         <RefusalText refusal={refusal} />
       </div>
     )
   if (items === null)
     return (
-      <p role="status" data-pane-state="loading" className="px-2 pb-2 text-xs text-muted-foreground">
-        Loading…
-      </p>
+      <div className="px-3">
+        <LoadState loading />
+      </div>
     )
   if (items.length === 0)
     return (
-      <p data-pane-state="empty" className="px-2 pb-2 text-xs text-muted-foreground">
+      <p data-pane-state="empty" className="m-3 border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
         {empty}
       </p>
     )
   return null
 }
 
+/** A native select, a little shorter than a form field so it fits in a dense row. */
 export function NativeSelect({ className = '', ...props }: ComponentProps<'select'>) {
-  return (
-    <select
-      {...props}
-      className={`h-7 min-w-0 border border-input bg-background px-1 text-xs focus-visible:border-ring focus-visible:outline-none ${className}`}
-    />
-  )
+  return <Select {...props} dense className={className} />
 }
 
 /** A labelled field in an inline form; stacks on narrow screens. */
 export function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-1 basis-36 flex-col gap-0.5">
-      <label htmlFor={htmlFor} className="text-xs text-muted-foreground">
+      <label htmlFor={htmlFor} className={LABEL}>
         {label}
       </label>
       {children}
@@ -131,7 +130,7 @@ export function InlineForm({
         e.preventDefault()
         onSubmit()
       }}
-      className="flex min-w-0 flex-wrap items-end gap-2 border-t border-border bg-muted/20 px-2 py-2"
+      className="flex min-w-0 flex-wrap items-end gap-2 border-b border-border bg-muted/20 px-3 py-3"
     >
       {children}
     </form>

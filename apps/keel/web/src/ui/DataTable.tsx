@@ -1,7 +1,11 @@
 /**
  * A list of records (spec 060 R10): a table from 640 px up, a card list below it, so a phone never
  * scrolls sideways. One layout is rendered at a time (from a media query), so each row exists once
- * in the page. `filter` sits above the rows; `actions(row)` are each row's buttons.
+ * in the page. `filter` sits above the rows; `actions(row)` are each row's buttons; `selected(row)`
+ * marks the open one.
+ *
+ * With no rows the table keeps its headers and says why it is empty in one row, so a table a page
+ * names is always there to find; the card list shows a dashed empty box instead.
  */
 import { useSyncExternalStore, type ReactNode } from 'react'
 
@@ -42,6 +46,7 @@ export function DataTable<T>({
   rowData,
   actions,
   filter,
+  selected,
   empty,
 }: {
   label: string
@@ -52,13 +57,15 @@ export function DataTable<T>({
   rowData?: (row: T) => Record<`data-${string}`, string>
   actions?: (row: T) => ReactNode
   filter?: ReactNode
+  /** Whether a row is the one open below the table. */
+  selected?: (row: T) => boolean
   empty: ReactNode
 }) {
   const isWide = useWide()
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {filter !== undefined && <div className="flex min-w-0 flex-wrap items-center gap-2">{filter}</div>}
-      {rows.length === 0 ? (
+      {rows.length === 0 && !isWide ? (
         <div data-pane-state="empty" className="border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
           {empty}
         </div>
@@ -79,8 +86,24 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length + (actions ? 1 : 0)}
+                  data-pane-state="empty"
+                  className="border-b border-dashed border-border px-2 py-4 text-muted-foreground"
+                >
+                  {empty}
+                </td>
+              </tr>
+            )}
             {rows.map((r) => (
-              <tr key={rowKey(r)} {...rowData?.(r)} className="border-b border-border hover:bg-muted/30">
+              <tr
+                key={rowKey(r)}
+                {...rowData?.(r)}
+                aria-selected={selected ? selected(r) : undefined}
+                className={`border-b border-border hover:bg-muted/30 ${selected?.(r) ? 'bg-accent-neon/10 shadow-[inset_2px_0_0_var(--color-accent-neon)]' : ''}`}
+              >
                 {columns.map((c) => (
                   <td key={c.key} className={`px-2 py-1.5 align-top break-words ${c.className ?? ''}`}>
                     {c.cell(r)}
@@ -98,7 +121,12 @@ export function DataTable<T>({
       ) : (
         <ul aria-label={label} className="flex min-w-0 flex-col gap-2">
           {rows.map((r) => (
-            <li key={rowKey(r)} {...rowData?.(r)} className="flex min-w-0 flex-col gap-1 border border-border p-2 text-xs">
+            <li
+              key={rowKey(r)}
+              {...rowData?.(r)}
+              aria-current={selected?.(r) ? 'true' : undefined}
+              className={`flex min-w-0 flex-col gap-1 border p-2 text-xs ${selected?.(r) ? 'border-accent-neon' : 'border-border'}`}
+            >
               <dl className="grid min-w-0 grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-x-2 gap-y-0.5">
                 {columns.map((c) => (
                   <div key={c.key} className="contents">

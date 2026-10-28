@@ -24,12 +24,15 @@ export function CopyBlock({
   value,
   masked = false,
   data,
+  valueData,
 }: {
   label: string
   value: string
   masked?: boolean
   /** `data-copy` on the value, for tests. */
   data?: string
+  /** More `data-*` attributes on the value element, for hooks older than `data-copy`. */
+  valueData?: Record<`data-${string}`, string | boolean>
 }) {
   const [revealed, setRevealed] = useState(!masked)
   const [copied, setCopied] = useState(false)
@@ -81,6 +84,7 @@ export function CopyBlock({
         </Button>
       </div>
       <pre
+        {...valueData}
         aria-labelledby={id}
         data-copy={data}
         data-masked={masked && !revealed}

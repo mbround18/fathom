@@ -13,6 +13,17 @@ function admin(backend: FakeBackend): FakeHosts {
     grants: [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'ws_admin', profiles: [] }],
     verification: fixtures.verification({ verified: true }),
   })
+  // The hosts page picks from the workspaces the caller can see (060 T015).
+  backend.on('ListWorkspaces', () => [
+    {
+      type: 'Workspaces',
+      data: {
+        items: [
+          { id: WORKSPACE, slug: 'ops', name: 'Ops', created: '2026-10-27T12:00:00Z', archived: false, projects: [], system: false },
+        ],
+      },
+    },
+  ])
   return new FakeHosts(backend)
 }
 

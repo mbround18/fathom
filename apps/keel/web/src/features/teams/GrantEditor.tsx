@@ -11,9 +11,10 @@ import { Button, Checkbox, Input } from '@companion/ui'
 import { useId, useState } from 'react'
 
 import type { TeamInfo, TeamRole } from '@/protocol/wire'
+import { LABEL, Select } from '@/ui/form'
 
 import { MAX_PROFILES, PROFILE_PATTERN, ROLE_LABEL, TEAM_ROLES } from './labels'
-import { Field, InlineForm, NativeSelect } from './parts'
+import { Field, InlineForm } from './parts'
 import { useGovernance } from './store'
 
 function ProfilePicker({
@@ -39,8 +40,8 @@ function ProfilePicker({
   }
   return (
     <fieldset aria-labelledby={groupId} className="flex min-w-0 basis-full flex-col gap-1">
-      <legend id={groupId} className="text-xs text-muted-foreground">
-        Profiles <span className="text-muted-foreground/80">(optional; none = the whole workspace)</span>
+      <legend id={groupId} className={LABEL}>
+        Profiles <span className="normal-case tracking-normal">(optional; none = the whole workspace)</span>
       </legend>
       {options.length > 0 && (
         <ul className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
@@ -68,7 +69,7 @@ function ProfilePicker({
           placeholder="Another profile"
           autoComplete="off"
           maxLength={63}
-          className="h-7 min-w-0 flex-1 basis-36 text-xs"
+          className="min-w-0 flex-1 basis-36 text-xs"
           aria-invalid={candidate !== '' && !PROFILE_PATTERN.test(candidate)}
           onChange={(e) => setTyped(e.target.value)}
           onKeyDown={(e) => {
@@ -87,7 +88,7 @@ function ProfilePicker({
           {chosen.map((p) => (
             <span key={p} className="inline-flex items-center gap-0.5 border border-border px-1 font-mono">
               {p}
-              <button type="button" aria-label={`Drop ${p}`} onClick={() => toggle(p, false)} className="text-muted-foreground hover:text-foreground">
+              <button type="button" aria-label={`Drop ${p}`} onClick={() => toggle(p, false)} className="text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none">
                 <XIcon aria-hidden className="size-3" />
               </button>
             </span>
@@ -117,23 +118,23 @@ export function GrantEditor({ team, knownProfiles }: { team: TeamInfo; knownProf
       }}
     >
       <Field label="Workspace" htmlFor={wsId}>
-        <NativeSelect id={wsId} value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
+        <Select id={wsId} value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
           <option value="">Choose a workspace…</option>
           {usable.map((w) => (
             <option key={w.id} value={w.id}>
               {w.slug}
             </option>
           ))}
-        </NativeSelect>
+        </Select>
       </Field>
       <Field label="Role" htmlFor={roleId}>
-        <NativeSelect id={roleId} value={role} onChange={(e) => setRole(e.target.value as TeamRole)}>
+        <Select id={roleId} value={role} onChange={(e) => setRole(e.target.value as TeamRole)}>
           {TEAM_ROLES.map((r) => (
             <option key={r} value={r}>
               {ROLE_LABEL[r]}
             </option>
           ))}
-        </NativeSelect>
+        </Select>
       </Field>
       <ProfilePicker known={knownProfiles} chosen={profiles} onChange={setProfiles} />
       <Button type="submit" size="sm" disabled={!workspace}>
