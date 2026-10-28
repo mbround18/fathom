@@ -4,7 +4,7 @@
 //! - [`runner`] (`keel-runner`, user `keel-runner`): the network half. It holds the SSH channel
 //!   to Keel, enrolls, renews its certificate, and relays run frames to and from the executor
 //!   socket without interpreting them.
-//! - [`executor`] (`keel-executor`, user `automation`, one instance per socket connection): runs
+//! - [`executor`] (`keel-executor`, user `keel-exec`, one instance per socket connection): runs
 //!   one job. It trusts nothing the network half says: it checks the ledger, the pack, the job's
 //!   profiles and its local policy itself, then runs `ansible-playbook` against this host only.
 //!

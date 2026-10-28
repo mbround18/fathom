@@ -1,4 +1,4 @@
-//! `keel-executor`: runs Ansible as the automation user, verifying what it is given (spec 055
+//! `keel-executor`: runs Ansible as the keel-exec user, verifying what it is given (spec 055
 //! T085, contracts/runner.md). Started per connection by `keel-executor.socket` (`Accept=yes`,
 //! `StandardInput=socket`): fd 0 is the connection, and it carries frames only.
 
@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use keel_runner::executor::signed::verify_ledger_file;
 use keel_runner::executor::{ExecutorConfig, LEDGER_FILE, serve};
 
-/// Keel host runner: runs Ansible as the automation user, verifying what it is given.
+/// Keel host runner: runs Ansible as the keel-exec user, verifying what it is given.
 #[derive(Debug, Parser)]
 #[command(name = "keel-executor", version, about)]
 struct Cli {

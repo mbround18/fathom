@@ -1,5 +1,5 @@
 //! `keel-executor` (spec 055 T085, contracts/runner.md, research R2): one connection on the
-//! executor socket is one request, served as the `automation` user.
+//! executor socket is one request, served as the `keel-exec` user.
 //!
 //! - `ReadLedger` → `Ledger` (head and per-job bases, for the network half's `Hello`).
 //! - `Assign` → one run. The executor trusts nothing the network half says. In order it checks
