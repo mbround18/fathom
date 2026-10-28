@@ -59,6 +59,8 @@ Keel and `keel-runner`, and the local socket between the two halves.
 | S → R | `Cancel { run_id }` | The executor sends SIGINT to `ansible-playbook`; after 30 s the runner stops the executor unit, and systemd kills its cgroup. |
 | R → S | `Finished { run_id, exit_code, stats, ledger_line }` | `ledger_line` is the hash-chained line the executor appended (research R19). Keel stores it in `host_revisions`. |
 | both | `Ping` / `Pong` | Every 15 s. After 3 missed pings a running host becomes `lost`. |
+| R → S | `OutsideRuns { entries: [{ at, user, playbook, commit, dirty, check }], skipped, through }` | Runs outside Keel (spec 058 amendment A2), read from `/var/lib/keel-outside/runs.jsonl` (`--outside-log` / `KEEL_RUNNER_OUTSIDE_LOG`) after `Hello` and every 60 s. At most 100 entries; a frame with more is refused. `user` ≤ 64 bytes, `playbook` ≤ 256 bytes, `commit` 40 lowercase hex or null. `skipped` counts lines the runner could not parse (malformed, over 1 KiB, or not `"v":1`). `through` is the byte offset in the record just past the last line read. These are the host's claims. |
+| S → R | `OutsideRunsAck { through }` | Sent once the batch is stored, echoing its `through`. The runner saves `through` in its state directory (`outside-offset`) only on a matching ack, then sends the next batch; an unacknowledged batch is sent again from the saved offset on the next 60 s tick, and the server stores each entry once. A record shorter than the saved offset (truncated or replaced) is read again from 0. |
 
 ## Local socket (`/run/keel-runner/executor.sock`)
 

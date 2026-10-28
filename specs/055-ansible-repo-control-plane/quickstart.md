@@ -19,7 +19,8 @@ cargo test -p web-passkeys     # soft passkey, as moved from Depths; verify_asse
 cargo test -p depths-server --test passkeys   # Depths still passes after the extraction
 cargo test -p keel-server      # with KEEL_TEST_DATABASE_URL: receivers, sync, queue, audit chain, export/import
 pnpm --filter @companion/keel-web test
-pnpm --filter @companion/keel-web exec playwright test --project <us1..us9>   # fake backend, one project at a time
+pnpm --filter @companion/keel-web exec playwright test --project <us1..us10>  # fake backend, one project at a time
+                               # us10: hosts changed outside Keel (spec 058 amendment A2)
 ```
 
 ## 2. Scenarios, per story
@@ -44,6 +45,7 @@ bare repositories. Shapes are in the contracts; this list states only what has t
 | US8 signed | Approve the review with a passkey, then replay the same approvals to another host, to the same host for a new run, and with the target changed | First: runs. Others: `bad_override` or `replay`, refused by the host, not by Keel. |
 | US8 signed | Hostile server: a test server with the right CA sends an unsigned pack with Keel-signed but passkey-less approvals, a wrong `base`, and an older target | Every case refused by the executor (`unsigned`, `base_mismatch`, `downgrade`) (SC-009). |
 | US9 profiles | An operator scoped to `gameserver` starts a run on a `debian`-only host, and approves a review whose hosts span both | `Denied`, audited. Host page shows per-job applied commit, authorization and drift within 30 s of a run (SC-011). |
+| US7 hosts (058 A2) | Append a line without `--check` to the host's `/var/lib/keel-outside/runs.jsonl`, then a `--check` line and a malformed line; restart the runner; run every job assigned to the host; then flag it again and approve a baseline covering it | Within 60 s the host shows "Changed outside Keel" (pushed live), its view lists the entries as the host's claims, and the malformed line is counted, not stored. Restarting re-sends nothing new. The flag clears once every assigned job has succeeded after the newest entry, and on the baseline approval; both are audited. `--check` alone never flags. |
 | US6 teams | An operator in team A acts on team B's workspace | `Denied`, audited (SC-006). Removing a user's grant closes their open socket (`Revoked`). |
 | Standalone | Run the full `keel-server` suite with no suite settings | All pass (SC-008). |
 

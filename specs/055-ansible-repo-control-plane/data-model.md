@@ -187,8 +187,24 @@ failed | refused | lost | cancelled`), `refusal?` (`unsigned`, `bad_override`, `
 workspace), `ssh_key_fingerprint` (SHA-256 of the enrolled Ed25519 key, unique), `ssh_public_key`,
 `allowed_profiles text[]` (as reported by the host's trust policy), `require_signed bool`
 (reported), `runner_version`, `ansible_version`, `state` (`online | offline | revoked`),
-`enrolled_at`, `last_seen_at`, `revoked_at?`.
+`enrolled_at`, `last_seen_at`, `revoked_at?`, `changed_outside bool` (default false; spec 058
+amendment A2).
 - Revoking a host adds its certificate serials to the KRL and closes its session. Audited.
+- `changed_outside` is set when the host reports a run outside Keel that was not `--check`, and
+  pushed as `HostChangedOutside`. It is cleared (audited `host_changed_outside_cleared`, pushed
+  again) by a baseline approval covering the host, or when every job assigned to the host has a
+  succeeded run on it started after the newest such entry. A host no job reaches stays flagged
+  until a baseline. `ListHosts` filters on it.
+
+**host_outside_runs** (spec 058 amendment A2): `id`, `host_id`, `at` (the host's time for the
+run), `received_at`, `user` (≤ 64 bytes), `playbook` (≤ 256 bytes), `commit?` (40 lowercase hex),
+`dirty bool`, `check bool`.
+- What the host reports was run on it outside Keel (contracts/runner.md `OutsideRuns`): the host's
+  claims, stored as received and never trusted further. Unique per (`host_id`, `at`, `playbook`,
+  `commit`), so a re-sent batch is stored once. `GetHost` returns the newest 20.
+- Insert-only, like `audit_event`: a trigger refuses update, delete and truncate, and `keel_app`
+  holds select and insert only. Each batch that stores or skips an entry is audited as
+  `host_outside_runs_reported` (counts only).
 
 **host_enrollments**: `id`, `workspace_id`, `inventory_name`, `profiles text[]`, `token_hash`,
 `expires_at`, `used_at?`, `host_id?`, `created_by`.
