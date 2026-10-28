@@ -194,28 +194,28 @@ Comes before US5 because R12's per-host gate needs it. See contracts/keel-amendm
 
 ### Tests first
 
-- [ ] T036 [P] [US6] In `crates/keel-exec/tests/frames.rs`, add round-trip tests for:
+- [X] T036 [P] [US6] In `crates/keel-exec/tests/frames.rs`, add round-trip tests for:
   - `OutsideRuns { entries: Vec<OutsideRun>, skipped: u32 }`, with at most 100 entries per frame;
   - `OutsideRunsAck { through: u64 }`.
   - A frame with more than 100 entries is refused.
-- [ ] T037 [P] [US6] Add a runner unit test, in `apps/keel/runner/src/runner/outside.rs` (`#[cfg(test)]`), for:
+- [X] T037 [P] [US6] Add a runner unit test, in `apps/keel/runner/src/runner/outside.rs` (`#[cfg(test)]`), for:
   - reading from the saved offset;
   - advancing only on ack;
   - reading from 0 after truncation;
   - skipping lines over 1 KiB, malformed lines, `user` over 64 bytes and `playbook` over 256 bytes, and counting each in `skipped`.
-- [ ] T038 [P] [US6] Add server tests in `apps/keel/server/tests/outside_runs.rs` for:
+- [X] T038 [P] [US6] Add server tests in `apps/keel/server/tests/outside_runs.rs` for:
   - insert-only storage;
   - de-duplication on `(host_id, at, playbook, coalesce(commit,''))`;
   - `check: false` sets `changed_outside`, and `check: true` does not;
   - a baseline approval clears the flag;
   - completing every assigned job after the newest entry clears the flag;
   - each received batch is audited.
-- [ ] T039 [P] [US6] Write the Playwright spec `apps/keel/web/tests/e2e/us10/changed-outside.spec.ts`. The **Changed outside Keel** badge appears live on the host row and in the host view; entries are labelled as the host's claims; the `changed_outside` filter works; a baseline approval clears the badge.
+- [X] T039 [P] [US6] Write the Playwright spec `apps/keel/web/tests/e2e/us10/changed-outside.spec.ts`. The **Changed outside Keel** badge appears live on the host row and in the host view; entries are labelled as the host's claims; the `changed_outside` filter works; a baseline approval clears the badge.
 
 ### Implementation
 
-- [ ] T040 [US6] Add `OutsideRun`, `OutsideRuns` and `OutsideRunsAck` to `crates/keel-exec/src/frames.rs`, on the runner subsystem, with the direction rules. Gate: `cargo test -p keel-exec`.
-- [ ] T041 [US6] Add the migration `apps/keel/server/migrations/0009_outside_runs.sql`.
+- [X] T040 [US6] Add `OutsideRun`, `OutsideRuns` and `OutsideRunsAck` to `crates/keel-exec/src/frames.rs`, on the runner subsystem, with the direction rules. Gate: `cargo test -p keel-exec`.
+- [X] T041 [US6] Add the migration `apps/keel/server/migrations/0009_outside_runs.sql`.
   - Table `host_outside_runs`, insert-only (enforced by a trigger, as for existing insert-only tables), with these columns:
     - `id uuid PK`, `host_id uuid FK hosts`, `at timestamptz`, `received_at timestamptz`;
     - `user text CHECK (octet_length(user) <= 64)`;
@@ -224,18 +224,18 @@ Comes before US5 because R12's per-host gate needs it. See contracts/keel-amendm
     - `dirty bool`, `check bool`.
   - A unique index on `(host_id, at, playbook, coalesce(commit,''))`.
   - `ALTER TABLE hosts ADD changed_outside bool NOT NULL DEFAULT false`.
-- [ ] T042 [US6] In `apps/keel/runner/src/runner/outside.rs` (new) and `apps/keel/runner/src/runner/session.rs`:
+- [X] T042 [US6] In `apps/keel/runner/src/runner/outside.rs` (new) and `apps/keel/runner/src/runner/session.rs`:
   - read `/var/lib/keel-outside/runs.jsonl` on `Hello` and every 60 s while connected;
   - persist the offset in the runner's state directory, advancing it only on `OutsideRunsAck`.
-- [ ] T043 [US6] Ingest outside runs in `apps/keel/server/src/runner_listener.rs` and `apps/keel/server/src/hosts.rs`:
+- [X] T043 [US6] Ingest outside runs in `apps/keel/server/src/runner_listener.rs` and `apps/keel/server/src/hosts.rs`:
   - insert with de-duplication, audit the batch (`apps/keel/server/src/audit.rs`), set the flag, and emit `HostChangedOutside`;
   - clear the flag on baseline approval (`apps/keel/server/src/governance.rs` or wherever baselines are approved) and on job completion (`apps/keel/server/src/runs.rs`).
-- [ ] T044 [US6] In `crates/keel-protocol/src/host.rs` and `crates/keel-protocol/src/event.rs`:
+- [X] T044 [US6] In `crates/keel-protocol/src/host.rs` and `crates/keel-protocol/src/event.rs`:
   - `GetHost` gains `changed_outside` and the newest 20 entries;
   - `ListHosts` gains a `changed_outside` filter;
   - add the event `HostChangedOutside { host }`.
   - Add round-trip tests and regenerate `apps/keel/web/src/protocol/generated/`. Gate: `cargo test -p keel-protocol`.
-- [ ] T045 [US6] Add the badge, filter and entry list to `apps/keel/web/src/features/hosts/HostsPage.tsx` and `apps/keel/web/src/features/hosts/store.ts`, live from the event. Gate: the Vitest unit tests, then `pnpm --filter @companion/keel-web exec playwright test tests/e2e/us10`.
+- [X] T045 [US6] Add the badge, filter and entry list to `apps/keel/web/src/features/hosts/HostsPage.tsx` and `apps/keel/web/src/features/hosts/store.ts`, live from the event. Gate: the Vitest unit tests, then `pnpm --filter @companion/keel-web exec playwright test tests/e2e/us10`.
 - [ ] T046 [P] [US6] Write the callback `../ansible/callback_plugins/keel_outside.py`.
   - When `KEEL_EVENT_FD` is unset and `/var/lib/keel-outside/` exists, it appends one JSON line `{"v":1,"at","user","playbook","commit","dirty","check"}` to `runs.jsonl`.
   - Enforce the field bounds before writing.
@@ -243,7 +243,7 @@ Comes before US5 because R12's per-host gate needs it. See contracts/keel-amendm
   - Enable the callback in `../ansible/ansible.cfg` (`callbacks_enabled`, and `callback_plugins = callback_plugins`).
   - Add pytest coverage in `../ansible/scripts/tests/test_keel_outside.py`.
 - [ ] T047 [US6] In `../ansible/roles/keel_runner/tasks/main.yml`, create `/var/lib/keel-outside/` (root, `0755`) and `runs.jsonl` (root, `0644`), and add the paths to the Molecule `default` verify.
-- [ ] T048 [US6] Update 055's `contracts/runner.md` (frames), `data-model.md` (table and flag) and `quickstart.md` in `specs/055-ansible-repo-control-plane/` to match A2.
+- [X] T048 [US6] Update 055's `contracts/runner.md` (frames), `data-model.md` (table and flag) and `quickstart.md` in `specs/055-ansible-repo-control-plane/` to match A2.
 
 **Checkpoint**: quickstart.md § 5 passes on the trial VM.
 
