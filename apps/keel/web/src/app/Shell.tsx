@@ -20,9 +20,10 @@ import { lazy, Suspense, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
 import { usePasskeys } from '@/features/passkeys/store'
+import { canSeeSettings } from '@/features/settings/tabs'
 
 import { Link } from './Link'
-import { ACCOUNT_PASSKEYS, HOME, SECTIONS } from './nav'
+import { ACCOUNT_PASSKEYS, HOME, SECTIONS, SETTINGS, type Section } from './nav'
 import { navigate, usePath } from './router'
 import { useSession } from './session-store'
 
@@ -34,27 +35,34 @@ const CONNECTION_LABEL = {
   closed: 'Disconnected',
 } as const
 
+const NAV_LINK =
+  'inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground aria-[current=page]:text-primary'
+
+function NavLink({ section: { path: to, label, icon: Icon }, path, className = '' }: { section: Section; path: string; className?: string }) {
+  const current = path === to || path.startsWith(`${to}/`)
+  return (
+    <Link to={to} aria-current={current ? 'page' : undefined} className={`${NAV_LINK} ${className}`}>
+      <Icon aria-hidden className="size-3.5 shrink-0" />
+      {label}
+    </Link>
+  )
+}
+
 function Nav() {
   const path = usePath()
+  const role = useSession((s) => s.me?.instance_role)
   return (
     <nav
       aria-label="Sections"
       className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border px-1 py-1 md:w-44 md:flex-col md:overflow-x-visible md:border-r md:border-b-0 md:py-2"
     >
-      {SECTIONS.map(({ path: to, label, icon: Icon }) => {
-        const current = path === to || path.startsWith(`${to}/`)
-        return (
-          <Link
-            key={to}
-            to={to}
-            aria-current={current ? 'page' : undefined}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground aria-[current=page]:text-primary"
-          >
-            <Icon aria-hidden className="size-3.5 shrink-0" />
-            {label}
-          </Link>
-        )
-      })}
+      {SECTIONS.map((section) => (
+        <NavLink key={section.path} section={section} path={path} />
+      ))}
+      {/* Pinned to the bottom of the column on desktop; last in the strip on a phone. */}
+      {canSeeSettings(role) && (
+        <NavLink section={SETTINGS} path={path} className="md:mt-auto md:border-t md:border-border" />
+      )}
     </nav>
   )
 }

@@ -5,6 +5,7 @@
 import {
   ArrowsLeftRightIcon,
   ClipboardTextIcon,
+  GearSixIcon,
   HardDrivesIcon,
   ListChecksIcon,
   PlayIcon,
@@ -34,6 +35,12 @@ export const SECTIONS: readonly Section[] = [
   { path: '/audit', label: 'Audit', icon: ClipboardTextIcon },
   { path: '/migration', label: 'Migration', icon: ArrowsLeftRightIcon },
 ]
+
+/**
+ * System Settings: pinned to the bottom of the nav, for owners and admins only
+ * (`canSeeSettings`). `/settings` opens its first tab.
+ */
+export const SETTINGS: Section = { path: '/settings', label: 'System Settings', icon: GearSixIcon }
 
 /** Account → Passkeys: the person's own passkeys. Reached from the account menu, not the sections. */
 export const ACCOUNT_PASSKEYS = '/account/passkeys'

@@ -20,7 +20,7 @@ const KINDS: { kind: CredentialKind; label: string }[] = [
   { kind: 'secret_vars', label: 'Secret vars' },
 ]
 
-function NewBinding() {
+export function NewBinding() {
   const propose = useRepos((s) => s.propose)
   const credentials = useRepos((s) => s.credentials)
   const [project, setProject] = useState('')
