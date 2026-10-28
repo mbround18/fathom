@@ -1,0 +1,10 @@
+# The Ansible the host executor runs (spec 055 T087, research R3): the current stable
+# ansible-core. Recompile the hash-pinned requirements.txt from the repository root with:
+#
+#   uv pip compile apps/keel/runner/ansible/requirements.in --generate-hashes --universal \
+#     --python-version 3.12 -o apps/keel/runner/ansible/requirements.txt
+#
+# The base profile builds /opt/keel-runner/venv from requirements.txt with
+# `uv pip install --require-hashes` on Python 3.12 or later. Raising this floor means raising
+# `MIN_ANSIBLE_CORE` in crates/keel-exec/src/versions.rs to match.
+ansible-core>=2.21

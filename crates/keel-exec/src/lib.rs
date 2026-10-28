@@ -12,3 +12,4 @@ pub mod frames;
 pub mod krl;
 pub mod pack_builder;
 pub mod server_config;
+pub mod versions;
