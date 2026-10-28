@@ -21,6 +21,7 @@ import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { Field as FormField, H2, LABEL, LINK, Select } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
 import { Page } from '@/ui/Page'
+import { useReveal } from '@/ui/reveal'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { useInventory, type Opened } from './store'
@@ -310,9 +311,10 @@ function Detail({ opened }: { opened: Opened }) {
   const seq = revision.summary.seq
   const head = seq === inventory.head_seq
   const editable = inventory.source === 'managed' && inventory.status === 'active' && head
+  const reveal = useReveal<HTMLElement>(inventory.id)
 
   return (
-    <section aria-label={`Inventory ${inventory.name}`} className="flex min-w-0 flex-col border border-border">
+    <section ref={reveal} aria-label={`Inventory ${inventory.name}`} className="flex min-w-0 scroll-mt-3 flex-col border border-border">
       <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
         <h2 className="min-w-0 font-mono text-xs break-all">{inventory.name}</h2>
         <span className="text-xs text-muted-foreground">

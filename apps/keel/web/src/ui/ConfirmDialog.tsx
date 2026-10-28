@@ -57,6 +57,8 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   busy = false,
+  busyLabel,
+  tone = 'default',
   children,
   ...rest
 }: {
@@ -66,6 +68,10 @@ export function ConfirmDialog({
   onConfirm: () => void
   onCancel: () => void
   busy?: boolean
+  /** What the confirm button says while `busy` (it keeps `confirmLabel` otherwise). */
+  busyLabel?: string
+  /** `destructive` for a change that removes, cancels or denies: the confirm button says so. */
+  tone?: 'default' | 'destructive'
   children?: ReactNode
   [data: `data-${string}`]: string | boolean | undefined
 }) {
@@ -81,9 +87,9 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button disabled={busy} onClick={onConfirm}>
+          <Button variant={tone === 'destructive' ? 'destructive' : 'default'} disabled={busy} onClick={onConfirm}>
             {preview?.step_up && <FingerprintIcon aria-hidden />}
-            {confirmLabel}
+            {busy && busyLabel ? busyLabel : confirmLabel}
           </Button>
         </>
       }

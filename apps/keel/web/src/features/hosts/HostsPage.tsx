@@ -16,6 +16,7 @@ import { DataTable, type Column } from '@/ui/DataTable'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { H2, LABEL, LINK } from '@/ui/form'
 import { Page } from '@/ui/Page'
+import { useReveal } from '@/ui/reveal'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { EnrollDialog } from './EnrollDialog'
@@ -75,10 +76,11 @@ function HostDetailPanel() {
   const open = useHosts((s) => s.open)
   const detail = useHosts((s) => s.detail)
   const show = useHosts((s) => s.show)
+  const reveal = useReveal<HTMLElement>(open)
   if (open === null) return null
   const name = detail?.host.inventory_name ?? '…'
   return (
-    <section aria-label={`Host ${name}`} className="flex min-w-0 flex-col border border-border text-xs">
+    <section ref={reveal} aria-label={`Host ${name}`} className="flex min-w-0 scroll-mt-3 flex-col border border-border text-xs">
       <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
         <h2 className="min-w-0 font-mono text-sm break-all">{name}</h2>
         {detail && <StateBadge state={detail.host.state} />}
@@ -224,6 +226,7 @@ function SshCaLine() {
 
 export default function HostsPage() {
   const hosts = useHosts((s) => s.hosts)
+  const opened = useHosts((s) => s.open)
   const workspace = useHosts((s) => s.workspace)
   const revoke = useHosts((s) => s.revoke)
   const show = useHosts((s) => s.show)
@@ -290,6 +293,7 @@ export default function HostsPage() {
             columns={columns}
             rows={hosts}
             rowKey={(h) => h.id}
+            selected={(h) => h.id === opened}
             rowData={(h) => ({ 'data-host-state': h.state, 'data-host-changed-outside': String(h.changed_outside) })}
             actions={(h) =>
               h.state !== 'revoked' && (

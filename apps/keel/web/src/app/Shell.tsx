@@ -36,7 +36,9 @@ const CONNECTION_LABEL = {
 } as const
 
 const NAV_LINK =
-  'inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground aria-[current=page]:text-primary'
+  'inline-flex h-7 shrink-0 items-center gap-1.5 border-b border-transparent px-2 text-xs text-muted-foreground ' +
+  'hover:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none ' +
+  'aria-[current=page]:border-accent-neon aria-[current=page]:text-primary md:border-b-0 md:border-l md:aria-[current=page]:bg-accent-neon/5'
 
 function NavLink({ section: { path: to, label, icon: Icon }, path, className = '' }: { section: Section; path: string; className?: string }) {
   const current = path === to || path.startsWith(`${to}/`)

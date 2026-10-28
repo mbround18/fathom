@@ -13,6 +13,7 @@ import { useId, useState } from 'react'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
 import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
+import { useReveal } from '@/ui/reveal'
 import { DataTable } from '@/ui/DataTable'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { FIELD, H2, LABEL, LINK, Select } from '@/ui/form'
@@ -350,10 +351,11 @@ function DecideForm() {
 function Detail() {
   const detail = useReviews((s) => s.detail)
   const select = useReviews((s) => s.select)
+  const reveal = useReveal<HTMLElement>(detail?.review.id ?? null)
   if (!detail) return null
   const r = detail.review
   return (
-    <section aria-label="Review" data-review={r.id} className="flex min-w-0 flex-col border border-border">
+    <section ref={reveal} aria-label="Review" data-review={r.id} className="flex min-w-0 scroll-mt-3 flex-col border border-border">
       <div className="flex min-h-10 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
         <h2 className="min-w-0 text-xs font-semibold break-words">
           {r.job_name} at <span className="font-mono">{shortSha(r.target)}</span> on{' '}
@@ -400,9 +402,11 @@ function ConfirmDialog() {
     <Confirm
       // The approve dialog explains the passkey itself, with what it signs.
       preview={pending && (approving ? { ...pending.preview, step_up: false } : pending.preview)}
-      title={approving ? 'Approve with passkey' : 'Confirm'}
+      title={approving ? 'Approve with passkey' : pending?.kind === 'deny' ? 'Deny this change' : 'Change trusted signers'}
       confirmLabel={approving ? 'Sign and approve' : 'Confirm'}
+      tone={pending?.kind === 'deny' ? 'destructive' : 'default'}
       busy={waiting || signing}
+      busyLabel={approving ? 'Waiting for your passkey…' : 'Confirming…'}
       onCancel={cancel}
       onConfirm={() => void confirm()}
     >

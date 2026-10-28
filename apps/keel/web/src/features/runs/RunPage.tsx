@@ -116,7 +116,7 @@ function CancelDialog() {
   const preview = useRuns((s) => s.preview)
   const confirm = useRuns((s) => s.confirm)
   const cancel = useRuns((s) => s.cancel)
-  return <ConfirmDialog preview={preview} onCancel={cancel} onConfirm={confirm} />
+  return <ConfirmDialog preview={preview} title="Cancel this run" tone="destructive" onCancel={cancel} onConfirm={confirm} />
 }
 
 function Header({ run }: { run: RunInfo }) {

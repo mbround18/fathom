@@ -80,8 +80,11 @@ export function CopyBlock({
           }}
         >
           {copied ? <CheckIcon aria-hidden className="text-status-ok" /> : <CopyIcon aria-hidden />}
-          <span aria-live="polite">{copied ? 'Copied' : 'Copy'}</span>
+          {copied ? 'Copied' : 'Copy'}
         </Button>
+        <span role="status" className="sr-only">
+          {copied ? `${label} copied` : ''}
+        </span>
       </div>
       <pre
         {...valueData}

@@ -34,7 +34,8 @@ const NotFound = lazy(() => import('@/pages/NotFound'))
 
 export function PageFallback() {
   return (
-    <div role="status" aria-label="Loading" data-pane-state="loading" className="p-4 text-xs text-muted-foreground">
+    <div role="status" aria-label="Loading" data-pane-state="loading" className="flex items-center gap-2 p-4 text-xs text-muted-foreground">
+      <span aria-hidden className="size-1.5 animate-pulse bg-accent-neon motion-reduce:animate-none" />
       Loading…
     </div>
   )

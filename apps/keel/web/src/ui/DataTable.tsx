@@ -101,7 +101,7 @@ export function DataTable<T>({
               <tr
                 key={rowKey(r)}
                 {...rowData?.(r)}
-                aria-selected={selected ? selected(r) : undefined}
+                aria-current={selected?.(r) ? 'true' : undefined}
                 className={`border-b border-border hover:bg-muted/30 ${selected?.(r) ? 'bg-accent-neon/10 shadow-[inset_2px_0_0_var(--color-accent-neon)]' : ''}`}
               >
                 {columns.map((c) => (

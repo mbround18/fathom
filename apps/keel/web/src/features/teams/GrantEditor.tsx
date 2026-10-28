@@ -88,7 +88,7 @@ function ProfilePicker({
           {chosen.map((p) => (
             <span key={p} className="inline-flex items-center gap-0.5 border border-border px-1 font-mono">
               {p}
-              <button type="button" aria-label={`Drop ${p}`} onClick={() => toggle(p, false)} className="text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none">
+              <button type="button" aria-label={`Drop ${p}`} onClick={() => toggle(p, false)} className="-my-1 inline-flex size-6 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none">
                 <XIcon aria-hidden className="size-3" />
               </button>
             </span>

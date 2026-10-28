@@ -10,6 +10,7 @@ import { useId, useState, type SyntheticEvent } from 'react'
 
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 import { DataTable } from '@/ui/DataTable'
+import { useReveal } from '@/ui/reveal'
 import { Field as FormField, FIELD, H2, LABEL, LINK } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
@@ -135,8 +136,10 @@ function Detail({ binding }: { binding: BindingInfo }) {
   const jobs = detail?.binding.id === binding.id ? detail.jobs : []
   const granted = credentials.filter((c) => c.grants.some((g) => g.binding === binding.id))
 
+  const reveal = useReveal<HTMLElement>(binding.id)
+
   return (
-    <section aria-label={`Binding ${binding.url}`} className="flex min-w-0 flex-col border border-border">
+    <section ref={reveal} aria-label={`Binding ${binding.url}`} className="flex min-w-0 scroll-mt-3 flex-col border border-border">
       <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
         <h2 className="min-w-0 font-mono text-xs break-all">
           {binding.url} @ {binding.branch}
@@ -191,8 +194,8 @@ function Detail({ binding }: { binding: BindingInfo }) {
         {binding.manifest_problems.length > 0 && (
           <ul aria-label="Manifest problems" className="flex min-w-0 flex-col gap-1 border border-status-err/40 p-2 text-xs text-status-err">
             {binding.manifest_problems.map((p, i) => (
-              <li key={i} className="font-mono break-all">
-                {JSON.stringify(p)}
+              <li key={i} className="break-words">
+                <span className="font-mono break-all">{p.at}</span>: {p.message}
               </li>
             ))}
           </ul>
@@ -343,7 +346,7 @@ export default function BindingsPage() {
           workspace && (
             <Button size="sm" variant={adding ? 'ghost' : 'default'} aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
               {adding ? <XIcon aria-hidden /> : <PlusIcon aria-hidden />}
-              {adding ? 'Close form' : 'New binding'}
+              {adding ? 'Close the form' : 'New binding'}
             </Button>
           )
         }
@@ -357,6 +360,7 @@ export default function BindingsPage() {
           label="Bindings"
           rows={bindings}
           rowKey={(b) => b.id}
+          selected={(b) => b.id === current?.id}
           columns={[
             {
               key: 'url',

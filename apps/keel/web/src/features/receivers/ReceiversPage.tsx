@@ -199,7 +199,7 @@ function Deliveries() {
             </span>
           ),
         },
-        { key: 'sync', header: 'Sync', cell: (d) => d.sync_state ?? '' },
+        { key: 'sync', header: 'Sync', cell: (d) => d.sync_state ?? <span className="text-muted-foreground">none yet</span> },
         { key: 'commit', header: 'Commit', cell: (d) => <span className="font-mono">{short(d.commit)}</span> },
       ]}
       empty="No deliveries yet. They appear here live as your Git host sends them."

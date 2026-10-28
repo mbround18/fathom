@@ -14,6 +14,7 @@ import { useSession } from '@/app/session-store'
 import { EnrollDialog } from '@/features/hosts/EnrollDialog'
 import { ChangeDialog } from '@/features/teams/ChangeDialog'
 import { EmptyState } from '@/ui/EmptyState'
+import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 import { Tabs } from '@/ui/Tabs'
 
@@ -55,7 +56,7 @@ export default function SettingsPage({ params }: { params: Params }) {
   }, [asked, tab, tabs.length])
 
   return (
-    <section data-page="settings" aria-labelledby="settings-title" className="flex min-w-0 flex-col gap-3 p-4">
+    <Page name="settings" labelledBy="settings-title">
       <PageHeader
         id="settings-title"
         title="System Settings"
@@ -79,6 +80,6 @@ export default function SettingsPage({ params }: { params: Params }) {
       )}
       <ChangeDialog />
       <EnrollDialog />
-    </section>
+    </Page>
   )
 }
