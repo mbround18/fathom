@@ -40,7 +40,9 @@ pub struct OidcConfig {
 pub struct ClaimsConfig {
     /// Claim holding the username (`preferred_username` by default).
     pub username: String,
-    /// Claim holding the groups (`groups` by default).
+    /// Claim holding the groups (`groups` by default). A dotted path such as
+    /// `realm_access.roles` walks into nested objects and must end at a string array; a claim
+    /// whose literal top-level name matches (`https://example.com/groups`) is read as before.
     pub groups: String,
     pub username_prefix: String,
     pub groups_prefix: String,
@@ -422,6 +424,24 @@ fn tokens_from<T: OAuth2TokenResponse>(
     }
 }
 
+/// The groups claim at `path`. A literal top-level claim of that name wins, so single-segment
+/// names (and namespaced ones containing dots) behave exactly as they always have. Otherwise a
+/// dotted path walks into nested objects segment by segment, and only an array at the leaf
+/// counts: any other leaf is treated as missing.
+fn group_claim<'a>(claims: &'a Value, path: &str) -> Option<&'a Value> {
+    if let Some(v) = claims.get(path) {
+        return Some(v);
+    }
+    if !path.contains('.') {
+        return None;
+    }
+    let mut v = claims;
+    for seg in path.split('.') {
+        v = v.as_object()?.get(seg)?;
+    }
+    v.is_array().then_some(v)
+}
+
 /// Map validated ID-token claims to an `Identity` (pure; unit tested).
 pub fn map_identity(
     issuer: &str,
@@ -438,7 +458,7 @@ pub fn map_identity(
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| OidcError::MissingUsername(cfg.username.clone()))?;
-    let groups = match claims.get(&cfg.groups) {
+    let groups = match group_claim(claims, &cfg.groups) {
         Some(Value::Array(a)) => a
             .iter()
             .filter_map(Value::as_str)
@@ -555,5 +575,62 @@ mod tests {
     fn single_string_group_accepted() {
         let c = json!({"sub":"s","preferred_username":"a","groups":"only"});
         assert_eq!(map_identity("i", &c, &cc("", "")).unwrap().groups, ["only"]);
+    }
+
+    fn dotted(path: &str, required: bool) -> ClaimsConfig {
+        ClaimsConfig {
+            groups: path.into(),
+            groups_required: required,
+            ..cc("", "")
+        }
+    }
+
+    #[test]
+    fn dotted_path_reads_a_nested_array() {
+        let c = json!({"sub":"s","preferred_username":"a",
+            "realm_access":{"roles":["keel-admins","offline_access"]}});
+        let i = map_identity("i", &c, &dotted("realm_access.roles", true)).unwrap();
+        assert_eq!(i.groups, ["keel-admins", "offline_access"]);
+    }
+
+    #[test]
+    fn single_segment_behaves_as_before() {
+        // top level only: a nested `groups` is not found
+        let c = json!({"sub":"s","preferred_username":"a","nested":{"groups":["x"]}});
+        assert!(matches!(
+            map_identity("i", &c, &dotted("groups", true)),
+            Err(OidcError::MissingGroups(_))
+        ));
+        assert!(
+            map_identity("i", &c, &dotted("groups", false))
+                .unwrap()
+                .groups
+                .is_empty()
+        );
+        // a literal top-level name containing dots still wins over walking
+        let c = json!({"sub":"s","preferred_username":"a","https://x.io/groups":["g"]});
+        let i = map_identity("i", &c, &dotted("https://x.io/groups", true)).unwrap();
+        assert_eq!(i.groups, ["g"]);
+    }
+
+    #[test]
+    fn dotted_non_array_leaf_is_missing() {
+        for c in [
+            json!({"sub":"s","preferred_username":"a","realm_access":{"roles":"keel-users"}}),
+            json!({"sub":"s","preferred_username":"a","realm_access":{"roles":42}}),
+            json!({"sub":"s","preferred_username":"a","realm_access":["roles"]}),
+            json!({"sub":"s","preferred_username":"a","realm_access":{}}),
+        ] {
+            assert!(matches!(
+                map_identity("i", &c, &dotted("realm_access.roles", true)),
+                Err(OidcError::MissingGroups(_))
+            ));
+            assert!(
+                map_identity("i", &c, &dotted("realm_access.roles", false))
+                    .unwrap()
+                    .groups
+                    .is_empty()
+            );
+        }
     }
 }
