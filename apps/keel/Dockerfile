@@ -48,7 +48,8 @@ RUN --mount=type=cache,id=keel-pnpm-store,target=/pnpm-store \
     pnpm install --offline --frozen-lockfile --filter @companion/keel-web... \
     && pnpm --filter @companion/keel-web build
 
-# ---- Runtime: distroless cc (glibc, libgcc, libssl: webauthn-rs links OpenSSL), non-root.
+# ---- Runtime: distroless cc (glibc, libgcc, libssl: webauthn-rs links OpenSSL), non-root as
+# uid/gid 10001 (the keel_server Ansible role chowns the master key and TLS key to it).
 # No shell and no curl, so there is no HEALTHCHECK here; compose orders start on the database.
 FROM gcr.io/distroless/cc-debian13:nonroot AS server
 ARG VERSION=0.0.0
@@ -61,12 +62,12 @@ LABEL org.opencontainers.image.title="keel" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=builder /src/target/release/keel /usr/local/bin/keel
-COPY --from=builder --chown=65532:65532 /out/var/lib/keel /var/lib/keel
+COPY --from=builder --chown=10001:10001 /out/var/lib/keel /var/lib/keel
 COPY --from=web /src/apps/keel/web/dist /usr/share/keel/web
 ENV KEEL_LISTEN=0.0.0.0:7830 \
     KEEL_RUNNER_LISTEN=0.0.0.0:7831 \
     KEEL_STATIC_DIR=/usr/share/keel/web \
     KEEL_DATA_DIR=/var/lib/keel
-USER 65532:65532
+USER 10001:10001
 EXPOSE 7830 7831
 ENTRYPOINT ["/usr/local/bin/keel"]
