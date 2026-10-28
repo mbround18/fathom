@@ -35,6 +35,8 @@ export class FakeRepos {
   readonly secrets: string[] = []
   /** Confirms that carried a passkey assertion. */
   stepUps = 0
+  /** The workspace a new binding lands in (the server takes it from the project). */
+  workspace = WORKSPACE
 
   private readonly pending = new Map<string, Pending>()
   private seq = 0
@@ -97,7 +99,7 @@ export class FakeRepos {
           const binding: BindingInfo = {
             id: this.next('binding'),
             project: spec.project,
-            workspace: WORKSPACE,
+            workspace: this.workspace,
             url: spec.url,
             branch: spec.branch,
             transport: spec.transport,
