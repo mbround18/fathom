@@ -41,3 +41,6 @@
   polish) were added and re-validated. Every item still passes. The role mapping deliberately lives
   in deployment configuration (Assumptions); the `impeccable` skill is named only as the process
   for the polish pass, not as a requirement on the product.
+- Second revision (same day): User Story 7 (an owner-only System workspace for Keel's own host)
+  was added and re-validated. Every item still passes. It relies on 058's deferred restart in the
+  `keel_server` role, and `make keel-server` stays the break-glass path (Assumptions).

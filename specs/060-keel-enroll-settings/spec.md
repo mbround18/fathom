@@ -1,4 +1,4 @@
-# Feature Specification: Keel Enroll screen, System Settings, admin tokens, OIDC roles and UI polish
+# Feature Specification: Keel Enroll, System Settings, admin tokens, OIDC roles, System workspace and UI polish
 
 **Feature Branch**: `060-keel-enroll-settings`
 
@@ -12,6 +12,8 @@
 - the Tokens tab manages enrolment tokens and every user's API tokens.
 
 **Revision input** (2026-10-28): "ensure the next person to sign in also doesn't get owner or better yet we read the roles from oidc to grant the proper roles via oidc roles? also ensure that you run impeccable skill on the ui so it all flows nicely its looking a bit unpolished". This adds User Story 5 (instance roles from the identity provider) and User Story 6 (a polish pass over Keel's UI).
+
+**Revision input** (2026-10-28): "we should also on the system side if were the owner we should see the system ansible if configured via system settings allowing us to ansible our ansible on the keel server as needed". This adds User Story 7 (an owner-only System workspace for Keel's own host).
 
 ## Why
 
@@ -143,6 +145,26 @@ The screens this spec adds, and the shell and sections around them, share one vi
 
 ---
 
+### User Story 7 - Owners manage the Keel server's own host from Keel (Priority: P3)
+
+The owner keeps the Keel server's host in the same Ansible repository as everything else (`make keel-server`). In System Settings, a **System** tab lets the owner point Keel at that repository and enrol the Keel server's host into a reserved **System** workspace. From then on the owner can preview and run the `keel-server` and `base` profiles against Keel's own host from Keel, with the same reviews, audit and run history as any other run. Admins and users never see the System workspace.
+
+**Why this priority**: Today the Keel host is the one machine that still needs a shell and `make keel-server` for every change. This closes that gap. Everything else in this spec works without it, and `make keel-server` on the host stays the way to repair it.
+
+**Independent Test**: On a test instance, configure the System tab with a test repository and enrol the instance's own host. Preview a `keel-server` run, run it, and see it finish. When the run restarts Keel, the restart comes after the run has reported, and the result is shown once Keel is back. An admin who isn't an owner can't see the System workspace in any list, and the server refuses their direct requests for it.
+
+**Acceptance Scenarios**:
+
+1. **Given** an owner and an unconfigured System tab, **When** they open it, **Then** they see what it is for, and the steps: choose the repository and branch, choose which profiles may run (`keel-server` and `base` by default), then enrol the Keel host. Nothing about the System workspace appears anywhere else until those steps are done.
+2. **Given** the repository is chosen, **When** the owner saves, **Then** the save needs a passkey and is audited. The System workspace is created if it doesn't exist, with the owner role as its only members. The repository is bound to it the same way any workspace binds a repository.
+3. **Given** a configured System workspace, **When** the owner clicks Enroll on the System tab, **Then** the Enroll dialog (User Story 1) opens with the System workspace and the allowed profiles preselected, and the snippet and instructions shown as usual.
+4. **Given** the Keel host is enrolled, **When** the owner opens the System tab, **Then** they see the host's state, its last runs and a Run action for each allowed profile. Each run goes through preview and, if the workspace requires it, review, like any other run.
+5. **Given** a run that restarts Keel itself, **When** it reaches the restart, **Then** the run reports its outcome first and the restart happens afterwards. When Keel comes back, the run shows as finished with that outcome. If Keel does not come back within the expected time, the host-side runner records it, and the System tab shows it once Keel is up again.
+6. **Given** an admin or user who isn't an owner, **When** they list workspaces, hosts, runs or audit entries, or call the System workspace's actions directly, **Then** the System workspace and everything in it are absent or refused.
+7. **Given** a configured System workspace, **When** the owner removes the configuration, **Then** after a passkey confirmation the Keel host is revoked and the workspace is archived, never deleted, keeping its run history and audit. This is audited.
+
+---
+
 ### Edge Cases
 
 - **No workspaces exist yet**: the Enroll button is visible to admins, and the dialog says a workspace must be created first, with a link to where that's done. It never offers an empty picker.
@@ -159,6 +181,8 @@ The screens this spec adds, and the shell and sections around them, share one vi
 - **Several providers are configured** (OIDC plus GitHub or Discord): the mapping applies only to the provider it names. People from other providers get the user role, or are refused when the mapping requires a match for all sign-ins.
 - **An existing owner signs in after the mapping is turned on but isn't in the owner group**: they are demoted like anyone else, unless they are the last owner (User Story 5, scenario 8).
 - **The mapping is configured wrongly**, for example with an unknown role name or an empty value list: Keel refuses to start and says which setting is wrong. It does not fall back to first-user-is-owner.
+- **The Keel host is already enrolled in another workspace**: enrolling it into the System workspace is refused until it's revoked there, so one host never takes runs from two workspaces.
+- **The last owner is demoted while the System workspace exists**: the instance always keeps an owner (FR-028), so the System workspace always has a member who can see it.
 
 ## Requirements *(mandatory)*
 
@@ -245,6 +269,16 @@ The screens this spec adds, and the shell and sections around them, share one vi
 - **FR-031**: Every section, dialog and the navigation MUST use one shared set of treatments for spacing, type, tables, dialogs, buttons, copy blocks, and empty, loading and error states.
 - **FR-032**: Every section and dialog MUST work at 360 px width with no horizontal page scroll, and in both light and dark themes.
 
+**System workspace**
+
+- **FR-033**: System Settings MUST have a **System** tab, visible only to instance owners, to configure the repository, branch and allowed profiles (default `keel-server`, `base`) for managing Keel's own host.
+- **FR-034**: Saving that configuration MUST create, or reuse, one reserved System workspace, whose only members are instance owners, and MUST bind the repository to it through the existing binding mechanism. The save MUST require a passkey and MUST be audited.
+- **FR-035**: The System workspace and everything in it (hosts, runs, reviews, audit entries) MUST be invisible to everyone but instance owners, in every list and on direct request. This MUST be enforced by the server.
+- **FR-036**: Runs in the System workspace MUST use the same preview, review, run and audit flow as any other workspace. Nothing about them MUST be exempt.
+- **FR-037**: A run against Keel's own host that restarts Keel MUST record its outcome before the restart. Its final state MUST be shown once Keel is back, including when Keel did not come back in time.
+- **FR-038**: Removing the configuration MUST revoke the Keel host and archive the System workspace, keeping its history. It MUST require a passkey and MUST be audited.
+- **FR-039**: When the System tab isn't configured, the System workspace MUST NOT exist or appear anywhere.
+
 ### Key Entities
 
 - **Enrolment settings**: one per instance. Holds the snippet template, the Markdown instructions, when they were last changed, by whom, and a version used to detect concurrent edits. Absent until first saved; the default template applies until then.
@@ -257,6 +291,8 @@ The screens this spec adds, and the shell and sections around them, share one vi
   - sign-in refused by the mapping, and role changed by the identity provider.
 - **Role mapping**: deployment configuration, not stored data. It names one provider, the claim to read, the values for owner, admin and user, and whether a match is required.
 - **User**: exists today. Gains a mark saying their role is managed by the identity provider.
+- **System configuration**: the repository, branch and allowed profiles for Keel's own host, set by an owner. Saving and removing it are audited.
+- **System workspace**: one reserved workspace, created when the system configuration is first saved. Only instance owners are members and can see it. It is archived, never deleted, when the configuration is removed.
 
 ## Success Criteria *(mandatory)*
 
@@ -273,6 +309,8 @@ The screens this spec adds, and the shell and sections around them, share one vi
 - **SC-009**: Over 100 simultaneous first sign-ins against an empty instance with no mapping, exactly one owner exists afterwards.
 - **SC-010**: Within one sign-in of a group change in the identity provider, the person's Keel role matches it.
 - **SC-011**: A design review across every section, at 360 px and desktop widths and in both themes, finds no inconsistent treatment and no horizontal page scroll.
+- **SC-012**: An owner can change the Keel server's host configuration from Keel, from preview to a finished run, without opening a shell on the host.
+- **SC-013**: A non-owner, checking every list and direct request, finds no trace of the System workspace.
 
 ## Assumptions
 
@@ -286,6 +324,9 @@ The screens this spec adds, and the shell and sections around them, share one vi
 - The role mapping lives in deployment configuration, not in the UI. An admin who could edit it in the UI could make themselves owner, while deployment configuration is reviewed in the infrastructure repository. The owner's Ansible role gains matching variables.
 - Role changes take effect at the person's next sign-in. Keel does not poll the identity provider between sign-ins; the session lifetime bounds how long an old role can last.
 - The polish pass (User Story 6) is done with the project's `impeccable` design skill, across all of Keel's sections, not only the new screens. It changes presentation, not behaviour, so existing end-to-end tests keep passing.
+- The System workspace is for owners only, not admins, because a run there changes the host Keel itself runs on.
+- The restart-after-report behaviour relies on the deferred compose restart that spec 058 gives the owner's `keel_server` role. Repositories without it are still allowed, but their runs may show as interrupted when Keel restarts during them.
+- `make keel-server` on the host stays the break-glass path (spec 058). Keel is never the only way to repair its own host.
 
 ## Dependencies
 
