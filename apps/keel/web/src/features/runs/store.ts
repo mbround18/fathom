@@ -16,10 +16,6 @@ import { create } from 'zustand'
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import type { Cmd, Preview, RequestId, RunHostInfo, RunInfo, RunPhase, RunReason } from '@/protocol/wire'
 
-/** The native input and select style the forms use. */
-export const FIELD =
-  'h-8 border border-input bg-background px-2 text-xs outline-none focus-visible:border-accent-neon'
-
 /** A commit, shortened for a table cell. */
 export function short(commit: string | null): string {
   return commit ? commit.slice(0, 12) : '—'

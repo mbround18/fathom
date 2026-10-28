@@ -3,13 +3,19 @@
  * the per-host results with each host's first failure. A run pinned to an inventory revision that
  * has since been replaced says so. A run that has not ended can be cancelled, previewed first.
  */
+import { ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { LogView } from '@companion/terminal'
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@companion/ui'
+import { Button } from '@companion/ui'
 import { useEffect, useMemo, useState } from 'react'
 
 import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
 import type { HostStats, RunHostInfo, RunInfo, RunSummary } from '@/protocol/wire'
+import { ConfirmDialog } from '@/ui/ConfirmDialog'
+import { DataTable } from '@/ui/DataTable'
+import { H2, LINK } from '@/ui/form'
+import { Page } from '@/ui/Page'
+import { PageHeader } from '@/ui/PageHeader'
 
 import { ErrorLine, StateBadge } from './parts'
 import { active, reasonText, short, useRuns } from './store'
@@ -22,6 +28,13 @@ function statsText(stats: HostStats | null): string {
   return parts.length > 0 ? parts.join(' · ') : 'no tasks'
 }
 
+const TONE: Record<string, string> = {
+  succeeded: 'text-status-ok',
+  failed: 'text-status-err',
+  refused: 'text-status-err',
+  lost: 'text-status-err',
+}
+
 function Summary({ summary }: { summary: RunSummary }) {
   const counts: [string, number][] = [
     ['hosts', summary.hosts],
@@ -32,14 +45,18 @@ function Summary({ summary }: { summary: RunSummary }) {
     ['cancelled', summary.cancelled],
   ]
   return (
-    <ul aria-label="Summary" className="flex flex-wrap gap-3 text-xs">
+    <ul aria-label="Summary" className="flex min-w-0 flex-wrap gap-2 text-xs">
       {counts.map(([k, n]) => (
-        <li key={k} data-count={k} className="flex gap-1">
-          <span className="text-muted-foreground">{k}</span>
-          <span className="font-mono">{n}</span>
+        <li
+          key={k}
+          data-count={k}
+          className={`flex min-w-20 flex-col border border-border px-2 py-1 ${n > 0 && TONE[k] ? TONE[k] : ''}`}
+        >
+          <span className="text-[11px] tracking-wider text-muted-foreground uppercase">{k}</span>
+          <span className="font-mono text-sm tabular-nums">{n}</span>
         </li>
       ))}
-      <li data-count="stats" className="text-muted-foreground">
+      <li data-count="stats" className="flex items-center px-1 text-muted-foreground">
         {statsText(summary.stats)}
       </li>
     </ul>
@@ -48,124 +65,91 @@ function Summary({ summary }: { summary: RunSummary }) {
 
 function Hosts({ hosts }: { hosts: RunHostInfo[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table aria-label="Hosts" className="w-full text-left text-xs">
-        <thead className="text-muted-foreground">
-          <tr>
-            <th className="py-1">Host</th>
-            <th>State</th>
-            <th>Results</th>
-            <th>First failure</th>
-          </tr>
-        </thead>
-        <tbody>
-          {hosts.length === 0 && (
-            <tr>
-              <td colSpan={4} data-pane-state="empty" className="py-1 text-muted-foreground">
-                No host has reported yet.
-              </td>
-            </tr>
-          )}
-          {hosts.map((h) => (
-            <tr key={h.host} data-host-state={h.state} className="border-t border-border align-top">
-              <td className="py-1 font-mono">{h.name}</td>
-              <td>
+    <section aria-labelledby="run-hosts-title" className="flex min-w-0 flex-col gap-2">
+      <h2 id="run-hosts-title" className={H2}>
+        Hosts
+      </h2>
+      <DataTable<RunHostInfo>
+        label="Hosts"
+        rows={hosts}
+        rowKey={(h) => h.host}
+        rowData={(h) => ({ 'data-host-state': h.state })}
+        columns={[
+          { key: 'host', header: 'Host', className: 'w-[20%]', cell: (h) => <span className="font-mono break-all">{h.name}</span> },
+          {
+            key: 'state',
+            header: 'State',
+            cell: (h) => (
+              <>
                 <StateBadge state={h.state} />
                 {h.refusal && <span className="ml-1 text-status-err">({h.refusal})</span>}
-              </td>
-              <td className="font-mono">{statsText(h.stats)}</td>
-              <td>
-                {h.first_failure && (
-                  <div className="flex flex-col gap-0.5">
-                    <span>
-                      {h.first_failure.unreachable && <span className="mr-1 text-status-err uppercase">unreachable</span>}
-                      <span className="font-mono">{h.first_failure.task}</span>
-                      {h.first_failure.rc !== null && (
-                        <span className="ml-1 text-muted-foreground">rc {h.first_failure.rc}</span>
-                      )}
-                    </span>
-                    <span className="break-all text-status-err">{h.first_failure.message}</span>
-                  </div>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              </>
+            ),
+          },
+          { key: 'results', header: 'Results', cell: (h) => <span className="font-mono">{statsText(h.stats)}</span> },
+          {
+            key: 'failure',
+            header: 'First failure',
+            className: 'w-[36%]',
+            cell: (h) =>
+              h.first_failure && (
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span>
+                    {h.first_failure.unreachable && <span className="mr-1 text-status-err uppercase">unreachable</span>}
+                    <span className="font-mono break-all">{h.first_failure.task}</span>
+                    {h.first_failure.rc !== null && <span className="ml-1 text-muted-foreground">rc {h.first_failure.rc}</span>}
+                  </span>
+                  <span className="break-all text-status-err">{h.first_failure.message}</span>
+                </div>
+              ),
+          },
+        ]}
+        empty="No host has reported yet."
+      />
+    </section>
   )
 }
+
 
 /** The confirm dialog for a pending cancel. */
 function CancelDialog() {
   const preview = useRuns((s) => s.preview)
   const confirm = useRuns((s) => s.confirm)
   const cancel = useRuns((s) => s.cancel)
-  return (
-    <Dialog
-      open={preview !== null}
-      onOpenChange={(open) => {
-        if (!open) cancel()
-      }}
-    >
-      {preview && (
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm</DialogTitle>
-            <DialogDescription data-preview-summary>{preview.summary}</DialogDescription>
-          </DialogHeader>
-          {preview.affected.length > 0 && (
-            <ul aria-label="Affected" className="flex flex-col gap-1 text-xs">
-              {preview.affected.map((a) => (
-                <li key={a} className="font-mono break-all">
-                  {a}
-                </li>
-              ))}
-            </ul>
-          )}
-          {preview.step_up && <p className="text-xs text-muted-foreground">This change asks for your passkey.</p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={cancel}>
-              Cancel
-            </Button>
-            <Button onClick={confirm}>Confirm</Button>
-          </DialogFooter>
-        </DialogContent>
-      )}
-    </Dialog>
-  )
+  return <ConfirmDialog preview={preview} onCancel={cancel} onConfirm={confirm} />
 }
 
 function Header({ run }: { run: RunInfo }) {
   const propose = useRuns((s) => s.propose)
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 id="run-title" className="font-display text-sm font-semibold tracking-wider">
-          Run of {run.job_name}
-        </h1>
-        <span data-run-state={run.state}>
-          <StateBadge state={run.state} />
-        </span>
-        {run.reason && <span className="text-xs text-muted-foreground">{reasonText(run.reason)}</span>}
-        {active(run.state) && (
-          <Button
-            size="xs"
-            variant="destructive"
-            className="ml-auto"
-            onClick={() => propose({ type: 'PreviewCancel', data: { run: run.id } })}
-          >
-            Cancel run
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        id="run-title"
+        title={`Run of ${run.job_name}`}
+        description={
+          <span className="flex flex-wrap items-center gap-2">
+            <span data-run-state={run.state}>
+              <StateBadge state={run.state} />
+            </span>
+            {run.reason && <span>{reasonText(run.reason)}</span>}
+          </span>
+        }
+        actions={
+          active(run.state) && (
+            <Button size="sm" variant="destructive" onClick={() => propose({ type: 'PreviewCancel', data: { run: run.id } })}>
+              <StopIcon aria-hidden />
+              Cancel run
+            </Button>
+          )
+        }
+      />
       {run.newer_inventory_revision && (
-        <p role="note" aria-label="Newer inventory" className="border border-border px-2 py-1 text-xs text-muted-foreground">
+        <p role="note" aria-label="Newer inventory" className="border border-status-warn/50 px-3 py-2 text-xs text-status-warn">
           This run used an older revision: a newer revision of inventory {run.inventory} exists, and the next run uses
           it.
         </p>
       )}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
         <dt className="text-muted-foreground">Commit</dt>
         <dd className="font-mono">{short(run.commit)}</dd>
         <dt className="text-muted-foreground">Inventory</dt>
@@ -173,9 +157,9 @@ function Header({ run }: { run: RunInfo }) {
         <dt className="text-muted-foreground">Trigger</dt>
         <dd>{run.trigger}</dd>
         <dt className="text-muted-foreground">Started</dt>
-        <dd>{run.started_at ?? 'not yet'}</dd>
+        <dd className="tabular-nums">{run.started_at ?? 'not yet'}</dd>
         <dt className="text-muted-foreground">Ended</dt>
-        <dd>{run.ended_at ?? '—'}</dd>
+        <dd className="tabular-nums">{run.ended_at ?? '—'}</dd>
       </dl>
     </>
   )
@@ -201,18 +185,13 @@ export default function RunPage({ params }: { params: Params }) {
   const run = detail?.run.id === id ? detail.run : null
 
   return (
-    <section data-page="run" aria-labelledby="run-title" className="flex flex-col gap-3 p-4">
-      <Link to="/runs" className="text-xs text-muted-foreground hover:underline">
+    <Page name="run" labelledBy="run-title">
+      <Link to="/runs" className={`${LINK} flex w-fit items-center gap-1 text-xs text-muted-foreground`}>
+        <ArrowLeftIcon aria-hidden className="size-3.5" />
         All runs
       </Link>
       <ErrorLine />
-      {run ? (
-        <Header run={run} />
-      ) : (
-        <h1 id="run-title" className="font-display text-sm font-semibold tracking-wider">
-          Run
-        </h1>
-      )}
+      {run ? <Header run={run} /> : <PageHeader id="run-title" title="Run" description="Loading the run…" />}
       {run?.summary && <Summary summary={run.summary} />}
       <LogView
         role="log"
@@ -223,7 +202,7 @@ export default function RunPage({ params }: { params: Params }) {
         wrap
         dropped={dropped}
         onFollowChange={setFollow}
-        className="max-h-96 min-h-24"
+        className="max-h-96 min-h-24 border border-border"
         placeholder={
           shown.length === 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -234,6 +213,6 @@ export default function RunPage({ params }: { params: Params }) {
       />
       {run && <Hosts hosts={detail?.hosts ?? []} />}
       <CancelDialog />
-    </section>
+    </Page>
   )
 }
