@@ -216,7 +216,7 @@ shape.
 
 ### Tests
 
-- [ ] T043 [P] [US7] Write a server DB test in `apps/keel/server/tests/system_workspace.rs`. It checks that:
+- [X] T043 [P] [US7] Write a server DB test in `apps/keel/server/tests/system_workspace.rs`. It checks that:
   - configure creates `keel-system` and reuses it the second time;
   - `keel-system` is reserved for workspace create;
   - an admin is denied `owner_only` on ListHosts and run commands;
@@ -225,18 +225,18 @@ shape.
   - a disallowed profile gives `profile_not_allowed`;
   - remove revokes the hosts, disables the bindings, archives the workspace, deletes the config, audits it, and keeps the history;
   - a stale version gives `system_conflict`.
-- [ ] T044 [P] [US7] Write runner unit tests in `apps/keel/runner/src/` for the undelivered spool: the write is atomic with mode 0600, replay runs oldest first, the file is deleted on acknowledgement, and an old file expires.
-- [ ] T045 [P] [US7] Write a server DB test in `apps/keel/server/tests/late_result.rs`: a `runner_lost` row takes a late `Finished` and audits `run_result_late`; a duplicate is ignored; a frame from a foreign host is ignored.
+- [X] T044 [P] [US7] Write runner unit tests in `apps/keel/runner/src/` for the undelivered spool: the write is atomic with mode 0600, replay runs oldest first, the file is deleted on acknowledgement, and an old file expires.
+- [X] T045 [P] [US7] Write a server DB test in `apps/keel/server/tests/late_result.rs`: a `runner_lost` row takes a late `Finished` and audits `run_result_late`; a duplicate is ignored; a frame from a foreign host is ignored.
 - [ ] T046 [P] [US7] Write a Playwright spec, `apps/keel/web/tests/e2e/settings-system.spec.ts`: an owner sets it up, binds and sees the tab; an admin sees no tab and no workspace.
 
 ### Implementation
 
-- [ ] T047 [US7] Write `apps/keel/server/src/system.rs` with `GetSystem`, `PreviewSystemConfigure` and `PreviewSystemRemove`, per `contracts/system-workspace.md`. Update `AppState.system_workspace` on commit, and wire them in `dispatch.rs`.
-- [ ] T048 [US7] Filter the System workspace out for non-owners, and refuse the slug `keel-system`, in `apps/keel/server/src/governance.rs` (`list_workspaces`, workspace create, grant add, API token create), `audit.rs` (list) and `enrollments.rs`. Check `allowed_profiles` in `hosts.rs` `check_enroll`.
-- [ ] T049 [US7] Add the undelivered spool and replay after `Hello` in `apps/keel/runner/src/`, per `contracts/runner-replay.md`.
-- [ ] T050 [US7] Accept a late `Finished` in `apps/keel/server/src/runner_listener.rs` and `runs.rs`, per `contracts/runner-replay.md`.
+- [X] T047 [US7] Write `apps/keel/server/src/system.rs` with `GetSystem`, `PreviewSystemConfigure` and `PreviewSystemRemove`, per `contracts/system-workspace.md`. Update `AppState.system_workspace` on commit, and wire them in `dispatch.rs`.
+- [X] T048 [US7] Filter the System workspace out for non-owners, and refuse the slug `keel-system`, in `apps/keel/server/src/governance.rs` (`list_workspaces`, workspace create, grant add, API token create), `audit.rs` (list) and `enrollments.rs`. Check `allowed_profiles` in `hosts.rs` `check_enroll`.
+- [X] T049 [US7] Add the undelivered spool and replay after `Hello` in `apps/keel/runner/src/`, per `contracts/runner-replay.md`.
+- [X] T050 [US7] Accept a late `Finished` in `apps/keel/server/src/runner_listener.rs` and `runs.rs`, per `contracts/runner-replay.md`.
 - [ ] T051 [US7] Write `apps/keel/web/src/features/settings/SystemTab.tsx`. When not configured, it shows an empty state with Set up. When configured, it shows the profiles, the embedded binding form, the host, recent runs, and Remove with a typed confirmation.
-- [ ] T052 [P] [US7] Write `docs/guides/keel/system-workspace.md`.
+- [X] T052 [P] [US7] Write `docs/guides/keel/system-workspace.md`.
 
 ---
 
