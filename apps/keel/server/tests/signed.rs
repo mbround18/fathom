@@ -471,6 +471,15 @@ async fn an_override_needs_a_passkey_over_its_challenge_and_a_comment() {
         "{out:?}"
     );
 
+    // 058 A2 (T038): neither host has a base, so this is a baseline; web-1 was changed outside
+    // Keel, and approving the baseline clears it.
+    assert!(f.groups(run).await[0].1.is_none());
+    sqlx::query("update hosts set changed_outside = true where id = $1")
+        .bind(f.host("web-1"))
+        .execute(&f.h.db.owner)
+        .await
+        .expect("flag");
+
     let mut auth = f.passkey().await;
     let (p, c) = f.preview_override(group).await;
     assert!(p.step_up);
@@ -571,6 +580,18 @@ async fn an_override_needs_a_passkey_over_its_challenge_and_a_comment() {
     );
     assert!(
         actions.iter().any(|a| a.0 == "run_overridden"),
+        "{actions:?}"
+    );
+    let (cleared,): (bool,) = sqlx::query_as("select not changed_outside from hosts where id = $1")
+        .bind(f.host("web-1"))
+        .fetch_one(&f.h.db.owner)
+        .await
+        .expect("host");
+    assert!(cleared, "a baseline approval clears changed_outside");
+    assert!(
+        actions
+            .iter()
+            .any(|a| a.0 == "host_changed_outside_cleared"),
         "{actions:?}"
     );
     let audit = f.h.audit_text().await;

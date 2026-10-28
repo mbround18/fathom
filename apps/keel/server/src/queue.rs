@@ -913,7 +913,23 @@ impl Session {
                     tracing::error!(error = %e, run = %run, "recording Finished failed");
                 }
                 maybe_finish(&self.app, run).await;
+                if let Err(e) = crate::outside::after_finished(&self.app, self.host).await {
+                    tracing::warn!(error = %e, host = %self.host, "clearing changed_outside failed");
+                }
             }
+            // Runs outside Keel (058 A2): acknowledged only once stored, so a failure is re-sent.
+            Frame::OutsideRuns {
+                entries,
+                skipped,
+                through,
+            } => match crate::outside::ingest(&self.app, self.host, &entries, skipped).await {
+                Ok(_) => {
+                    let _ = self.out.send(Frame::OutsideRunsAck { through });
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, host = %self.host, "storing outside runs failed")
+                }
+            },
             // A runner asking for a fresh certificate.
             Frame::RenewCert {} => match crate::hosts::renew(&self.app, self.host).await {
                 Ok(cert) => {

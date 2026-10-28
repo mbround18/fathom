@@ -55,7 +55,7 @@ pub use run::{
 pub mod host;
 pub use host::{
     EnrollToken, HostCertInfo, HostDetail, HostInfo, HostName, HostProfiles, HostStatus,
-    MAX_HOST_PROFILES, SshCaInfo, SshCaKind, SshCaState,
+    MAX_HOST_PROFILES, OutsideRunInfo, SshCaInfo, SshCaKind, SshCaState,
 };
 
 pub const PROTOCOL_VERSION: u32 = 1;

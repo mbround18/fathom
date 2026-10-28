@@ -11,6 +11,7 @@ pub mod dispatch;
 pub mod hooks;
 pub mod identity;
 pub mod inventory;
+pub mod outside;
 pub mod passkeys;
 pub mod preview;
 pub mod queue;

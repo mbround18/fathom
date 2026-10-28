@@ -202,6 +202,7 @@ async fn a_token_enrols_once_and_is_stored_hashed() {
             workspace: h.workspace,
             profile: None,
             drift: None,
+            changed_outside: None,
         })
         .await;
     match out.as_slice() {

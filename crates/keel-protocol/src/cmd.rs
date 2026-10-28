@@ -477,8 +477,12 @@ pub enum Cmd {
         profile: Option<ProfileName>,
         #[serde(default)]
         drift: Option<bool>,
+        /// Only hosts that did (`true`) or did not (`false`) change outside Keel.
+        #[serde(default)]
+        changed_outside: Option<bool>,
     },
-    /// `Host`: profiles, allowed profiles, signed-mode policy, ledger head and certificates.
+    /// `Host`: profiles, allowed profiles, signed-mode policy, ledger head, certificates and the
+    /// newest runs outside Keel.
     GetHost {
         #[ts(type = "string")]
         host: Uuid,

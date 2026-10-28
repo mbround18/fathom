@@ -103,6 +103,26 @@ pub struct HostInfo {
     pub enrolled_at: String,
     pub last_seen_at: Option<String>,
     pub revoked_at: Option<String>,
+    /// The host reported an `ansible-playbook` run outside Keel (not `--check`) that no baseline
+    /// approval or later run of its jobs has covered yet (spec 058 amendment A2).
+    pub changed_outside: bool,
+}
+
+/// One run outside Keel, as the host reported it: the host's claim, not something Keel checked
+/// (spec 058 amendment A2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct OutsideRunInfo {
+    /// When the host says it ran.
+    pub at: String,
+    pub user: String,
+    pub playbook: String,
+    /// 40 hex characters, or `None` when the checkout had no commit.
+    pub commit: Option<String>,
+    pub dirty: bool,
+    /// `--check`: a dry run.
+    pub check: bool,
+    /// When Keel received it.
+    pub received_at: String,
 }
 
 /// A runner certificate Keel issued to a host.
@@ -125,6 +145,8 @@ pub struct HostDetail {
     pub ledger_head: Option<String>,
     /// Newest first.
     pub certs: Vec<HostCertInfo>,
+    /// The newest 20 runs outside Keel the host reported, newest first.
+    pub outside_runs: Vec<OutsideRunInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

@@ -9,4 +9,9 @@ profiles: Array<string>,
 /**
  * The host's own ceiling (`keel_runner_allowed_profiles`).
  */
-allowed_profiles: Array<string>, require_signed: boolean, runner_version: string | null, ansible_version: string | null, enrolled_at: string, last_seen_at: string | null, revoked_at: string | null, };
+allowed_profiles: Array<string>, require_signed: boolean, runner_version: string | null, ansible_version: string | null, enrolled_at: string, last_seen_at: string | null, revoked_at: string | null, 
+/**
+ * The host reported an `ansible-playbook` run outside Keel (not `--check`) that no baseline
+ * approval or later run of its jobs has covered yet (spec 058 amendment A2).
+ */
+changed_outside: boolean, };

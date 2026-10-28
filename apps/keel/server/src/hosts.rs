@@ -489,6 +489,7 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             workspace,
             profile,
             drift,
+            changed_outside,
         } => {
             if let Err(d) = require(app, req, "list_hosts", Capability::View, workspace).await {
                 return d;
@@ -497,7 +498,14 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             if drift == Some(true) {
                 return vec![Event::Hosts { items: Vec::new() }];
             }
-            match list(app, workspace, profile.as_ref().map(|p| p.as_str())).await {
+            match list(
+                app,
+                workspace,
+                profile.as_ref().map(|p| p.as_str()),
+                changed_outside,
+            )
+            .await
+            {
                 Ok(items) => vec![Event::Hosts { items }],
                 Err(e) => db_failed(&e),
             }
@@ -580,7 +588,7 @@ const HOST_COLUMNS: &str = "h.id, h.workspace_id, h.inventory_name, h.state, h.a
      h.require_signed, h.runner_version, h.ansible_version, h.enrolled_at, h.last_seen_at, \
      h.revoked_at, array(select p.name from host_profiles hp join profiles p \
        on p.id = hp.profile_id where hp.host_id = h.id order by p.name) as profiles, \
-     h.python_version, h.override_quorum, h.ledger_head";
+     h.python_version, h.override_quorum, h.ledger_head, h.changed_outside";
 
 #[derive(sqlx::FromRow)]
 struct HostRow {
@@ -599,6 +607,7 @@ struct HostRow {
     python_version: Option<String>,
     override_quorum: Option<i32>,
     ledger_head: Option<String>,
+    changed_outside: bool,
 }
 
 impl HostRow {
@@ -617,6 +626,7 @@ impl HostRow {
             enrolled_at: ts(self.enrolled_at),
             last_seen_at: self.last_seen_at.map(ts),
             revoked_at: self.revoked_at.map(ts),
+            changed_outside: self.changed_outside,
         }
     }
 }
@@ -625,16 +635,19 @@ async fn list(
     app: &AppState,
     workspace: Uuid,
     profile: Option<&str>,
+    changed_outside: Option<bool>,
 ) -> Result<Vec<HostInfo>, sqlx::Error> {
     let rows: Vec<HostRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select {HOST_COLUMNS} from hosts h where h.workspace_id = $1 \
          and ($2::text is null or exists (select 1 from host_profiles hp \
            join profiles p on p.id = hp.profile_id where hp.host_id = h.id and p.name = $2)) \
+         and ($4::boolean is null or h.changed_outside = $4) \
          order by h.inventory_name limit $3"
     )))
     .bind(workspace)
     .bind(profile)
     .bind(LIST_LIMIT)
+    .bind(changed_outside)
     .fetch_all(&app.db)
     .await?;
     Ok(rows.iter().map(HostRow::info).collect())
@@ -663,7 +676,9 @@ async fn detail(app: &AppState, host: Uuid) -> Result<Option<HostDetail>, sqlx::
     .bind(CERT_LIMIT)
     .fetch_all(&app.db)
     .await?;
+    let outside_runs = crate::outside::newest(&app.db, host).await?;
     Ok(Some(HostDetail {
+        outside_runs,
         host: row.info(),
         python_version: row.python_version.clone(),
         override_quorum: row.override_quorum.and_then(|q| u32::try_from(q).ok()),

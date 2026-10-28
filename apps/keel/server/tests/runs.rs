@@ -287,6 +287,71 @@ async fn a_push_touching_a_jobs_paths_makes_a_pinned_run_whose_results_arrive_in
     f.finish().await;
 }
 
+/// 058 A2 (T038): a host changed outside Keel is cleared once every job assigned to it has
+/// succeeded on it in a run started after the newest outside run; not before.
+#[tokio::test]
+async fn changed_outside_clears_once_every_assigned_job_ran_after_it() {
+    let Some(f) = Fixture::new("run_clears_changed_outside", settings()).await else {
+        return;
+    };
+    let _runners = f
+        .attach(|name, id| {
+            FakeRunner::new(id.to_string())
+                .default_script(Script::finish(0).stats(name, ok_stats()))
+        })
+        .await;
+    let outside = |at: &str| keel_exec::frames::OutsideRun {
+        at: at.into(),
+        user: "root".into(),
+        playbook: "playbooks/web.yaml".into(),
+        commit: None,
+        dirty: true,
+        check: false,
+    };
+    // web-1 was changed before the run; web-2 says it will be changed after it.
+    for ((_, id), at) in f
+        .hosts
+        .iter()
+        .zip(["2026-01-01T00:00:00Z", "2999-01-01T00:00:00Z"])
+    {
+        let done = keel_server::outside::ingest(&f.h.app, *id, &[outside(at)], 0)
+            .await
+            .expect("ingest");
+        assert!(done.flagged);
+    }
+    f.push("README", "hello\n").await;
+    f.push("playbooks/web.yaml", "- hosts: web\n").await;
+    let (run, ..) = f.runs().await[0].clone();
+    assert_eq!(f.ended(run, SC_003).await.0, "succeeded");
+    let flags = || async {
+        sqlx::query_as::<_, (String, bool)>(
+            "select inventory_name, changed_outside from hosts order by inventory_name",
+        )
+        .fetch_all(&f.h.db.owner)
+        .await
+        .expect("hosts")
+    };
+    let start = Instant::now();
+    while flags().await[0].1 {
+        assert!(start.elapsed() < SC_003, "web-1 is still flagged");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        flags().await,
+        [("web-1".to_owned(), false), ("web-2".to_owned(), true)]
+    );
+    let actions = f.h.audit_actions().await;
+    assert_eq!(
+        actions
+            .iter()
+            .filter(|a| a.0 == "host_changed_outside_cleared")
+            .count(),
+        1,
+        "{actions:?}"
+    );
+    f.finish().await;
+}
+
 #[tokio::test]
 async fn a_force_push_is_history_rewritten_and_makes_no_run() {
     let Some(f) = Fixture::new("run_force_push", settings()).await else {

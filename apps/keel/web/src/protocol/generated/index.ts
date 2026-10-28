@@ -64,6 +64,7 @@ export type * from "./ManifestProblem";
 export type * from "./Me";
 export type * from "./MeGrant";
 export type * from "./ObjectName";
+export type * from "./OutsideRunInfo";
 export type * from "./OverrideChallenge";
 export type * from "./PasskeyAssertion";
 export type * from "./PasskeyCredential";

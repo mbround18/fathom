@@ -41,6 +41,7 @@ fn host_info() -> HostInfo {
         enrolled_at: "2026-10-27T10:00:00Z".into(),
         last_seen_at: Some("2026-10-27T10:05:00Z".into()),
         revoked_at: None,
+        changed_outside: false,
     }
 }
 
@@ -51,6 +52,7 @@ fn host_commands() {
             workspace: id(2),
             profile: Some(ProfileName::new("web").unwrap()),
             drift: None,
+            changed_outside: None,
         },
         Cmd::GetHost { host: id(1) },
         Cmd::PreviewHostEnroll {
@@ -85,7 +87,8 @@ fn host_commands() {
         Cmd::ListHosts {
             workspace: id(2),
             profile: None,
-            drift: None
+            drift: None,
+            changed_outside: None,
         }
     );
 }
@@ -166,6 +169,7 @@ fn host_events() {
                 valid_before: "2026-10-28T10:00:00Z".into(),
                 revoked_at: Some("2026-10-27T11:00:00Z".into()),
             }],
+            outside_runs: vec![],
         }),
         Event::HostEnrollment {
             id: id(3),

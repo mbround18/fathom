@@ -1320,11 +1320,23 @@ async fn approve(
     )
     .await?;
     let mut next = None;
+    let mut cleared = Vec::new();
     if group_done {
         sqlx::query("update review_groups set state = 'approved' where id = $1")
             .bind(a.group)
             .execute(&mut *tx)
             .await?;
+        // A baseline approval vouches for these hosts as they are (058 A2).
+        if ctx.base.is_none() {
+            cleared = crate::outside::clear(
+                &mut tx,
+                ctx.ws,
+                &ctx.hosts,
+                "baseline approved",
+                &caller.actor(),
+            )
+            .await?;
+        }
         let (open,): (i64,) = sqlx::query_as(
             "select count(*) from review_groups where run_id = $1 and state <> 'approved'",
         )
@@ -1336,6 +1348,7 @@ async fn approve(
         }
     }
     tx.commit().await?;
+    crate::outside::pushed(app, ctx.ws, &cleared);
     if let Some(Some(status)) = next {
         crate::queue::push_state(app, ctx.ws, ctx.run, status);
         if status.state == RunState::Queued {

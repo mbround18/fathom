@@ -229,6 +229,12 @@ pub enum Event {
         host: Uuid,
         state: HostStatus,
     },
+    /// Pushed when a host's `changed_outside` is set or cleared (spec 058 amendment A2), to
+    /// anyone who can see it. Re-read the host for the new value.
+    HostChangedOutside {
+        #[ts(type = "string")]
+        host: Uuid,
+    },
 
     // Signed mode: review and signers (US8)
     /// Reply to `ListReviews`.
