@@ -233,6 +233,7 @@ shape.
 
 - [X] T047 [US7] Write `apps/keel/server/src/system.rs` with `GetSystem`, `PreviewSystemConfigure` and `PreviewSystemRemove`, per `contracts/system-workspace.md`. Update `AppState.system_workspace` on commit, and wire them in `dispatch.rs`.
 - [X] T048 [US7] Filter the System workspace out for non-owners, and refuse the slug `keel-system`, in `apps/keel/server/src/governance.rs` (`list_workspaces`, workspace create, grant add, API token create), `audit.rs` (list) and `enrollments.rs`. Check `allowed_profiles` in `hosts.rs` `check_enroll`.
+  - Done: `ListEnrollments` (`enrollments::rows`) and `ListAllApiTokens` (`api::all_tokens`) take `system::hide_system`, and revoke/roll there treat System rows as missing for non-owners. Not done: the audit list, because the server has no audit-list command yet; whoever adds it must apply `hide_system`.
 - [X] T049 [US7] Add the undelivered spool and replay after `Hello` in `apps/keel/runner/src/`, per `contracts/runner-replay.md`.
 - [X] T050 [US7] Accept a late `Finished` in `apps/keel/server/src/runner_listener.rs` and `runs.rs`, per `contracts/runner-replay.md`.
 - [ ] T051 [US7] Write `apps/keel/web/src/features/settings/SystemTab.tsx`. When not configured, it shows an empty state with Set up. When configured, it shows the profiles, the embedded binding form, the host, recent runs, and Remove with a typed confirmation.
