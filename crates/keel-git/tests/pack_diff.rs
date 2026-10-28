@@ -181,3 +181,50 @@ fn unknown_commits_are_refused() {
     assert!(f.mirror.build_pack(Some(&missing), &c).is_err());
     assert!(f.mirror.changed_paths(Some(&missing), &c).is_err());
 }
+
+#[test]
+fn review_reads_changes_diffs_and_raw_commits() {
+    use keel_git::Change;
+    let f = Fixture::new();
+    f.write("site.yaml", "a\nb\nc\n");
+    f.write("bin.dat", "x\0y");
+    let first = f.commit("first");
+    f.write("site.yaml", "a\nB\nc\n");
+    std::fs::remove_file(f.work().join("bin.dat")).unwrap();
+    f.write(".keel/keel.yaml", "jobs: {}\n");
+    let second = f.commit("second line\n\nbody");
+    let files = f.mirror.changed_files(Some(&first), &second).unwrap();
+    let got: Vec<(&str, Change)> = files.iter().map(|c| (c.path.as_str(), c.change)).collect();
+    assert_eq!(
+        got,
+        [
+            (".keel/keel.yaml", Change::Added),
+            ("bin.dat", Change::Deleted),
+            ("site.yaml", Change::Modified)
+        ]
+    );
+    let d = f
+        .mirror
+        .file_diff(Some(&first), &second, "site.yaml")
+        .unwrap();
+    assert!(!d.binary);
+    assert_eq!(d.lines, ["@@ -1,3 +1,3 @@", " a", "-b", "+B", " c"]);
+    assert!(
+        f.mirror
+            .file_diff(Some(&first), &second, "bin.dat")
+            .unwrap()
+            .binary
+    );
+    let meta = f.mirror.commit_meta(&second).unwrap();
+    assert_eq!(meta.author, "Fixture <fixture@example.org>");
+    assert_eq!(meta.author_email, "fixture@example.org");
+    assert_eq!(meta.summary, "second line");
+    let raw = f.mirror.commit_bytes(&second).unwrap().unwrap();
+    let text = String::from_utf8(raw).unwrap();
+    assert!(text.starts_with("tree "));
+    let tree = text[5..45].to_owned();
+    assert!(f.mirror.tree_complete(&CommitId(tree)).unwrap());
+    let missing = CommitId("1".repeat(40));
+    assert!(f.mirror.commit_bytes(&missing).unwrap().is_none());
+    assert!(!f.mirror.tree_complete(&missing).unwrap());
+}

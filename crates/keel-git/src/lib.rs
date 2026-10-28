@@ -9,4 +9,5 @@ pub mod pack;
 pub mod pin;
 
 pub use ancestry::{Ancestry, TreeAt};
+pub use diff::{Change, ChangedFile, CommitMeta, FileDiff};
 pub use mirror::{Auth, CommitInfo, EntryKind, FetchRequest, Mirror, MirrorError};
