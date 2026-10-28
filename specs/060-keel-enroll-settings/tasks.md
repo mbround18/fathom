@@ -83,7 +83,7 @@ shape.
   - `HostEnrollment.snippet` renders the default template with the real token when there is no settings row;
   - with a saved template, it renders that template;
   - `instructions_unavailable` is true when the settings read fails.
-- [ ] T011 [P] [US1] Write a Playwright spec, `apps/keel/web/tests/e2e/enroll.spec.ts`. It checks that:
+- [X] T011 [P] [US1] Write a Playwright spec, `apps/keel/web/tests/e2e/enroll.spec.ts`. It checks that:
   - an owner without grants sees Enroll and every workspace;
   - the token and snippet show once;
   - closing warns;
@@ -92,12 +92,12 @@ shape.
 ### Implementation
 
 - [X] T012 [US1] In `apps/keel/server/src/hosts.rs` `create_enrollment`: load `instance_settings` (falling back to defaults on error, with `instructions_unavailable = true`), and render the snippet with `keel_core::enroll_template::render`. The values are `%t` the token, `%n`, `%p` comma-joined, `%w` the slug, `%s` from `runner_host_names` and `runner_listen`, `%u` the public URL, and `%e` the RFC 3339 expiry. Never log the token.
-- [ ] T013 [P] [US1] Build the shared primitives `apps/keel/web/src/ui/{Dialog,CopyBlock}.tsx`, on radix-ui and the theme tokens in `index.css`. `CopyBlock` takes a masked mode with a reveal, and a copied state.
-- [ ] T014 [P] [US1] Write `apps/keel/web/src/features/settings/Markdown.tsx`, lazy-loaded. It uses react-markdown and remark-gfm, plus a remark plugin that turns `html` nodes into `text`. `a` gets `target=_blank rel="noopener noreferrer"`; `img` renders as a link. Add a Vitest in `apps/keel/web/tests/unit/markdown.test.tsx`.
-- [ ] T015 [US1] Write `apps/keel/web/src/features/hosts/EnrollDialog.tsx`:
+- [X] T013 [P] [US1] Build the shared primitives `apps/keel/web/src/ui/{Dialog,CopyBlock}.tsx`, on radix-ui and the theme tokens in `index.css`. `CopyBlock` takes a masked mode with a reveal, and a copied state.
+- [X] T014 [P] [US1] Write `apps/keel/web/src/features/settings/Markdown.tsx`, lazy-loaded. It uses react-markdown and remark-gfm, plus a remark plugin that turns `html` nodes into `text`. `a` gets `target=_blank rel="noopener noreferrer"`; `img` renders as a link. Add a Vitest in `apps/keel/web/tests/unit/markdown.test.tsx`.
+- [X] T015 [US1] Write `apps/keel/web/src/features/hosts/EnrollDialog.tsx`:
   - **step 1**: workspace, name and profiles, then preview and confirm with step-up;
   - **step 2**: the token, the snippet, the instructions and an expiry countdown, plus a warning on close.
-- [ ] T016 [US1] In `apps/keel/web/src/features/hosts/HostsPage.tsx` and `store.ts`:
+- [X] T016 [US1] In `apps/keel/web/src/features/hosts/HostsPage.tsx` and `store.ts`:
   - the picker reads `ListWorkspaces` instead of `me.grants` (R6);
   - add the Enroll button in the header, shown when the caller can operate somewhere;
   - remove the inline enrol form, the token box and `tokenArg` (FR-006).
@@ -131,7 +131,7 @@ shape.
 - [X] T021 [US5] In `apps/keel/server/src/config.rs`, add `RoleMapping { claim, owner, admin, user, required }` from `KEEL_OIDC_ROLE_*` and the `--oidc-role-*` flags, with the validation from `contracts/config.md`. In `apps/keel/server/src/serve.rs` (around line 444), set `ClaimsConfig.groups` to the claim, `groups_prefix` to `""`, and `groups_required` to `required`.
 - [X] T022 [US5] In `apps/keel/server/src/identity.rs` `sign_in`, inside the `SIGN_IN_LOCK` advisory lock, apply the mapping per research R7. Add `SignInError::NotMapped`, and set `role_source` and `idp_role`. In `apps/keel/server/src/signin.rs`, pass the groups through and audit refusals with `role_not_mapped`.
 - [X] T023 [US5] In `apps/keel/server/src/governance.rs`, refuse `PreviewUserRole` for idp-managed users, and fill `UserInfo.role_source`.
-- [ ] T024 [P] [US5] In `apps/keel/web/src/features/users/UsersPage.tsx`, show an "Identity provider" tag and no role control for idp rows.
+- [X] T024 [P] [US5] In `apps/keel/web/src/features/users/UsersPage.tsx`, show an "Identity provider" tag and no role control for idp rows.
 - [X] T025 [P] [US5] Write `docs/guides/keel/oidc-roles.md`: the Keycloak setup, the env vars, and what owners see.
 
 **Checkpoint**: US5 tests pass.
@@ -153,8 +153,8 @@ shape.
   - a stale version gives `settings_conflict`;
   - an invalid template is refused with its code;
   - the first save inserts the row.
-- [ ] T027 [P] [US2] Write a Vitest in `apps/keel/web/tests/unit/template.test.ts`, running `features/settings/template.ts` against `contracts/template-vectors.json`.
-- [ ] T028 [P] [US2] Write a Playwright spec, `apps/keel/web/tests/e2e/settings-enrollment.spec.ts`: inline errors, the live preview, save with step-up, the conflict banner, and `<script>` shown as text.
+- [X] T027 [P] [US2] Write a Vitest in `apps/keel/web/tests/unit/template.test.ts`, running `features/settings/template.ts` against `contracts/template-vectors.json`.
+- [X] T028 [P] [US2] Write a Playwright spec, `apps/keel/web/tests/e2e/settings-enrollment.spec.ts`: inline errors, the live preview, save with step-up, the conflict banner, and `<script>` shown as text.
 
 ### Implementation
 
@@ -163,11 +163,11 @@ shape.
   - `PreviewSettingsUpdate` follows the `pending`/`preview` pattern with `step_up: true`, re-checks admin inside the op, runs `update … where version = $n` (or inserts the first row), and audits it.
 
   Wire both in `dispatch.rs`.
-- [ ] T030 [P] [US2] Write `apps/keel/web/src/features/settings/template.ts`: the TypeScript twin of validate and render, about 40 lines.
-- [ ] T031 [P] [US2] Build the shared primitives `apps/keel/web/src/ui/{Tabs,PageHeader,LoadState,EmptyState}.tsx`.
-- [ ] T032 [US2] Write `apps/keel/web/src/features/settings/SettingsPage.tsx`, routed at `/settings/:tab` with role-gated tabs, plus `EnrollmentTab.tsx` (the template editor with the placeholder reference and preview, the instructions in Write/Preview tabs, Save, Restore default and the conflict banner) and `store.ts`.
-- [ ] T033 [US2] Add System Settings, pinned to the bottom of the nav for owners and admins, in `apps/keel/web/src/app/{nav.ts,Shell.tsx,routes.tsx}`, as a lazy route. Add a Vitest for tab visibility in `apps/keel/web/tests/unit/settings-tabs.test.ts`.
-- [ ] T034 [P] [US2] Write `docs/guides/keel/enrollment-template.md`: the placeholders, the default, and examples.
+- [X] T030 [P] [US2] Write `apps/keel/web/src/features/settings/template.ts`: the TypeScript twin of validate and render, about 40 lines.
+- [X] T031 [P] [US2] Build the shared primitives `apps/keel/web/src/ui/{Tabs,PageHeader,LoadState,EmptyState}.tsx`.
+- [X] T032 [US2] Write `apps/keel/web/src/features/settings/SettingsPage.tsx`, routed at `/settings/:tab` with role-gated tabs, plus `EnrollmentTab.tsx` (the template editor with the placeholder reference and preview, the instructions in Write/Preview tabs, Save, Restore default and the conflict banner) and `store.ts`.
+- [X] T033 [US2] Add System Settings, pinned to the bottom of the nav for owners and admins, in `apps/keel/web/src/app/{nav.ts,Shell.tsx,routes.tsx}`, as a lazy route. Add a Vitest for tab visibility in `apps/keel/web/tests/unit/settings-tabs.test.ts`.
+- [X] T034 [P] [US2] Write `docs/guides/keel/enrollment-template.md`: the placeholders, the default, and examples.
 
 ---
 
@@ -186,13 +186,13 @@ shape.
   - roll, which creates `rolled_from` and two audit rows, and re-checks the name;
   - that no token or hash appears in the audit context;
   - that non-admins are denied.
-- [ ] T036 [P] [US3] Write a Playwright spec, `apps/keel/web/tests/e2e/settings-tokens.spec.ts`: filter, revoke and roll for enrolment tokens (the new token shows once), and admin revoke of another user's API token.
+- [X] T036 [P] [US3] Write a Playwright spec, `apps/keel/web/tests/e2e/settings-tokens.spec.ts`: filter, revoke and roll for enrolment tokens (the new token shows once), and admin revoke of another user's API token.
 
 ### Implementation
 
 - [X] T037 [US3] Write `apps/keel/server/src/enrollments.rs` with `ListEnrollments`, `PreviewEnrollmentRevoke` and `PreviewEnrollmentRoll`, per research R4. Roll reuses `hosts::check_enroll` and `create_enrollment`, so it returns a `HostEnrollment` with a snippet. Wire them in `dispatch.rs`.
-- [ ] T038 [P] [US3] Build the shared primitive `apps/keel/web/src/ui/DataTable.tsx`: responsive, so it becomes a card list under 640 px, with a filter slot and row actions.
-- [ ] T039 [US3] Write `apps/keel/web/src/features/settings/TokensTab.tsx`, the enrolment section: state filter, revoke, and roll, which opens the `EnrollDialog` result step.
+- [X] T038 [P] [US3] Build the shared primitive `apps/keel/web/src/ui/DataTable.tsx`: responsive, so it becomes a card list under 640 px, with a filter slot and row actions.
+- [X] T039 [US3] Write `apps/keel/web/src/features/settings/TokensTab.tsx`, the enrolment section: state filter, revoke, and roll, which opens the `EnrollDialog` result step.
 
 ---
 
@@ -204,7 +204,7 @@ shape.
 
 - [X] T040 [P] [US4] Write a server DB test in `apps/keel/server/tests/admin_api_tokens.rs`: the list holds every holder for admins and is denied to users; revoking someone else's token needs step-up and audits `by_admin: true`; revoking your own is unchanged.
 - [X] T041 [US4] Implement `ListAllApiTokens`, and step-up plus `by_admin` in `PreviewApiTokenRevoke`, in `apps/keel/server/src/governance.rs` and `api.rs`.
-- [ ] T042 [US4] Add the API tokens section to `apps/keel/web/src/features/settings/TokensTab.tsx`.
+- [X] T042 [US4] Add the API tokens section to `apps/keel/web/src/features/settings/TokensTab.tsx`.
 
 ---
 
@@ -227,7 +227,7 @@ shape.
   - a stale version gives `system_conflict`.
 - [X] T044 [P] [US7] Write runner unit tests in `apps/keel/runner/src/` for the undelivered spool: the write is atomic with mode 0600, replay runs oldest first, the file is deleted on acknowledgement, and an old file expires.
 - [X] T045 [P] [US7] Write a server DB test in `apps/keel/server/tests/late_result.rs`: a `runner_lost` row takes a late `Finished` and audits `run_result_late`; a duplicate is ignored; a frame from a foreign host is ignored.
-- [ ] T046 [P] [US7] Write a Playwright spec, `apps/keel/web/tests/e2e/settings-system.spec.ts`: an owner sets it up, binds and sees the tab; an admin sees no tab and no workspace.
+- [X] T046 [P] [US7] Write a Playwright spec, `apps/keel/web/tests/e2e/settings-system.spec.ts`: an owner sets it up, binds and sees the tab; an admin sees no tab and no workspace.
 
 ### Implementation
 
@@ -236,7 +236,7 @@ shape.
   - Done: `ListEnrollments` (`enrollments::rows`) and `ListAllApiTokens` (`api::all_tokens`) take `system::hide_system`, and revoke/roll there treat System rows as missing for non-owners. Not done: the audit list, because the server has no audit-list command yet; whoever adds it must apply `hide_system`.
 - [X] T049 [US7] Add the undelivered spool and replay after `Hello` in `apps/keel/runner/src/`, per `contracts/runner-replay.md`.
 - [X] T050 [US7] Accept a late `Finished` in `apps/keel/server/src/runner_listener.rs` and `runs.rs`, per `contracts/runner-replay.md`.
-- [ ] T051 [US7] Write `apps/keel/web/src/features/settings/SystemTab.tsx`. When not configured, it shows an empty state with Set up. When configured, it shows the profiles, the embedded binding form, the host, recent runs, and Remove with a typed confirmation.
+- [X] T051 [US7] Write `apps/keel/web/src/features/settings/SystemTab.tsx`. When not configured, it shows an empty state with Set up. When configured, it shows the profiles, the embedded binding form, the host, recent runs, and Remove with a typed confirmation.
 - [X] T052 [P] [US7] Write `docs/guides/keel/system-workspace.md`.
 
 ---
@@ -255,7 +255,7 @@ shape.
 
 ## Phase 10: Polish and cross-cutting
 
-- [ ] T056 Merge the agent branches into `main`, then remove their worktrees and branches.
+- [X] T056 Merge the agent branches into `main`, then remove their worktrees and branches.
 - [ ] T057 Run the full gate once, with `scripts/ci.sh`, in the main session. Report the wall time, the slowest steps, the delta and one speed-up idea.
 - [ ] T058 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
 - [ ] T059 Update `specs/060-keel-enroll-settings/spec.md` status to Implemented, and tick this file.
