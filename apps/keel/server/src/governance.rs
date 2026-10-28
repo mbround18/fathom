@@ -1389,6 +1389,12 @@ async fn user_role(
     if from == to {
         return vec![no_change()];
     }
+    let mapping = app.cfg.role_mapping.is_some();
+    match read(app, async |c| idp_managed(c, user, mapping).await).await {
+        Err(e) => return e,
+        Ok(true) => return vec![Event::op_error("role_managed_by_idp", MANAGED_BY_IDP)],
+        Ok(false) => {}
+    }
     let n = match owners(app).await {
         Ok(n) => n,
         Err(e) => return e,
@@ -1420,10 +1426,14 @@ async fn user_role(
             if from == to {
                 return Ok(Err(Fail::Op("no_change", NO_CHANGE.into())));
             }
+            if idp_managed(&mut tx, user, mapping).await? {
+                return Ok(Err(Fail::Op("role_managed_by_idp", MANAGED_BY_IDP.into())));
+            }
             if let Err(code) = owner_rule(&caller, from, Some(to), owners) {
                 return Ok(Err(Fail::Denied(code)));
             }
-            sqlx::query("update users set instance_role = $2 where id = $1")
+            // Without a mapping an admin's change hands the role back to Keel.
+            sqlx::query("update users set instance_role = $2, role_source = 'keel' where id = $1")
                 .bind(user)
                 .bind(to.as_str())
                 .execute(&mut *tx)
@@ -1451,6 +1461,27 @@ async fn user_role(
 }
 
 const NO_CHANGE: &str = "The user already has that role.";
+
+const MANAGED_BY_IDP: &str =
+    "This user's role comes from the identity provider. Change their groups there.";
+
+/// Whether `user`'s role belongs to the identity provider: their row says `idp` and a role
+/// mapping is active (spec 060, FR-029). With the mapping removed an admin may change it, which
+/// sets the row back to `keel` (data-model.md).
+async fn idp_managed(
+    conn: &mut PgConnection,
+    user: Uuid,
+    mapping: bool,
+) -> Result<bool, sqlx::Error> {
+    if !mapping {
+        return Ok(false);
+    }
+    let source: Option<String> = sqlx::query_scalar("select role_source from users where id = $1")
+        .bind(user)
+        .fetch_optional(conn)
+        .await?;
+    Ok(source.as_deref() == Some("idp"))
+}
 
 fn no_change() -> Event {
     Event::op_error("no_change", NO_CHANGE)

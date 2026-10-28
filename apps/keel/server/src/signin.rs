@@ -153,6 +153,8 @@ pub struct Established {
 pub enum EstablishError {
     /// The account is disabled (audited by [`identity::sign_in`]).
     Disabled,
+    /// The OIDC role mapping requires a match and there is none (audited `role_not_mapped`).
+    NotMapped,
     /// The session store is full.
     Full,
     Internal,
@@ -176,10 +178,17 @@ pub async fn establish(
         subject: &who.sub,
         display_name: &who.username,
         email: who.email.as_deref(),
+        groups: &who.groups,
     };
-    let user = match identity::sign_in(&app.db, &sign_in, context).await {
+    let mapping = app.cfg.role_mapping.as_ref();
+    let (user, bumped) = match identity::sign_in(&app.db, &sign_in, mapping, context.clone()).await
+    {
         Ok(u) => u,
         Err(SignInError::Disabled) => return Err(EstablishError::Disabled),
+        Err(SignInError::NotMapped) => {
+            refused(app, "role_not_mapped", context).await;
+            return Err(EstablishError::NotMapped);
+        }
         Err(SignInError::Db(e)) => {
             tracing::error!(error = %e, "sign-in write failed");
             return Err(EstablishError::Internal);
@@ -196,6 +205,10 @@ pub async fn establish(
         tracing::error!(error = %e, "session write failed");
         app.auth.sessions.end(&new.id, EndReason::Revoked);
         return Err(EstablishError::Internal);
+    }
+    if bumped {
+        // A mapped role change: sockets opened under the old role re-check now.
+        app.epoch_changed(user.id);
     }
     tracing::info!(user = %user.id, role = user.instance_role.as_str(), "signed in");
     let max_age = absolute.as_secs();
@@ -287,6 +300,11 @@ pub async fn callback(
             StatusCode::FORBIDDEN,
             clear,
             "This account is disabled. Ask an owner of this Keel instance.",
+        ),
+        Err(EstablishError::NotMapped) => sign_in_failed(
+            StatusCode::FORBIDDEN,
+            clear,
+            "Your account has no role in this Keel instance. Ask an administrator for access.",
         ),
         Err(EstablishError::Full) => sign_in_failed(
             StatusCode::SERVICE_UNAVAILABLE,

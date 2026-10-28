@@ -1,7 +1,12 @@
 //! Users and sessions in PostgreSQL (spec 055 T025/T026).
 //!
-//! - Signing in upserts the user by `(issuer, subject)`. The first user on an empty instance
-//!   becomes `owner`; everyone after that is a `user`. A disabled user cannot sign in.
+//! - Signing in upserts the user by `(issuer, subject)`. Without a role mapping the first user on
+//!   an empty instance becomes `owner`; everyone after that is a `user`. A disabled user cannot
+//!   sign in.
+//! - With an OIDC role mapping (spec 060, US5; research R7) the instance role is recomputed from
+//!   the provider's groups at every OIDC sign-in, the highest match winning. A change bumps the
+//!   epoch and is audited with reason `identity_provider`; the last active owner is never
+//!   demoted (reason `idp_names_no_owner`).
 //! - A session row carries the user's `authz_epoch` at sign-in. It stays valid only while that
 //!   still equals `users.authz_epoch`, the user is not disabled and it has not expired, so a
 //!   narrowing change (which bumps the epoch) ends every session at its next command.
@@ -21,6 +26,7 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::audit::{self, Actor, Decision, Entry};
+use crate::config::RoleMapping;
 
 /// Key of the advisory lock that serialises sign-ins, so two first sign-ins cannot both become
 /// owner ("keel-usr").
@@ -34,6 +40,8 @@ pub struct SignInIdentity<'a> {
     pub subject: &'a str,
     pub display_name: &'a str,
     pub email: Option<&'a str>,
+    /// The provider's groups or roles (OIDC: the mapped claim), read only by a role mapping.
+    pub groups: &'a [String],
 }
 
 /// A user row.
@@ -65,6 +73,9 @@ impl User {
 pub enum SignInError {
     /// The account is disabled. The refusal is audited.
     Disabled,
+    /// A role mapping requires a match and the identity has none (or came through another
+    /// provider). Nothing is written; the caller audits `role_not_mapped`.
+    NotMapped,
     Db(sqlx::Error),
 }
 
@@ -72,6 +83,7 @@ impl fmt::Display for SignInError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SignInError::Disabled => f.write_str("the account is disabled"),
+            SignInError::NotMapped => f.write_str("no mapped instance role"),
             SignInError::Db(e) => write!(f, "database: {e}"),
         }
     }
@@ -114,18 +126,55 @@ fn user_of(r: UserRow) -> Result<(User, Option<OffsetDateTime>), sqlx::Error> {
     ))
 }
 
+/// What a role mapping decides for one sign-in (research R7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mapped {
+    /// No mapping: first-user-is-owner, then users.
+    Off,
+    /// An OIDC sign-in: this role, applied on create and on every sign-in.
+    Role(InstanceRole),
+    /// Another provider while a mapping is active: new accounts are users, existing ones keep
+    /// their role.
+    Unmanaged,
+}
+
+fn mapped(who: &SignInIdentity<'_>, mapping: Option<&RoleMapping>) -> Result<Mapped, SignInError> {
+    let Some(m) = mapping else {
+        return Ok(Mapped::Off);
+    };
+    if who.provider != "oidc" {
+        return if m.required {
+            Err(SignInError::NotMapped)
+        } else {
+            Ok(Mapped::Unmanaged)
+        };
+    }
+    match m.role_for(who.groups) {
+        Some(role) => Ok(Mapped::Role(role)),
+        None if m.required => Err(SignInError::NotMapped),
+        None => Ok(Mapped::Role(InstanceRole::User)),
+    }
+}
+
 /// Records a sign-in: creates or refreshes the user and audits it, in one transaction.
 ///
 /// `context` goes into the audit row (provider, client address); it must hold no secrets.
+/// `mapping` is the OIDC role mapping, when one is configured. Returns the user and whether
+/// the sign-in bumped their epoch (a mapped role change): the caller then tells the sockets.
 ///
 /// # Errors
 ///
-/// [`SignInError::Disabled`] for a disabled account (audited `denied`), or a database error.
+/// [`SignInError::Disabled`] for a disabled account (audited `denied`),
+/// [`SignInError::NotMapped`] when the mapping refuses the identity (nothing written), or a
+/// database error.
 pub async fn sign_in(
     pool: &PgPool,
     who: &SignInIdentity<'_>,
+    mapping: Option<&RoleMapping>,
     context: Value,
-) -> Result<User, SignInError> {
+) -> Result<(User, bool), SignInError> {
+    let mapped = mapped(who, mapping)?;
+    let mut bumped = false;
     let mut tx = pool.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)")
         .bind(SIGN_IN_LOCK)
@@ -171,17 +220,21 @@ pub async fn sign_in(
                 who.display_name.clone_into(&mut user.display_name);
                 user.email = email;
             }
+            if let Mapped::Role(role) = mapped {
+                bumped = apply_mapped_role(&mut tx, &mut user, role, &context).await?;
+            }
             user
         }
         None => {
             let (count,): (i64,) = sqlx::query_as("select count(*) from users")
                 .fetch_one(&mut *tx)
                 .await?;
-            let role = if count == 0 {
-                InstanceRole::Owner
-            } else {
-                InstanceRole::User
+            let (role, reason) = match mapped {
+                Mapped::Off if count == 0 => (InstanceRole::Owner, Some("first_user_is_owner")),
+                Mapped::Off | Mapped::Unmanaged => (InstanceRole::User, None),
+                Mapped::Role(role) => (role, Some("identity_provider")),
             };
+            let idp_role = matches!(mapped, Mapped::Role(_)).then_some(role.as_str());
             let user = User {
                 id: Uuid::now_v7(),
                 issuer: who.issuer.to_owned(),
@@ -193,7 +246,7 @@ pub async fn sign_in(
             };
             sqlx::query(
                 "insert into users (id, issuer, subject, display_name, email, instance_role, \
-                 authz_epoch) values ($1, $2, $3, $4, $5, $6, $7)",
+                 authz_epoch, role_source, idp_role) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
             )
             .bind(user.id)
             .bind(&user.issuer)
@@ -202,6 +255,8 @@ pub async fn sign_in(
             .bind(&user.email)
             .bind(role.as_str())
             .bind(user.authz_epoch)
+            .bind(if idp_role.is_some() { "idp" } else { "keel" })
+            .bind(idp_role)
             .execute(&mut *tx)
             .await?;
             audit::record(
@@ -212,7 +267,7 @@ pub async fn sign_in(
                     workspace: None,
                     target: json!({ "user": user.id, "instance_role": role.as_str() }),
                     decision: Decision::Allowed,
-                    reason: (count == 0).then_some("first_user_is_owner"),
+                    reason,
                     context: context.clone(),
                 },
             )
@@ -234,7 +289,91 @@ pub async fn sign_in(
     )
     .await?;
     tx.commit().await?;
-    Ok(user)
+    Ok((user, bumped))
+}
+
+/// Applies the role the mapping produced to an existing, enabled user, inside the sign-in
+/// transaction (research R7):
+///
+/// - The user is marked `role_source = 'idp'` and `idp_role` records `role`.
+/// - A changed role bumps the epoch, ending sessions issued under the old one (FR-027), and is
+///   audited as `user_role` with reason `identity_provider`.
+/// - Demoting the last active owner keeps them owner instead, audited with reason
+///   `idp_names_no_owner` (FR-028).
+///
+/// Returns whether the epoch was bumped.
+async fn apply_mapped_role(
+    tx: &mut PgConnection,
+    user: &mut User,
+    role: InstanceRole,
+    context: &Value,
+) -> Result<bool, sqlx::Error> {
+    let from = user.instance_role;
+    let mut to = role;
+    let mut reason = "identity_provider";
+    if from == InstanceRole::Owner && role != InstanceRole::Owner {
+        // Every sign-in holds SIGN_IN_LOCK, but role changes in governance don't: lock the
+        // owner rows so the count can't move under us.
+        let owners: Vec<Uuid> = sqlx::query_scalar(
+            "select id from users where instance_role = 'owner' and disabled_at is null \
+             order by id for update",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if owners.len() <= 1 {
+            to = InstanceRole::Owner;
+            reason = "idp_names_no_owner";
+        }
+    }
+    sqlx::query(
+        "update users set instance_role = $2, role_source = 'idp', idp_role = $3 \
+         where id = $1 and (instance_role <> $2 or role_source <> 'idp' \
+         or idp_role is distinct from $3)",
+    )
+    .bind(user.id)
+    .bind(to.as_str())
+    .bind(role.as_str())
+    .execute(&mut *tx)
+    .await?;
+    if from != to {
+        user.instance_role = to;
+        user.authz_epoch = bump_epoch(&mut *tx, user.id).await?;
+    }
+    if from != to || to != role {
+        audit::record(
+            &mut *tx,
+            Entry {
+                actor: &user.actor(),
+                action: "user_role",
+                workspace: None,
+                target: json!({
+                    "user": user.id, "from": from.as_str(), "to": to.as_str(),
+                    "mapped": role.as_str(), "epoch_bumped": from != to,
+                }),
+                decision: Decision::Allowed,
+                reason: Some(reason),
+                context: context.clone(),
+            },
+        )
+        .await?;
+    }
+    Ok(from != to)
+}
+
+/// Whether no active user's last mapped role is owner: System Settings warns "the identity
+/// provider names no owner" while a mapping is active and this holds (research R7). Callers
+/// check that a mapping is active ([`crate::serve::AppState::idp_names_no_owner`] does).
+///
+/// # Errors
+///
+/// A database error.
+pub async fn idp_names_no_owner(conn: impl sqlx::PgExecutor<'_>) -> Result<bool, sqlx::Error> {
+    let named: bool = sqlx::query_scalar(
+        "select exists (select 1 from users where idp_role = 'owner' and disabled_at is null)",
+    )
+    .fetch_one(conn)
+    .await?;
+    Ok(!named)
 }
 
 /// Stores a session row for `user` at its current epoch.

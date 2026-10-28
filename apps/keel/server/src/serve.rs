@@ -194,6 +194,25 @@ impl AppState {
         }
     }
 
+    /// The OIDC role mapping as System Settings shows it (spec 060, US5), or `None`.
+    #[must_use]
+    pub fn role_mapping_info(&self) -> Option<keel_protocol::RoleMappingInfo> {
+        self.cfg.role_mapping_info()
+    }
+
+    /// System Settings' warning "the identity provider names no owner": a mapping is active and
+    /// no active user's last mapped role is owner (research R7, FR-028).
+    ///
+    /// # Errors
+    ///
+    /// A database error.
+    pub async fn idp_names_no_owner(&self) -> Result<bool, sqlx::Error> {
+        if self.cfg.role_mapping.is_none() {
+            return Ok(false);
+        }
+        crate::identity::idp_names_no_owner(&self.db).await
+    }
+
     /// The System workspace, when one is configured.
     #[must_use]
     pub fn system_workspace(&self) -> Option<Uuid> {
@@ -476,12 +495,18 @@ pub async fn build_providers(cfg: &Config) -> Result<Providers, String> {
                         scopes: scopes.clone(),
                         post_logout_url: cfg.public_url.clone(),
                     },
+                    // With a role mapping (spec 060, US5) the groups are read from its claim,
+                    // unprefixed, and a missing claim fails sign-in only when a match is
+                    // required: a missing claim never silently keeps the old role.
                     web_auth::oidc::ClaimsConfig {
                         username: "preferred_username".into(),
-                        groups: "groups".into(),
+                        groups: cfg
+                            .role_mapping
+                            .as_ref()
+                            .map_or_else(|| "groups".into(), |m| m.claim.clone()),
                         username_prefix: String::new(),
                         groups_prefix: String::new(),
-                        groups_required: false,
+                        groups_required: cfg.role_mapping.as_ref().is_some_and(|m| m.required),
                     },
                     http,
                 )
