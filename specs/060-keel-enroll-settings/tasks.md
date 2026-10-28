@@ -202,8 +202,8 @@ shape.
 
 **Independent test**: quickstart scenario 8.
 
-- [ ] T040 [P] [US4] Write a server DB test in `apps/keel/server/tests/admin_api_tokens.rs`: the list holds every holder for admins and is denied to users; revoking someone else's token needs step-up and audits `by_admin: true`; revoking your own is unchanged.
-- [ ] T041 [US4] Implement `ListAllApiTokens`, and step-up plus `by_admin` in `PreviewApiTokenRevoke`, in `apps/keel/server/src/governance.rs` and `api.rs`.
+- [X] T040 [P] [US4] Write a server DB test in `apps/keel/server/tests/admin_api_tokens.rs`: the list holds every holder for admins and is denied to users; revoking someone else's token needs step-up and audits `by_admin: true`; revoking your own is unchanged.
+- [X] T041 [US4] Implement `ListAllApiTokens`, and step-up plus `by_admin` in `PreviewApiTokenRevoke`, in `apps/keel/server/src/governance.rs` and `api.rs`.
 - [ ] T042 [US4] Add the API tokens section to `apps/keel/web/src/features/settings/TokensTab.tsx`.
 
 ---

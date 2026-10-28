@@ -25,7 +25,8 @@ use crate::preview::Draft;
 use keel_core::WorkspaceId;
 use keel_core::authz::Capability;
 use keel_protocol::{
-    ApiTokenInfo, Label, MAX_TOKEN_DAYS, TOKEN_ACTIONS, TokenActions, TokenSecret,
+    AdminApiTokenInfo, ApiTokenInfo, ApiTokenState, Label, MAX_TOKEN_DAYS, TOKEN_ACTIONS,
+    TokenActions, TokenSecret,
 };
 use serde_json::json;
 
@@ -170,6 +171,81 @@ fn token_info(r: TokenRow) -> ApiTokenInfo {
     }
 }
 
+/// `ListAllApiTokens` (spec 060 US4): every holder's tokens, for instance admins.
+pub async fn list_all_tokens(
+    app: &AppState,
+    req: &Request<'_>,
+    holder: Option<uuid::Uuid>,
+    state: Option<ApiTokenState>,
+) -> Vec<Event> {
+    const CMD: &str = "list_all_api_tokens";
+    if let Err(code) = governance::check_admin(req.caller) {
+        let context = governance::origin(req).context;
+        return governance::deny(app, req.caller, CMD, None, code, context).await;
+    }
+    all_tokens(app, holder, state).await
+}
+
+/// The state of `api_tokens t`, as SQL: revoked first, then expired.
+const TOKEN_STATE_SQL: &str = "case when t.revoked_at is not null then 'revoked' \
+     when t.expires_at <= now() then 'expired' else 'active' end";
+
+async fn all_tokens(
+    app: &AppState,
+    holder: Option<uuid::Uuid>,
+    state: Option<ApiTokenState>,
+) -> Vec<Event> {
+    type Row = (
+        uuid::Uuid,
+        String,
+        uuid::Uuid,
+        uuid::Uuid,
+        String,
+        Vec<String>,
+        time::OffsetDateTime,
+        Option<time::OffsetDateTime>,
+        bool,
+        String,
+        String,
+    );
+    // The filters are one `where` clause, so a visibility rule can join it.
+    let rows: Result<Vec<Row>, sqlx::Error> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select t.id, t.name, t.owner_user_id, t.workspace_id, w.slug, t.actions, \
+         t.expires_at, t.last_used_at, t.revoked_at is not null, u.display_name, \
+         {TOKEN_STATE_SQL} from api_tokens t join workspaces w on w.id = t.workspace_id \
+         join users u on u.id = t.owner_user_id \
+         where ($1::uuid is null or t.owner_user_id = $1) \
+         and ($2::text is null or {TOKEN_STATE_SQL} = $2) order by t.id desc"
+    )))
+    .bind(holder)
+    .bind(state.as_ref().map(crate::bindings::enum_str))
+    .fetch_all(&app.db)
+    .await;
+    match rows {
+        Ok(rows) => vec![Event::AllApiTokens {
+            items: rows
+                .into_iter()
+                .map(|r| {
+                    let (holder_name, state) = (r.9, r.10);
+                    let token = token_info((r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7, r.8));
+                    AdminApiTokenInfo {
+                        holder: token.owner,
+                        workspace_slug: token.workspace_slug.clone(),
+                        holder_name,
+                        // An unknown state reads as revoked: fail closed.
+                        state: crate::bindings::enum_from(&state).unwrap_or(ApiTokenState::Revoked),
+                        token,
+                    }
+                })
+                .collect(),
+        }],
+        Err(e) => {
+            tracing::error!(error = %e, "list all api tokens failed");
+            vec![governance::internal()]
+        }
+    }
+}
+
 /// `PreviewApiTokenCreate` (step-up). `Confirm` replies `ApiTokenCreated`, then `ApiTokens`.
 pub async fn token_create(
     app: &AppState,
@@ -308,7 +384,9 @@ pub async fn token_create(
     governance::preview(app, req, draft, op)
 }
 
-/// `PreviewApiTokenRevoke`: the token's owner, or an instance admin.
+/// `PreviewApiTokenRevoke`: the token's owner, or an instance admin. An admin revoking someone
+/// else's token needs step-up, is audited with `by_admin: true`, and gets `AllApiTokens` back;
+/// revoking your own is unchanged and replies `ApiTokens`.
 pub async fn token_revoke(app: &AppState, req: &Request<'_>, token: uuid::Uuid) -> Vec<Event> {
     const CMD: &str = "preview_api_token_revoke";
     const ACTION: &str = "api_token_revoke";
@@ -316,9 +394,10 @@ pub async fn token_revoke(app: &AppState, req: &Request<'_>, token: uuid::Uuid) 
     if req.caller.token.is_some() {
         return governance::deny(app, req.caller, CMD, None, "session_required", o.context).await;
     }
-    let row: Result<Option<(String, uuid::Uuid, uuid::Uuid, bool)>, sqlx::Error> = sqlx::query_as(
-        "select name, owner_user_id, workspace_id, revoked_at is not null from api_tokens \
-         where id = $1",
+    type Row = (String, uuid::Uuid, uuid::Uuid, bool, String);
+    let row: Result<Option<Row>, sqlx::Error> = sqlx::query_as(
+        "select t.name, t.owner_user_id, t.workspace_id, t.revoked_at is not null, \
+         u.display_name from api_tokens t join users u on u.id = t.owner_user_id where t.id = $1",
     )
     .bind(token)
     .fetch_optional(&app.db)
@@ -326,27 +405,34 @@ pub async fn token_revoke(app: &AppState, req: &Request<'_>, token: uuid::Uuid) 
     let may = |c: &identity::Caller, owner: uuid::Uuid| {
         c.user.id == owner || governance::check_admin(c).is_ok()
     };
-    let (name, ws) = match row {
+    let (name, ws, holder, holder_name) = match row {
         Err(e) => {
             tracing::error!(error = %e, "token lookup failed");
             return vec![governance::internal()];
         }
-        Ok(Some((name, owner, ws, revoked))) if may(req.caller, owner) => {
+        Ok(Some((name, owner, ws, revoked, holder_name))) if may(req.caller, owner) => {
             if revoked {
                 return vec![Event::op_error(
                     "already_revoked",
                     "That token is already revoked.",
                 )];
             }
-            (name, ws)
+            (name, ws, owner, holder_name)
         }
         // Someone else's token, or none: the same refusal, so nothing leaks.
         Ok(_) => {
             return governance::deny(app, req.caller, CMD, None, "not_owner", o.context).await;
         }
     };
-    let summary = format!("Revoke the API token \"{name}\". Anything using it stops working.");
+    // Someone else's token (an admin acting): step-up, and the audit row says so (spec 060 US4).
+    let by_admin = holder != req.caller.user.id;
+    let summary = if by_admin {
+        format!("Revoke {holder_name}'s API token \"{name}\". Anything using it stops working.")
+    } else {
+        format!("Revoke the API token \"{name}\". Anything using it stops working.")
+    };
     let op = governance::pending(move |app, caller| async move {
+        let by_admin = holder != caller.user.id;
         let step: governance::Step = async {
             let mut tx = app.db.begin().await?;
             let owner: Option<uuid::Uuid> =
@@ -364,13 +450,17 @@ pub async fn token_revoke(app: &AppState, req: &Request<'_>, token: uuid::Uuid) 
             .bind(token)
             .execute(&mut *tx)
             .await?;
+            let mut context = o.context.clone();
+            if by_admin {
+                context["by_admin"] = json!(true);
+            }
             governance::record(
                 &mut tx,
                 &caller,
                 ACTION,
                 Some(ws),
                 json!({ "token": token, "name": name }),
-                &o.context,
+                &context,
             )
             .await?;
             tx.commit().await?;
@@ -380,13 +470,17 @@ pub async fn token_revoke(app: &AppState, req: &Request<'_>, token: uuid::Uuid) 
         if let Err(events) = governance::settle(&app, &caller, ACTION, Some(ws), &o, step).await {
             return events;
         }
-        tokens(&app, caller.user.id).await
+        if by_admin {
+            all_tokens(&app, None, None).await
+        } else {
+            tokens(&app, caller.user.id).await
+        }
     });
     let draft = Draft {
         action: ACTION.to_owned(),
         summary,
-        affected: vec![],
-        step_up: false,
+        affected: if by_admin { vec![holder_name] } else { vec![] },
+        step_up: by_admin,
     };
     governance::preview(app, req, draft, op)
 }

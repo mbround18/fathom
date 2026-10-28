@@ -443,10 +443,13 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         Cmd::PreviewEnrollmentRoll { enrollment } => {
             crate::enrollments::preview_roll(app, req, enrollment).await
         }
-        Cmd::ListAllApiTokens { .. }
-        | Cmd::GetSystem
-        | Cmd::PreviewSystemConfigure { .. }
-        | Cmd::PreviewSystemRemove => vec![not_implemented()],
+        Cmd::ListAllApiTokens { holder, state } => {
+            crate::api::list_all_tokens(app, req, holder, state).await
+        }
+        // The System workspace (spec 060 US7): not built yet.
+        Cmd::GetSystem | Cmd::PreviewSystemConfigure { .. } | Cmd::PreviewSystemRemove => {
+            vec![not_implemented()]
+        }
     };
     events
         .into_iter()
