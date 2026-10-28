@@ -28,6 +28,7 @@ import type {
   PasskeyCredential,
   PasskeyPurpose,
   PasskeyRefusedReason,
+  PasskeyRequest,
   RequestId,
 } from '@/protocol/wire'
 
@@ -139,6 +140,26 @@ async function ceremony(
     throw new Refused(REFUSED_MESSAGES.cancelled)
   }
   return { ceremony: id, credential }
+}
+
+/**
+ * Answers a challenge the server issued for one action (an override or a baseline signs its own
+ * canonical challenge): the authenticator asserts over `request.options` and the result goes in
+ * `Confirm.step_up`, without `PasskeyFinish`. Throws with a message when it cannot.
+ */
+export async function signChallenge(request: PasskeyRequest): Promise<PasskeyAssertion> {
+  const auth = currentAuthenticator()
+  if (!auth) throw new Error(NO_AUTHENTICATOR)
+  let credential: PasskeyAssertion['credential']
+  try {
+    const c = await auth.get(requestOptions(request.options))
+    if (!c) throw new Refused(REFUSED_MESSAGES.cancelled)
+    credential = assertionJson(c)
+  } catch (e) {
+    if (e instanceof Refused) throw e
+    throw new Refused(REFUSED_MESSAGES.cancelled)
+  }
+  return { ceremony: request.ceremony, credential }
 }
 
 /** Resolves the pending `requestStepUp`, if any. */
