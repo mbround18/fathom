@@ -1,4 +1,4 @@
-# Feature Specification: Keel Enroll screen, System Settings and admin token management
+# Feature Specification: Keel Enroll screen, System Settings, admin tokens, OIDC roles and UI polish
 
 **Feature Branch**: `060-keel-enroll-settings`
 
@@ -10,6 +10,8 @@
 - spec first;
 - the Markdown is rendered with a standard renderer with raw HTML off;
 - the Tokens tab manages enrolment tokens and every user's API tokens.
+
+**Revision input** (2026-10-28): "ensure the next person to sign in also doesn't get owner or better yet we read the roles from oidc to grant the proper roles via oidc roles? also ensure that you run impeccable skill on the ui so it all flows nicely its looking a bit unpolished". This adds User Story 5 (instance roles from the identity provider) and User Story 6 (a polish pass over Keel's UI).
 
 ## Why
 
@@ -101,6 +103,46 @@ Below the enrolment tokens, an instance admin sees every API token on the instan
 
 ---
 
+### User Story 5 - Instance roles come from the identity provider (Priority: P1)
+
+The owner manages people in Keycloak, not in Keel. Members of a Keycloak role or group named, for example, `keel-owners` sign in to Keel as owners, members of `keel-admins` as admins, and members of `keel-users` as users. Anyone in none of them is turned away at sign-in. Removing someone from a group changes their role the next time they sign in, and their current sessions end within the session limit.
+
+Today the first account on an empty instance becomes owner and everyone after that becomes a user. That stays the rule when no mapping is configured, and two people signing in at once can never both become the first owner.
+
+**Why this priority**: Without a mapping, anyone the realm authenticates gets a Keel account. Roles then drift between the identity provider and Keel, and an owner has to promote each admin by hand.
+
+**Independent Test**: Configure a mapping against a test realm with three users, one in each group, plus a fourth in no group. Each of the first three signs in with the mapped role and the fourth is refused. Move one user between groups: their role changes at their next sign-in, the change is audited, and their old sessions stop working.
+
+**Acceptance Scenarios**:
+
+1. **Given** no mapping is configured and the instance has no users, **When** two people complete sign-in at the same moment, **Then** exactly one of them becomes owner and the other becomes a user.
+2. **Given** no mapping is configured and the instance has users, **When** a new person signs in, **Then** they become a user, never an owner or admin.
+3. **Given** a mapping is configured, **When** a person signs in through the mapped provider, **Then** their instance role is the highest one their roles or groups map to (owner, then admin, then user), on first sign-in and on every sign-in after.
+4. **Given** a mapping that requires a matching role or group, **When** a person matching none of them signs in, **Then** sign-in is refused with a message telling them to ask an administrator. No account is created, and the refusal is audited.
+5. **Given** a person's mapped role changes in the identity provider, **When** they next sign in, **Then** their role changes, the change is audited with the reason "identity provider", and sessions issued under the old role stop working.
+6. **Given** a mapping is configured, **When** an admin opens Users, **Then** roles of people managed by the mapping are shown as managed by the identity provider and can't be changed in Keel.
+7. **Given** a mapping is configured, **When** an admin opens System Settings, **Then** they see the mapping read-only: the provider, the claim read, the values for each role, and whether a match is required. The mapping can't be changed there.
+8. **Given** a mapped sign-in would leave the instance with no owner, **When** it is processed, **Then** the last owner keeps the owner role, the sign-in otherwise succeeds, and the audit log and System Settings both warn that the identity provider names no owner.
+
+---
+
+### User Story 6 - Keel's UI reads as one finished product (Priority: P2)
+
+The screens this spec adds, and the shell and sections around them, share one visual language: spacing, type scale, empty and loading states, dialogs, tables, buttons, copy blocks and error lines all look and behave the same way from page to page. The owner described the current UI as "a bit unpolished".
+
+**Why this priority**: New screens built in the current style would add to the unevenness. A pass over the whole UI now costs less than one per feature later.
+
+**Independent Test**: A design review of every section at phone and desktop widths, in light and dark themes, finds no inconsistent spacing, type, control or state treatment, and no layout that breaks at 360 px. The section's end-to-end tests still pass.
+
+**Acceptance Scenarios**:
+
+1. **Given** any section, **When** it is empty, loading or failed, **Then** it uses the shared state treatment, with the same placement, wording style and actions.
+2. **Given** any table, dialog, form or copy block, **When** it appears in two sections, **Then** it looks and behaves the same in both.
+3. **Given** a 360 px wide screen, **When** each section and dialog is opened, **Then** nothing scrolls horizontally except deliberately scrollable tables, and every action can be reached.
+4. **Given** the new navigation, **When** it is viewed, **Then** System Settings sits visibly apart at the foot of the navigation, and the current section is clearly marked.
+
+---
+
 ### Edge Cases
 
 - **No workspaces exist yet**: the Enroll button is visible to admins, and the dialog says a workspace must be created first, with a link to where that's done. It never offers an empty picker.
@@ -113,6 +155,10 @@ Below the enrolment tokens, an instance admin sees every API token on the instan
 - **Revoking a token while a host is using it**: if the host's first contact has already been accepted, the host stays enrolled, and the token is shown as used, not revoked. Revoking an enrolled host's access remains the host's own revoke action.
 - **The settings cannot be read** (storage failure): enrolment still works with the default template, the dialog says custom instructions could not be loaded, and the failure is logged. Showing a token is never blocked by the settings.
 - **A user who is not an admin calls the settings or token-management actions directly**: the server refuses them. Hiding the navigation entry is not the protection.
+- **The identity provider omits the roles claim**, for example because the mapper isn't set up: with a match required, sign-in is refused and the audit log names the missing claim. Without that requirement, the person gets the user role. A claim that is missing is never read as "no change".
+- **Several providers are configured** (OIDC plus GitHub or Discord): the mapping applies only to the provider it names. People from other providers get the user role, or are refused when the mapping requires a match for all sign-ins.
+- **An existing owner signs in after the mapping is turned on but isn't in the owner group**: they are demoted like anyone else, unless they are the last owner (User Story 5, scenario 8).
+- **The mapping is configured wrongly**, for example with an unknown role name or an empty value list: Keel refuses to start and says which setting is wrong. It does not fall back to first-user-is-owner.
 
 ## Requirements *(mandatory)*
 
@@ -178,12 +224,39 @@ Below the enrolment tokens, an instance admin sees every API token on the instan
 - **FR-021**: Revoke and roll MUST require passkey confirmation. Each MUST be recorded in the audit log with the actor and the token's identity and metadata. A roll's two entries MUST be linked.
 - **FR-022**: Token values MUST NOT be stored, logged, put in the audit log, or shown after the moment they are minted, for both enrolment and API tokens.
 
+**Roles from the identity provider**
+
+- **FR-023**: Without a mapping, only the first account on an empty instance MUST become owner. This MUST hold when sign-ins happen at the same moment. Every later account MUST become a user.
+- **FR-024**: The deployment MUST be able to configure a role mapping for the OIDC provider. The mapping consists of:
+  - the claim holding roles or groups, including nested claims such as Keycloak's realm roles;
+  - the values that grant owner, admin and user;
+  - whether a match is required to sign in at all.
+
+  It is set in the deployment's configuration, alongside the provider's other settings, not in the UI.
+- **FR-025**: With a mapping, the instance role MUST be recomputed from the provider's claims at every sign-in through that provider. The highest matching role wins.
+- **FR-026**: With a match required, a person matching none of the values MUST be refused at sign-in, without an account being created, and the refusal MUST be audited.
+- **FR-027**: A role change made by the mapping MUST be audited with the reason "identity provider". It MUST end the sessions issued under the old role.
+- **FR-028**: The mapping MUST never leave the instance without an owner (User Story 5, scenario 8).
+- **FR-029**: Roles of people managed by the mapping MUST be read-only on the Users page. System Settings MUST show the active mapping read-only.
+- **FR-030**: An invalid mapping MUST stop Keel from starting, with an error naming the setting.
+
+**Polish**
+
+- **FR-031**: Every section, dialog and the navigation MUST use one shared set of treatments for spacing, type, tables, dialogs, buttons, copy blocks, and empty, loading and error states.
+- **FR-032**: Every section and dialog MUST work at 360 px width with no horizontal page scroll, and in both light and dark themes.
+
 ### Key Entities
 
 - **Enrolment settings**: one per instance. Holds the snippet template, the Markdown instructions, when they were last changed, by whom, and a version used to detect concurrent edits. Absent until first saved; the default template applies until then.
 - **Enrolment token**: exists today. Gains a revoked state, the admin who revoked it, and a link from a rolled token to the token that replaced it.
 - **API token**: exists today. Gains an admin-wide view; nothing about it changes.
-- **Audit entry**: exists today. Gains entries for settings saved, enrolment token revoked, enrolment token rolled, and API token revoked by an admin.
+- **Audit entry**: exists today. Gains entries for:
+  - settings saved;
+  - enrolment token revoked, and enrolment token rolled;
+  - API token revoked by an admin;
+  - sign-in refused by the mapping, and role changed by the identity provider.
+- **Role mapping**: deployment configuration, not stored data. It names one provider, the claim to read, the values for owner, admin and user, and whether a match is required.
+- **User**: exists today. Gains a mark saying their role is managed by the identity provider.
 
 ## Success Criteria *(mandatory)*
 
@@ -196,6 +269,10 @@ Below the enrolment tokens, an instance admin sees every API token on the instan
 - **SC-005**: Searching the audit log, the server's logs and every UI listing after a test run finds no token value.
 - **SC-006**: Every settings save, revoke and roll in a test run has exactly one matching audit entry naming the actor; a roll has two linked entries.
 - **SC-007**: A user who is not an instance owner or admin cannot see System Settings, and gets a refusal for each of its actions when calling them directly.
+- **SC-008**: With a mapping and a required match, 100% of people outside the mapped groups are refused at sign-in. 100% of people inside them get exactly the role their highest group maps to.
+- **SC-009**: Over 100 simultaneous first sign-ins against an empty instance with no mapping, exactly one owner exists afterwards.
+- **SC-010**: Within one sign-in of a group change in the identity provider, the person's Keel role matches it.
+- **SC-011**: A design review across every section, at 360 px and desktop widths and in both themes, finds no inconsistent treatment and no horizontal page scroll.
 
 ## Assumptions
 
@@ -206,6 +283,9 @@ Below the enrolment tokens, an instance admin sees every API token on the instan
 - The runner address for `%s` comes from Keel's existing configuration. This feature adds no new setting for it.
 - Only one-time enrolment tokens are covered. Join tokens (055 `contracts/join.md`) are not built yet; when they are, they join the Tokens tab.
 - The Markdown renderer is a standard, maintained library with raw HTML off, loaded only when instructions are shown. The owner approved adding it.
+- The role mapping lives in deployment configuration, not in the UI. An admin who could edit it in the UI could make themselves owner, while deployment configuration is reviewed in the infrastructure repository. The owner's Ansible role gains matching variables.
+- Role changes take effect at the person's next sign-in. Keel does not poll the identity provider between sign-ins; the session lifetime bounds how long an old role can last.
+- The polish pass (User Story 6) is done with the project's `impeccable` design skill, across all of Keel's sections, not only the new screens. It changes presentation, not behaviour, so existing end-to-end tests keep passing.
 
 ## Dependencies
 

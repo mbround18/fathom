@@ -37,3 +37,7 @@
 - The `make keel-node` snippet in FR-011 and SC-002 is user-facing content, not an implementation
   detail: it is the text the feature must produce.
 - Join tokens are out of scope until 055 builds them (Assumptions).
+- Revision (same day): User Story 5 (roles from the identity provider) and User Story 6 (UI
+  polish) were added and re-validated. Every item still passes. The role mapping deliberately lives
+  in deployment configuration (Assumptions); the `impeccable` skill is named only as the process
+  for the polish pass, not as a requirement on the product.
