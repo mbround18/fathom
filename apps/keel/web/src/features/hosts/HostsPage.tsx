@@ -26,6 +26,96 @@ function StateBadge({ state }: { state: HostStatus }) {
   return <span className={`text-[11px] uppercase ${tone(state)}`}>{state}</span>
 }
 
+/** The host reported a run Keel did not make (058 A2). */
+function ChangedBadge() {
+  return (
+    <span
+      data-changed-outside
+      title="The host reported an ansible-playbook run that Keel did not make."
+      className="border border-status-warn/50 px-1 text-[11px] whitespace-nowrap text-status-warn uppercase"
+    >
+      Changed outside Keel
+    </span>
+  )
+}
+
+/** Narrows the list to hosts changed outside Keel. */
+function ChangedFilter() {
+  const on = useHosts((s) => s.changedOnly)
+  const set = useHosts((s) => s.setChangedOnly)
+  return (
+    <label className="flex items-center gap-2 text-xs">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          set(e.target.checked)
+        }}
+      />
+      Only hosts changed outside Keel
+    </label>
+  )
+}
+
+/** One host's detail: what it reported was run on it outside Keel, as its claims. */
+function HostDetailPanel() {
+  const open = useHosts((s) => s.open)
+  const detail = useHosts((s) => s.detail)
+  const show = useHosts((s) => s.show)
+  if (open === null) return null
+  const name = detail?.host.inventory_name ?? '…'
+  return (
+    <section aria-label={`Host ${name}`} className="flex flex-col gap-2 border border-border p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="font-mono text-sm">{name}</h2>
+        {detail && <StateBadge state={detail.host.state} />}
+        {detail?.host.changed_outside && <ChangedBadge />}
+        <Button
+          variant="ghost"
+          size="xs"
+          className="ml-auto"
+          onClick={() => {
+            show(null)
+          }}
+        >
+          Close
+        </Button>
+      </div>
+      {detail && (
+        <>
+          <h3 className="text-muted-foreground uppercase">Runs outside Keel</h3>
+          <p className="text-muted-foreground">
+            What {name} reports was run on it without Keel. These are the host&apos;s claims: Keel did not
+            make these runs and cannot verify them.
+          </p>
+          {detail.outside_runs.length === 0 ? (
+            <p data-pane-state="empty" className="text-muted-foreground">
+              The host has reported none.
+            </p>
+          ) : (
+            <ul aria-label="Runs outside Keel" className="flex flex-col gap-1">
+              {detail.outside_runs.map((r) => (
+                <li
+                  key={`${r.at}-${r.playbook}-${r.commit ?? ''}`}
+                  data-outside-check={r.check}
+                  className="flex flex-wrap gap-x-3 font-mono"
+                >
+                  <span className="whitespace-nowrap">{r.at}</span>
+                  <span>host says: {r.user}</span>
+                  <span className="break-all">{r.playbook}</span>
+                  <span>{r.commit ? r.commit.slice(0, 12) : 'no commit'}</span>
+                  {r.dirty && <span className="text-status-warn">uncommitted changes</span>}
+                  {r.check && <span className="text-muted-foreground">--check</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 function ErrorLine() {
   const error = useHosts((s) => s.error)
   const clear = useHosts((s) => s.clearError)
@@ -263,6 +353,8 @@ export default function HostsPage() {
   const hosts = useHosts((s) => s.hosts)
   const workspace = useHosts((s) => s.workspace)
   const revoke = useHosts((s) => s.revoke)
+  const show = useHosts((s) => s.show)
+  const changedOnly = useHosts((s) => s.changedOnly)
 
   return (
     <section data-page="hosts" aria-labelledby="hosts-title" className="flex flex-col gap-3 p-4">
@@ -277,6 +369,7 @@ export default function HostsPage() {
       {workspace && (
         <>
           <EnrollForm />
+          <ChangedFilter />
           <div className="overflow-x-auto">
             <table aria-label="Hosts" className="w-full text-left text-xs">
               <thead className="text-muted-foreground">
@@ -296,13 +389,35 @@ export default function HostsPage() {
                 {hosts.length === 0 && (
                   <tr>
                     <td colSpan={7} data-pane-state="empty" className="py-1 text-muted-foreground">
-                      No hosts yet. Enrol one, then run the base profile on it with the token.
+                      {changedOnly
+                        ? 'No host reports a run outside Keel.'
+                        : 'No hosts yet. Enrol one, then run the base profile on it with the token.'}
                     </td>
                   </tr>
                 )}
                 {hosts.map((h) => (
-                  <tr key={h.id} data-host-state={h.state} className="border-t border-border">
-                    <td className="py-1 font-mono">{h.inventory_name}</td>
+                  <tr
+                    key={h.id}
+                    data-host-state={h.state}
+                    data-host-changed-outside={h.changed_outside}
+                    className="border-t border-border"
+                  >
+                    <td className="py-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          className="font-mono"
+                          aria-label={`Show ${h.inventory_name}`}
+                          onClick={() => {
+                            show(h.id)
+                          }}
+                        >
+                          {h.inventory_name}
+                        </Button>
+                        {h.changed_outside && <ChangedBadge />}
+                      </span>
+                    </td>
                     <td>
                       <StateBadge state={h.state} />
                     </td>
@@ -329,6 +444,7 @@ export default function HostsPage() {
               </tbody>
             </table>
           </div>
+          <HostDetailPanel />
           <SshCaLine />
         </>
       )}

@@ -12,8 +12,11 @@
  *   fake does), revokes, answers `Confirmed` and `Host`, and pushes `HostState`.
  * - `connect(name)` stands in for the runner running the base profile with the token: the host is
  *   enrolled and pushed online, as `HostState` (the list has not seen it, so it re-lists).
+ * - `ListHosts` honours `changed_outside`; `GetHost` answers `Host` with the host's reported runs
+ *   outside Keel. `reportOutside(name)` and `approveBaseline(name)` set and clear the flag as the
+ *   server does, pushing `HostChangedOutside` (058 A2).
  */
-import type { Cmd, Event, HostInfo } from '../../src/protocol/wire'
+import type { Cmd, Event, HostDetail, HostInfo, OutsideRunInfo } from '../../src/protocol/wire'
 import type { FakeBackend } from './fake-backend'
 import { NOW, WORKSPACE } from './fake-repos'
 
@@ -35,6 +38,7 @@ export function hostInfo(over: Partial<HostInfo> = {}): HostInfo {
     enrolled_at: NOW,
     last_seen_at: null,
     revoked_at: null,
+    changed_outside: false,
     ...over,
   }
 }
@@ -50,13 +54,15 @@ export class FakeHosts {
   /** Every token minted, in order (what the hosts would be handed). */
   readonly tokens: { inventory_name: string; profiles: string[]; token: string }[] = []
   private readonly pending = new Map<string, Pending>()
+  /** Runs outside Keel each host reported, newest first. */
+  private readonly outside = new Map<string, OutsideRunInfo[]>()
   private seq = 0
 
   private readonly backend: FakeBackend
 
   constructor(backend: FakeBackend) {
     this.backend = backend
-    for (const type of ['ListHosts', 'GetSshCa', 'PreviewHostEnroll', 'PreviewHostRevoke', 'Confirm'] as const) {
+    for (const type of ['ListHosts', 'GetHost', 'GetSshCa', 'PreviewHostEnroll', 'PreviewHostRevoke', 'Confirm'] as const) {
       backend.on(type, (cmd) => this.respond(cmd))
     }
   }
@@ -79,10 +85,68 @@ export class FakeHosts {
     return host
   }
 
+  /**
+   * The runner of `name` reported a run outside Keel (058 A2): stored, newest first, and, unless
+   * it was a `--check` run, the host is flagged and `HostChangedOutside` pushed.
+   */
+  reportOutside(name: string, run: Partial<OutsideRunInfo> = {}): void {
+    const host = this.byName(name)
+    const entry: OutsideRunInfo = {
+      at: NOW,
+      user: 'root',
+      playbook: 'playbooks/debian.yaml',
+      commit: null,
+      dirty: true,
+      check: false,
+      received_at: NOW,
+      ...run,
+    }
+    this.outside.set(host.id, [entry, ...(this.outside.get(host.id) ?? [])])
+    if (!entry.check && !host.changed_outside) this.flag(host.id, true)
+  }
+
+  /** A baseline approval covering `name`: the flag is cleared and `HostChangedOutside` pushed. */
+  approveBaseline(name: string): void {
+    const host = this.byName(name)
+    if (host.changed_outside) this.flag(host.id, false)
+  }
+
+  private byName(name: string): HostInfo {
+    const host = this.hosts.find((h) => h.inventory_name === name)
+    if (!host) throw new Error(`no host ${name}`)
+    return host
+  }
+
+  private flag(id: string, on: boolean): void {
+    this.hosts = this.hosts.map((h) => (h.id === id ? { ...h, changed_outside: on } : h))
+    this.backend.push({ type: 'HostChangedOutside', data: { host: id } })
+  }
+
+  private detail(host: HostInfo): HostDetail {
+    return {
+      host,
+      python_version: null,
+      override_quorum: null,
+      ledger_head: null,
+      certs: [],
+      outside_runs: this.outside.get(host.id) ?? [],
+    }
+  }
+
   private respond(cmd: Cmd): Event[] | undefined {
     switch (cmd.type) {
-      case 'ListHosts':
-        return [{ type: 'Hosts', data: { items: this.hosts.filter((h) => h.workspace === cmd.data.workspace) } }]
+      case 'ListHosts': {
+        const { workspace, changed_outside } = cmd.data
+        const items = this.hosts.filter(
+          (h) => h.workspace === workspace && ((changed_outside ?? null) === null || h.changed_outside === changed_outside),
+        )
+        return [{ type: 'Hosts', data: { items } }]
+      }
+      case 'GetHost': {
+        const host = this.hosts.find((h) => h.id === cmd.data.host)
+        if (!host) return [{ type: 'OpError', data: { code: 'not_found', message: 'No such host.' } }]
+        return [{ type: 'Host', data: this.detail(host) }]
+      }
       case 'GetSshCa':
         return [
           {
@@ -190,7 +254,7 @@ export class FakeHosts {
           { type: 'Confirmed', data: { preview_id } },
           {
             type: 'Host',
-            data: { host: revoked, python_version: null, override_quorum: null, ledger_head: null, certs: [] },
+            data: this.detail(revoked),
           },
         ]
       }

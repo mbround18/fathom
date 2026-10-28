@@ -8,7 +8,7 @@ import { autoWorkers } from '../../../ui/tests/support/workers.js'
  *
  * Run one story: `pnpm --filter @companion/keel-web e2e --project us1`.
  */
-const STORIES = ['shell', 'us1', 'us2', 'us3', 'us4', 'us5', 'us6', 'us7', 'us8', 'us9'] as const
+const STORIES = ['shell', 'us1', 'us2', 'us3', 'us4', 'us5', 'us6', 'us7', 'us8', 'us9', 'us10'] as const
 
 /** `KEEL_E2E_PORT` moves the preview, so several worktrees can run a story at once. */
 const PORT = Number(process.env.KEEL_E2E_PORT ?? 4184)

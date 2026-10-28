@@ -10,13 +10,18 @@
  *
  * An enrolment token arrives once, in `HostEnrollment`, as the reply to that `Confirm`. It is held
  * here until dismissed (or the workspace changes) and never stored anywhere else.
+ *
+ * Changed outside Keel (spec 058 amendment A2): `HostInfo.changed_outside` marks a host whose
+ * runner reported a run Keel did not make. The list can be narrowed to those hosts (the server
+ * filters), and one host's detail (`GetHost`) carries the newest entries it reported. The pushed
+ * `HostChangedOutside` says only that the flag moved, so the list and an open detail are re-read.
  */
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
 import { usePasskeys } from '@/features/passkeys/store'
-import type { Cmd, HostInfo, Preview, RequestId, SshCaInfo } from '@/protocol/wire'
+import type { Cmd, HostDetail, HostInfo, Preview, RequestId, SshCaInfo } from '@/protocol/wire'
 
 /** The native input and select style the forms use. */
 export const FIELD =
@@ -56,7 +61,15 @@ export interface HostsState {
   enrollment: Enrollment | null
   preview: Preview | null
   error: string | null
+  /** List only hosts changed outside Keel. */
+  changedOnly: boolean
+  /** The host whose detail is open, and its detail once it arrives. */
+  open: string | null
+  detail: HostDetail | null
   load: (workspace: string) => void
+  setChangedOnly: (on: boolean) => void
+  /** Opens `host`'s detail (`GetHost`); `null` closes it. */
+  show: (host: string | null) => void
   /** Previews a token for `inventory_name` with `profiles`. */
   enroll: (inventory_name: string, profiles: string[]) => void
   revoke: (host: string) => void
@@ -79,7 +92,8 @@ function send(cmd: Cmd): boolean {
 }
 
 function list(workspace: string): void {
-  send({ type: 'ListHosts', data: { workspace, profile: null, drift: null } })
+  const changed_outside = useHosts.getState().changedOnly ? true : null
+  send({ type: 'ListHosts', data: { workspace, profile: null, drift: null, changed_outside } })
 }
 
 export const useHosts = create<HostsState>()((set, get) => ({
@@ -89,11 +103,23 @@ export const useHosts = create<HostsState>()((set, get) => ({
   enrollment: null,
   preview: null,
   error: null,
+  changedOnly: false,
+  open: null,
+  detail: null,
 
   load: (workspace) => {
-    if (get().workspace !== workspace) set({ workspace, hosts: [], enrollment: null })
+    if (get().workspace !== workspace) set({ workspace, hosts: [], enrollment: null, open: null, detail: null })
     list(workspace)
     send({ type: 'GetSshCa' })
+  },
+  setChangedOnly: (on) => {
+    set({ changedOnly: on })
+    const workspace = get().workspace
+    if (workspace) list(workspace)
+  },
+  show: (host) => {
+    set({ open: host, detail: null })
+    if (host !== null) send({ type: 'GetHost', data: { host } })
   },
   enroll: (inventory_name, profiles) => {
     const workspace = get().workspace
@@ -142,7 +168,17 @@ onServerEvent(({ reply_to, event }) => {
       break
     case 'Host': {
       const { host } = event.data
-      if (host.workspace === s.workspace) useHosts.setState({ hosts: upsert(s.hosts, host) })
+      if (host.workspace !== s.workspace) break
+      // Under the filter, a host no longer changed outside Keel leaves the list.
+      const hosts =
+        s.changedOnly && !host.changed_outside ? s.hosts.filter((h) => h.id !== host.id) : upsert(s.hosts, host)
+      useHosts.setState(s.open === host.id ? { hosts, detail: event.data } : { hosts })
+      break
+    }
+    case 'HostChangedOutside': {
+      const { host } = event.data
+      if (s.workspace) list(s.workspace)
+      if (s.open === host) send({ type: 'GetHost', data: { host } })
       break
     }
     case 'HostState': {
