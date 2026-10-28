@@ -150,6 +150,11 @@ async fn ssh_ca_show(flags: &Flags) -> ExitCode {
             println!();
             println!("keel_runner_host_ca:");
             println!("{}", cas.cert_authority());
+            println!();
+            println!(
+                "The runner reads its server address only from runner.env: set \
+                 KEEL_RUNNER_SERVER to this server's runner listener (host:port)."
+            );
             ExitCode::SUCCESS
         }
         Err(e) => refuse(&e.to_string()),

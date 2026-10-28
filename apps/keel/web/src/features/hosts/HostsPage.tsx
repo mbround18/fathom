@@ -132,6 +132,10 @@ function Token() {
         Profiles: <span className="font-mono">{enrollment.profiles.join(', ')}</span>. The host&apos;s
         keel_runner_allowed_profiles must include them.
       </p>
+      <p className="text-muted-foreground">
+        The runner reads its server address only from <span className="font-mono">KEEL_RUNNER_SERVER</span> in
+        runner.env (this server&apos;s runner listener, host:port); policy.toml has no server key.
+      </p>
       <div>
         <Button variant="outline" size="xs" onClick={dismiss}>
           Done

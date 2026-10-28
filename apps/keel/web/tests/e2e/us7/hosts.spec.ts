@@ -40,6 +40,7 @@ test('a host is enrolled with a one-time token, comes online and is revoked', as
 
   const token = page.getByRole('region', { name: 'Enrolment token' })
   await expect(token).toContainText('Keel will not show it again')
+  await expect(token).toContainText('KEEL_RUNNER_SERVER')
   const arg = token.locator('[data-copy="enroll-arg"]')
   await expect(arg).toHaveText(`-e keel_enroll_token=${hosts.tokens[0]?.token ?? 'missing'}`)
   await expect(arg).toContainText('-e keel_enroll_token=keel-enroll-v1.')
