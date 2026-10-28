@@ -427,10 +427,14 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::ListSigners { .. }
         | Cmd::PreviewSignerAdd { .. }
         | Cmd::PreviewSignerRemove { .. }) => crate::review::handle(app, req, other).await,
-        // Settings, enrolments, admin tokens and the System workspace (spec 060): not built yet.
-        Cmd::GetSettings
-        | Cmd::PreviewSettingsUpdate { .. }
-        | Cmd::ListEnrollments { .. }
+        // Settings, enrolments and admin tokens (spec 060 US2 to US4).
+        Cmd::GetSettings => crate::settings::get(app, req).await,
+        Cmd::PreviewSettingsUpdate {
+            template,
+            instructions,
+            version,
+        } => crate::settings::preview_update(app, req, template, instructions, version).await,
+        Cmd::ListEnrollments { .. }
         | Cmd::PreviewEnrollmentRevoke { .. }
         | Cmd::PreviewEnrollmentRoll { .. }
         | Cmd::ListAllApiTokens { .. }

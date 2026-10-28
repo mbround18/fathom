@@ -146,7 +146,7 @@ shape.
 
 ### Tests
 
-- [ ] T026 [P] [US2] Write a server DB test in `apps/keel/server/tests/settings.rs`:
+- [X] T026 [P] [US2] Write a server DB test in `apps/keel/server/tests/settings.rs`:
   - an admin can get the settings, and a user is denied;
   - the update previews with step-up;
   - the save audits `settings_update` with before and after;
@@ -158,7 +158,7 @@ shape.
 
 ### Implementation
 
-- [ ] T029 [US2] Write `apps/keel/server/src/settings.rs`:
+- [X] T029 [US2] Write `apps/keel/server/src/settings.rs`:
   - `GetSettings` returns `Settings`, including `runner_address`, `public_url`, `role_mapping` and `warnings` (`idp_names_no_owner` while no active user has `idp_role = 'owner'` under a mapping);
   - `PreviewSettingsUpdate` follows the `pending`/`preview` pattern with `step_up: true`, re-checks admin inside the op, runs `update … where version = $n` (or inserts the first row), and audits it.
 
