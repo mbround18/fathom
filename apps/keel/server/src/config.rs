@@ -47,6 +47,18 @@ pub enum Command {
         #[command(subcommand)]
         command: AuditCommand,
     },
+    /// The SSH certificate authorities runners trust.
+    SshCa {
+        #[command(subcommand)]
+        command: SshCaCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SshCaCommand {
+    /// Print both CAs' fingerprints and public keys, and the `@cert-authority` line for
+    /// `keel_runner_host_ca`. Creates the CAs if they do not exist yet.
+    Show,
 }
 
 #[derive(Debug, Subcommand)]
@@ -71,6 +83,10 @@ pub struct Flags {
     /// [env: KEEL_RUNNER_MAX_OFFLINE] [default: 30d]
     #[arg(long, global = true)]
     pub runner_max_offline: Option<String>,
+    /// Names on the runner listener's host certificate, comma-separated; runners connect to one
+    /// of them (`keel_runner_server`) [env: KEEL_RUNNER_HOST_NAMES] [default: --public-url's host]
+    #[arg(long, global = true)]
+    pub runner_host_names: Option<String>,
     /// Signed mode for new bindings [env: KEEL_SIGNED_MODE_DEFAULT] [default: false]
     #[arg(long, global = true)]
     pub signed_mode_default: Option<String>,
@@ -194,6 +210,8 @@ pub struct Config {
     pub runner_listen: SocketAddr,
     pub runner_cert_ttl: Duration,
     pub runner_max_offline: Duration,
+    /// Principals of the listener's host certificate.
+    pub runner_host_names: Vec<String>,
     pub signed_mode_default: bool,
     /// An origin only (no path).
     pub public_url: Url,
@@ -357,6 +375,25 @@ pub fn parse_bytes(name: &str, v: &str) -> Result<u64, ConfigError> {
 }
 
 /// An origin only: redirect URIs, receiver URLs and the Origin check are built from it.
+/// `KEEL_RUNNER_HOST_NAMES`: DNS names (letters, digits, `.`, `-`), at least one.
+fn parse_host_names(raw: &str) -> Result<Vec<String>, ConfigError> {
+    let names: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let valid = |n: &String| {
+        n.len() <= 253
+            && n.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
+    };
+    if names.is_empty() || !names.iter().all(valid) {
+        return refuse("KEEL_RUNNER_HOST_NAMES must be comma-separated DNS names");
+    }
+    Ok(names)
+}
+
 fn parse_public_url(raw: &str, insecure_dev: bool) -> Result<Url, ConfigError> {
     const NAME: &str = "--public-url (KEEL_PUBLIC_URL)";
     let raw = raw.trim();
@@ -501,6 +538,17 @@ impl Config {
 
         let public_url = r.required("public_url", flags.public_url, "KEEL_PUBLIC_URL")?;
         let public_url = parse_public_url(&public_url, insecure_dev)?;
+        let runner_host_names = r.pick(
+            "runner_host_names",
+            flags.runner_host_names,
+            "KEEL_RUNNER_HOST_NAMES",
+        );
+        let runner_host_names = parse_host_names(
+            runner_host_names
+                .as_deref()
+                .or(public_url.host_str())
+                .unwrap_or_default(),
+        )?;
         let database_url = SecretString::from(r.required(
             "database_url",
             flags.database_url,
@@ -605,6 +653,7 @@ impl Config {
             runner_listen,
             runner_cert_ttl,
             runner_max_offline,
+            runner_host_names,
             signed_mode_default,
             public_url,
             database_url,

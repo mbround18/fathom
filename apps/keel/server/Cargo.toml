@@ -24,6 +24,8 @@ hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["server", "server-auto", "http1", "service", "tokio", "server-graceful"] }
 # OS randomness for data keys and nonces (the same crate web-auth uses).
 rand = "0.10"
+# The runner SSH listener (the same russh keel-exec's server_config is built on).
+russh = "0.65.0"
 secrecy = "0.10"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

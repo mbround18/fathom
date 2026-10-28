@@ -138,6 +138,8 @@ pub struct AppState {
     pub origin: Arc<str>,
     /// Runs (US2): connected runners, dispatch and run output.
     pub runs: crate::queue::Runs,
+    /// The SSH CAs and the KRL, once [`crate::hosts::bootstrap`] loaded them.
+    pub ssh: crate::hosts::Ssh,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -181,6 +183,7 @@ impl AppState {
                 log_cap: cfg_log_cap,
                 ..crate::queue::RunSettings::default()
             }),
+            ssh: crate::hosts::Ssh::default(),
         }
     }
 

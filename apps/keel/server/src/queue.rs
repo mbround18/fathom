@@ -31,13 +31,13 @@ use keel_core::ports::CommitId;
 use keel_core::run::{self as core_run, HostState, RunEvent, RunState};
 use keel_exec::codec;
 use keel_exec::events::{self, HostStatus, KeelEvent};
-use keel_exec::frames::{self, Frame, SecretItem, SecretString};
+use keel_exec::frames::{self, Frame, Peer, Refusal, SecretItem, SecretString, Subsystem};
 use keel_git::Mirror;
 use keel_protocol::{Event, LogStream};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Notify, broadcast, mpsc};
 use uuid::Uuid;
 
 use crate::audit::{self, Actor, Decision, Entry};
@@ -76,6 +76,8 @@ impl Default for RunSettings {
 struct Link {
     session: u64,
     tx: mpsc::UnboundedSender<Frame>,
+    /// Ends the session (revocation).
+    close: Arc<Notify>,
 }
 
 /// One run's output accounting.
@@ -152,13 +154,31 @@ impl Runs {
             .unwrap_or(false)
     }
 
-    fn register(&self, host: Uuid, tx: mpsc::UnboundedSender<Frame>) -> u64 {
+    fn register(&self, host: Uuid, tx: mpsc::UnboundedSender<Frame>, close: Arc<Notify>) -> u64 {
         let session = self.inner.sessions.fetch_add(1, Ordering::Relaxed) + 1;
         if let Ok(mut l) = self.inner.links.lock() {
             // A reconnect replaces the old link; the old session ends on its own.
-            l.insert(host, Link { session, tx });
+            l.insert(host, Link { session, tx, close });
         }
         session
+    }
+
+    /// Ends `host`'s session, if it has one: its in-flight hosts become `lost`.
+    pub fn close(&self, host: Uuid) {
+        if let Ok(l) = self.inner.links.lock()
+            && let Some(link) = l.get(&host)
+        {
+            link.close.notify_one();
+        }
+    }
+
+    /// Sends `frame` to every connected runner (the KRL, on change).
+    pub fn broadcast(&self, frame: &Frame) {
+        if let Ok(l) = self.inner.links.lock() {
+            for link in l.values() {
+                let _ = link.tx.send(frame.clone());
+            }
+        }
     }
 
     fn unregister(&self, host: Uuid, session: u64) {
@@ -510,6 +530,8 @@ pub enum AttachError {
     WrongHost,
     /// Unknown or revoked host.
     UnknownHost,
+    /// The runner's `ansible_core` is below [`keel_exec::server_config::MIN_ANSIBLE_CORE`].
+    VersionTooOld,
     Codec(codec::CodecError),
     Db(sqlx::Error),
 }
@@ -521,6 +543,7 @@ impl std::fmt::Display for AttachError {
             Self::NoHello => f.write_str("the runner's first frame was not a Hello"),
             Self::WrongHost => f.write_str("the runner's Hello names another host"),
             Self::UnknownHost => f.write_str("unknown or revoked host"),
+            Self::VersionTooOld => f.write_str("the runner's ansible-core is too old"),
             Self::Codec(e) => write!(f, "runner channel: {e}"),
             Self::Db(e) => write!(f, "database: {e}"),
         }
@@ -559,6 +582,9 @@ where
         host_id,
         version,
         ansible_core,
+        python,
+        override_quorum,
+        ledger_head,
         ..
     }) = hello
     else {
@@ -567,19 +593,38 @@ where
     if host_id != host.to_string() {
         return Err(AttachError::WrongHost);
     }
-    let n = sqlx::query(
+    if !keel_exec::server_config::ansible_core_supported(&ansible_core) {
+        let (a, b, c) = keel_exec::server_config::MIN_ANSIBLE_CORE;
+        let _ = codec::write_frame(
+            &mut stream,
+            &Frame::Refused {
+                run_id: String::new(),
+                reason: Refusal::VersionTooOld,
+                detail: format!(
+                    "ansible-core {} is below {a}.{b}.{c}",
+                    truncate(&ansible_core, 64)
+                ),
+            },
+        )
+        .await;
+        return Err(AttachError::VersionTooOld);
+    }
+    let row: Option<(Uuid,)> = sqlx::query_as(
         "update hosts set state = 'online', runner_version = $2, ansible_version = $3, \
-         last_seen_at = now() where id = $1 and state <> 'revoked'",
+         python_version = $4, override_quorum = $5, ledger_head = $6, last_seen_at = now() \
+         where id = $1 and state <> 'revoked' returning workspace_id",
     )
     .bind(host)
     .bind(truncate(&version, 64))
     .bind(truncate(&ansible_core, 64))
-    .execute(&app.db)
-    .await?
-    .rows_affected();
-    if n != 1 {
+    .bind(truncate(&python, 64))
+    .bind(i32::try_from(override_quorum).unwrap_or(i32::MAX))
+    .bind(ledger_head.map(|h| truncate(&h, 128)))
+    .fetch_optional(&app.db)
+    .await?;
+    let Some((workspace,)) = row else {
         return Err(AttachError::UnknownHost);
-    }
+    };
     let (mut reader, mut writer) = tokio::io::split(stream);
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Frame>();
     let writer_task = tokio::spawn(async move {
@@ -592,12 +637,29 @@ where
     let (in_tx, in_rx) = mpsc::channel::<Frame>(256);
     let reader_task = tokio::spawn(async move {
         while let Ok(Some(f)) = codec::read_frame(&mut reader).await {
+            // A frame the runner may not send on this subsystem ends the session.
+            if !(f.may_be_sent_by(Peer::Runner) && f.subsystem() == Some(Subsystem::Runner)) {
+                break;
+            }
             if in_tx.send(f).await.is_err() {
                 break;
             }
         }
     });
-    let session = app.runs.register(host, out_tx.clone());
+    let close = Arc::new(Notify::new());
+    let session = app.runs.register(host, out_tx.clone(), Arc::clone(&close));
+    if let Some(cas) = app.ssh.get() {
+        let _ = out_tx.send(Frame::Krl {
+            bytes: cas.krl.to_bytes(),
+        });
+    }
+    app.repos.push(
+        workspace,
+        Event::HostState {
+            host,
+            state: keel_protocol::HostStatus::Online,
+        },
+    );
     tracing::info!(host = %host, "runner connected");
     let app2 = app.clone();
     tokio::spawn(async move {
@@ -608,7 +670,7 @@ where
             active: HashMap::new(),
             buffer: Vec::new(),
         };
-        let lost = s.run(in_rx).await;
+        let lost = s.run(in_rx, close).await;
         s.flush().await;
         app2.runs.unregister(host, session);
         reader_task.abort();
@@ -640,7 +702,7 @@ struct Session {
 
 impl Session {
     /// Runs until the stream ends (false) or the runner is lost (true).
-    async fn run(&mut self, mut frames: mpsc::Receiver<Frame>) -> bool {
+    async fn run(&mut self, mut frames: mpsc::Receiver<Frame>, close: Arc<Notify>) -> bool {
         let settings = self.app.runs.settings();
         let mut ping = tokio::time::interval(settings.ping_interval);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -668,6 +730,7 @@ impl Session {
                     }
                 }
                 _ = flush.tick() => self.flush().await,
+                () = close.notified() => return true,
             }
         }
     }
@@ -851,6 +914,15 @@ impl Session {
                 }
                 maybe_finish(&self.app, run).await;
             }
+            // A runner asking for a fresh certificate.
+            Frame::RenewCert {} => match crate::hosts::renew(&self.app, self.host).await {
+                Ok(cert) => {
+                    let _ = self.out.send(Frame::Cert { cert });
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, host = %self.host, "renewing a runner certificate failed")
+                }
+            },
             // Any frame already counted as liveness.
             _ => {}
         }
@@ -946,14 +1018,19 @@ async fn finished(
 
 /// A session ended: the host is offline and its in-flight hosts are lost.
 async fn disconnected(app: &AppState, host: Uuid) {
+    let mut offline = None;
     let result: Result<Vec<(Uuid, String)>, sqlx::Error> = async {
         let mut tx = app.db.begin().await?;
         // A reconnect may already have brought the host back.
         if !app.runs.connected().contains(&host) {
-            sqlx::query("update hosts set state = 'offline' where id = $1 and state = 'online'")
-                .bind(host)
-                .execute(&mut *tx)
-                .await?;
+            let ws: Option<(Uuid,)> = sqlx::query_as(
+                "update hosts set state = 'offline' where id = $1 and state = 'online' \
+                 returning workspace_id",
+            )
+            .bind(host)
+            .fetch_optional(&mut *tx)
+            .await?;
+            offline = ws.map(|w| w.0);
         }
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
             "update run_hosts set state = 'lost', ended_at = now() \
@@ -966,6 +1043,17 @@ async fn disconnected(app: &AppState, host: Uuid) {
         Ok(rows)
     }
     .await;
+    if result.is_ok()
+        && let Some(ws) = offline
+    {
+        app.repos.push(
+            ws,
+            Event::HostState {
+                host,
+                state: keel_protocol::HostStatus::Offline,
+            },
+        );
+    }
     match result {
         Ok(rows) => {
             for (run, name) in rows {

@@ -28,3 +28,6 @@ pub mod governance;
 
 // Runs (US2)
 pub mod runs;
+
+// Hosts and the SSH CAs (US7)
+pub mod hosts;

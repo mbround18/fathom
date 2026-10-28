@@ -160,6 +160,14 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewPolicyUpsert(_)
         | Cmd::PreviewPolicyRemove { .. }
         | Cmd::ExplainPolicy { .. } => Ok(()),
+        // Hosts and the SSH CAs (US7): each handler checks the workspace capability (or, for
+        // rotation, instance admin).
+        Cmd::ListHosts { .. }
+        | Cmd::GetHost { .. }
+        | Cmd::PreviewHostEnroll { .. }
+        | Cmd::PreviewHostRevoke { .. }
+        | Cmd::GetSshCa
+        | Cmd::PreviewSshCaRotate { .. } => Ok(()),
     }
 }
 
@@ -362,6 +370,12 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::PreviewPolicyUpsert(_)
         | Cmd::PreviewPolicyRemove { .. }
         | Cmd::ExplainPolicy { .. }) => crate::runs::handle(app, req, other).await,
+        other @ (Cmd::ListHosts { .. }
+        | Cmd::GetHost { .. }
+        | Cmd::PreviewHostEnroll { .. }
+        | Cmd::PreviewHostRevoke { .. }
+        | Cmd::GetSshCa
+        | Cmd::PreviewSshCaRotate { .. }) => crate::hosts::handle(app, req, other).await,
     };
     events
         .into_iter()

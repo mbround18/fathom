@@ -5752,6 +5752,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "rand 0.10.3",
+ "russh",
  "secrecy",
  "serde",
  "serde_json",

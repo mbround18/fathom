@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use clap::Parser;
 use keel_core::ports::SystemClock;
-use keel_server::config::{self, AuditCommand, Cli, Command, Config, Flags};
-use keel_server::{audit, db, seal, serve, sync, telemetry};
+use keel_server::config::{self, AuditCommand, Cli, Command, Config, Flags, SshCaCommand};
+use keel_server::{audit, db, hosts, runner_listener, seal, serve, sync, telemetry};
 use tokio::net::TcpListener;
 
 /// Serving pool size.
@@ -45,6 +45,9 @@ async fn run(cli: Cli) -> ExitCode {
             command: AuditCommand::Verify,
         }) => audit_verify(&cli.flags).await,
         Some(Command::Keygen) => keygen(&cli.flags),
+        Some(Command::SshCa {
+            command: SshCaCommand::Show,
+        }) => ssh_ca_show(&cli.flags).await,
         None => refuse("internal: serve runs outside this runtime"),
     }
 }
@@ -107,6 +110,49 @@ async fn audit_verify(flags: &Flags) -> ExitCode {
             ExitCode::from(1)
         }
         Err(e) => refuse(&format!("cannot read the audit log: {e}")),
+    }
+}
+
+/// `keel ssh-ca show`: what an operator puts in `keel_runner_host_ca`.
+async fn ssh_ca_show(flags: &Flags) -> ExitCode {
+    let key = match config::master_key_file(flags, &config::process_env)
+        .map_err(|e| e.to_string())
+        .and_then(|p| seal::MasterKey::load(&p).map_err(|e| e.to_string()))
+    {
+        Ok(k) => k,
+        Err(e) => return refuse(&format!("master key: {e}")),
+    };
+    let opts = match config::database_url(flags, &config::process_env)
+        .map_err(|e| e.to_string())
+        .and_then(|url| db::options(&url))
+    {
+        Ok(o) => o,
+        Err(e) => return refuse(&e),
+    };
+    if let Err(e) = db::migrate(opts.clone()).await {
+        return refuse(&e);
+    }
+    let pool = match db::connect(opts, 1).await {
+        Ok(p) => p,
+        Err(e) => return refuse(&e),
+    };
+    let result = match hosts::ensure(&pool, &key).await {
+        Ok(()) => hosts::load(&pool, &key).await,
+        Err(e) => Err(e),
+    };
+    pool.close().await;
+    match result {
+        Ok(cas) => {
+            println!("host CA:   {}", cas.host.fingerprint());
+            println!("           {}", cas.host.public_line());
+            println!("runner CA: {}", cas.runner.fingerprint());
+            println!("           {}", cas.runner.public_line());
+            println!();
+            println!("keel_runner_host_ca:");
+            println!("{}", cas.cert_authority());
+            ExitCode::SUCCESS
+        }
+        Err(e) => refuse(&e.to_string()),
     }
 }
 
@@ -174,6 +220,10 @@ async fn serve(cfg: Config, exporting: bool) -> ExitCode {
         Ok(l) => l,
         Err(e) => return refuse(&format!("cannot listen on {}: {e}", cfg.listen)),
     };
+    let runner_listener = match TcpListener::bind(cfg.runner_listen).await {
+        Ok(l) => l,
+        Err(e) => return refuse(&format!("cannot listen on {}: {e}", cfg.runner_listen)),
+    };
     tracing::info!(
         listen = %cfg.listen,
         public_url = %cfg.public_url,
@@ -186,11 +236,20 @@ async fn serve(cfg: Config, exporting: bool) -> ExitCode {
     );
     let app = serve::AppState::new(Arc::new(cfg), providers, pool, Arc::new(SystemClock))
         .with_master_key(master_key);
+    // Both SSH CAs exist and are loaded before a runner can connect.
+    if let Err(e) = hosts::bootstrap(&app).await {
+        return refuse(&format!("SSH CAs: {e}"));
+    }
+    let runners = match runner_listener::spawn(app.clone(), runner_listener) {
+        Ok(t) => t,
+        Err(e) => return refuse(&format!("runner listener: {e}")),
+    };
     let sweeper = app.auth.sessions.spawn_sweeper(SESSION_SWEEP);
     let poller = sync::spawn_poller(app.clone());
     let result = serve::serve(listener, serve::router(app.clone())).await;
     poller.abort();
     sweeper.abort();
+    runners.abort();
     app.db.close().await;
     match result {
         Ok(()) => ExitCode::SUCCESS,
