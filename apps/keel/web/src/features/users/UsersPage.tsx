@@ -11,6 +11,9 @@ import { PlusIcon, ProhibitIcon, TrashIcon } from '@phosphor-icons/react'
 import { Badge, Button, Input } from '@companion/ui'
 import { useEffect, useId, useState } from 'react'
 
+import { useSession } from '@/app/session-store'
+import { useSettings } from '@/features/settings/store'
+import { canSeeSettings } from '@/features/settings/tabs'
 import { ChangeDialog } from '@/features/teams/ChangeDialog'
 import { INSTANCE_ROLE_LABEL, INSTANCE_ROLES } from '@/features/teams/labels'
 import { Field, InlineForm, ListState, NativeSelect, Pane } from '@/features/teams/parts'
@@ -24,22 +27,54 @@ function day(rfc3339: string): string {
   return rfc3339.slice(0, 10)
 }
 
+/**
+ * Whether a role mapping is active (spec 060 US5). While it is, the server refuses role changes for
+ * people whose role comes from the identity provider (`role_managed_by_idp`), so they get no role
+ * control. When the settings can't be read, the control stays and a refusal is shown as sent:
+ * after a mapping is removed, admins must be able to take those roles back.
+ */
+function useMappingActive(): boolean {
+  return useSettings((s) => s.settings.value?.role_mapping != null)
+}
+
 function UserRow({ user }: { user: UserInfo }) {
   const propose = useGovernance((s) => s.propose)
   const roleId = useId()
+  const idp = user.role_source === 'idp'
+  const mappingActive = useMappingActive()
+  const managed = idp && mappingActive
   return (
     <li data-user={user.display_name} className={ROW}>
       <span className="font-medium">{user.display_name}</span>
       {user.email && <span className="min-w-0 break-all text-muted-foreground">{user.email}</span>}
       {user.disabled && <Badge variant="destructive">removed</Badge>}
+      {idp && (
+        <Badge variant="secondary" data-role-source="idp" title="This person's role comes from the identity provider.">
+          Identity provider
+        </Badge>
+      )}
       {user.teams.length > 0 && (
         <span data-teams className="min-w-0 break-words text-muted-foreground">
           {user.teams.join(', ')}
         </span>
       )}
       <span className="flex-1" />
-      {user.disabled ? (
-        <Badge variant="outline">{INSTANCE_ROLE_LABEL[user.instance_role]}</Badge>
+      {user.disabled || managed ? (
+        <>
+          <Badge variant="outline" data-role={user.instance_role}>
+            {INSTANCE_ROLE_LABEL[user.instance_role]}
+          </Badge>
+          {managed && !user.disabled && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Remove ${user.display_name}`}
+              onClick={() => propose('Remove user', { type: 'PreviewUserRemove', data: { user: user.id } })}
+            >
+              <TrashIcon />
+            </Button>
+          )}
+        </>
       ) : (
         <>
           <label htmlFor={roleId} className="sr-only">
@@ -217,11 +252,17 @@ function Tokens() {
 
 export default function UsersPage() {
   const load = useGovernance((s) => s.load)
+  const loadSettings = useSettings((s) => s.loadSettings)
+  const admin = canSeeSettings(useSession((s) => s.me?.instance_role))
   useEffect(() => {
     load('users')
     load('tokens')
     load('workspaces')
   }, [load])
+  // Only owners and admins may read the settings, which say whether a role mapping is active.
+  useEffect(() => {
+    if (admin) loadSettings()
+  }, [admin, loadSettings])
   return (
     <section data-page="users" aria-labelledby="users-title" className="flex h-full min-w-0 flex-col overflow-y-auto">
       <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-2 py-1.5">
