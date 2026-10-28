@@ -24,8 +24,8 @@ integration branch `keel-058` (T001).
 
 ## Phase 1: Setup
 
-- [ ] T001 Create the integration branch `keel-058` in `../ansible` from `main`, then cherry-pick the 7 commits of `keel-runner-trial` onto it (`mcp__gitops__cherry_pick`, signed, attribution kept). Record the branch in `../ansible/CONTRIBUTING.md` § Keel (new section, stub).
-- [ ] T002 Constitution PATCH 1.4.0 → 1.4.1 in `.specify/memory/constitution.md` (research R13). The Keel host runner tier wording "jobs run as the automation account" becomes "jobs run as a dedicated executor account that no human shares". Bump the version, set Last Amended, and add a Sync Impact comment, which is removed before commit.
+- [X] T001 Create the integration branch `keel-058` in `../ansible` from `main`, then cherry-pick the 7 commits of `keel-runner-trial` onto it (`mcp__gitops__cherry_pick`, signed, attribution kept). Record the branch in `../ansible/CONTRIBUTING.md` § Keel (new section, stub).
+- [X] T002 Constitution PATCH 1.4.0 → 1.4.1 in `.specify/memory/constitution.md` (research R13). The Keel host runner tier wording "jobs run as the automation account" becomes "jobs run as a dedicated executor account that no human shares". Bump the version, set Last Amended, and add a Sync Impact comment, which is removed before commit.
 
 ---
 

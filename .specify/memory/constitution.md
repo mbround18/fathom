@@ -2,19 +2,15 @@
 
 <!--
 Sync Impact Report
-- Version change: 1.3.0 -> 1.4.0 (MINOR: Keel platform guidance materially changed; new host
-  runner tier)
+- Version change: 1.4.0 -> 1.4.1 (PATCH: wording clarification, no rule changed)
 - Modified sections:
-  - Supported Platforms: "Keel server (Linux container)" no longer includes runners; new
-    "Keel host runner (Debian, systemd)" tier. Runners live on the managed hosts, run Ansible
-    only against their own host, split into an unprivileged network half and an executor that
-    runs as the automation account and re-verifies every job. Signed mode MUST be enforced by the
-    host, not only by the server.
-  - Stack: ansible-core moves from "the Keel runner image" to a root-owned venv on managed hosts,
-    used only by the executor.
+  - Supported Platforms, "Keel host runner (Debian, systemd)": jobs run as "a dedicated executor
+    account that no human shares" instead of "the automation account". On the fleet, the human
+    `automation` group already exists, so the executor gets its own account (`keel-exec`).
 - Principles: none removed or redefined.
-- Templates requiring updates: none (plan/spec/tasks templates carry no app name)
-- Affected specs: specs/055-ansible-repo-control-plane (plan's scope and platform rows cite 1.4.0)
+- Templates requiring updates: none
+- Affected specs: specs/055-ansible-repo-control-plane (executor account renamed),
+  specs/058-keel-onboard-ansible (research R13)
 - Follow-up TODOs: none
 -->
 
@@ -171,8 +167,8 @@ managed hosts.
 
 **Keel host runner (Debian, systemd).** Playbooks MUST run only on the managed hosts, each host
 against itself, through a runner installed by the operator's own base profile. The runner's
-network-facing process MUST be unprivileged; jobs run as the automation account in a separate
-executor that verifies each job itself against trust material pinned on the host (trusted
+network-facing process MUST be unprivileged; jobs run as a dedicated executor account that no human
+shares, in a separate executor that verifies each job itself against trust material pinned on the host (trusted
 signers, approver passkeys, allowed profiles, its own ledger of applied revisions). When signed
 mode is on, the host MUST refuse work that a trusted signer or a pinned approver did not
 authorize, whatever the server says. Hosts connect outbound only, over SSH with Keel acting as
@@ -226,4 +222,4 @@ a version bump, and an update to every affected spec or plan.
   CRITICAL.
 - Reviewers MUST reject changes that violate a MUST without a recorded justification.
 
-**Version**: 1.4.0 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-10-27
+**Version**: 1.4.1 | **Ratified**: 2026-09-21 | **Last Amended**: 2026-10-28
