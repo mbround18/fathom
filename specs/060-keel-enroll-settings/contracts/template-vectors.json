@@ -1,0 +1,33 @@
+{
+  "values": {
+    "t": "keel-enroll-v1.FP.SECRET",
+    "n": "web-01",
+    "p": "base,compose",
+    "w": "home",
+    "s": "keel.example.net:7831",
+    "u": "https://keel.example.net",
+    "e": "2026-10-28T12:15:00Z"
+  },
+  "render": [
+    { "template": "%t", "out": "keel-enroll-v1.FP.SECRET" },
+    { "template": "read -rs KEEL_TOKEN; export KEEL_TOKEN  # paste: %t\nmake keel-node", "out": "read -rs KEEL_TOKEN; export KEEL_TOKEN  # paste: keel-enroll-v1.FP.SECRET\nmake keel-node" },
+    { "template": "%n %p %w %s %u %e %t", "out": "web-01 base,compose home keel.example.net:7831 https://keel.example.net 2026-10-28T12:15:00Z keel-enroll-v1.FP.SECRET" },
+    { "template": "printf '%%s' %t", "out": "printf '%s' keel-enroll-v1.FP.SECRET" },
+    { "template": "100%% %t", "out": "100% keel-enroll-v1.FP.SECRET" },
+    { "template": "%t%%t", "out": "keel-enroll-v1.FP.SECRET%t" }
+  ],
+  "single_pass": {
+    "values": { "t": "tok", "n": "%t", "p": "", "w": "w", "s": "s:1", "u": "https://u", "e": "e" },
+    "template": "%n %t",
+    "out": "%t tok"
+  },
+  "refuse": [
+    { "template": "", "code": "missing_token" },
+    { "template": "make keel-node", "code": "missing_token" },
+    { "template": "%t %x", "code": "unknown_placeholder" },
+    { "template": "%t %", "code": "unknown_placeholder" },
+    { "template": "%t %T", "code": "unknown_placeholder" },
+    { "template": "%%t", "code": "missing_token" }
+  ],
+  "too_long": { "bytes": 4097, "code": "too_long" }
+}
