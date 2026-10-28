@@ -33,4 +33,7 @@
 
 - The spec names the repository's own tools (`make`, sudo, Git, compose) because they are the
   subject of the migration, not implementation choices for it.
-- Deferred: planning waits until 055 is implemented.
+- Revised 2026-10-27: one-command onboarding (`KEEL_TOKEN=… make keel-node`), join tokens,
+  runner upgrades through Keel, the `keel-exec` executor account, Keycloak sign-in, and the
+  hosts Keel depends on. Re-validated: all items pass.
+- Planning can start; implementation waits on the 055 pieces under Dependencies.
