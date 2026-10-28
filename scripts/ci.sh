@@ -2,10 +2,17 @@
 # Fathom CI, run through paws (https://github.com/mbround18/paws) so the same command is the CI
 # job locally and on GitHub (.github/workflows/ci.yml calls this script, nothing else).
 #
-#   scripts/ci.sh [check|test|depths|ui|all]      default: all
+#   scripts/ci.sh [changed|shared|fathom|fathom-full|depths|keel|all]      default: changed
 #
-# `depths` is Depths alone (its crates, bindings and web app), minutes rather than the ui job's
-# hour and a half, so a Depths change can be gated without the Fathom Playwright suite.
+# One slice per app, so a change pays only for the app it touches:
+#   shared       fmt, cargo-deny, the shared crates' own tests and dependency guards, and the
+#                shared pnpm packages
+#   fathom       Fathom's crates and UI; e2e on chromium at phone, laptop and wide
+#   fathom-full  the same with the whole e2e matrix (7 widths x chromium and webkit, ~8k tests)
+#   depths       Depths' crates, bindings and web app
+#   keel         Keel's crates, bindings and web app
+#   changed      the slices that the diff against CI_BASE touches (committed and uncommitted)
+#   all          shared, fathom-full, depths and keel: the release gate
 #
 # Each job is one `paws run`: a container (rust:1-bookworm, or the Playwright image for the UI)
 # built from the working tree filtered by .gitignore on the host, so a local run sees what a fresh
@@ -17,6 +24,7 @@
 #   CI_NICE             nice level for paws and every step          (default 10)
 #   CI_MIN_FREE_GB      GB of available memory the ui job needs     (default 8; depths needs half)
 #   VITEST_WORKERS      forks in vitest's pool                      (default 6)
+#   CI_BASE             what `changed` diffs against              (default origin/main)
 #   CI_LOCK_WAIT        0 = exit 75 if another run holds the machine-wide lock   (default 1: wait)
 #   CI_RUN_ID           part of every step's cache key         (default: new per invocation)
 #                       Dagger caches a step whose inputs are unchanged and replays its old
@@ -84,30 +92,59 @@ CARGO_DENY="{ [ -x /opt/cargo-tools/bin/cargo-deny ] \
 || $N cargo install --locked --root /opt/cargo-tools cargo-deny; } \
 && $N /opt/cargo-tools/bin/cargo-deny check"
 
-job_check() {
+# Crates shared by more than one app. A change to one runs the shared slice and every app that
+# depends on it (slices_for below).
+SHARED_CRATES="-p container-runtime -p audit-log -p web-auth -p web-passkeys"
+
+job_shared() {
+  need_mem $((CI_MIN_FREE_GB / 2)) shared || return 1
   rust_run \
     --step "$CONTAINER_RUNTIME_DEPS" \
     --step "$SHARED_AUTH_DEPS_CHECK" \
-    --step "$N cargo check --all-targets" \
-    --step "$N cargo check --no-default-features --lib" \
-    --step "$N cargo clippy --workspace --all-targets -- -D warnings" \
-    --step "$N cargo clippy -p fathom-desktop -- -D warnings" \
     --step "$N cargo fmt --check" \
-    --step "$N scripts/check-no-ldap.sh" \
-    --step "$CARGO_DENY"
+    --step "$N cargo clippy $SHARED_CRATES --all-targets -- -D warnings" \
+    --step "$N cargo test $SHARED_CRATES" \
+    --step "$CARGO_DENY" || return 1
+  node_run . \
+    --step "$N pnpm -w run lint:packages" \
+    --step "$N pnpm -w run typecheck:packages" \
+    --step "$N pnpm audit --prod --audit-level high"
 }
 
-job_test() {
+# Fathom: the root crate, its daemon, server, desktop app and tools, and the shared crates they
+# build on.
+FATHOM_CRATES="-p fathom -p fathom-daemon -p fathom-server -p fathom-devbridge -p pipeline \
+-p container-runtime -p audit-log -p web-auth"
+# Per change: one engine at three widths. fathom-full runs every project in ui/playwright.config.ts.
+FATHOM_E2E_QUICK="--project=chromium-phone --project=chromium-laptop --project=chromium-wide"
+
+fathom_slice() {
+  local e2e_projects=$1
   # Constitution Principle III: generated bindings must not drift. Snapshot, regenerate, compare
   # (diff -r also reports newly generated files, like `git add -N` + `git diff` did).
   local drift="rm -rf /tmp/generated-before && cp -r ui/src/protocol/generated /tmp/generated-before \
 && $N cargo test -p fathom --test export_bindings \
 && if ! diff -r /tmp/generated-before ui/src/protocol/generated; then \
 echo 'error: ui/src/protocol/generated is stale. Run cargo test -p fathom --test export_bindings and commit the result.' >&2; exit 1; fi"
+  need_mem "$CI_MIN_FREE_GB" fathom || return 1
   rust_run \
-    --step "$N cargo test --all" \
-    --step "$drift"
+    --step "$N cargo check -p fathom --no-default-features --lib" \
+    --step "$N cargo clippy $FATHOM_CRATES --all-targets -- -D warnings" \
+    --step "$N cargo clippy -p fathom-desktop -- -D warnings" \
+    --step "$N scripts/check-no-ldap.sh" \
+    --step "$N cargo test $FATHOM_CRATES" \
+    --step "$drift" || return 1
+  # Installing from ui/ installs the whole workspace against the root pnpm-lock.yaml.
+  node_run ui \
+    --step "$N pnpm lint" \
+    --step "$N pnpm typecheck" \
+    --step "$N pnpm test" \
+    --step "$N pnpm build" \
+    --step "$N pnpm e2e $e2e_projects --workers=\"\$PLAYWRIGHT_WORKERS\""
 }
+
+job_fathom() { fathom_slice "$FATHOM_E2E_QUICK"; }
+job_fathom-full() { fathom_slice ""; }
 
 # need_mem <GB> <job>: refuse to start a Playwright job the machine has no room for.
 need_mem() {
@@ -120,16 +157,32 @@ need_mem() {
   fi
 }
 
+# node_run <workdir> --step ...: the Playwright image (node, pnpm via corepack, browsers) with the
+# pnpm workspace installed. pnpm comes from packageManager via corepack.
+node_run() {
+  local workdir=$1
+  shift
+  nice -n "$CI_NICE" paws run \
+    --image "$PLAYWRIGHT_IMAGE" \
+    --workdir "$workdir" \
+    --env CI=true --env PLAYWRIGHT_WORKERS --env VITEST_WORKERS --env CI_RUN_ID --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    --cache fathom-ci-pnpm-store=/pnpm-store \
+    --cache fathom-ci-corepack=/root/.cache/node/corepack \
+    --step "corepack enable" \
+    --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" \
+    "$@"
+}
+
 # Spec 050: Depths' crates (and the shared ones it builds on), then its web app against the fake
-# backend. The workspace-wide check and test jobs cover these crates too; this job is the fast
-# path for a Depths-only change.
+# backend.
 DEPTHS_WEB=@companion/depths-web
 DEPTHS_CRATES="-p depths-core -p depths-protocol -p depths-runtime-cli -p depths-stacks-fs \
--p depths-server -p container-runtime -p web-auth -p audit-log"
+-p depths-server -p depths-volumes -p depths-volume-helper -p container-runtime -p web-auth \
+-p audit-log"
 
 job_depths() {
   need_mem $((CI_MIN_FREE_GB / 2)) depths || return 1
-  # Spec 050 (T034): Depths' protocol bindings must not drift, as for Fathom's in job_test.
+  # Spec 050 (T034): Depths' protocol bindings must not drift, as for Fathom's in fathom_slice.
   local depths_drift="rm -rf /tmp/depths-generated-before \
 && cp -r apps/depths/web/src/protocol/generated /tmp/depths-generated-before \
 && $N cargo test -p depths-protocol --test export_bindings \
@@ -139,14 +192,7 @@ echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p 
     --step "$N cargo clippy $DEPTHS_CRATES --all-targets -- -D warnings" \
     --step "$N cargo test $DEPTHS_CRATES" \
     --step "$depths_drift" || return 1
-  nice -n "$CI_NICE" paws run \
-    --image "$PLAYWRIGHT_IMAGE" \
-    --workdir apps/depths/web \
-    --env CI=true --env PLAYWRIGHT_WORKERS --env VITEST_WORKERS --env CI_RUN_ID --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-    --cache fathom-ci-pnpm-store=/pnpm-store \
-    --cache fathom-ci-corepack=/root/.cache/node/corepack \
-    --step "corepack enable" \
-    --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" \
+  node_run apps/depths/web \
     --step "$N pnpm --filter $DEPTHS_WEB lint" \
     --step "$N pnpm --filter $DEPTHS_WEB typecheck" \
     --step "$N pnpm --filter $DEPTHS_WEB test" \
@@ -154,26 +200,68 @@ echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p 
     --step "$N pnpm --filter $DEPTHS_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
 }
 
-job_ui() {
-  need_mem "$CI_MIN_FREE_GB" ui || return 1
-  # pnpm comes from packageManager via corepack. Installing from ui/ installs the whole workspace
-  # against the root pnpm-lock.yaml.
-  nice -n "$CI_NICE" paws run \
-    --image "$PLAYWRIGHT_IMAGE" \
-    --workdir ui \
-    --env CI=true --env PLAYWRIGHT_WORKERS --env VITEST_WORKERS --env CI_RUN_ID --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-    --cache fathom-ci-pnpm-store=/pnpm-store \
-    --cache fathom-ci-corepack=/root/.cache/node/corepack \
-    --step "corepack enable" \
-    --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" \
-    --step "$N pnpm lint" \
-    --step "$N pnpm typecheck" \
-    --step "$N pnpm -w run lint:packages" \
-    --step "$N pnpm -w run typecheck:packages" \
-    --step "$N pnpm test" \
-    --step "$N pnpm build" \
-    --step "$N pnpm e2e --workers=\"\$PLAYWRIGHT_WORKERS\"" \
-    --step "$N pnpm audit --prod --audit-level high"
+# Spec 055: Keel's crates (and the shared ones it builds on), its bindings, then its web app
+# against the fake backend. keel-server's database tests skip without KEEL_TEST_DATABASE_URL.
+KEEL_WEB=@companion/keel-web
+KEEL_CRATES="-p keel-core -p keel-exec -p keel-git -p keel-protocol -p keel-trust \
+-p keel-server -p keel-runner -p web-auth -p web-passkeys"
+
+job_keel() {
+  need_mem $((CI_MIN_FREE_GB / 2)) keel || return 1
+  local keel_drift="rm -rf /tmp/keel-generated-before \
+&& cp -r apps/keel/web/src/protocol/generated /tmp/keel-generated-before \
+&& $N cargo test -p keel-protocol --test export_bindings \
+&& if ! diff -r /tmp/keel-generated-before apps/keel/web/src/protocol/generated; then \
+echo 'error: apps/keel/web/src/protocol/generated is stale. Run cargo test -p keel-protocol --test export_bindings and commit the result.' >&2; exit 1; fi"
+  rust_run \
+    --step "$N cargo clippy $KEEL_CRATES --all-targets -- -D warnings" \
+    --step "$N cargo test $KEEL_CRATES" \
+    --step "$keel_drift" || return 1
+  node_run apps/keel/web \
+    --step "$N pnpm --filter $KEEL_WEB lint" \
+    --step "$N pnpm --filter $KEEL_WEB typecheck" \
+    --step "$N pnpm --filter $KEEL_WEB test" \
+    --step "$N pnpm --filter $KEEL_WEB build" \
+    --step "$N pnpm --filter $KEEL_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
+}
+
+# slices_for <path>...: the slices a set of changed paths needs, one per line. Docs and specs
+# need none; anything not claimed by an app or the shared code is Fathom's.
+slices_for() {
+  local f
+  for f in "$@"; do
+    case "$f" in
+      specs/* | docs/* | *.md | .specify/* | .claude/* | LICENSE*) ;;
+      apps/depths/* | crates/depths-*) echo depths ;;
+      apps/keel/* | crates/keel-*) echo keel ;;
+      crates/container-runtime/* | crates/audit-log/*) printf '%s\n' shared fathom depths ;;
+      crates/web-auth/*) printf '%s\n' shared fathom depths keel ;;
+      crates/web-passkeys/*) printf '%s\n' shared keel ;;
+      packages/*) printf '%s\n' shared fathom depths keel ;;
+      Cargo.toml | Cargo.lock | deny.toml | rust-toolchain* | package.json | pnpm-lock.yaml \
+        | pnpm-workspace.yaml | scripts/ci.sh | .github/*) printf '%s\n' shared fathom depths keel ;;
+      *) echo fathom ;;
+    esac
+  done
+}
+
+job_changed() {
+  local base=${CI_BASE:-origin/main} slices job failed=()
+  mapfile -t slices < <(
+    { git diff --name-only "$(git merge-base "$base" HEAD)"; git ls-files --others --exclude-standard; } \
+      | sort -u | { mapfile -t files; slices_for "${files[@]}"; } | sort -u
+  )
+  if [ "${#slices[@]}" -eq 0 ]; then
+    echo "ci: nothing to run: no changes against $base outside docs and specs"
+    return 0
+  fi
+  echo "ci: changes against $base touch: ${slices[*]}"
+  # shared first: it is the cheapest and every other slice builds on it.
+  for job in shared fathom depths keel; do
+    [[ " ${slices[*]} " == *" $job "* ]] || continue
+    run_job "$job" || failed+=("$job")
+  done
+  [ "${#failed[@]}" -eq 0 ] || { echo "ci: FAILED (${failed[*]})" >&2; return 1; }
 }
 
 run_job() {
@@ -203,17 +291,18 @@ if [ -z "${GITHUB_ACTIONS:-}" ] && command -v flock >/dev/null; then
     echo "ci: waiting for it to finish (CI_LOCK_WAIT=0 to exit instead)" >&2
     flock 9
   fi
-  echo "pid $$ in $PWD since $(date '+%H:%M:%S'): $0 ${1:-all}" > "$lock.owner"
+  echo "pid $$ in $PWD since $(date '+%H:%M:%S'): $0 ${1:-changed}" > "$lock.owner"
 fi
 
-case "${1:-all}" in
-  check | test | depths | ui) run_job "$1" ;;
+case "${1:-changed}" in
+  shared | fathom | fathom-full | depths | keel) run_job "$1" ;;
+  changed) job_changed ;;
   all)
-    # Like the workflow's matrix (fail-fast: false): every job runs, then one verdict. One job at
-    # a time (two Playwright suites at once do not fit), depths before ui so it reports early.
+    # Like the workflow's matrix (fail-fast: false): every slice runs, then one verdict. One at a
+    # time (two Playwright suites at once do not fit), the quick slices first so they report early.
     overall=$(date +%s)
     failed=()
-    for job in check test depths ui; do
+    for job in shared depths keel fathom-full; do
       run_job "$job" || failed+=("$job")
     done
     if [ "${#failed[@]}" -gt 0 ]; then
@@ -223,7 +312,7 @@ case "${1:-all}" in
     echo "ci: all passed in $(($(date +%s) - overall))s"
     ;;
   *)
-    echo "usage: $0 [check|test|depths|ui|all]" >&2
+    echo "usage: $0 [changed|shared|fathom|fathom-full|depths|keel|all]" >&2
     exit 2
     ;;
 esac

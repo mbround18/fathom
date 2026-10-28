@@ -73,7 +73,7 @@ The shared crates are shared because they know nothing about either app.
 - App-specific behaviour goes behind a trait the app implements (Fathom's cluster impact is a
   `ClusterImpact` that Depths passes as `None`), not behind a dependency on the app.
 
-`scripts/ci.sh check` enforces these with `cargo tree`. To check by hand:
+`scripts/ci.sh shared` enforces these with `cargo tree`. To check by hand:
 
 ```sh
 cargo tree -p container-runtime --prefix none | grep -E '^(kube|tauri|fathom)([- ]|$)'
@@ -90,7 +90,8 @@ cargo test -p fathom --test export_bindings            # ui/src/protocol/generat
 cargo test -p depths-protocol --test export_bindings   # apps/depths/web/src/protocol/generated/
 ```
 
-`scripts/ci.sh test` regenerates both and fails if either directory changed. A change to a shared
+`scripts/ci.sh fathom` and `scripts/ci.sh depths` regenerate their bindings and fail if the
+directory changed. A change to a shared
 crate must leave Fathom's bindings byte-identical.
 
 ## Fathom development
@@ -118,17 +119,22 @@ cargo clippy
 cargo fmt
 
 # CI, exactly as GitHub runs it (containers via paws + Docker)
-scripts/ci.sh                          # all jobs; or: scripts/ci.sh check|test|depths|ui
+scripts/ci.sh                          # the slices your diff touches (changed)
+scripts/ci.sh keel                     # one slice: shared|fathom|fathom-full|depths|keel
+scripts/ci.sh all                      # every slice, full e2e matrix: the release gate
 ```
 
 `scripts/ci.sh` is the only thing `.github/workflows/ci.yml` runs, so a green local run is a green
-CI run. For a Depths-only change, `scripts/ci.sh depths` gates its crates, bindings and web app in
-minutes, without the Fathom Playwright suite that makes `ui` take an hour and a half. It needs
+CI run. CI is sliced per app: `changed`, the default, diffs against `origin/main` (`CI_BASE`) and
+runs only the slices that touch, so a Keel change gates Keel's crates, bindings and web app in
+minutes. Docs and specs run nothing; a shared crate or a lockfile runs `shared` and every app that
+uses it. The `fathom` slice runs its e2e on chromium at phone, laptop and wide; `fathom-full` (and
+`all`) runs the whole 7-width chromium and webkit matrix, over an hour, before a release. It needs
 [`paws`](https://github.com/mbround18/paws) with `paws run`
 (`cargo install --locked --git https://github.com/mbround18/paws --branch feat/fathom-local-ci paws-cli`
 until that is released) and Docker. It builds from your working tree minus everything `.gitignore`d,
 so uncommitted edits are tested but local `target/` and `node_modules/` are not. It is sized for a
-shared workstation: `CARGO_BUILD_JOBS=4`, `PLAYWRIGHT_WORKERS=2`, niced, and the `ui` job refuses to
+shared workstation: `CARGO_BUILD_JOBS=4`, `PLAYWRIGHT_WORKERS=2`, niced, and the `fathom` slices refuse to
 start with less than 8GB of memory available (`CI_MIN_FREE_GB`). Build caches live in the dagger
 engine's `fathom-ci-*` cache volumes.
 

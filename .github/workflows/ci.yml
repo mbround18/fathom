@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        job: [check, test, depths, ui]
+        job: [shared, fathom-full, depths, keel]
     steps:
       - uses: actions/checkout@v4
 
