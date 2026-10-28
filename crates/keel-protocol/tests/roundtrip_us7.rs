@@ -178,6 +178,9 @@ fn host_events() {
             profiles: vec!["base".into()],
             expires_at: "2026-10-27T10:15:00Z".into(),
             token: EnrollToken("keel-enroll-v1.abc.SHA256:xyz".into()),
+            snippet: "make keel-node".into(),
+            instructions: String::new(),
+            instructions_unavailable: false,
         },
         Event::SshCa {
             cas: vec![
@@ -227,6 +230,9 @@ fn the_enrollment_token_never_shows_in_debug_output() {
         profiles: vec![],
         expires_at: "2026-10-27T10:15:00Z".into(),
         token: EnrollToken("keel-enroll-v1.topsecret.SHA256:xyz".into()),
+        snippet: String::new(),
+        instructions: String::new(),
+        instructions_unavailable: false,
     };
     assert!(!format!("{e:?}").contains("topsecret"));
 }

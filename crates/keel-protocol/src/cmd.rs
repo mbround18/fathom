@@ -17,13 +17,13 @@ use crate::types::{B64Url, ClientName, CsrfToken, PreviewId, RequestId};
 // Inventories (US4)
 use crate::inventory::InventoryText;
 // Governance (US6)
-use crate::governance::{GrantProfiles, Label, Slug, TokenActions};
+use crate::governance::{ApiTokenState, GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
 // Runs (US2)
 use crate::run::{Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
-use crate::host::{HostName, HostProfiles, SshCaKind};
+use crate::host::{EnrollmentState, HostName, HostProfiles, SshCaKind};
 // Signed mode: review and signers (US8)
 use crate::governance::Label as SignerLabel;
 use crate::review::{
@@ -573,6 +573,55 @@ pub enum Cmd {
         #[ts(type = "string")]
         signer: Uuid,
     },
+
+    // Settings, enrolments, admin tokens and the System workspace (spec 060). Sessions only.
+    /// `Settings`. Instance admins.
+    GetSettings,
+    /// `Preview` (step-up); `Confirm` replies `Settings`, or `OpError { code: "settings_conflict" }`
+    /// when `version` is stale. Instance admins.
+    PreviewSettingsUpdate {
+        template: String,
+        instructions: String,
+        version: i64,
+    },
+    /// `Enrollments`: every enrolment token, newest first, filtered. Instance admins.
+    ListEnrollments {
+        #[serde(default)]
+        state: Option<EnrollmentState>,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        workspace: Option<Uuid>,
+    },
+    /// `Preview` (step-up); `Confirm` replies `Enrollments`. Instance admins.
+    PreviewEnrollmentRevoke {
+        #[ts(type = "string")]
+        enrollment: Uuid,
+    },
+    /// `Preview` (step-up); `Confirm` revokes the token if still pending and replies
+    /// `HostEnrollment` with a new one. Instance admins.
+    PreviewEnrollmentRoll {
+        #[ts(type = "string")]
+        enrollment: Uuid,
+    },
+    /// `AllApiTokens`: every user's tokens, filtered. Instance admins.
+    ListAllApiTokens {
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        holder: Option<Uuid>,
+        #[serde(default)]
+        state: Option<ApiTokenState>,
+    },
+    /// `System`. Instance owners.
+    GetSystem,
+    /// `Preview` (step-up); `Confirm` creates or un-archives the System workspace and replies
+    /// `System`, or `OpError { code: "system_conflict" }` when `version` is stale. Instance owners.
+    PreviewSystemConfigure {
+        allowed_profiles: HostProfiles,
+        version: i64,
+    },
+    /// `Preview` (step-up); `Confirm` revokes the System workspace's hosts, disables its bindings,
+    /// archives it and replies `System`. Instance owners.
+    PreviewSystemRemove,
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -706,6 +755,16 @@ impl Cmd {
             Cmd::ListSigners { .. } => "list_signers",
             Cmd::PreviewSignerAdd { .. } => "preview_signer_add",
             Cmd::PreviewSignerRemove { .. } => "preview_signer_remove",
+            // Settings, enrolments, admin tokens and the System workspace (spec 060)
+            Cmd::GetSettings => "get_settings",
+            Cmd::PreviewSettingsUpdate { .. } => "preview_settings_update",
+            Cmd::ListEnrollments { .. } => "list_enrollments",
+            Cmd::PreviewEnrollmentRevoke { .. } => "preview_enrollment_revoke",
+            Cmd::PreviewEnrollmentRoll { .. } => "preview_enrollment_roll",
+            Cmd::ListAllApiTokens { .. } => "list_all_api_tokens",
+            Cmd::GetSystem => "get_system",
+            Cmd::PreviewSystemConfigure { .. } => "preview_system_configure",
+            Cmd::PreviewSystemRemove => "preview_system_remove",
         }
     }
 
@@ -802,6 +861,16 @@ impl Cmd {
             | Cmd::ListSigners { .. }
             | Cmd::PreviewSignerAdd { .. }
             | Cmd::PreviewSignerRemove { .. } => false,
+            // Settings, enrolments, admin tokens and the System workspace (spec 060)
+            Cmd::GetSettings
+            | Cmd::PreviewSettingsUpdate { .. }
+            | Cmd::ListEnrollments { .. }
+            | Cmd::PreviewEnrollmentRevoke { .. }
+            | Cmd::PreviewEnrollmentRoll { .. }
+            | Cmd::ListAllApiTokens { .. }
+            | Cmd::GetSystem
+            | Cmd::PreviewSystemConfigure { .. }
+            | Cmd::PreviewSystemRemove => false,
         }
     }
 }

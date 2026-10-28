@@ -61,6 +61,7 @@ export const people = {
     disabled: false,
     teams: [],
     created: NOW,
+    role_source: 'keel',
   }),
   grace: (): UserInfo => ({
     id: '01J000000000000000000GRACE',
@@ -70,6 +71,7 @@ export const people = {
     disabled: false,
     teams: [],
     created: NOW,
+    role_source: 'keel',
   }),
   linus: (): UserInfo => ({
     id: '01J000000000000000000LINUS',
@@ -79,6 +81,7 @@ export const people = {
     disabled: false,
     teams: [],
     created: NOW,
+    role_source: 'keel',
   }),
 }
 
@@ -112,7 +115,7 @@ export class FakeGovernance {
 
   /** Adds a workspace; returns it. */
   workspace(slug: string, name = slug): WorkspaceInfo {
-    const ws: WorkspaceInfo = { id: this.id('ws'), slug, name, created: NOW, archived: false, projects: [] }
+    const ws: WorkspaceInfo = { id: this.id('ws'), slug, name, created: NOW, archived: false, projects: [], system: false }
     this.workspaces.push(ws)
     return ws
   }

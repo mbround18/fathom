@@ -8,4 +8,8 @@ export type WorkspaceInfo = { id: string, slug: string, name: string,
 /**
  * RFC 3339 UTC.
  */
-created: string, archived: boolean, projects: Array<ProjectInfo>, };
+created: string, archived: boolean, projects: Array<ProjectInfo>, 
+/**
+ * The owner-only System workspace (spec 060).
+ */
+system: boolean, };

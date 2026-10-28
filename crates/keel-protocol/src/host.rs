@@ -73,6 +73,42 @@ pub enum SshCaState {
     Retired,
 }
 
+/// An enrolment token's state, derived in this order: used, revoked, burned, expired, pending
+/// (spec 060 research R4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum EnrollmentState {
+    Pending,
+    Used,
+    Revoked,
+    Burned,
+    Expired,
+}
+
+/// An enrolment token, without the token (spec 060, US3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct EnrollmentInfo {
+    #[ts(type = "string")]
+    pub id: Uuid,
+    #[ts(type = "string")]
+    pub workspace: Uuid,
+    pub workspace_slug: String,
+    pub inventory_name: String,
+    pub profiles: Vec<String>,
+    pub state: EnrollmentState,
+    /// The creator's display name, while the user exists.
+    pub created_by: Option<String>,
+    /// RFC 3339 UTC.
+    pub created_at: String,
+    pub expires_at: String,
+    /// The host that used the token.
+    #[ts(type = "string | null")]
+    pub host: Option<Uuid>,
+    /// The token this one replaced, when it was rolled.
+    #[ts(type = "string | null")]
+    pub rolled_from: Option<Uuid>,
+}
+
 /// A one-time enrollment token, `keel-enroll-v1.<secret>.<host CA fingerprint>`. Shown once;
 /// Keel keeps only its hash. Never logged.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

@@ -615,13 +615,15 @@ fn governance_events_round_trip() {
             slug: "edge".into(),
             name: "Edge".into(),
         }],
+        system: false,
     };
     let v = round_trip(&Event::Workspaces { items: vec![ws] });
     assert_eq!(
         v,
         json!({"type": "Workspaces", "data": {"items": [{
             "id": id(2), "slug": "infra", "name": "Infra", "created": "2026-10-27T12:00:00Z",
-            "archived": false, "projects": [{"id": id(6), "slug": "edge", "name": "Edge"}]
+            "archived": false, "projects": [{"id": id(6), "slug": "edge", "name": "Edge"}],
+            "system": false
         }]}})
     );
 
@@ -653,6 +655,7 @@ fn governance_events_round_trip() {
             disabled: false,
             teams: vec!["SRE".into()],
             created: "2026-10-27T12:00:00Z".into(),
+            role_source: RoleSource::Keel,
         }],
     });
     assert_eq!(v["data"]["items"][0]["instance_role"], "owner");

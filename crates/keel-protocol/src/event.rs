@@ -14,9 +14,12 @@ use crate::inventory::{
     InventoryRevisionSummary,
 };
 // Governance (US6)
-use crate::governance::{ApiTokenInfo, TeamInfo, TokenSecret, UserInfo, WorkspaceInfo};
+use crate::governance::{
+    AdminApiTokenInfo, ApiTokenInfo, RoleMappingInfo, TeamInfo, TokenSecret, UserInfo,
+    WorkspaceInfo,
+};
 // Hosts and the SSH CAs (US7)
-use crate::host::{EnrollToken, HostDetail, HostInfo, HostStatus, SshCaInfo};
+use crate::host::{EnrollToken, EnrollmentInfo, HostDetail, HostInfo, HostStatus, SshCaInfo};
 // Signed mode: review and signers (US8)
 use crate::review::{
     DiffFile, DiffPage, OverrideChallenge, ReviewCommit, ReviewDecision, ReviewFlag, ReviewInfo,
@@ -216,6 +219,12 @@ pub enum Event {
         profiles: Vec<String>,
         expires_at: String,
         token: EnrollToken,
+        /// The enrolment template rendered with this token (spec 060, FR-004).
+        snippet: String,
+        /// The enrolment instructions, raw Markdown; empty when unset.
+        instructions: String,
+        /// The settings could not be read, so the defaults were used.
+        instructions_unavailable: bool,
     },
     /// Reply to `GetSshCa` and to a confirmed `PreviewSshCaRotate`.
     SshCa {
@@ -269,6 +278,43 @@ pub enum Event {
         #[ts(type = "string")]
         workspace: Uuid,
         items: Vec<SignerInfo>,
+    },
+
+    // Settings, enrolments, admin tokens and the System workspace (spec 060)
+    /// Reply to `GetSettings`, and after a confirmed settings update.
+    Settings {
+        template: String,
+        instructions: String,
+        /// 0 while no settings have been saved.
+        version: i64,
+        /// No template has been saved, so `template` is the default.
+        is_default: bool,
+        /// What `%s` renders to, `host:port`; `None` while the runner listener is off.
+        runner_address: Option<String>,
+        /// What `%u` renders to.
+        public_url: String,
+        /// The OIDC role mapping, when one is configured.
+        role_mapping: Option<RoleMappingInfo>,
+        /// Codes such as `idp_names_no_owner`.
+        warnings: Vec<String>,
+    },
+    /// Reply to `ListEnrollments`, and after a confirmed revoke.
+    Enrollments { items: Vec<EnrollmentInfo> },
+    /// Reply to `ListAllApiTokens`.
+    AllApiTokens { items: Vec<AdminApiTokenInfo> },
+    /// Reply to `GetSystem`, and after a confirmed configure or remove.
+    System {
+        /// `false`: there is no System workspace; the other fields are empty.
+        configured: bool,
+        #[ts(type = "string | null")]
+        workspace: Option<Uuid>,
+        allowed_profiles: Vec<String>,
+        /// 0 while not configured.
+        version: i64,
+        #[ts(type = "Array<string>")]
+        bindings: Vec<Uuid>,
+        #[ts(type = "Array<string>")]
+        hosts: Vec<Uuid>,
     },
 }
 

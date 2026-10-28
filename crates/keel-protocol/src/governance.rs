@@ -162,6 +162,8 @@ pub struct WorkspaceInfo {
     pub created: String,
     pub archived: bool,
     pub projects: Vec<ProjectInfo>,
+    /// The owner-only System workspace (spec 060).
+    pub system: bool,
 }
 
 /// A team member.
@@ -209,6 +211,31 @@ pub struct UserInfo {
     pub teams: Vec<String>,
     /// RFC 3339 UTC.
     pub created: String,
+    /// Whether the instance role is Keel's to change or comes from the identity provider.
+    pub role_source: RoleSource,
+}
+
+/// Where a user's instance role comes from (spec 060, US5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RoleSource {
+    /// Set in Keel, by an owner or admin.
+    Keel,
+    /// Set by the identity provider's claims on each sign-in.
+    Idp,
+}
+
+/// The OIDC role mapping, as configured (spec 060, US5). Read-only in the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RoleMappingInfo {
+    pub provider: String,
+    /// The claim the role names are read from.
+    pub claim: String,
+    pub owner: Vec<String>,
+    pub admin: Vec<String>,
+    pub user: Vec<String>,
+    /// A sign-in whose claim names no mapped role is refused.
+    pub required: bool,
 }
 
 /// An API token, without its secret.
@@ -227,6 +254,26 @@ pub struct ApiTokenInfo {
     pub expires_at: String,
     pub last_used_at: Option<String>,
     pub revoked: bool,
+}
+
+/// An API token's state, derived from `revoked` and `expires_at` (spec 060, US4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiTokenState {
+    Active,
+    Expired,
+    Revoked,
+}
+
+/// An API token as instance administrators see it, with its holder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AdminApiTokenInfo {
+    pub token: ApiTokenInfo,
+    #[ts(type = "string")]
+    pub holder: Uuid,
+    pub holder_name: String,
+    pub workspace_slug: String,
+    pub state: ApiTokenState,
 }
 
 /// An API token's secret, shown once on creation. Never logged.

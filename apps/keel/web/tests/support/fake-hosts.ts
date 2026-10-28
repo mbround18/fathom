@@ -235,6 +235,9 @@ export class FakeHosts {
                 profiles: p.profiles,
                 expires_at: EXPIRES,
                 token,
+                snippet: `read -rs KEEL_TOKEN; export KEEL_TOKEN  # paste: ${token}\nmake keel-node`,
+                instructions: '',
+                instructions_unavailable: false,
               },
             },
           ]

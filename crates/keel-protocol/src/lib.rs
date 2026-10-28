@@ -39,9 +39,10 @@ pub use inventory::{
 // Governance (US6)
 pub mod governance;
 pub use governance::{
-    ActionName, ApiTokenInfo, GrantInfo, GrantProfiles, Label, MAX_GRANT_PROFILES, MAX_LABEL_CHARS,
-    MAX_TOKEN_ACTIONS, MAX_TOKEN_DAYS, ProfileName, ProjectInfo, Slug, TeamInfo, TeamMemberInfo,
-    TokenActions, TokenSecret, UserInfo, WorkspaceInfo,
+    ActionName, AdminApiTokenInfo, ApiTokenInfo, ApiTokenState, GrantInfo, GrantProfiles, Label,
+    MAX_GRANT_PROFILES, MAX_LABEL_CHARS, MAX_TOKEN_ACTIONS, MAX_TOKEN_DAYS, ProfileName,
+    ProjectInfo, RoleMappingInfo, RoleSource, Slug, TeamInfo, TeamMemberInfo, TokenActions,
+    TokenSecret, UserInfo, WorkspaceInfo,
 };
 
 // Runs (US2)
@@ -54,8 +55,8 @@ pub use run::{
 /// The version a client states in `Hello.protocol_version`.
 pub mod host;
 pub use host::{
-    EnrollToken, HostCertInfo, HostDetail, HostInfo, HostName, HostProfiles, HostStatus,
-    MAX_HOST_PROFILES, OutsideRunInfo, SshCaInfo, SshCaKind, SshCaState,
+    EnrollToken, EnrollmentInfo, EnrollmentState, HostCertInfo, HostDetail, HostInfo, HostName,
+    HostProfiles, HostStatus, MAX_HOST_PROFILES, OutsideRunInfo, SshCaInfo, SshCaKind, SshCaState,
 };
 
 pub const PROTOCOL_VERSION: u32 = 1;
