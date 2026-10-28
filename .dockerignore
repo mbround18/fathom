@@ -12,3 +12,9 @@ docs
 apps/depths/web/dist
 apps/depths/web/test-results
 apps/depths/web/playwright-report
+apps/keel/web/dist
+apps/keel/web/test-results
+apps/keel/web/playwright-report
+# Local compose settings and secrets (cert, key, master key): never in the build context.
+apps/keel/.env
+apps/keel/secrets
