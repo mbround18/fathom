@@ -139,22 +139,22 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
 
 **Independent test**: `make lint` passes. A change under `roles/base/` queues only the jobs that reach `base`. A change to `inventory/hosts.yml` queues nothing.
 
-- [ ] T023 [P] [US3] Write failing tests in `../ansible/scripts/tests/test_keel_manifest_check.py` (pytest, fixtures under `scripts/tests/fixtures/`). Each case must fail the check:
+- [X] T023 [P] [US3] Write failing tests in `../ansible/scripts/tests/test_keel_manifest_check.py` (pytest, fixtures under `scripts/tests/fixtures/`). Each case must fail the check:
   - a missing role;
   - a role reached through `include_role` that the job's paths don't list;
   - an `import_playbook` that isn't followed;
   - a path that matches no file;
   - an undeclared profile.
-- [ ] T024 [US3] Implement `../ansible/scripts/keel-manifest-check.py`, in pure Python 3 with no Ansible import. It follows `roles:`, `import_playbook`, and literal `include_role`/`import_role` recursively (contracts/jobs-manifest.md § Check), and must finish in under 5 s on the repo.
-- [ ] T025 [US3] Write `../ansible/.keel/jobs.yaml` exactly as contracts/jobs-manifest.md describes.
+- [X] T024 [US3] Implement `../ansible/scripts/keel-manifest-check.py`, in pure Python 3 with no Ansible import. It follows `roles:`, `import_playbook`, and literal `include_role`/`import_role` recursively (contracts/jobs-manifest.md § Check), and must finish in under 5 s on the repo.
+- [X] T025 [US3] Write `../ansible/.keel/jobs.yaml` exactly as contracts/jobs-manifest.md describes.
   - Profiles: debian, prox-vm, gameserver, host, k3s-master, k3s-agent, keel-server and keel-node.
   - Jobs, with their paths: one per profile, plus manual-only `upgrade` and `clean`, which have no `paths` and cover all eight profiles.
   - Shared paths: `ansible.cfg`, `requirements.yml` and `inventory/group_vars/all.yml`.
   - Timeouts as listed. Keel's 055 manifest parser must accept the file; check it with a fathom unit test, or with `keel` if it has a validate command.
-- [ ] T026 [P] [US3] In `../ansible/roles/tailscale/tasks/main.yml`, make the role a no-op when the host is already on the tailnet and `TS_AUTHKEY` is unset (contracts/jobs-manifest.md § Conditions). Add a Molecule case for it if the role has a scenario.
-- [ ] T027 [P] [US3] Audit every job playbook in `../ansible/playbooks/` for `vars_prompt`, `pause` and required run-time variables, and remove them or give them defaults so each job runs unattended.
+- [X] T026 [P] [US3] In `../ansible/roles/tailscale/tasks/main.yml`, make the role a no-op when the host is already on the tailnet and `TS_AUTHKEY` is unset (contracts/jobs-manifest.md § Conditions). Add a Molecule case for it if the role has a scenario.
+- [X] T027 [P] [US3] Audit every job playbook in `../ansible/playbooks/` for `vars_prompt`, `pause` and required run-time variables, and remove them or give them defaults so each job runs unattended.
 - [ ] T028 [P] [US3] In `../ansible/roles/keel_server/tasks/main.yml`, when `KEEL_EVENT_FD` is set, defer `docker compose up -d` with a systemd transient timer 30 s after the job, in the same way `keel_runner` defers its restart. Without it, run `docker compose up -d` at once (research R9).
-- [ ] T029 [US3] Wire `scripts/keel-manifest-check.py` and its tests into `../ansible/Makefile` `lint`.
+- [X] T029 [US3] Wire `scripts/keel-manifest-check.py` and its tests into `../ansible/Makefile` `lint`.
 
 **Checkpoint**: US3 independent test passes on the integration branch.
 
@@ -166,20 +166,20 @@ contracts/base-hardening.md § Tests and keel-amendments.md § A1 Tests.
 
 **Independent test**: quickstart.md § 4.
 
-- [ ] T030 [P] [US4] Write failing tests in `../ansible/scripts/tests/test_keel_trust_check.py`. Each case must fail the check:
+- [X] T030 [P] [US4] Write failing tests in `../ansible/scripts/tests/test_keel_trust_check.py`. Each case must fail the check:
   - `keel_nodes.yml` with `allowed_profiles`;
   - `require_signed: false`;
   - no signer or no approver;
   - a `REPLACE_WITH` placeholder;
   - a `keel_nodes` host with allowed profiles from zero or two functional groups;
   - an IP literal under `inventory/`.
-- [ ] T031 [US4] Implement `../ansible/scripts/keel-trust-check.py` and wire it into `make lint` in `../ansible/Makefile`.
-- [ ] T032 [US4] Edit `../ansible/inventory/group_vars/keel_nodes.yml`:
+- [X] T031 [US4] Implement `../ansible/scripts/keel-trust-check.py` and wire it into `make lint` in `../ansible/Makefile`.
+- [X] T032 [US4] Edit `../ansible/inventory/group_vars/keel_nodes.yml`:
   - set `keel_runner_require_signed: true`;
   - remove `keel_runner_allowed_profiles`;
   - leave `keel_runner_trusted_signers` and `keel_runner_approvers` as documented, empty lists that the trust check reports until the owner fills them (public keys and COSE entries only).
-- [ ] T033 [P] [US4] Add `keel_runner_allowed_profiles` to `../ansible/inventory/group_vars/compose_hosts.yml`, `pve_hosts.yml`, `k3s_servers.yml`, `k3s_agents.yml` and `keel_servers.yml`, using the values from contracts/trust-vars.md. Gameserver hosts get `[gameserver, keel-node]` through a `gameservers` group in `inventory/hosts.yml` with `inventory/group_vars/gameservers.yml`.
-- [ ] T034 [P] [US4] Document the trial override (`require_signed: false`, `allowed_profiles: [debian, keel-node]`) in `../ansible/inventory/host_vars/README.md`.
+- [X] T033 [P] [US4] Add `keel_runner_allowed_profiles` to `../ansible/inventory/group_vars/compose_hosts.yml`, `pve_hosts.yml`, `k3s_servers.yml`, `k3s_agents.yml` and `keel_servers.yml`, using the values from contracts/trust-vars.md. Gameserver hosts get `[gameserver, keel-node]` through a `gameservers` group in `inventory/hosts.yml` with `inventory/group_vars/gameservers.yml`.
+- [X] T034 [P] [US4] Document the trial override (`require_signed: false`, `allowed_profiles: [debian, keel-node]`) in `../ansible/inventory/host_vars/README.md`.
 - [ ] T035 [US4] Owner step, recorded only: add your signing key to `keel_runner_trusted_signers` and your passkey entry (from Keel's passkey page) to `keel_runner_approvers`. `make lint` then passes the trust check. The commit is signed.
 
 **Checkpoint**: The trust check passes, and an unsigned commit is refused on a signed-mode VM.
