@@ -33,12 +33,12 @@ integration branch `keel-058` (T001).
 
 See contracts/keel-amendments.md § A1.
 
-- [ ] T003 [P] Rename the executor account `automation` → `keel-exec`, and the sudoers file `/etc/sudoers.d/keel-automation` → `/etc/sudoers.d/keel-exec`, throughout `specs/055-ansible-repo-control-plane/` (`contracts/runner.md`, `contracts/host-install.md`, `plan.md`, `quickstart.md`, `research.md`, `spec.md`).
+- [X] T003 [P] Rename the executor account `automation` → `keel-exec`, and the sudoers file `/etc/sudoers.d/keel-automation` → `/etc/sudoers.d/keel-exec`, throughout `specs/055-ansible-repo-control-plane/` (`contracts/runner.md`, `contracts/host-install.md`, `plan.md`, `quickstart.md`, `research.md`, `spec.md`).
   - Add a "Prerequisite check" section to `contracts/host-install.md`, from research R3.
   - Add a "Trial migration" section to the same file, from research R4.
-- [ ] T004 [P] Write a failing test in `apps/keel/runner/tests/units.rs` that parses `apps/keel/runner/systemd/keel-executor@.service` and `keel-runner.service`. It asserts `User=keel-exec`, `Group=keel-exec`, and `RestartPreventExitStatus=78` on `keel-runner.service`.
-- [ ] T005 Make T004 pass in `apps/keel/runner/systemd/keel-executor@.service` and `apps/keel/runner/systemd/keel-runner.service`.
-- [ ] T006 Replace every literal executor account name and doc comment `automation` with `keel-exec` in `apps/keel/runner/src/bin/keel-executor.rs`, `apps/keel/runner/src/lib.rs` and `apps/keel/runner/src/executor/`. Gate: `cargo test -p keel-runner`.
+- [X] T004 [P] Write a failing test in `apps/keel/runner/tests/units.rs` that parses `apps/keel/runner/systemd/keel-executor@.service` and `keel-runner.service`. It asserts `User=keel-exec`, `Group=keel-exec`, and `RestartPreventExitStatus=78` on `keel-runner.service`.
+- [X] T005 Make T004 pass in `apps/keel/runner/systemd/keel-executor@.service` and `apps/keel/runner/systemd/keel-runner.service`.
+- [X] T006 Replace every literal executor account name and doc comment `automation` with `keel-exec` in `apps/keel/runner/src/bin/keel-executor.rs`, `apps/keel/runner/src/lib.rs` and `apps/keel/runner/src/executor/`. Gate: `cargo test -p keel-runner`.
 - [ ] T007 Re-vendor both unit files into `../ansible/roles/keel_runner/files/systemd/`, byte-identical to fathom's.
 
 **Checkpoint**: Keel's runner and its 055 docs name `keel-exec`, and the constitution is at 1.4.1.
