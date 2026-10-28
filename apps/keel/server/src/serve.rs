@@ -140,6 +140,8 @@ pub struct AppState {
     pub runs: crate::queue::Runs,
     /// The SSH CAs and the KRL, once [`crate::hosts::bootstrap`] loaded them.
     pub ssh: crate::hosts::Ssh,
+    /// Signed mode (US8): the challenges of open override and baseline previews.
+    pub reviews: Arc<crate::review::Overrides>,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -184,6 +186,7 @@ impl AppState {
                 ..crate::queue::RunSettings::default()
             }),
             ssh: crate::hosts::Ssh::default(),
+            reviews: Arc::new(crate::review::Overrides::default()),
         }
     }
 

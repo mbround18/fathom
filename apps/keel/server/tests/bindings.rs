@@ -139,6 +139,29 @@ async fn disable_update_and_remove() {
     assert!(info.allow_force_push);
     assert_eq!(info.override_quorum, 2);
 
+    // Signed mode refuses a job on a managed inventory (spec 055 US8).
+    let out = h
+        .cmd(Cmd::PreviewSignedMode {
+            binding: id,
+            on: true,
+        })
+        .await;
+    assert_eq!(op_error(&out), "managed_inventory");
+    src.commit(
+        "inventories/prod/hosts.yaml",
+        "all:\n  hosts:\n    web-1: {}\n",
+        "inventory",
+    );
+    src.commit(
+        ".keel/jobs.yaml",
+        "version: 1\nprofiles: { debian: {} }\ninventories:\n  prod:\n    \
+         path: inventories/prod/hosts.yaml\njobs:\n  web:\n    \
+         playbook: playbooks/web.yaml\n    profiles: [debian]\n    inventory: prod\n",
+        "repo inventory",
+    );
+    src.push();
+    h.cmd(Cmd::SyncBinding { binding: id }).await;
+
     // Turning signed mode off needs step-up; on does not.
     let (on, _) = h
         .confirm(Cmd::PreviewSignedMode {

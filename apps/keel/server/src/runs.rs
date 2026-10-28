@@ -5,8 +5,9 @@
 //! are kept, so a run can always be re-read or reversed) and the inventory's newest revision.
 //! Its hosts are the revision's hosts that the job's `limit` and the run's own select, that are
 //! enrolled in the workspace, not revoked, and serve one of the job's profiles. The approval
-//! policy then decides between `pending_approval` and `queued`; a signed-mode binding's runs go
-//! to `needs_review`, because the signature check is not wired yet and that must fail closed.
+//! policy then decides between `pending_approval` and `queued`. A signed-mode binding's run is
+//! checked first ([`crate::review::early_check`]): hosts whose new commits are not all signed by
+//! a trusted signer are grouped by base for review, and the run waits in `needs_review`.
 //!
 //! Reads need `View`, starting and cancelling `Operate`, and policy changes `Administer` with a
 //! fresh passkey.
@@ -116,6 +117,8 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
             run_limit: None,
             signed_mode: p.signed_mode,
             actor: &actor,
+            id: None,
+            only_hosts: None,
         };
         if let Err(e) = create_run(app, &new).await {
             tracing::error!(error = %e, job = %name, "creating a run failed");
@@ -143,6 +146,10 @@ struct NewRun<'a> {
     run_limit: Option<&'a str>,
     signed_mode: bool,
     actor: &'a Actor,
+    /// The run's id, when it was chosen beforehand (a baseline signs it).
+    id: Option<Uuid>,
+    /// Only these of the planned hosts (a baseline).
+    only_hosts: Option<&'a [String]>,
 }
 
 /// What a run of a job would reach.
@@ -237,7 +244,7 @@ async fn plan(
 
 /// Makes a run: pins it, plans it, records it and, when it needs no approval, queues it.
 async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Error> {
-    let id = Uuid::now_v7();
+    let id = new.id.unwrap_or_else(Uuid::now_v7);
     let dir = crate::sync::data_dir(app);
     let (binding, commit) = (new.binding, new.commit.to_owned());
     let pinned = tokio::task::spawn_blocking(move || {
@@ -267,11 +274,35 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
             }
         }
     };
-    let unrunnable = if pinned {
+    let mut plan = plan;
+    if let Some(only) = new.only_hosts {
+        plan.hosts.retain(|h| only.contains(&h.1));
+    }
+    let mut unrunnable = if pinned {
         plan.unrunnable
     } else {
         Some(StateReason::ArtifactMissing)
     };
+    // Signed mode: the early check (advisory; every host verifies on its own).
+    let mut early: Option<crate::review::Checked> = None;
+    if new.signed_mode && unrunnable.is_none() && !plan.hosts.is_empty() {
+        match crate::review::early_check(
+            app,
+            &mut tx,
+            new.workspace,
+            new.binding,
+            new.job_name,
+            new.def.inventory_source,
+            new.commit,
+            &plan.hosts,
+        )
+        .await?
+        {
+            crate::review::Early::Managed => unrunnable = Some(StateReason::InventoryInvalid),
+            crate::review::Early::Checked { bases, groups } => early = Some((bases, groups)),
+        }
+    }
+    let needs_review = early.as_ref().is_some_and(|(_, g)| !g.is_empty());
     let status = match unrunnable {
         Some(r) => RunStatus {
             state: RunState::Failed,
@@ -281,7 +312,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
             state: RunState::Failed,
             reason: None,
         },
-        None => RunStatus::initial(new.signed_mode, plan.policy.requires_approval),
+        None => RunStatus::initial(needs_review, plan.policy.requires_approval),
     };
     let names: Vec<String> = plan.hosts.iter().map(|h| h.1.clone()).collect();
     let ended = status.state == RunState::Failed;
@@ -326,6 +357,21 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
         .execute(&mut *tx)
         .await?;
     }
+    let mut groups = Vec::new();
+    if !ended && let Some((bases, drafts)) = &early {
+        let (hosts, base): (Vec<Uuid>, Vec<Option<String>>) = bases.iter().cloned().unzip();
+        sqlx::query(
+            "update run_hosts rh set base_commit = b.base \
+             from unnest($2::uuid[], $3::text[]) as b(host, base) \
+             where rh.run_id = $1 and rh.host_id = b.host",
+        )
+        .bind(id)
+        .bind(&hosts)
+        .bind(&base)
+        .execute(&mut *tx)
+        .await?;
+        groups = crate::review::insert_groups(&mut tx, id, new.commit, drafts).await?;
+    }
     audit::record(
         &mut tx,
         Entry {
@@ -344,16 +390,90 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
                 "state": status.state.as_str(),
                 "policy": (!plan.policy.id.is_nil()).then_some(plan.policy.id),
                 "policy_reason": plan.explanation.reason,
+                "review_groups": groups,
             }),
         },
     )
     .await?;
     tx.commit().await?;
+    for group in groups {
+        app.repos.push(
+            new.workspace,
+            Event::ReviewRequested {
+                group,
+                run: id,
+                workspace: new.workspace,
+            },
+        );
+    }
     crate::queue::push_state(app, new.workspace, id, status);
     if status.state == RunState::Queued {
         crate::queue::kick(app);
     }
     Ok(id)
+}
+
+/// What a baseline run is made from (spec 055 US8: the run id is signed before it exists).
+pub(crate) struct BaselineRun<'a> {
+    pub id: Uuid,
+    pub workspace: Uuid,
+    pub binding: Uuid,
+    pub job: Uuid,
+    pub job_name: &'a str,
+    pub def: &'a JobDefinition,
+    pub commit: &'a str,
+    pub hosts: &'a [String],
+}
+
+/// Makes a baseline run: a manual signed-mode run of `hosts` only, with a chosen id.
+pub(crate) async fn create_baseline_run(
+    app: &AppState,
+    caller: &Caller,
+    b: BaselineRun<'_>,
+) -> Result<Uuid, sqlx::Error> {
+    let actor = caller.actor();
+    create_run(
+        app,
+        &NewRun {
+            workspace: b.workspace,
+            binding: b.binding,
+            job: b.job,
+            job_name: b.job_name,
+            def: b.def,
+            trigger: "manual",
+            delivery: None,
+            requested_by: Some(caller.user.id),
+            commit: b.commit,
+            run_limit: None,
+            signed_mode: true,
+            actor: &actor,
+            id: Some(b.id),
+            only_hosts: Some(b.hosts),
+        },
+    )
+    .await
+}
+
+/// The hosts a run of `def` reaches, whether its policy asks for four-eyes (a run without a
+/// policy does), and its approval TTL in seconds; `None` when it cannot run.
+pub(crate) async fn plan_hosts(
+    conn: &mut PgConnection,
+    workspace: Uuid,
+    job_name: &str,
+    def: &JobDefinition,
+) -> Result<Option<(Vec<(Uuid, String)>, bool, i64)>, sqlx::Error> {
+    Ok(match plan(conn, workspace, job_name, def, None).await? {
+        Ok(p) if p.unrunnable.is_none() => Some((
+            p.hosts,
+            p.policy.id.is_nil() || p.policy.four_eyes,
+            if p.policy.id.is_nil() {
+                crate::review::MAX_OVERRIDE_SECS
+            } else {
+                i64::from(p.policy.approval_ttl_secs)
+            },
+        )),
+        _ => None,
+    })
 }
 
 // ---- commands --------------------------------------------------------------------------------
@@ -552,7 +672,7 @@ async fn run_workspace(app: &AppState, run: Uuid) -> Result<Option<Uuid>, sqlx::
 type JobRow = (Uuid, Uuid, String, JobDefinition, Option<String>);
 
 /// A current job: its binding, workspace, name, definition and why it is blocked.
-async fn load_job(app: &AppState, job: Uuid) -> Result<Option<JobRow>, sqlx::Error> {
+pub(crate) async fn load_job(app: &AppState, job: Uuid) -> Result<Option<JobRow>, sqlx::Error> {
     let row: Option<(Uuid, Uuid, String, Value, Option<String>)> = sqlx::query_as(
         "select j.binding_id, p.workspace_id, j.name, j.definition, j.blocked_reason \
          from jobs j join repo_bindings b on b.id = j.binding_id \
@@ -660,6 +780,8 @@ async fn preview_run_start(
             run_limit: limit.as_deref(),
             signed_mode,
             actor: &actor,
+            id: None,
+            only_hosts: None,
         };
         match create_run(&app, &new).await {
             Ok(run) => match get_run(&app, run).await {
@@ -895,7 +1017,7 @@ async fn list_runs(app: &AppState, f: &Filter) -> Result<Vec<RunInfo>, sqlx::Err
 }
 
 /// `Run`: the run and its hosts.
-async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, sqlx::Error> {
+pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, sqlx::Error> {
     let row: Option<RunRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select {RUN_COLUMNS} from runs r where r.id = $1"
     )))

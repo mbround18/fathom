@@ -168,6 +168,16 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewHostRevoke { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. } => Ok(()),
+        // Signed mode (US8): each handler checks the workspace capability.
+        Cmd::ListReviews { .. }
+        | Cmd::GetReview { .. }
+        | Cmd::GetReviewDiff { .. }
+        | Cmd::PreviewOverride { .. }
+        | Cmd::PreviewOverrideDeny { .. }
+        | Cmd::PreviewBaseline { .. }
+        | Cmd::ListSigners { .. }
+        | Cmd::PreviewSignerAdd { .. }
+        | Cmd::PreviewSignerRemove { .. } => Ok(()),
     }
 }
 
@@ -318,11 +328,24 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
                 verified_at: req.caller.verified_at,
                 window,
             };
-            match app
-                .previews
-                .confirm(confirmation, app.step_up.as_ref())
-                .await
-            {
+            // An override or baseline must carry a passkey assertion over its own challenge:
+            // a recent step-up does not stand in for it (spec 055 US8, research R20).
+            let bound = app.reviews.verifier(&app.passkeys, preview_id);
+            let result = match &bound {
+                Some(v) => {
+                    let confirmation = Confirmation {
+                        verified_at: None,
+                        ..confirmation
+                    };
+                    app.previews.confirm(confirmation, v).await
+                }
+                None => {
+                    app.previews
+                        .confirm(confirmation, app.step_up.as_ref())
+                        .await
+                }
+            };
+            match result {
                 Ok(op) => {
                     let mut out = vec![Event::Confirmed { preview_id }];
                     out.extend(op(app.clone(), req.caller.clone()).await);
@@ -376,6 +399,15 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::PreviewHostRevoke { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. }) => crate::hosts::handle(app, req, other).await,
+        other @ (Cmd::ListReviews { .. }
+        | Cmd::GetReview { .. }
+        | Cmd::GetReviewDiff { .. }
+        | Cmd::PreviewOverride { .. }
+        | Cmd::PreviewOverrideDeny { .. }
+        | Cmd::PreviewBaseline { .. }
+        | Cmd::ListSigners { .. }
+        | Cmd::PreviewSignerAdd { .. }
+        | Cmd::PreviewSignerRemove { .. }) => crate::review::handle(app, req, other).await,
     };
     events
         .into_iter()

@@ -995,7 +995,7 @@ async fn finished(
     .bind(run)
     .bind(host)
     .bind(state)
-    .bind(ledger)
+    .bind(&ledger)
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -1017,8 +1017,111 @@ async fn finished(
         .bind(ff.map(|f| json!(f)))
         .execute(&mut *tx)
         .await?;
+        if state != "cancelled" {
+            host_revision(&mut tx, run, host, state, ledger.as_deref(), ledger_line).await?;
+        }
     }
     tx.commit().await
+}
+
+/// Records what the host applied (spec 055 US8, T101): its new base for the job.
+///
+/// Outside signed mode the host keeps no ledger and its base never moves, so the row is
+/// `unchecked` and never counts as a base. In signed mode the host's own `end` ledger line
+/// decides: only `succeeded` or `failed` moves the base (a failed run has partly applied the
+/// target); a missing, unreadable or `cancelled` end line writes nothing, so Keel's belief stays
+/// where the host's ledger does and the next `Assign` carries the base the host will check.
+///
+/// The authorization is Keel's own record: `override` or `baseline` when an approved review
+/// group covers the host (with the approvals behind it), `signed` otherwise. The `end` line
+/// does not name signers, so `signers` stays empty.
+async fn host_revision(
+    tx: &mut sqlx::PgConnection,
+    run: Uuid,
+    host: Uuid,
+    outcome: &str,
+    ledger_hash: Option<&str>,
+    ledger_line: &str,
+) -> Result<(), sqlx::Error> {
+    let (job, commit, signed, name): (Option<Uuid>, String, bool, String) = sqlx::query_as(
+        "select r.job_id, r.commit, r.signed_mode, rh.host_name from runs r \
+         join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 where r.id = $1",
+    )
+    .bind(run)
+    .bind(host)
+    .fetch_one(&mut *tx)
+    .await?;
+    let outcome = if signed {
+        match ledger_outcome(ledger_line, &run.to_string()) {
+            Some(o) => o,
+            None => return Ok(()),
+        }
+    } else if outcome == "succeeded" {
+        "succeeded"
+    } else {
+        "failed"
+    };
+    let group: Option<(Uuid, Option<String>)> = if signed {
+        sqlx::query_as(
+            "select id, base_commit from review_groups \
+             where run_id = $1 and state = 'approved' and $2 = any(hosts) limit 1",
+        )
+        .bind(run)
+        .bind(&name)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        None
+    };
+    let (kind, approvals): (&str, Vec<Uuid>) = match &group {
+        None if !signed => ("unchecked", Vec::new()),
+        None => ("signed", Vec::new()),
+        Some((g, base)) => {
+            let ids: Vec<(Uuid,)> = sqlx::query_as(
+                "select id from approvals where review_group_id = $1 and kind = 'override' \
+                 and decision = 'approve' order by at",
+            )
+            .bind(g)
+            .fetch_all(&mut *tx)
+            .await?;
+            let kind = if base.is_none() {
+                "baseline"
+            } else {
+                "override"
+            };
+            (kind, ids.into_iter().map(|r| r.0).collect())
+        }
+    };
+    sqlx::query(
+        "insert into host_revisions (id, host_id, job_id, commit, run_id, authorization_kind, \
+         signers, approval_ids, ledger_hash, outcome) \
+         values ($1, $2, $3, $4, $5, $6, '{}', $7, $8, $9)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(host)
+    .bind(job)
+    .bind(commit)
+    .bind(run)
+    .bind(kind)
+    .bind(&approvals)
+    .bind(ledger_hash)
+    .bind(outcome)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// The outcome of a host's `end` ledger line for `run`, when it moves the base.
+fn ledger_outcome(line: &str, run: &str) -> Option<&'static str> {
+    let v: Value = serde_json::from_str(line).ok()?;
+    if v.get("event")?.as_str()? != "end" || v.get("run")?.as_str()? != run {
+        return None;
+    }
+    match v.get("outcome")?.as_str()? {
+        "succeeded" => Some("succeeded"),
+        "failed" => Some("failed"),
+        _ => None,
+    }
 }
 
 /// A session ended: the host is offline and its in-flight hosts are lost.
@@ -1321,7 +1424,11 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     );
     let row: Option<Row> = sqlx::query_as(
         "select r.binding_id, r.job_name, r.commit, j.definition, r.workspace_id, r.signed_mode, \
-                rh.base_commit, rh.host_name, \
+                (select hr.commit from host_revisions hr join runs pr on pr.id = hr.run_id \
+                  where hr.host_id = rh.host_id and pr.job_name = r.job_name \
+                    and hr.authorization_kind <> 'unchecked' \
+                  order by hr.applied_at desc, hr.id desc limit 1), \
+                rh.host_name, \
                 greatest(b.override_quorum, h.override_quorum, 1) \
          from runs r \
          join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 \
@@ -1408,7 +1515,8 @@ async fn approvals(
         Option<String>,
     );
     let rows: Vec<Row> = sqlx::query_as(
-        "select u.email, a.comment, a.assertion, a.expires_at, g.hosts, g.base_commit \
+        "select coalesce(u.email, u.display_name), a.comment, a.assertion, a.expires_at, \
+         g.hosts, g.base_commit \
          from approvals a \
          join review_groups g on g.id = a.review_group_id \
          join users u on u.id = a.approver_user_id \
@@ -1435,7 +1543,12 @@ async fn approvals(
         hosts.dedup();
         out.push(frames::Approval {
             // The challenge's kind: `baseline` exactly when the group has no base.
-            kind: if base.is_none() { "baseline" } else { "override" }.into(),
+            kind: if base.is_none() {
+                "baseline"
+            } else {
+                "override"
+            }
+            .into(),
             approver: email,
             credential_id: field("credential_id")?,
             authenticator_data: field("authenticator_data")?,

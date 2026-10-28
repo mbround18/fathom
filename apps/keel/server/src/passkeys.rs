@@ -257,6 +257,11 @@ enum Kind {
     Verify {
         state: PasskeyAuthentication,
     },
+    /// An assertion over a fixed challenge (an override or baseline, spec 055 US8). The
+    /// challenge is Keel's own 32 bytes, never a random one; it is never logged.
+    Bound {
+        challenge: Vec<u8>,
+    },
 }
 
 struct Pending {
@@ -458,6 +463,103 @@ impl Passkeys {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+}
+
+/// The parts of a bound assertion a host verifies (contracts/runner.md `Approvals`), base64url.
+/// Public material only: the authenticator signs, the private key never leaves it.
+pub(crate) struct BoundAssertion {
+    pub credential_id: String,
+    pub authenticator_data: String,
+    pub client_data_json: String,
+    pub signature: String,
+}
+
+impl Passkeys {
+    /// Opens a ceremony whose challenge is `challenge` (spec 055 US8: the override challenge),
+    /// for `caller`'s passkeys. `Err` carries the events to reply with.
+    pub(crate) async fn bound_begin(
+        &self,
+        session: &str,
+        caller: &Caller,
+        challenge: &[u8],
+    ) -> Result<PasskeyRequest, Vec<Event>> {
+        let Some(ceremonies) = &self.ceremonies else {
+            return Err(vec![Event::op_error(
+                "passkeys_unavailable",
+                "Passkeys need an https public URL.",
+            )]);
+        };
+        let existing = stored(&self.db, caller.user.id).await.map_err(|e| {
+            tracing::error!(error = %e, "load passkeys failed");
+            internal()
+        })?;
+        if existing.is_empty() {
+            return Err(vec![Event::PasskeyEnrolmentRequired]);
+        }
+        let options = ceremonies
+            .bound_request(&existing, challenge)
+            .ok()
+            .and_then(|r| public_key(&r))
+            .ok_or_else(|| {
+                tracing::error!("start a bound passkey assertion failed");
+                internal()
+            })?;
+        let ceremony = self.open(Pending {
+            session: session.to_owned(),
+            user: caller.user.id,
+            actor: caller.actor(),
+            created: self.clock.now(),
+            kind: Kind::Bound {
+                challenge: challenge.to_vec(),
+            },
+        });
+        Ok(PasskeyRequest { ceremony, options })
+    }
+
+    /// Checks an answer to a [`Self::bound_begin`] ceremony: it must be this session's, live,
+    /// `user`'s, opened over exactly `challenge`, and signed by one of `user`'s passkeys with
+    /// user verification. Spends the ceremony. Fails closed.
+    pub(crate) async fn verify_bound(
+        &self,
+        session: &str,
+        user: Uuid,
+        assertion: &PasskeyAssertion,
+        challenge: &[u8],
+    ) -> Result<BoundAssertion, PasskeyRefusedReason> {
+        let p = self.take(session, assertion.ceremony)?;
+        let Kind::Bound { challenge: opened } = &p.kind else {
+            return Err(PasskeyRefusedReason::Expired);
+        };
+        if p.user != user || opened.as_slice() != challenge {
+            return Err(PasskeyRefusedReason::Expired);
+        }
+        let ceremonies = self
+            .ceremonies
+            .as_ref()
+            .ok_or(PasskeyRefusedReason::Invalid)?;
+        let existing = stored(&self.db, user).await.map_err(|e| {
+            tracing::error!(error = %e, "load passkeys failed");
+            PasskeyRefusedReason::Invalid
+        })?;
+        let response: PublicKeyCredential =
+            to_webauthn(&assertion.credential).ok_or(PasskeyRefusedReason::Invalid)?;
+        let used = ceremonies
+            .verify_bound_assertion(&existing, &response, challenge)
+            .map_err(|e| reason_of(&e).unwrap_or(PasskeyRefusedReason::Invalid))?;
+        let text = |v: &B64Url| -> Result<String, PasskeyRefusedReason> {
+            serde_json::to_value(v)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .ok_or(PasskeyRefusedReason::Invalid)
+        };
+        let r = &assertion.credential.response;
+        Ok(BoundAssertion {
+            credential_id: used.id.clone(),
+            authenticator_data: text(&r.authenticator_data)?,
+            client_data_json: text(&r.client_data_json)?,
+            signature: text(&r.signature)?,
+        })
     }
 }
 

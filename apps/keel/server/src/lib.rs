@@ -31,3 +31,6 @@ pub mod runs;
 
 // Hosts and the SSH CAs (US7)
 pub mod hosts;
+
+// Signed mode with reviewed overrides (US8)
+pub mod review;

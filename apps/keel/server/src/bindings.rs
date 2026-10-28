@@ -769,6 +769,13 @@ pub async fn preview_signed_mode(
     if r.signed_mode == on {
         return op_error("no_change", "Nothing would change.");
     }
+    if on {
+        match uses_managed_inventory(&app.db, binding).await {
+            Ok(false) => {}
+            Ok(true) => return managed_refused(),
+            Err(e) => return db_failed(&e),
+        }
+    }
     let mut summary = if on {
         format!(
             "Turn signed mode on for {} ({}): runs need every new commit signed by a trusted key.",
@@ -810,6 +817,14 @@ pub async fn preview_signed_mode(
             } else {
                 "signed_mode_off"
             };
+            // A job may have changed since the preview: check again.
+            if on {
+                match uses_managed_inventory(&app.db, binding).await {
+                    Ok(false) => {}
+                    Ok(true) => return managed_refused(),
+                    Err(e) => return db_failed(&e),
+                }
+            }
             set_column(
                 &app,
                 &caller,
@@ -837,6 +852,27 @@ pub async fn preview_signed_mode(
             step_up: !on,
         },
         op,
+    )
+}
+
+/// Whether a current job of `binding` uses a managed inventory, which signed mode refuses (spec
+/// 055 US8: a managed inventory changes targeting without a signed commit).
+async fn uses_managed_inventory(db: &sqlx::PgPool, binding: Uuid) -> Result<bool, sqlx::Error> {
+    let (managed,): (bool,) = sqlx::query_as(
+        "select exists (select 1 from jobs where binding_id = $1 and removed_at_commit is null \
+         and definition->>'inventory_source' = 'managed')",
+    )
+    .bind(binding)
+    .fetch_one(db)
+    .await?;
+    Ok(managed)
+}
+
+fn managed_refused() -> Vec<Event> {
+    op_error(
+        "managed_inventory",
+        "Signed mode needs every job's inventory in the repository; a job uses a managed \
+         inventory.",
     )
 }
 
