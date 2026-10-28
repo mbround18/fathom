@@ -86,22 +86,24 @@ pub fn public_url(cfg: &Config) -> String {
     cfg.origin()
 }
 
-/// The OIDC role mapping as shown to admins. None until the mapping is configurable
-/// (spec 060 US5 fills this in).
+/// The OIDC role mapping as shown to admins, read-only. None while no mapping is configured.
 #[must_use]
-pub fn role_mapping_info(_app: &AppState) -> Option<RoleMappingInfo> {
-    None
+pub fn role_mapping_info(app: &AppState) -> Option<RoleMappingInfo> {
+    app.role_mapping_info()
 }
 
 /// Warning codes for the settings page, such as `idp_names_no_owner`. Empty while no role
-/// mapping is configured (spec 060 US5 adds that check).
+/// mapping is configured.
 ///
 /// # Errors
 ///
 /// The database read failed.
 pub async fn warnings(app: &AppState) -> Result<Vec<String>, sqlx::Error> {
-    let _ = role_mapping_info(app);
-    Ok(Vec::new())
+    let mut warnings = Vec::new();
+    if app.idp_names_no_owner().await? {
+        warnings.push("idp_names_no_owner".to_owned());
+    }
+    Ok(warnings)
 }
 
 async fn settings_event(app: &AppState) -> Vec<Event> {
