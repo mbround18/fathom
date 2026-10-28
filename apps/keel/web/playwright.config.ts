@@ -39,7 +39,7 @@ export default defineConfig({
     {
       name: 's060',
       testDir: './tests/e2e',
-      testMatch: /\/(enroll|settings-[a-z]+)\.spec\.ts$/,
+      testMatch: /\/(enroll|settings-[a-z]+|polish-screens)\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'] },
     },
   ],

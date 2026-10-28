@@ -158,7 +158,7 @@ function Commits() {
           >
             <span className="font-mono">{shortSha(c.id)}</span>
             <span className={statusTone(c.status)}>{STATUS_LABELS[c.status]}</span>
-            {c.signer && <span className="font-mono text-muted-foreground">{c.signer}</span>}
+            {c.signer && <span className="min-w-0 font-mono break-all text-muted-foreground">{c.signer}</span>}
             <span className="min-w-0 flex-1 truncate">{c.summary}</span>
             <span className="text-muted-foreground">{c.author}</span>
           </li>
