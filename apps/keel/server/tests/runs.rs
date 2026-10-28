@@ -383,6 +383,32 @@ async fn a_runner_lost_while_the_run_is_alone_fails_it_runner_lost() {
     f.finish().await;
 }
 
+/// A runner may end a run with `Finished` and no `Started`: exit 125 is a setup failure (a short
+/// or bad pack, or a refusal frames.rs has no variant for), exit 130 a cancel before start. Both
+/// are recorded as ended hosts, not protocol errors.
+#[tokio::test]
+async fn a_run_finished_without_starting_is_failed_on_125_and_cancelled_on_130() {
+    for (code, host_state) in [(125, "failed"), (130, "cancelled")] {
+        let Some(f) = Fixture::new(&format!("run_unstarted_{code}"), settings()).await else {
+            return;
+        };
+        f.push("playbooks/web.yaml", "- hosts: web\n").await;
+        let run = f.runs().await[0].0;
+        let _runners = f
+            .attach(|_, id| FakeRunner::new(id.to_string()).default_script(Script::unstarted(code)))
+            .await;
+        let (state, _) = f.ended(run, Duration::from_secs(10)).await;
+        assert_ne!(state, "succeeded", "exit {code}");
+        let hosts = f.host_states(run).await;
+        assert!(!hosts.is_empty());
+        assert!(
+            hosts.iter().all(|(_, s)| s == host_state),
+            "exit {code}: {hosts:?}"
+        );
+        f.finish().await;
+    }
+}
+
 #[tokio::test]
 async fn logs_past_the_cap_keep_head_and_tail_with_a_marker() {
     let cap = 64;

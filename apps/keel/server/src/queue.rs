@@ -959,6 +959,9 @@ fn clamp(n: u64) -> i32 {
     i32::try_from(n).unwrap_or(i32::MAX)
 }
 
+/// The exit code a runner reports for a run cancelled before or while it ran.
+const CANCELLED_EXIT: i32 = 130;
+
 async fn finished(
     app: &AppState,
     run: Uuid,
@@ -974,9 +977,11 @@ async fn finished(
             .bind(run)
             .fetch_one(&mut *tx)
             .await?;
+    // A runner may end a run with `Finished` and no `Started`: 125 is a setup failure (a short
+    // or bad pack, or a refusal frames.rs has no variant for), 130 a cancel before start.
     let state = if exit_code == 0 {
         "succeeded"
-    } else if run_state == "cancelled" {
+    } else if run_state == "cancelled" || exit_code == CANCELLED_EXIT {
         "cancelled"
     } else {
         "failed"

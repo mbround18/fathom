@@ -39,6 +39,9 @@ pub enum Outcome {
     /// `Started`, the steps, then nothing until `Cancel`, which yields `Finished` with
     /// [`CANCELLED_EXIT_CODE`].
     Hang,
+    /// `Finished` with no `Started` and no steps, as a runner does when setup fails (exit 125,
+    /// e.g. a short pack) or the run is cancelled before it starts (exit 130).
+    Unstarted,
 }
 
 /// What the fake does with one `Assign`.
@@ -71,6 +74,14 @@ impl Script {
                 detail: detail.into(),
             },
             ..Script::finish(0)
+        }
+    }
+
+    /// A run that ends with `exit_code` before it starts.
+    pub fn unstarted(exit_code: i32) -> Self {
+        Script {
+            outcome: Outcome::Unstarted,
+            ..Script::finish(exit_code)
         }
     }
 
@@ -264,6 +275,15 @@ where
             },
         )
         .await;
+    }
+    if script.outcome == Outcome::Unstarted {
+        let done = Frame::Finished {
+            run_id,
+            exit_code: script.exit_code,
+            stats: script.stats,
+            ledger_line: script.ledger_line,
+        };
+        return codec::write_frame(stream, &done).await;
     }
     codec::write_frame(
         stream,
