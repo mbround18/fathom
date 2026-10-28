@@ -21,6 +21,8 @@ path = "src/bin/keel-executor.rs"
 clap = { version = "4.6", features = ["derive", "env"] }
 # The executor's Git store: unpack a pack and read trees. Isolated open, no hooks, no worktree.
 gix = { version = "0.90.0", default-features = false, features = ["sha1"] }
+# gix only exposes pack indexing behind its network features; this enables it alone.
+gix-pack = { version = "0.77.0", default-features = false, features = ["sha1", "streaming-input"] }
 keel-core = { path = "../../../crates/keel-core" }
 keel-exec = { path = "../../../crates/keel-exec" }
 keel-trust = { path = "../../../crates/keel-trust" }
@@ -48,4 +50,5 @@ tokio = { version = "1.54.1", features = [
 toml = "1.1"
 
 [dev-dependencies]
+keel-exec = { path = "../../../crates/keel-exec", features = ["fake"] }
 tempfile = "3"

@@ -11,7 +11,7 @@
 //!
 //! It never interprets work: the executor checks everything itself.
 
-mod session;
+pub(crate) mod session;
 
 use std::io::ErrorKind;
 use std::os::unix::fs::PermissionsExt as _;
