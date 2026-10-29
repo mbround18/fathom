@@ -4,7 +4,7 @@
  * - The preview lists each stack in the order it runs: the services to recreate with their old and
  *   new image, the services left alone and why, the steps, and the 051 findings to acknowledge.
  * - The run shows each stack's outcome and live output, and a summary naming every stack that did
- *   not update. Stop cancels the stack in progress; the rest are skipped.
+ *   not update. Stop lets the stack in progress finish (or roll back) and skips the rest.
  */
 import { FingerprintIcon, StopIcon } from '@phosphor-icons/react'
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@companion/ui'

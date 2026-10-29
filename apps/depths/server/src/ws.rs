@@ -1090,7 +1090,8 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         Cmd::Cancel { operation_id } => {
             let who = conn.who(access);
             match app.ops.cancel(&who, operation_id) {
-                // `OpFinished{cancelled}` follows on the socket that confirmed it.
+                // `OpFinished{cancelled}` follows on the socket that confirmed it. An update
+                // run's stack finishes with its own outcome; the stacks after it are skipped.
                 Ok(()) => Vec::new(),
                 Err(r) => vec![reply(id, r.into())],
             }

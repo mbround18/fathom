@@ -1078,7 +1078,8 @@ impl Ops {
     }
 
     /// Spec 062: takes `stack`'s lock for one stack of an update run, as `Update` by `actor`.
-    /// `cancel` is the run's token, so `Cancel{operation_id}` of any of its stacks stops the run.
+    /// `cancel` is the run's token, so `Cancel{operation_id}` of any of its stacks stops the run:
+    /// that stack finishes (or rolls back) and the stacks still queued are skipped.
     pub fn claim_update(
         &self,
         stack: &str,

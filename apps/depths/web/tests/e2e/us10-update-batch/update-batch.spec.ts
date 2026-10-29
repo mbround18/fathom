@@ -7,7 +7,8 @@
  * - The run shows each stack's live output and outcome; the summary names a failed middle stack
  *   while the stacks after it still update.
  * - A held image (a breaking-change label) shows its reason and "Apply anyway".
- * - A stack another operation holds is skipped, and Stop skips the rest.
+ * - A stack another operation holds is skipped. Stop lets the stack in progress finish and skips
+ *   the rest.
  */
 import type { Page } from '@playwright/test'
 
@@ -105,7 +106,7 @@ test('the output streams in while a stack updates', async ({ page, backend }) =>
   await expect(run(page).locator('[data-field="run-summary"]')).toHaveText('3 of 3 updated.')
 })
 
-test('Stop cancels the stack in progress and skips the rest', async ({ page, backend }) => {
+test('Stop lets the stack in progress finish and skips the rest', async ({ page, backend }) => {
   seed(backend)
   backend.updateRuns.pauseBefore = 'blog'
   await page.goto('/admin/updates')
@@ -117,9 +118,10 @@ test('Stop cancels the stack in progress and skips the rest', async ({ page, bac
   await run(page).locator('[data-action="stop-run"]').click()
   await backend.waitForCmd('Cancel')
   await expect(run(page)).toHaveAttribute('data-run-finished', 'true')
-  await expect(runStack(page, 'blog').locator('[data-field="outcome"]')).toHaveText('Skipped: cancelled')
+  await expect(runStack(page, 'blog').locator('[data-field="outcome"]')).toHaveText('Updated')
+  await expect(runStack(page, 'media').locator('[data-field="outcome"]')).toHaveText('Skipped: cancelled')
   await expect(runStack(page, 'web').locator('[data-field="outcome"]')).toHaveText('Skipped: cancelled')
-  await expect(run(page).locator('[data-field="run-summary"]')).toContainText('0 of 3 updated.')
+  await expect(run(page).locator('[data-field="run-summary"]')).toContainText('1 of 3 updated.')
 })
 
 test('a busy stack is skipped and named in the summary', async ({ page, backend }) => {

@@ -67,9 +67,6 @@ type Pending =
   | { kind: 'batch'; stacks: string[]; plans: StackUpdatePlan[] }
   | { kind: 'change'; change: UpdateChange }
 
-/** Read through a call: `run` awaits between checks, and Cancel flips it meanwhile. */
-const isCancelled = (live: Live): boolean => live.cancelled
-
 interface Live {
   runId: string
   stacks: string[]
@@ -148,7 +145,7 @@ export class FakeUpdates {
     }
   }
 
-  /** The run's operation stopped: the batch ends there. */
+  /** Stop, as the server does it: the stack in progress finishes, the stacks after it are skipped. */
   cancel(operationId: string): Event[] {
     if (!this.ownsOp(operationId)) return [{ type: 'Invalid', data: { reason: 'no such operation' } }]
     if (this.live) this.live.cancelled = true
@@ -407,7 +404,7 @@ export class FakeUpdates {
             live.resume = r
           })
         }
-        outcome = isCancelled(live) ? { kind: 'skipped', reason: 'cancelled' } : (script.outcome ?? { kind: 'updated' })
+        outcome = script.outcome ?? { kind: 'updated' }
         if (outcome.kind === 'updated') {
           for (const k of script.keptInUse ?? []) {
             this.host.push({ type: 'OpOutput', data: { operation_id: operationId, chunk: `kept: in use: ${k.id} (${k.why})\n` } })
@@ -421,9 +418,7 @@ export class FakeUpdates {
             outcome:
               outcome.kind === 'updated'
                 ? { kind: 'succeeded' }
-                : outcome.kind === 'skipped' && outcome.reason === 'cancelled'
-                  ? { kind: 'cancelled' }
-                  : { kind: 'failed', exit_code: null, stderr: script.stderr ?? outcome.kind },
+                : { kind: 'failed', exit_code: null, stderr: script.stderr ?? outcome.kind },
           },
         })
         live.current = null

@@ -71,7 +71,7 @@ pub enum UpdateChange {
 | `PreviewUpdateBatch { stacks: Vec<String> }` | `UpdatePreview { preview_id, stacks: Vec<StackUpdatePlan>, step_up }` | Admin. Binds each stack's `content_hash`, the digests shown and the order. |
 | `PreviewUpdateChange(UpdateChange)` | `Preview` with `step_up` and a before/after summary | Admin. FR-017. |
 | `Confirm { preview_id, acknowledge_findings, assertion }` | Batch: `UpdateRunStarted { run_id }`, then per stack `OpStarted` / `OpOutput`* / `OpFinished`, `UpdateStackDone`, and `UpdateRunFinished`. Change: `UpdatesChanged`. | The existing `Confirm`; preview IDs are unique across kinds. `acknowledge_findings` covers 051 warnings in the batch. |
-| `Cancel { operation_id }` | existing | Cancels the stack in progress; the batch stops there and the rest are `Skipped { reason: "cancelled" }`. |
+| `Cancel { operation_id }` | existing | Stops the batch: the stack in progress finishes (or rolls back on its own failure), and the stacks still queued are `Skipped { reason: "cancelled" }`. |
 
 User path (US2 scenario 5, FR-026): users keep 050's `PreviewOp { op: Update }` on assigned stacks. Its
 plan becomes the same per-stack image-update plan (pull by digest, hold check, tag, `up --no-deps`)

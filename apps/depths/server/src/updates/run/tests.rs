@@ -55,13 +55,17 @@ impl ContainerRuntime for Fake {
         step: &RunStep,
         _: Option<&[u8]>,
         sink: &dyn OutputSink,
-        _: &CancelToken,
+        cancel: &CancelToken,
     ) -> Result<StepOutcome, RuntimeError> {
         let argv = step.argv.join(" ");
         if let Some(h) = self.hook.lock().unwrap().as_ref() {
             h(&argv);
         }
         self.ran.lock().unwrap().push(argv.clone());
+        // As the CLI runtime: a cancelled token stops the step.
+        if cancel.is_cancelled() {
+            return Ok(StepOutcome::Cancelled);
+        }
         let fail = {
             let mut f = self.fails.lock().unwrap();
             f.iter()
@@ -590,8 +594,9 @@ fn a_manual_update_answers_its_confirm_with_op_started() {
     );
 }
 
+/// Stop lets the stack in progress finish and skips only the queued ones.
 #[test]
-fn cancel_skips_the_rest() {
+fn cancel_finishes_the_stack_in_progress_and_skips_the_rest() {
     let f = fx();
     let cancel = CancelToken::new();
     let c = cancel.clone();
@@ -606,8 +611,39 @@ fn cancel_skips_the_rest() {
         cancel,
     );
     let o = outcomes(&run);
+    assert_eq!(o[0].1, StackOutcome::Updated, "the stack in progress finishes");
     assert_eq!(o[1].1, skipped("cancelled"));
     assert_eq!(o[2].1, skipped("cancelled"));
+    let ran = f.ran();
+    assert!(
+        !ran.iter().any(|r| r.contains("depths-keep/b") || r.contains("depths-keep/c")),
+        "nothing ran for the queued stacks: {ran:#?}"
+    );
+}
+
+/// A stack in progress that fails after Stop still rolls back on its own.
+#[test]
+fn cancel_lets_the_stack_in_progress_roll_back() {
+    let f = fx();
+    let cancel = CancelToken::new();
+    let c = cancel.clone();
+    *f.fake.hook.lock().unwrap() = Some(Box::new(move |argv| {
+        if argv.starts_with("docker compose") {
+            c.cancel();
+        }
+    }));
+    f.health(vec![
+        vec![health("c-a", HealthStatus::Unhealthy, 0)],
+        vec![health("c-a", HealthStatus::Healthy, 0)],
+    ]);
+    let (run, _) = f.run_with(
+        RunTrigger::Manual { actor: admin() },
+        vec![f.job("a"), f.job("b")],
+        cancel,
+    );
+    let o = outcomes(&run);
+    assert_eq!(o[0].1, StackOutcome::RolledBack);
+    assert_eq!(o[1].1, skipped("cancelled"));
 }
 
 // --- holds -------------------------------------------------------------------------------------

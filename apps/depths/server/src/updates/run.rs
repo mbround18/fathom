@@ -130,7 +130,9 @@ pub struct Batch {
     pub trigger: RunTrigger,
     pub ip: IpAddr,
     pub jobs: Vec<StackJob>,
-    /// Cancelling it stops the stack in progress and skips the rest.
+    /// Cancelling it (Stop, or `Cancel` of the stack's operation) skips the stacks still queued.
+    /// The stack in progress finishes, or rolls back on its own failure: a half-updated stack is
+    /// worse than a late stop.
     pub cancel: CancelToken,
     /// The `Confirm` it answers: `UpdateRunStarted` is its reply.
     pub reply_to: Option<RequestId>,
@@ -440,13 +442,16 @@ impl Runner {
                 event: Event::OpStarted { operation_id },
             });
             run.stacks[i].operation_id = Some(operation_id);
+            // The batch's token only stops the next stack from starting; this one's steps run to
+            // the end.
+            let steps = CancelToken::new();
             let mut cur = Cur {
                 name,
                 sink: Sink {
                     operation_id,
                     tx: tx.clone(),
                 },
-                cancel: &batch.cancel,
+                cancel: &steps,
                 argv: Vec::new(),
                 actor: actor.clone(),
                 on_behalf_of: on_behalf_of.clone(),
